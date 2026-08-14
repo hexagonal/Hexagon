@@ -37,6 +37,19 @@ export interface JavaScript extends Output {
    */
   readonly preludeTermImports: readonly string[];
   /**
+   * Specifiers of the modules this file calls a **fundamental specialization**
+   * in (#440), in source form — the FFI Part 8 editions a known-concrete call
+   * site reaches instead of the generic edition and its evidence.
+   *
+   * Carried for the reason `preludeTermImports` is, and it is not covered by
+   * it: choosing an edition is exactly what removes the generic edition's own
+   * name from the import, so a synthesized prelude import can end with every
+   * name spent and report no term edge, while the file still imports the
+   * edition from that module. A source-written import reports its edge from the
+   * tree either way; a prelude one has only this.
+   */
+  readonly specializationImports: readonly string[];
+  /**
    * The specifiers of the runtime modules this file imports operations from, in
    * source form — empty when it imports none, which is every file that touches
    * neither a `Vector(a)` nor a `Map(k, v)`.

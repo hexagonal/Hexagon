@@ -16,6 +16,7 @@ import * as Typed from "../../syntax/typed/index.js";
 import { idContinue, idStart } from "../lexer/unicode-17.js";
 import {
   planFundamentalSpecializations,
+  planImportedSpecializations,
   specializeItem,
   type FundamentalSpecialization,
   type SpecializationCollision,
@@ -1173,6 +1174,12 @@ class JavaScriptEmitter {
   >();
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
   readonly #constrainedImports = new Map<Resolved.SymbolId, string>();
+  /**
+   * The import item each imported constrained term arrived on, so a call site
+   * that reaches for that term's fundamental edition (#440) knows which module
+   * to import the edition from and which enumeration to check it against.
+   */
+  readonly #constrainedImportItems = new Map<Resolved.SymbolId, Core.ImportItem>();
   readonly #exceptions = new Map<Resolved.SymbolId, Core.ExceptionItem>();
   readonly #constraints = new Map<string, Core.ConstraintItem>();
   readonly #nullaryExceptions = new Set<Resolved.SymbolId>();
@@ -1306,6 +1313,22 @@ class JavaScriptEmitter {
    */
   readonly #runtimeUses = new Map<string, Map<string, string>>();
   readonly #specializations: readonly FundamentalSpecialization[];
+  /**
+   * Algorithm N recomputed for an imported callee, cached per symbol because
+   * every call site of one asks (#440).
+   */
+  readonly #importedSpecializations = new Map<
+    Resolved.SymbolId,
+    readonly FundamentalSpecialization[]
+  >();
+  /**
+   * The fundamental editions this module *calls* in another module, and the
+   * local each is bound under — the import lines of #440, decided by rendering
+   * for the reason every other post-rendering import channel is. Keyed by
+   * import item rather than by specifier so a name is taken from the module the
+   * source actually named, and so two aliases over one module bind once.
+   */
+  readonly #usedSpecializations = new Map<Core.ImportItem, Map<string, string>>();
   readonly #generatedBodies: {
     readonly specialization: FundamentalSpecialization;
     readonly text: string;
@@ -1388,6 +1411,7 @@ class JavaScriptEmitter {
               ? this.#namespaceConstrainedLocal(name.symbol, name.imported)
               : name.local,
           );
+          this.#constrainedImportItems.set(name.symbol, item);
         }
       }
     }
@@ -1417,7 +1441,11 @@ class JavaScriptEmitter {
     // doc comments are already spoken for is exactly what rendering discovers:
     // a doc block with no seat here (a `type` alias, a `union`) is still an
     // item-boundary comment, and Comments §6 preserves it as one.
-    const rendered = this.#module.items.map((item) => {
+    const renderItem = (item: Core.Item): {
+      readonly item: Core.Item;
+      readonly lines: readonly string[];
+      readonly start: Source.Span;
+    } => {
       const lines = this.#emitItem(item, 0, new Map(), false);
       const comments = trailing.get(item) ?? [];
       if (comments.length > 0 && lines.length > 0) {
@@ -1436,7 +1464,42 @@ class JavaScriptEmitter {
         // A documented item starts, on the page, at its doc block.
         start: (doc.length > 0 ? this.#docs.span(item.span) : undefined) ?? item.span,
       };
-    });
+    };
+
+    // `Import` items render **last**, and only their own kind is held back
+    // (#440). A source-written import line has to name the fundamental editions
+    // this module's call sites chose, and only rendering the bodies discovers
+    // which — the same after-the-fact knowledge every deferred channel below is
+    // built on, except that this line has a *seat in the source order* and so
+    // cannot move into a channel.
+    //
+    // Reordering is safe because the two directions are not symmetric. A body
+    // never reads anything import rendering writes: the local every imported
+    // name is spelled by is seated in construction (`#constrainedImports`,
+    // `#importLocals`, `#namespaceConstrainedLocals`), not here, and the rest of
+    // what this arm writes — the held-back synthesized and constraint items, the
+    // bound-once dictionary and constrained-local sets — is read only by the
+    // deferred channels and by itself.
+    //
+    // `#exports` is the one exception, and it is settled rather than reasoned
+    // away: an import re-publishes its instances' evidence, so leaving that to
+    // the second pass would move those lines below every term's. The claim runs
+    // through `#exportEvidence`'s own idempotence — it is asked here, at the
+    // item's source position, and the second pass's identical request is then a
+    // no-op. Emitted export order is therefore unchanged by the split.
+    const renderedByItem = new Map<Core.Item, ReturnType<typeof renderItem>>();
+    for (const item of this.#module.items) {
+      if (item.kind === "Import" && this.#exportInstanceEvidence) {
+        for (const { localDictionary } of item.instances) {
+          this.#exportEvidence(localDictionary);
+        }
+      }
+      if (item.kind !== "Import") renderedByItem.set(item, renderItem(item));
+    }
+    for (const item of this.#module.items) {
+      if (item.kind === "Import") renderedByItem.set(item, renderItem(item));
+    }
+    const rendered = this.#module.items.map((item) => renderedByItem.get(item)!);
 
     // Before the import lines, because a helper body may itself call the trie
     // runtime — `vectorIndex` is a bounds check around `get` — and the import
@@ -1468,6 +1531,8 @@ class JavaScriptEmitter {
     body.push(...preludeInstanceImports.map(({ line }) => line));
     const preludeTermImports = this.#preludeTermImports();
     body.push(...preludeTermImports.map(({ line }) => line));
+    const specializationImports = this.#specializationImports();
+    body.push(...specializationImports.flatMap(({ line }) => line === undefined ? [] : [line]));
     const runtimeImports = this.#runtimeImports();
     body.push(...runtimeImports.map(({ line }) => line));
     body.push(...this.#constraintMemberImports());
@@ -1516,6 +1581,9 @@ class JavaScriptEmitter {
       ],
       preludeTermImports: [
         ...new Set(preludeTermImports.map(({ specifier }) => specifier)),
+      ],
+      specializationImports: [
+        ...new Set(specializationImports.map(({ specifier }) => specifier)),
       ],
       runtimeImports: runtimeImports.map(({ specifier }) => specifier),
       diagnostics: this.#diagnostics.toArray(),
@@ -1585,11 +1653,17 @@ class JavaScriptEmitter {
           const source = this.#importedInternalName(imported, item);
           return [source === local ? source : `${source} as ${local}`];
         });
+        // A namespace alias can never reach an edition as `Math.plusInt` — the
+        // editions are not on the exporter's Hexagon interface, so the resolver
+        // binds no member for them — which is exactly why this form already has
+        // a second, named line for the internal constrained exports. The
+        // editions join that line rather than opening a third.
+        const bindings = [...constrained, ...this.#specializationBindings(item)];
         return [
           `${prefix}import * as ${item.form.alias} from ${specifier};`,
-          ...(constrained.length === 0
+          ...(bindings.length === 0
             ? []
-            : [`${prefix}import { ${constrained.join(", ")} } from ${specifier};`]),
+            : [`${prefix}import { ${bindings.join(", ")} } from ${specifier};`]),
           ...instanceImport,
         ];
       }
@@ -1605,7 +1679,13 @@ class JavaScriptEmitter {
           ? this.#importedInternalName(imported, item)
           : imported;
         return source === local ? source : `${source} as ${local}`;
-      });
+      })
+        // The editions this module's call sites chose in the module this import
+        // names (#440), after the bindings the source wrote. One line per
+        // specifier: they are named imports of the same module, and the only
+        // reason they could not join it before was that the line was written
+        // before the call sites were rendered.
+        .concat(this.#specializationBindings(item));
       // A synthesized prelude import whose only names were `Bool` constructors
       // has nothing left to bind once the pin emits them as literals (#147), so
       // it must not fall through to the side-effect form: that would put a
@@ -2963,18 +3043,22 @@ class JavaScriptEmitter {
           return `(${node}).slice()`;
       }
     }
-    const specialization = this.#callSpecialization(expression);
-    const emittedCallee = specialization?.name ??
+    const specialized = this.#specializedCallee(expression);
+    const emittedCallee = specialized ??
       this.#emitExpr(expression.callee, depth, evidenceNames);
     const callee =
       expression.callee.kind === "Name" ||
         expression.callee.kind === "Call"
         ? emittedCallee
         : `(${emittedCallee})`;
+    // The written arguments are rendered left to right whichever edition was
+    // chosen, and evidence only ever follows them, so §8.1.4's same-evaluation-
+    // order obligation is a property of the shape rather than something the
+    // choice has to preserve.
     const arguments_ = expression.arguments.map((argument) =>
       this.#emitExpr(argument, depth, evidenceNames),
     );
-    if (specialization === undefined) {
+    if (specialized === undefined) {
       arguments_.push(
         ...this.#evidenceArguments(expression.evidence, expression.span, evidenceNames),
       );
@@ -2982,11 +3066,32 @@ class JavaScriptEmitter {
     return `${callee}(${arguments_.join(", ")})`;
   }
 
-  #callSpecialization(
-    expression: Core.CallExpr,
-  ): FundamentalSpecialization | undefined {
+  /**
+   * The name a call reaches its callee's **fundamental edition** by, where one
+   * covers this call site — FFI Part 8 §8.2's optimizer freedom, taken (§15 row
+   * 18, #440). `undefined` keeps the generic edition and its trailing evidence,
+   * which is every site where a type variable is still in play, the
+   * instantiation is at a type Part 8 does not call fundamental, or the callee
+   * publishes no editions at all.
+   *
+   * The imported half reaches the same editions the exporting module wrote, and
+   * differs in exactly two places: the plan is recomputed rather than read off
+   * this module's own items, and the name has to be *imported*, which is what
+   * `#specializationLocal` records.
+   *
+   * `Bool` and `Unit` are fundamental by enumeration and route here at neither
+   * half: their evidence arrives structural rather than primitive, so
+   * `primitiveInstance` answers `undefined` and the site keeps its dictionary.
+   * The editions exist and are exported either way; what is missing is a way to
+   * *recognize* the instantiation, which is an evidence-representation question
+   * and not this rule's.
+   */
+  #specializedCallee(expression: Core.CallExpr): string | undefined {
     if (expression.callee.kind !== "Name") return undefined;
-    const candidates = this.#specializationsFor(expression.callee.symbol);
+    const imported = this.#constrainedImportItems.get(expression.callee.symbol);
+    const candidates = imported === undefined
+      ? this.#specializationsFor(expression.callee.symbol)
+      : this.#importedSpecializationsFor(expression.callee.symbol, imported);
     if (candidates.length === 0) return undefined;
 
     const symbol = this.#symbols.get(expression.callee.symbol);
@@ -3004,11 +3109,60 @@ class JavaScriptEmitter {
       assignments.set(entry.variable, instance);
     }
 
-    return candidates.find((candidate) =>
+    const chosen = candidates.find((candidate) =>
       candidate.assignment.every(({ variable, type }) =>
         assignments.get(variable) === type
       )
     );
+    if (chosen === undefined) return undefined;
+    return imported === undefined
+      ? chosen.name
+      : this.#specializationLocal(imported, chosen.name);
+  }
+
+  /**
+   * The editions an imported callee publishes, recomputed from the scheme its
+   * interface carries — `planImportedSpecializations` for why that is sound,
+   * and `ImportItem.specializableTerms` for the one input it needs beyond the
+   * scheme. A term whose value form mints no editions — a constraint member's
+   * forwarder, an exported constrained binding whose value is not a lambda —
+   * plans nothing here, and every call site of it keeps its evidence.
+   */
+  #importedSpecializationsFor(
+    symbol: Resolved.SymbolId,
+    item: Core.ImportItem,
+  ): readonly FundamentalSpecialization[] {
+    const cached = this.#importedSpecializations.get(symbol);
+    if (cached !== undefined) return cached;
+    const declaration = this.#symbols.get(symbol);
+    const planned =
+      declaration === undefined || !item.specializableTerms.includes(declaration.name)
+        ? []
+        : planImportedSpecializations(declaration, this.#prelude.bool);
+    this.#importedSpecializations.set(symbol, planned);
+    return planned;
+  }
+
+  /**
+   * The local one imported edition is called by here, claimed on first use.
+   *
+   * An edition's name is a **public** spelling — `logInt` is what the exporter's
+   * `.d.ts` face declares — unlike every other name this emitter mints, so it is
+   * claimed as one: the bare name when nothing in this module binds it, and the
+   * reserved probe when something does, which is #425's alias-only-on-collision
+   * rule applied to a name arriving from outside.
+   */
+  #specializationLocal(item: Core.ImportItem, name: string): string {
+    let names = this.#usedSpecializations.get(item);
+    if (names === undefined) {
+      names = new Map();
+      this.#usedSpecializations.set(item, names);
+    }
+    const existing = names.get(name);
+    if (existing !== undefined) return existing;
+    const local = this.#generatedNames.claimPublic(name);
+    names.set(name, local);
+    return local;
   }
 
   #emitMatch(
@@ -4946,6 +5100,62 @@ class JavaScriptEmitter {
         line: `import { ${names.join(", ")} } from ${
           JSON.stringify(emittedModuleSpecifier(item.specifier))
         };`,
+        specifier: item.specifier,
+      }];
+    });
+  }
+
+  /**
+   * The `import` bindings for the fundamental editions this module *calls* in
+   * the module `item` names (#440), in edition-name order so the emitted text
+   * is a function of what the module calls rather than of where it calls it.
+   *
+   * Read by the two places an edition can be bound, and by both only after
+   * every body has been rendered: a source-written import's own line, which is
+   * why `Import` items render last, and the channel below for the synthesized
+   * prelude imports, which have no line of their own to join.
+   */
+  #specializationBindings(item: Core.ImportItem): readonly string[] {
+    const names = this.#usedSpecializations.get(item);
+    if (names === undefined) return [];
+    return [...names]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([source, local]) => source === local ? source : `${source} as ${local}`);
+  }
+
+  /**
+   * The edition imports that need a line of their own, and the module edges
+   * every edition import creates (#440).
+   *
+   * Only a **synthesized** prelude import needs the line. A source-written one
+   * has a line at its own seat in the source order and takes its editions
+   * there, so emitting them here as well would bind each identifier twice —
+   * `SyntaxError: Identifier has already been declared` at load, after a clean
+   * compile.
+   *
+   * The `specifier` is reported for **both**, which is the half that is not
+   * cosmetic. A synthesized import whose every name went to an edition emits no
+   * term line at all, so this is the only record that `Debug.js` has to be
+   * written beside an emitted `import { logString } from "./Debug.js"` — defect
+   * 8's shape. A source-written import's edge is already readable from the tree;
+   * reporting it too costs a duplicate in a set and keeps the channel's meaning
+   * "what this file imports editions from" rather than "what the other rule
+   * missed".
+   */
+  #specializationImports(): readonly {
+    readonly line: string | undefined;
+    readonly specifier: string;
+  }[] {
+    return this.#module.items.flatMap((item) => {
+      if (item.kind !== "Import") return [];
+      const bindings = this.#specializationBindings(item);
+      if (bindings.length === 0) return [];
+      return [{
+        line: item.synthesized
+          ? `import { ${bindings.join(", ")} } from ${
+            JSON.stringify(emittedModuleSpecifier(item.specifier))
+          };`
+          : undefined,
         specifier: item.specifier,
       }];
     });
@@ -7843,6 +8053,19 @@ class GeneratedNames {
    */
   fresh(stem: string): string {
     return this.#claim(stem);
+  }
+
+  /**
+   * A **public** spelling this module wants to bind — a fundamental
+   * specialization's exported name, which is a source-level name rather than a
+   * reserved one (#440). The bare spelling when nothing here holds it, and the
+   * reserved probe when something does: the source's own binding owns the
+   * public name, and an imported edition is what moves aside.
+   */
+  claimPublic(name: string): string {
+    if (this.#used.has(name)) return this.#claim(name);
+    this.#used.add(name);
+    return name;
   }
 
   /**

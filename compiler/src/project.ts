@@ -398,6 +398,12 @@ export function compileProject(
       ...[
         ...(module?.javascript.preludeInstanceImports ?? []),
         ...(module?.javascript.preludeTermImports ?? []),
+        // The fundamental editions a known-concrete call site reaches (#440).
+        // A fifth channel on the same footing, and the one that can be a
+        // module's *only* edge: specializing every call to a prelude term
+        // spends the synthesized import's whole name list, so the term channel
+        // reports nothing while the emitted file still imports `logString`.
+        ...(module?.javascript.specializationImports ?? []),
         // The `.d.ts` channel (#227, FFI Part 7 §2.4) is an edge on the same
         // footing, and the only one with no JavaScript counterpart: a face
         // naming `Option` while touching no `Option` term imports the type and

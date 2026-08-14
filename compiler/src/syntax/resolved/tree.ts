@@ -581,6 +581,22 @@ export interface ImportItem {
    */
   readonly internalNames: InternalNameInputs;
   /**
+   * Which of the imported module's **exported terms** have a value form that
+   * admits Algorithm N editions (FFI Part 8 §3.2): a `fun`, or a `let` bound to
+   * a lambda. Carried for the reason `internalNames` is — an importer that
+   * emits a call to an edition must reach a name the exporter really published,
+   * and the one input it cannot recover is the *form* of the value. The scheme
+   * cannot supply it: `export let alias<a: Show>: (a) -> String = describe` has
+   * a specializable type and no editions at all, because the exporter's plan
+   * reads the item and finds no lambda.
+   *
+   * Names, not editions. Running Algorithm N here is impossible — the plan
+   * needs the generalized scheme, which arrives two passes later — so the two
+   * sides split the way the internal-name rule splits them: the exporter's
+   * enumeration travels, and each side computes from it.
+   */
+  readonly specializableTerms: readonly string[];
+  /**
    * Whether the resolver synthesized this import rather than the source writing
    * it — the used-names-only import of one prelude module (Modules §5.5, §6.4).
    * False for every import the source spells, including one of a prelude module.
