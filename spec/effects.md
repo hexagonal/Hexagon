@@ -29,14 +29,14 @@ Function types carry a colour on every arrow. The display grammar (zero/one/many
 
 The consequence for the *type* grammar is that the fat arrow `=>` is not one of its tokens. `=>` is a term-level arrow only — the lambda's and the `match`/`catch` arm's (Lexer §8.1) — and Functions §4.1's return-annotation slot needs no parenthesization rule as a result (§2.6).
 
-It also settles a collision inside the display itself. A displayed scheme separates its constraints from its type with `=>` (§10, Functions §5.1), so under the predecessor spelling a constrained higher-order face used one symbol for two unrelated jobs in a single line:
+It also settles a collision inside the display itself. Under the predecessor spelling a constrained higher-order face used one symbol for two unrelated jobs in a single line — the arrows, and a constraint separator borrowed from Haskell:
 
 ```text
-Show a => (Seq(a), (a) => Unit) => Unit     -- predecessor: three `=>`, two meanings
-Show a => (Seq(a), (a) ->? Unit) ->? Unit   -- now: the separator is the only `=>`
+Show a => (Seq(a), (a) => Unit) => Unit       -- predecessor: three `=>`, two meanings
+<a: Show> (Seq(a), (a) ->? Unit) ->? Unit     -- now: no `=>` at all
 ```
 
-The constraint separator keeps `=>` because that is the one thing it has always meant; the arrows give it up because they never needed it.
+The arrows gave up `=>` because they never needed it, and the separator went with them *(#410)*: a displayed scheme now spells its constraints source-shaped, with §4.2's binder bracket as a quantifier prefix (Functions §5.1). So `=>` appears nowhere in a displayed type, and the token has exactly one reading language-wide — the term-level one.
 
 ### 2.1 `->` — the pure arrow
 
@@ -330,6 +330,7 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 
   The predecessor rule also numbered a *lone* variable with no inlet occurrence, because an undecorated write-back would there have taken the else-constant reading and silently meant `=>!`. With that reading abolished (§2.2.1) the case is no longer a silent one: the undecorated spelling is exactly right about the colour — one variable — and a paste into a position that cannot host it is caught by §4.4, which explains why in a sentence. **Numbering marks what the grammar cannot express, not what the checker will refuse**; a legality error with a teaching message is a better outcome than a token failure, so the lone-variable case now displays plainly.
 
+- *(#410.)* **A constrained face wears its constraints as a bracket prefix**, `<a: Show> (Seq(a), (a) ->? Unit) ->? Unit` — Functions §5.1 owns the grammar. It is display-only under exactly this section's licence: a paste into an annotation position is refused there as numbering is refused at the lexer, and for the same reason — display marks what the grammar cannot express. With the separator gone, a displayed type contains no `=>` at any depth (§2).
 - **A machine-written annotation never spells a variable colour.** What an annotation writer spells is one type torn out of its signature, and whether the fragment's new home offers an inlet is not a question the fragment answers. Both constants write freely; a machine-written impure return annotation is spelled `->!` and needs no parentheses (§2.6).
 
 ## 11. Rejected alternatives (do not re-litigate without new information)
@@ -340,7 +341,7 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 - **Marks on references** ("effectful values"): values wear no colours (§2.6); the effect happens at the call.
 - **`^` or `~` as the conducting mark**: `?` won on the trained gesture — "this line defers to my caller."
 - **`!->`**: not a token; the mark trails what it condemns, on arrows exactly as at calls (§2.3).
-- **The `->` / `=>` / `=>!` spelling**: superseded. It distinguished constant-from-variable by the arrow *head* and variable-from-constant by the *tail* — two axes for three spellings — and the head grouping paired `=>` with `=>!` when the semantic pairing is `->` with `=>!`, both being constants. It also left `=>` serving four roles at once — lambda arrow, `match`/`catch` arm arrow, effect arrow, and the displayed scheme's constraint separator. The third role is the sole cause of the withdrawn return-annotation parenthesization rule (§2.6), and the third against the fourth put two meanings of one symbol in a single displayed line (§2). One arrow with the call trichotomy's own marks fixes all of it.
+- **The `->` / `=>` / `=>!` spelling**: superseded. It distinguished constant-from-variable by the arrow *head* and variable-from-constant by the *tail* — two axes for three spellings — and the head grouping paired `=>` with `=>!` when the semantic pairing is `->` with `=>!`, both being constants. It also left `=>` serving four roles at once — lambda arrow, `match`/`catch` arm arrow, effect arrow, and the displayed scheme's constraint separator *(the fourth has since gone the same way, #410: the display is source-shaped, §10)*. The third role is the sole cause of the withdrawn return-annotation parenthesization rule (§2.6), and the third against the fourth put two meanings of one symbol in a single displayed line (§2). One arrow with the call trichotomy's own marks fixes all of it.
 - **The else-constant rule**: withdrawn. It read a `=>` with nothing to link to as the impure constant, which gave one spelling two meanings selected by position — the divergence §2.5 had to say out loud — and put the arrow side out of step with the call side, where a `?` with nothing to conduct has always been an error rather than a re-reading. Its two clients, the data field and the result-only face, are better served by writing `->!`, which is what they meant. Do not restore it to spare a writer three keystrokes: the keystrokes are the point.
 - **Numbering a lone inlet-less variable in the display** (§10): dropped with the else-constant rule, whose silent re-reading was its only justification. A face the grammar *can* spell displays plainly even when this position will refuse it; §4.4 explains the refusal better than a lexer failure does.
 - **A pure-asserting term lambda arrow** (`x -> body`): dropped — inference from the body plus the ascription demand covers it with zero new syntax.
@@ -369,4 +370,5 @@ Display is part of the contract: a signature a reader cannot see is not a face. 
 | Colours and marks erase at emission | §8 |
 | Display: the trio everywhere a face renders; the `.d.ts` documentation channel; machine-written annotations refuse variable colours | §10 |
 | Display distinguishes only what the grammar cannot spell: one variable displays undecorated `->?`, multi-variable faces are numbered `->?¹`/`->?²`, display-only | §10, Functions §5.1 |
+| A constrained face displays its constraints source-shaped, as a binder-bracket prefix, under the same display-only licence; no `=>` survives anywhere in a displayed type | §2, §10, Functions §5.1 |
 | Variance and every occurrence walk count the effect slot, at the arrow's own sign | §3.4 |

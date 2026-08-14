@@ -19,15 +19,68 @@ export function displayScheme(scheme: Typed.Scheme): string {
   const numbering: EffectNumbering = writesBackUnchanged(scheme, colours)
     ? NOTHING_NUMBERED
     : new Map(colours.map((colour, index) => [colour, index + 1]));
-  const constraints = scheme.constraints.map(
-    (constraint) =>
-      `${constraint.name} ${displayType(constraint.type, variables, numbering)}`,
-  );
   const type = displayType(scheme.type, variables, numbering);
 
-  return constraints.length === 0
-    ? type
-    : `${constraints.join(", ")} => ${type}`;
+  return `${displayConstraints(scheme, variables, numbering)}${type}`;
+}
+
+/**
+ * A scheme's constraints as source's own binder bracket (`spec/functions.md`
+ * §5.1, §4.2), prefixing the type and set off by one space — `<a: Show> ` — or
+ * the empty string when the scheme is constraint-free.
+ *
+ * The relation between a variable and its constraints is spelled `<a: Show>`
+ * everywhere in Hexagon's grammar; the Haskell-flavored `Show a =>` it replaces
+ * belonged to no grammar position at all, and its separator was the last
+ * non-term reading of `=>` (#410). Grouping is §4.2's conjunction form, so a
+ * variable's second and further constraints join it inside one entry:
+ * `<a: (Num, Show)>`. Entries follow the display's variable-letter order —
+ * which is the scheme's quantifier order, not the constraint list's — and
+ * conjuncts within an entry order alphabetically by constraint name. Both are
+ * the evidence suffix's own order, `(type-variable ordinal, constraint name)`
+ * (FFI Part 9 §6.2, Constraints §6.1), so the bracket previews the dictionaries
+ * a call site appends; the order constraints happened to accumulate in is no
+ * more visible here than it is in the ABI.
+ *
+ * A generalized scheme constrains only bare type variables (even
+ * `show((x, y))` decomposes structurally before generalization), so every
+ * subject renders as a letter and every entry is a verbatim source spelling.
+ * The bracket *as a whole* remains machine-written notation — an annotation
+ * cannot carry a binder list (§4.2) — under Effects §10's license: display
+ * marks what the grammar cannot express.
+ */
+function displayConstraints(
+  scheme: Typed.Scheme,
+  variables: ReadonlyMap<Typed.TypeVariableId, string>,
+  numbering: EffectNumbering,
+): string {
+  const groups = new Map<string, string[]>();
+  for (const constraint of scheme.constraints) {
+    const subject = displayType(constraint.type, variables, numbering);
+    const group = groups.get(subject);
+    if (group === undefined) groups.set(subject, [constraint.name]);
+    else group.push(constraint.name);
+  }
+  if (groups.size === 0) return "";
+
+  // A subject the letters do not name is not something the checker builds; it
+  // sorts last rather than vanishing.
+  const letters = [...variables.values()];
+  const rank = (subject: string): number => {
+    const index = letters.indexOf(subject);
+    return index === -1 ? letters.length : index;
+  };
+
+  const entries = [...groups]
+    .sort(([left], [right]) => rank(left) - rank(right))
+    .map(([subject, names]) => {
+      const conjuncts = [...names].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+      return `${subject}: ${
+        conjuncts.length === 1 ? conjuncts[0] : `(${conjuncts.join(", ")})`
+      }`;
+    });
+
+  return `<${entries.join(", ")}> `;
 }
 
 /**

@@ -13,7 +13,7 @@ There are three literal forms:
 
 | Syntax | Type | Elaboration |
 |--------|------|-------------|
-| `1`, `42`, `0` | `Num a => a` (polymorphic) | `fromNat(1) : α` with pending constraint `Num α` |
+| `1`, `42`, `0` | `<a: Num> a` (polymorphic) | `fromNat(1) : α` with pending constraint `Num α` |
 | `1n`, `42n` | `BigInt` (monomorphic, always) | the literal itself |
 | `1.5`, `0.0`, `1e9` | `Float` (monomorphic, always) | the literal itself |
 
@@ -21,7 +21,7 @@ Key rules:
 
 1. **Every** integer literal (no `n` suffix, no decimal point) elaborates uniformly to a call `fromNat(lit)` at a fresh type variable `α`, with constraint `Num α`. There is no syntactic detection of "polymorphic context" — polymorphism or monomorphism is an *inference outcome*, discovered by unification, never a property of the literal's location.
 2. `fromNat : Nat -> a` is a method of the `Num` constraint. Every `Num` instance must implement it. It is total and exact for all planned instances (`Nat`, `Int`, `Float`, `BigInt`, `Rat`).
-3. **Defaulting:** at generalisation time, any type variable that (a) is still unresolved and (b) carries a constraint set arising *solely from literal elaboration and other defaultable constraints* (see §4) is unified with `Int` instead of being generalised. Literal type variables are therefore **never** generalised. `let x = 1` gives `x : Int`, not `x : Num a => a`.
+3. **Defaulting:** at generalisation time, any type variable that (a) is still unresolved and (b) carries a constraint set arising *solely from literal elaboration and other defaultable constraints* (see §4) is unified with `Int` instead of being generalised. Literal type variables are therefore **never** generalised. `let x = 1` gives `x : Int`, not `x : <a: Num> a`.
 4. `1n` does **not** participate in the polymorphic scheme. The `n` suffix is a type annotation, exactly as in JavaScript. There is no `fromBigInt` method in `Num` (deliberately — see §7, Rejected alternatives).
 5. Decimal literals do not participate either. `1.5 : Float`, always, in v1.
 6. **Codegen guarantee:** when `α` resolves to `Int`, `Float`, or `BigInt`, the `fromNat` wrapper is erased and the literal is emitted respectively as `k`, `k.0`, or `kn`. The Float spelling deliberately preserves inferred type intent for a human reader even though `k` and `k.0` are identical JavaScript numbers. Only literals inside genuinely polymorphic (dictionary-taking) functions emit `dict.fromNat(k)`.
@@ -42,11 +42,11 @@ let y = 1n           -- y : BigInt       emits: const y = 1n;
 
 -- (c) Polymorphic function, no literals: ordinary let-polymorphism.
 fun plus a b = add a b
-                     -- plus : Num a => a -> a -> a
+                     -- plus : <a: Num> a -> a -> a
 
 -- (d) Literal in a polymorphic body: stays generic via fromNat.
 fun addOne x = add x 1
-                     -- addOne : Num a => a -> a -> a's elaboration:
+                     -- addOne : <a: Num> a -> a -> a's elaboration:
                      --   addOne x = add x (fromNat 1)
                      -- emits (dictionary style):
                      --   function addOne(dict, x) { return dict.add(x, dict.fromNat(1)); }
@@ -234,7 +234,7 @@ Elaboration changes the *character* of type errors involving literals, and this 
 - When unification fails and one side traces to a literal's `α`, report it as a literal-type mismatch, not a constraint failure. Prefer: `This literal is used as Float here but as BigInt there` over `Cannot satisfy Num constraint arising from...`.
 - When defaulting is blocked by a non-defaultable constraint (§4), the error must name the blocking constraint and the literal's location, and suggest an annotation: `The literal 1 at <span> has constraint MyConstraint, which prevents defaulting to Int. Add a type annotation to pin its type.`
 - Never surface the name `fromNat` in an error for code the user wrote without mentioning it. The elaboration is invisible machinery; errors should speak in terms of the literal.
-- LSP hover on a bare literal in polymorphic position should show `Num a => a` (matching the round-trip-consistency rule for signatures); hover on a defaulted or pinned literal shows the concrete type.
+- LSP hover on a bare literal in polymorphic position should show `<a: Num> a` (matching the round-trip-consistency rule for signatures — the display is source-shaped, Functions §5.1); hover on a defaulted or pinned literal shows the concrete type.
 
 **Settling at synthesized `Unit` obligations.** Three positions carry a `Unit` obligation the language inserts rather than the user writing it: a discarded non-final block item (Statements §3.2), a loop body (Loops §2.2; `while` identically, Loops §4), and the `then` branch of an else-less `if` (Operators §11.2). A type variable that meets such an obligation is settled to `Int` at that point, ahead of §4's generalisation-time defaulting — provided `Int` satisfies every constraint on the variable and at least one of those constraints has no `Unit` instance. The rule is stated over constraints, not provenance: a literal's variable (§3) is the common case, but a variable constrained only by use (`x + x`) settles identically, and there is no reason to give the two different reports. A **declared** type variable is excluded — an annotation pins it, so settling it would report that annotation as requiring the `Int` the settling itself invented, naming a rewrite that repairs nothing (the Rewrite Rule, Declarations Preamble §1.1).
 
@@ -256,7 +256,7 @@ A branch or item whose type is *structured* — `(1, 2)`, `[1, 2]` — can never
 
 **`1n` as a polymorphic Num literal** (elaborating via `fromBigInt : BigInt -> a` in `Num`). Rejected for two reasons. (1) It hollows out the suffix: if both `1` and `1n` are polymorphic, `n` no longer means "this is a BigInt", breaking the JS developer's correct intuition — the suffix is supposed to *be* the type annotation, as in JS. (2) It forces `fromBigInt` into `Num`, whose `Float` instance is silently lossy for values beyond 2^53 (`fromBigInt(2n**60n)` rounds without a peep). Haskell's `fromInteger` has exactly this wart; Hexagon doesn't need it because the polymorphic `Nat`-payload literal covers every exact case, and oversized literals go through explicit conversions (`Rat.fromBigInt ...n`).
 
-**Haskell-style generalisation of bare literal bindings** (`let x = 1` giving `x : Num a => a`). Rejected: conflicts with the "no defaulting negotiation" goal, produces dictionary-abstracted values where users expect constants, and interacts badly with the value-restriction-adjacent rules already in place (`var` never generalises). Defaulting to `Int` at generalisation is strictly simpler and matches Roc.
+**Haskell-style generalisation of bare literal bindings** (`let x = 1` giving `x : <a: Num> a`). Rejected: conflicts with the "no defaulting negotiation" goal, produces dictionary-abstracted values where users expect constants, and interacts badly with the value-restriction-adjacent rules already in place (`var` never generalises). Defaulting to `Int` at generalisation is strictly simpler and matches Roc.
 
 **Haskell-style extensible defaulting** (multiple candidate types, `default` declarations). Rejected: single candidate (`Int`), closed defaultable-constraint list, no per-module configuration. See §4.
 
@@ -272,5 +272,5 @@ A branch or item whose type is *structured* — `(1, 2)`, `[1, 2]` — can never
 4. **Generalisation:** insert the defaulting pass per §4, testing membership against the compiler's own `Int` instance table — the closed defaultable set of §4's correction record, not the v1.1 five-name list *(corrected 2026-07-28, #135)*. Assert successful unification with Int.
 5. **Codegen:** implement contextual Nat and Int widening per §5.1; erase resolved literal `fromNat` per §5.2 (`k` for Nat/Int, readable `k.0` identity folding for Float, `kn` folding for BigInt, constructor call for Rat/others); dictionary slots for polymorphic cases.
 6. **Diagnostics:** literal-aware unification errors, blocked-defaulting error, no `fromNat` leakage (§6).
-7. **LSP:** hover types per §6; signature round-trip consistency (`Num a => a -> a -> a` etc.) unchanged.
+7. **LSP:** hover types per §6; signature round-trip consistency (`<a: Num> a -> a -> a` etc.) unchanged.
 8. **Tests:** the eight examples in §2 as golden tests (inferred type + emitted JS), plus the §4 consequence list, plus an error-message snapshot for (g) and the blocked-defaulting case.

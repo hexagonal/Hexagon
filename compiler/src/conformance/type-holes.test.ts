@@ -132,7 +132,7 @@ describe("§8.5 constraints accumulate through a hole", () => {
     expect(scheme(
       "let add1(x: _) = x + 1\nexport let out: Int = add1(1)\n",
       "add1",
-    )).toBe("Num a => a -> a");
+    )).toBe("<a: Num> a -> a");
   });
 
   test("§3 the hole's scheme is the unannotated one, and the written variable's too", () => {
@@ -451,10 +451,10 @@ describe("§8.8 hover reports the filled type (§7)", () => {
 const TAIL = "export let out: Int = 1\n";
 
 describe("§8.10 a seeded constraint reaches the scheme", () => {
-  test("§4.4 `let f(x: _ : Show) = x` receives `Show a => a -> a`", () => {
+  test("§4.4 `let f(x: _ : Show) = x` receives `<a: Show> a -> a`", () => {
     // Seeded, not accumulated: the body demands nothing of `x`, so the written
     // list is the only place the constraint can have come from.
-    expect(scheme(`let f(x: _ : Show) = x\n${TAIL}`, "f")).toBe("Show a => a -> a");
+    expect(scheme(`let f(x: _ : Show) = x\n${TAIL}`, "f")).toBe("<a: Show> a -> a");
     expect(scheme(`let f(x: _) = x\n${TAIL}`, "f")).toBe("a -> a");
   });
 
@@ -468,14 +468,14 @@ describe("§8.10 a seeded constraint reaches the scheme", () => {
   test("§4.4 a floor, never a cap: accumulation continues past the seed", () => {
     // §9 item 10. A cap would reject this — and rejecting a program the bare
     // `_` accepts is what makes the cap reading incoherent.
-    expect(scheme(`let f(x: _ : Show) = x + 1\n${TAIL}`, "f")).toBe("Num a, Show a => a -> a");
+    expect(scheme(`let f(x: _ : Show) = x + 1\n${TAIL}`, "f")).toBe("<a: (Num, Show)> a -> a");
   });
 
   test("§4.4 base constraints ride along unstated", () => {
     // The constraint-list form is reused wholesale, entailment included: `Hash`
     // has `Eq` as a base, so `==` is reachable and adds nothing to the scheme.
     expect(projectDiagnostics(`let f(x: _ : Hash) = x == x\n${TAIL}`)).toEqual([]);
-    expect(scheme(`let f(x: _ : Hash) = x == x\n${TAIL}`, "f")).toBe("Hash a => a -> Bool");
+    expect(scheme(`let f(x: _ : Hash) = x == x\n${TAIL}`, "f")).toBe("<a: Hash> a -> Bool");
   });
 });
 
@@ -515,7 +515,7 @@ describe("§8.12 defaulting through a constrained hole", () => {
   test("§4.4 the seed alone does not force a default", () => {
     // Defaulting needs a literal to reach; a seeded `Num` with nothing numeric
     // in the body generalizes, exactly as an accumulated one does.
-    expect(scheme(`let f(x: _ : Num) = x\n${TAIL}`, "f")).toBe("Num a => a -> a");
+    expect(scheme(`let f(x: _ : Num) = x\n${TAIL}`, "f")).toBe("<a: Num> a -> a");
   });
 });
 
@@ -527,16 +527,27 @@ describe("§8.13 grammar boundaries", () => {
     expect(scheme(`let f(g: _ : Num -> Bool) = g\n${TAIL}`, "f"))
       .toBe(scheme(`let f(g: (_ : Num) -> Bool) = g\n${TAIL}`, "f"));
     expect(scheme(`let f(g: _ : Num -> Bool) = g\n${TAIL}`, "f"))
-      .toBe("Num a => (a -> Bool) -> a -> Bool");
+      .toBe("<a: Num> (a -> Bool) -> a -> Bool");
   });
 
   test("§4.4 in a tuple type the `,` belongs to the tuple", () => {
     expect(scheme(`let f(p: (_ : Num, Int)) = p\n${TAIL}`, "f"))
-      .toBe("Num a => ((a, Int)) -> (a, Int)");
+      .toBe("<a: Num> ((a, Int)) -> (a, Int)");
   });
 
   test("§4.4 the conjunction `_ : (Eq, Show)` seeds both", () => {
-    expect(scheme(`let f(x: _ : (Eq, Show)) = x\n${TAIL}`, "f")).toBe("Eq a, Show a => a -> a");
+    expect(scheme(`let f(x: _ : (Eq, Show)) = x\n${TAIL}`, "f")).toBe("<a: (Eq, Show)> a -> a");
+  });
+
+  test("§4.4 the seed's written order does not survive into the display", () => {
+    // The bracket's conjuncts sort by constraint name, because the display
+    // previews the evidence suffix and the suffix orders by `(type-variable
+    // ordinal, constraint name)` regardless of what was written (Functions
+    // §5.1, FFI Part 9 §6.2). Written `(Show, Eq)` therefore displays exactly
+    // as written `(Eq, Show)` does — the pair above is the falsifier.
+    expect(scheme(`let f(x: _ : (Show, Eq)) = x\n${TAIL}`, "f")).toBe("<a: (Eq, Show)> a -> a");
+    expect(scheme(`let f(x: _ : (Show, Eq)) = x\n${TAIL}`, "f"))
+      .toBe(scheme(`let f(x: _ : (Eq, Show)) = x\n${TAIL}`, "f"));
   });
 
   test("§9 item 9 `x: Int : Num` is a parse error", () => {
@@ -587,9 +598,9 @@ describe("§8.14 seeding survives substitution as one obligation", () => {
 
   test("§4.4 `Pair(_ : Num)` schemes as one shared `Num`-constrained variable", () => {
     // Two copies of one written hole, so one metavariable (§4.1) carrying one
-    // seed. `Num a, Num b => ((a, b)) -> (a, b)` is the shape this rules out.
+    // seed. `<a: Num, b: Num> ((a, b)) -> (a, b)` is the shape this rules out.
     expect(scheme(`${PAIR}let g(p: Pair(_ : Num)) = p\n${TAIL}`, "g"))
-      .toBe("Num a => ((a, a)) -> (a, a)");
+      .toBe("<a: Num> ((a, a)) -> (a, a)");
   });
 
   test("§4.4 one obligation, not two — one dictionary reaches the emitted function", () => {
@@ -625,7 +636,7 @@ describe("§8 residue: the fence and hover need no new case (§5.4, §7)", () =>
     session.setFile("/main.hex", source);
     const hover = session.hover("/main.hex", source.indexOf("_"));
     expect(hover?.name).toBe("_");
-    expect(hover?.displayedType).toBe("Show a => a");
+    expect(hover?.displayedType).toBe("<a: Show> a");
   });
 
   test("§7 hover at a constrained hole the body fixed shows the fill", () => {
