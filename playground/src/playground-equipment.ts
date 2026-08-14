@@ -14,25 +14,27 @@ export interface HostedModule {
 }
 
 export const hostedModules: readonly HostedModule[] = [
-  // A prelude nominal: hosted at /stdlib so the compiler's prelude uses this
-  // canonical copy (by basename), but never auto-imported — `Option`/`Some`/
-  // `None` are implicitly in scope everywhere. `Prelude`, `Result`, and `Seq`
-  // are prelude members too and are deliberately *not* hosted: the compiler's
-  // embedded copies serve them, and a conformance test asserts those never
-  // drift from `stdlib/`.
+  // The two prelude nominals: hosted at /stdlib so the compiler's prelude uses
+  // these canonical copies (by basename), and never auto-imported — `Option`/
+  // `Some`/`None` are implicitly in scope everywhere, and `Vector`'s basename
+  // is a qualified home. `Prelude`, `Result`, and `Seq` are prelude members too
+  // and are deliberately *not* hosted: the compiler's embedded copies serve
+  // them, and a conformance test asserts those never drift from `stdlib/`.
   { companion: "Option", path: "/stdlib/Option.hex", source: optionSource },
   { companion: "Vector", path: "/stdlib/Vector.hex", source: vectorSource },
   { companion: "Rat", path: "/stdlib/Rat.hex", source: ratSource },
 ];
 
 /**
- * "Playground equipment": hosted modules auto-imported (`import * as X`) into
- * every workspace as a convenience — the fun, show-off pieces you'd normally
- * import yourself. This is a Playground affordance, distinct from the language
- * prelude (`Ordering`/`Option`/`Result`, supplied implicitly by the compiler).
+ * "Playground equipment": hosted modules auto-imported (`import * as X`) into a
+ * workspace that mentions them — the fun, show-off pieces you'd normally import
+ * yourself. This is a Playground affordance, distinct from the language prelude
+ * (`Ordering`/`Option`/`Result`, supplied implicitly by the compiler), and it
+ * covers only what the prelude does not reach.
  *
- * `Vector` is equipment for now; it will move to the prelude once the compiler
- * supports implicit namespace modules (so `Vector.append`/`xs.append(..)` work
- * with no import, the way `[..]` literals already do). `Rat` stays equipment.
+ * `Vector` is not equipment: it is a prelude module, and Modules §6.4 registers
+ * every prelude module's basename as a qualified home, so `Vector.append` and
+ * `xs.append(..)` resolve with no import at all — the import was a no-op. `Rat`
+ * is deliberately outside the prelude, so nothing but this list reaches it.
  */
-export const playgroundEquipment: readonly string[] = ["Vector", "Rat"];
+export const playgroundEquipment: readonly string[] = ["Rat"];
