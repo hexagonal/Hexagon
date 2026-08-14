@@ -783,7 +783,7 @@ class Parser {
         }
       }
       this.#expect("Colon", "extern functions require a result type");
-      const returnAnnotation = this.#parseTypeAnnotation() ?? invalidType(localName);
+      const returnAnnotation = this.#parseTypeAnnotation(true) ?? invalidType(localName);
       this.#rejectExternBody();
       return {
         kind: "ExternFun",
@@ -809,7 +809,7 @@ class Parser {
       this.#parseParameters();
     }
     this.#expect("Colon", "extern values require a type annotation");
-    const annotation = this.#parseTypeAnnotation() ?? invalidType(localName);
+    const annotation = this.#parseTypeAnnotation(true) ?? invalidType(localName);
     if (annotation.kind === "Function") {
       this.#errorAt(
         annotation.span,
@@ -1387,7 +1387,7 @@ class Parser {
       if (parameters.length === 0) this.#errorAt(nameToken.span, "generic alias parameter list cannot be empty");
     }
     this.#expect("Equal", "expected `=` after type alias name");
-    const annotation = this.#parseTypeAnnotation();
+    const annotation = this.#parseTypeAnnotation(true);
     if (annotation === undefined) {
       this.#synchronize(itemEnds);
       return { kind: "ErrorItem", span: spanFrom(itemStart ?? start.span, this.#previous().span) };
@@ -1477,7 +1477,7 @@ class Parser {
             this.#advance();
             slotName = parsedName(slotStart);
           }
-          const annotation = this.#parseTypeAnnotation();
+          const annotation = this.#parseTypeAnnotation(true);
           if (annotation === undefined) {
             this.#synchronize(new Set(["Comma", "RightParen", ...structuralEnds]));
             break;
@@ -1577,7 +1577,7 @@ class Parser {
       const fieldToken = this.#takeName("NonUpperName", "record fields must be non-uppercase-start names");
       if (fieldToken === undefined) break;
       this.#expect("Colon", "expected `:` after record field name");
-      const annotation = this.#parseTypeAnnotation();
+      const annotation = this.#parseTypeAnnotation(true);
       if (annotation === undefined) break;
       const name = parsedName(fieldToken);
       if (seen.has(name.text)) this.#errorAt(name.span, `duplicate record field \`${name.text}\``);
@@ -1624,7 +1624,7 @@ class Parser {
           this.#advance();
           slotName = parsedName(slotStart);
         }
-        const annotation = this.#parseTypeAnnotation();
+        const annotation = this.#parseTypeAnnotation(true);
         if (annotation === undefined) break;
         slots.push({
           ...(slotName === undefined ? {} : { name: slotName }),
@@ -2705,7 +2705,7 @@ class Parser {
         let annotation: Parsed.TypeAnnotation | undefined;
         if (this.#at("Colon")) {
           this.#advance();
-          annotation = this.#parseTypeAnnotation();
+          annotation = this.#parseTypeAnnotation(true);
         }
         const { parameter, destructuring } = this.#parameterFromPattern(
           pattern,
@@ -3082,13 +3082,73 @@ class Parser {
     return undefined;
   }
 
-  #parseTypeAnnotation(): Parsed.TypeAnnotation | undefined {
+  /**
+   * The type-position `=>` redirect (#410; Effects §9's row).
+   *
+   * `=>` is a term arrow only (Effects §2), so a fat arrow standing where a
+   * type arrow belongs is a spelling error — TypeScript's only function arrow,
+   * and Hexagon's own pre-#405 one, which post-#405 arrives as `=>` plus the
+   * mark it used to glue on. Recovery is the family's: resolve the arrow to
+   * the one that was meant and retain it, so the annotation finishes parsing
+   * and one typo yields one diagnostic instead of a cascade.
+   *
+   * Selection is the caller's, by position — `#parseTypeAnnotation`'s
+   * `typeArrowRedirect`. It is set where a fat arrow can have no other reading:
+   * inside type-syntax brackets (grouping, tuple, type argument, record type
+   * field), in a parameter annotation, in a data declaration's field or payload
+   * slot, on a type alias's right-hand side, and on an extern row. It is left
+   * clear where a fat arrow competes — a lambda's return annotation, where the
+   * `=>` is the body's (Effects §2.6's `(x): a => y => x`), and a `let`/`var`
+   * annotation, where it may be a mis-typed `=`.
+   */
+  #redirectTypeArrow(): { readonly effect: Parsed.ArrowEffect | "pure"; readonly span: Source.Span } {
+    const arrow = this.#advance();
+    // `=>!` is two tokens now (Lexer §8.1: a mark never begins a token, and
+    // `->!` is scanned from its `-`), so the retired impure spelling is
+    // recognised by the bang glued to the fat arrow's end — the same adjacency
+    // a call mark is held to (Effects §3.2).
+    const glued = this.#at("Bang") && this.#current().span.start.offset === arrow.span.end.offset;
+    const span = glued ? spanFrom(arrow.span, this.#advance().span) : arrow.span;
+    const replacement = glued ? "->!" : "->";
+    this.#diagnostics.add({
+      severity: "error",
+      message:
+        "Hexagon's type arrows are `->`, `->?`, `->!`; `=>` is the lambda arrow — " +
+        "for a function type write `Int -> Int` (or `->?` / `->!` for its colour)",
+      primary: span,
+      fixes: [{ message: `write \`${replacement}\``, edits: [{ span, replacement }] }],
+    });
+    return { effect: glued ? "constant" : "pure", span };
+  }
+
+  /**
+   * `typeArrowRedirect` opts this position into `#redirectTypeArrow`. It
+   * propagates down the arrow chain, because a chain's tail stands in the same
+   * slot as its head: in a lambda's return annotation, the fat arrow after
+   * `(x): A -> B` is the body's exactly as one after `(x): A` would be. It does
+   * *not* propagate into a bracketed sub-type, which sets it on its own
+   * account — a `=>` inside `(...)` or `{...}` cannot begin a body, whatever
+   * the enclosing slot is.
+   */
+  #parseTypeAnnotation(typeArrowRedirect = false): Parsed.TypeAnnotation | undefined {
     const left = this.#parseTypeOperand();
     if (left === undefined) return undefined;
+    if (typeArrowRedirect && this.#at("FatArrow")) {
+      const { effect, span: arrowSpan } = this.#redirectTypeArrow();
+      const result = this.#parseTypeAnnotation(typeArrowRedirect);
+      if (result === undefined) return undefined;
+      return {
+        kind: "Function",
+        parameters: left.parameters ?? [left.annotation],
+        result,
+        ...(effect === "pure" ? {} : { effect, arrowSpan }),
+        span: spanFrom(left.annotation.span, result.span),
+      };
+    }
     const arrow = this.#arrowAt();
     if (arrow !== undefined && arrow !== "pure") {
       const arrowSpan = this.#advance().span;
-      const result = this.#parseTypeAnnotation();
+      const result = this.#parseTypeAnnotation(typeArrowRedirect);
       if (result === undefined) return undefined;
       return {
         kind: "Function",
@@ -3114,7 +3174,7 @@ class Parser {
       return left.annotation;
     }
     this.#advance();
-    const result = this.#parseTypeAnnotation();
+    const result = this.#parseTypeAnnotation(typeArrowRedirect);
     if (result === undefined) return undefined;
     return {
       kind: "Function",
@@ -3149,7 +3209,7 @@ class Parser {
         const fieldToken = this.#takeName("NonUpperName", "record type fields must be non-uppercase-start names");
         if (fieldToken === undefined) return undefined;
         this.#expect("Colon", "expected `:` after record type field name");
-        const annotation = this.#parseTypeAnnotation();
+        const annotation = this.#parseTypeAnnotation(true);
         if (annotation === undefined) return undefined;
         const name = parsedName(fieldToken);
         if (names.has(name.text)) this.#errorAt(name.span, `duplicate record type field \`${name.text}\``);
@@ -3182,7 +3242,7 @@ class Parser {
           parameters: [],
         };
       }
-      const first = this.#parseTypeAnnotation();
+      const first = this.#parseTypeAnnotation(true);
       if (first === undefined) return undefined;
       if (!this.#at("Comma")) {
         const closing = this.#expect("RightParen", "expected `)` after type");
@@ -3201,7 +3261,7 @@ class Parser {
           this.#advance();
           return undefined;
         }
-        const element = this.#parseTypeAnnotation();
+        const element = this.#parseTypeAnnotation(true);
         if (element === undefined) return undefined;
         elements.push(element);
       }
@@ -3259,7 +3319,7 @@ class Parser {
       const arguments_: Parsed.TypeAnnotation[] = [];
       while (!this.#at("RightParen") && !this.#at("Eof")) {
         this.#rejectVarianceSigilAtUse();
-        const argument = this.#parseTypeAnnotation();
+        const argument = this.#parseTypeAnnotation(true);
         if (argument === undefined) return undefined;
         arguments_.push(argument);
         if (!this.#at("Comma")) break;

@@ -96,6 +96,11 @@ const markSeat =
   "a call mark governs an argument list; write it immediately before `(`, " +
   "or (in a `|>` stage) at the end of the stage — a reference carries no colour";
 
+/** Effects §9's type-arrow row: `=>` written where a type arrow belongs (#410). */
+const typeArrowRedirect =
+  "Hexagon's type arrows are `->`, `->?`, `->!`; `=>` is the lambda arrow — " +
+  "for a function type write `Int -> Int` (or `->?` / `->!` for its colour)";
+
 describe("the discipline, unconditional", () => {
   it("compiles the whole prelude and runtime clean", () => {
     expect(effectDiagnostics([["/main.hex", "export let x: Int = 1\n"]])).toEqual([]);
@@ -1045,6 +1050,49 @@ export let run(document: String): Unit = held!(document)
     ).toEqual([markSeat]);
   });
 
+  it("redirects a `=>` written in type position, collapsing the cascade (#410)", () => {
+    // §9's type-arrow row. Both specimens are #410's own measurements. Before
+    // the redirect the first produced a parse cascade — "expected `)` after
+    // parameters", then "expected `=` in `let` binding" — and the second the
+    // layout pass's "expected a newline or `;` between block items"; neither
+    // mentioned an arrow. The teaching report replaces the lot, one per typo.
+    expect(
+      effectDiagnostics([["/main.hex", "let f(g: (Int) => Int): Int = g(1)\n"]]),
+    ).toEqual([typeArrowRedirect]);
+    expect(
+      effectDiagnostics([["/main.hex", "type H = (Int) =>! Int\n"]]),
+    ).toEqual([typeArrowRedirect]);
+  });
+
+  it("recovers the redirected arrow as the one it advises, so checking continues", () => {
+    // Resolve-and-retain, the family's recovery: the annotation is the type the
+    // fixit would have written, so the rest of the module is checked against it
+    // rather than abandoned. `=>!` recovers as `->!`, which is visible here as
+    // the impure call's own mark row firing behind the redirect.
+    expect(
+      effectDiagnostics([["/main.hex", "let f(g: (Int) =>! Int): Int = g(1)\n"]]),
+    ).toEqual([typeArrowRedirect, "this call runs effects, so `g` wants `!`, not no mark"]);
+    // And taking the advice is the whole repair — nothing else was wrong.
+    expect(
+      effectDiagnostics([["/main.hex", "let f(g: (Int) -> Int): Int = g(1)\n"]]),
+    ).toEqual([]);
+    expect(
+      effectDiagnostics([["/main.hex", "let f(g: (Int) ->! Int): Int = g!(1)\n"]]),
+    ).toEqual([]);
+  });
+
+  it("leaves the curried lambda alone: there the `=>` is the body's (#410)", () => {
+    // §2.6's own pair, end to end. This is the redirect's one carve-out — the
+    // slot where a fat arrow after a complete annotation is legal — so it is
+    // pinned as *silence*, not as a different message.
+    expect(
+      effectDiagnostics([["/main.hex", "export let k = (x: Int): (Int) -> Int => (y: Int) => x\n"]]),
+    ).toEqual([]);
+    expect(
+      effectDiagnostics([["/main.hex", "export let f = (x: Int): Int -> Int -> Int => (y: Int) => (z: Int) => x\n"]]),
+    ).toEqual([]);
+  });
+
   it("requires the mark glued to the argument list it governs", () => {
     // Lexer §8.1 spells the seat "glued immediately before `(`". The prototype
     // accepted every spacing, which makes a mark look like an operator.
@@ -1626,8 +1674,9 @@ export let clean(document: String): String = trim(document)
     //
     // The callback is annotated deliberately. An unannotated `g?(1)` is
     // refused by the pure demand, which is effects doctrine (§4) and no
-    // business of the display's; and interpolation is avoided as the `show`
-    // seat because it pins the callback pure.
+    // business of the display's. `show(...)` is simply the plainer seat for the
+    // `Show` constraint: an interpolation would serve as well, and compiles
+    // with the same face.
     const source = `let k(x: _ : Show, g: (a) ->? a) = show(g?(x))
 export let out: String = k("a", (s) => s)
 `;

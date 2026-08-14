@@ -960,6 +960,99 @@ describe("parse", () => {
     });
   });
 
+  // Effects §2/§9 (#410): `=>` is a term arrow only, so a fat arrow where a type
+  // arrow belongs gets the family's targeted redirect rather than a parse cascade.
+  describe("the type-position `=>` redirect", () => {
+    const message = "Hexagon's type arrows are `->`, `->?`, `->!`; `=>` is the lambda arrow — " +
+      "for a function type write `Int -> Int` (or `->?` / `->!` for its colour)";
+
+    test("fires in every type slot whose `=>` can have no other reading", () => {
+      // One source per slot, so a slot that stops opting in shows up as a
+      // missing message rather than as a shorter cascade somewhere else.
+      const slots = [
+        "type H = (Int) => Int", // alias right-hand side
+        "record R = {f: (Int) => Int}", // record declaration field
+        "type R = {f: (Int) => Int}", // record type field
+        "union U = C((Int) => Int)", // union constructor slot
+        "exception E(f: (Int) => Int)", // exception payload slot
+        "let f(g: (Int) => Int): Int = g(1)", // parameter annotation
+        "let f = (g: (Int) => Int) => g(1)", // lambda parameter annotation
+        'extern from "m"\n    fun g(x: Int): (Int) => Int\n', // extern row result
+        'extern from "m"\n    fun g(x: (Int) => Int): Int\n', // extern row parameter
+        "type H = ((Int) => Int, Int)", // nested inside a tuple type
+        "type H = Box((Int) => Int)", // nested inside a type argument
+        "type H = () => Int", // the zero-parameter domain, not the `()` redirect
+      ];
+
+      expect(slots.map((text) => parseSource(text).diagnostics.map(({ message: m }) => m)))
+        .toEqual(slots.map(() => [message]));
+    });
+
+    test("resolves the arrow and retains it, so the annotation still parses", () => {
+      const module = parseSource("type H = (Int) => Int");
+
+      expect(module.items).toMatchObject([
+        { kind: "TypeAlias", annotation: { kind: "Function", result: { kind: "NamedType" } } },
+      ]);
+      expect(module.diagnostics).toMatchObject([
+        {
+          severity: "error",
+          message,
+          fixes: [{ message: "write `->`", edits: [{ replacement: "->" }] }],
+        },
+      ]);
+    });
+
+    test("`=>!`, the retired impure spelling, resolves to `->!` over both its tokens", () => {
+      const module = parseSource("type H = (Int) =>! Int");
+      const [diagnostic] = module.diagnostics;
+
+      expect(module.items).toMatchObject([
+        { kind: "TypeAlias", annotation: { kind: "Function", effect: "constant" } },
+      ]);
+      expect(diagnostic?.message).toBe(message);
+      expect(diagnostic?.fixes).toMatchObject([
+        { message: "write `->!`", edits: [{ replacement: "->!" }] },
+      ]);
+      // The fixit covers `=>!` entire — both tokens — not the fat arrow alone.
+      expect(diagnostic?.fixes?.[0]?.edits[0]?.span).toMatchObject({
+        start: { offset: 15 },
+        end: { offset: 18 },
+      });
+    });
+
+    test("an unglued `!` is not the retired spelling", () => {
+      // `=>!` is two tokens (Lexer §8.1), so only adjacency distinguishes it
+      // from a fat arrow followed by whatever a stray `!` starts.
+      const module = parseSource("type H = (Int) => ! Int");
+
+      expect(module.diagnostics[0]?.fixes).toMatchObject([{ message: "write `->`" }]);
+    });
+
+    test("stays silent in a lambda's return annotation, where the `=>` is the body's", () => {
+      // Effects §2.6's own pair. The redirect must not reach this slot: the
+      // annotation is complete and the fat arrow after it belongs to the body.
+      const module = parseSource(
+        "let f = (x): a => y => x\n" +
+          "let k = (x: Int): (Int) -> Int => (y: Int) => x\n",
+      );
+
+      expect(module.items).toMatchObject([
+        { kind: "Let", value: { kind: "Lambda", returnAnnotation: { kind: "TypeVariable" } } },
+        { kind: "Let", value: { kind: "Lambda", returnAnnotation: { kind: "Function" } } },
+      ]);
+      expect(module.diagnostics).toEqual([]);
+    });
+
+    test("stays silent in a `let`/`var` annotation, where the `=>` competes with `=`", () => {
+      const module = parseSource("let f(x: Int): Int => x");
+
+      expect(module.diagnostics.map(({ message: m }) => m)).toEqual([
+        "expected `=` in `let` binding",
+      ]);
+    });
+  });
+
   // Products §3.3/§6/§9: functional update is `{p with x = e}`; `{...p}` stays the bare
   // copy; the retired spread idioms keep permanent fixits.
   describe("functional update `{p with x = e}`", () => {
