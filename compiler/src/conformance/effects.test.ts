@@ -1619,6 +1619,21 @@ export let clean(document: String): String = trim(document)
     );
   });
 
+  it("carries the constraint bracket and the colour in one face (#410)", () => {
+    // The two display marks meet: #410's source-shaped bracket in front,
+    // #364's colour on the arrows behind, and one space between them. Neither
+    // rule knows about the other, so nothing but a pin says they compose.
+    //
+    // The callback is annotated deliberately. An unannotated `g?(1)` is
+    // refused by the pure demand, which is effects doctrine (§4) and no
+    // business of the display's; and interpolation is avoided as the `show`
+    // seat because it pins the callback pure.
+    const source = `let k(x: _ : Show, g: (a) ->? a) = show(g?(x))
+export let out: String = k("a", (s) => s)
+`;
+    expect(hoveredType(source, "k(")).toBe("<a: Show> (a, a ->? a) ->? String");
+  });
+
   it("leaves a lone colour plain even where it offers no inlet (#405)", () => {
     // The predecessor numbered this: with the else-constant rule in force, a
     // sole `=>` and no parameter-position occurrence read back as the impure
