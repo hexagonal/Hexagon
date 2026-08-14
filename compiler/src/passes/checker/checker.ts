@@ -4263,15 +4263,47 @@ class Checker {
           // callee not yet *known* to be a function, mutual recursion inside an
           // SCC included — and keeps the unify. A callee that already failed
           // keeps falling through it silently.
-          this.#diagnostics.add({
-            severity: "error",
-            message: notCallableMessage(
-              expression,
-              this.#display(knownCallee),
-              arguments_.length,
-            ),
-            primary: expression.span,
-          });
+          //
+          // A *nullary union constructor* takes Unions §2.2's own sentence
+          // instead. The writer named the value; a type display would print the
+          // instantiation's fresh variable (`Option(?433)`) — noise about a
+          // value the writer already knows. The fixit is offered only for an
+          // empty argument list: deleting `(x)` deletes an expression, and
+          // where that expression belongs is the writer's decision.
+          if (
+            expression.callee.kind === "Name" && knownCallee.kind === "Union" &&
+            this.#isConstructorSymbol(expression.callee.symbol)
+          ) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `\`${expression.callee.text}\` is a value, not a function; ` +
+                "write it without `()`",
+              primary: expression.span,
+              ...expression.arguments.length === 0 && {
+                fixes: [{
+                  message: "delete the `()`",
+                  edits: [{
+                    span: {
+                      fileId: expression.span.fileId,
+                      start: expression.callee.span.end,
+                      end: expression.span.end,
+                    },
+                    replacement: "",
+                  }],
+                }],
+              },
+            });
+          } else {
+            this.#diagnostics.add({
+              severity: "error",
+              message: notCallableMessage(
+                expression,
+                this.#display(knownCallee),
+                arguments_.length,
+              ),
+              primary: expression.span,
+            });
+          }
           type = ERROR;
         } else {
           // The callee is not yet known to be a function, so the effect slot has
@@ -8662,6 +8694,22 @@ class Checker {
    *   term at all belongs to Constraints §2.2; the ruling neither opens nor
    *   closes that door (closure doc §2.5), so the status quo stands.
    */
+  /**
+   * Whether this symbol was declared as a constructor, local or imported. Local
+   * union constructors are in `#constructorUnions`; an imported one is not, but
+   * its `module.symbols` row carries the kind the defining module gave it — the
+   * same two channels `#isImmutableTermReference` reads, for the same reason.
+   *
+   * "Constructor", not "union constructor": the resolver declares *exception*
+   * constructors under the same kind, so a caller that means unions only must
+   * pair this with a test on the type — which side of the pair excludes what is
+   * why the nullary-constructor hint checks the pruned callee is a `Union`.
+   */
+  #isConstructorSymbol(symbol: Resolved.SymbolId): boolean {
+    return this.#symbolKinds.get(symbol) === "constructor" ||
+      this.#constructorUnions.has(symbol);
+  }
+
   #isImmutableTermReference(symbol: Resolved.SymbolId): boolean {
     switch (this.#symbolKinds.get(symbol)) {
       case "let":
