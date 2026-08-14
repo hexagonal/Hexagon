@@ -310,8 +310,14 @@ describe("the shape of a composed dictionary", () => {
     const emitted = javascript(source);
     const module = await runMain(source);
 
-    // The factory, applied — not re-derived, and not passed unapplied.
-    expect(emitted).toContain("__Ord_Box(__Ord_Span).compare(__left.boxed, __right.boxed)");
+    // The factory, applied — not re-derived, and not passed unapplied. Since
+    // #449 the application is a hoisted module-level binding (Dictionary
+    // Sharing §3.1) and the component slot names it, so the pin reads the
+    // binding's initializer and the reference that replaced the inline
+    // application.
+    expect(emitted).toContain("const __Ord_Box_Span = __Ord_Box(__Ord_Span);");
+    expect(emitted).toContain("__Ord_Box_Span.compare(__left.boxed, __right.boxed)");
+    expect(emitted).not.toContain("__Ord_Box(__Ord_Span).compare");
     // And behaviourally: the reversal survives two levels of composition.
     expect(module.crateLt).toBe(false);
   });

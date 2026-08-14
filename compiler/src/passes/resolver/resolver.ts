@@ -305,9 +305,17 @@ export function dictionaryName(constraint: string, subject: string): string {
  *   none keeps the bare name — so a bare dictionary name certifies that its
  *   spelling is uncontested in the module it appears in. Suffixes are assigned
  *   in the canonical order §5 fixes: declared instances in declaration order,
- *   then hoisted bindings in emission order (there are none yet — hoisting is
- *   still inline), then imports in specifier order, with the prelude channel
- *   last. Same module, same names, every compile.
+ *   then hoisted bindings in emission order, then imports in specifier order,
+ *   with the prelude channel last. Same module, same names, every compile.
+ *
+ *   The **hoisted** rank is not assigned here, and cannot be (#449): a hoisted
+ *   binding exists only because some use site demanded its ground evidence
+ *   tree, and those trees are the checker's output — they do not exist when
+ *   this runs. The emitter mints those names against the seats decided here,
+ *   through Lexer §3.2's probe, so a hoisted binding steps aside rather than
+ *   pushing a declared instance off its spelling. That is narrower than §5's
+ *   "none keeps the bare name" whenever a hoisted binding is one of the
+ *   contestants; `dictionary-sharing.test.ts` pins what happens instead.
  *
  * Two arrivals of the *same* dictionary are not a contest: the same identity
  * reaching a module by two routes (a diamond of re-exports, or an import beside
@@ -323,8 +331,7 @@ export function dictionaryName(constraint: string, subject: string): string {
  * instance out from under its consumers. A transit copy is the other side of
  * that: it carries its §5 suffix at the interface whenever a declared instance
  * or another transit copy contests the spelling, and re-binds its incoming
- * interface name when the only contest is with an internal name — which no
- * module can exhibit yet, hoisting being still inline.
+ * interface name when the only contest is with an internal name.
  */
 export function nameDictionaries(
   items: readonly Resolved.Item[],

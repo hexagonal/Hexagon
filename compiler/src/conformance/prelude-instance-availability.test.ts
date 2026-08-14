@@ -368,17 +368,20 @@ describe("an explicit import of a prelude module coexists with the channel", () 
     expect(diagnostics(files)).toEqual([]);
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
     const b = emitted(files, "/b.hex");
-    expect(b).toContain(
-      "return __Eq_Option(",
-    );
+    // Since #449 the ground application is hoisted to one module-level binding
+    // (Dictionary Sharing §3.1) and the use site names it. The imported factory
+    // is still spelled once, which is what this test is about.
+    expect(b).toContain("const __Eq_Option_Int = __Eq_Option(__Eq_Int);");
+    expect(b).toContain("return __Eq_Option_Int.equals(");
     // One arrival, so the name is bare. A second copy of the identity would be a
     // second contestant for the spelling, and §5's collision rule would suffix
     // *both* — so a suffixed spelling anywhere here is the transit copy coming
     // back, under the naming this arc replaced the prefix with (#425).
     expect(b).not.toMatch(/__Eq_Option_\d/u);
+    // Three lines: the import, the hoisted binding, and the one use site.
     expect(
       b.split("\n").filter((line) => line.includes("__Eq_Option")),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 });
 

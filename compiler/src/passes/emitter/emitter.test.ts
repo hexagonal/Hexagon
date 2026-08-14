@@ -1967,9 +1967,13 @@ describe("emitJavaScript", () => {
     expect(output.text).toMatch(
       /const __Render_Box = __Render_a => \{/u,
     );
+    // Dictionary Sharing §3.1's own example (#449): the application is a
+    // module-level binding, and the use site references it by name.
     expect(output.text).toContain(
-      "__Render_Box(__Render_Int)",
+      "const __Render_Box_Int = __Render_Box(__Render_Int);",
     );
+    expect(output.text).toContain("render(boxed, __Render_Box_Int)");
+    expect(output.text).not.toContain("render(boxed, __Render_Box(");
     expect(output.diagnostics).toEqual([]);
   });
 
@@ -2004,15 +2008,21 @@ describe("emitJavaScript", () => {
     // concrete use bound it to `Int` and this evidence emitted as a primitive
     // fallback — `({})` — that threw at runtime after a clean compile.
     expect(output.text).toMatch(/describe\(item, __Describe_a\)/u);
-    // The recursive occurrence re-applies the factory to that same parameter.
-    expect(output.text).toMatch(
-      /describe\(left, __Describe_Tree\(__Describe_a\)\)/u,
-    );
-    // A concrete use applies the factory to the selected element instance —
-    // never passes the unapplied factory as the dictionary.
+    // The recursive occurrence is the instance record under construction
+    // (Dictionary Sharing §3.2, #449). It used to re-apply the factory to that
+    // same parameter — one dictionary allocated per node visited — and the
+    // textual half of §11.2 is that no such application survives.
+    expect(output.text).toMatch(/describe\(left, __instance\)/u);
+    expect(output.text).toMatch(/describe\(right, __instance\)/u);
+    expect(output.text).not.toContain("__Describe_Tree(__Describe_a)");
+    // A concrete use still applies the factory to the selected element instance
+    // — never passes the unapplied factory as the dictionary — but the
+    // application is now the one hoisted binding of §3.1 and the use site names
+    // it.
     expect(output.text).toContain(
-      "describe(tree, __Describe_Tree(__Describe_Int))",
+      "const __Describe_Tree_Int = __Describe_Tree(__Describe_Int);",
     );
+    expect(output.text).toContain("describe(tree, __Describe_Tree_Int)");
     expect(output.text).not.toContain("describe(tree, __Describe_Tree)");
   });
 
