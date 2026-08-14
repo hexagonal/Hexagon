@@ -68,9 +68,9 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
   test("the importer reaches the member through the home module's forwarder", () => {
     // §6.5: the forwarder is exported under the internal plumbing name, and the
     // importer binds it back to the member's own spelling. Not in the `.d.ts`.
-    expect(emitted(files, "/labels.hex")).toContain("export { label as __export");
-    expect(emitted(files, "/main.hex")).toMatch(
-      /import \{ __export\d+ as label \} from "\.\/labels\.js";/u,
+    expect(emitted(files, "/labels.hex")).toContain("export { label as __label };");
+    expect(emitted(files, "/main.hex")).toContain(
+      'import { __label as label } from "./labels.js";',
     );
   });
 
@@ -89,7 +89,7 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
     // §5's closure, so the owed (unbuilt) surface there — `Label.Dictionary`,
     // the `Label<Int>` handle — would lawfully carry it.
     for (const text of [labels.declarations.text, main.declarations.text]) {
-      expect(text).not.toContain("__export");
+      expect(text).not.toContain("__label");
       expect(text).not.toContain("__default");
     }
     // `/main.hex` declares only the private `Room`, so Part 9's closure fires
@@ -144,7 +144,7 @@ describe("an unexported constraint stays private", () => {
     ].join("\n")]], "/main.hex");
 
     expect(text).not.toContain("__default");
-    expect(text).not.toContain("__export");
+    expect(text).not.toContain("__greet");
     expect(text).toContain("greetLoudly: ");
   });
 });
@@ -500,13 +500,13 @@ describe("defaults hoist once, at home (Constraints §6.5)", () => {
   test("the body emits once, in the module that wrote it", () => {
     const home = emitted(files, "/stamps.hex");
 
-    expect(home).toMatch(/const __default\d+ = /u);
-    expect(home).toMatch(/export \{ __default\d+ \};/u);
+    expect(home).toContain("const __default_stamped = ");
+    expect(home).toContain("export { __default_stamped };");
     // One call to the private helper, not one copy of the body per honoring
     // instance — and the sibling member reached through the dictionary the
     // helper was handed, so an override would win (§2, §6.3).
-    expect(home).toMatch(
-      /const __default\d+ = \(__dict, subject\) => decorate\(mark\(subject, __dict\)\);/u,
+    expect(home).toContain(
+      "const __default_stamped = (__dict, subject) => decorate(mark(subject, __dict));",
     );
     expect(home.match(/=> decorate\(/gu)).toHaveLength(1);
     expect(home).not.toContain("stamped: subject =>");
@@ -525,11 +525,11 @@ describe("defaults hoist once, at home (Constraints §6.5)", () => {
     const away = emitted(files, "/main.hex");
 
     expect(away).toMatch(
-      /import \{[^}]*__default\d+[^}]*\} from "\.\/stamps\.js";/u,
+      /import \{[^}]*__default_stamped[^}]*\} from "\.\/stamps\.js";/u,
     );
     // Deferred, never eager: the dictionary const is not initialized while its
     // own literal is under construction (§6.3).
-    expect(away).toMatch(/stamped: __arg0 => __default\d+\(__Stamp_Ticket/u);
+    expect(away).toContain("stamped: __arg0 => __default_stamped(__Stamp_Ticket");
   });
 
   test("a default calling a sibling member dispatches through the completed instance", async () => {
@@ -924,5 +924,118 @@ describe("`export honor` and `export opaque constraint` (Modules §4.1, §10)", 
     ].join("\n")]])).toContain(
       "`opaque` applies to `record` and `union` declarations",
     );
+  });
+});
+
+/**
+ * The two internal-name families of §6.5 are spelled from the *source* name
+ * since #430 — `__log` for a constrained export or a member forwarder,
+ * `__default_log` for the hoisted default helper — so where they meet, one has
+ * to give way, and both sides of a module boundary have to give way the same
+ * way. The importer cannot see the contest: `import { default_log }` names the
+ * term and never the constraint whose member is `log`. So the contested member
+ * names travel on the import item, and one rule reads them at both ends
+ * (Lexer §3.2's probe, from 1).
+ */
+describe("internal names that contest one spelling (#430)", () => {
+  const files = [
+    ["/ledger.hex", [
+      "export constraint Tally<a> =",
+      "    mark(entry: a): String",
+      "    log(entry: a): String = mark(entry) ++ \" (logged)\"",
+      "",
+      "export let default_log<a: Tally>(entry: a): String = \"[\" ++ mark(entry) ++ \"]\"",
+      "",
+      "export record Coin = {face: String}",
+      "",
+      "honor Tally<Coin> =",
+      "    mark(c) = c.face",
+      "",
+    ].join("\n")],
+    ["/tills.hex", [
+      "import { Tally, Coin, default_log } from \"./ledger\"",
+      "",
+      "record Note = {body: String}",
+      "",
+      "honor Tally<Note> =",
+      "    mark(n) = n.body",
+      "",
+      "export fun bracketed(): String = default_log(Coin({face = \"gold\"}))",
+      "export fun logged(): String = log(Note({body = \"memo\"}))",
+      "",
+    ].join("\n")],
+  ] as const;
+
+  test("the default helper keeps the bare spelling and the term probes past it", () => {
+    const home = emitted(files, "/ledger.hex");
+
+    // The helper is unconditional, and that is what makes it predictable: an
+    // importer reaches it through the constraint declaration alone and can see
+    // nothing of this module's terms.
+    expect(home).toContain("const __default_log = ");
+    expect(home).toContain("export { __default_log };");
+    // `default_log` is an ordinary term name, and its constrained export wants
+    // the same spelling. It takes the first free suffix instead.
+    expect(home).toContain("export { default_log as __default_log_1 };");
+  });
+
+  test("the importer of both reaches the same two names", () => {
+    const away = emitted(files, "/tills.hex");
+
+    expect(away).toContain("__default_log_1 as default_log");
+    expect(away).toMatch(/import \{[^}]*__default_log[,\s}]/u);
+  });
+
+  test("and the emitted program loads and runs", async () => {
+    const exports = await runProject(files, { entry: "/tills.hex" });
+
+    expect((exports.bracketed as () => string)()).toBe("[gold]");
+    expect((exports.logged as () => string)()).toBe("memo (logged)");
+  });
+
+  /**
+   * The other contest, which is the importer's own: two modules declaring a
+   * member of one name export forwarders of one spelling, and this module binds
+   * both. The exported spellings are untouched — a name that moved with its
+   * consumers would stop being predictable — so the *local* is aliased, the way
+   * a contested dictionary local is (Dictionary Sharing §5).
+   */
+  test("two modules' forwarders for one member name bind under distinct locals", async () => {
+    const rivals = [
+      ["/loudly.hex", [
+        "export constraint Loud<a> =",
+        "    pitch(value: a): Int",
+        "",
+      ].join("\n")],
+      ["/softly.hex", [
+        "export constraint Soft<a> =",
+        "    pitch(value: a): Int",
+        "",
+      ].join("\n")],
+      ["/organ.hex", [
+        "import * as Loud from \"./loudly\"",
+        "import * as Soft from \"./softly\"",
+        "",
+        "export record Pipe = {bore: Int}",
+        "",
+        "honor Loud.Loud<Pipe> =",
+        "    pitch(value) = value.bore * 100",
+        "",
+        "honor Soft.Soft<Pipe> =",
+        "    pitch(value) = value.bore",
+        "",
+        "export let shrill: Int = Loud.pitch(Pipe({bore = 3}))",
+        "export let muted: Int = Soft.pitch(Pipe({bore = 3}))",
+        "",
+      ].join("\n")],
+    ] as const;
+    const organ = emitted(rivals, "/organ.hex");
+
+    expect(organ).toContain('import { __pitch } from "./loudly.js";');
+    expect(organ).toContain('import { __pitch as __pitch_1 } from "./softly.js";');
+
+    const exports = await runProject(rivals, { entry: "/organ.hex" });
+    expect(exports.shrill).toBe(300);
+    expect(exports.muted).toBe(3);
   });
 });

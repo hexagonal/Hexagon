@@ -86,19 +86,14 @@ function emittedPaths(files: readonly (readonly [string, string])[]): readonly s
  *
  * `Vector.toSeq` and friends stopped being companion exports when
  * `stdlib/Iterable.hex` landed: `toSeq` is the `Iterable` member, so the name
- * comes from the *declaring* module under Constraints §6.5's exported spelling.
- * The symbol id in that spelling is not a fact worth pinning — it moves
- * whenever anything ahead of `Iterable.hex` in the prelude gains a binding —
- * so `importLines` normalizes it and the expectations name it by this
- * constant.
+ * comes from the *declaring* module under Constraints §6.5's exported spelling
+ * — the member's own name under Lexer §3.2's reserved prefix (#430).
  */
 const ITERABLE_TO_SEQ_IMPORT =
-  'import { __exportN as toSeq } from "./Iterable.js";';
+  'import { __toSeq as toSeq } from "./Iterable.js";';
 
 function importLines(javascript: string): readonly string[] {
-  return javascript.split("\n")
-    .filter((line) => line.startsWith("import "))
-    .map((line) => line.replace(/__export\d+/g, "__exportN"));
+  return javascript.split("\n").filter((line) => line.startsWith("import "));
 }
 
 function exportLines(javascript: string): readonly string[] {

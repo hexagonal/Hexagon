@@ -541,6 +541,26 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
   };
 }
 
+/**
+ * The defaulted members of a module's **exported** constraints, for
+ * `Resolved.ImportItem.defaultedMembers` — see its documentation for why an
+ * importer is given the list rather than deriving one.
+ *
+ * `constraints` is exactly the emitter's own-module condition on the far side:
+ * `moduleInterface` fills it from this module's `export constraint` items and
+ * from nothing else, so the two sides enumerate the same declarations.
+ */
+function defaultedMemberNames(
+  imported: ModuleInterface | undefined,
+): readonly string[] {
+  if (imported === undefined) return [];
+  return [...imported.constraints.values()].flatMap((declaration) =>
+    declaration.members
+      .filter(({ defaultValue }) => defaultValue !== undefined)
+      .map(({ binding }) => binding.name)
+  );
+}
+
 class Scope {
   readonly #bindings = new Map<string, Resolved.SymbolId>();
   /**
@@ -1676,6 +1696,7 @@ class Resolver {
             span: item.span,
           })),
           constraints: boundConstraints,
+          defaultedMembers: defaultedMemberNames(importedModule),
           span: item.span,
         };
       }
@@ -3556,6 +3577,11 @@ class Resolver {
       // Empty for the same reason: the prelude's constraints are the
       // pre-registered ones, in scope by name in every module with no import.
       constraints: [],
+      // Not empty for that reason: this is the exporting module's own list, and
+      // a prelude module declares exported constraints like any other.
+      defaultedMembers: defaultedMemberNames(
+        this.#preludeInterfaceBySpecifier.get(specifier),
+      ),
       synthesized: true,
       span,
     }));

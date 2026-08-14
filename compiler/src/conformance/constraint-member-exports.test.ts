@@ -161,7 +161,7 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
    * two are separable, and running the program does not tell them apart.
    *
    * Constraints §6.5 gives an exported declaration's default a **hoisted
-   * helper**: the home module emits one `__default<symbol>` function and
+   * helper**: the home module emits one `__default_<member>` function and
    * every inheriting instance fills its slot by reference to it, importing the
    * helper through the constraint's import item. A prelude declaration has no
    * such item — the synthesized prelude import deliberately carries no

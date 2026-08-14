@@ -545,6 +545,23 @@ export interface ImportItem {
   /** Constraints this import binds by name (Modules §3.1/§3.2/§3.3). */
   readonly constraints: readonly ConstraintImport[];
   /**
+   * Every defaulted member of every constraint the imported module **exports**
+   * (Constraints §6.5) — not only the constraints this import binds.
+   *
+   * The imported module's hoisted default helpers claim `__default_<member>` in
+   * its emitted JavaScript, and the internal constrained export of a term named
+   * `default_<member>` prefers the same spelling, so one of the two probes
+   * (Lexer §3.2). An importer must reach the same answer as the exporter, and it
+   * cannot: `import { default_log }` names the term and never the constraint
+   * that contests it. So the contested spellings travel, and the emitter runs
+   * one naming rule over this list on both sides of the boundary.
+   *
+   * The *input* to the rule rather than the names it produces, so the rule has
+   * one implementation: the exporting module reads its own constraint items,
+   * an importer reads this, and neither predicts what the other computed.
+   */
+  readonly defaultedMembers: readonly string[];
+  /**
    * Whether the resolver synthesized this import rather than the source writing
    * it — the used-names-only import of one prelude module (Modules §5.5, §6.4).
    * False for every import the source spells, including one of a prelude module.

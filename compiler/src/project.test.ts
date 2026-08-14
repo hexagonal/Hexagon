@@ -258,20 +258,20 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
   )!;
   expect(main.typed.symbols.find(({ name }) => name === "plus")?.scheme.constraints)
     .toHaveLength(1);
-  expect(math.javascript.text).toMatch(/export \{ plus as __export\d+ \};/u);
+  expect(math.javascript.text).toContain("export { plus as __plus };");
   expect(math.javascript.text).toContain("export { plusInt };");
-  expect(main.javascript.text).toMatch(
-    /import \{ __export\d+ as plus \} from "\.\/math\.js";/u,
+  expect(main.javascript.text).toContain(
+    'import { __plus as plus } from "./math.js";',
   );
   expect(main.javascript.text).toMatch(/log\(String\(plus\(20, 22,/u);
   expect(namespace.javascript.text).toContain(
     'import * as Math from "./math.js";',
   );
-  expect(namespace.javascript.text).toMatch(
-    /import \{ __export\d+ \} from "\.\/math\.js";/u,
+  expect(namespace.javascript.text).toContain(
+    'import { __plus } from "./math.js";',
   );
   expect(namespace.javascript.text).toMatch(
-    /log\(String\(__export\d+\(20, 22,/u,
+    /log\(String\(__plus\(20, 22,/u,
   );
   expect(math.javascript.diagnostics).toEqual([]);
   expect(main.javascript.diagnostics).toEqual([]);

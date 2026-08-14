@@ -431,7 +431,7 @@ describe("`Eq` and `Hash` at BigInt", () => {
     // could ever see.
     expect(instance!.match(/notEquals:/gu)).toHaveLength(1);
     expect(instance!.match(/(?<![A-Za-z])equals:/gu)).toHaveLength(1);
-    for (const reference of text.match(/__default\d+/gu) ?? []) {
+    for (const reference of text.match(/__default_\w+/gu) ?? []) {
       expect(text).toContain(`const ${reference} =`);
     }
   });

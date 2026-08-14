@@ -53,12 +53,27 @@ export function renderGeneratedCodeView(
       "",
     );
   }
-  sourceShaped = sourceShaped.replace(
-    /^export \{ [$_\p{ID_Start}][\p{ID_Continue}$\u200c\u200d]* as __export\d+ \};\n?/gmu,
-    "",
-  );
+  sourceShaped = sourceShaped.replace(INTERNAL_CONSTRAINED_EXPORT, "");
   return sourceShaped;
 }
+
+/**
+ * The Hexagon-to-Hexagon export of a constrained binding — the trailing-evidence
+ * edition, which no `.d.ts` face admits and no reader of the source-shaped view
+ * wrote.
+ *
+ * Keyed on the **alias**, because the local no longer predicts it: since #430
+ * the alias is the binding's own name under Lexer §3.2's reserved prefix
+ * (`export { plus as __plus };`), and either side may carry a collision suffix
+ * independently. What separates this family from the other aliased exports is
+ * the character after the prefix. Hexagon terms are non-uppercase-start, so a
+ * `__`-alias that continues in lower case is one of these; the dictionary
+ * exports beside it are `__<Constraint>_<Type>` and continue in upper case
+ * (Dictionary Sharing §5). A specialization or a boundary wrapper aliases to an
+ * ordinary source name and carries no prefix at all.
+ */
+const INTERNAL_CONSTRAINED_EXPORT =
+  /^export \{ [$_\p{ID_Start}][\p{ID_Continue}$\u200c\u200d]* as __(?![\p{Lu}\p{Lt}])[$_\p{ID_Start}][\p{ID_Continue}$\u200c\u200d]* \};\n?/gmu;
 
 function escapeRegularExpression(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");

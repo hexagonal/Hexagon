@@ -119,11 +119,8 @@ describe("emitJavaScript", () => {
     // The member reaches its row through the Constraints §6.5 forwarder, with
     // the row's dictionary rendered inline as the trailing evidence argument —
     // no import, because no module exports it.
-    // The symbol id in the exported spelling is not pinned: it moves whenever
-    // anything ahead of `Iterable.hex` in the prelude gains a binding, and this
-    // test is about where the name comes from, not what it is numbered.
-    expect(text("/main.hex")).toMatch(
-      /import \{ __export\d+ as toSeq \} from "\.\/Iterable\.js";/,
+    expect(text("/main.hex")).toContain(
+      'import { __toSeq as toSeq } from "./Iterable.js";',
     );
     expect(text("/main.hex")).toContain(
       "toSeq(updated, ({ toSeq: __seqFromIterable }))",
