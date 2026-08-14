@@ -928,14 +928,21 @@ describe("`export honor` and `export opaque constraint` (Modules §4.1, §10)", 
 });
 
 /**
- * The two internal-name families of §6.5 are spelled from the *source* name
- * since #430 — `__log` for a constrained export or a member forwarder,
- * `__default_log` for the hoisted default helper — so where they meet, one has
- * to give way, and both sides of a module boundary have to give way the same
- * way. The importer cannot see the contest: `import { default_log }` names the
- * term and never the constraint whose member is `log`. So the contested member
- * names travel on the import item, and one rule reads them at both ends
- * (Lexer §3.2's probe, from 1).
+ * The three internal-name families are spelled from the *source* name since
+ * #430 — `__default_log` for a defaulted member's hoisted helper, `__log` for a
+ * member's forwarder, `__log` for a constrained term's export — and they share
+ * one ESM namespace, so where two prefer one spelling, one gives way. Both
+ * sides of a module boundary must give way the same way, and the importer
+ * cannot see the contest: `import { default_log }` names the term and never the
+ * constraint whose member `log` claims the spelling. So the inputs travel on
+ * the import item and one rule reads them at both ends (Lexer §3.2's probe,
+ * from 1).
+ *
+ * Every case here is compiled *and executed*, because the failure is a clean
+ * compile emitting JavaScript that will not load: a duplicate ESM export is a
+ * `SyntaxError`, and only running the program sees it. The fixtures are
+ * deliberately unalike — two conformance modules with byte-identical output
+ * share one `data:` module instance in the test linker.
  */
 describe("internal names that contest one spelling (#430)", () => {
   const files = [
@@ -991,6 +998,189 @@ describe("internal names that contest one spelling (#430)", () => {
 
     expect((exports.bracketed as () => string)()).toBe("[gold]");
     expect((exports.logged as () => string)()).toBe("memo (logged)");
+  });
+
+  /**
+   * A probe is not free to land where it likes: the spelling it settles on may
+   * be some *other* name's preferred one. `default_log` pushed off
+   * `__default_log` would land on `__default_log_1`, which is exactly what the
+   * term `default_log_1` wants — so the term family probes past its own
+   * siblings' preferred spellings as well as the helpers, and goes on to
+   * `__default_log_2`.
+   */
+  test("a term pushed off its spelling does not land on another term's", async () => {
+    const twins = [
+      ["/tolls.hex", [
+        "export constraint Fare<a> =",
+        "    price(entry: a): Int",
+        "    log(entry: a): Int = price(entry) + 1",
+        "",
+        "export let default_log<a: Fare>(entry: a): Int = price(entry) * 10",
+        "export let default_log_1<a: Fare>(entry: a): Int = price(entry) * 100",
+        "",
+        "export record Token = {worth: Int}",
+        "",
+        "honor Fare<Token> =",
+        "    price(t) = t.worth",
+        "",
+      ].join("\n")],
+      ["/gates.hex", [
+        "import { Fare, Token, default_log, default_log_1 } from \"./tolls\"",
+        "",
+        "export fun tenfold(): Int = default_log(Token({worth = 3}))",
+        "export fun hundredfold(): Int = default_log_1(Token({worth = 3}))",
+        "",
+      ].join("\n")],
+    ] as const;
+    const home = emitted(twins, "/tolls.hex");
+
+    expect(home).toContain("export { __default_log };");
+    expect(home).toContain("export { default_log_1 as __default_log_1 };");
+    expect(home).toContain("export { default_log as __default_log_2 };");
+
+    const away = emitted(twins, "/gates.hex");
+    expect(away).toContain("__default_log_2 as default_log");
+    expect(away).toContain("__default_log_1 as default_log_1");
+
+    const exports = await runProject(twins, { entry: "/gates.hex" });
+    expect((exports.tenfold as () => number)()).toBe(30);
+    expect((exports.hundredfold as () => number)()).toBe(300);
+  });
+
+  /**
+   * The contest inside one declaration: a member named `default_log` beside a
+   * defaulted member named `log`. The forwarder family gives way to the helper
+   * family for the same reason the term family does — the helper is the one
+   * spelling an importer can reach with no further information.
+   */
+  test("a member forwarder gives way to a sibling's default helper", async () => {
+    const marks = [
+      ["/marks.hex", [
+        "export constraint Stamp<a> =",
+        "    mark(entry: a): String",
+        "    log(entry: a): String = mark(entry) ++ \" (logged)\"",
+        "    default_log(entry: a): String",
+        "",
+        "export record Slip = {tag: String}",
+        "",
+        "honor Stamp<Slip> =",
+        "    mark(s) = s.tag",
+        "    default_log(s) = \"<\" ++ s.tag ++ \">\"",
+        "",
+      ].join("\n")],
+      ["/desks.hex", [
+        "import { Stamp, Slip } from \"./marks\"",
+        "",
+        "export fun angled(): String = default_log(Slip({tag = \"blue\"}))",
+        "export fun noted(): String = log(Slip({tag = \"blue\"}))",
+        "",
+      ].join("\n")],
+    ] as const;
+    const home = emitted(marks, "/marks.hex");
+
+    expect(home).toContain("export { __default_log };");
+    expect(home).toContain("export { default_log as __default_log_1 };");
+
+    const away = emitted(marks, "/desks.hex");
+    expect(away).toContain("__default_log_1 as default_log");
+
+    const exports = await runProject(marks, { entry: "/desks.hex" });
+    expect((exports.angled as () => string)()).toBe("<blue>");
+    expect((exports.noted as () => string)()).toBe("blue (logged)");
+  });
+
+  /**
+   * Both ranks at once, which is why the term family probes past the *resolved*
+   * forwarders and not merely the preferred ones: the term `default_log` is
+   * pushed off the helper's `__default_log`, and the spelling it would take
+   * next is where member `default_log_1`'s forwarder already sits.
+   */
+  test("a term probes past a forwarder as well as a helper", async () => {
+    const tags = [
+      ["/tags.hex", [
+        "export constraint Note<a> =",
+        "    body(entry: a): String",
+        "    log(entry: a): String = body(entry) ++ \"!\"",
+        "    default_log_1(entry: a): String",
+        "",
+        "export let default_log<a: Note>(entry: a): String = \"[\" ++ body(entry) ++ \"]\"",
+        "",
+        "export record Card = {word: String}",
+        "",
+        "honor Note<Card> =",
+        "    body(c) = c.word",
+        "    default_log_1(c) = \"{\" ++ c.word ++ \"}\"",
+        "",
+      ].join("\n")],
+      ["/racks.hex", [
+        "import { Note, Card, default_log } from \"./tags\"",
+        "",
+        "export fun squared(): String = default_log(Card({word = \"red\"}))",
+        "export fun braced(): String = default_log_1(Card({word = \"red\"}))",
+        "export fun banged(): String = log(Card({word = \"red\"}))",
+        "",
+      ].join("\n")],
+    ] as const;
+    const home = emitted(tags, "/tags.hex");
+
+    expect(home).toContain("export { __default_log };");
+    expect(home).toContain("export { default_log_1 as __default_log_1 };");
+    expect(home).toContain("export { default_log as __default_log_2 };");
+
+    const away = emitted(tags, "/racks.hex");
+    expect(away).toContain("__default_log_2 as default_log");
+    expect(away).toContain("__default_log_1 as default_log_1");
+
+    const exports = await runProject(tags, { entry: "/racks.hex" });
+    expect((exports.squared as () => string)()).toBe("[red]");
+    expect((exports.braced as () => string)()).toBe("{red}");
+    expect((exports.banged as () => string)()).toBe("red!");
+  });
+
+  /**
+   * The invariant rather than a spelling, over a cluster deep enough that every
+   * rank pushes on the next: four members (one defaulted) and two terms, all
+   * preferring some `__default_log…`. A duplicate ESM export name is a
+   * `SyntaxError` at load after a clean compile, which is the failure the whole
+   * ranking exists to prevent — so this reads the export names as a set and
+   * asks nothing about which name got which.
+   */
+  test("no module exports one internal spelling twice, however deep the probe", async () => {
+    const dense = [["/tiers.hex", [
+      "export constraint Rung<a> =",
+      "    height(entry: a): Int",
+      "    log(entry: a): Int = height(entry) + 1",
+      "    default_log_1(entry: a): Int",
+      "    default_log_2(entry: a): Int",
+      "",
+      "export let default_log<a: Rung>(entry: a): Int = height(entry) * 2",
+      "export let default_log_3<a: Rung>(entry: a): Int = height(entry) * 3",
+      "",
+      "export record Step = {rise: Int}",
+      "",
+      "honor Rung<Step> =",
+      "    height(s) = s.rise",
+      "    default_log_1(s) = s.rise + 10",
+      "    default_log_2(s) = s.rise + 20",
+      "",
+      "export let doubled: Int = default_log(Step({rise = 5}))",
+      "export let tripled: Int = default_log_3(Step({rise = 5}))",
+      "export let raised: Int = log(Step({rise = 5}))",
+      "",
+    ].join("\n")]] as const;
+    const text = emitted(dense, "/tiers.hex");
+
+    // The exported name is what follows `as`, or the bare name where there is
+    // no alias.
+    const exported = [...text.matchAll(/^export \{ (?:\w+ as )?(\w+) \};$/gmu)]
+      .map(([, name]) => name);
+    expect(exported.length).toBeGreaterThan(0);
+    expect(new Set(exported).size).toBe(exported.length);
+
+    const exports = await runProject(dense, { entry: "/tiers.hex" });
+    expect(exports.doubled).toBe(10);
+    expect(exports.tripled).toBe(15);
+    expect(exports.raised).toBe(6);
   });
 
   /**

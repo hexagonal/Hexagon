@@ -1177,17 +1177,25 @@ class JavaScriptEmitter {
   readonly #constraints = new Map<string, Core.ConstraintItem>();
   readonly #nullaryExceptions = new Set<Resolved.SymbolId>();
   /**
-   * The `__default_<member>` spellings this module's own output claims — the
+   * This module's own internal export spellings, by source name; see
+   * `internalNamePlan`.
+   */
+  readonly #internalNames: ReadonlyMap<string, string>;
+  /**
+   * The `__default_<member>` spellings this module's output claims — the
    * hoisted helpers of §6.5, one per defaulted member of an exported
-   * constraint. What an internal constrained export of this module probes past;
-   * see `internalConstrainedExportName`.
+   * constraint. Held apart from `#internalNames` because a defaulted member
+   * publishes two names off one source name.
    */
   readonly #defaultHelpers: ReadonlySet<string>;
   /**
-   * The same set for an *imported* module, rebuilt from the list its import item
+   * The same plan for an *imported* module, run over the inputs its import item
    * carries. Cached per item because every name on the import is asked.
    */
-  readonly #importedDefaultHelpers = new Map<Core.ImportItem, ReadonlySet<string>>();
+  readonly #importedInternalNames = new Map<
+    Core.ImportItem,
+    ReadonlyMap<string, string>
+  >();
   /**
    * The local each default helper is reached by here. This module's own helpers
    * are their export spellings; an inherited one is aliased, because the
@@ -1309,14 +1317,12 @@ class JavaScriptEmitter {
     this.#prelude = preludeIds(module);
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#runtimes = options.runtimes ?? new Map();
+    const inputs = ownInternalNameInputs(module);
+    this.#internalNames = internalNamePlan(inputs);
     this.#defaultHelpers = new Set(
-      module.items.flatMap((item) =>
-        item.kind === "ConstraintDeclaration" && item.exported
-          ? item.members
-            .filter(({ defaultValue }) => defaultValue !== undefined)
-            .map(({ binding }) => defaultHelperName(binding.name))
-          : []
-      ),
+      inputs.members
+        .filter(({ defaulted }) => defaulted)
+        .map(({ name }) => defaultHelperName(name)),
     );
     // Dictionary names are module-level `const`s and `import` bindings like any
     // other, so the emitter's own fresh names must dodge them. They are not
@@ -1576,7 +1582,7 @@ class JavaScriptEmitter {
           const local = this.#constrainedImports.get(symbol)!;
           if (this.#boundConstrainedImports.has(local)) return [];
           this.#boundConstrainedImports.add(local);
-          const source = this.#importedConstrainedName(imported, item);
+          const source = this.#importedInternalName(imported, item);
           return [source === local ? source : `${source} as ${local}`];
         });
         return [
@@ -1596,7 +1602,7 @@ class JavaScriptEmitter {
         .filter(({ constraintMember }) => constraintMember !== true)
         .filter(({ typeOnly }) => typeOnly !== true).map(({ imported, local, symbol }) => {
         const source = symbol !== undefined && this.#constrainedImports.has(symbol)
-          ? this.#importedConstrainedName(imported, item)
+          ? this.#importedInternalName(imported, item)
           : imported;
         return source === local ? source : `${source} as ${local}`;
       });
@@ -1679,7 +1685,7 @@ class JavaScriptEmitter {
             // the boundary a module's output is.
             this.#exports.push(
               `export { ${local} as ${
-                this.#ownConstrainedName(declaration.localName)
+                this.#ownInternalName(declaration.localName)
               } };`,
             );
             continue;
@@ -1794,7 +1800,7 @@ class JavaScriptEmitter {
           // in the `__*` class, so it takes the internal name and
           // stays out of the `.d.ts` — §6.4 is untouched.
           this.#exports.push(
-            `export { ${name} as ${this.#ownConstrainedName(member.binding.name)} };`,
+            `export { ${name} as ${this.#ownInternalName(member.binding.name)} };`,
           );
         }
         // A constraint member's `.js` seat is the forwarder emitted for it; the
@@ -2184,7 +2190,7 @@ class JavaScriptEmitter {
       // caller can reach it and it needs no boundary wrapper. The face is the
       // specializations, and those do.
       this.#exports.push(
-        `export { ${name} as ${this.#ownConstrainedName(item.binding.name)} };`,
+        `export { ${name} as ${this.#ownInternalName(item.binding.name)} };`,
       );
       for (const specialization of this.#specializationsFor(item.binding.symbol)) {
         const exported = this.#boundaryExportName(
@@ -4852,7 +4858,7 @@ class JavaScriptEmitter {
           if (constraintMember !== true || symbol === undefined) continue;
           if (!this.#referencedSymbols.has(symbol)) continue;
           const local = this.#constrainedImports.get(symbol) ?? imported;
-          const source = this.#importedConstrainedName(imported, item);
+          const source = this.#importedInternalName(imported, item);
           names.add(source === local ? source : `${source} as ${local}`);
         }
       }
@@ -4931,7 +4937,7 @@ class JavaScriptEmitter {
         // reaches the prelude's under a distinguished local (Modules §6.4), and
         // spelling the imported name here would redeclare its binding.
         const source = this.#constrainedImports.has(symbol)
-          ? this.#importedConstrainedName(imported, item)
+          ? this.#importedInternalName(imported, item)
           : imported;
         return [source === local ? source : `${source} as ${local}`];
       });
@@ -4946,25 +4952,27 @@ class JavaScriptEmitter {
   }
 
   /**
-   * The internal constrained export name **this** module publishes for one of
-   * its own exports, by the name its interface carries.
+   * The internal export name **this** module publishes for one of its own
+   * exports, by the name its interface carries. The fallback is unreachable —
+   * every caller is on an export path, and `ownInternalNameInputs` walks the
+   * same items those paths do — and is the preferred spelling, so a name that
+   * somehow escaped the plan is still the name the pre-#430 rule would give.
    */
-  #ownConstrainedName(name: string): string {
-    return internalConstrainedExportName(name, this.#defaultHelpers);
+  #ownInternalName(name: string): string {
+    return this.#internalNames.get(name) ?? `__${name}`;
   }
 
   /**
-   * The internal constrained export name the module behind `item` published for
-   * `imported`, computed from the helper spellings *that* module's output
-   * claims rather than from this one's.
+   * The internal export name the module behind `item` published for `imported`,
+   * from *that* module's inputs rather than this one's.
    */
-  #importedConstrainedName(imported: string, item: Core.ImportItem): string {
-    let helpers = this.#importedDefaultHelpers.get(item);
-    if (helpers === undefined) {
-      helpers = new Set(item.defaultedMembers.map(defaultHelperName));
-      this.#importedDefaultHelpers.set(item, helpers);
+  #importedInternalName(imported: string, item: Core.ImportItem): string {
+    let plan = this.#importedInternalNames.get(item);
+    if (plan === undefined) {
+      plan = internalNamePlan(item.internalNames);
+      this.#importedInternalNames.set(item, plan);
     }
-    return internalConstrainedExportName(imported, helpers);
+    return plan.get(imported) ?? `__${imported}`;
   }
 
   /**
@@ -7933,46 +7941,122 @@ function evidenceKey(
 }
 
 /**
- * The ESM name a constrained binding is exported under for Hexagon-to-Hexagon
- * linkage — the trailing-evidence calling convention, deliberately outside the
- * `.d.ts` face (FFI Part 7 §7) — and equally the §6.5 forwarder export of an
- * exported constraint's member. `log` exports as `__log`.
- *
- * `defaultHelpers` is the emitting module's default-helper spellings, which own
- * their bare names outright: a term named `default_log` prefers the same
- * `__default_log` as member `log`'s helper, so it probes past it —
- * `__default_log_1`, then `__default_log_2` — under Lexer §3.2's numbering. A
- * loop rather than one step, because a probe can land on a further helper:
- * `__default_log_1` is also member `log_1`'s preferred spelling.
- *
- * An importer calls this with the *exporting* module's helper spellings
- * (`Resolved.ImportItem.defaultedMembers`), never its own.
- */
-function internalConstrainedExportName(
-  name: string,
-  defaultHelpers: ReadonlySet<string>,
-): string {
-  const base = `__${name}`;
-  let spelling = base;
-  let suffix = 1;
-  while (defaultHelpers.has(spelling)) spelling = `${base}_${suffix++}`;
-  return spelling;
-}
-
-/**
  * The home module's hoisted helper for a defaulted constraint member
  * (Constraints §6.5), named after the member so every inheriting instance — in
  * any module — spells the same one.
  *
  * Unconditional, and that is what makes it predictable across the boundary: an
- * importer reaches a helper through the constraint declaration alone and can see
- * nothing of the exporting module's terms. The `default` marker is load-bearing
- * rather than decorative — a defaulted member of an exported constraint exports
- * both its forwarder and this helper off one symbol, so the two spellings must
- * differ.
+ * importer reaches a helper through the constraint declaration alone, so it can
+ * see nothing of the exporting module's terms and must be asked to see nothing.
+ * The other two families probe around this one instead. The `default` marker is
+ * load-bearing rather than decorative — a defaulted member of an exported
+ * constraint exports both its forwarder and this helper off one symbol, so the
+ * two spellings must differ.
  */
 function defaultHelperName(member: string): string {
   return `__default_${member}`;
+}
+
+/** Lexer §3.2's probe: the preferred spelling, then numeric suffixes from 1. */
+function probeInternalName(name: string, taken: ReadonlySet<string>): string {
+  const base = `__${name}`;
+  let spelling = base;
+  let suffix = 1;
+  while (taken.has(spelling)) spelling = `${base}_${suffix++}`;
+  return spelling;
+}
+
+/**
+ * Every internal export spelling one module publishes that is *not* a default
+ * helper: the §6.5 forwarder of each member of its exported constraints, and
+ * the trailing-evidence export of each constrained binding (FFI Part 7 §7).
+ * Keyed by the source name, which is one namespace across both — a member and a
+ * term of one module cannot share a spelling to begin with.
+ *
+ * The whole rule, in one place, run over `Resolved.InternalNameInputs`: the
+ * exporting module builds those from its own items and an importer reads them
+ * off the import, so "both sides agree" is a property of having one
+ * implementation over one input rather than of two computations matching.
+ *
+ * Three families, ranked, each probing past a set the other side can compute:
+ *
+ * 1. **Helpers** keep `__default_<member>` outright — see `defaultHelperName`.
+ * 2. **Forwarders** prefer `__<member>` and probe past the helpers and past
+ *    every *other* member's preferred spelling. The second clause is what keeps
+ *    a forwarder that has been pushed off its preferred name from landing on a
+ *    sibling's: members `log` (defaulted), `default_log`, and `default_log_1`
+ *    is the shape.
+ * 3. **Terms** prefer `__<term>` and probe past the helpers, the *resolved*
+ *    forwarders, and every other term's preferred spelling.
+ *
+ * That closes the namespace. Two preferred spellings never collide, because two
+ * module-scope names never do. A probed spelling never sits on a preferred one
+ * that survived: within a rank the siblings' preferred spellings are in the
+ * avoid set, above it the resolved spellings are, and below it the lower rank
+ * probes away in turn. And two probed spellings never collide across distinct
+ * bases: both end in `_<digits>` with no interior underscore, so the last
+ * underscore starts both suffixes, and equal strings force equal bases.
+ *
+ * `terms` deliberately holds every exported binding, not only the constrained
+ * ones. An unconstrained export mints no spelling but still contests one, and
+ * constrainedness lives in a scheme the resolver has not got — so counting all
+ * of them is what lets both sides count the same heads.
+ */
+function internalNamePlan(
+  inputs: Resolved.InternalNameInputs,
+): ReadonlyMap<string, string> {
+  const helpers = new Set(
+    inputs.members
+      .filter(({ defaulted }) => defaulted)
+      .map(({ name }) => defaultHelperName(name)),
+  );
+  const plan = new Map<string, string>();
+  const forwarders = new Set<string>();
+  const memberNames = inputs.members.map(({ name }) => name);
+  for (const name of memberNames) {
+    const taken = new Set(helpers);
+    for (const other of memberNames) if (other !== name) taken.add(`__${other}`);
+    const spelling = probeInternalName(name, taken);
+    plan.set(name, spelling);
+    forwarders.add(spelling);
+  }
+  for (const name of inputs.terms) {
+    const taken = new Set([...helpers, ...forwarders]);
+    for (const other of inputs.terms) if (other !== name) taken.add(`__${other}`);
+    plan.set(name, probeInternalName(name, taken));
+  }
+  return plan;
+}
+
+/**
+ * The `Resolved.InternalNameInputs` this module's own output is named from.
+ *
+ * Item kind for item kind with the resolver's `internalNameInputs`, which is
+ * what an importer is handed: the two walks are one rule read from two trees,
+ * and a kind counted here but not there is exactly how the sides would drift.
+ */
+function ownInternalNameInputs(module: Core.Module): Resolved.InternalNameInputs {
+  const members = module.items.flatMap((item) =>
+    item.kind === "ConstraintDeclaration" && item.exported
+      ? item.members.map(({ binding, defaultValue }) => ({
+        name: binding.name,
+        defaulted: defaultValue !== undefined,
+      }))
+      : []
+  );
+  const terms = module.items.flatMap((item) => {
+    if (item.kind === "ExternBlock") {
+      return item.declarations.flatMap((declaration) =>
+        declaration.exported && declaration.kind !== "ExternType"
+          ? [declaration.localName]
+          : []
+      );
+    }
+    return (item.kind === "Let" || item.kind === "Fun") && item.exported
+      ? [item.binding.name]
+      : [];
+  });
+  return { members, terms };
 }
 
 /**

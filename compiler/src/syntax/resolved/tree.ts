@@ -536,6 +536,35 @@ export interface LetItem {
   readonly span: Source.Span;
 }
 
+/**
+ * Everything one module's internal export spellings (Lexer §3.2's reserved
+ * prefix) are a function of — carried on the import so an importer computes the
+ * exporter's names rather than predicting them.
+ *
+ * Three families share that namespace and can contest a spelling: a defaulted
+ * member's hoisted helper claims `__default_<member>`, a member's forwarder
+ * prefers `__<member>`, and a constrained term's export prefers `__<term>`
+ * (Constraints §6.5, FFI Part 7 §7). `default_log` is an ordinary term name, so
+ * the contests are real, and an importer cannot see them from what it imports:
+ * `import { default_log }` names the term and never the constraint whose member
+ * `log` claims the spelling.
+ *
+ * These are the *inputs* to the naming rule, not the names it produces, so the
+ * rule has exactly one implementation — the exporting module runs it over its
+ * own items, an importer over this, and neither predicts what the other
+ * computed. `members` is every member of every **exported** constraint the
+ * module declares, not only the constraints this import binds, and `terms` is
+ * every exported `let`, `fun`, and foreign row: an unconstrained one mints no
+ * spelling but still contests one, and both sides must count the same heads.
+ */
+export interface InternalNameInputs {
+  readonly members: readonly {
+    readonly name: string;
+    readonly defaulted: boolean;
+  }[];
+  readonly terms: readonly string[];
+}
+
 export interface ImportItem {
   readonly kind: "Import";
   readonly specifier: string;
@@ -545,22 +574,10 @@ export interface ImportItem {
   /** Constraints this import binds by name (Modules §3.1/§3.2/§3.3). */
   readonly constraints: readonly ConstraintImport[];
   /**
-   * Every defaulted member of every constraint the imported module **exports**
-   * (Constraints §6.5) — not only the constraints this import binds.
-   *
-   * The imported module's hoisted default helpers claim `__default_<member>` in
-   * its emitted JavaScript, and the internal constrained export of a term named
-   * `default_<member>` prefers the same spelling, so one of the two probes
-   * (Lexer §3.2). An importer must reach the same answer as the exporter, and it
-   * cannot: `import { default_log }` names the term and never the constraint
-   * that contests it. So the contested spellings travel, and the emitter runs
-   * one naming rule over this list on both sides of the boundary.
-   *
-   * The *input* to the rule rather than the names it produces, so the rule has
-   * one implementation: the exporting module reads its own constraint items,
-   * an importer reads this, and neither predicts what the other computed.
+   * What the imported module's internal export spellings are computed from; see
+   * `InternalNameInputs`.
    */
-  readonly defaultedMembers: readonly string[];
+  readonly internalNames: InternalNameInputs;
   /**
    * Whether the resolver synthesized this import rather than the source writing
    * it — the used-names-only import of one prelude module (Modules §5.5, §6.4).
