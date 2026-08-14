@@ -178,7 +178,7 @@ describe("Step 1: the completed syntactic-value list", () => {
   test("(vi) a constrained alias stays usable at two representations", () => {
     // Deliberately not `let x = 42; let y = x`, which was this test's first
     // shape. A *literal's* variable is settled at its own binding by Numeric
-    // Literals §4 — `x : Int`, not `Num a => a` — so no alias of it is ever
+    // Literals §4 — `x : Int`, not `<a: Num> a` — so no alias of it is ever
     // constrained, and the two uses below would compile through numeric widening
     // (`const asBig = BigInt(y)`) in a checker that had never heard of item (vi).
     // The constraint has to come from a declared parameter to survive the

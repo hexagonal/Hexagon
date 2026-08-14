@@ -55,7 +55,7 @@ describe("displayScheme", () => {
       },
     };
 
-    expect(displayScheme(scheme)).toBe("Signed a => (a -> a) -> a");
+    expect(displayScheme(scheme)).toBe("<a: Signed> (a -> a) -> a");
   });
 
   test("distinguishes zero, one, and many parameters", () => {
@@ -132,6 +132,132 @@ describe("displayScheme", () => {
         type: { kind: "Union", union: unionId(0), name: "Suit", arguments: [] },
       }),
     ).toBe("Suit");
+  });
+});
+
+/**
+ * The constraint bracket (`spec/functions.md` §5.1, §4.2; #410). Written over
+ * constructed schemes because the questions are the *renderer's* — grouping,
+ * entry order, conjunct order — and inference reaches only the combinations it
+ * happens to build.
+ */
+describe("displayScheme: the constraint bracket", () => {
+  const constraint = (name: string, id: number) => ({
+    name,
+    identity: `hex:${name}`,
+    type: { kind: "Variable", id: typeVariableId(id) },
+    span: source.span(0, 0),
+  }) as const;
+  const variable = (id: number) => ({ kind: "Variable", id: typeVariableId(id) }) as const;
+  const string = { kind: "Primitive", name: "String" } as const;
+
+  test("a constrained value gets the bracket, and a space, with no arrow in sight", () => {
+    // The bracket is a quantifier prefix on a *complete type*, so it needs no
+    // function to attach to — and one space is what sets it off (§5.1).
+    expect(
+      displayScheme({
+        variables: [typeVariableId(1)],
+        constraints: [constraint("Show", 1)],
+        type: variable(1),
+      }),
+    ).toBe("<a: Show> a");
+  });
+
+  test("a constraint-free scheme shows no bracket at all", () => {
+    expect(
+      displayScheme({
+        variables: [typeVariableId(1)],
+        constraints: [],
+        type: { kind: "Function", parameters: [variable(1)], result: variable(1) },
+      }),
+    ).toBe("a -> a");
+  });
+
+  test("two constraints on one variable become §4.2's parenthesized conjunction", () => {
+    // The singleton above is bare; two or more are parenthesized. Both are
+    // verbatim source spellings of the binder.
+    expect(
+      displayScheme({
+        variables: [typeVariableId(1)],
+        constraints: [constraint("Num", 1), constraint("Show", 1)],
+        type: { kind: "Function", parameters: [variable(1)], result: variable(1) },
+      }),
+    ).toBe("<a: (Num, Show)> a -> a");
+  });
+
+  test("conjuncts sort by constraint name, not by the order they accumulated", () => {
+    // The displayed conjunction previews the evidence suffix, which orders by
+    // `(type-variable ordinal, constraint name)` independently of how the
+    // constraints were written or accumulated (FFI Part 9 §6.2, Constraints
+    // §6.1). Written order surviving here is exactly what this rules out.
+    expect(
+      displayScheme({
+        variables: [typeVariableId(1)],
+        constraints: [constraint("Show", 1), constraint("Num", 1)],
+        type: { kind: "Function", parameters: [variable(1)], result: variable(1) },
+      }),
+    ).toBe("<a: (Num, Show)> a -> a");
+  });
+
+  test("each variable gets its own entry, in the display's letter order", () => {
+    expect(
+      displayScheme({
+        variables: [typeVariableId(1), typeVariableId(2)],
+        constraints: [constraint("Show", 1), constraint("Show", 2)],
+        type: {
+          kind: "Function",
+          parameters: [variable(1), variable(2)],
+          result: string,
+        },
+      }),
+    ).toBe("<a: Show, b: Show> (a, b) -> String");
+  });
+
+  test("entries follow the letters, not the constraint list's order", () => {
+    // `b`'s constraint is written first; `a`'s entry still comes first, because
+    // the bracket's order is the quantifier's (and the ABI's), not the list's.
+    expect(
+      displayScheme({
+        variables: [typeVariableId(1), typeVariableId(2)],
+        constraints: [constraint("Eq", 2), constraint("Show", 1)],
+        type: {
+          kind: "Function",
+          parameters: [variable(1), variable(2)],
+          result: string,
+        },
+      }),
+    ).toBe("<a: Show, b: Eq> (a, b) -> String");
+  });
+
+  test("an unconstrained variable is unmentioned — bare `<a>` is never canonical", () => {
+    expect(
+      displayScheme({
+        variables: [typeVariableId(1), typeVariableId(2)],
+        constraints: [constraint("Show", 2)],
+        type: {
+          kind: "Function",
+          parameters: [variable(1), variable(2)],
+          result: string,
+        },
+      }),
+    ).toBe("<b: Show> (a, b) -> String");
+  });
+
+  test("`=>` appears nowhere in a displayed scheme, however constrained", () => {
+    // #410's whole point: the separator was the last non-term reading of `=>`,
+    // and every arrow a displayed type can carry is now `->`, `->?`, or `->!`.
+    const displayed = displayScheme({
+      variables: [typeVariableId(1), typeVariableId(2)],
+      constraints: [constraint("Num", 1), constraint("Show", 1), constraint("Eq", 2)],
+      type: {
+        kind: "Function",
+        parameters: [variable(1), variable(2)],
+        result: string,
+      },
+    });
+
+    expect(displayed).toBe("<a: (Num, Show), b: Eq> (a, b) -> String");
+    expect(displayed).not.toContain("=>");
   });
 });
 

@@ -92,7 +92,7 @@ describe("§3.1 the four-example block", () => {
     )).toBe("a -> a");
   });
 
-  test("`let inc = (x => x + 1 : a -> a)` — `inc : Num a => a -> a`", () => {
+  test("`let inc = (x => x + 1 : a -> a)` — `inc : <a: Num> a -> a`", () => {
     // The accumulation contract at work, and deliberately not an error: `+`
     // demands `Num`, the demand accumulates on rigid `a`, and `inc` elaborates
     // constrained-polymorphic. This is the line that separates Hexagon from
@@ -100,7 +100,7 @@ describe("§3.1 the four-example block", () => {
     expect(scheme(
       "let inc = (x => x + 1 : a -> a)\nexport let out: Int = inc(1)\n",
       "inc",
-    )).toBe("Num a => a -> a");
+    )).toBe("<a: Num> a -> a");
   });
 
   test("...and `inc` is usable at two numeric types", () => {
@@ -374,7 +374,7 @@ describe("§3.2 holes in ascribed types", () => {
     expect(scheme(
       "let g = (x => x + 1 : (_ : Num) -> _)\nexport let out: Int = g(1)\n",
       "g",
-    )).toBe("Num a => a -> a");
+    )).toBe("<a: Num> a -> a");
   });
 
   test("a whole-type constrained hole is a floor with no structure claim", () => {

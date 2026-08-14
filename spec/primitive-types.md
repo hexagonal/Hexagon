@@ -149,9 +149,9 @@ A `$` **not** followed by `{` is an ordinary character, no escape needed.
 
 ### 5.3 Interpolation elaborates via Show
 
-`"a ${e1} b ${e2}"` elaborates to string concatenation of the text chunks with `show(e1)`, `show(e2)` — where `show : Show a => a -> String` is the display method of the `Show` constraint. Consequences the implementer must preserve:
+`"a ${e1} b ${e2}"` elaborates to string concatenation of the text chunks with `show(e1)`, `show(e2)` — where `show : <a: Show> a -> String` is the display method of the `Show` constraint. Consequences the implementer must preserve:
 
-- The constraint **propagates normally**: `fun greet name = "Hello ${name}!"` infers `greet : Show a => a -> String`, dictionary-passed like any constraint. No special machinery beyond what `fromNat` established in the Numeric Literals spec.
+- The constraint **propagates normally**: `fun greet name = "Hello ${name}!"` infers `greet : <a: Show> a -> String`, dictionary-passed like any constraint. No special machinery beyond what `fromNat` established in the Numeric Literals spec.
 - Interpolating a type with **no Show instance is a compile error**. This is the feature: functions and opaque extern types don't accidentally become `"[object Object]"` or spliced source code. (An extern type may opt in with an explicit `honor Show<T>`.)
 - When the interpolated type is concrete and its `show` is representational identity or `String(x)` (§7), codegen may — and should — emit a plain JS template literal `` `a ${e1} b ${e2}` `` for readability. When `show` is a real call, emit it: `` `a ${Rat_show(e1)} b` ``. Polymorphic case: `dict.show(e1)`.
 - `String.show` is the identity, so interpolating a String splices it bare (no added quotes) — display semantics, not Haskell-`show` semantics. See §7.
