@@ -160,10 +160,15 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
   const hosted = hostedModules.filter(
     ({ companion }) => !shadowedCompanions.has(companion),
   );
-  // Auto-import only the equipment subset; hosted prelude sources (Option) are
-  // supplied for resolution but stay implicit via the compiler's prelude.
+  // Auto-import only the equipment a buffer mentions; hosted prelude sources
+  // (Option, Vector) are supplied for resolution but stay implicit via the
+  // compiler's prelude, and equipment the buffer never names would cost every
+  // program an import line and an instance inventory it does not use.
+  const spelled = spelledWords(source);
   const equipmentPrefix = hosted
-    .filter(({ companion }) => playgroundEquipment.includes(companion))
+    .filter(({ companion }) =>
+      playgroundEquipment.includes(companion) && spelled.has(companion)
+    )
     .map(({ companion, path }) => {
       const specifier = `.${path.slice(0, -".hex".length)}`;
       return `import * as ${companion} from ${JSON.stringify(specifier)}`;
@@ -198,4 +203,23 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
     map: new WorkspaceMap(buffered, source.length),
     diagnostics: workspace.diagnostics,
   };
+}
+
+/**
+ * Every maximal run of identifier characters in the buffer.
+ *
+ * The gate this feeds has to over-approximate. A name spelled only in a comment
+ * or a string buys a spare import — which is what every workspace carried
+ * unconditionally before — while a missed mention fails a compile against an
+ * import the buffer does not contain and the user cannot add by looking at it.
+ *
+ * A run is the lexer's identifier continuation set rather than `\b`'s ASCII
+ * word characters, so `Ratio` and a companion's name inside a non-ASCII
+ * identifier are not mentions. The runs are taken over the whole buffer and not
+ * `/main.hex`'s masked text, so which side of a `module` line a name is spelled
+ * on cannot change the answer — a block's own file never carries the prefix,
+ * but its values reach the entry, and the cheap gate does not model that.
+ */
+function spelledWords(source: string): ReadonlySet<string> {
+  return new Set(source.match(/[\p{ID_Continue}$]+/gu) ?? []);
 }
