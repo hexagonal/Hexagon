@@ -279,29 +279,134 @@ export fun pong(n: Int): Unit =
   });
 
   /**
-   * Unions §2.2 promises a *targeted* hint for a called nullary constructor —
-   * "`None` is a value, not a function; write it without `()`". No such hint
-   * exists in the checker: the nullary-value hint below is the **exception**
-   * constructor's, keyed on `#exceptions`, and a union nullary has never had
-   * one. Before this change `None()` produced the same "type mismatch … ->? …"
-   * every other non-function callee did; it now produces the dedicated report,
-   * which is the generic half of what §2.2 asks for. The missing targeted half
-   * is a pre-existing divergence this change neither creates nor closes, and it
-   * is pinned here so that whoever implements it sees what it must displace.
+   * Unions §2.2's targeted hint for a called nullary constructor (#413):
+   * "`None` is a value, not a function; write it without `()`". The generic
+   * report's type display would print the instantiation's fresh variable —
+   * `Option(?433)` — noise about a value the writer named, so the hint
+   * displaces the whole sentence, type and argument count included. The fixit
+   * deletes the empty argument list; a call that *supplies* arguments keeps
+   * the sentence but offers no fixit, because deleting `(x)` deletes an
+   * expression, and where that expression belongs is the writer's decision.
    */
-  test("a called union nullary constructor takes the generic report, hint still absent", () => {
-    const messages = main("export let bad: Option(Int) = None()\n");
+  test("a called union nullary constructor takes Unions §2.2's targeted hint", () => {
+    expect(main("export let bad: Option(Int) = None()\n")).toEqual([
+      "`None` is a value, not a function; write it without `()`",
+    ]);
+  });
+
+  test("the hint's fixit deletes exactly the argument list", () => {
+    const source = "export let bad: Option(Int) = None()\n";
+    const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
+    expect(diagnostic?.fixes).toHaveLength(1);
+    const fix = diagnostic!.fixes![0]!;
+    expect(fix.message).toBe("delete the `()`");
+    expect(fix.edits).toHaveLength(1);
+    const edit = fix.edits[0]!;
+    expect(edit.replacement).toBe("");
+    expect(source.slice(edit.span.start.offset, edit.span.end.offset)).toBe("()");
+  });
+
+  test("a locally declared nullary constructor takes the same hint", () => {
+    expect(
+      main("export union Colour = Red | Mixed(Int)\nexport let bad: Colour = Red()\n"),
+    ).toEqual(["`Red` is a value, not a function; write it without `()`"]);
+  });
+
+  test("a nullary constructor called with arguments keeps the hint, minus the fixit", () => {
+    const source = "export let bad: Option(Int) = None(1)\n";
+    const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
+    expect(diagnostic?.message).toBe(
+      "`None` is a value, not a function; write it without `()`",
+    );
+    expect(diagnostic?.fixes).toBeUndefined();
+  });
+
+  test("a binding holding a constructor's value keeps the generic report", () => {
+    // The hint is about the constructor *written* with parens; a `let` bound to
+    // `None` is an ordinary value whose name carries no argument list to
+    // delete, so its call keeps #385's sentence, fresh variable and all.
+    const messages = main("let n = None\nexport let bad: Option(Int) = n()\n");
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toContain("`None` is not a function — it has type `Option(");
+    expect(messages[0]).toContain("`n` is not a function — it has type `Option(");
     expect(messages[0]).toContain("and this call supplies no arguments");
-    expect(messages[0]).not.toContain("->");
   });
 
   test("a nullary exception keeps its own targeted hint", () => {
     // The hint fires before the callee is inferred at all, so the new report
-    // can never displace it (Exceptions §7.3, Unions §2.2).
+    // can never displace it (Exceptions §2.1, Unions §2.2 — one sentence, the
+    // union rules restated for closure).
     expect(
       main("export exception Missing\nexport let bad: Exn = Missing()\n"),
-    ).toEqual(["`Missing` is a value; write it without `()`"]);
+    ).toEqual(["`Missing` is a value, not a function; write it without `()`"]);
+  });
+
+  test("an imported nullary exception must not take the constructor hint", () => {
+    // The exception short-circuit above reads `#exceptions`, which holds only
+    // local declarations, so an imported nullary exception reaches the
+    // not-callable arm — where the constructor hint's membership test
+    // (`#constructorUnions`) must exclude it, exception constructors sharing
+    // the resolver's `"constructor"` symbol kind notwithstanding. That it
+    // lands on the generic sentence rather than Exceptions §2.1's hint is the
+    // pre-existing import gap filed as #439; what this test pins is the
+    // boundary: no union-constructor hint, and no fixit deleting the `()`.
+    const compiled = compileFiles([
+      ["/lib.hex", "export exception Missing\n"],
+      ["/main.hex", 'import { Missing } from "./lib"\nexport let bad: Exn = Missing()\n'],
+    ]);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "`Missing` is not a function — it has type `Exn`, and this call supplies no arguments",
+    ]);
+    expect(compiled.diagnostics[0]?.fixes).toBeUndefined();
+  });
+
+  test("an imported nullary constructor is caught, with the fixit in the caller's file", () => {
+    // `#constructorUnions` carries imported unions because `module.unions`
+    // does; this is the only pin on that channel, and on the fixit landing in
+    // the file the call was written in — `AnalysisSession` drops a code action
+    // whose file does not resolve, silently.
+    const mainSource = 'import { Colour, Red } from "./lib"\nexport let bad: Colour = Red()\n';
+    const compiled = compileFiles([
+      ["/lib.hex", "export union Colour = Red | Mixed(Int)\n"],
+      ["/main.hex", mainSource],
+    ]);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "`Red` is a value, not a function; write it without `()`",
+    ]);
+    const diagnostic = compiled.diagnostics[0]!;
+    const edit = diagnostic.fixes![0]!.edits[0]!;
+    expect(edit.span.fileId).toBe(diagnostic.primary.fileId);
+    expect(mainSource.slice(edit.span.start.offset, edit.span.end.offset)).toBe("()");
+  });
+
+  test("a piped call with a written `()` keeps the hint but earns no fixit", () => {
+    // The pipeline stage supplies the piped value as an argument, so the
+    // argument-count conjunct — not the two-character gap, which IS exactly
+    // `()` here — is what withholds the fixit: deleting the written parens
+    // would leave `1 |> None`, still an error. The one shape where the gate's
+    // two halves disagree, so the only pin the count conjunct has.
+    const [diagnostic, ...rest] = compileFiles([
+      ["/main.hex", "export let bad: Int = 1 |> None()\n"],
+    ]).diagnostics;
+    expect(rest).toEqual([]);
+    expect(diagnostic?.message).toBe(
+      "`None` is a value, not a function; write it without `()`",
+    );
+    expect(diagnostic?.fixes).toBeUndefined();
+  });
+
+  test("an argument list that is not exactly `()` keeps the hint but earns no fixit", () => {
+    // "delete the `()`" must delete exactly the two characters it names. A gap
+    // holding anything more — whitespace, a comment, a glued effect mark — is
+    // the writer's text, so the sentence stands alone there.
+    for (const call of ["None ()", "None((* why *))", "None!()"]) {
+      const [diagnostic, ...rest] = compileFiles([
+        ["/main.hex", `export let bad: Option(Int) = ${call}\n`],
+      ]).diagnostics;
+      expect(rest).toEqual([]);
+      expect(diagnostic?.message).toBe(
+        "`None` is a value, not a function; write it without `()`",
+      );
+      expect(diagnostic?.fixes).toBeUndefined();
+    }
   });
 });

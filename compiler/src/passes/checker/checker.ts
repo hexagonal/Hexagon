@@ -4205,7 +4205,8 @@ class Checker {
             }
             this.#diagnostics.add({
               severity: "error",
-              message: `\`${expression.callee.text}\` is a value; write it without \`()\``,
+              message: `\`${expression.callee.text}\` is a value, not a function; ` +
+                "write it without `()`",
               primary: expression.span,
             });
             type = ERROR;
@@ -4263,15 +4264,60 @@ class Checker {
           // callee not yet *known* to be a function, mutual recursion inside an
           // SCC included — and keeps the unify. A callee that already failed
           // keeps falling through it silently.
-          this.#diagnostics.add({
-            severity: "error",
-            message: notCallableMessage(
-              expression,
-              this.#display(knownCallee),
-              arguments_.length,
-            ),
-            primary: expression.span,
-          });
+          //
+          // A *nullary union constructor* takes Unions §2.2's own sentence
+          // instead. The writer named the value; a type display would print the
+          // instantiation's fresh variable (`Option(?433)`) — noise about a
+          // value the writer already knows. `#constructorUnions` alone decides
+          // membership: it holds every union constructor whose union this
+          // module can see, imported ones included (`module.unions` carries
+          // them), and never an exception constructor — which shares the
+          // resolver's `"constructor"` symbol kind but not the map. A *local*
+          // nullary exception never reaches this arm at all (the `#exceptions`
+          // short-circuit above), and an imported one arrives typed `Exn` and
+          // keeps the generic sentence — both pinned in conformance.
+          //
+          // The fixit is offered only where the deletion is exactly the two
+          // characters it names. A gap holding anything more — an argument
+          // expression, a comment (`None((* why *))`), a glued effect mark
+          // (`None!()`) — is the writer's text, and "delete the `()`" must not
+          // delete it.
+          if (
+            expression.callee.kind === "Name" &&
+            this.#constructorUnions.has(expression.callee.symbol)
+          ) {
+            const argumentList = {
+              fileId: expression.span.fileId,
+              start: expression.callee.span.end,
+              end: expression.span.end,
+            };
+            const deletesExactlyParens = expression.arguments.length === 0 &&
+              argumentList.end.offset - argumentList.start.offset === 2;
+            this.#diagnostics.add({
+              severity: "error",
+              message: `\`${expression.callee.text}\` is a value, not a function; ` +
+                "write it without `()`",
+              primary: expression.span,
+              ...(deletesExactlyParens
+                ? {
+                  fixes: [{
+                    message: "delete the `()`",
+                    edits: [{ span: argumentList, replacement: "" }],
+                  }],
+                }
+                : {}),
+            });
+          } else {
+            this.#diagnostics.add({
+              severity: "error",
+              message: notCallableMessage(
+                expression,
+                this.#display(knownCallee),
+                arguments_.length,
+              ),
+              primary: expression.span,
+            });
+          }
           type = ERROR;
         } else {
           // The callee is not yet known to be a function, so the effect slot has

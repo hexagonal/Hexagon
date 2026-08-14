@@ -1021,7 +1021,7 @@ describe("check", () => {
 
     expect(messages).toContain("exception payloads must have concrete types");
     expect(messages).toContain("exception field `message` must have type `String`");
-    expect(messages).toContain("`Missing` is a value; write it without `()`");
+    expect(messages).toContain("`Missing` is a value, not a function; write it without `()`");
     expect(messages).toContain(
       "match requires a closed type; exceptions are inspected with `try`/`catch`",
     );
