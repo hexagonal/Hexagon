@@ -501,6 +501,8 @@ interface ExternDeclarationFields {
   readonly default: boolean;
   /** The #355 trusted purity claim; see the parsed tree's field. */
   readonly pure?: true;
+  /** #409's declared-conduit claim, at its own word; see the parsed tree's field. */
+  readonly conduit?: Source.Span;
   readonly foreignName?: string;
   readonly localName: string;
   readonly span: Source.Span;

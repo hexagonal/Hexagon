@@ -1029,12 +1029,15 @@ describe("hover renders the arrow trio", () => {
     "",
     "export let twice(step: Int -> Int, value: Int): Int = step(step(value))",
     "",
+    "extern from \"./world.js\"",
+    "    export conduit fun runner(step: () ->? String): Int",
+    "",
   ].join("\n");
 
   let hex: Harness;
 
   beforeAll(async () => {
-    hex = await harness({ "main.hex": TRIO });
+    hex = await harness({ "main.hex": TRIO, "world.js": "" });
     await hex.client.sendNotification(DidOpenTextDocumentNotification.type, {
       textDocument: { uri: hex.uriOf("main.hex"), languageId: "hexagon", version: 1, text: TRIO },
     });
@@ -1085,5 +1088,14 @@ describe("hover renders the arrow trio", () => {
 
   test("a pure face says nothing about colour", async () => {
     expect(await hovered("twice")).toBe("value `twice: (Int -> Int, Int) -> Int`");
+  });
+
+  test("a `conduit` boundary row reaches the editor as the linked face it is", async () => {
+    // #409's keyword is declaration surface only: what it seats is one colour
+    // variable at the outer arrow and at every `->?` slot, and what a reader
+    // sees is therefore an ordinary single-variable face, undecorated. Asked of
+    // the real server because the boundary row is the one face in the language
+    // whose colour is *claimed* rather than inferred from a body.
+    expect(await hovered("runner")).toBe("value `runner: (() ->? String) ->? Int`");
   });
 });

@@ -70,6 +70,17 @@ interface ExternDeclarationFields {
    * comes from intrinsics §4.2's verification instead.
    */
   readonly pure?: true;
+  /**
+   * The declared-conduit claim (`conduit fun …`), #409's second claim keyword,
+   * carried as the span of the word itself so the checker can stand a report on
+   * it. It seats one colour variable at the row's outer arrow *and* at every
+   * `->?` the signature writes: the row is exactly as effectful as its
+   * callbacks, jointly (FFI Part 4 §4.5).
+   *
+   * One row carries one claim: a row spelling both `pure` and `conduit` records
+   * neither, and takes the impure default behind the parser's report.
+   */
+  readonly conduit?: Source.Span;
   readonly foreignName?: Name;
   readonly localName: Name;
   readonly span: Source.Span;

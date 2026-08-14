@@ -216,7 +216,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
   it("conducts the same call inside an inlet-bearing body", () => {
     // Effects §3.3's qualification, restated at `stream.md` §4.2: the enclosing
     // signature offers an inlet, so a call whose colour is still undetermined
-    // is a conductor rather than pure-pinned.
+    // is a conduit rather than pure-pinned.
     const body = (mark: string): string =>
       "export let wire(source: Stream(Int), step: Int ->? Int): Stream(Int) =\n" +
       `    Stream.map${mark}(source, step)\n`;

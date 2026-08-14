@@ -95,7 +95,7 @@ reading an unfamiliar function tells you something real: **the bare calls are th
 that cannot matter to the outside world.**
 
 The teaching model is a pipe. Every call is clean, dirty, or conducting, and the
-question at each one is *am I a source, or just a conductor?*
+question at each one is *am I a source, or just a conduit?*
 
 ## `->?` — letting the caller decide
 
@@ -212,6 +212,23 @@ simply a lie, with two narrow exceptions the specification names: a write-only c
 the program cannot read back (a debug probe), and a read the runtime performs at most
 once and then owns.
 
+There is a second claim in the same slot, for the shape `pure` cannot describe. A foreign
+function that *runs* the callback you hand it is exactly as effectful as that callback —
+`Array.prototype.forEach` is the everyday example. `pure` would be a lie about it, and the
+default charges a `!` even when the callback you supply is pure. `conduit` says the honest
+thing instead:
+
+```hexagon
+extern from "./world.js"
+    export conduit fun each(step: (String) ->? Unit): Unit
+```
+
+`each`'s face is `(String ->? Unit) ->? Unit` — one colour, worn by the callback and by
+`each` itself. Hand it a pure step and the call is bare; hand it one that saves, and the
+call wears `!`. Nothing new happens at the call site: that is the linked arrow you already
+know, declared rather than inferred, because a declaration header has no outer arrow to
+write it on. Like `pure`, it is believed rather than checked.
+
 That is the whole story of how a pure corpus stays pure. Nothing in the standard library
 manufactures an effect; effects arrive through declared doors.
 
@@ -281,7 +298,8 @@ loophole.
 - operators, indexing, `for` heads, and interpolation have no seat for a mark, so
   everything they dispatch to is pure — constraint members included; and
 - effects enter through user-written externs, which are impure by default and may claim
-  `pure` as a trusted, unchecked promise; and
+  either `pure` — it never touches the world — or `conduit` — it is exactly as effectful
+  as the callbacks it is handed — as trusted, unchecked promises; and
 - the standard library's own exception is the debug probe — `log` and `trace`, from
   `Debug.hex` — pure-faced because the console cannot be read back, and therefore
   indifferent to how many times it runs; counted, ordered output belongs behind a `!`.

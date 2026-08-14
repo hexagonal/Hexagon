@@ -586,18 +586,48 @@ class Parser {
     // Effects §6.1's opt-out, in the shape `default` already established: a
     // contextual modifier on one extern declaration. A user-written extern is
     // effectful by default (trust territory); `pure` is the trusted purity
-    // claim. Compiler-owned intrinsic rows take their purity from intrinsics
-    // §4.2's verification instead, so the modifier is redundant there.
-    const pureClaim = this.#atContextual("pure");
-    if (pureClaim) {
+    // claim, and `conduit` (#409) is its sibling in the same slot — the claim
+    // that the row is exactly as effectful as the callbacks it is handed.
+    // Compiler-owned intrinsic rows take their purity from intrinsics §4.2's
+    // verification instead, so both modifiers are redundant there.
+    //
+    // Either order is scanned so `conduit pure` reaches the one-claim report
+    // below rather than a parse failure; a *repeated* word is not consumed
+    // twice, and falls to the declaration-keyword check as it always did.
+    const claims: { readonly text: "pure" | "conduit"; readonly span: Source.Span }[] = [];
+    for (;;) {
+      const text = this.#atContextual("pure")
+        ? "pure" as const
+        : this.#atContextual("conduit")
+        ? "conduit" as const
+        : undefined;
+      if (
+        text === undefined || claims.length === 2 ||
+        claims.some((claim) => claim.text === text)
+      ) break;
+      const { span } = this.#advance();
+      claims.push({ text, span });
       if (intrinsic) {
         this.#errorAt(
-          this.#current().span,
-          "intrinsic rows are verified rather than trusted; `pure` is for user-written externs",
+          span,
+          `intrinsic rows are verified rather than trusted; \`${text}\` is for user-written externs`,
         );
       }
-      this.#advance();
     }
+    // FFI Part 4 §4.5: one row, one claim. The two say incompatible things
+    // about the same arrow, so neither is believed — the row falls back to the
+    // impure default, which is the honest reading of a row that claimed nothing.
+    const conflicting = claims.length === 2;
+    if (conflicting) {
+      this.#errorAt(
+        claims[1]!.span,
+        "one row, one claim: `pure` says this function never observably invokes " +
+          "what it is handed, and `conduit` says it is exactly as effectful as " +
+          "what it is handed — write one",
+      );
+    }
+    const pureClaim = !conflicting && claims[0]?.text === "pure";
+    const conduitClaim = conflicting ? undefined : claims.find((claim) => claim.text === "conduit");
     const kind = this.#current().kind;
     if (intrinsic && kind !== "Fun") {
       const label = this.#current();
@@ -616,17 +646,23 @@ class Parser {
     }
     // FFI Part 4 §4.5: the claim is a claim about a *face*, and only a callable
     // has one. Refused here rather than believed and dropped, so the row does
-    // not read as carrying a purity the checker never asked about.
+    // not read as carrying a purity the checker never asked about. `conduit`
+    // stands on the same sentence: it colours an outer arrow the non-callable
+    // forms do not have.
     const pureOnFun = pureClaim && kind === "Fun";
-    if (pureClaim && kind !== "Fun") {
-      this.#errorAt(
-        start.span,
-        kind === "Type"
-          ? "`pure` claims a function's face, and a type has none — the claim " +
-            "belongs on an extern `fun`"
-          : "`pure` claims a function's face, and a value reference carries no " +
-            "colour — the claim belongs on an extern `fun`",
-      );
+    const conduitOnFun = kind === "Fun" ? conduitClaim : undefined;
+    if (kind !== "Fun") {
+      for (const claim of claims) {
+        if (conflicting && claim !== claims[0]) continue;
+        this.#errorAt(
+          start.span,
+          kind === "Type"
+            ? `\`${claim.text}\` claims a function's face, and a type has none — the claim ` +
+              "belongs on an extern `fun`"
+            : `\`${claim.text}\` claims a function's face, and a value reference carries no ` +
+              "colour — the claim belongs on an extern `fun`",
+        );
+      }
     }
     this.#advance();
     if (kind === "Type" && defaultBinding) {
@@ -754,6 +790,7 @@ class Parser {
         exported,
         default: defaultBinding,
         ...(pureOnFun ? { pure: true as const } : {}),
+        ...(conduitOnFun === undefined ? {} : { conduit: conduitOnFun.span }),
         ...(foreignName === undefined ? {} : { foreignName }),
         localName,
         ...(typeParameters === undefined || typeParameters.length === 0
