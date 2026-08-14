@@ -14,6 +14,10 @@
  * from a `Debug.js` that was never written, compile clean, and fail only at
  * load.
  *
+ * The last describe block is #441's: it covers **both** halves, because what it
+ * pins is the recognition step the two share, and the two enumeration-membered
+ * fundamentals were missing from it in each.
+ *
  * **Every executed graph is made byte-distinct**, through the `distinct`
  * transform `debug-log.test.ts` introduced: emitted modules mount as `data:`
  * URLs and the registry caches those by text, so two tests compiling the same
@@ -63,6 +67,24 @@ function danglingImports(
       return paths.has(target) ? [] : [`${module.source.path} -> ${specifier}`];
     })
   );
+}
+
+/** The lines `Debug.hex`'s captured sink writes while `run` executes. */
+async function written(run: () => Promise<unknown>): Promise<readonly unknown[][]> {
+  const host = globalThis as unknown as {
+    console: { log: (...values: unknown[]) => void };
+  };
+  const lines: unknown[][] = [];
+  const original = host.console.log;
+  host.console.log = (...values: unknown[]) => {
+    lines.push(values);
+  };
+  try {
+    await run();
+  } finally {
+    host.console.log = original;
+  }
+  return lines;
 }
 
 /** Import lines only — several claims here are about the module graph. */
@@ -129,22 +151,12 @@ describe("a concrete call to a prelude constrained export", () => {
   });
 
   test("runs, and the write reaches the sink", async () => {
-    const host = globalThis as unknown as {
-      console: { log: (...values: unknown[]) => void };
-    };
-    const lines: unknown[][] = [];
-    const original = host.console.log;
-    host.console.log = (...values: unknown[]) => {
-      lines.push(values);
-    };
-    try {
-      await runProject(
+    const lines = await written(() =>
+      runProject(
         [["/main.hex", 'log("through the edition")\nexport let ok: Int = 1\n']],
         { transform: distinct("specialized call sites: prelude edition") },
-      );
-    } finally {
-      host.console.log = original;
-    }
+      )
+    );
 
     expect(lines).toEqual([["through the edition"]]);
   });
@@ -270,22 +282,6 @@ describe("everything else keeps its trailing evidence", () => {
   });
 
   /**
-   * `Bool` and `Unit` are fundamental by enumeration (#147, #159) and their
-   * editions are exported like any other, but a call site cannot be recognized
-   * as reaching one: their evidence arrives structural rather than primitive,
-   * because neither is a primitive any more. The same-module router has always
-   * skipped them for this reason and the imported half matches it exactly —
-   * recognizing them is an evidence-representation question, not this rule's.
-   */
-  test("`Bool` and `Unit` keep evidence, as the same-module router does", () => {
-    const javascript = emitted([["/main.hex", "log(True)\nlog(())\n"]]);
-
-    expect(javascript).toContain("__log as log");
-    expect(javascript).not.toContain("logBool");
-    expect(javascript).not.toContain("logUnit");
-  });
-
-  /**
    * The one fact no importer can read off a scheme, and therefore the one
    * carried on the import: `alias` is constrained, exported, and function-typed,
    * yet mints no editions at all, because the exporter's plan reads the *value*
@@ -336,16 +332,8 @@ describe("an edition's public name reaching a module that binds it", () => {
   });
 
   test("runs with both names live", async () => {
-    const host = globalThis as unknown as {
-      console: { log: (...values: unknown[]) => void };
-    };
-    const lines: unknown[][] = [];
-    const original = host.console.log;
-    host.console.log = (...values: unknown[]) => {
-      lines.push(values);
-    };
-    try {
-      await runProject(
+    const lines = await written(() =>
+      runProject(
         [[
           "/main.hex",
           "let logString(x: String): String = x\n" +
@@ -353,11 +341,130 @@ describe("an edition's public name reaching a module that binds it", () => {
             "export let ok: Int = 1\n",
         ]],
         { transform: distinct("specialized call sites: shadowed edition") },
-      );
-    } finally {
-      host.console.log = original;
-    }
+      )
+    );
 
     expect(lines).toEqual([["shadowed"]]);
+  });
+});
+
+/**
+ * #441, at both halves at once. `Bool` and `Unit` are fundamental by
+ * **enumeration** (§15 row 17) rather than by classification, and since #147
+ * and #159 neither is a primitive — the prelude union and the arity-0 tuple.
+ * Their editions were planned, emitted, exported and `.d.ts`-faced from the
+ * start; what was missing was the recognition step both routers share, which
+ * read a primitive's name off the evidence and so answered "unknown" for
+ * exactly these two. The values need no conversion to route: `True` is `true`
+ * (Unions §6.2) and `()` is `undefined`.
+ */
+describe("the two fundamentals that name no primitive", () => {
+  test("a same-module callee reaches its `Bool` and `Unit` editions", () => {
+    const javascript = emitted([[
+      "/main.hex",
+      "export let describe<a: Show>(x: a): String = show(x)\n" +
+        "export let ofBool: String = describe(True)\n" +
+        "export let ofUnit: String = describe(())\n",
+    ]]);
+
+    expect(javascript).toContain("const ofBool = describeBool(true);");
+    expect(javascript).toContain("const ofUnit = describeUnit(undefined);");
+  });
+
+  test("an imported callee reaches them, and asks for no dictionary", () => {
+    const javascript = emitted([["/main.hex", "log(True)\nlog(())\n"]]);
+
+    expect(javascript).toContain('import { logBool, logUnit } from "./Debug.js";');
+    expect(javascript).toContain("logBool(true);");
+    expect(javascript).toContain("logUnit(undefined);");
+    // The two things the editions replace, and the second is the point the
+    // `__Eq_Bool` pins make from the other side: at a routed site no dictionary
+    // is built at all, so there is nothing left to name.
+    expect(javascript).not.toContain("__log as log");
+    expect(javascript).not.toContain('"True" : "False"');
+  });
+
+  test("keeps the modules the editions come from in the emitted graph", () => {
+    expect(danglingImports([["/main.hex", "log(True)\nlog(())\n"]])).toEqual([]);
+  });
+
+  test("`Bool` is one assignment among several across a boundary", () => {
+    const javascript = emitted([
+      ["/pair.hex", SHOW_PAIR],
+      [
+        "/main.hex",
+        'import { pair } from "./pair"\n' +
+          "export let answer: String = pair(1, True)\n",
+      ],
+    ]);
+
+    expect(javascript).toContain(
+      'import { __pair as pair, pairIntBool } from "./pair.js";',
+    );
+    expect(javascript).toContain("const answer = pairIntBool(1, true);");
+  });
+
+  test("a variable still in play keeps the dictionary the `Bool` one rode with", () => {
+    const javascript = emitted([
+      ["/pair.hex", SHOW_PAIR],
+      [
+        "/main.hex",
+        'import { pair } from "./pair"\n' +
+          "export let half<b: Show>(y: b): String = pair(True, y)\n",
+      ],
+    ]);
+
+    // The negative control: recognition is per *variable*, and this site's
+    // second one is not ground, so the call keeps the generic edition — with
+    // `Show<Bool>`'s literal built at it like any other structural dictionary.
+    // `half`'s own editions are the other side of the same claim: inside
+    // `halfInt` both variables are ground, so that body does route.
+    expect(javascript).toContain(
+      "const half = (y, __Show_a) => " +
+        'pair(true, y, ({ show: __value => (__value ? "True" : "False") }), __Show_a);',
+    );
+    expect(javascript).toContain("return pairBoolInt(true, y);");
+  });
+
+  test("the editions compute what the generic edition would have", async () => {
+    const files = [
+      ["/pair.hex", SHOW_PAIR],
+      [
+        "/main.hex",
+        'import { pair } from "./pair"\n' +
+          "export let answer: String = pair(True, ())\n",
+      ],
+    ] as const;
+
+    expect(emitted(files)).toContain(
+      "const answer = pairBoolUnit(true, undefined);",
+    );
+    const exports = await runProject(files, {
+      transform: distinct("specialized call sites: Bool and Unit editions"),
+    });
+
+    expect(exports["answer"]).toBe("True()");
+  });
+
+  /**
+   * The edition has to *agree* with the call it replaced, and the `Bool` one did
+   * not: its `Show` dictionary reached the interpolation as a primitive's would
+   * and rendered the host's `"true"` where every other spelling of the same call
+   * says `"True"`. Unreachable while nothing routed, and a wrong answer the
+   * moment something did.
+   */
+  test("the `Bool` edition renders `Show<Bool>`, not the host's boolean", async () => {
+    const files = [
+      ["/main.hex", "log(True)\nlog(())\nexport let ok: Int = 1\n"],
+    ] as const;
+
+    expect(emitted(files)).toContain("logBool(true);");
+    const lines = await written(() =>
+      runProject(files, {
+        transform: distinct("specialized call sites: Bool and Unit sink"),
+      })
+    );
+
+    expect(lines).toEqual([["True"], ["()"]]);
   });
 });

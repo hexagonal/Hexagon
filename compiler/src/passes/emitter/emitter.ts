@@ -19,6 +19,7 @@ import {
   planImportedSpecializations,
   specializeItem,
   type FundamentalSpecialization,
+  type FundamentalType,
   type SpecializationCollision,
   type SpecializableItem,
 } from "./specializations.js";
@@ -2366,7 +2367,11 @@ class JavaScriptEmitter {
     if (depth !== 0 || (item.kind !== "Let" && item.kind !== "Fun")) return [];
     const lines: string[] = [];
     for (const specialization of this.#specializationsFor(item.binding.symbol)) {
-      const specialized = specializeItem(item as SpecializableItem, specialization);
+      const specialized = specializeItem(
+        item as SpecializableItem,
+        specialization,
+        this.#prelude.bool,
+      );
       const emitted = this.#emitFunctionDeclaration(
         specialized,
         specialization.name,
@@ -3079,12 +3084,10 @@ class JavaScriptEmitter {
    * this module's own items, and the name has to be *imported*, which is what
    * `#specializationLocal` records.
    *
-   * `Bool` and `Unit` are fundamental by enumeration and route here at neither
-   * half: their evidence arrives structural rather than primitive, so
-   * `primitiveInstance` answers `undefined` and the site keeps its dictionary.
-   * The editions exist and are exported either way; what is missing is a way to
-   * *recognize* the instantiation, which is an evidence-representation question
-   * and not this rule's.
+   * All seven fundamentals route, at both halves (#441). Five name a primitive
+   * and are read off the tag the elaborator stamps for one; `Bool` and `Unit`
+   * are fundamental by *enumeration* (#147, #159), so `#groundFundamental`
+   * reads their ground type instead — see it for why that is the same answer.
    */
   #specializedCallee(expression: Core.CallExpr): string | undefined {
     if (expression.callee.kind !== "Name") return undefined;
@@ -3099,10 +3102,10 @@ class JavaScriptEmitter {
     const entries = dictionaryEntries(symbol.scheme);
     if (entries.length !== expression.evidence.length) return undefined;
 
-    const assignments = new Map<Typed.TypeVariableId, Typed.PrimitiveName>();
+    const assignments = new Map<Typed.TypeVariableId, FundamentalType>();
     for (const [index, entry] of entries.entries()) {
       const evidence = expression.evidence[index]?.value;
-      const instance = evidence === undefined ? undefined : primitiveInstance(evidence);
+      const instance = evidence === undefined ? undefined : this.#groundFundamental(evidence);
       if (instance === undefined) return undefined;
       const previous = assignments.get(entry.variable);
       if (previous !== undefined && previous !== instance) return undefined;
@@ -3118,6 +3121,35 @@ class JavaScriptEmitter {
     return imported === undefined
       ? chosen.name
       : this.#specializationLocal(imported, chosen.name);
+  }
+
+  /**
+   * The fundamental type a call site's evidence is ground at, or `undefined`
+   * where it is ground at nothing Part 8 enumerates — a type variable still in
+   * play, a user type, `Exn`.
+   *
+   * Two spellings for one question, because the fundamental set is defined by
+   * enumeration and not by classification (#441). A primitive's ground type is
+   * the tag elaboration stamps on its evidence. `Bool` and `Unit` name no
+   * primitive to stamp — since #147 and #159 they are the prelude union and the
+   * arity-0 tuple — and their evidence is *structural*, which carries the
+   * ground type itself. Reading it is the same act: the elaborator computed
+   * both from the requirement's type.
+   *
+   * The `Bool` test is the union identity, not the name, and is the same one
+   * `#emitComparisonStep`'s representation pin uses — a module that declares its
+   * own `Bool` has not declared the prelude's.
+   */
+  #groundFundamental(evidence: Core.Evidence): FundamentalType | undefined {
+    const primitive = primitiveInstance(evidence);
+    if (primitive !== undefined) return primitive === "Exn" ? undefined : primitive;
+    if (evidence.kind !== "Structural") return undefined;
+    if (evidence.type.kind === "Tuple" && evidence.type.elements.length === 0) return "Unit";
+    return evidence.type.kind === "Union" &&
+        this.#prelude.bool !== undefined &&
+        evidence.type.union === this.#prelude.bool
+      ? "Bool"
+      : undefined;
   }
 
   /**
@@ -4782,30 +4814,18 @@ class JavaScriptEmitter {
    * The subject a compiler-built dictionary literal would be derived over, or
    * `undefined` when this evidence is not one of those (#425).
    *
-   * The two kinds `#emitEvidence` renders as a literal, and read in the same
-   * order it reads them: structural evidence, and the specialization planner's
-   * `Bool` editions, which arrive as `Primitive` evidence at a name no module
-   * exports a dictionary for.
+   * The one kind `#emitEvidence` renders as a literal: structural evidence,
+   * whichever seat it came from — a ground use site, or a `Bool`/`Unit` edition,
+   * whose dictionary parameters the planner rewrites to the very evidence a
+   * ground site at the same type carries.
    */
   #derivedSubject(
     evidence: Core.Evidence,
-    constraint: Typed.ConstraintName,
   ): { readonly type: Typed.Type; readonly components: ComponentEvidence } | undefined {
     if (evidence.kind === "Structural") {
       return {
         type: evidence.type,
         components: componentEvidence(evidence.components),
-      };
-    }
-    if (
-      evidence.kind === "Primitive" &&
-      (evidence.instance as string) === "Bool" &&
-      this.#prelude.bool !== undefined &&
-      this.#sourceInstanceDictionary(constraint, evidence.instance) === undefined
-    ) {
-      return {
-        type: { kind: "Union", union: this.#prelude.bool, name: "Bool", arguments: [] },
-        components: undefined,
       };
     }
     return undefined;
@@ -4835,7 +4855,7 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): string {
     const applied = `${member}(${arguments_.join(", ")})`;
-    const subject = this.#derivedSubject(evidence, constraint);
+    const subject = this.#derivedSubject(evidence);
     if (subject === undefined) {
       const dictionary = this.#emitEvidence(evidence, constraint, span, evidenceNames);
       return `${dictionary}.${applied}`;
@@ -4880,27 +4900,6 @@ class JavaScriptEmitter {
       if (sourced !== undefined) {
         this.#referencedDictionaries.add(sourced);
         return sourced;
-      }
-      // `Bool` is **fundamental but not primitive** (#147), and the
-      // specialization planner names its editions by that name all the same, so
-      // it arrives in this branch with no module to have exported it: its four
-      // instances are `stdlib/Bool.hex`'s *derived* ones, rendered inline at
-      // every use like any other derived leaf. Render them here the same way.
-      // The retired wired table answered `String(__a)` for this, which is
-      // the host's `"true"` rather than `Show<Bool>`'s `"True"` — a monomorphic
-      // edition disagreeing with every other spelling of the same call.
-      // The name is a `PrimitiveName` in the type, and `Bool` is not one — the
-      // planner writes it there deliberately, because an edition is named by
-      // its *fundamental* type and `Bool` is fundamental. Read it as the string
-      // it is rather than widening the union and inviting every other reader to
-      // handle a case that only arrives here.
-      if ((evidence.instance as string) === "Bool" && this.#prelude.bool !== undefined) {
-        return this.#derivedDictionary(
-          constraint,
-          { kind: "Union", union: this.#prelude.bool, name: "Bool", arguments: [] },
-          undefined,
-          evidenceNames,
-        );
       }
       // The invariant, made checkable (#344), and with the last landing there
       // is nothing left for it to fall through *to*: every primitive that
@@ -6215,7 +6214,11 @@ class DeclarationEmitter {
         );
         for (const specialization of specializations) {
           if (item.value.kind !== "Lambda") continue;
-          const specialized = specializeItem(item as SpecializableItem, specialization);
+          const specialized = specializeItem(
+            item as SpecializableItem,
+            specialization,
+            this.#faces.prelude.bool,
+          );
           // A constrained binding has no single `.d.ts` declaration — its face
           // is one per specialization — so its documentation rides each, and so
           // does the Hexagon face, which is the specialization's own.
@@ -6498,7 +6501,11 @@ class TypeScriptPreviewEmitter {
         );
         for (const specialization of specializations) {
           if (item.value.kind !== "Lambda") continue;
-          const specialized = specializeItem(item as SpecializableItem, specialization);
+          const specialized = specializeItem(
+            item as SpecializableItem,
+            specialization,
+            this.#faces.prelude.bool,
+          );
           // A constrained binding has no single `.d.ts` declaration — its face
           // is one per specialization — so its documentation rides each.
           declarations.push(...this.#docs.lines(item.span));
