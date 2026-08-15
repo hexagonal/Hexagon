@@ -351,7 +351,7 @@ Implementation: a **pending-binder stack** in the name resolver. The binder name
 
 Consequences:
 
-- `let` permits no shadowing games via self-reference; the name simply does not exist yet.
+- `let` permits no shadowing games via self-reference; the name simply does not exist yet — for *reference*. Against *rebinding* it is reserved: a sequential binder in the RHS may not claim the pending name (`let y = ...` whose block opens `let y = 5` is an error — Statements §5.1), while head binders may as ever (Statements §5.1 rule 2).
 - Recursion, including through a lambda (`let f = n => ... f(n-1) ...`), is impossible with `let` by design. This is what `fun` is for.
 
 ---

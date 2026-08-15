@@ -193,7 +193,7 @@ Canonical names; definitions live in their owning specs.
   restating an entailed base constraint. Declarations are total; consumption is
   free.
 - **Head Binder Shadowing rule** — sequential binders never reuse an in-scope
-  name; head binders may shadow freely.
+  name, nor one whose definition is in progress; head binders may shadow freely.
 
 ## 6. Standard-library naming conventions
 
