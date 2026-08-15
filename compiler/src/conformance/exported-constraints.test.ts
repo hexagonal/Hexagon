@@ -54,6 +54,9 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
       "let four: Int = 4",
       "export fun describeRoom(): String = label(Room({number = 12}))",
       "export fun describeCount(): String = label(four)",
+      // The polymorphic control: `a` is a type variable at the call, so this is
+      // the one route that still reaches the forwarder (#444).
+      "export fun describeAny<a: Label>(x: a): String = label(x)",
       "",
     ].join("\n")],
   ] as const;
@@ -68,10 +71,19 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
   test("the importer reaches the member through the home module's forwarder", () => {
     // §6.5: the forwarder is exported under the internal plumbing name, and the
     // importer binds it back to the member's own spelling. Not in the `.d.ts`.
+    //
+    // Since #444 only the *genuinely polymorphic* call takes that route:
+    // `describeAny`'s head is a type variable, so its evidence rides the
+    // trailing suffix as it always did.
     expect(emitted(files, "/labels.hex")).toContain("export { label as __label };");
-    expect(emitted(files, "/main.hex")).toContain(
-      'import { __label as label } from "./labels.js";',
-    );
+    const main = emitted(files, "/main.hex");
+    expect(main).toContain('import { __label as label } from "./labels.js";');
+    expect(main).toContain("return label(x, __Label_a);");
+    // The two concrete calls reach their instances' seats instead — the local
+    // one by name, the imported one through the declaring module (§6.1).
+    expect(main).toContain('import { __Label_Int_label } from "./labels.js";');
+    expect(main).toContain("__Label_Room_label({ number: 12 })");
+    expect(main).toContain("__Label_Int_label(four)");
   });
 
   test("the forwarder and the constraint name carry no `.d.ts` face (§6.5)", () => {
@@ -528,8 +540,14 @@ describe("defaults hoist once, at home (Constraints §6.5)", () => {
       /import \{[^}]*__default_stamped[^}]*\} from "\.\/stamps\.js";/u,
     );
     // Deferred, never eager: the dictionary const is not initialized while its
-    // own literal is under construction (§6.3).
-    expect(away).toContain("stamped: __arg0 => __default_stamped(__Stamp_Ticket");
+    // own literal is under construction (§6.3). The wrapper is the inherited
+    // default's *seat* since #444 — it is a member of the instance's completed
+    // set like any other, and closes over the helper and this module's own
+    // dictionary exactly as §6.1 states.
+    expect(away).toContain(
+      "const __Stamp_Ticket_stamped = __arg0 => __default_stamped(__Stamp_Ticket, __arg0);",
+    );
+    expect(away).toContain("stamped: __Stamp_Ticket_stamped");
   });
 
   test("a default calling a sibling member dispatches through the completed instance", async () => {
@@ -1073,6 +1091,10 @@ describe("internal names that contest one spelling (#430)", () => {
         "",
         "export fun angled(): String = default_log(Slip({tag = \"blue\"}))",
         "export fun noted(): String = log(Slip({tag = \"blue\"}))",
+        // The polymorphic pair, which is what still binds the forwarders since
+        // #444 — the two calls above are concrete and reach seats.
+        "export fun angledAny<a: Stamp>(x: a): String = default_log(x)",
+        "export fun notedAny<a: Stamp>(x: a): String = log(x)",
         "",
       ].join("\n")],
     ] as const;
@@ -1118,6 +1140,7 @@ describe("internal names that contest one spelling (#430)", () => {
         "export fun squared(): String = default_log(Card({word = \"red\"}))",
         "export fun braced(): String = default_log_1(Card({word = \"red\"}))",
         "export fun banged(): String = log(Card({word = \"red\"}))",
+        "export fun bracedAny<a: Note>(x: a): String = default_log_1(x)",
         "",
       ].join("\n")],
     ] as const;
@@ -1216,6 +1239,8 @@ describe("internal names that contest one spelling (#430)", () => {
         "",
         "export let shrill: Int = Loud.pitch(Pipe({bore = 3}))",
         "export let muted: Int = Soft.pitch(Pipe({bore = 3}))",
+        "export fun anyLoud<a: Loud.Loud>(x: a): Int = Loud.pitch(x)",
+        "export fun anySoft<a: Soft.Soft>(x: a): Int = Soft.pitch(x)",
         "",
       ].join("\n")],
     ] as const;
@@ -1223,6 +1248,11 @@ describe("internal names that contest one spelling (#430)", () => {
 
     expect(organ).toContain('import { __pitch } from "./loudly.js";');
     expect(organ).toContain('import { __pitch as __pitch_1 } from "./softly.js";');
+    // The two concrete calls no longer need either forwarder: each names the
+    // instance's own seat, and the seats are already distinct because the
+    // dictionary family keys on the constraint (#444).
+    expect(organ).toContain("const shrill = __Loud_Pipe_pitch({ bore: 3 });");
+    expect(organ).toContain("const muted = __Soft_Pipe_pitch({ bore: 3 });");
 
     const exports = await runProject(rivals, { entry: "/organ.hex" });
     expect(exports.shrill).toBe(300);

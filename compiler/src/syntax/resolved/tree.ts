@@ -618,6 +618,37 @@ export interface ImportItem {
   readonly span: Source.Span;
 }
 
+/**
+ * One member seat of a **ground** instance: the module-level binding a member's
+ * implementation hoists to (`spec/constraints.md` §6.1).
+ *
+ * Named in the resolver rather than the emitter because the seats take the
+ * *declared* rank of Dictionary Sharing §5's first phase — they contest one
+ * spelling space with the dictionaries beside them, and a name already baked
+ * into the resolver's output is one no later rename can reach (§5's closing
+ * law). A parameterized instance has no seats: its members close over the
+ * factory's evidence parameters, so no module-level binding could hold one.
+ */
+export interface MemberSeat {
+  /** The constraint member this seat holds — the name the record's slot takes. */
+  readonly member: string;
+  /**
+   * The emitted `const`'s name: the preferred `__<Constraint>_<Subject>_<member>`
+   * spelling, or a `_n`-suffixed one where the module contests it (§5).
+   *
+   * On an `InstanceImport` this is instead the **exporter's interface**
+   * spelling, read from the resolved interface and never predicted — the same
+   * convention `importedDictionary` follows.
+   */
+  readonly seat: string;
+  /**
+   * The spelling this module's *interface* publishes, present only where a
+   * collision moved `seat` off the bare name (Dictionary Sharing §8). Absent on
+   * an `InstanceImport`, whose `seat` is already an interface spelling.
+   */
+  readonly exportedSeat?: string;
+}
+
 export interface InstanceImport {
   /** Stable declaration identity used to deduplicate diamond import paths. */
   readonly identity: string;
@@ -634,6 +665,32 @@ export interface InstanceImport {
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly importedDictionary: string;
   readonly localDictionary: string;
+  /**
+   * The instance's member seats under the **declaring** module's interface
+   * spellings (#444), carried unchanged across every hop for the reason
+   * `identity` is: a consumer routing a concrete member call to a seat has to
+   * reach a name the honoring module really published, and nothing on this side
+   * can predict it. Empty for a parameterized instance, which has no seats.
+   */
+  readonly memberSeats: readonly MemberSeat[];
+  /**
+   * The path of the module that **declares** this instance, travelling with the
+   * seats and for their sake.
+   *
+   * The import item's own specifier will not serve. `instances` deduplicates by
+   * identity and a diamond of re-exports resolves to the first specifier in
+   * source order, which may name a module that merely carried the instance
+   * through — and a transit module re-exports the *dictionary*, not the seats.
+   * The declaring module is the one that exports them, so routing relativizes
+   * this against its own path (`seatSpecifier`). Absent where the compilation
+   * gave no module a path (the pass-level harnesses), which declines the route.
+   */
+  readonly declaringPath?: string;
+  /**
+   * `declaringPath` as an import specifier from **this** module, computed once
+   * where the import is bound. Absent for the same reasons `declaringPath` is.
+   */
+  readonly seatSpecifier?: string;
   readonly span: Source.Span;
 }
 
@@ -1033,6 +1090,17 @@ export interface HonorItem {
    * uncontested interface name and never predict a local one.
    */
   readonly exportedDictionary?: string;
+  /**
+   * Constraints §6.1's member seats, one per member of the instance's
+   * **completed** member set (supplied members, inherited defaults, and a
+   * derived instance's generated ones alike), in the constraint declaration's
+   * member order — see `MemberSeat`.
+   *
+   * Empty for a parameterized instance, and empty where no declaration of the
+   * constraint is in view to enumerate the members from, which leaves the
+   * instance emitting its members inline exactly as it did before #444.
+   */
+  readonly memberSeats: readonly MemberSeat[];
   readonly impliedTypes: readonly HonorImpliedType[];
   readonly members: readonly HonorMember[];
   readonly span: Source.Span;

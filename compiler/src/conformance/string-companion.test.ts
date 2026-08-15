@@ -205,7 +205,10 @@ describe("`Show<String>` is the identity, and takes no key for it", () => {
   test("`String.js` holds `show` as the plain binding", () => {
     const text = companion('export let rendered: String = String.show("x")\n');
 
-    expect(text).toContain("const __Show_String = { show: value => value };");
+    // The member's implementation is its own module-level binding since #444 —
+    // §4.6's law reaching emission — and the record's slot names it.
+    expect(text).toContain("const __Show_String_show = value => value;");
+    expect(text).toContain("const __Show_String = { show: __Show_String_show };");
     expect(text).not.toContain("show: value => String(value)");
   });
 });

@@ -87,8 +87,12 @@ describe("§3.1 — ground applications hoist to module level", () => {
 
     expect(text).toContain("const __Render_Box_Int = __Render_Box(__Render_Int);");
     expect(occurrences(text, "const __Render_Box_Int =")).toBe(1);
-    expect(text).toContain("const one = render(boxed, __Render_Box_Int);");
-    expect(text).toContain("const two = render(boxed, __Render_Box_Int);");
+    // The use site reads the member off the binding since #444 — a
+    // parameterized instance at a ground head has no seat to call (Constraints
+    // §6.1's second arm) — and what §3.1 pins is that both sites name the one
+    // binding rather than rebuilding the application.
+    expect(text).toContain("const one = __Render_Box_Int.render(boxed);");
+    expect(text).toContain("const two = __Render_Box_Int.render(boxed);");
     // §11.1's banned shape: the inline application at a use site.
     expect(text).not.toMatch(/render\(boxed, __Render_Box\(/u);
   });
@@ -105,8 +109,8 @@ describe("§3.1 — ground applications hoist to module level", () => {
     expect(text).toContain(
       "const __Render_Box_Box_Int = __Render_Box(__Render_Box_Int);",
     );
-    expect(text).toContain("const one = render(nested, __Render_Box_Box_Int);");
-    expect(text).toContain("const two = render(nested, __Render_Box_Box_Int);");
+    expect(text).toContain("const one = __Render_Box_Box_Int.render(nested);");
+    expect(text).toContain("const two = __Render_Box_Box_Int.render(nested);");
     // The nesting the ruling names in §1 as the point at which output stops
     // reading like something a person wrote.
     expect(text).not.toContain("__Render_Box(__Render_Box(");
@@ -166,7 +170,7 @@ describe("§3.1 — ground applications hoist to module level", () => {
     expect(text).toContain("const __Show_Option_Int = __Show_Option(__Show_Int);");
     expect(occurrences(text, "const __Show_Option_Int =")).toBe(1);
     expect(occurrences(text, "__Show_Option(__Show_Int)")).toBe(1);
-    expect(text).toContain("const f = x => show(Some(x), __Show_Option_Int);");
+    expect(text).toContain("const f = x => __Show_Option_Int.show(Some(x));");
   });
 
   test("free-parameter evidence never hoists", () => {
@@ -479,9 +483,14 @@ describe("§5 — a contested hoisted spelling", () => {
   test("a declared instance keeps its seat and the hoisted binding suffixes", async () => {
     const text = emitted(CONTEST);
 
-    expect(text).toContain('const __Render_Box_Int = { render: v => "BI(');
+    expect(text).toContain("const __Render_Box_Int = { render: __Render_Box_Int_render };");
+    expect(text).toContain('const __Render_Box_Int_render = v => "BI(');
     expect(text).toContain("const __Render_Box_Int_1 = __Render_Box(__Render_Int);");
-    expect(text).toContain("render(boxed, __Render_Box_Int_1)");
+    expect(text).toContain("__Render_Box_Int_1.render(boxed)");
+    // The declared instance's own seat is in the same first-phase rank (§5, as
+    // amended for #444), so it is one more contestant the hoisted binding had
+    // to probe past — and the concrete call to it reaches the seat directly.
+    expect(text).toContain("__Render_Box_Int_render({ n: 2 })");
     // §8 is unaffected: the declared instance's interface spelling is bare
     // because no other *declared* instance contests it.
     expect(text).toContain("export { __Render_Box_Int };");
@@ -519,8 +528,8 @@ describe("§5 — a contested hoisted spelling", () => {
     // defect.
     expect(text).toContain("const __Render_A_B_C = __Render_A(__Render_B_C);");
     expect(text).toContain("const __Render_A_B_C_1 = __Render_A_B(__Render_C);");
-    expect(text).toContain("render(l, __Render_A_B_C)");
-    expect(text).toContain("render(r, __Render_A_B_C_1)");
+    expect(text).toContain("__Render_A_B_C.render(l)");
+    expect(text).toContain("__Render_A_B_C_1.render(r)");
 
     const main = await runMain(source);
     expect(main["one"]).toBe("A(BC1)");
@@ -559,10 +568,11 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
       'const __Show_Int_Int = ({ show: __value => "(" + String(__value[0]) + ", " +' +
         ' String(__value[1]) + ")" });',
     );
-    // One binding, two references — one site passing the whole record as
-    // trailing evidence, one reading a member off it after §9.1 declined.
+    // One binding, two references — one a source-written member call at a
+    // compiler-built ground demand (Constraints §6.1's third arm, #444), one an
+    // interpolation reading a member off it after §9.1 declined.
     expect(occurrences(text, "const __Show_Int_Int =")).toBe(1);
-    expect(text).toContain("const shown = show([1, 2], __Show_Int_Int);");
+    expect(text).toContain("const shown = __Show_Int_Int.show([1, 2]);");
     expect(text).toContain('const interpolated = "pair " + __Show_Int_Int.show([3, 4]);');
     // §3.4's last sentence: "the inline literal shape appears at no ground site."
     expect(occurrences(text, "({ show:")).toBe(1);
@@ -581,7 +591,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
 
     expect(text).toContain('const __Show_Unit = ({ show: __value => "()" });');
     expect(occurrences(text, "const __Show_Unit =")).toBe(1);
-    expect(text).toContain("const shown = show(undefined, __Show_Unit);");
+    expect(text).toContain("const shown = __Show_Unit.show(undefined);");
     // §3.4's worked example, verbatim: `({ show: __value => "()" }).show(value)`
     // becomes `__Show_Unit.show(value)`.
     expect(text).toContain('const interpolated = "u " + __Show_Unit.show(undefined);');
@@ -649,7 +659,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
 
     expect(text).toContain('const __Show_Unit = ({ show: __value => "()" });');
     expect(text).toContain("const __Eq_Unit = ({ equals: (__left, __right) => true,");
-    expect(text).toContain("const shown = show(undefined, __Show_Unit);");
+    expect(text).toContain("const shown = __Show_Unit.show(undefined);");
     expect(text).toContain("const same = __Eq_Unit.equals(undefined, undefined);");
 
     const main = await runMain(source);
@@ -674,6 +684,9 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
 
     // Not ground: the elements' evidence is the body's own parameters, so the
     // record stays where it is written.
+    // The call keeps the forwarder and its trailing evidence: the head is a
+    // tuple of the body's own type variables, so it is not concrete and #444's
+    // clause does not describe it.
     expect(text).toContain(
       'const showPair = (x, y, __Show_a, __Show_b) => show([x, y], ({ show: __value => "(" +' +
         ' __Show_a.show(__value[0]) + ", " + __Show_b.show(__value[1]) + ")" }));',
@@ -683,7 +696,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     expect(text).toContain(
       'const __Show_Bool = ({ show: __value => (__value ? "True" : "False") });',
     );
-    expect(text).toContain("show(true, __Show_Bool)");
+    expect(text).toContain("__Show_Bool.show(true)");
 
     const main = await runMain(source);
     expect(main["one"]).toBe("(1, 2)");

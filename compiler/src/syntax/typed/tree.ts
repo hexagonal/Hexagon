@@ -636,6 +636,8 @@ export interface HonorItem {
   readonly subject: Type;
   readonly derived: boolean;
   readonly dictionary: string;
+  /** Constraints §6.1's member seats, named in the resolver; see `Resolved.MemberSeat`. */
+  readonly memberSeats: readonly Resolved.MemberSeat[];
   readonly baseConstraints: readonly Constraint[];
   /**
    * For a derived instance, the constraint the checker resolved for each

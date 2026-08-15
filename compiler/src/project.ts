@@ -404,6 +404,11 @@ export function compileProject(
         // spends the synthesized import's whole name list, so the term channel
         // reports nothing while the emitted file still imports `logString`.
         ...(module?.javascript.specializationImports ?? []),
+        // The member seats a concrete constraint-member call reaches (#444).
+        // A sixth channel, and the one that can name a module no `Import` item
+        // in this file mentions: an instance travels a re-export chain, but its
+        // seats are only ever reached at the module that declared it.
+        ...(module?.javascript.memberSeatImports ?? []),
         // The `.d.ts` channel (#227, FFI Part 7 §2.4) is an edge on the same
         // footing, and the only one with no JavaScript counterpart: a face
         // naming `Option` while touching no `Option` term imports the type and

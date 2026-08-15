@@ -321,8 +321,10 @@ describe("Primitive Types §1's checked boundary conversion", () => {
     expect(text).toContain('"Nat.mod: divisor is zero"');
     // No guard above `pow`, which is the absence this type is about.
     expect(text).not.toContain("NegativeExponentError");
-    // The self-identity is the plain binding, with no host call behind it.
-    expect(text).toContain("fromNat: value => value");
+    // The self-identity is the plain binding, with no host call behind it —
+    // now the member's own seat (Constraints §6.1, #444).
+    expect(text).toContain("const __Num_Nat_fromNat = value => value;");
+    expect(text).toContain("fromNat: __Num_Nat_fromNat");
   });
 });
 

@@ -73,10 +73,16 @@ describe("an uncontested spelling is bare on both sides", () => {
     ] as const;
 
     const a = emitted(files, "/a.hex");
+    // The member seat and the record it fills, both bare — the seat is a
+    // first-phase contestant like the dictionary (§5, as amended for #444).
     expect(lines(a, "const __Show_Crate")).toEqual([
-      'const __Show_Crate = { show: c => "crate " + String(c.size) };',
+      'const __Show_Crate_show = c => "crate " + String(c.size);',
+      "const __Show_Crate = { show: __Show_Crate_show };",
     ]);
-    expect(lines(a, "export { __Show_Crate")).toEqual(["export { __Show_Crate };"]);
+    expect(lines(a, "export { __Show_Crate")).toEqual([
+      "export { __Show_Crate };",
+      "export { __Show_Crate_show };",
+    ]);
 
     const b = emitted(files, "/b.hex");
     // No `as`: the import binds the exported spelling itself.
@@ -200,7 +206,11 @@ describe("a contested spelling suffixes every contestant", () => {
     // Declared instances first, then imports in specifier order — so the local
     // takes `_1` and the import `_2`. Neither is bare.
     expect(lines(b, "const __Show_Ledger")).toEqual([
-      'const __Show_Ledger_1 = { show: l => "b-ledger " + l.name };',
+      // The seat's own spelling is uncontested — only one instance here has a
+      // `show` member under the `__Show_Ledger` stem — so it stays bare while
+      // the record it fills is suffixed (§5, as amended for #444).
+      'const __Show_Ledger_show = l => "b-ledger " + l.name;',
+      "const __Show_Ledger_1 = { show: __Show_Ledger_show };",
     ]);
     expect(lines(b, "import { __Show_Ledger")).toEqual([
       'import { __Show_Ledger as __Show_Ledger_2 } from "./a.js";',
@@ -213,6 +223,7 @@ describe("a contested spelling suffixes every contestant", () => {
     expect(lines(b, "export { __Show_Ledger")).toEqual([
       "export { __Show_Ledger_2 };",
       "export { __Show_Ledger_1 as __Show_Ledger };",
+      "export { __Show_Ledger_show };",
     ]);
 
     // A consumer therefore imports an uncontested `__Show_Ledger`, which is
@@ -278,8 +289,10 @@ describe("a contested spelling suffixes every contestant", () => {
     // with it. They take `_2` and `_3`, in the canonical order: the declared
     // instance, then the import.
     expect(lines(b, "const __Show_")).toEqual([
-      'const __Show_Note_2 = { show: x => "b-note " + String(x.m) };',
-      'const __Show_Note_1 = { show: x => "b-note-1 " + String(x.k) };',
+      'const __Show_Note_show = x => "b-note " + String(x.m);',
+      "const __Show_Note_2 = { show: __Show_Note_show };",
+      'const __Show_Note_1_show = x => "b-note-1 " + String(x.k);',
+      "const __Show_Note_1 = { show: __Show_Note_1_show };",
     ]);
     expect(lines(b, "import { __Show_Note")).toEqual([
       'import { __Show_Note as __Show_Note_3 } from "./a.js";',

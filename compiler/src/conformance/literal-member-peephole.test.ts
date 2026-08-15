@@ -248,28 +248,32 @@ describe("the guard refuses, and the selection reads off the binding", () => {
 describe("what the rule does not reach", () => {
   /**
    * A whole record passed as trailing evidence to a polymorphic call is
-   * genuinely needed: `Iterable`'s exported `toSeq` takes a dictionary, not a
-   * member. Nothing selects a member here, so nothing reduces.
+   * genuinely needed: `render` takes a dictionary, not a member. Nothing selects
+   * a member here, so nothing reduces.
    *
    * §11 obligation 7's amendment (#446) says what it *does* take at a ground
    * shape: the §3.4 binding, by name. The pin is on the call's argument and not
    * merely on the literal's presence — the literal is still in the module, as
    * the binding's initializer, so a `toContain` on it alone can no longer fail.
+   *
+   * The specimen is a user-written constrained function since #444, because a
+   * member call is no longer one of these: `toSeq([1, 2, 3])` used to pass the
+   * row's whole record to `Iterable`'s forwarder and now reads the member off
+   * the same binding (Constraints §6.1's third arm). What passes a record whole
+   * is a call whose callee is not a member.
    */
   test("trailing evidence to a polymorphic call takes the §3.4 binding", async () => {
-    const source = "export let length(): Int = Seq.length(toSeq([1, 2, 3]))\n";
+    const source =
+      "let render<a: Show>(value: a): String = show(value)\n" +
+      "export let text(): String = render(())\n";
     const javascript = emitted(source);
 
-    expect(javascript).toContain(
-      "const __Iterable_Vector_Int = ({ toSeq: __seqFromIterable });",
-    );
-    expect(javascript).toContain(
-      "toSeq(__vectorOf([1, 2, 3]), __Iterable_Vector_Int)",
-    );
-    expect(javascript).not.toContain("toSeq(__vectorOf([1, 2, 3]), ({");
+    expect(javascript).toContain('const __Show_Unit = ({ show: __value => "()" });');
+    expect(javascript).toContain("render(undefined, __Show_Unit)");
+    expect(javascript).not.toContain("render(undefined, ({");
 
     const module = await runProject([["/main.hex", source]]);
-    expect((module["length"] as () => number)()).toBe(3);
+    expect((module["text"] as () => string)()).toBe("()");
   });
 
   /**

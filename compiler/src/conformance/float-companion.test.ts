@@ -471,9 +471,15 @@ describe("the composed `fromNat`, which takes no key", () => {
     expect(exports["fromBinding"]).toBe(5);
     expect(exports["alsoConverts"]).toBe(-4);
     expect(exports["zero"]).toBe(0);
-    // The slot is really selected: the call goes through `Num.hex`'s member with
-    // the companion's dictionary, rather than being erased at the call site.
-    expect(emitted(source)).toContain('__Num_Float } from "./Float.js"');
+    // The slot is really selected, and since #444 the call names it outright:
+    // `Float.fromNat(7)` is a source-written member call at a concrete head, so
+    // Constraints §6.1's first arm reaches `Float.hex`'s own member seat — the
+    // binding the record's `fromNat` slot holds — rather than the forwarder and
+    // its evidence. An erasure at the call site would name neither.
+    expect(emitted(source)).toContain(
+      '__Num_Float_fromNat, __Signed_Float_fromInt } from "./Float.js"',
+    );
+    expect(emitted(source)).toContain("const fromLiteral = __Num_Float_fromNat(7);");
   });
 
   /**
