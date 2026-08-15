@@ -487,7 +487,9 @@ export interface RecordPatternField {
 export interface ConstructorPattern {
   readonly kind: "Constructor";
   readonly symbol: Resolved.SymbolId;
+  /** The local spelling, for display; `tag` is the declared name (#468). */
   readonly text: string;
+  readonly tag: string;
   readonly nameSpan: Source.Span;
   readonly arguments: readonly Pattern[];
   readonly span: Source.Span;

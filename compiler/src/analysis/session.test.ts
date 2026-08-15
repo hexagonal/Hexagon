@@ -696,6 +696,33 @@ describe("AnalysisSession.rename", () => {
     expect(applied(texts, plan)).toEqual({ "/main.hex": main.replaceAll("deux", "zwei") });
   });
 
+  test("a constructor pattern spelled by an alias moves with the alias, not the declaration", () => {
+    // The resolved pattern carries two strings since #468 — the local spelling
+    // and the declared tag — and only the first belongs to a rename. Publishing
+    // the tag here would make renaming `Circle` rewrite the *pattern's* `Round`,
+    // which is a name the user never asked about and a compile error afterwards.
+    const shapes = "export union Shape =\n    | Circle\n    | Square\n";
+    const main = [
+      'import {Shape, Circle as Round, Square} from "./shapes"',
+      "",
+      "let name(s: Shape): Int =",
+      "    match s",
+      "        Round => 1",
+      "        Square => 2",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({ "/shapes.hex": shapes, "/main.hex": main });
+
+    const declaration = session.rename("/shapes.hex", at(shapes, "Circle"), "Disc");
+    expect(applied(texts, declaration)).toEqual({
+      "/shapes.hex": shapes.replace("Circle", "Disc"),
+      "/main.hex": main.replace("Circle as Round", "Disc as Round"),
+    });
+
+    const alias = session.rename("/main.hex", at(main, "Round", 2), "Ring");
+    expect(applied(texts, alias)).toEqual({ "/main.hex": main.replaceAll("Round", "Ring") });
+  });
+
   test("refuses a spelling that is not one identifier, and says which", () => {
     const source = "let value: Int = 1\n";
     const { session } = sessionOf({ "/main.hex": source });
