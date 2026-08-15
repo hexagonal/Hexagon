@@ -186,10 +186,13 @@ describe("displayScheme: the constraint bracket", () => {
   });
 
   test("conjuncts sort by constraint name, not by the order they accumulated", () => {
-    // The displayed conjunction previews the evidence suffix, which orders by
-    // `(type-variable ordinal, constraint name)` independently of how the
-    // constraints were written or accumulated (FFI Part 9 §6.2, Constraints
-    // §6.1). Written order surviving here is exactly what this rules out.
+    // Within one variable the displayed conjunction matches the evidence
+    // suffix, whose second key is the constraint name — independently of how
+    // the constraints were written or accumulated (FFI Part 9 §6.2,
+    // Constraints §6.1). Written order surviving here is exactly what this
+    // rules out. The correspondence is within a variable only; across
+    // variables the display follows the type and the suffix follows the
+    // declared head (Functions §5.1).
     expect(
       displayScheme({
         variables: [typeVariableId(1)],
