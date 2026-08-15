@@ -78,6 +78,53 @@ describe("the pending clause under a full compile", () => {
     ]);
   });
 
+  test("a var claimant in a member body recovers like a let", () => {
+    // Pins the Var site's define-anyway: without it the trailing reference
+    // cascades into the Constraints §4.6 own-name diagnostic — two errors for
+    // one mistake.
+    expect(diagnostics(
+      "record Odd = {n: Int}\n" +
+        "honor Eq<Odd> =\n" +
+        "    equals(left, right) =\n" +
+        "        var equals = True\n" +
+        "        equals\n",
+    )).toEqual([
+      "`equals` is already being defined by the enclosing member definition " +
+        "(line 3); Hexagon does not allow rebinding — choose a different name.",
+    ]);
+  });
+
+  test("a destructuring claimant recovers like a plain let", () => {
+    // Pins #claimBinder's claim-despite-the-report: without it the refused
+    // names stay undefined and every later reference manufactures a phantom
+    // type error against the occluded prelude function.
+    expect(diagnostics(
+      "export let show: Int =\n" +
+        "    let (show, z) = (1, 2)\n" +
+        "    show + z\n",
+    )).toEqual([
+      "`show` is already being defined by the enclosing `let` (line 1); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+  });
+
+  test("each nested claimant names its nearest enclosing definition", () => {
+    // Pins #findPending's innermost-first scan: reversed, both collisions
+    // would blame line 1.
+    expect(diagnostics(
+      "let y =\n" +
+        "    let y =\n" +
+        "        let y = 5\n" +
+        "        y\n" +
+        "    y\n",
+    )).toEqual([
+      "`y` is already being defined by the enclosing `let` (line 1); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+      "`y` is already being defined by the enclosing `let` (line 2); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+  });
+
   test("a plain prelude export as the pending name takes the pending message", () => {
     // Pins the prelude-layer disjunct of the eclipse filter on its own: `map`
     // is a plain (and collided) prelude export, not a constraint member, so
