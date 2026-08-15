@@ -1802,3 +1802,33 @@ than settling a style question.
 - **Credit:** found by a cold Opus review round on #455 — its fun-site probes
   established the gap and that it predated the branch under review; James
   ordered the fix in-session.
+
+## 2026-08-16 — a binder shadowed the routed member seat it shared a name with (#464)
+
+- **Classification:** compiler defect against specification; no design change.
+  Found implementing #464's shadow grant, and pre-existing: reachable at HEAD
+  through a **parameter**, which has always been free to shadow anything.
+- **Authority:** Statements §5 — a head binder may shadow any name, prelude
+  included — and Dictionary Sharing §8, whose seat-binding rule hands a routed
+  seat the member's source spelling only where nothing else in the module binds
+  it. The two together say what the emitted module may not do: bind a seat at
+  module scope under a name the module also binds inside a function.
+- **Defect origin:** `memberSeatSpellings` built its contest set from
+  `moduleLevelBindings` — module-level binders and import locals — so a
+  parameter or a body local of the same spelling was invisible to it. The seat
+  then took the source spelling and the local shadowed it inside the very
+  function whose call was routed: `import { __Show_Int_show as show }` above
+  `function f(show) { return show + show(1); }`, which compiles clean and fails
+  at run time with `show is not a function`. #464 made the same shape reachable
+  through a sequential binder, where it silently turned §5.4's wrapping idiom
+  (`let show = (v) => "«" ++ show(v) ++ "»"`) into unbounded recursion.
+- **Correction:** the contest set adds every name this module's own symbols
+  bind, at any depth — `Module.symbols` filtered to bindings whose span is in
+  this file, since the list carries the imported and prelude symbols too and
+  counting those would contest every spelling the rule exists to hand out. On a
+  contest the seat keeps its generated name, which Lexer §3.2's prefix protects.
+- **Executable conformance:** `conformance/prelude-occlusion.test.ts` — the
+  function-local wrapper and the `let {show, hash}` destructuring both execute
+  their result, and both fail against the un-widened contest set.
+- **Credit:** Opus, from a `runMain` probe of #464's own wrapper example; the
+  parameter shape was confirmed pre-existing against `main`'s compiler.

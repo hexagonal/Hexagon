@@ -115,6 +115,19 @@ type BinderClass = "sequential" | "head" | "parameter";
 interface BlockDeclarations {
   readonly later: Map<string, LaterDeclaration>;
   readonly funSymbols: Set<Resolved.SymbolId>;
+  /**
+   * The prelude names this scope's own declarations take over — Modules §5.4's
+   * **reservation**. Where the block declares a name the prelude binds, the
+   * prelude's binding is invisible for the whole block, from its first item on,
+   * and every reference resolves as if the prelude did not bind the name. That
+   * is what makes a use above the binder read like a use above any other
+   * declaration: `#findLaterDeclaration` answers it, not the prelude.
+   *
+   * Fixed when the frame is built, never narrowed as the walk passes the
+   * declaration — "the whole block" is the point, and after the binder the
+   * binding itself is what the lookup lands on anyway.
+   */
+  readonly reserved: Set<string>;
 }
 
 /**
@@ -1448,20 +1461,68 @@ class Resolver {
     // (Functions §7.2/§10) instead of being told the name is unknown. Entries
     // leave as the walk passes their declaration, so what remains is exactly
     // what is still *later* than the reference being resolved.
-    const frame: BlockDeclarations = { later: new Map(), funSymbols: new Set() };
+    const frame: BlockDeclarations = {
+      later: new Map(),
+      funSymbols: new Set(),
+      reserved: new Set(),
+    };
     const declare = (later: LaterDeclaration): void => {
       if (!frame.later.has(later.name.text)) frame.later.set(later.name.text, later);
+    };
+    // Modules §5.4's reservation, claimed by the forms that may take a prelude
+    // name over: the four sequential binders (Statements §5.1's exemption), a
+    // constraint's members, which bind at module level the way a `let` does, and
+    // an import's locals, which §5.4 lists beside them. A
+    // name one of the module's *own* layers already binds is a rule-1 collision
+    // rather than an occlusion, and reserves nothing — the lookup below is what
+    // tells the two apart, and it runs before any item of this block is walked,
+    // so the block's own later declarations cannot answer it.
+    const reserve = (name: string): void => {
+      if (scope.lookupOwner(name) === this.#preludeScope) frame.reserved.add(name);
     };
     for (const item of items) {
       if (item.kind === "Fun" || item.kind === "Let" || item.kind === "Var") {
         declare({ name: item.name, fun: item.kind === "Fun" });
+        reserve(item.name.text);
       } else if (item.kind === "LetPattern") {
-        for (const name of Parsed.patternNames(item.pattern)) declare({ name, fun: false });
+        for (const name of Parsed.patternNames(item.pattern)) {
+          declare({ name, fun: false });
+          reserve(name.text);
+        }
+      } else if (item.kind === "Import") {
+        // §5.4 names the import among the occluders, and the reservation is
+        // stated over all of them alike: an imported local takes the prelude's
+        // binding over module-wide, so a reference above the import line
+        // resolves as if the prelude did not bind the name. Nothing is
+        // `declare`d beside it — an import is not a declaration the walk
+        // reaches, so what the reference gets is the unknown-name error an
+        // import's local already gets above its line, prelude or no prelude.
+        //
+        // What the exporting module actually exports is the test, not what the
+        // import line asks for: an import that binds nothing occludes nothing,
+        // and reserving there would turn one reported error — a missing export,
+        // a member imported severally (§3.1) — into a second one at every use
+        // below it.
+        if (item.form.kind === "Named") {
+          const exporter = this.#imports.get(item.specifier);
+          for (const name of item.form.names) {
+            if (exporter?.terms.has(name.imported.text) === true) reserve(name.local.text);
+            // A constraint arrives with its members (§3.1), which bind in the
+            // term namespace exactly as an imported function does — and are not
+            // importable severally, so the constraint's own name is the only
+            // spelling here that names them.
+            const imported = exporter?.constraints.get(name.imported.text);
+            for (const member of imported?.members ?? []) reserve(member.binding.name);
+          }
+        }
       } else {
         // The term names a type-namespace declaration binds. Their references
         // read top-down like any other term reference (§7.2); the declarations
         // themselves, and every type-position mention of them, stay order-free.
-        for (const { name, owner } of termNamesBound(item)) declare({ name, fun: false, owner });
+        for (const { name, owner } of termNamesBound(item)) {
+          declare({ name, fun: false, owner });
+          if (owner === "constraint") reserve(name.text);
+        }
       }
     }
     this.#blockDeclarations.push(frame);
@@ -1479,15 +1540,14 @@ class Resolver {
           if (member?.kind !== "Fun") break;
           // Rule 1, layered by Modules §5.4 exactly as the `Let` case below:
           // a module-level `fun` may occlude a prelude name, so the lookup
-          // stops at the module's own layer there; in any block the ban is
-          // absolute and layer-blind, so it walks all the way out. This was
-          // `lookupLocal` unconditionally, which got module-level occlusion
-          // right and silently licensed a block-level `fun` to rebind any
-          // outer name — parameters included (#456; the conformance defect
-          // log carries the record).
+          // stops at the module's own layer there; in a block it walks out
+          // through every layer the module wrote — the ban is absolute over
+          // those (#456; the conformance defect log carries the record) — and
+          // past the prelude, which `#lookupTerm` has already reserved for this
+          // `fun`, so the shadow is granted rather than reported.
           const existing = scope === this.#moduleScope
             ? scope.lookupLocal(member.name.text)
-            : scope.lookup(member.name.text);
+            : this.#lookupTerm(member.name.text, scope);
           const pendingHit = this.#reportPendingRebinding(member.name, existing, scope);
           if (!pendingHit && existing !== undefined) {
             this.#reportRebinding(member.name, existing);
@@ -2054,19 +2114,19 @@ class Resolver {
       case "Let": {
         // Modules §5.4 is layered: a binder in the *module's own scope* may
         // occlude a prelude name (the local one wins unqualified, the prelude's
-        // stays reachable qualified), while any binder in an inner layer may
-        // occlude nothing — prelude included, and layer-blind. `lookupLocal`
-        // stops at this module's layer; `lookup` walks out through the prelude.
-        // `fun` already drew this distinction in the predeclare pass; `let` did
-        // not, which is why the rule went untested until the prelude first
-        // exported a lowercase name.
+        // stays reachable qualified), and a binder in an inner layer may shadow
+        // the same one layer in — but neither may reuse a name the module's own
+        // layers bind. `lookupLocal` stops at this module's layer; `#lookupTerm`
+        // walks out through them all and stops short of the prelude wherever
+        // this scope has reserved the name (§5.4's reservation).
         //
         // The test is scope *identity*, not nesting depth: the block body of a
         // module-level `let` runs at lambda depth 0 yet is an inner layer, so a
-        // depth test would quietly license shadowing there (PR #89 finding F1).
+        // depth test would quietly license shadowing a *module* name there
+        // (PR #89 finding F1) — which stays an error, prelude grant or not.
         const existing = scope === this.#moduleScope
           ? scope.lookupLocal(item.name.text)
-          : scope.lookup(item.name.text);
+          : this.#lookupTerm(item.name.text, scope);
         const pendingHit = this.#reportPendingRebinding(item.name, existing, scope);
         if (!pendingHit && existing !== undefined) {
           this.#reportRebinding(item.name, existing);
@@ -2140,7 +2200,10 @@ class Resolver {
         return resolvedAlias;
       }
       case "Var": {
-        const existing = scope.lookup(item.name.text);
+        // No module-level arm: `var` is confined to function bodies (§6), so the
+        // only layer it can be granted is the prelude, and `#lookupTerm` is what
+        // grants it.
+        const existing = this.#lookupTerm(item.name.text, scope);
         const pendingHit = this.#reportPendingRebinding(item.name, existing, scope);
         if (!pendingHit && existing !== undefined) {
           this.#reportRebinding(item.name, existing);
@@ -2918,11 +2981,14 @@ class Resolver {
 
     // Rule 1, layered by Modules §5.4: a binder in the module's own scope may
     // occlude a prelude name on the same scope-identity test `let`, `fun`, and
-    // constraint members use; in any inner layer the ban is absolute, so the
-    // lookup walks all the way out.
+    // constraint members use; in an inner layer it may shadow the prelude and
+    // nothing else, which is `#lookupTerm`'s reservation — every layer the
+    // module wrote stays under the full ban, so the lookup still walks out
+    // through all of them. Every name a `let` pattern binds arrives here, so the
+    // grant reaches `let {show, hash} = record` by construction.
     const existing = scope === this.#moduleScope
       ? scope.lookupLocal(name.text)
-      : scope.lookup(name.text);
+      : this.#lookupTerm(name.text, scope);
     // A pending-name collision is reported but still claims: there is no
     // meaning worth preserving over it, and defining the refused binder keeps
     // later references from cascading into a self-reference diagnostic.
@@ -3024,7 +3090,7 @@ class Resolver {
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
-    const symbol = scope.lookup(expression.name.text);
+    const symbol = this.#lookupTerm(expression.name.text, scope);
     if (symbol !== undefined) {
       // Before anything is made of the symbol: a refused reference names no
       // term, so it must not join the used-prelude set the synthesized import is
@@ -3814,6 +3880,35 @@ class Resolver {
       }
     }
     return channel;
+  }
+
+  /**
+   * What a term name means here, with Modules §5.4's reservation applied: in a
+   * scope that declares the name over the prelude's binding of it, the prelude's
+   * is invisible throughout, so this answers `undefined` above the declaration
+   * and the ordinary top-down machinery takes over — Functions §7.2's
+   * declared-later error, or §7.3's legal mutual reference inside a contiguous
+   * `fun` group, which never reaches here because the group binds first. That is
+   * the whole of "resolves as if the prelude did not bind the name", and it is
+   * why one identifier cannot carry two meanings in one scope: without it a use
+   * above the binder silently kept the prelude's.
+   *
+   * The one seam left open is the shadowing binder's **own RHS**. A `let`'s or
+   * `var`'s own name is *pending* there — absent for reference, not yet bound
+   * (Statements §5.1) — and the prelude's binding is exactly what it should
+   * reach, since that is what makes the wrapping idiom work at either level:
+   * `let show = (v) => "«" ++ show(v) ++ "»"` wraps the prelude's `show` once.
+   *
+   * Every scope on the stack is consulted, not just the innermost: a module-wide
+   * occlusion reserves the name inside every function of the module too.
+   */
+  #lookupTerm(name: string, scope: Scope): Resolved.SymbolId | undefined {
+    const symbol = scope.lookup(name);
+    if (symbol === undefined || scope.lookupOwner(name) !== this.#preludeScope) return symbol;
+    if (this.#findPending(name) !== undefined) return symbol;
+    return this.#blockDeclarations.some((frame) => frame.reserved.has(name))
+      ? undefined
+      : symbol;
   }
 
   #findPending(
