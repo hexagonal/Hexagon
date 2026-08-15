@@ -379,7 +379,17 @@ function elaboratePattern(pattern: Typed.Pattern): Core.Pattern {
         })),
       };
     case "Constructor":
-      return { ...pattern, arguments: pattern.arguments.map(elaboratePattern) };
+      // Built field by field rather than spread: the local spelling and its
+      // span are the checker's to show a reader, and a Core node that still
+      // carried them would let emission test the spelling an alias wrote
+      // (#468) with nothing but a type to say otherwise.
+      return {
+        kind: "Constructor",
+        symbol: pattern.symbol,
+        tag: pattern.tag,
+        arguments: pattern.arguments.map(elaboratePattern),
+        span: pattern.span,
+      };
   }
 }
 

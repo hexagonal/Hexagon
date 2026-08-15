@@ -123,6 +123,82 @@ describe("a pattern spelled by the alias matches the declared tag", () => {
   });
 });
 
+describe("the arms that never reach the switch", () => {
+  /**
+   * A `match` lowers to a `switch` on the tag only while every arm is a flat,
+   * unguarded constructor pattern. A guard or a nested pattern sends the whole
+   * match down the if-chain instead, which builds its own tag test — a *second*
+   * emission site reading the same field, and the one an alias can reach
+   * without a case label to show for it. A leak here is quieter than #468's
+   * original: the nested test simply never holds, so the match falls through to
+   * a later arm and returns the wrong answer, or throws only if nothing else
+   * matches.
+   */
+
+  const PARCEL =
+    "export union Shape = Circle(radius: Float) | Square(side: Float)\n" +
+    "export union Parcel = Wrapped(inner: Shape) | Empty\n";
+
+  test("an aliased constructor nested inside another pattern tests the declared tag", async () => {
+    const files = [
+      ["/parcel.hex", PARCEL],
+      ["/main.hex",
+        // `Shape` is in the clause because the emitter only knows a
+        // constructor's shape for a union the module names: without it this
+        // arm emits an untagged test and `item1` field names, whatever the
+        // constructor is spelled. That is a defect of its own, not this one,
+        // and importing the type keeps this pin about the alias.
+        "import { Shape, Parcel, Wrapped, Empty, Circle as Round, Square } from \"./parcel\"\n" +
+        "export fun contents(p: Parcel): String =\n" +
+        "    match p\n" +
+        "        Wrapped(Round(r)) => \"round\"\n" +
+        "        Wrapped(Square(x)) => \"square\"\n" +
+        "        Empty => \"empty\"\n" +
+        "export let inner: String = contents(Wrapped(Round(1.0)))\n" +
+        "export let other: String = contents(Wrapped(Square(1.0)))\n" +
+        "export let nothing: String = contents(Empty)\n"],
+    ] as const;
+
+    // Behaviour first: a leaked spelling here is a test that never holds, so
+    // the value walks on to whatever arm catches it next.
+    const exports = await runProject(files as never);
+    expect([exports.inner, exports.other, exports.nothing]).toEqual([
+      "round",
+      "square",
+      "empty",
+    ]);
+
+    const javascript = compileFiles(files as never)
+      .modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(javascript).toContain("__match.inner.tag === \"Circle\"");
+    expect(javascript).not.toContain("\"Round\"");
+  });
+
+  test("a guarded aliased arm tests the declared tag too", async () => {
+    const files = [
+      ["/guarded.hex", PARCEL],
+      ["/main.hex",
+        "import { Shape, Circle as Round, Square } from \"./guarded\"\n" +
+        "export fun scaled(s: Shape): Float =\n" +
+        "    match s\n" +
+        "        Round(r) when r > 0.5 => r * 10.0\n" +
+        "        Round(r) => r\n" +
+        "        Square(x) => x\n" +
+        "export let large: Float = scaled(Round(2.0))\n" +
+        "export let small: Float = scaled(Round(0.25))\n" +
+        "export let flat: Float = scaled(Square(4.0))\n"],
+    ] as const;
+
+    const exports = await runProject(files as never);
+    expect([exports.large, exports.small, exports.flat]).toEqual([20, 0.25, 4]);
+
+    const javascript = compileFiles(files as never)
+      .modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(javascript).toContain("__match.tag === \"Circle\"");
+    expect(javascript).not.toContain("\"Round\"");
+  });
+});
+
 describe("what the reader is shown stays the spelling the reader wrote", () => {
   const arityDiagnostics = (arm: string): readonly string[] =>
     compileFiles([
