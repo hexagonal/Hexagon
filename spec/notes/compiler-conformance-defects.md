@@ -1832,3 +1832,43 @@ than settling a style question.
   their result, and both fail against the un-widened contest set.
 - **Credit:** Opus, from a `runMain` probe of #464's own wrapper example; the
   parameter shape was confirmed pre-existing against `main`'s compiler.
+
+## 2026-08-16 — qualified constructor patterns did not parse (#466)
+
+- **Classification:** compiler defect against specification; no design change.
+  Found implementing #466's constructor occlusion, and pre-existing: the form
+  has been spec'd since Modules §3.3 was written and never parsed.
+- **Authority:** Modules §3.3 — "Constructors qualify the same way
+  (`Geo.Circle(1.0)`), **including in patterns** (`match s` /
+  `Geo.Circle(r) => ...`)" — which Unions §2 delegates to for qualified access.
+  Modules §6.4's qualified-home guarantee makes the prelude module's own name a
+  second qualifier of the same shape, and §5.4 requires the occluded prelude
+  constructor to stay reachable "qualified in **both** positions".
+- **Defect origin:** the pattern grammar's uppercase-start rule stopped at one
+  name, so `Lib.Circle(r)`, `Prelude.Less`, and `Option.Some(v)` were all parse
+  errors in pattern position (``unknown constructor `Lib` ``, then
+  ``expected `=>` after match pattern or guard``) while the identical spellings
+  resolved cleanly in **value** position through the `Access` arm. The gap went
+  unnoticed because nothing forced the qualified spelling: every constructor was
+  reachable bare until a declaration could occlude a prelude one.
+- **Correction:** the pattern grammar takes one dot and an uppercase name after
+  an uppercase name — `Upper.Upper` and nothing else, so no spelling that parsed
+  before parses differently. Resolution goes through `#namedModule`, the same
+  door value position uses, and never the bare-name layer, which is what makes
+  the form an escape hatch from §5.4's reservation. The resolved pattern carries
+  the **constructor's own name** as its tag, so the two spellings are one
+  pattern: identity-keyed exhaustiveness cannot tell them apart, and emission
+  produces the same tag test.
+- **Residue, recorded not fixed:** a catch arm still cannot name an exception the
+  module did not itself declare — `#exceptions` in the checker is built from the
+  module's own `Exception` items — so `Lib.Boom(c)` is refused there exactly as
+  bare `Boom(c)` is. The limit predates this work and is symmetric between the
+  two spellings, so constructor occlusion costs an exception nothing it had; but
+  §5.4's "reachable qualified in both positions" is, for exceptions
+  specifically, not yet kept.
+- **Executable conformance:**
+  `conformance/qualified-constructor-patterns.test.ts` — a whole `Ordering`
+  match spelled qualified is exhaustive and runs; qualified and bare mix in one
+  match; the same constructor spelled both ways is the unreachable-case report;
+  the emitted switch tests `"Less"`, not `"Prelude.Less"`, and adds no import.
+- **Credit:** Opus, probing #466's escape hatch before relying on it.

@@ -1471,12 +1471,14 @@ class Resolver {
     };
     // Modules §5.4's reservation, claimed by the forms that may take a prelude
     // name over: the four sequential binders (Statements §5.1's exemption), a
-    // constraint's members, which bind at module level the way a `let` does, and
-    // an import's locals, which §5.4 lists beside them. A
-    // name one of the module's *own* layers already binds is a rule-1 collision
-    // rather than an occlusion, and reserves nothing — the lookup below is what
-    // tells the two apart, and it runs before any item of this block is walked,
-    // so the block's own later declarations cannot answer it.
+    // constraint's members, which bind at module level the way a `let` does, an
+    // import's locals, which §5.4 lists beside them, and — since #466 — a
+    // declaration's **constructor names**, a union's, a record's, or an
+    // exception's. A name one of the module's *own* layers already binds is a
+    // rule-1 collision rather than an occlusion, and reserves nothing — the
+    // lookup below is what tells the two apart, and it runs before any item of
+    // this block is walked, so the block's own later declarations cannot answer
+    // it.
     const reserve = (name: string): void => {
       if (scope.lookupOwner(name) === this.#preludeScope) frame.reserved.add(name);
     };
@@ -1519,9 +1521,17 @@ class Resolver {
         // The term names a type-namespace declaration binds. Their references
         // read top-down like any other term reference (§7.2); the declarations
         // themselves, and every type-position mention of them, stay order-free.
+        //
+        // Every one of them reserves (#466). Constructor names joined the
+        // occlusion grant with the constraint members that were already here, so
+        // the reservation follows them — and it is what carries the grant into
+        // **pattern** position, which §5.4 reads as one scope with value
+        // position: `#resolvePattern` consults `#lookupTerm` like every other
+        // reference, so a bare constructor pattern above the declaration draws
+        // §7.2's declared-later error rather than the prelude's constructor.
         for (const { name, owner } of termNamesBound(item)) {
           declare({ name, fun: false, owner });
-          if (owner === "constraint") reserve(name.text);
+          reserve(name.text);
         }
       }
     }
@@ -2257,7 +2267,15 @@ class Resolver {
         const typeParameters = new Set(item.parameters.map(({ text }) => text));
         const seenConstructors = new Set<string>();
         const constructors = item.constructors.map((constructor) => {
-          const existing = scope.lookup(constructor.name.text);
+          // §5.4's grant, extended to constructor names by #466: a prelude
+          // constructor of this spelling is *occluded*, not collided with, so
+          // `#lookupTerm` — which the frame's reservation has already made blind
+          // to the prelude here — answers `undefined` and the declaration
+          // claims. Unions the module declares or imports still fight: their
+          // bindings are in the module's own layer, which no reservation
+          // touches, so `existing` is defined and the hard error stands
+          // (Unions §2).
+          const existing = this.#lookupTerm(constructor.name.text, scope);
           if (seenConstructors.has(constructor.name.text)) {
             this.#diagnostics.add({
               severity: "error",
@@ -2314,7 +2332,9 @@ class Resolver {
       }
       case "RecordDeclaration": {
         const record = this.#recordDeclarations.get(item) ?? Resolved.recordId(this.#nextRecord++);
-        const existing = scope.lookup(item.name.text);
+        // A record's name is its constructor in the term namespace (Products §5.1; Modules §3.1), so
+        // it occludes exactly as a union's constructors do; see the union arm.
+        const existing = this.#lookupTerm(item.name.text, scope);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
         const constructor = this.#declare(item.name, "record-constructor");
         if (existing === undefined) scope.define(item.name.text, constructor.symbol);
@@ -2354,7 +2374,9 @@ class Resolver {
         };
       }
       case "Exception": {
-        const existing = scope.lookup(item.name.text);
+        // An exception's name is a constructor too, and occludes on the same
+        // terms; see the union arm.
+        const existing = this.#lookupTerm(item.name.text, scope);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
         const binding = this.#declare(item.name, "constructor");
         if (existing === undefined) scope.define(item.name.text, binding.symbol);
@@ -2755,6 +2777,64 @@ class Resolver {
     }
   }
 
+  /**
+   * The constructor `Alias.Ctor` names, for a **pattern** — Modules §3.3's
+   * qualified form, which Unions §2 delegates to and Modules §5.4 requires in
+   * pattern position as well as value position.
+   *
+   * `#namedModule` is the same door value position uses (the `Access` arm), so
+   * an explicit `import * as` alias and a prelude module's own name (§6.4's
+   * guaranteed home) answer alike, and neither consults the bare-name layer —
+   * which is the point: an occluded prelude constructor is unreachable bare and
+   * must stay reachable here.
+   *
+   * Answers `undefined` having reported, so the caller has nothing to add.
+   */
+  #qualifiedConstructor(
+    qualifier: Parsed.Name,
+    name: Parsed.Name,
+  ): Resolved.SymbolId | undefined {
+    const module = this.#namedModule(qualifier.text);
+    if (module === undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `unknown module alias \`${qualifier.text}\``,
+        primary: qualifier.span,
+      });
+      return undefined;
+    }
+    // `terms` only. A constraint member is not a constructor, and Modules §5.3's
+    // honored-member read answers calls, not patterns.
+    const symbol = module.terms.get(name.text);
+    if (symbol === undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `module \`${qualifier.text}\` does not export \`${name.text}\``,
+        primary: name.span,
+      });
+      return undefined;
+    }
+    // The same kind test the bare arm makes, so one spelling cannot match what
+    // the other refuses. A record's constructor is `record-constructor`, which
+    // no pattern reaches by either spelling — nominal record patterns are #84
+    // item 1, still open (the defect log's constructor-tuple entry carries the
+    // record).
+    if (symbol.kind !== "constructor") {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${qualifier.text}.${name.text}\` is not a constructor`,
+        primary: { fileId: qualifier.span.fileId, start: qualifier.span.start, end: name.span.end },
+      });
+      return undefined;
+    }
+    // Registered so `#symbol` can answer for it, exactly as the `Access` arm
+    // does in value position. Deliberately *not* `#reachPreludeTerm`: a
+    // constructor matched in a pattern compiles to its string tag and needs no
+    // import (see `#preludeImport`).
+    this.#importedSymbols.set(symbol.id, symbol);
+    return symbol.id;
+  }
+
   #resolvePattern(
     pattern: Parsed.Pattern,
     scope: Scope,
@@ -2835,7 +2915,42 @@ class Resolver {
       };
     }
     if (pattern.kind === "Constructor") {
-      const symbol = scope.lookup(pattern.name.text);
+      if (pattern.qualifier !== undefined) {
+        // Modules §3.3's qualified constructor, in pattern position. It reads
+        // the module directly and never the bare-name layer, so it is exactly
+        // the escape hatch §5.4's constructor occlusion leans on: a module whose
+        // own `union` took `Less` over still matches an `Ordering` by
+        // `Prelude.Less`.
+        const qualified = this.#qualifiedConstructor(pattern.qualifier, pattern.name);
+        if (qualified === undefined) return { kind: "Wildcard", span: pattern.span };
+        return {
+          kind: "Constructor",
+          symbol: qualified,
+          // `text` is the **runtime tag** emission tests against (and an
+          // exception's `name`), not a spelling to show back: a qualified
+          // pattern has to carry the same string its bare twin does, or it
+          // compiles to a case no value ever equals. Taken from the declaration
+          // rather than the source text on principle — the two coincide today,
+          // since a module exports a term under the name it declared it by, and
+          // the neighbouring bare arm's use of the source text is exactly what
+          // miscompiles a *renamed* import's pattern.
+          text: this.#symbol(qualified).name,
+          // The constructor half only: a rename or a go-to-definition lands on
+          // the name, the qualifier being the module's.
+          nameSpan: pattern.name.span,
+          arguments: pattern.arguments.map((argument) =>
+            this.#resolvePattern(argument, scope, seen, binderClass, sharedBindings),
+          ),
+          span: pattern.span,
+        };
+      }
+      // §5.4 reads pattern position and value position as **one scope**, so the
+      // bare spelling goes through the same reserved lookup a value reference
+      // does (#466). Below an occluding declaration that lands on the module's
+      // own constructor; above it the prelude is invisible and
+      // `#findLaterDeclaration` supplies §7.2's declared-later error in its
+      // pattern wording — the shape a user-written union already draws there.
+      const symbol = this.#lookupTerm(pattern.name.text, scope);
       if (symbol === undefined || this.#symbol(symbol).kind !== "constructor") {
         const later = symbol === undefined
           ? this.#findLaterDeclaration(pattern.name.text)

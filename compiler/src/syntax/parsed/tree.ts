@@ -385,6 +385,15 @@ export interface RecordPatternField {
 
 export interface ConstructorPattern {
   readonly kind: "Constructor";
+  /**
+   * The module a qualified constructor pattern reaches through — Modules §3.3's
+   * `Geo.Circle(r)`, and the declaring prelude module's own name for a prelude
+   * constructor (`Prelude.Less`, `Option.Some(v)`). Absent for the bare form.
+   *
+   * The escape hatch §5.4's constructor occlusion depends on: a module whose own
+   * `union` has taken `Less` over still has to be able to match an `Ordering`.
+   */
+  readonly qualifier?: Name;
   readonly name: Name;
   readonly arguments: readonly Pattern[];
   readonly span: Source.Span;
