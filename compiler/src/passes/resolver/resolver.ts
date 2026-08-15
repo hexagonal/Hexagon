@@ -1478,7 +1478,7 @@ class Resolver {
           const member = items[scan];
           if (member?.kind !== "Fun") break;
           const existing = scope.lookupLocal(member.name.text);
-          const pendingHit = this.#reportPendingRebinding(member.name, existing);
+          const pendingHit = this.#reportPendingRebinding(member.name, existing, scope);
           if (!pendingHit && existing !== undefined) {
             this.#reportRebinding(member.name, existing);
           }
@@ -2057,7 +2057,7 @@ class Resolver {
         const existing = scope === this.#moduleScope
           ? scope.lookupLocal(item.name.text)
           : scope.lookup(item.name.text);
-        const pendingHit = this.#reportPendingRebinding(item.name, existing);
+        const pendingHit = this.#reportPendingRebinding(item.name, existing, scope);
         if (!pendingHit && existing !== undefined) {
           this.#reportRebinding(item.name, existing);
         }
@@ -2131,7 +2131,7 @@ class Resolver {
       }
       case "Var": {
         const existing = scope.lookup(item.name.text);
-        const pendingHit = this.#reportPendingRebinding(item.name, existing);
+        const pendingHit = this.#reportPendingRebinding(item.name, existing, scope);
         if (!pendingHit && existing !== undefined) {
           this.#reportRebinding(item.name, existing);
         }
@@ -2916,7 +2916,7 @@ class Resolver {
     // A pending-name collision is reported but still claims: there is no
     // meaning worth preserving over it, and defining the refused binder keeps
     // later references from cascading into a self-reference diagnostic.
-    if (this.#reportPendingRebinding(name, existing)) return true;
+    if (this.#reportPendingRebinding(name, existing, scope)) return true;
     if (existing === undefined) return true;
     this.#reportRebinding(name, existing);
     return false;
@@ -3825,37 +3825,44 @@ class Resolver {
    * binders never reach this check (rule 2 extends over pending names).
    *
    * `existing` is what the ordinary in-scope lookup found, and it arbitrates
-   * between the two collisions a spelling can have inside a member body. The
-   * member's spelling is usually *bound* there — the prelude constraint's
-   * export, or the honor claim itself — yet the nearest meaning is still the
-   * definition in progress, so a `constraint-member` hit takes this diagnostic
-   * (whose line N the author can see) over rule 1's (whose "previous binding"
-   * is a prelude file). Any other in-scope hit is a genuine eclipse — a head
-   * binder shadowing the pending spelling — and rule 1 owns it: the caller
-   * falls through to `#reportRebinding`. The `#pending` arm needs no such
-   * arbitration because a `let`/`var` LHS name is never in scope during its own
-   * RHS; if the spelling resolves, the collision is with whatever it resolved
-   * to.
+   * which collision the claimant actually has. The pending spelling being
+   * *bound* does not by itself hand the collision to rule 1, because both
+   * definition-in-progress forms occlude what the lookup can land on: a
+   * member's spelling resolves to the constraint's own export (the
+   * `constraint-member` symbol — prelude, imported, or same-module), and a
+   * module-level `let`'s spelling can resolve to the prelude name the binding
+   * occludes (Modules §5.4). In both shapes the nearest meaning is the
+   * definition in progress, and this diagnostic — whose line N the author can
+   * see — outranks rule 1's, whose "previous binding" would be a line in a
+   * prelude file the author never opened. Anything else the lookup finds is a
+   * genuine eclipse — a head binder shadowing the pending spelling, or an
+   * ordinary binding an already-reported outer collision left standing — and
+   * rule 1 owns it: the caller falls through to `#reportRebinding`.
    *
    * Answers whether it reported. On a hit the caller must still define the
    * refused binder — there is no meaning worth preserving over it, and defining
    * keeps later references resolving to what the source obviously intended
    * instead of cascading into the Functions §6 or Constraints §4.6
-   * self-reference diagnostics.
+   * self-reference diagnostics (or, in the occluded-prelude shape, into a
+   * phantom type error against the prelude's own type).
    */
   #reportPendingRebinding(
     name: Parsed.Name,
     existing: Resolved.SymbolId | undefined,
+    scope: Scope,
   ): boolean {
-    const pending = existing === undefined
-      ? this.#findPending(name.text)
-      : undefined;
+    if (
+      existing !== undefined &&
+      this.#symbol(existing).kind !== "constraint-member" &&
+      scope.lookupOwner(name.text) !== this.#preludeScope
+    ) {
+      return false;
+    }
+    const pending = this.#findPending(name.text);
     const member = this.#honorMembers.at(-1);
     const collision = pending !== undefined
       ? { span: pending.name.span, form: `the enclosing \`${pending.kind}\`` }
-      : member?.text === name.text &&
-          (existing === undefined ||
-            this.#symbol(existing).kind === "constraint-member")
+      : member?.text === name.text
       ? { span: member.span, form: "the enclosing member definition" }
       : undefined;
     if (collision === undefined) return false;

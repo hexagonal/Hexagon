@@ -49,6 +49,52 @@ describe("the pending clause under a full compile", () => {
     ]);
   });
 
+  test("a module-level binding occluding a prelude name reserves it while pending", () => {
+    // `export let show` occludes the prelude's `show` (Modules §5.4), so the
+    // spelling's nearest meaning inside the RHS is the definition in progress:
+    // the pending diagnostic — line 1 of this file — wins over rule 1's, whose
+    // "previous binding" would be a line in stdlib/Show.hex, and the
+    // define-anyway recovery keeps the trailing `show` from resolving to the
+    // prelude function and manufacturing a phantom type error. Exactly one
+    // diagnostic.
+    expect(diagnostics(
+      "export let show: Int =\n" +
+        "    let show = 1\n" +
+        "    show\n",
+    )).toEqual([
+      "`show` is already being defined by the enclosing `let` (line 1); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+
+    // The `fun` claimant gets the identical treatment — the diagnostic must
+    // not turn on the inner binder's keyword.
+    expect(diagnostics(
+      "export let show: Int =\n" +
+        "    fun show(n: Int): Int = n\n" +
+        "    show(1)\n",
+    )).toEqual([
+      "`show` is already being defined by the enclosing `let` (line 1); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+  });
+
+  test("a function-local binder still may not occlude a prelude name", () => {
+    // No definition of `show` is in progress here, so the prelude collision is
+    // genuine and rule 1 keeps it (Modules §5.4: function-local binders
+    // occlude nothing) — the constraint-member kind alone must not hand the
+    // collision to the pending machinery. The line number belongs to the
+    // prelude source, so the assertion stays loose on it.
+    const messages = diagnostics(
+      "let f(): Int =\n" +
+        "    let show = 1\n" +
+        "    2\n",
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatch(
+      /^`show` is already bound \(line \d+\); Hexagon does not allow rebinding — choose a different name\.$/,
+    );
+  });
+
   test("a head binder eclipsing the member spelling hands the collision to rule 1", () => {
     // The lambda parameter `equals` legally shadows the pending member name;
     // an inner `let equals` then collides with the *parameter*, and the
