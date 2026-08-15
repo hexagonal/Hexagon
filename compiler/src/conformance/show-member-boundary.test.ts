@@ -72,21 +72,24 @@ describe("occlusion and shadowing (the note's §5 item 6, pinned)", () => {
   });
 
   /**
-   * Inner layers may occlude nothing — prelude included (Modules §5.4, the
-   * layer-identity test) — so this is the existing prelude-name law reaching a
-   * new name, not new law. Measured: the refusal arrives with a cascade (the
-   * refused binding leaves `show` meaning the polymorphic member, which the
-   * body then mistypes); the pin asserts the refusal itself.
+   * An inner layer may shadow the prelude and nothing else (Modules §5.4 since
+   * #464), so this is the existing prelude-name law reaching a new name, not new
+   * law: `show` is a prelude binding like any other here, and the local wins for
+   * its block. It used to be refused, and the refusal came with a cascade — the
+   * refused binding left `show` meaning the polymorphic member, which the body
+   * then mistyped.
    */
-  test("an inner-layer `let show` is refused, as for every prelude name (§5.4)", () => {
-    const diagnostics = projectDiagnostics([
+  test("an inner-layer `let show` shadows, as for every prelude name (§5.4)", async () => {
+    const exports = await runMain([
       "export let f(n: Int): String =",
       "    let show = \"not the member\"",
       "    show",
       "",
+      "export let r: String = f(1)",
+      "",
     ].join("\n"));
 
-    expect(diagnostics.some((message) => /`show` is already bound/u.test(message))).toBe(true);
+    expect(exports.r).toBe("not the member");
   });
 });
 

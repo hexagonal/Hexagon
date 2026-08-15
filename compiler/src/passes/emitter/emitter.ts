@@ -3548,6 +3548,24 @@ class JavaScriptEmitter {
     );
     if (routed.length === 0) return undefined;
     const contested = new Set<string>(this.#moduleBindings);
+    // Every name this module binds *anywhere*, module level or not. A seat's
+    // local is a module-scope binding in the emitted JavaScript, so a parameter
+    // or a body local spelled the same shadows it inside the very function whose
+    // call was routed — `function f(show) { return show + show(1); }`, which
+    // compiles clean and fails at run time. Both spellings are the member's own,
+    // and both are legal: a head binder may shadow anything (Statements §5), and
+    // a sequential binder may shadow the prelude layer (Modules §5.4). The seat
+    // keeps its generated name instead, which Lexer §3.2's prefix protects.
+    //
+    // `Module.symbols` is the single funnel every binder goes through, which is
+    // why the set is read off it rather than off the binder forms — no binder
+    // form, present or future, can escape it. The file test is what keeps the
+    // set to *bindings*: the imported and prelude symbols share the list, and
+    // the member's own term is one of them, so counting those would contest
+    // every spelling the rule exists to hand out.
+    for (const { name, bindingSpan } of this.#module.symbols) {
+      if (bindingSpan.fileId === this.#module.fileId) contested.add(name);
+    }
     for (const item of this.#module.items) {
       if (item.kind !== "Honor") continue;
       for (const { member } of item.memberSeats) contested.add(member);

@@ -180,21 +180,17 @@ describe("the pending clause under a full compile", () => {
     ]);
   });
 
-  test("a function-local binder still may not occlude a prelude name", () => {
-    // No definition of `show` is in progress here, so the prelude collision is
-    // genuine and rule 1 keeps it (Modules §5.4: function-local binders
-    // occlude nothing) — the constraint-member kind alone must not hand the
-    // collision to the pending machinery. The line number belongs to the
-    // prelude source, so the assertion stays loose on it.
-    const messages = diagnostics(
+  test("a function-local binder shadowing a prelude name reports nothing", () => {
+    // No definition of `show` is in progress here, so the pending machinery has
+    // nothing to say — and the constraint-member kind alone must not hand it the
+    // collision anyway, which is what this pins. Rule 1 has nothing to say
+    // either since #464: the prelude is the one layer a sequential binder may
+    // shadow (Modules §5.4). Both silences are the assertion.
+    expect(diagnostics(
       "let f(): Int =\n" +
         "    let show = 1\n" +
         "    2\n",
-    );
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatch(
-      /^`show` is already bound \(line \d+\); Hexagon does not allow rebinding — choose a different name\.$/,
-    );
+    )).toEqual([]);
   });
 
   test("a head binder eclipsing the member spelling hands the collision to rule 1", () => {
