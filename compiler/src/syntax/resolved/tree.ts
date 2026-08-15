@@ -889,7 +889,21 @@ export interface RecordPatternField {
 export interface ConstructorPattern {
   readonly kind: "Constructor";
   readonly symbol: SymbolId;
+  /**
+   * The constructor as *written here* — the local spelling. A qualified pattern
+   * carries the constructor half alone, so this is always the identifier that
+   * stands at `nameSpan`, which is what a diagnostic quotes and what the
+   * occurrence index has to publish for a rename to move the right spellings.
+   */
   readonly text: string;
+  /**
+   * The name the constructor was **declared** under, which is the runtime tag
+   * emission tests against (and an exception's `name`). It parts company with
+   * `text` wherever the use site may spell the constructor its own way — an
+   * `import { Circle as Round }` above all (#468) — and a pattern that tested
+   * the local spelling would compile to a case no value ever equals.
+   */
+  readonly tag: string;
   readonly nameSpan: Source.Span;
   readonly arguments: readonly Pattern[];
   readonly span: Source.Span;

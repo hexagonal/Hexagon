@@ -3849,7 +3849,7 @@ class JavaScriptEmitter {
       if (pattern.kind === "Constructor") {
         // `case true:` / `case false:` under the pin; the name-string otherwise.
         const pinned = this.#pinnedBoolLiteral(pattern.symbol);
-        lines.push(`${armIndent}case ${pinned ?? JSON.stringify(pattern.text)}:`);
+        lines.push(`${armIndent}case ${pinned ?? JSON.stringify(pattern.tag)}:`);
         const metadata = this.#constructors.get(pattern.symbol)?.constructor;
         pattern.arguments.forEach((argument, index) => {
           if (matchName === undefined) return;
@@ -4076,13 +4076,13 @@ class JavaScriptEmitter {
         const metadata = this.#constructors.get(pattern.symbol);
         const pinned = this.#pinnedBoolLiteral(pattern.symbol);
         const test = exception !== undefined
-          ? `${value} != null && ${value}.$hex === true && ${value}.name === ${JSON.stringify(pattern.text)}`
+          ? `${value} != null && ${value}.$hex === true && ${value}.name === ${JSON.stringify(pattern.tag)}`
           : pinned !== undefined
           // The pin again: a `Bool` pattern tests the boolean it actually is.
           ? `${value} === ${pinned}`
           : metadata?.tagged
-          ? `${value}.tag === ${JSON.stringify(pattern.text)}`
-          : `${value} === ${JSON.stringify(pattern.text)}`;
+          ? `${value}.tag === ${JSON.stringify(pattern.tag)}`
+          : `${value} === ${JSON.stringify(pattern.tag)}`;
         const payloads = pattern.arguments.map((argument, index) => {
           const field = exception?.slots[index]?.field ??
             metadata?.constructor.slots[index]?.field ??

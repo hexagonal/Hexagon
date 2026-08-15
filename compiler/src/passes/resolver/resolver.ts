@@ -3157,15 +3157,8 @@ class Resolver {
         return {
           kind: "Constructor",
           symbol: qualified,
-          // `text` is the **runtime tag** emission tests against (and an
-          // exception's `name`), not a spelling to show back: a qualified
-          // pattern has to carry the same string its bare twin does, or it
-          // compiles to a case no value ever equals. Taken from the declaration
-          // rather than the source text on principle — the two coincide today,
-          // since a module exports a term under the name it declared it by, and
-          // the neighbouring bare arm's use of the source text is exactly what
-          // miscompiles a *renamed* import's pattern.
-          text: this.#symbol(qualified).name,
+          text: pattern.name.text,
+          tag: this.#symbol(qualified).name,
           // The constructor half only: a rename or a go-to-definition lands on
           // the name, the qualifier being the module's.
           nameSpan: pattern.name.span,
@@ -3209,6 +3202,10 @@ class Resolver {
         kind: "Constructor",
         symbol,
         text: pattern.name.text,
+        // The declaration's name, never the one written here: an
+        // `import { Circle as Round }` puts a spelling in front of the reader
+        // that no constructed value carries (#468).
+        tag: this.#symbol(symbol).name,
         nameSpan: pattern.name.span,
         arguments: pattern.arguments.map((argument) =>
           this.#resolvePattern(argument, scope, seen, binderClass, sharedBindings),

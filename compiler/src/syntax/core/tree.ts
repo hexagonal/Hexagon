@@ -269,7 +269,11 @@ export interface RecordPatternField {
 export interface ConstructorPattern {
   readonly kind: "Constructor";
   readonly symbol: Resolved.SymbolId;
-  readonly text: string;
+  /**
+   * The declared name, and the only spelling emission may test: nothing past
+   * the checker has a reader to show a local spelling to.
+   */
+  readonly tag: string;
   readonly arguments: readonly Pattern[];
   readonly span: Source.Span;
 }
