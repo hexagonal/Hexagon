@@ -1065,12 +1065,17 @@ class Resolver {
    *
    * A superset of what those reads resolve, never a subset. A `false` here sends
    * the spelling on to be read *above* its import, so a surface missed here is a
-   * hole in §3's top-down half; a surface over-claimed here costs only the
-   * declared-later wording on a program that is already in error. Hence the
-   * honored arm asks whether a candidate exists rather than whether one wins —
-   * an ambiguity refusal is a binding as far as this question goes — and the
-   * provided row asks the companion identity `toSeq` rides, not the whole
-   * seating.
+   * hole in §3's top-down half. Hence the honored arm asks whether a candidate
+   * exists rather than whether one wins — an ambiguity refusal is a binding as
+   * far as this question goes.
+   *
+   * The superset is a *loosening* of each surface's own test, never a widening
+   * of which surfaces exist. Over-claiming is cheap only where the spelling has
+   * a binding either way: claim a name no surface offers and the message is back
+   * to promising a repair that fixes nothing, which is the whole point of asking.
+   * `PROVIDED_ROW_ALIASES` is where that line ran once — the seating alone
+   * admits every prelude basename a project file may take, and only five of them
+   * carry a row.
    */
   #aliasOffers(
     iface: ModuleInterface,
@@ -1082,10 +1087,15 @@ class Resolver {
     if (position === "constructor") return false;
     if (iface.constraintMembers.has(field.text)) return true;
     if (this.#honoredMemberCandidates(iface, field.text).length > 0) return true;
+    if (field.text !== "toSeq" || !PROVIDED_ROW_ALIASES.has(alias)) return false;
+    // The seating test `#providedRowMemberAccess` makes, and for its reason: a
+    // project's own `import * as Vector from "./mine"` is not the companion, and
+    // the same file reached two ways yields two interfaces, so the comparison is
+    // by `fileId`. The alias filter above it is what keeps this from claiming
+    // `Int.toSeq` — every prelude basename a project file may take is seated,
+    // and only five of them carry a row.
     const companion = this.#preludeModuleAliases.get(alias);
-    return field.text === "toSeq" &&
-      companion !== undefined &&
-      companion.module.fileId === iface.module.fileId;
+    return companion !== undefined && companion.module.fileId === iface.module.fileId;
   }
 
   /**
@@ -4682,6 +4692,11 @@ class Resolver {
     field: Parsed.Name,
   ): Resolved.Expr | undefined {
     if (field.text !== "toSeq") return undefined;
+    // The alias must be one a row is seated at before anything else is asked, so
+    // that this reader and `#aliasOffers` answer the same set. The arms below
+    // are the same five, and reaching the tail `return undefined` for an alias
+    // this admitted would be the drift the shared constant exists to prevent.
+    if (!PROVIDED_ROW_ALIASES.has(alias)) return undefined;
     // Keyed on the *module*, never on the spelling: a user's own
     // `import * as Vector from "./mine"` shadows the prelude alias, and the row
     // belongs to the prelude companion or to nothing.
@@ -5016,6 +5031,31 @@ function isResolvedTypeAlias(
 ): alias is Resolved.TypeAliasItem {
   return typeof alias.name === "string";
 }
+
+/**
+ * The prelude companions a **provided `Iterable` row** is seated at (Collections
+ * Part 5 §4), by the alias that names them.
+ *
+ * The row has no source form to read the set off — that is what makes it
+ * *provided* — so the set is written once here and consulted by both readers:
+ * `#providedRowMemberAccess`, which pins the subject each one rides, and
+ * `#aliasOffers`, which asks only whether the alias offers `toSeq` at all. Two
+ * derivations would drift the moment one grew an entry, and the drift is not
+ * symmetric: the offer side over-claiming means a `toSeq` above an import draws
+ * "move the import above this use" for a member moving it does not reach, which
+ * is the promise Modules §3 scopes to what an import *binds*.
+ *
+ * Every prelude basename a project file may take (`injectEmbedded`) is an alias
+ * this question can be asked at — `Int`, `Debug`, and the rest are seated files
+ * too — so the guard cannot be the seating alone.
+ */
+export const PROVIDED_ROW_ALIASES: ReadonlySet<string> = new Set([
+  "Vector",
+  "Set",
+  "Map",
+  "String",
+  "Seq",
+]);
 
 /**
  * The operations a primitive companion is asked for and deliberately does not
