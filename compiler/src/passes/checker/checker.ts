@@ -7355,9 +7355,48 @@ class Checker {
   ): Mono {
     const replacements = new Map<number, Variable>();
     const copiedRequirements = new Set<number>();
-    for (const variable of scheme.variables) {
+    // Freshening is **ordinal-preserving**: the copies are minted in ascending
+    // id order, so their own ids come out in the same order (#447). A scheme
+    // variable's id *is* FFI Part 9 §6.2's type-variable ordinal — binders mint
+    // in declared-head order, and `dictionaryEntries` reads the ordinal back by
+    // sorting on the number — while `scheme.variables` is in the order
+    // generalization met the variables in the *type*, which is a different
+    // sequence the moment a head is spelled `<b, a>` over `(x: a, y: b)`.
+    // Minting in array order renumbers that head as if it were `<a, b>`, and
+    // every scheme built on the copy inherits the wrong ordinal: the alias `let
+    // alias = pair` emits as the bare `pair` and so answers to *pair's* suffix,
+    // while its consumers key on the alias's own ids.
+    for (const variable of [...scheme.variables].sort((left, right) => left.id - right.id)) {
       replacements.set(variable.id, this.#fresh(level, variable.literalOnly));
     }
+    /**
+     * The copies destined for `collected`, held back so they can be published in
+     * the callee's **ABI** order rather than in the order `copy` happens to
+     * reach them (#447).
+     *
+     * `copy` walks the *type*, so pushing at the point of copy publishes
+     * *(first occurrence of the variable in the type, order the constraints were
+     * attached)*. The ABI is *(type-variable ordinal, constraint name)* — FFI
+     * Part 9 §6.2 — and both components differ: a head whose binder order is not
+     * the order the binders occur in the type gets the variables wrong, and a
+     * head spelling conjuncts non-alphabetically gets one variable's own
+     * dictionaries wrong. Neither is caught downstream, because the arity is
+     * right either way: `<a: (Show, Num)>` handed the `Show` dictionary to the
+     * `Num` slot and died at `.add`, and `<b: Show, a: Show>` swapped two
+     * dictionaries of the same shape and merely answered wrong.
+     *
+     * This is the one place holding both the callee's scheme variables and the
+     * fresh slot each requirement was copied onto, and it is the single choke
+     * point for every collecting caller, so the order is fixed here — at the
+     * producer. The alternative, aligning the argument list against the scheme
+     * in the emitter, has nothing to align *with*: `Core.CallEvidence` carries
+     * no slot identity, and a callee that is not a name has no scheme in hand.
+     */
+    const ordered: {
+      readonly ordinal: number;
+      readonly constraint: string;
+      readonly requirement: Requirement;
+    }[] = [];
     const impliedTypes = scheme.impliedTypes === undefined
       ? undefined
       : new Map(
@@ -7395,7 +7434,20 @@ class Checker {
           // where the use was, for a report that is about the use.
           if (requirement.literal !== undefined) copied.literal = requirement.literal;
           if (useSpan !== undefined) copied.useSpan = useSpan;
-          collected?.push(copied);
+          // `actual.id` is the *originating scheme* variable, which is the id
+          // `dictionaryEntries` sorts the callee's parameters under; the
+          // canonical name is the one `#publicRequirement` will publish, so the
+          // key here is the key there, character for character (#447).
+          if (collected !== undefined) {
+            ordered.push({
+              ordinal: actual.id,
+              constraint: this.#canonicalConstraintName(
+                requirement.name,
+                requirement.identity,
+              ),
+              requirement: copied,
+            });
+          }
         }
         return replacement;
       }
@@ -7436,6 +7488,20 @@ class Checker {
       return actual;
     };
     const instantiated = copy(scheme.type);
+    if (collected !== undefined) {
+      // §6.2's key, sorted **stably**, which is what carries the tie-break
+      // across. A tie is two same-named constraints from different declarations
+      // on one variable (Constraints §5.1.1) — distinct arguments that no key
+      // separates. The callee breaks it by the order that variable's own
+      // requirement list has (`#publicScheme` enumerates it, `dictionaryEntries`
+      // sorts stably over it), and so does this: one variable's requirements are
+      // pushed contiguously, in that same list order.
+      ordered.sort((left, right) =>
+        left.ordinal - right.ordinal ||
+        left.constraint.localeCompare(right.constraint)
+      );
+      for (const { requirement } of ordered) collected.push(requirement);
+    }
     const subject = scheme.constraintSubject === undefined
       ? undefined
       : replacements.get(scheme.constraintSubject.id);
@@ -8063,13 +8129,30 @@ class Checker {
 
   #importScheme(scheme: Typed.Scheme): Scheme {
     const variables = new Map<Typed.TypeVariableId, Variable>();
-    for (const id of scheme.variables) {
+    // The two orders a scheme's variable list carries, kept apart on purpose
+    // (#447). Their *ids* are FFI Part 9 §6.2's ordinal — the defining module's
+    // declared-head order, and the very numbers that module's
+    // `dictionaryEntries` sorted its evidence parameters under — so the copies
+    // are **minted** in ascending id order and inherit the ordinal. This is one
+    // of only two places a scheme's variables are renumbered, and minting in
+    // array order handed every cross-module call site a different ordinal from
+    // the one the callee's parameter list was built with.
+    //
+    // The **array** order is a second, unrelated convention and is preserved
+    // exactly: Part 8's specialization planner walks `scheme.variables` to name
+    // its editions (`specializations.ts`, `mixIntBool`), so reordering the array
+    // here would have the importer predict a spelling the definer never emitted
+    // — a routed call to a function that does not exist under that name, or
+    // worse, to the transposed edition, which is a wrong answer.
+    const minted = new Map<Typed.TypeVariableId, Variable>();
+    for (const id of [...scheme.variables].sort((left, right) => Number(left) - Number(right))) {
       const variable = this.#fresh(0, false);
-      variables.set(id, variable);
+      minted.set(id, variable);
       // Imported binders are already generalized by their defining module;
       // they must never be defaulted as unresolved locals in this module.
       this.#quantified.add(variable.id);
     }
+    for (const id of scheme.variables) variables.set(id, minted.get(id)!);
     const copy = (type: Typed.Type): Mono => {
       switch (type.kind) {
         case "Primitive": return primitive(type.name);
