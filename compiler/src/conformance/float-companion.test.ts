@@ -477,9 +477,10 @@ describe("the composed `fromNat`, which takes no key", () => {
     // binding the record's `fromNat` slot holds — rather than the forwarder and
     // its evidence. An erasure at the call site would name neither.
     expect(emitted(source)).toContain(
-      '__Num_Float_fromNat, __Signed_Float_fromInt } from "./Float.js"',
+      'import { __Num_Float_fromNat as fromNat, __Signed_Float_fromInt as fromInt }' +
+        ' from "./Float.js";',
     );
-    expect(emitted(source)).toContain("const fromLiteral = __Num_Float_fromNat(7);");
+    expect(emitted(source)).toContain("const fromLiteral = fromNat(7);");
   });
 
   /**

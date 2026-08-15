@@ -144,8 +144,8 @@ describe("a concrete call to a prelude constrained export", () => {
       "export let rendered: String = show(42)\n",
     ]]);
 
-    expect(javascript).toContain('import { __Show_Int_show } from "./Int.js";');
-    expect(javascript).toContain("const rendered = __Show_Int_show(42);");
+    expect(javascript).toContain('import { __Show_Int_show as show } from "./Int.js";');
+    expect(javascript).toContain("const rendered = show(42);");
     expect(javascript).not.toContain("showInt");
   });
 

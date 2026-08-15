@@ -277,8 +277,13 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     ] as const;
     const text = emittedFrom(files, "/main.hex");
 
-    expect(text).toContain('import { __Show_Rat_show, __Signed_Rat_fromInt } from "./Rat.js";');
-    expect(text).toContain("const third = __Show_Rat_show(__Signed_Rat_fromInt(3));");
+    // Both spellings are uncontested here, so both seats bind under the
+    // member's own name and the routed call reads as the source wrote it
+    // (Dictionary Sharing §8's seat-binding rule).
+    expect(text).toContain(
+      'import { __Show_Rat_show as show, __Signed_Rat_fromInt as fromInt } from "./Rat.js";',
+    );
+    expect(text).toContain("const third = show(fromInt(3));");
 
     const main = await runProject(files, { entry: "/main.hex" });
     expect(main["third"]).toBe("3/1");
@@ -288,8 +293,8 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     const source = "export let differs: Bool = notEquals(2, 3)\n";
     const text = emitted(source);
 
-    expect(text).toContain('import { __Eq_Int_notEquals } from "./Int.js";');
-    expect(text).toContain("const differs = __Eq_Int_notEquals(2, 3);");
+    expect(text).toContain('import { __Eq_Int_notEquals as notEquals } from "./Int.js";');
+    expect(text).toContain("const differs = notEquals(2, 3);");
 
     const main = await runMain(source);
     expect(main["differs"]).toBe(true);
@@ -311,6 +316,135 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
 
     const main = await runMain("export let d: Int = Int.div(-7, 2)\n");
     expect(main["d"]).toBe(-4);
+  });
+});
+
+/**
+ * Dictionary Sharing §8's seat-binding rule: a consumer binds an imported seat
+ * under the member's **source** spelling where that spelling is uncontested in
+ * the consumer, so the routed call reads exactly as the source wrote it. The
+ * one deliberate exception to §5's collision-only aliasing, in Part 8's
+ * `claimPublic` lineage — and on any contest the generated spelling stands,
+ * with no numbering: a seat's generated name is already unique, and it reads
+ * better here than `show_1` would.
+ */
+describe("§8 — a routed seat binds the member's source spelling when uncontested", () => {
+  test("uncontested: the call reads as the source wrote it", async () => {
+    const source = "let uncontestedSeat = 0\nexport let one: String = show(21)\n";
+    const text = emitted(source);
+
+    expect(text).toContain('import { __Show_Int_show as show } from "./Int.js";');
+    expect(text).toContain("const one = show(21);");
+
+    const main = await runMain(source);
+    expect(main["one"]).toBe("21");
+  });
+
+  test("two seats want one member spelling: all contestants keep the generated names", async () => {
+    // §8 gives it to neither, and numbers nothing — the first call must not
+    // win the spelling on the promise that no second one appears.
+    const source =
+      "let twoSeats = 0\n" +
+        'export let one: String = show(22) ++ show("!")\n';
+    const text = emitted(source);
+
+    expect(text).toContain('import { __Show_Int_show } from "./Int.js";');
+    expect(text).toContain('import { __Show_String_show } from "./String.js";');
+    expect(text).toContain('const one = __Show_Int_show(22) + __Show_String_show("!");');
+    expect(text).not.toContain("as show }");
+    expect(text).not.toContain("show_1");
+
+    const main = await runMain(source);
+    expect(main["one"]).toBe("22!");
+  });
+
+  test("a surviving forwarder contests it: a polymorphic call beside a concrete one", async () => {
+    const source =
+      "let forwarderBeside = 0\n" +
+        "let render4<a: Show>(value: a): String = show(value)\n" +
+        "export let one: String = render4(23) ++ show(24)\n";
+    const text = emitted(source);
+
+    // The forwarder is bound as `show`, so the seat takes its generated name.
+    expect(text).toContain('import { __show as show } from "./Show.js";');
+    expect(text).toContain('import { __Show_Int_show } from "./Int.js";');
+    expect(text).toContain("__Show_Int_show(24)");
+
+    const main = await runMain(source);
+    expect(main["one"]).toBe("2324");
+  });
+
+  test("a member reference as a value contests it too", async () => {
+    const source =
+      "let valueBeside = 0\n" +
+        "let render5 = show\n" +
+        "export let one: String = render5(25) ++ show(26)\n";
+    const text = emitted(source);
+
+    expect(text).toContain('import { __show as show } from "./Show.js";');
+    expect(text).toContain("__Show_Int_show(26)");
+
+    const main = await runMain(source);
+    expect(main["one"]).toBe("2526");
+  });
+
+  test("an ordinary binding of the name contests it", async () => {
+    // The module binds `show` itself, occluding the prelude's (Modules §5.4),
+    // so the seat cannot have the spelling.
+    const source =
+      "let show = 27\n" +
+        "export let one: String = Int.show(28)\n" +
+        "export let two: Int = show\n";
+    const text = emitted(source);
+
+    expect(text).toContain('import { __Show_Int_show } from "./Int.js";');
+    expect(text).toContain("const one = __Show_Int_show(28);");
+    expect(text).toContain("const show = 27;");
+
+    const main = await runMain(source);
+    expect(main["one"]).toBe("28");
+    expect(main["two"]).toBe(27);
+  });
+
+  test("a local instance's own member contests it, and its seat is never aliased", async () => {
+    // Honoring a constraint claims the member's name in the module's term
+    // space (§4.6), and a bare use there means *that* instance's member — so
+    // binding another instance's seat to the same JavaScript name would make
+    // the emitted spelling mean what the source spelling does not. The local
+    // seat is a `const` here and is called by its own name.
+    const source =
+      "record Slug = {n: Int}\n" +
+        "honor Show<Slug> =\n" +
+        '    show(s) = "slug ${s.n}"\n' +
+        "export let one: String = show(Slug({n = 29})) ++ Int.show(30)\n";
+    const text = emitted(source);
+
+    expect(text).toContain('import { __Show_Int_show } from "./Int.js";');
+    expect(text).toContain("const one = __Show_Slug_show({ n: 29 }) + __Show_Int_show(30);");
+    expect(text).not.toContain("as show }");
+
+    const main = await runMain(source);
+    expect(main["one"]).toBe("slug 2930");
+  });
+
+  test("two members of one instance each take their own spelling", async () => {
+    const source =
+      "let twoMembers = 0\n" +
+        "export let one: String = show(Int.div(31, 2))\n";
+    const text = emitted(source);
+
+    expect(text).toContain(
+      'import { __Integral_Int_div as div, __Show_Int_show as show } from "./Int.js";',
+    );
+    expect(text).toContain("const one = show(div(31, 2));");
+
+    const main = await runMain(source);
+    expect(main["one"]).toBe("15");
+  });
+
+  test("two compiles of one module agree on the binding", () => {
+    const source = "let seatDeterminism = 0\nexport let one: String = show(32)\n";
+    expect(emitted(source)).toBe(emitted(source));
   });
 });
 
@@ -380,8 +514,8 @@ describe("§8 — the seats travel to the declaring module, not the transit one"
     // there and is imported from the module that declared the instance.
     const text = emittedFrom(files, "/main.hex");
     expect(text).toContain('import { __Show_Coin2 } from "./purse.js";');
-    expect(text).toContain('import { __Show_Coin2_show } from "./mint.js";');
-    expect(text).toContain("const one = __Show_Coin2_show(struck(3));");
+    expect(text).toContain('import { __Show_Coin2_show as show } from "./mint.js";');
+    expect(text).toContain("const one = show(struck(3));");
   });
 
   test("importing a seat keeps its module in the emitted graph", () => {

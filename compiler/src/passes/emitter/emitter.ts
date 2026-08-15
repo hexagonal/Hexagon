@@ -240,14 +240,107 @@ export interface JavaScriptEmissionOptions {
    * specifiers; a basename with no entry takes the same-directory default.
    */
   readonly runtimes?: RuntimeLocations;
+  /**
+   * The local each routed member seat binds under, by `memberSeatKey` — the
+   * answer to Dictionary Sharing §8's seat-binding rule, which only a finished
+   * rendering can give (#444). Absent on the discovery pass; see
+   * `emitJavaScript`.
+   */
+  readonly memberSeatLocals?: ReadonlyMap<string, string>;
 }
 
+/**
+ * Which routed member seats earn the member's **source** spelling is a fact
+ * about the whole finished module, so emission runs twice when — and only when
+ * — one of them does.
+ *
+ * Dictionary Sharing §8: a consumer binds an imported seat under the member's
+ * source spelling where that spelling is uncontested in the consumer, and the
+ * two decisive contests are legible nowhere earlier. Whether the member's
+ * *forwarder* is bound here is whether any surviving reference named it, which
+ * `#referencedSymbols` answers only once every body is rendered; and whether
+ * two seats want one member spelling is a property of the whole set of routed
+ * calls, so the first one cannot be given the spelling on the promise that no
+ * second appears. The name has to be in the body text as it is written, so the
+ * body is written twice rather than patched.
+ *
+ * The discovery pass is a complete, correct emission — every seat under its
+ * generated spelling — so a module where no seat earns the source spelling
+ * pays nothing, and the pass that runs second is the one whose output ships.
+ * Rendering is a pure function of the module and these options, so the second
+ * pass repeats the first's routing decisions exactly; the only names it claims
+ * that the first did not are the source spellings themselves, which no
+ * generated name can contest (every one of those carries Lexer §3.2's reserved
+ * prefix, and a member's source spelling cannot).
+ */
 export function emitJavaScript(
   module: Core.Module,
   options: JavaScriptEmissionOptions = {},
 ): Emitted.JavaScript {
-  return new JavaScriptEmitter(module, options).emit();
+  const discovery = new JavaScriptEmitter(module, options);
+  const emitted = discovery.emit();
+  const memberSeatLocals = discovery.memberSeatSpellings();
+  if (memberSeatLocals === undefined) return emitted;
+  return new JavaScriptEmitter(module, { ...options, memberSeatLocals }).emit();
 }
+
+/** One routed seat's identity across the two passes: the module it lives in, and its name there. */
+function memberSeatKey(specifier: string, seat: string): string {
+  return `${specifier} ${seat}`;
+}
+
+/**
+ * Every name a module's items bind at module level in the emitted JavaScript
+ * (#444) — the eagerly legible part of Dictionary Sharing §8's contest set.
+ *
+ * Deliberately over-approximate on one axis and exact on the other: an
+ * *explicit* import's locals are counted whether or not the body names them,
+ * because the source asked for those and the line is emitted either way, while
+ * a synthesized prelude import's are left out here and added by
+ * `memberSeatSpellings` from what rendering actually referenced. Generated
+ * names are out of scope by construction — Lexer §3.2's reserved prefix is on
+ * every one of them and can be on no member's source spelling.
+ */
+function moduleLevelBindings(module: Core.Module): readonly string[] {
+  const identifier = (binding: Core.Binding | Core.Constructor): string =>
+    isSafeIdentifier(binding.name) ? binding.name : `__binding${Number(binding.symbol)}`;
+  return module.items.flatMap((item): readonly string[] => {
+    switch (item.kind) {
+      case "Let":
+      case "Fun":
+      case "Var":
+        return [identifier(item.binding)];
+      case "LetPattern":
+        return patternBindings(item.pattern).map(identifier);
+      case "Union":
+        return item.constructors.map(identifier);
+      case "RecordDeclaration":
+        return [identifier(item.constructor)];
+      case "Exception":
+        return [identifier(item.binding)];
+      case "ConstraintDeclaration":
+        // The forwarders, and the §6.5 helper each defaulted member hoists.
+        return item.members.flatMap((member) => [
+          identifier(member.binding),
+          ...(member.defaultValue === undefined
+            ? []
+            : [defaultHelperName(member.binding.name)]),
+        ]);
+      case "ExternBlock":
+        return item.declarations.flatMap((declaration) =>
+          declaration.kind === "ExternType" ? [] : [declaration.localName]
+        );
+      case "Import":
+        if (item.synthesized || item.form.kind === "Effect") return [];
+        return item.form.kind === "Namespace"
+          ? [item.form.alias]
+          : item.form.names.map(({ local }) => local);
+      default:
+        return [];
+    }
+  });
+}
+
 
 export interface DeclarationEmissionOptions {
   /**
@@ -1371,7 +1464,23 @@ class JavaScriptEmitter {
    * all: a prelude companion has none by construction, and a transitively
    * reached instance's declaring module has none by definition.
    */
-  readonly #usedMemberSeats = new Map<string, Map<string, string>>();
+  readonly #usedMemberSeats = new Map<
+    string,
+    Map<string, { readonly member: string; readonly local: string }>
+  >();
+  /** This pass's answer to §8's seat-binding rule, or empty on the discovery pass. */
+  readonly #memberSeatLocals: ReadonlyMap<string, string>;
+  /**
+   * Every name this module binds at **module level** in the emitted JavaScript,
+   * as far as its items settle it (#444).
+   *
+   * The contest set §8's seat-binding rule reads, minus the two entries only a
+   * finished rendering can supply — a surviving forwarder import and a second
+   * routed seat — which `memberSeatSpellings` adds. Generated names are absent
+   * and need not be here: every one carries Lexer §3.2's reserved prefix, and a
+   * constraint member's source spelling never can.
+   */
+  readonly #moduleBindings = new Set<string>();
   readonly #generatedBodies: {
     readonly specialization: FundamentalSpecialization;
     readonly text: string;
@@ -1455,6 +1564,8 @@ class JavaScriptEmitter {
         this.#importedInstanceLocals.add(localDictionary);
       }
     }
+    this.#memberSeatLocals = options.memberSeatLocals ?? new Map();
+    for (const name of moduleLevelBindings(module)) this.#moduleBindings.add(name);
     // The seat inventory, from the three channels an instance reaches a module
     // by. This module's own is seated first and never overwritten: an entry
     // arriving from outside for a dictionary declared here would be the same
@@ -3367,27 +3478,98 @@ class JavaScriptEmitter {
     const instance = this.#instanceSeats.get(dictionary);
     const seat = instance?.seats.get(member);
     if (instance === undefined || seat === undefined) return undefined;
+    // A local instance's seat is a `const` in this module and is called by its
+    // own name: there is nothing to import and so nothing to bind it under.
     return instance.specifier === undefined
       ? seat
-      : this.#memberSeatLocal(instance.specifier, seat);
+      : this.#memberSeatLocal(instance.specifier, seat, member);
   }
 
   /**
    * The local one imported member seat is called by here, claimed on first use
-   * — the same treatment `#specializationLocal` gives an imported edition, over
-   * a name that is already in the reserved family.
+   * — `#specializationLocal`'s treatment of an imported edition, over a name
+   * that already carries the reserved prefix.
+   *
+   * Dictionary Sharing §8's seat-binding rule is applied from the plan the
+   * discovery pass computed (`memberSeatSpellings`): where the member's source
+   * spelling was uncontested it is bound here, so the routed call reads exactly
+   * as the source wrote it — `import { __Show_Int_show as show }`, then
+   * `show(5)`. With no plan, or on any contest, the generated spelling stands.
    */
-  #memberSeatLocal(specifier: string, seat: string): string {
+  #memberSeatLocal(specifier: string, seat: string, member: string): string {
     let names = this.#usedMemberSeats.get(specifier);
     if (names === undefined) {
       names = new Map();
       this.#usedMemberSeats.set(specifier, names);
     }
     const existing = names.get(seat);
-    if (existing !== undefined) return existing;
-    const local = this.#generatedNames.claimGenerated(seat);
-    names.set(seat, local);
+    if (existing !== undefined) return existing.local;
+    // Taken from the plan rather than claimed: the discovery pass established
+    // that nothing in this module binds the spelling, and no generated name can
+    // contest it — every one of those carries Lexer §3.2's prefix.
+    const planned = this.#memberSeatLocals.get(memberSeatKey(specifier, seat));
+    const local = planned ?? this.#generatedNames.claimGenerated(seat);
+    names.set(seat, { member, local });
     return local;
+  }
+
+  /**
+   * Dictionary Sharing §8's seat-binding rule, answered once every body is
+   * rendered: which routed seats earn the member's **source** spelling, keyed
+   * by `memberSeatKey`. `undefined` when none do, which is the signal that this
+   * pass's output is already final (`emitJavaScript`).
+   *
+   * A spelling is contested by three things, and the first two are why this
+   * cannot be decided at the call site:
+   *
+   * - **the forwarder.** Any surviving use of the member that is not a routed
+   *   call — a value reference, a genuinely polymorphic call — binds the
+   *   forwarder under the member's own name (Constraints §6.5), and whether one
+   *   survives is exactly `#referencedSymbols`, which only rendering fills.
+   * - **a second seat.** Two instances' seats for one member — `show(5)` beside
+   *   `show("hi")` — are two bindings wanting one spelling, and §8 gives it to
+   *   neither: *all* contestants keep their generated names, with no numbering,
+   *   because a seat's generated spelling is already unique and reads better
+   *   here than `show_1` would.
+   * - **an ordinary binding**, whether the module's own or an import's
+   *   (`#moduleBindings`), plus the prelude terms rendering actually
+   *   referenced — the same filter `#preludeTermImports` applies, asked here so
+   *   a prelude term and a seat cannot both claim one name.
+   *
+   * A **local** instance's member counts as a contestant too. Honoring a
+   * constraint claims each member's name in the module's term space (§4.6), and
+   * a bare use there means that instance's member — so binding some *other*
+   * instance's seat to the same JavaScript name would make the emitted spelling
+   * mean what the source spelling does not.
+   */
+  memberSeatSpellings(): ReadonlyMap<string, string> | undefined {
+    const routed = [...this.#usedMemberSeats].flatMap(([specifier, names]) =>
+      [...names].map(([seat, { member }]) => ({ specifier, seat, member }))
+    );
+    if (routed.length === 0) return undefined;
+    const contested = new Set<string>(this.#moduleBindings);
+    for (const item of this.#module.items) {
+      if (item.kind !== "Honor") continue;
+      for (const { member } of item.memberSeats) contested.add(member);
+    }
+    // The two import channels rendering decides — a synthesized prelude import
+    // and a constraint's members — read exactly as their own renderers read
+    // them, so a name that survives the filter there is a binding here.
+    for (const item of [...this.#synthesizedImports, ...this.#constraintImports]) {
+      if (item.form.kind === "Effect") continue;
+      for (const { imported, local, symbol } of item.form.names) {
+        if (symbol === undefined || !this.#referencedSymbols.has(symbol)) continue;
+        contested.add(this.#constrainedImports.get(symbol) ?? local ?? imported);
+      }
+    }
+    const wanted = new Map<string, number>();
+    for (const { member } of routed) wanted.set(member, (wanted.get(member) ?? 0) + 1);
+    const plan = new Map<string, string>();
+    for (const { specifier, seat, member } of routed) {
+      if (contested.has(member) || wanted.get(member) !== 1) continue;
+      plan.set(memberSeatKey(specifier, seat), member);
+    }
+    return plan.size === 0 ? undefined : plan;
   }
 
   /**
@@ -3412,7 +3594,7 @@ class JavaScriptEmitter {
         line: `import { ${
           [...names]
             .sort(([left], [right]) => left.localeCompare(right))
-            .map(([source, local]) => source === local ? source : `${source} as ${local}`)
+            .map(([source, { local }]) => source === local ? source : `${source} as ${local}`)
             .join(", ")
         } } from ${JSON.stringify(emittedModuleSpecifier(specifier))};`,
         specifier,
