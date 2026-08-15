@@ -25,6 +25,11 @@ const DECLARED_BELOW = (type: string, name: string): string =>
   `\`${type}\`'s companion declares \`${name}\` below this call; declarations ` +
   "are read top-down — move the declaration above this call";
 
+/** §7.2's repair when the movable item is an `import` line (Modules §3). */
+const MOVE_IMPORT = (name: string): string =>
+  `\`${name}\` is declared later in this block; declarations are read ` +
+  "top-down — move the import above this use";
+
 const BOX = "export record Box = {value: Int}\n";
 const TWICE_LET = "export let twice(b: Box): Int = b.value * 2\n";
 const TWICE_FUN = "export fun twice(b: Box): Int = b.value * 2\n";
@@ -381,5 +386,211 @@ describe("the term names a type declaration binds read top-down (§7.2)", () => 
       "export fun start(): Spot = Origin\n" +
       "export union Spot = Origin | Away(Int)\n",
     ]])).toEqual([DECLARED_LATER("Origin")]);
+  });
+});
+
+describe("an import straddles the reading laws it imports (Modules §3, #465)", () => {
+  /**
+   * Modules §3: no import exemption from the reading laws exists. Each name an
+   * import binds obeys **the same namespace split as the declaration it
+   * imports** (Declarations Preamble §7.2's straddle rule) — the types and
+   * constraint names it binds are order-insensitive, its term-namespace names
+   * are read top-down at the item. The repair a term reference above the line
+   * gets is the import's own, because the name is not declared there: the line
+   * that brings it is what moves.
+   *
+   * Every ordering pin carries its control — the same source with the import at
+   * the top, compiled and *run*, so that "read top-down" is a statement about
+   * where the line sits and not about the shape being wrong.
+   */
+
+  const GEOMETRY = [
+    "/geometry.hex",
+    "export record Point = {x: Int, y: Int}\n" +
+    "export union Shape = Circle(radius: Int) | Square(side: Int)\n" +
+    "export type Span = Int\n" +
+    "export let area(p: Point): Int = p.x * p.y\n" +
+    "export constraint Walk<a> =\n" +
+    "    step(subject: a): Int\n",
+  ] as const;
+
+  describe("the term half reads top-down", () => {
+    test("a value reference above the import that binds it", () => {
+      expect(diagnostics([GEOMETRY, ["/main.hex",
+        "export let early: Int = area(Point({x = 2, y = 3}))\n" +
+        "import { Point, area } from \"./geometry\"\n",
+      ]])).toEqual([MOVE_IMPORT("area"), MOVE_IMPORT("Point")]);
+    });
+
+    test("...and the control below the import runs", async () => {
+      const exports = await runProject([GEOMETRY, ["/main.hex",
+        "import { Point, area } from \"./geometry\"\n" +
+        "export let below: Int = area(Point({x = 2, y = 3}))\n",
+      ]]);
+
+      expect(exports.below).toBe(6);
+    });
+
+    test("an imported union constructor, in value position", () => {
+      expect(diagnostics([GEOMETRY, ["/main.hex",
+        "export let early: Shape = Circle(4)\n" +
+        "import { Shape, Circle, Square } from \"./geometry\"\n",
+      ]])).toEqual([MOVE_IMPORT("Circle")]);
+    });
+
+    test("...and in pattern position, where the repair is still the import's", () => {
+      // §5.4 reads pattern and value position as one scope, and the fixit
+      // follows the *movable item*, not the position: an imported constructor
+      // has no declaration in this module to move, so the union wording a
+      // locally declared one gets would name nothing the reader can act on.
+      expect(diagnostics([GEOMETRY, ["/main.hex",
+        "export fun radius(s: Shape): Int =\n" +
+        "    match s\n" +
+        "        Circle(r) => r\n" +
+        "        _ => 0\n" +
+        "import { Shape, Circle, Square } from \"./geometry\"\n",
+      ]])[0]).toBe(MOVE_IMPORT("Circle"));
+    });
+
+    test("...and the pattern control below the import runs", async () => {
+      const exports = await runProject([GEOMETRY, ["/main.hex",
+        "import { Shape, Circle, Square } from \"./geometry\"\n" +
+        "export fun radius(s: Shape): Int =\n" +
+        "    match s\n" +
+        "        Circle(r) => r\n" +
+        "        Square(side) => side\n" +
+        "export let round: Int = radius(Circle(9))\n",
+      ]]);
+
+      expect(exports.round).toBe(9);
+    });
+
+    test("a constraint's member above the import that brings it", () => {
+      // §3.1: members are not importable severally, so the constraint's name is
+      // the only spelling on the line — and every member it brings reads
+      // top-down from it, exactly as an imported function does.
+      expect(diagnostics([GEOMETRY, ["/main.hex",
+        "export let early: Int = step(1)\n" +
+        "import { Walk } from \"./geometry\"\n",
+      ]])).toEqual([MOVE_IMPORT("step")]);
+    });
+  });
+
+  describe("the type half is order-insensitive", () => {
+    test("a record, a union, and an alias, all named above their import", () => {
+      expect(diagnostics([GEOMETRY, ["/main.hex",
+        "export fun across(p: Point): Int = p.x\n" +
+        "export fun sides(s: Shape): Int = 4\n" +
+        "export let width: Span = 3\n" +
+        "import { Point, Shape, Span } from \"./geometry\"\n",
+      ]])).toEqual([]);
+    });
+
+    test("a local record whose field type is imported, the import at the bottom", () => {
+      expect(diagnostics([GEOMETRY, ["/main.hex",
+        "export record Placed = {at: Point, label: String}\n" +
+        "export fun where(p: Placed): Int = p.at.x\n" +
+        "import { Point } from \"./geometry\"\n",
+      ]])).toEqual([]);
+    });
+
+    test("a constraint name in a binder above its import", () => {
+      expect(diagnostics([GEOMETRY, ["/main.hex",
+        "export fun pace<a: Walk>(x: a, fallback: Int): Int = fallback\n" +
+        "import { Walk } from \"./geometry\"\n",
+      ]])).toEqual([]);
+    });
+
+    test("an `honor` above its import discharges against the *imported* declaration", async () => {
+      // The identity pin, and the one the old behaviour failed loudest: before
+      // #465 this reported `unknown constraint \`Walk\``, the name having been
+      // minted file-scoped because the import had not been walked yet.
+      const exports = await runProject([GEOMETRY, ["/main.hex",
+        "record Leg = {count: Int}\n" +
+        "honor Walk<Leg> =\n" +
+        "    step(l) = l.count + 40\n" +
+        "import { Walk } from \"./geometry\"\n" +
+        "export let paces: Int = step(Leg({count = 2}))\n",
+      ]]);
+
+      expect(exports.paces).toBe(42);
+    });
+  });
+
+  describe("the alias straddles too (§3.3)", () => {
+    test("`Geo.Point` in an annotation is free above the item", () => {
+      expect(diagnostics([GEOMETRY, ["/main.hex",
+        "export fun across(p: Geo.Point): Int = p.x\n" +
+        "import * as Geo from \"./geometry\"\n",
+      ]])).toEqual([]);
+    });
+
+    test("...but `Geo.area(p)` is a term the line binds, and reads top-down", () => {
+      expect(diagnostics([GEOMETRY, ["/main.hex",
+        "export fun size(p: Geo.Point): Int = Geo.area(p)\n" +
+        "import * as Geo from \"./geometry\"\n",
+      ]])).toEqual([MOVE_IMPORT("Geo.area")]);
+    });
+
+    test("...as does `Geo.Circle(r)` in a pattern", () => {
+      expect(diagnostics([GEOMETRY, ["/main.hex",
+        "export fun radius(s: Geo.Shape): Int =\n" +
+        "    match s\n" +
+        "        Geo.Circle(r) => r\n" +
+        "        _ => 0\n" +
+        "import * as Geo from \"./geometry\"\n",
+      ]])[0]).toBe(MOVE_IMPORT("Geo.Circle"));
+    });
+
+    test("...and both controls below the item run", async () => {
+      const exports = await runProject([GEOMETRY, ["/main.hex",
+        "import * as Geo from \"./geometry\"\n" +
+        "export fun size(p: Geo.Point): Int = Geo.area(p)\n" +
+        "export fun radius(s: Geo.Shape): Int =\n" +
+        "    match s\n" +
+        "        Geo.Circle(r) => r\n" +
+        "        Geo.Square(side) => side\n" +
+        "export let box: Int = size(Geo.Point({x = 5, y = 5}))\n" +
+        "export let round: Int = radius(Geo.Circle(7))\n",
+      ]]);
+
+      expect(exports.box).toBe(25);
+      expect(exports.round).toBe(7);
+    });
+  });
+
+  describe("load order and emission are untouched (§8.2)", () => {
+    test("a module whose imports sit at the bottom still loads them first", () => {
+      const project = compileFiles([GEOMETRY, ["/main.hex",
+        "export fun corner(p: Point): Int = p.y\n" +
+        "export let origin: Int = 0\n" +
+        "import { Point } from \"./geometry\"\n",
+      ]]);
+
+      expect(project.diagnostics).toEqual([]);
+      // §8.2 is depth-first in *source* order over the graph, which the item's
+      // position within a file never entered. `/geometry.hex` precedes the
+      // module that imports it, wherever the line sits in it.
+      expect(project.modules.map(({ source }) => source.path)).toEqual([
+        "/geometry.hex",
+        "/main.hex",
+      ]);
+    });
+
+    test("and the emitted module compiles and executes", async () => {
+      // ESM hoists imports, so a bottom-of-file `import` is unconstrained at
+      // emission — what is pinned is that the program links and runs, not where
+      // the statement landed in the text.
+      const files = [GEOMETRY, ["/main.hex",
+        "export fun corner(p: Point): Int = p.y + 1\n" +
+        "import { Point } from \"./geometry\"\n" +
+        "export let high: Int = corner(Point({x = 1, y = 8}))\n",
+      ]] as const;
+
+      expect(compileFiles(files).modules.at(-1)!.javascript.text).toContain(
+        'import { Point } from "./geometry.js";',
+      );
+      expect((await runProject(files)).high).toBe(9);
+    });
   });
 });
