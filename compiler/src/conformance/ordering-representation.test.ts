@@ -382,9 +382,15 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
 
     expect(module.unitOrder).toBe(true);
     expect(module.unitStrict).toBe(false);
-    expect(javascript(source)).toContain(
-      'const unitOrder = ({ compare: (__left, __right) => "Equal" })' +
-        '.compare(undefined, undefined) !== "Greater";',
+    // The dictionary is ground, so it is Dictionary Sharing §3.4's hoisted
+    // module constant and the selection reads off it (#446); the slot's constant
+    // — this test's subject — is unchanged by where the record is built.
+    const text = javascript(source);
+    expect(text).toContain(
+      'const __Ord_Unit = ({ compare: (__left, __right) => "Equal" });',
+    );
+    expect(text).toContain(
+      'const unitOrder = __Ord_Unit.compare(undefined, undefined) !== "Greater";',
     );
   });
 

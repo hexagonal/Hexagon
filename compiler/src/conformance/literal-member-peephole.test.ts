@@ -16,8 +16,16 @@
  * body, so it may fire only where the body reads each parameter exactly once,
  * in parameter order, and in a position the body evaluates once and
  * unconditionally. `Vector`'s `equals` reads its left operand twice, `Unit`'s
- * `show` reads its operand not at all, and both keep the literal: a reduction
- * there would duplicate or drop an effectful argument's evaluation, silently.
+ * `show` reads its operand not at all, and both refuse: a reduction there would
+ * duplicate or drop an effectful argument's evaluation, silently.
+ *
+ * §9.1's graduation (#446) changed what a refusal falls back *to*, and nothing
+ * about when it fires. At a **ground** shape the dictionary is now §3.4's
+ * module-level binding and the refused site reads its member off that
+ * (`__Show_Unit.show(value)`); the inline literal survives only where a free
+ * component keeps the dictionary unhoistable. So the refusal pins below assert
+ * the binding shape, and the reduction pins are untouched — that separation is
+ * the point of obligation 7's amendment.
  *
  * Every graph below is byte-distinct, and deliberately so: emitted modules
  * mount as `data:` URLs cached by their full text, so two tests compiling the
@@ -138,22 +146,31 @@ describe("structural evidence reduces where the guard allows it", () => {
   });
 });
 
-describe("the guard refuses, and the literal stands", () => {
+describe("the guard refuses, and the selection reads off the binding", () => {
   /**
    * §11 obligation 7's twice-read member. A tuple's `equals` reads `__left`
    * once per element, so substituting would evaluate the left operand twice —
    * for `(f(), g()) == …`, twice as many effects as the program has.
+   *
+   * What the refusal falls back *to* moved with §9.1's graduation (#446): the
+   * dictionary is ground, so it is Dictionary Sharing §3.4's module-level
+   * binding and the selection is read off it. The reduction's own conditions
+   * are unchanged — this site declines for exactly the reason it always did.
    */
-  test("a body that reads a parameter twice keeps the literal", async () => {
+  test("a body that reads a parameter twice reads the member off the binding", async () => {
     const source = "export let same: Bool = (1, 2) == (1, 2)\n" +
       "export let differ: Bool = (1, 2) == (1, 3)\n";
     const javascript = emitted(source);
 
     expect(javascript).toContain(
-      "({ equals: (__left, __right) => __left[0] === __right[0] && " +
-        "__left[1] === __right[1]",
+      "const __Eq_Int_Int = ({ equals: (__left, __right) => " +
+        "__left[0] === __right[0] && __left[1] === __right[1],",
     );
-    expect(javascript).toContain(").equals([1, 2], [1, 2]);");
+    expect(javascript).toContain("const same = __Eq_Int_Int.equals([1, 2], [1, 2]);");
+    expect(javascript).toContain("const differ = __Eq_Int_Int.equals([1, 2], [1, 3]);");
+    // §11 obligation 8's negative half at a declining site: the literal is the
+    // binding's initializer and appears nowhere else.
+    expect(javascript).not.toContain("}).equals(");
 
     const module = await runProject([["/main.hex", source]]);
     expect(module["same"]).toBe(true);
@@ -170,18 +187,19 @@ describe("the guard refuses, and the literal stands", () => {
    * completed call (position). Reordering effects the source never wrote is
    * what they are for.
    */
-  test("occurrences that read out of parameter order keep the literal", async () => {
+  test("occurrences that read out of parameter order read off the binding", async () => {
     const source = "export let less: Bool = [1, 2] < [1, 3]\n" +
       "export let more: Bool = [1, 3] < [1, 2]\n";
     const javascript = emitted(source);
 
     expect(javascript).toContain(
-      "({ compare: (__left, __right) => (() => { " +
+      "const __Ord_Vector_Int = ({ compare: (__left, __right) => (() => { " +
         "const __rightStep = __right[Symbol.iterator]();",
     );
     expect(javascript).toContain(
-      ").compare(__vectorOf([1, 2]), __vectorOf([1, 3])) === \"Less\";",
+      "const less = __Ord_Vector_Int.compare(__vectorOf([1, 2]), __vectorOf([1, 3])) === \"Less\";",
     );
+    expect(javascript).not.toContain("}).compare(");
 
     const module = await runProject([["/main.hex", source]]);
     expect(module["less"]).toBe(true);
@@ -191,16 +209,17 @@ describe("the guard refuses, and the literal stands", () => {
   /**
    * And the other end of the same clause: `show` at `Unit` (#159's arity-0
    * tuple) names its operand *nowhere*, so a reduction would drop the
-   * argument's evaluation entirely. The literal stands and the operand is
-   * still handed to it.
+   * argument's evaluation entirely. The refusal stands and the operand is still
+   * handed to the member — read, since #446, off the §3.4 binding, which is the
+   * exact shape §3.4's last paragraph spells out.
    */
-  test("a body that never reads its parameter keeps the literal", async () => {
+  test("a body that never reads its parameter reads the member off the binding", async () => {
     const source = 'export let text: String = "u = ${()}"\n';
     const javascript = emitted(source);
 
-    expect(javascript).toContain(
-      'const text = "u = " + ({ show: __value => "()" }).show(undefined);',
-    );
+    expect(javascript).toContain('const __Show_Unit = ({ show: __value => "()" });');
+    expect(javascript).toContain('const text = "u = " + __Show_Unit.show(undefined);');
+    expect(javascript).not.toContain("}).show(");
 
     expect((await runProject([["/main.hex", source]]))["text"]).toBe("u = ()");
   });
@@ -231,12 +250,23 @@ describe("what the rule does not reach", () => {
    * A whole record passed as trailing evidence to a polymorphic call is
    * genuinely needed: `Iterable`'s exported `toSeq` takes a dictionary, not a
    * member. Nothing selects a member here, so nothing reduces.
+   *
+   * §11 obligation 7's amendment (#446) says what it *does* take at a ground
+   * shape: the §3.4 binding, by name. The pin is on the call's argument and not
+   * merely on the literal's presence — the literal is still in the module, as
+   * the binding's initializer, so a `toContain` on it alone can no longer fail.
    */
-  test("trailing evidence to a polymorphic call is untouched", async () => {
+  test("trailing evidence to a polymorphic call takes the §3.4 binding", async () => {
     const source = "export let length(): Int = Seq.length(toSeq([1, 2, 3]))\n";
     const javascript = emitted(source);
 
-    expect(javascript).toContain("({ toSeq: __seqFromIterable })");
+    expect(javascript).toContain(
+      "const __Iterable_Vector_Int = ({ toSeq: __seqFromIterable });",
+    );
+    expect(javascript).toContain(
+      "toSeq(__vectorOf([1, 2, 3]), __Iterable_Vector_Int)",
+    );
+    expect(javascript).not.toContain("toSeq(__vectorOf([1, 2, 3]), ({");
 
     const module = await runProject([["/main.hex", source]]);
     expect((module["length"] as () => number)()).toBe(3);

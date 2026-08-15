@@ -416,12 +416,18 @@ describe("the two fundamentals that name no primitive", () => {
 
     // The negative control: recognition is per *variable*, and this site's
     // second one is not ground, so the call keeps the generic edition — with
-    // `Show<Bool>`'s literal built at it like any other structural dictionary.
+    // `Show<Bool>`'s dictionary riding along like any other structural one.
+    // Since #446 that is its Dictionary Sharing §3.4 binding rather than a
+    // literal: `Show<Bool>` has no free component, so a polymorphic body is no
+    // obstacle to hoisting it — only a free *component* is (§3.4's second
+    // paragraph), and this body's free variable rides the slot beside it.
     // `half`'s own editions are the other side of the same claim: inside
     // `halfInt` both variables are ground, so that body does route.
     expect(javascript).toContain(
-      "const half = (y, __Show_a) => " +
-        'pair(true, y, ({ show: __value => (__value ? "True" : "False") }), __Show_a);',
+      'const __Show_Bool = ({ show: __value => (__value ? "True" : "False") });',
+    );
+    expect(javascript).toContain(
+      "const half = (y, __Show_a) => pair(true, y, __Show_Bool, __Show_a);",
     );
     expect(javascript).toContain("return pairBoolInt(true, y);");
   });
