@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { PRELUDE_SOURCES } from "../prelude-sources.js";
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 
 /**
@@ -724,6 +725,22 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       ]);
 
       expect(exports.boxed).toBe(34);
+    });
+
+    test("...and so does a provided row, which no source `honor` backs", () => {
+      // The last of §3.3's surfaces, and the one nothing else in this file could
+      // reach: `Vector.toSeq` is the row Collections Part 5 §4 seats at the
+      // companion, spelled through an explicit import of the very file the
+      // prelude seated — the Playground's shape. It is a member the exporter
+      // neither exports nor declares nor honors in text, and it still resolves
+      // below the item, so above the item it is a later declaration like any
+      // other. Without the surface consulted, this use resolves *silently*.
+      expect(diagnostics([
+        ["/Vector.hex", PRELUDE_SOURCES["Vector.hex"]!],
+        ["/main.hex",
+          "export let n: Int = Vector.toSeq([1, 2]).length()\n" +
+          "import * as Vector from \"./Vector\"\n"],
+      ])).toEqual([MOVE_IMPORT("Vector.toSeq")]);
     });
 
     test("an exporter with errors of its own still answers what it binds", () => {
