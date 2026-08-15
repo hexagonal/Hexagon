@@ -1789,11 +1789,14 @@ than settling a style question.
   unchanged: with the full lookup, a `fun` claimant inside an occluding
   module-level binding's RHS now finds the prelude symbol and correctly hands
   it to the pending diagnostic rather than rule 1.
-- **Executable conformance:** resolver tests pin the three banned shapes
-  (nested-block `fun` vs outer `let`, vs outer `var`, vs the enclosing
-  parameter); the prelude-occlusion conformance suite already pins that
-  module-level `fun` occlusion survives; `conformance/pending-binder.test.ts`
-  pins the `fun`/`let` diagnostic parity inside an occluding binding's RHS.
+- **Executable conformance:** the guard for this defect is the resolver test
+  pinning the three banned shapes (nested-block `fun` vs outer `let`, vs outer
+  `var`, vs the enclosing parameter) — it fails on a `lookupLocal` revert. The
+  prelude-occlusion conformance suite pins that module-level `fun` occlusion
+  survives. `conformance/pending-binder.test.ts` *asserts* the `fun`/`let`
+  diagnostic parity inside an occluding binding's RHS but does not pin this
+  fix (under the reverted lookup that site's `existing` is undefined and the
+  pending arm fires anyway) — it is a regression floor there, not the guard.
   No stdlib source declares a block-level `fun`, so the full-suite run is the
   no-regression guard.
 - **Credit:** found by a cold Opus review round on #455 — its fun-site probes

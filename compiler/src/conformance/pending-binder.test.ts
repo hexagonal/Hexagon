@@ -78,6 +78,61 @@ describe("the pending clause under a full compile", () => {
     ]);
   });
 
+  test("a plain prelude export as the pending name takes the pending message", () => {
+    // Pins the prelude-layer disjunct of the eclipse filter on its own: `map`
+    // is a plain (and collided) prelude export, not a constraint member, so
+    // only the layer test lets the pending arm past the in-scope hit. Without
+    // it this reverts to rule 1 naming a stdlib line plus the collided-export
+    // ambiguity refusal on the trailing reference.
+    expect(diagnostics(
+      "export let map: Int =\n" +
+        "    let map = 1\n" +
+        "    map\n",
+    )).toEqual([
+      "`map` is already being defined by the enclosing `let` (line 1); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+  });
+
+  test("a module-declared constraint's member body reserves the member's name", () => {
+    // Pins the constraint-member disjunct on its own: `describe` is nowhere in
+    // the prelude, so only the kind test lets the member arm past the in-scope
+    // hit (the declaration's member symbol, owned by the module layer).
+    expect(diagnostics(
+      "constraint Describe<a> =\n" +
+        "    describe(subject: a): String\n" +
+        "\n" +
+        "honor Describe<Int> =\n" +
+        "    describe(n) =\n" +
+        "        let describe = \"x\"\n" +
+        "        describe\n",
+    )).toEqual([
+      "`describe` is already being defined by the enclosing member definition " +
+        "(line 5); Hexagon does not allow rebinding — choose a different name.",
+    ]);
+  });
+
+  test("a sibling member's spelling is rule 1's collision, not the pending arm's", () => {
+    // Pins the member arm's keying on the member *name*, not the symbol kind:
+    // `first` is a constraint-member hit inside a member body, but the member
+    // being defined is `second`, so the collision belongs to rule 1 and names
+    // the declaration line.
+    expect(diagnostics(
+      "constraint Pair<a> =\n" +
+        "    first(subject: a): String\n" +
+        "    second(subject: a): String\n" +
+        "\n" +
+        "honor Pair<Int> =\n" +
+        "    first(n) = \"x\"\n" +
+        "    second(n) =\n" +
+        "        let first = \"y\"\n" +
+        "        \"z\"\n",
+    )).toEqual([
+      "`first` is already bound (line 2); Hexagon does not allow rebinding " +
+        "— choose a different name.",
+    ]);
+  });
+
   test("a function-local binder still may not occlude a prelude name", () => {
     // No definition of `show` is in progress here, so the prelude collision is
     // genuine and rule 1 keeps it (Modules §5.4: function-local binders
