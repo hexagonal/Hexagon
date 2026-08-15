@@ -224,6 +224,88 @@ describe("resolve", () => {
     );
   });
 
+  test("refuses a sequential binder claiming the name being defined", () => {
+    // Statements §5.1's pending clause: the specimen and each pending form.
+    const specimen = resolveSource("let y =\n    let y = 5\n    y");
+    expect(specimen.diagnostics.map(({ message }) => message)).toEqual([
+      "`y` is already being defined by the enclosing `let` (line 1); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+
+    const varOuter = resolveSource(
+      "let f() =\n    var y =\n        let y = 5\n        y\n    y",
+    );
+    expect(varOuter.diagnostics.map(({ message }) => message)).toEqual([
+      "`y` is already being defined by the enclosing `var` (line 2); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+
+    const varInner = resolveSource(
+      "let f() =\n    let y =\n        var y = 5\n        y\n    y",
+    );
+    expect(varInner.diagnostics.map(({ message }) => message)).toEqual([
+      "`y` is already being defined by the enclosing `let` (line 2); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+
+    // A destructuring LHS reserves every name it binds...
+    const patternOuter = resolveSource("let (a, b) =\n    let a = 5\n    (a, 6)");
+    expect(patternOuter.diagnostics.map(({ message }) => message)).toEqual([
+      "`a` is already being defined by the enclosing `let` (line 1); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+
+    // ...and a destructuring pattern's own names are refused as claimants too.
+    const patternInner = resolveSource(
+      "let y =\n    let (y, z) = (1, 2)\n    z",
+    );
+    expect(patternInner.diagnostics.map(({ message }) => message)).toEqual([
+      "`y` is already being defined by the enclosing `let` (line 1); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+
+    // `fun` is a sequential binder; a pending name refuses it like any other.
+    const funInner = resolveSource("let y =\n    fun y(n) = n\n    y(5)");
+    expect(funInner.diagnostics.map(({ message }) => message)).toEqual([
+      "`y` is already being defined by the enclosing `let` (line 1); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+
+    // The reservation reaches any nesting depth, lambdas included.
+    const insideLambda = resolveSource(
+      "let y = (x =>\n    let y = 5\n    x + y)(1)",
+    );
+    expect(insideLambda.diagnostics.map(({ message }) => message)).toEqual([
+      "`y` is already being defined by the enclosing `let` (line 1); " +
+        "Hexagon does not allow rebinding — choose a different name.",
+    ]);
+
+    // A member is a `let` header (Constraints §4.6): its body reserves the
+    // member's own name identically.
+    const memberBody = resolveSource(
+      "record Odd = {n: Int}\n" +
+        "honor Eq<Odd> =\n" +
+        "    equals(left, right) =\n" +
+        "        let equals = left\n" +
+        "        equals",
+    );
+    expect(memberBody.diagnostics.map(({ message }) => message)).toEqual([
+      "`equals` is already being defined by the enclosing member definition " +
+        "(line 3); Hexagon does not allow rebinding — choose a different name.",
+    ]);
+  });
+
+  test("head binders may shadow a pending name", () => {
+    // Rule 2 extends over pending names: parameters stay exempt.
+    const lambdaHead = resolveSource("let y = (y => y + 1)(1)");
+    expect(lambdaHead.diagnostics).toEqual([]);
+
+    // Pattern parameters classify head by position (Statements §5.2) and take
+    // the same exemption.
+    const patternHead = resolveSource("let y = ((y, z) => y + z)((1, 2))");
+    expect(patternHead.diagnostics).toEqual([]);
+  });
+
   test("diagnoses self-reference because let is non-recursive", () => {
     const module = resolveSource("let loop = x => loop(x)");
 

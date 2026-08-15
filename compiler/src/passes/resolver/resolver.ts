@@ -730,7 +730,7 @@ class Resolver {
   readonly #symbols = new Map<Resolved.SymbolId, Resolved.Symbol>();
   readonly #importedSymbols = new Map<Resolved.SymbolId, Resolved.Symbol>();
   /** The honor-block member currently being resolved (Constraints §4.6). */
-  readonly #honorMembers: string[] = [];
+  readonly #honorMembers: Parsed.Name[] = [];
   /** Whether resolution is inside a constraint declaration's default body. */
   #inDefaultBody = false;
   /** Where this module's `honor` declarations bind each spelling (§4.6). */
@@ -1479,6 +1479,7 @@ class Resolver {
           if (member?.kind !== "Fun") break;
           const existing = scope.lookupLocal(member.name.text);
           if (existing !== undefined) this.#reportRebinding(member.name, existing);
+          else this.#reportPendingRebinding(member.name);
           const binding = this.#declare(member.name, "fun");
           this.#predeclaredBindings.set(member, binding);
           frame.funSymbols.add(binding.symbol);
@@ -2030,7 +2031,7 @@ class Resolver {
             // tells a reference which name that is; a constraint *declaration's*
             // default body never pushes onto it, which is the exemption stated
             // in the same bullet.
-            this.#honorMembers.push(member.name.text);
+            this.#honorMembers.push(member.name);
             const value = this.#resolveLambda(member.value, scope, impliedContext);
             this.#honorMembers.pop();
             return { name: member.name.text, value, span: member.span };
@@ -2055,6 +2056,7 @@ class Resolver {
           ? scope.lookupLocal(item.name.text)
           : scope.lookup(item.name.text);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
+        else this.#reportPendingRebinding(item.name);
 
         const binding = this.#declare(item.name, "let");
         this.#pending.push({ name: item.name, kind: "let" });
@@ -2123,6 +2125,7 @@ class Resolver {
       case "Var": {
         const existing = scope.lookup(item.name.text);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
+        else this.#reportPendingRebinding(item.name);
         if (this.#lambdaDepth === 0) {
           this.#diagnostics.add({
             severity: "error",
@@ -2901,7 +2904,13 @@ class Resolver {
     const existing = scope === this.#moduleScope
       ? scope.lookupLocal(name.text)
       : scope.lookup(name.text);
-    if (existing === undefined) return true;
+    if (existing === undefined) {
+      // A pending-name collision is reported but still claims: there is no
+      // existing meaning to preserve, and defining the refused binder keeps
+      // later references from cascading into the Functions §6 diagnostic.
+      this.#reportPendingRebinding(name);
+      return true;
+    }
     this.#reportRebinding(name, existing);
     return false;
   }
@@ -3801,6 +3810,42 @@ class Resolver {
   }
 
   /**
+   * Statements §5.1's pending clause: a name whose definition is in progress
+   * counts as in scope for rule 1, so a sequential binder anywhere in the
+   * pending binding's RHS may not claim it. Pending names come from `let`/`var`
+   * LHSes (`#pending`) and from the honor-block member being resolved
+   * (`#honorMembers` — a member is a `let` header, Constraints §4.6). Head
+   * binders never reach this check (rule 2 extends over pending names).
+   *
+   * Answers whether it reported. Every caller checks in-scope names first, so
+   * a hit here means the name is otherwise undefined and the caller may still
+   * define the refused binder — later references then resolve to the meaning
+   * the source obviously intended instead of cascading into the Functions §6
+   * self-reference diagnostic.
+   */
+  #reportPendingRebinding(name: Parsed.Name): boolean {
+    const pending = this.#findPending(name.text);
+    const collision = pending !== undefined
+      ? { span: pending.name.span, form: `the enclosing \`${pending.kind}\`` }
+      : this.#honorMembers.at(-1)?.text === name.text
+      ? {
+        span: this.#honorMembers.at(-1)!.span,
+        form: "the enclosing member definition",
+      }
+      : undefined;
+    if (collision === undefined) return false;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `\`${name.text}\` is already being defined by ${collision.form} ` +
+        `(line ${collision.span.start.line + 1}); Hexagon does not allow ` +
+        "rebinding — choose a different name.",
+      primary: name.span,
+      labels: [{ span: collision.span, message: "definition in progress" }],
+    });
+    return true;
+  }
+
+  /**
    * Binds an imported constraint: the name in the constraint namespace, and
    * **every member** in the term namespace (Modules §3.1).
    *
@@ -3975,7 +4020,7 @@ class Resolver {
     if (this.#inDefaultBody) return false;
     const bindings = this.#honoredMemberLines.get(name.text);
     if (bindings === undefined || bindings.length === 0) return false;
-    if (this.#honorMembers.at(-1) === name.text) {
+    if (this.#honorMembers.at(-1)?.text === name.text) {
       const qualified = this.#declaredConstraintNames.has(bindings[0]!.constraint)
         ? ""
         : `, or qualify the instance you mean: \`${bindings[0]!.constraint}.${name.text}(…)\``;
