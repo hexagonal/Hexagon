@@ -150,11 +150,11 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   or already-emitted name occupies a generated name's preferred spelling, the
   name probes numeric suffixes deterministically, starting at 1: `__Eq_Rat_1`,
   then `__Eq_Rat_2`. Within the dictionary family the resolver-assigned ranks
-  are stricter — a contest among declared instances and imports suffixes
-  *every* such contestant, none keeps the bare name — while the emitter's
-  hoisted rank takes this probe as written, the newcomer numbering and the
-  occupant keeping its seat (Dictionary Sharing §5's two phases) — the
-  numbering the same either way, from 1.
+  are stricter — a contest among them suffixes *every* such contestant, none
+  keeps the bare name — while the emitter's hoisted rank takes this probe as
+  written, the newcomer numbering and the occupant keeping its spelling
+  (Dictionary Sharing §5's two phases) — the numbering the same either way,
+  from 1.
 - `$` and dollar-start names are ordinary non-uppercase-start identifiers.
 - Identifier escapes do not exist. `\u{...}` is a string escape only; a backslash
   in a name is an error.
