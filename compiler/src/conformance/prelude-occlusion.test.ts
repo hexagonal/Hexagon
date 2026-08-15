@@ -444,11 +444,11 @@ describe("module-wide is enforced the same way (§5.4's reservation, defect 2)",
 describe("an import occludes and reserves too (§5.4's \"or import\")", () => {
   // An explicit import enters the *same* layer as a local binding, so it takes a
   // prelude name over module-wide and reserves it exactly as a `let` would. The
-  // control here is the shape at a name the prelude does not bind: a term
-  // reference above an import line is an unknown name today, and that — not the
-  // prelude's meaning — is what the prelude name must get too. (Whether §3's
-  // placement freedom ought to make the control legal is a separate question
-  // about imports, and this pin follows the control wherever it goes.)
+  // control here is the shape at a name the prelude does not bind, and this pin
+  // follows it wherever it goes — which #465 moved: a term reference above the
+  // import that binds it is the declared-later error now (Modules §3), not an
+  // unknown name, so that is what the prelude name draws too. The invariant is
+  // untouched, being stated over the control rather than over any one message.
 
   test("a use above an occluding import reads as the control does", () => {
     // Before this, the shape compiled with zero diagnostics and two meanings:
@@ -470,7 +470,10 @@ describe("an import occludes and reserves too (§5.4's \"or import\")", () => {
         "export let early: String = show(1)\n" +
         "import { show } from \"./lib\"\n" +
         "export let late: String = show(2)\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual(["unknown name `show`"]);
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "`show` is declared later in this block; declarations are read top-down — " +
+        "move the import above this use",
+    ]);
   });
 
   test("below the import the local meaning stands, and it is the import's", async () => {
@@ -702,11 +705,13 @@ describe("a declaration's constructor names occlude too (#466)", () => {
         "export let early: Direction = Less\n" +
         "import { Direction, Less, Greater } from \"./lib\"\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
-      // The type name above the import is unknown for the same reason (#465);
-      // what matters here is the term, which is the prelude's `Less` — silently,
-      // before #466 — and is now nothing at all.
-      "unknown type `Direction`; this slice supports primitive, tuple, and declared union types",
-      "unknown name `Less`",
+      // One diagnostic, and it is about the term. The *type* `Direction` above
+      // the import is legal since #465 — an import's type-namespace half is
+      // order-insensitive like the declaration it imports — so the annotation
+      // types, and what is left is the constructor, which was the prelude's
+      // `Less` silently before #466 and is now the import's, read top-down.
+      "`Less` is declared later in this block; declarations are read top-down — " +
+        "move the import above this use",
     ]);
   });
 });
