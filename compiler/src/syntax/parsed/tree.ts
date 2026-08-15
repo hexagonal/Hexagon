@@ -386,7 +386,7 @@ export interface RecordPatternField {
 export interface ConstructorPattern {
   readonly kind: "Constructor";
   /**
-   * The module a qualified constructor pattern reaches through — Modules §3.2's
+   * The module a qualified constructor pattern reaches through — Modules §3.3's
    * `Geo.Circle(r)`, and the declaring prelude module's own name for a prelude
    * constructor (`Prelude.Less`, `Option.Some(v)`). Absent for the bare form.
    *

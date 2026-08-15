@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { compileFiles, compileMain, projectDiagnostics, runMain, runProject } from "../support/test-project.js";
 
 /**
- * Conformance for **qualified constructor patterns** — Modules §3.2's
+ * Conformance for **qualified constructor patterns** — Modules §3.3's
  * "Constructors qualify the same way (`Geo.Circle(1.0)`), including in patterns
  * (`match s` / `Geo.Circle(r) => ...`)", which Unions §2 delegates to.
  *

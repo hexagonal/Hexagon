@@ -1775,7 +1775,7 @@ class Parser {
     }
     if (token.kind === "UpperName") {
       this.#advance();
-      // Modules §3.2: "Constructors qualify the same way (`Geo.Circle(1.0)`),
+      // Modules §3.3: "Constructors qualify the same way (`Geo.Circle(1.0)`),
       // including in patterns." The pattern grammar's uppercase-start rule
       // therefore extends one dot — a module alias, or a prelude module's own
       // name, then the constructor. Only `Upper.Upper` is taken: an uppercase

@@ -2332,7 +2332,7 @@ class Resolver {
       }
       case "RecordDeclaration": {
         const record = this.#recordDeclarations.get(item) ?? Resolved.recordId(this.#nextRecord++);
-        // A record's name is its constructor in the term namespace (§3.2), so
+        // A record's name is its constructor in the term namespace (Products §5.1; Modules §3.1), so
         // it occludes exactly as a union's constructors do; see the union arm.
         const existing = this.#lookupTerm(item.name.text, scope);
         if (existing !== undefined) this.#reportRebinding(item.name, existing);
@@ -2778,7 +2778,7 @@ class Resolver {
   }
 
   /**
-   * The constructor `Alias.Ctor` names, for a **pattern** — Modules §3.2's
+   * The constructor `Alias.Ctor` names, for a **pattern** — Modules §3.3's
    * qualified form, which Unions §2 delegates to and Modules §5.4 requires in
    * pattern position as well as value position.
    *
@@ -2916,7 +2916,7 @@ class Resolver {
     }
     if (pattern.kind === "Constructor") {
       if (pattern.qualifier !== undefined) {
-        // Modules §3.2's qualified constructor, in pattern position. It reads
+        // Modules §3.3's qualified constructor, in pattern position. It reads
         // the module directly and never the bare-name layer, so it is exactly
         // the escape hatch §5.4's constructor occlusion leans on: a module whose
         // own `union` took `Less` over still matches an `Ordering` by

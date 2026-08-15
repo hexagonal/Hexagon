@@ -1837,8 +1837,8 @@ than settling a style question.
 
 - **Classification:** compiler defect against specification; no design change.
   Found implementing #466's constructor occlusion, and pre-existing: the form
-  has been spec'd since Modules §3.2 was written and never parsed.
-- **Authority:** Modules §3.2 — "Constructors qualify the same way
+  has been spec'd since Modules §3.3 was written and never parsed.
+- **Authority:** Modules §3.3 — "Constructors qualify the same way
   (`Geo.Circle(1.0)`), **including in patterns** (`match s` /
   `Geo.Circle(r) => ...`)" — which Unions §2 delegates to for qualified access.
   Modules §6.4's qualified-home guarantee makes the prelude module's own name a
