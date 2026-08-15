@@ -476,6 +476,70 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
     });
   });
 
+  describe("only what binds reads top-down", () => {
+    /**
+     * An import that binds nothing is not a later declaration. The exporter
+     * exporting the name is half the test; the other half is that the name
+     * survived its collision contest *here*. A constraint whose spelling the
+     * module had already declared brings no members, so neither position may
+     * claim its members are one line away — "move the import above this use"
+     * would be a lie above the line, and pointing at a line already above the
+     * reference would be a lie below it.
+     *
+     * Its own exporter, so the contest is the only thing these pins vary.
+     */
+    const PACES = [
+      "/paces.hex",
+      "export constraint Walk<a> =\n" +
+      "    step(subject: a): Int\n" +
+      "honor Walk<Int> =\n" +
+      "    step(n) = n * 3\n",
+    ] as const;
+
+    /** Takes the word `Walk` first, so the import below loses it. */
+    const CONTEST =
+      "constraint Walk<a> =\n" +
+      "    stride(subject: a): Int\n";
+
+    const REFUSED = "constraint `Walk` is already declared or imported";
+
+    test("a refused constraint import brings no members, below the line", () => {
+      expect(diagnostics([PACES, ["/main.hex",
+        CONTEST +
+        "import { Walk } from \"./paces\"\n" +
+        "let pace: Int = 2\n" +
+        "export let below: Int = step(pace)\n",
+      ]])).toEqual([REFUSED, "unknown name `step`"]);
+    });
+
+    test("...nor above it, where the import-shaped repair would be a lie", () => {
+      expect(diagnostics([PACES, ["/main.hex",
+        CONTEST +
+        "let pace: Int = 2\n" +
+        "export let above: Int = step(pace)\n" +
+        "import { Walk } from \"./paces\"\n",
+      ]])).toEqual(["unknown name `step`", REFUSED]);
+    });
+
+    test("the control is the same source without the contest: above reads top-down", () => {
+      expect(diagnostics([PACES, ["/main.hex",
+        "let pace: Int = 2\n" +
+        "export let above: Int = step(pace)\n" +
+        "import { Walk } from \"./paces\"\n",
+      ]])).toEqual([MOVE_IMPORT("step")]);
+    });
+
+    test("...and below it the member is the import's, and runs", async () => {
+      const exports = await runProject([PACES, ["/main.hex",
+        "import { Walk } from \"./paces\"\n" +
+        "let pace: Int = 2\n" +
+        "export let below: Int = step(pace)\n",
+      ]]);
+
+      expect(exports.below).toBe(6);
+    });
+  });
+
   describe("the type half is order-insensitive", () => {
     test("a record, a union, and an alias, all named above their import", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",

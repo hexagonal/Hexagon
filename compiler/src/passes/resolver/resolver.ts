@@ -1757,6 +1757,20 @@ class Resolver {
       } else if (item.kind === "LetPattern") {
         for (const name of Parsed.patternNames(item.pattern)) frame.later.delete(name.text);
       } else if (item.kind === "Import") {
+        // The frame's invariant, kept: what remains in `later` is exactly what
+        // is still later than the reference being resolved. `#lookupTerm`
+        // answers below the line for every name an import defines, so most
+        // references never reach the frame at all — but the two sets are only
+        // the same set because `#importTermNames` names what *binds* rather than
+        // what the exporter exports. When they diverge, a stale entry answers a
+        // use below the line with "move the import above this use", pointing at
+        // a line already above it; that is what a refusal-blind
+        // `#importTermNames` produced for a constraint whose spelling the module
+        // had already declared, and the pin for the shape is in
+        // `declaration-order.test.ts`. This delete is why the divergence is
+        // reported as a stale *label* rather than as a phantom binding, and it
+        // is what keeps the invariant true of any name the two sets stop
+        // agreeing on.
         for (const name of this.#importTermNames(item)) frame.later.delete(name.text);
         // The alias's **term** half arrives here too, and only here: `Lib.area`
         // and `Lib.Circle` are locals this line binds (Modules §3.3), so they
@@ -1778,10 +1792,20 @@ class Resolver {
    * The **bare** term-namespace names an `import` item binds — Modules §3's
    * top-down half, and the only half a block frame ever sees.
    *
-   * What the exporter actually exports decides it, never what the import line
-   * asks for: a name the module does not export binds nothing, and treating it
-   * as a later declaration would answer the missing-export report with a second
-   * error at every use below the line.
+   * What **binds** decides it, never what the import line asks for, and binding
+   * takes two things: the exporter must export the name, and the name must have
+   * survived its collision contest here. A name that fails either binds nothing,
+   * so it is neither a later declaration nor an occluder — treating it as one
+   * would answer the module's one reported error (a missing export, a member
+   * imported severally, a constraint name the module had already declared) with
+   * a second error at every use of the spelling, above the line *and* below it.
+   *
+   * The two tests read from two places because they are decided in two places.
+   * The exporter's interface answers the first directly. The second was settled
+   * before the walk, by `#predeclareImports`, and is read back through
+   * `#importTypeBindings` — a constraint absent from that map lost its name to a
+   * local declaration or an earlier import, and the members it would have
+   * brought belong to whichever declaration won the word.
    *
    * A constraint arrives with its members (§3.1), which bind in the term
    * namespace exactly as an imported function does — and are not importable
@@ -1797,9 +1821,10 @@ class Resolver {
     if (item.form.kind !== "Named") return [];
     const exporter = this.#imports.get(item.specifier);
     if (exporter === undefined) return [];
+    const bound = this.#importTypeBindings.get(item);
     return item.form.names.flatMap((name): readonly Parsed.Name[] => [
       ...(exporter.terms.has(name.imported.text) ? [name.local] : []),
-      ...(exporter.constraints.get(name.imported.text)?.members ?? []).map(
+      ...(bound?.members.get(name)?.members ?? []).map(
         (member): Parsed.Name => ({
           text: member.binding.name,
           startClass: "non-upper",
