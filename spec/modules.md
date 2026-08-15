@@ -211,12 +211,20 @@ The prelude's `Int.div`, `Map.get`, `Vector.map` are this exact pattern — auto
 
 ### 5.4 The prelude occlusion rule
 
-The prelude enters every module's scope as a **distinct outermost layer**. The Head Binder Shadowing rule (Statements §5) is untouched in statement — sequential binders never reuse a name in their scope layer or any inner layer, nor one whose definition is in progress (Statements §5.1) — but "in scope" is now layered:
+The prelude enters every module's scope as a **distinct outermost layer**. The Head Binder Shadowing rule (Statements §5) keeps its statement for every layer the module writes itself — sequential binders never reuse a name from the module layer or any inner layer, nor one whose definition is in progress (Statements §5.1) — but the prelude layer is **shadowable at every binder position**, and shadowing it **reserves the name**:
 
-- A **module-level** `let`/`fun` (or import, or declaration) **may occlude a prelude name**. `fun show(x) = ...` at module level is legal; the local `show` wins unqualified module-wide, and the prelude's version remains reachable qualified (`String.show` etc. — §6.4 guarantees a qualified home exists). Explicit imports enter the *same* layer as local bindings and fight under the full ban.
-- A **function-local** binder may occlude **nothing**, prelude included: `let show = ...` inside a function in a module that has not occluded `show` remains the hard error. Inside any function body the ban is absolute and layer-blind — which is where the "refactoring bugs live in names *you* bound" rationale actually lives. You never wrote the prelude name, so a module-level occlusion changes no line of yours; a function-local one could.
+- A **module-level** `let`/`fun` (or import, or declaration) **may occlude a prelude name**. `fun show(x) = ...` at module level is legal; the local `show` wins unqualified **module-wide**, and the prelude's version remains reachable qualified (`String.show` etc. — §6.4 guarantees a qualified home exists). *Module-wide* is enforced by reservation: the occluding declaration makes the prelude's binding invisible throughout the module, and every reference resolves **as if the prelude did not bind the name**. A reference above the occluder therefore behaves exactly as it would above any other declaration — the declared-later error (Functions §7.2), or the legal mutual reference within a contiguous `fun` group (Functions §7.3) — and never quietly means the prelude's. One identifier never carries two meanings in one module. Explicit imports enter the *same* layer as local bindings and fight under the full ban.
+- A **function-local sequential binder may shadow a prelude name** — the same grant, one layer in. Statements §5.1 rule 1 exempts the prelude layer from its collision set, for all four sequential forms alike: `let`, `var`, `fun`, and `let`-destructuring (`let {show, hash} = record` is legal, its punned fields shadowing two prelude names the pattern's author never wrote). The shadowed name is **reserved for the whole enclosing block** (Statements §5.1): references resolve as if the prelude did not bind the name, so a use above the binder takes the declared-later error rather than the prelude's meaning — the same reservation as at module level, and the two levels must never diverge.
+- **The reverse is not granted.** A sequential binder still may not reuse a name from the module's own layers — a module-level binding, a parameter, another local. The exemption is tested against the layer of the binding actually in scope, not the name's ancestry: a module that has occluded `show` has moved `show` into its module layer, and a function-local `let show` below that occluder is the ordinary rule-1 error, citing the module's own line.
 
-This section owns the module/prelude boundary referenced by Statements §5.2/§10.2. Without occlusion, every addition to the prelude in a future release would break any program already using that name — untenable with no warning tier to soften it.
+**In prelude source, "the prelude layer" is the module's §5.5 visible prefix** — the only prelude layer it has. The rule is otherwise identical: stdlib modules shadow and occlude their predecessors exactly as user code shadows and occludes the full prelude, so stdlib source pasted into a user module keeps its meaning. The collection modules' own `empty` declarations are this reading's prior art at module level: each is an ordinary §5.4 occlusion of the `empty` exported by an earlier prefix member.
+
+This section owns the module/prelude boundary referenced by Statements §5.2/§10.2. Without occlusion and the shadow grant, every addition to the prelude in a future release could break a program already using that name — untenable with no warning tier to soften it. Stated at the width the rules deliver: **adding a name to the prelude cannot break a program through a binder collision.** Not "cannot break a program at all" — two channels survive by design. A bare reference to a name that a *second* prelude module starts exporting becomes the §5.5 collided-name refusal (the use site must qualify), and the eleven pre-registered constraint names are refused as declarations outright (Constraints §5.1.1). Both are reference- or declaration-shaped breaks with mechanical fixes named in their diagnostics; neither is a binder collision.
+
+Two adjacent facts, so the shadow grant is not overread:
+
+- **A wrapper captures the bare-name spelling only.** A binding over a constraint member's name — `let show = (v) => "«" ++ show(v) ++ "»"`, legal at either level, its RHS reaching the prelude through the pending-binder clause (Statements §5.1) — reroutes calls spelled `show(…)` and nothing else. Elaboration-internal dispatch keeps its own routes (Constraints §6.1): string interpolation still uses the honored `Show` instance, `+` the honored `Num`, comparison the honored `Ord`. A stray binding must not redefine `+`; the price is that wrapping is weakest at exactly the names most worth wrapping.
+- **`let` wraps; `fun` recurses.** `let show = (v) => "«" ++ show(v) ++ "»"` wraps the prelude's `show` once, because a `let`'s own name is absent for reference in its own RHS (Statements §5.1). `fun show(v) = "«" ++ show(v) ++ "»"` is a self-call — a `fun`'s own name is in scope in its own body (Functions §7.3) — and does not terminate. Same two words, opposite meanings, and no diagnostic distinguishes them; pre-existing for user-written names, reachable at prelude names wherever shadowing is.
 
 ### 5.5 The prelude is ordinary modules, in an ordered set *(added 2026-07-26)*
 
@@ -339,7 +347,8 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | `Name.` where `Name` is a type, not a module | "`Shape` is a type, not a module; …" (§5.1) |
 | Alias case mismatch (`import { area as Area }`) | "alias case must match what it names" |
 | Bare reference to a collided prelude name (§5.5) | ``the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, `Map`, and `Set`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or `Set.empty` `` — every visible home enumerated, in prelude order *(fourth home since `Set.hex`, #373)* |
-| Function-local binder occluding any in-scope name incl. prelude | existing Statements §5.1 error, unchanged |
+| Function-local sequential binder reusing a module-layer or local name | existing Statements §5.1 error, unchanged — the prelude layer is exempt (§5.4) |
+| Use of a prelude name above the binder or declaration that shadows or occludes it | the Functions §7.2 declared-later error, never the prelude's meaning (§5.4 reservation) |
 | `export honor` | "instances are always visible; `export` does not apply" |
 | `export default` | "Hexagon has named exports only" |
 | Exported value without an annotation | "exported value `answer` requires a type annotation" |
@@ -412,11 +421,18 @@ import * as Point from "./point"
 fun norm(p: Point): Float = ...              -- type position: the type
 let q = Point.make(3.0, 4.0)                 -- Point. : the module
 
--- (e) Prelude occlusion: module-level yes, function-local no
+-- (e) Prelude shadowing: granted at every level, reserved block-wide
 fun show(x: Config): String = "..."          -- OK: occludes prelude show, module-wide
 fun f(c) =
-    let show = 1                               -- ERROR: show is already bound (§5.4)
+    let show = 1                             -- ERROR: show is the module's now (§5.4 reverse)
     ...
+fun g(c) =
+    let nan = 0.0                            -- OK: shadows the prelude's nan (§5.4)
+    nan
+fun h(c) =
+    let x = isFinite(c)                      -- ERROR: isFinite is declared later in
+    let isFinite = c > 0.0                   --   this block (§5.4 reservation)
+    x
 
 -- (f) Named-import collision
 import { area } from "./circle"
