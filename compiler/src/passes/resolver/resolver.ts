@@ -1014,11 +1014,30 @@ class Resolver {
    * The whole qualified spelling is the name in the message, because it is the
    * name the line binds: the alias by itself is not a term.
    *
+   * **Only what the line binds**, exactly as for a named import: §3 scopes the
+   * top-down error to the names the import brings, so a field the exporter does
+   * not offer is no later declaration and "move the import above this use" would
+   * be a repair that fixes nothing — moving it only trades this message for the
+   * does-not-export one. So the exporter's surface is consulted first, the way
+   * `#importTermNames` consults it, and an unoffered field falls through to the
+   * read below, which reports what the moved line would have reported.
+   *
    * Answers whether it reported, so the caller can stop.
    */
-  #reportUnreachedAlias(qualifier: Parsed.Name, field: Parsed.Name): boolean {
+  #reportUnreachedAlias(
+    qualifier: Parsed.Name,
+    field: Parsed.Name,
+    position: "term" | "constructor",
+  ): boolean {
     const pending = this.#pendingImportAliases.get(qualifier.text);
     if (pending === undefined) return false;
+    // The two maps are written together in `#predeclareImports` and only the
+    // pending one is ever emptied, so a pending alias has its exporter here. The
+    // fall-through is the safe half of the pair either way: it hands the
+    // spelling to the read below, which reports against the same interface.
+    const exporter = this.#moduleAliases.get(qualifier.text);
+    if (exporter === undefined) return false;
+    if (!this.#aliasOffers(exporter, qualifier.text, field, position)) return false;
     const spelling = `${qualifier.text}.${field.text}`;
     this.#diagnostics.add({
       severity: "error",
@@ -1028,6 +1047,55 @@ class Resolver {
       labels: [{ span: pending.span, message: "declared here" }],
     });
     return true;
+  }
+
+  /**
+   * Whether `alias.field` names something the namespace import binds — the same
+   * what-*binds* question `#importTermNames` answers for a named import, asked
+   * of the alias's qualified spellings.
+   *
+   * The surfaces are the ones the reads below this line consult, and in two
+   * shapes because two reads exist. Term position takes Modules §3.3/§5.3 whole:
+   * the exporter's terms, the members of constraints it declares, the members of
+   * instances it honors at a type of its own, and the provided row (Collections
+   * Part 5 §4) that rides the prelude companion. A **constructor** pattern reads
+   * `terms` alone — §5.4 puts pattern and value position in one scope, but a
+   * constraint member is not a constructor, so the member surfaces answer
+   * nothing there.
+   *
+   * A superset of what those reads resolve, never a subset. A `false` here sends
+   * the spelling on to be read *above* its import, so a surface missed here is a
+   * hole in §3's top-down half. Hence the honored arm asks whether a candidate
+   * exists rather than whether one wins — an ambiguity refusal is a binding as
+   * far as this question goes.
+   *
+   * The superset is a *loosening* of each surface's own test, never a widening
+   * of which surfaces exist. Over-claiming is cheap only where the spelling has
+   * a binding either way: claim a name no surface offers and the message is back
+   * to promising a repair that fixes nothing, which is the whole point of asking.
+   * `PROVIDED_ROW_ALIASES` is where that line ran once — the seating alone
+   * admits every prelude basename a project file may take, and only five of them
+   * carry a row.
+   */
+  #aliasOffers(
+    iface: ModuleInterface,
+    alias: string,
+    field: Parsed.Name,
+    position: "term" | "constructor",
+  ): boolean {
+    if (iface.terms.has(field.text)) return true;
+    if (position === "constructor") return false;
+    if (iface.constraintMembers.has(field.text)) return true;
+    if (this.#honoredMemberCandidates(iface, field.text).length > 0) return true;
+    if (field.text !== "toSeq" || !PROVIDED_ROW_ALIASES.has(alias)) return false;
+    // The seating test `#providedRowMemberAccess` makes, and for its reason: a
+    // project's own `import * as Vector from "./mine"` is not the companion, and
+    // the same file reached two ways yields two interfaces, so the comparison is
+    // by `fileId`. The alias filter above it is what keeps this from claiming
+    // `Int.toSeq` — every prelude basename a project file may take is seated,
+    // and only five of them carry a row.
+    const companion = this.#preludeModuleAliases.get(alias);
+    return companion !== undefined && companion.module.fileId === iface.module.fileId;
   }
 
   /**
@@ -2876,7 +2944,7 @@ class Resolver {
           // Term position, so the top-down half of §3 applies before any read:
           // an alias whose import the walk has not reached binds `Lib.area` no
           // more than a `let` below binds its name.
-          if (this.#reportUnreachedAlias(expression.receiver.name, expression.field)) {
+          if (this.#reportUnreachedAlias(expression.receiver.name, expression.field, "term")) {
             return { kind: "ErrorExpr", span: expression.span };
           }
           // The guard below asks whether a *declaration* claims the qualifier,
@@ -3024,7 +3092,7 @@ class Resolver {
   ): Resolved.SymbolId | undefined {
     // Pattern position is term position (§5.4 reads the two as one scope), so
     // the alias's top-down half governs here exactly as in the `Access` arm.
-    if (this.#reportUnreachedAlias(qualifier, name)) return undefined;
+    if (this.#reportUnreachedAlias(qualifier, name, "constructor")) return undefined;
     const module = this.#namedModule(qualifier.text);
     if (module === undefined) {
       this.#diagnostics.add({
@@ -4624,6 +4692,11 @@ class Resolver {
     field: Parsed.Name,
   ): Resolved.Expr | undefined {
     if (field.text !== "toSeq") return undefined;
+    // The alias must be one a row is seated at before anything else is asked, so
+    // that this reader and `#aliasOffers` answer the same set. The arms below
+    // are the same five, and reaching the tail `return undefined` for an alias
+    // this admitted would be the drift the shared constant exists to prevent.
+    if (!PROVIDED_ROW_ALIASES.has(alias)) return undefined;
     // Keyed on the *module*, never on the spelling: a user's own
     // `import * as Vector from "./mine"` shadows the prelude alias, and the row
     // belongs to the prelude companion or to nothing.
@@ -4697,11 +4770,24 @@ class Resolver {
     return undefined;
   }
 
-  #honoredMemberAccess(
+  /**
+   * The instances `alias.field` could be reading, before any of the choosing:
+   * every instance the module honors at a type it declares whose constraint has
+   * a member of the name.
+   *
+   * Split out because two callers ask different questions of the same set —
+   * `#honoredMemberAccess` below picks one or refuses an ambiguity, while
+   * `#aliasOffers` only asks whether the surface has the name at all — and a
+   * second derivation of "what §5.3 offers here" is exactly the drift that would
+   * let one arm claim a binding the other cannot produce.
+   */
+  #honoredMemberCandidates(
     iface: ModuleInterface,
-    alias: string,
-    field: Parsed.Name,
-  ): Resolved.Expr | undefined {
+    field: string,
+  ): readonly {
+    readonly instance: InstanceInterface;
+    readonly member: Resolved.ConstraintMember;
+  }[] {
     // "A type it declares" — read for a **fixed prelude companion** as *the
     // primitive it companions* (Modules §5.3 as amended by #344; Constraints
     // §5.3 makes the companion the primitive's home module). `BigInt.gcd`
@@ -4717,17 +4803,25 @@ class Resolver {
         [...iface.unions.values()].some(({ id }) => id === subject.union)) ||
       (subject.kind === "Primitive" &&
         subject.name === iface.module.companionPrimitive);
-    const candidates = iface.instances.flatMap((instance) => {
+    return iface.instances.flatMap((instance) => {
       if (!declares(instance.subject)) return [];
       const declaration = iface.visibleConstraints.find(
         (item) => item.identity === instance.constraintIdentity,
       );
       const member = declaration?.members.find(
-        ({ binding }) => binding.name === field.text,
+        ({ binding }) => binding.name === field,
       );
       if (member === undefined) return [];
       return [{ instance, member }];
     });
+  }
+
+  #honoredMemberAccess(
+    iface: ModuleInterface,
+    alias: string,
+    field: Parsed.Name,
+  ): Resolved.Expr | undefined {
+    const candidates = this.#honoredMemberCandidates(iface, field.text);
     if (candidates.length === 0) return undefined;
     if (candidates.length > 1) {
       const types = candidates.map(({ instance }) => `\`${annotationHeadName(instance.subject)}\``);
@@ -4937,6 +5031,31 @@ function isResolvedTypeAlias(
 ): alias is Resolved.TypeAliasItem {
   return typeof alias.name === "string";
 }
+
+/**
+ * The prelude companions a **provided `Iterable` row** is seated at (Collections
+ * Part 5 §4), by the alias that names them.
+ *
+ * The row has no source form to read the set off — that is what makes it
+ * *provided* — so the set is written once here and consulted by both readers:
+ * `#providedRowMemberAccess`, which pins the subject each one rides, and
+ * `#aliasOffers`, which asks only whether the alias offers `toSeq` at all. Two
+ * derivations would drift the moment one grew an entry, and the drift is not
+ * symmetric: the offer side over-claiming means a `toSeq` above an import draws
+ * "move the import above this use" for a member moving it does not reach, which
+ * is the promise Modules §3 scopes to what an import *binds*.
+ *
+ * Every prelude basename a project file may take (`injectEmbedded`) is an alias
+ * this question can be asked at — `Int`, `Debug`, and the rest are seated files
+ * too — so the guard cannot be the seating alone.
+ */
+export const PROVIDED_ROW_ALIASES: ReadonlySet<string> = new Set([
+  "Vector",
+  "Set",
+  "Map",
+  "String",
+  "Seq",
+]);
 
 /**
  * The operations a primitive companion is asked for and deliberately does not
