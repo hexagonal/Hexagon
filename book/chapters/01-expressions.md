@@ -248,6 +248,18 @@ let subtotal = subtotal + delivery
 The second binding is an error. Hexagon does not read it as assignment, and it does not
 silently create a new `subtotal` that hides the first one.
 
+The rule also holds while a name is still being defined. The block that computes a
+binding's value may not open another binding with the same name:
+
+```hexagon
+let total =
+    let total = subtotal + delivery
+    total * taxRate
+```
+
+The inner `let total` is an error — not because it hides an existing `total` (there is
+none yet), but because it collides with the definition in progress directly above it.
+
 Use a name that identifies the new stage:
 
 ```hexagon

@@ -318,7 +318,7 @@ Every language has to answer: what happens when you reuse a name? JavaScript ans
 
 That's it. Unpacking the two halves:
 
-**Within a block, a name is taken.** Once you `let x = ...`, no later `let`, `var`, or `fun` in that scope may reuse `x` — not even in a nested block where JS would allow it. This is a hard compile error:
+**Within a block, a name is taken.** Once you `let x = ...`, no later `let`, `var`, or `fun` in that scope may reuse `x` — not even in a nested block where JS would allow it. And "taken" starts at the `let` itself, not after it: the indented block that *computes* `x` may not open its own `let x` either — the name is already being defined (contrast JS, where `let x = (() => { let x = 5; return x; })()` is legal because the inner block is a fresh scope). This is a hard compile error:
 
 ```hexagon
 let process(order) =

@@ -65,7 +65,7 @@ let ((a, b), c) = nested          -- nested irrefutable patterns: legal (Pattern
 - `_` discards a component; it binds nothing and may repeat.
 - **Tuple destructuring is the degenerate case of the full pattern grammar** (Pattern Matching §2/§6.3): nested irrefutable patterns ship. Refutable patterns at `let` receive the Pattern Matching §5 irrefutability error.
 - **Lambda parameters accept irrefutable patterns** under Pattern Matching §6.5's depth rule: `(x, y) => e` remains a two-parameter lambda, permanently; `((x, y)) => e` is one tuple-destructured parameter. That spec owns the rule and its diagnostics.
-- **Every name a `let` pattern binds is a sequential binder** (Statements §5/§5.4): it may not reuse a name in scope. Arm and lambda-head positions bind head binders; class is positional, never pattern-determined.
+- **Every name a `let` pattern binds is a sequential binder** (Statements §5/§5.4): it may not reuse a name in scope, nor one whose definition is in progress (Statements §5.1). Arm and lambda-head positions bind head binders; class is positional, never pattern-determined.
 - Value-restriction interaction: a tuple of syntactic values is a syntactic value (Functions spec §8.2); destructuring a `let`-bound tuple generalises each binding normally under the same rules.
 
 ### 2.5 Constraints

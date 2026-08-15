@@ -13,7 +13,7 @@
 - **The flat forms already shipped are this grammar's degenerate case** — exactly as Unions §4.2 and Products §2.4 contracted. Nothing about them changes; they simply stop being the ceiling.
 - **Guards are arm syntax, not pattern syntax** (§3). A pattern is a static shape; a guard is a runtime test. Keeping them in separate grammatical strata is what keeps or-patterns, the same-bindings rule, and exhaustiveness simple.
 - **Exhaustiveness and reachability remain hard errors and remain exact** over the decidable fragment (§7). Guarded arms contribute nothing to coverage. Infinite domains require a catch-all. This is the Unions §4.3 doctrine, generalized, not renegotiated.
-- **Binder class is positional, never determined by pattern syntax** (Statements §5, the proper-subterm criterion): `match`-arm, `catch`-arm, lambda-parameter, and loop-pattern binders are **head binders** and shadow freely; every name a **`let` pattern** binds is a **sequential binder** (Statements §5.4) and may not reuse a name in scope. The same record pattern `{name}` is a head binder in an arm and a sequential binder on a `let` LHS. No pattern form creates a third class. **Duplicates within one simultaneous pattern are errors regardless of class.**
+- **Binder class is positional, never determined by pattern syntax** (Statements §5, the proper-subterm criterion): `match`-arm, `catch`-arm, lambda-parameter, and loop-pattern binders are **head binders** and shadow freely; every name a **`let` pattern** binds is a **sequential binder** (Statements §5.4) and may not reuse a name in scope, nor one whose definition is in progress (Statements §5.1). The same record pattern `{name}` is a head binder in an arm and a sequential binder on a `let` LHS. No pattern form creates a third class. **Duplicates within one simultaneous pattern are errors regardless of class.**
 - **Emission stays readable**: cascades of `if`/`else if` on tags and fields, `switch` where a single tag discriminates, `const` binders from named fields, guards appended with `&&`. No decision-tree compilation whose output couldn't have been written by hand. *(Standing post-#147: this bullet constrains the emitter, not the language — emission shape is exactly the territory where readable JS remains a governing goal; the pivot demoted the TS-author test as a language-design adjudicator, not as an emission commitment. `decisions-ml-dialect-bool-2026-07.md` §1.)*
 
 ---
@@ -170,7 +170,7 @@ Pattern typing is checking-mode against the scrutinee type, structurally:
 
 - Vector patterns: typing per Collections Part 3 §3.2 (checked against `Vector(t)`; rest binders at `Vector(t)`).
 
-Binder class is positional (Statements §5): arm, lambda-parameter, and loop-pattern binders are head binders and shadow freely; `let`-pattern binders are sequential and may not reuse in-scope names (Statements §5.4). All binders within one pattern are simultaneous (whence the duplicate rule), monomorphic, never generalized.
+Binder class is positional (Statements §5): arm, lambda-parameter, and loop-pattern binders are head binders and shadow freely; `let`-pattern binders are sequential and may not reuse in-scope names or names whose definition is in progress (Statements §5.4, §5.1). All binders within one pattern are simultaneous (whence the duplicate rule), monomorphic, never generalized.
 
 ---
 
@@ -275,7 +275,7 @@ let Some(v) = opt                -- HARD ERROR: refutable
 
 The LHS of `let` is now a full pattern, gated by irrefutability (§5). Products §2.4's flat-tuple form is the degenerate case; its "nested patterns arrive with pattern matching" error is retired. `let _ = e` remains a non-idiom — `_` alone binds nothing, and the discard spelling is `ignore` (Statements §3.3); a bare-`_` `let` is an error with the `ignore` fixit.
 
-**Every name a `let` pattern binds is a sequential binder** (Statements §5/§5.4): it may not reuse any name in scope, punned fields included — `let {name, total} = order` errors if `name` is bound, with the pattern-aware fixits Statements §9.3 owns (discard with `_`, or rename the field: `{name = orderName}`). The arm/lambda/loop positions bind head binders as before; same grammar, different class, decided by position.
+**Every name a `let` pattern binds is a sequential binder** (Statements §5/§5.4): it may not reuse any name in scope — nor one whose definition is in progress (Statements §5.1), the pattern's own names included while its RHS is resolved — punned fields too — `let {name, total} = order` errors if `name` is bound, with the pattern-aware fixits Statements §9.3 owns (discard with `_`, or rename the field: `{name = orderName}`). The arm/lambda/loop positions bind head binders as before; same grammar, different class, decided by position.
 
 ### 6.4 `for..in` loop variable
 
