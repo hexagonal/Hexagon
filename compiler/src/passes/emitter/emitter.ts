@@ -1335,21 +1335,29 @@ class JavaScriptEmitter {
     readonly text: string;
   }[] = [];
   /**
-   * Dictionary Sharing §3.1: one module-level `const` per distinct ground
-   * evidence tree, keyed by that tree as it renders.
+   * Dictionary Sharing §3.1 and §3.4: one module-level `const` per distinct
+   * ground evidence tree — applications and structural dictionaries in one map,
+   * because they are one family (§5) emitted in one block.
    *
-   * The key is the application spelled out — `__Show_Option(__Show_Int)` — with
-   * every *argument* already replaced by the name its own hoisting minted. That
-   * is §4's canonical key with the leaves normalized: structurally equal trees
-   * render identically and so share a key, and the two leaf kinds that denote
-   * one dictionary (a migrated companion's `Primitive` evidence and the
-   * `Instance` evidence for the same source instance) do not split into two
-   * bindings for one value.
+   * An **application**'s key is the application spelled out —
+   * `__Show_Option(__Show_Int)` — with every *argument* already replaced by the
+   * name its own hoisting minted. That is §4's canonical key with the leaves
+   * normalized: structurally equal trees render identically and so share a key,
+   * and the two leaf kinds that denote one dictionary (a migrated companion's
+   * `Primitive` evidence and the `Instance` evidence for the same source
+   * instance) do not split into two bindings for one value.
+   *
+   * A **structural** node has no application to render, so it keys on §4's
+   * extension instead — the demanded constraint, a canonical serialization of
+   * its ground type, and its components' trees (`structuralEvidenceKey`). The
+   * two key spaces cannot meet: an application's rendering begins with a
+   * dictionary name and a structural key with `structural:`.
    *
    * Insertion order is dependency order and needs no sort: `#emitEvidence`
-   * renders arguments before the application they sit in, so a subtree is
-   * interned before its parent, and a tree is strictly larger than its subterms
-   * (§5's DAG-by-construction argument).
+   * renders arguments before the application they sit in and a structural
+   * initializer before it is interned, so a subtree is interned before its
+   * parent, and a tree is strictly larger than its subterms (§5's
+   * DAG-by-construction argument).
    */
   readonly #hoistedEvidence = new Map<
     string,
@@ -1581,10 +1589,12 @@ class JavaScriptEmitter {
       body.push(...instances.flatMap(({ lines }) => lines), "");
     }
 
-    // Dictionary Sharing §5: the hoisted ground applications, in dependency
-    // order, after the factories and zero-argument instances they reference and
-    // before the term bindings that demand them (Constraints §6.3's emission
-    // obligation). Insertion order *is* dependency order — see
+    // Dictionary Sharing §5: the hoisted ground evidence — §3.1's applications
+    // and §3.4's structural dictionaries alike — in dependency order, after the
+    // factories and zero-argument instances they reference and before the term
+    // bindings that demand them (Constraints §6.3's emission obligation, whose
+    // §12 edit note generalizes it to both kinds). Insertion order *is*
+    // dependency order — see
     // `#hoistedEvidence` — so nothing is sorted here, and §8 keeps them out of
     // the export list by the simple fact that nothing adds them to it.
     if (this.#hoistedEvidence.size > 0) {
@@ -4940,7 +4950,22 @@ class JavaScriptEmitter {
     const reduced = slot === undefined
       ? undefined
       : reduceDerivedMember(slot, arguments_);
-    return reduced ?? `${dictionaryLiteral(slots)}.${applied}`;
+    // Reduction first, and nothing else changes that (§3.4's last paragraph,
+    // §9.1): where it fires, no dictionary is materialized at all and there is
+    // nothing to hoist. Where it declines at a ground shape — a member parameter
+    // read twice or not at all, an occurrence under a deferred lambda — the
+    // selection reads off the §3.4 binding rather than off a literal rebuilt
+    // here: `({ show: __value => "()" }).show(value)` becomes
+    // `__Show_Unit.show(value)`.
+    if (reduced !== undefined) return reduced;
+    // The slots are rendered above whichever face this site takes, because
+    // whether the reduction fires is a question about the rendered arrow. Where
+    // a binding already exists this rendering is discarded and the binding's own
+    // initializer — the identical literal, interned at the first site — stands.
+    const hoisted = evidence.kind === "Structural"
+      ? this.#hoistStructuralEvidence(constraint, evidence, () => dictionaryLiteral(slots))
+      : undefined;
+    return `${hoisted ?? dictionaryLiteral(slots)}.${applied}`;
   }
 
   #emitEvidence(
@@ -4994,12 +5019,16 @@ class JavaScriptEmitter {
       // compared inline — runs the same walk a `derives` body does, so it takes
       // the same component selection (#278). Without it these bypassed a
       // hand-written component instance exactly as a container's did.
-      return this.#derivedDictionary(
-        constraint,
-        evidence.type,
-        componentEvidence(evidence.components),
-        evidenceNames,
-      );
+      const components = componentEvidence(evidence.components);
+      const literal = () =>
+        this.#derivedDictionary(constraint, evidence.type, components, evidenceNames);
+      // Dictionary Sharing §3.4: at a ground shape the literal is the
+      // *initializer* of one module-level binding, and this site is a reference
+      // to it. Only a free component (§3.4's second paragraph) leaves the
+      // literal standing where it is written. Exactly one of the two branches
+      // renders it: the thunk runs only when a binding is being minted, and the
+      // fallback only when no binding was.
+      return this.#hoistStructuralEvidence(constraint, evidence, literal) ?? literal();
     }
     if (evidence.kind === "Instance") {
       // The use that decides whether a prelude instance needs an import (#153).
@@ -5062,6 +5091,112 @@ class JavaScriptEmitter {
     );
     this.#hoistedEvidence.set(rendering, { name, initializer: rendering });
     return name;
+  }
+
+  /**
+   * Dictionary Sharing §3.4: the name of the one module-level binding for this
+   * ground structural dictionary, minting it on first demand — or `undefined`
+   * when the dictionary must stay a literal at its site.
+   *
+   * Joins §3.1's channel rather than opening a second one: the same map, the
+   * same flush, the same §5 name probe. The key is §4's, which is the one place
+   * the two kinds differ — an application keys on its rendering, and a
+   * structural node has no application to render, so it keys on the demanded
+   * constraint plus its type and components (`structuralEvidenceKey`).
+   *
+   * `initializer` is a thunk and not a string because the literal must be
+   * rendered **exactly** when it is interned. Rendering it unconditionally would
+   * mint the walks' fresh binder names at every use site, moving every later
+   * generated name in the module for a rendering that is then thrown away; and
+   * rendering it *after* interning would put a component's own binding after the
+   * binding that reads it, which is the one thing §5's insertion-order-is-
+   * dependency-order argument needs to stay true.
+   *
+   * Refused in an eagerly-read position (`#eagerEvidenceDepth`) for the reason
+   * that field records: §5 places the hoisted block after the instances, so a
+   * binding an instance reads back as it initializes would be in its temporal
+   * dead zone.
+   */
+  #hoistStructuralEvidence(
+    constraint: Typed.ConstraintName,
+    evidence: Core.StructuralEvidence,
+    initializer: () => string,
+  ): string | undefined {
+    if (this.#eagerEvidenceDepth > 0) return undefined;
+    if (!isGroundEvidence(evidence)) return undefined;
+    const key = this.#structuralEvidenceKey(constraint, evidence);
+    const existing = this.#hoistedEvidence.get(key);
+    if (existing !== undefined) return existing.name;
+    const rendered = initializer();
+    const name = this.#generatedNames.fresh(
+      [constraint, ...flattenTypeSpelling(evidence.type)].join("_"),
+    );
+    this.#hoistedEvidence.set(key, { name, initializer: rendered });
+    return name;
+  }
+
+  /**
+   * Dictionary Sharing §4's key for a **structural** node: the demanded
+   * constraint, a canonical serialization of the ground type, and the
+   * components' evidence trees in component order.
+   *
+   * The constraint is in the key and not decoration. A zero-component shape's
+   * type alone cannot tell `Show<Unit>`'s dictionary from `Eq<Unit>`'s — both
+   * are `Tuple []` — so keying on the type would share one binding between two
+   * different records. The full application is the key; the bare type never is.
+   *
+   * The components ride along as §4 states, and they are what makes this a
+   * method rather than a free function: their **leaves** must be normalized the
+   * way `#hoistedEvidence`'s application keys are normalized by rendering. A
+   * migrated companion's dictionary reaches one component as `Primitive`
+   * evidence and another as `Instance` evidence for the same source instance —
+   * measured, not supposed: `Set.add(Set.add(Set.empty, p), p)` and
+   * `Map.set(Map.empty, p, v)` at `p: (Int, Int)` hand this the same
+   * `Hash<(Int, Int)>` with `Hash<Int>` spelled both ways, and keying on the raw
+   * kinds split one dictionary into `__Hash_Int_Int` and `__Hash_Int_Int_1`.
+   * Resolving a `Primitive` leaf to the source instance it renders as collapses
+   * the pair, exactly as §4 intends ("selection already happened").
+   *
+   * Any deterministic spelling serves (§4) — this one is internal, and §5's name
+   * is the only visible face.
+   */
+  #structuralEvidenceKey(
+    constraint: Typed.ConstraintName,
+    evidence: Core.StructuralEvidence,
+  ): string {
+    return `structural:${this.#serializeEvidence(evidence, constraint)}`;
+  }
+
+  /** One evidence tree, serialized for `#structuralEvidenceKey`. */
+  #serializeEvidence(evidence: Core.Evidence, constraint: Typed.ConstraintName): string {
+    switch (evidence.kind) {
+      case "Primitive": {
+        const sourced = this.#sourceInstanceDictionary(constraint, evidence.instance);
+        return sourced === undefined
+          ? `P|${constraint}|${evidence.instance}`
+          : `I|${sourced}()`;
+      }
+      case "Instance":
+        return `I|${evidence.dictionary}(${
+          evidence.arguments
+            .map(({ constraint: argument, evidence: tree }) =>
+              this.#serializeEvidence(tree, argument)
+            )
+            .join(",")
+        })`;
+      case "Structural":
+        return `S|${constraint}|${serializeType(evidence.type)}|${
+          evidence.components
+            .map(({ key, evidence: tree }) => `${key}=${this.#serializeEvidence(tree, constraint)}`)
+            .join(",")
+        }`;
+      case "Dictionary":
+        return `D|${evidence.constraint ?? constraint}|${Number(evidence.variable)}|${
+          (evidence.path ?? []).join(".")
+        }`;
+      case "Error":
+        return "E";
+    }
   }
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
@@ -8139,14 +8274,167 @@ function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undef
  * primitive dictionaries, with no free evidence parameter anywhere in it.
  *
  * `Dictionary` evidence is the free parameter itself and is what §3.3 keeps at
- * the call. `Error` evidence never hoists, by the same section. `Structural`
- * evidence is out of scope here (§9.1 defers it to its own ruling); it is
- * rendered as a literal, and a literal is not an application to hoist.
+ * the call. `Error` evidence never hoists, by the same section.
+ *
+ * `Structural` evidence joins through §3.4, and its groundness is two
+ * conditions rather than one. The components' own trees must be ground, as for
+ * an application's arguments — that is the condition §3.4 states, and it is what
+ * excludes a tuple inside a polymorphic body whose element evidence is the
+ * body's evidence parameter. But it is not sufficient on its own, because a
+ * structural node's rendering is a *walk over its type*, not an application of
+ * its components: a node the checker recorded no component demand for (the
+ * `Bool` pin, `Concat<Vector(a)>`, and the `Hash`-shaped sub-dictionaries
+ * `#derivedHash`/`#derivedEquals` synthesize for a `Set`/`Map` element)
+ * vacuously satisfies "all components ground" while the walk beneath it still
+ * reaches `#dictionary` at every `Variable` it meets — a free evidence
+ * parameter, in a module-level initializer. So the type must be variable-free
+ * too, which is the invariant that actually holds the hoist up: a hoisted
+ * initializer references only module-level names.
  */
 function isGroundEvidence(evidence: Core.Evidence): boolean {
   if (evidence.kind === "Primitive") return true;
+  if (evidence.kind === "Structural") {
+    return isGroundType(evidence.type) &&
+      evidence.components.every(({ evidence: component }) => isGroundEvidence(component));
+  }
   if (evidence.kind !== "Instance") return false;
   return evidence.arguments.every(({ evidence: argument }) => isGroundEvidence(argument));
+}
+
+/**
+ * Whether a derived walk over this type can reach no type variable — the second
+ * half of a structural node's groundness (see `isGroundEvidence`).
+ *
+ * A record's row tail counts as a variable even though the walks never consult
+ * it: an open row is not a ground type, and refusing to hoist one costs a
+ * duplicated literal where admitting one wrongly would cost a `ReferenceError`.
+ * `Error` is refused with it — §4's "error evidence never hoists", read through
+ * the type the walk would have been over.
+ */
+function isGroundType(type: Typed.Type): boolean {
+  switch (type.kind) {
+    case "Variable":
+    case "Error":
+      return false;
+    case "Primitive":
+    case "Range":
+    case "ExternType":
+      return true;
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "JsSet":
+    case "Node":
+      return isGroundType(type.element);
+    case "Nullable":
+      return isGroundType(type.value);
+    case "Map":
+    case "JsMap":
+      return isGroundType(type.key) && isGroundType(type.value);
+    case "Tuple":
+      return type.elements.every(isGroundType);
+    case "Record":
+      return type.tail === undefined && type.fields.every(({ type: field }) => isGroundType(field));
+    case "Union":
+    case "NominalRecord":
+      return type.arguments.every(isGroundType);
+    case "Function":
+      return type.parameters.every(isGroundType) && isGroundType(type.result);
+  }
+}
+
+/** One ground type, serialized for `#structuralEvidenceKey`. */
+function serializeType(type: Typed.Type): string {
+  switch (type.kind) {
+    case "Primitive":
+      return type.name;
+    case "Range":
+      return "Range";
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "JsSet":
+    case "Node":
+      return `${type.kind}(${serializeType(type.element)})`;
+    case "Nullable":
+      return `Nullable(${serializeType(type.value)})`;
+    case "Map":
+    case "JsMap":
+      return `${type.kind}(${serializeType(type.key)},${serializeType(type.value)})`;
+    case "Tuple":
+      return `(${type.elements.map(serializeType).join(",")})`;
+    case "Record":
+      return `{${
+        [...type.fields]
+          .map(({ name, type: field }) => `${name}:${serializeType(field)}`)
+          .sort()
+          .join(",")
+      }${type.tail === undefined ? "" : `|${Number(type.tail)}`}}`;
+    // The identity, never the name: a module that declares its own `Bool` has
+    // not declared the prelude's, the same test `#groundFundamental` makes.
+    case "Union":
+      return `U${Number(type.union)}(${type.arguments.map(serializeType).join(",")})`;
+    case "NominalRecord":
+      return `R${Number(type.record)}(${type.arguments.map(serializeType).join(",")})`;
+    case "ExternType":
+      return `X${Number(type.externType)}`;
+    case "Function":
+      return `(${type.parameters.map(serializeType).join(",")})->${serializeType(type.result)}`;
+    case "Variable":
+      return `v${Number(type.id)}`;
+    case "Error":
+      return "!";
+  }
+}
+
+/**
+ * A structural dictionary's contribution to its binding's spelling (Dictionary
+ * Sharing §5): "flattens the way the type is spelled" — `__Show_Unit`, and a
+ * tuple contributing its element spellings in order, `__Show_Int_Int` for
+ * `Show<(Int, Int)>`.
+ *
+ * The anonymous constructor contributes nothing, exactly as it contributes
+ * nothing to the type's spelling: a tuple is written as the parameter list it
+ * reifies, and `Unit` is the arity-0 tuple, so it is the one tuple with a name
+ * to give. Nesting makes this flattening non-injective — `((Int, Int), Int)` and
+ * `(Int, (Int, Int))` both spell `Int_Int_Int` — and §5's collision rule absorbs
+ * it with the rest, `GeneratedNames` supplying the probe.
+ */
+function flattenTypeSpelling(type: Typed.Type): readonly string[] {
+  switch (type.kind) {
+    case "Primitive":
+      return [type.name];
+    case "Range":
+      return ["Range"];
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "JsSet":
+    case "Node":
+      return [type.kind, ...flattenTypeSpelling(type.element)];
+    case "Nullable":
+      return ["Nullable", ...flattenTypeSpelling(type.value)];
+    case "Map":
+    case "JsMap":
+      return [type.kind, ...flattenTypeSpelling(type.key), ...flattenTypeSpelling(type.value)];
+    case "Tuple":
+      return type.elements.length === 0
+        ? ["Unit"]
+        : type.elements.flatMap(flattenTypeSpelling);
+    case "Record":
+      return [...type.fields].map(({ name }) => name).sort();
+    case "Union":
+    case "NominalRecord":
+      return [type.name, ...type.arguments.flatMap(flattenTypeSpelling)];
+    case "ExternType":
+      return [type.name];
+    // Unreachable behind `isGroundType`, and spelled rather than thrown on so
+    // that a future caller outside the hoist path gets a name instead of a crash.
+    case "Function":
+    case "Variable":
+    case "Error":
+      return [];
+  }
 }
 
 /**

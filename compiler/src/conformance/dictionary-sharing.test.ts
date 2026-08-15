@@ -4,9 +4,9 @@ import { compileFiles, compileMain, runMain, runProject } from "../support/test-
 
 /**
  * Conformance for `spec/dictionary-sharing.md` §3 and its §11 obligations 1–5
- * (#449).
+ * (#449) and 8 (#446).
  *
- * §3 is three rules over one channel:
+ * §3 is four rules over one channel:
  *
  * - **§3.1** every distinct *ground* evidence tree is one module-level `const`,
  *   emitted once and referenced by name at every use site — nested applications
@@ -17,11 +17,16 @@ import { compileFiles, compileMain, runMain, runProject } from "../support/test-
  *   under construction, so a regular recursive traversal allocates nothing;
  * - **§3.3** every other shape inside a factory body — a different instance
  *   over the parameters, this one deeper, this one permuted — stays a call-time
- *   application, which is what §10.3 shows must not be hoisted eagerly.
+ *   application, which is what §10.3 shows must not be hoisted eagerly;
+ * - **§3.4** a *structural* dictionary — compiler-built evidence for an
+ *   anonymous shape, or for `Bool` — takes §3.1's rule too when it is ground,
+ *   keyed by §4's constraint-plus-type extension rather than by a rendering.
  *
- * Obligations 6 (collision-only aliasing) and 7 (literal-member reduction)
- * landed with #425 and are pinned by `dictionary-names.test.ts` and
- * `literal-member-peephole.test.ts` respectively; they are not rebuilt here.
+ * Obligation 6 (collision-only aliasing) landed with #425 and is pinned by
+ * `dictionary-names.test.ts`. Obligation 7 (literal-member reduction) landed
+ * there too and is pinned by `literal-member-peephole.test.ts`, which also
+ * carries #446's amendment to it — where the reduction declines at a ground
+ * shape, the selection reads off the §3.4 binding. Neither is rebuilt here.
  */
 
 function emitted(source: string): string {
@@ -520,6 +525,363 @@ describe("§5 — a contested hoisted spelling", () => {
     const main = await runMain(source);
     expect(main["one"]).toBe("A(BC1)");
     expect(main["two"]).toBe("AB(C2)");
+  });
+});
+
+/**
+ * §3.4 and §11 obligation 8 (#446) — ground **structural** dictionaries hoist
+ * by their shape.
+ *
+ * The rule is §3.1's, in the other evidence kind: a compiler-built dictionary
+ * for an anonymous shape (a tuple, `Unit` the arity-0 tuple) or for `Bool`,
+ * whose per-component evidence is itself ground, is one module-level `const`
+ * referenced by name. What differs is only the key — a structural node has no
+ * application to render, so §4 keys it on the demanded constraint, a canonical
+ * serialization of the ground type, and its components in order.
+ *
+ * Obligation 8's own wording carries the precedence: a site §9.1's reduction
+ * *discharges* materializes nothing and so has nothing to hoist, which is why
+ * every pin below is at a site where the reduction declines or where the record
+ * rides whole as trailing evidence. `literal-member-peephole.test.ts` owns the
+ * reduction's conditions; the one pin here is that they did not move.
+ */
+describe("§3.4 — ground structural dictionaries hoist by their shape", () => {
+  test("two declining sites of one tuple shape emit one binding and two references", async () => {
+    const source =
+      "let tupleShape = 0\n" +
+      "export let shown: String = show((1, 2))\n" +
+      'export let interpolated: String = "pair ${(3, 4)}"\n';
+    const text = emitted(source);
+
+    // §5's spelling: the tuple contributes its element spellings in order, the
+    // anonymous constructor contributing nothing.
+    expect(text).toContain(
+      'const __Show_Int_Int = ({ show: __value => "(" + String(__value[0]) + ", " +' +
+        ' String(__value[1]) + ")" });',
+    );
+    // One binding, two references — one site passing the whole record as
+    // trailing evidence, one reading a member off it after §9.1 declined.
+    expect(occurrences(text, "const __Show_Int_Int =")).toBe(1);
+    expect(text).toContain("const shown = show([1, 2], __Show_Int_Int);");
+    expect(text).toContain('const interpolated = "pair " + __Show_Int_Int.show([3, 4]);');
+    // §3.4's last sentence: "the inline literal shape appears at no ground site."
+    expect(occurrences(text, "({ show:")).toBe(1);
+
+    const main = await runMain(source);
+    expect(main["shown"]).toBe("(1, 2)");
+    expect(main["interpolated"]).toBe("pair (3, 4)");
+  });
+
+  test("`Unit` takes the same rule, and its declined selection reads off the binding", async () => {
+    const source =
+      "let unitShape = 0\n" +
+      "export let shown: String = show(())\n" +
+      'export let interpolated: String = "u ${()}"\n';
+    const text = emitted(source);
+
+    expect(text).toContain('const __Show_Unit = ({ show: __value => "()" });');
+    expect(occurrences(text, "const __Show_Unit =")).toBe(1);
+    expect(text).toContain("const shown = show(undefined, __Show_Unit);");
+    // §3.4's worked example, verbatim: `({ show: __value => "()" }).show(value)`
+    // becomes `__Show_Unit.show(value)`.
+    expect(text).toContain('const interpolated = "u " + __Show_Unit.show(undefined);');
+    expect(occurrences(text, "({ show:")).toBe(1);
+
+    const main = await runMain(source);
+    expect(main["shown"]).toBe("()");
+    expect(main["interpolated"]).toBe("u ()");
+  });
+
+  /**
+   * §5's emission order, in the kind that made it a question again. A structural
+   * binding's initializer names its components' own bindings, so it must be
+   * emitted after them — and §3.4 says the DAG argument "carries over verbatim,
+   * a component tree being a proper subterm of the tree that contains it".
+   *
+   * The property that makes insertion order *be* dependency order is that the
+   * initializer is rendered before the binding is interned. Interning first —
+   * the shape a naive implementation reaches for, since it is what makes a
+   * recursive walk terminate — would put this binding ahead of the application
+   * it reads, and a module-level `const` reading a later `const` is a temporal
+   * dead zone, not a cosmetic defect. The `runMain` below is what makes that
+   * concrete: under the inverted order the module throws on load.
+   *
+   * The whole-record site comes **first** on purpose. A site that selects a
+   * member renders the dictionary's slots before it asks for a binding at all,
+   * so it interns the components either way; only a site that hands the record
+   * over whole leaves the rendering to the interning step, which is where the
+   * order is actually decided.
+   */
+  test("a structural binding is emitted after the application its component hoisted", async () => {
+    const source =
+      "let dependencyOrder = 0\n" +
+      "record Box(a) derives Show = {value: a}\n" +
+      "export let two: String = show((Box({value = 3}), 4))\n" +
+      'export let one: String = "${(Box({value = 1}), 2)}"\n';
+    const text = emitted(source);
+
+    expect(text).toContain("const __Show_Box_Int = __Show_Box(__Show_Int);");
+    expect(text).toContain(
+      'const __Show_Box_Int_Int = ({ show: __value => "(" + __Show_Box_Int.show(__value[0])',
+    );
+    expect(offsetOf(text, "const __Show_Box_Int =")).toBeLessThan(
+      offsetOf(text, "const __Show_Box_Int_Int ="),
+    );
+
+    const main = await runMain(source);
+    expect(main["one"]).toBe("({value = 1}, 2)");
+    expect(main["two"]).toBe("({value = 3}, 4)");
+  });
+
+  /**
+   * §4's structural key is the **full application**, never the bare type. A
+   * zero-component shape's type alone cannot tell `Show<Unit>`'s dictionary from
+   * `Eq<Unit>`'s — both are the arity-0 tuple — so a key without the constraint
+   * would share one binding between two different records, and the first slot
+   * read at the second site would be a `TypeError`.
+   */
+  test("one type under two constraints keys distinctly", async () => {
+    const source =
+      "let twoConstraints = 0\n" +
+      "export let shown: String = show(())\n" +
+      "export let same: Bool = () == ()\n";
+    const text = emitted(source);
+
+    expect(text).toContain('const __Show_Unit = ({ show: __value => "()" });');
+    expect(text).toContain("const __Eq_Unit = ({ equals: (__left, __right) => true,");
+    expect(text).toContain("const shown = show(undefined, __Show_Unit);");
+    expect(text).toContain("const same = __Eq_Unit.equals(undefined, undefined);");
+
+    const main = await runMain(source);
+    expect(main["shown"]).toBe("()");
+    expect(main["same"]).toBe(true);
+  });
+
+  /**
+   * §3.4's second paragraph, and obligation 7's "keep today's literal only under
+   * a free component". Groundness is about the *components*, not about the
+   * enclosing body: `Show<Bool>` inside a polymorphic function still hoists,
+   * while a tuple whose elements are the body's own evidence parameters cannot.
+   */
+  test("a free component keeps the literal; a ground one beside it still hoists", async () => {
+    const source =
+      "let freeComponent = 0\n" +
+      "let showPair<a: Show, b: Show>(x: a, y: b): String = show((x, y))\n" +
+      "let tagged<a: Show>(x: a): String = show(True) ++ show(x)\n" +
+      "export let one: String = showPair(1, 2)\n" +
+      "export let two: String = tagged(3)\n";
+    const text = emitted(source);
+
+    // Not ground: the elements' evidence is the body's own parameters, so the
+    // record stays where it is written.
+    expect(text).toContain(
+      'const showPair = (x, y, __Show_a, __Show_b) => show([x, y], ({ show: __value => "(" +' +
+        ' __Show_a.show(__value[0]) + ", " + __Show_b.show(__value[1]) + ")" }));',
+    );
+    // Ground, in the very same kind of body: `Show<Bool>` has no component at
+    // all, so nothing about `tagged`'s type variable reaches it.
+    expect(text).toContain(
+      'const __Show_Bool = ({ show: __value => (__value ? "True" : "False") });',
+    );
+    expect(text).toContain("show(true, __Show_Bool)");
+
+    const main = await runMain(source);
+    expect(main["one"]).toBe("(1, 2)");
+    expect(main["two"]).toBe("True3");
+  });
+
+  /**
+   * The `Hash`-shaped sub-dictionary the emitter synthesizes for a `Set`/`Map`
+   * element carries `components: []` — no component demand was recorded, and the
+   * walk beneath it is licensed to stay structural (Collections Part 2 §4.3).
+   * Its groundness is therefore a question about its *type*: a variable-free one
+   * walks to module-level names only, and hoists.
+   *
+   * It is also where the key's leaf normalization earns its place. These three
+   * demands are one `Hash<(Int, Int)>`, and the checker hands `Hash<Int>` to
+   * some as `Primitive` evidence and to others as the migrated companion's
+   * `Instance` evidence — one dictionary, two spellings. A key over the raw
+   * kinds split it into two bindings.
+   */
+  test("the synthesized `Hash`-shaped dictionary hoists once across three demands", async () => {
+    const source =
+      "let hashShape = 0\n" +
+      "export let seen: Set((Int, Int)) = Set.add(Set.add(Set.empty, (1, 2)), (1, 2))\n" +
+      "export let table: Map((Int, Int), Int) = Map.set(Map.empty, (1, 2), 3)\n" +
+      "export let seenSize: Int = Set.size(seen)\n" +
+      "export let tableSize: Int = Map.size(table)\n";
+    const text = emitted(source);
+
+    expect(occurrences(text, "const __Hash_Int_Int =")).toBe(1);
+    expect(text).not.toContain("__Hash_Int_Int_1");
+    expect(occurrences(text, "__Hash_Int_Int")).toBe(4);
+    // One binding, three references: the literal survives only as the
+    // initializer, at no use site.
+    expect(occurrences(text, "({ eq: {")).toBe(1);
+
+    const main = await runMain(source);
+    // The behavioral half: one binding for three demands must still hash and
+    // compare a tuple key correctly, so the duplicate insert collapses.
+    expect(main["seenSize"]).toBe(1);
+    expect(main["tableSize"]).toBe(1);
+  });
+
+  /**
+   * The other half of the `components: []` question, and the one that decides
+   * the groundness test. `Set`/`Map`'s synthesized sub-dictionary records no
+   * component demand, so "every component is ground" is *vacuously true* for
+   * it — including when the shape beneath it is `(a, Int)` inside a polymorphic
+   * body, whose walk reaches the body's own `__Hash_a`. Hoisting on the
+   * components alone would put a free evidence parameter in a module-level
+   * initializer: a `ReferenceError` before the first call. The type must be
+   * variable-free too, which is what keeps §3.4's invariant — a hoisted
+   * initializer references only module-level names — an invariant rather than a
+   * hope.
+   */
+  test("a variable under a componentless synthesized shape keeps the literal", () => {
+    const source =
+      "let componentless = 0\n" +
+      "export let nest<a: Hash>(s: Set((a, Int))): Set(Set((a, Int))) =\n" +
+      "    Set.add(Set.empty, s)\n";
+    const text = emitted(source);
+
+    // The walk names the body's evidence parameter, so the dictionary stays
+    // where it is written and no module-level binding mentions `__Hash_a`.
+    expect(text).toContain("const nest = (s, __Hash_a) => {");
+    expect(text).toContain("return add(empty, s, ({ eq: {");
+    expect(text).not.toMatch(/^const __\w+ = .*__Hash_a/mu);
+  });
+
+  /**
+   * The eagerly-read position, which §3.4 inherits from §3.1 rather than
+   * escaping. §5 places the hoisted block **after** the instances, so a slot an
+   * instance reads *while its own `const` initializes* may not be a hoisted
+   * name — it would be in that binding's temporal dead zone.
+   *
+   * Structural evidence reaches such a position in exactly one place, and it is
+   * the prelude's own: `Bool`'s evidence is compiler-built rather than a source
+   * honor block (#441), so `Ord<Bool>`'s and `Hash<Bool>`'s inherited `eq` slots
+   * — base constraints, filled at construction — are `Eq<Bool>` structural
+   * literals. They are ground, and hoisting them would emit
+   * `const __Ord_Bool = { eq: __Eq_Bool_1, … }` above the `const __Eq_Bool_1`
+   * it names: a `ReferenceError` on the first import of the module.
+   *
+   * Compiling the stdlib itself is the one way to reach `Bool.hex`'s emitted
+   * text (`injectPrelude` prefers a project file at the injection path), which
+   * is what `bool-union.test.ts` uses to prove its integrity check runs.
+   */
+  test("an eagerly-read base-constraint slot keeps its literal", () => {
+    const files = [
+      [
+        "/Bool.hex",
+        "export union Bool derives (Eq, Ord, Show, Hash) =\n    | False\n    | True\n",
+      ],
+      // The import is what keeps `/Bool.hex` in the emitted graph: nothing
+      // reaches its dictionaries by the ordinary route, since `Bool`'s evidence
+      // is compiler-built at every use site (#441).
+      [
+        "/main.hex",
+        'import { Bool } from "./Bool"\nlet eagerSlot = 0\nexport let flag: Bool = True\n',
+      ],
+    ] as const;
+    const project = compileFiles(files);
+    expect(project.diagnostics).toEqual([]);
+    const text = emittedFrom(files, "/Bool.hex");
+
+    expect(text).toContain(
+      "const __Ord_Bool = { eq: ({ equals: (__left, __right) => __left === __right,",
+    );
+    expect(text).toContain(
+      "const __Hash_Bool = { eq: ({ equals: (__left, __right) => __left === __right,",
+    );
+    // The invariant behind the pin, stated so a future reader sees what broke:
+    // no `const` in this module names a binding declared after it.
+    expect(text).not.toContain("__Eq_Bool_1");
+  });
+
+  test("a structural binding joins no export list and no `.d.ts`", () => {
+    const source =
+      "let structuralExports = 0\n" +
+      'export let interpolated: String = "u ${()}"\n';
+    const project = compileFiles([["/main.hex", source]]);
+    expect(project.diagnostics).toEqual([]);
+    const module = project.modules.find(({ source: file }) => file.path === "/main.hex")!;
+
+    // Obligation 5, over the §3.4 family: it joins the top-level `const` set and
+    // nothing else.
+    expect(module.javascript.text).toContain("const __Show_Unit =");
+    expect(module.javascript.text).not.toMatch(/export \{[^}]*__Show_Unit/u);
+    expect(module.declarations.text).not.toContain("__Show_Unit");
+  });
+
+  test("two compiles agree on the structural bindings and their order", () => {
+    const source =
+      "let structuralDeterminism = 0\n" +
+      'export let one: String = "${(1, 2)}"\n' +
+      'export let two: String = "${()}"\n' +
+      "export let three: Bool = (1, 2) == (3, 4)\n";
+
+    // Obligation 4, over the §3.4 family. Whole-text equality is the strongest
+    // form of §5's normative determinism.
+    expect(emitted(source)).toBe(emitted(source));
+    expect(
+      emitted(source)
+        .split("\n")
+        .filter((line) => /^const __\w+ = \(\{/u.test(line))
+        .map((line) => line.slice(0, line.indexOf(" ="))),
+    ).toEqual(["const __Show_Int_Int", "const __Show_Unit", "const __Eq_Int_Int"]);
+  });
+
+  /**
+   * §7 in the structural kind: sharing is per module. `stdlib/Debug.hex` is the
+   * one in the tree that demands `Show<Unit>` on its own account — `logUnit` and
+   * `traceUnit` are its `Unit` editions, and both decline §9.1's reduction
+   * because `Show<Unit>`'s body names its parameter nowhere.
+   */
+  test("a prelude module hoists its own binding for the shape it demands", async () => {
+    const files = [["/main.hex", "let perModule = 0\nlog(())\n"]] as const;
+    const debug = emittedFrom(files, "/Debug.hex");
+
+    expect(occurrences(debug, "const __Show_Unit =")).toBe(1);
+    expect(debug).toContain(
+      "function logUnit(value) {\n  return writeLine(__Show_Unit.show(value));\n}",
+    );
+    expect(debug).toContain('logString(label + ": " + __Show_Unit.show(value));');
+    expect(occurrences(debug, "({ show:")).toBe(1);
+
+    // And the probe still prints what it printed.
+    const lines: unknown[] = [];
+    const host = globalThis as unknown as { console: { log: (...v: unknown[]) => void } };
+    const original = host.console.log;
+    host.console.log = (...values: unknown[]) => void lines.push(values[0]);
+    try {
+      await runProject([["/main.hex", "let perModuleRun = 0\nlog(())\n"]]);
+    } finally {
+      host.console.log = original;
+    }
+    expect(lines).toEqual(["()"]);
+  });
+
+  /**
+   * The precedence, from the other side: where §9.1's reduction fires nothing is
+   * materialized, so a ground shape it discharges must produce **no** binding.
+   * `Eq<{n: Int}>`'s `equals` reads each parameter exactly once, in order — the
+   * reduction's conditions, unchanged by the graduation.
+   */
+  test("a reduction site materializes nothing to hoist", async () => {
+    const source =
+      "let reductionFirst = 0\n" +
+      "export let same: Bool = {n = 1} == {n = 1}\n" +
+      "export let differ: Bool = {n = 1} == {n = 2}\n";
+    const text = emitted(source);
+
+    expect(text).toContain("const same = (({ n: 1 }).n === ({ n: 1 }).n);");
+    expect(text).not.toContain("({ equals:");
+    expect(text).not.toMatch(/^const __Eq_n\b/mu);
+
+    const main = await runMain(source);
+    expect(main["same"]).toBe(true);
+    expect(main["differ"]).toBe(false);
   });
 });
 

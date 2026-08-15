@@ -122,9 +122,12 @@ describe("emitJavaScript", () => {
     expect(text("/main.hex")).toContain(
       'import { __toSeq as toSeq } from "./Iterable.js";',
     );
+    // Ground, so the row's dictionary is Dictionary Sharing §3.4's hoisted
+    // module constant since #446 rather than a literal rebuilt at the call.
     expect(text("/main.hex")).toContain(
-      "toSeq(updated, ({ toSeq: __seqFromIterable }))",
+      "const __Iterable_Vector_Int = ({ toSeq: __seqFromIterable });",
     );
+    expect(text("/main.hex")).toContain("toSeq(updated, __Iterable_Vector_Int)");
     // `fromSeq` lowers to the outbound driver in the module whose door declares
     // it; the inbound adapter is there too, because the unexported `elements`
     // row still crosses the same boundary.
@@ -1784,10 +1787,14 @@ describe("emitJavaScript", () => {
     // operands kept — the retired primitive fast path discarded them, which
     // mattered for effectful operands. The constant is `"Equal"` and the test
     // is `!== "Greater"`, because a dictionary's `compare` slot answers with an
-    // `Ordering` and `<=` is a constructor test on it (#275).
+    // `Ordering` and `<=` is a constructor test on it (#275). The record itself
+    // is Dictionary Sharing §3.4's hoisted module constant since #446 — ground,
+    // and §9.1's reduction declines because the body names neither parameter.
     expect(output.text).toContain(
-      'const unitOrder = ({ compare: (__left, __right) => "Equal" })' +
-        '.compare(undefined, undefined) !== "Greater";',
+      'const __Ord_Unit = ({ compare: (__left, __right) => "Equal" });',
+    );
+    expect(output.text).toContain(
+      'const unitOrder = __Ord_Unit.compare(undefined, undefined) !== "Greater";',
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -2281,16 +2288,26 @@ describe("emitDeclarations", () => {
     );
     expect(equal.text).toContain("function equalFloat(left, right)");
     expect(equal.text).toContain("__floatEquals(left, right)");
+    // The `Unit` edition is the one that reads a dictionary, and what it reads
+    // is a module constant rather than an argument: `Eq<Unit>`'s `equals` names
+    // neither parameter, so §9.1's reduction declines and §3.4's binding stands
+    // in its place (#446). The claim below is about evidence *arriving* at an
+    // edition, and this is not that.
+    expect(equal.text).toContain(
+      "function equalUnit(left, right) {\n  return __Eq_Unit.equals(left, right);\n}",
+    );
     for (const section of [...increment.generatedSections, ...equal.generatedSections]) {
       const body = (section.sourceName === "increment" ? increment : equal).text.slice(
         section.startOffset,
         section.endOffset,
       );
-      // A monomorphic edition takes no evidence, so nothing in it is spelled
-      // from the `__<Constraint>_<variable>` family the generic body uses
-      // (#425). Lowercase-stemmed helpers like `__floatEquals` are not that
-      // family and are expected here.
-      expect(body).not.toMatch(/__[A-Z][A-Za-z0-9]*_/u);
+      // A monomorphic edition takes no evidence *parameter*, so nothing in it is
+      // spelled from the `__<Constraint>_<variable>` family the generic body
+      // threads (#425) — whose second half is the source type variable's own
+      // lowercase spelling, `__Eq_a`. Lowercase-stemmed helpers like
+      // `__floatEquals` are not that family and are expected here, and neither
+      // is `__Eq_Unit`, whose second half is a *type* spelling (§5).
+      expect(body).not.toMatch(/__[A-Z][A-Za-z0-9]*_[a-z]/u);
     }
     expect(increment.diagnostics).toEqual([]);
     expect(equal.diagnostics).toEqual([]);
