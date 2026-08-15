@@ -503,6 +503,214 @@ describe("an import occludes and reserves too (§5.4's \"or import\")", () => {
   });
 });
 
+describe("a declaration's constructor names occlude too (#466)", () => {
+  /**
+   * §5.4's grant reaches "a declaration's **constructor names** — a union's, a
+   * record's, or an exception's". Before #466 all three *refused* a prelude
+   * collision instead, which was the third channel through which adding a name
+   * to the prelude could still break a program; the guarantee is stated over
+   * binder collisions with no exception now.
+   *
+   * The prelude constructors these pins take over are real: `Less`/`Greater`
+   * from `Ordering` (`stdlib/Prelude.hex`), `Some` from `Option.hex`,
+   * `IndexError` from `Vector.hex`, `True` from `Bool.hex` (#147).
+   */
+
+  test("a union may take a prelude constructor over, and the module's is what it means", async () => {
+    expect(projectDiagnostics(
+      "export union Direction = Less | Greater\n" +
+      "export let d: Direction = Less\n",
+    )).toEqual([]);
+
+    // The discriminator is the annotation: the prelude's `Less` is an
+    // `Ordering`, so if the occlusion had not happened this would not type.
+    const exports = await runMain(
+      "export union Direction = Less | Greater\n" +
+      "export let d: Direction = Less\n" +
+      "export let g: Direction = Greater\n",
+    );
+
+    expect(exports.d).toBe("Less");
+    expect(exports.g).toBe("Greater");
+  });
+
+  test("a bare constructor *pattern* below the declaration is the module's", async () => {
+    // §5.4 reads pattern position and value position as one scope, so the
+    // pattern means what the reference means: the module's own constructor.
+    // Were it still the prelude's, the scrutinee would not type as `Direction`.
+    const exports = await runMain(
+      "export union Direction = Less | Greater\n" +
+      "export fun name(d: Direction): String =\n" +
+      "    match d\n" +
+      "        Less => \"the module's Less\"\n" +
+      "        Greater => \"the module's Greater\"\n" +
+      "export let low: String = name(Less)\n" +
+      "export let high: String = name(Greater)\n",
+    );
+
+    expect(exports.low).toBe("the module's Less");
+    expect(exports.high).toBe("the module's Greater");
+  });
+
+  test("a bare constructor pattern *above* the declaration reads as the control does", () => {
+    // The reservation in pattern position, which is the machinery #466 had to
+    // add: without it `Less` above the union silently kept the prelude's
+    // meaning and the arm drew a type mismatch against `Direction` instead.
+    matchesControl(
+      (name, other) =>
+        "export fun f(d: Direction): Int =\n" +
+        "    match d\n" +
+        `        ${name} => 1\n` +
+        "        _ => 2\n" +
+        `union Direction = ${name} | ${other}\n`,
+      ["Less", "Greater"],
+      ["Zork", "Zap"],
+    );
+    expect(projectDiagnostics(
+      "export fun f(d: Direction): Int =\n" +
+      "    match d\n" +
+      "        Less => 1\n" +
+      "        _ => 2\n" +
+      "union Direction = Less | Greater\n",
+    )).toContain(
+      "`Less` is declared later in this block; declarations are read top-down — " +
+        "move the union's declaration above this use",
+    );
+  });
+
+  test("a value reference above the declaration reads as the control does", () => {
+    matchesControl(
+      (name, other) =>
+        `export let early: Direction = ${name}\n` +
+        `union Direction = ${name} | ${other}\n`,
+      ["Less", "Greater"],
+      ["Zork", "Zap"],
+    );
+  });
+
+  test("an exception may take a prelude exception's name over", async () => {
+    expect(projectDiagnostics("export exception IndexError(code: Int)\n")).toEqual([]);
+
+    // Thrown and caught below the declaration through the bare spelling: the
+    // catch arm is a constructor pattern like any other (exceptions.md §5.2).
+    const exports = await runMain(
+      "export exception IndexError(code: Int)\n" +
+      "export fun caught(): Int =\n" +
+      "    try\n" +
+      "        throw(IndexError(7))\n" +
+      "    catch\n" +
+      "        IndexError(c) => c\n" +
+      "export let r: Int = caught()\n",
+    );
+
+    expect(exports.r).toBe(7);
+  });
+
+  test("a record may take a prelude constructor's name over", async () => {
+    expect(projectDiagnostics(
+      "export record Some(a) = { value: a }\n" +
+      "export let s: Some(Int) = Some({value = 1})\n",
+    )).toEqual([]);
+
+    const exports = await runMain(
+      "export record Some(a) = { value: a }\n" +
+      "export let boxed: Some(Int) = Some({value = 9})\n" +
+      "export let unboxed: Int = boxed.value\n",
+    );
+
+    expect(exports.unboxed).toBe(9);
+  });
+
+  test("`union Flag = True | Maybe` is legal, and `Bool` still demands `Bool`", () => {
+    // §5.4's own example. Occluding `True` costs the module the bare spelling
+    // of the boolean and nothing else: every context demanding `Bool` still
+    // demands it, so a strayed `Flag` constructor is a loud type error.
+    expect(projectDiagnostics("export union Flag = True | Maybe\n")).toEqual([]);
+    expect(projectDiagnostics(
+      "export union Flag = True | Maybe\n" +
+      "export let stray: Bool = Maybe\n",
+    )).toEqual(["type mismatch: expected Bool, found Flag"]);
+  });
+
+  test("and `Bool.True` stays spellable in both positions", async () => {
+    const exports = await runMain(
+      "export union Flag = True | Maybe\n" +
+      "export let flag: Flag = True\n" +
+      "export let yes: Bool = Bool.True\n" +
+      "export fun describe(b: Bool): String =\n" +
+      "    match b\n" +
+      "        Bool.True => \"yes\"\n" +
+      "        Bool.False => \"no\"\n" +
+      "export let said: String = describe(Bool.True)\n",
+    );
+
+    expect(exports.flag).toBe("True");
+    expect(exports.yes).toBe(true);
+    expect(exports.said).toBe("yes");
+  });
+
+  test("user-versus-user collisions are untouched: two unions in one module", () => {
+    // Unions §2's declaration-site hard error. The exemption is the prelude
+    // layer only, so a name the module's own layers bind still fights.
+    expect(projectDiagnostics(
+      "union A = Dup | X\n" +
+      "union B = Dup | Y\n",
+    )).toEqual([
+      "`Dup` is already bound (line 1); Hexagon does not allow rebinding — " +
+        "choose a different name.",
+    ]);
+  });
+
+  test("and a declared constructor still fights an imported one", () => {
+    expect(compileFiles([
+      ["/lib.hex", "export union A = Dup | X\n"],
+      ["/main.hex",
+        "import { A, Dup, X } from \"./lib\"\n" +
+        "union B = Dup | Y\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "`Dup` is already bound (line 1); Hexagon does not allow rebinding — " +
+        "choose a different name.",
+    ]);
+  });
+
+  test("an imported constructor occludes and reserves like any other import", () => {
+    // The import arm §5.4 already covered, now reachable at a constructor: the
+    // exporting module could not even declare `Less` before #466.
+    matchesProjectControl(
+      (name, other) => [
+        ["/lib.hex", `export union Direction = ${name} | ${other}\n`],
+        ["/main.hex",
+          `import { Direction, ${name}, ${other} } from "./lib"\n` +
+          `export let d: Direction = ${name}\n`],
+      ],
+      ["Less", "Greater"],
+      ["Zork", "Zap"],
+    );
+    matchesProjectControl(
+      (name, other) => [
+        ["/lib.hex", `export union Direction = ${name} | ${other}\n`],
+        ["/main.hex",
+          `export let early: Direction = ${name}\n` +
+          `import { Direction, ${name}, ${other} } from "./lib"\n`],
+      ],
+      ["Less", "Greater"],
+      ["Zork", "Zap"],
+    );
+    expect(compileFiles([
+      ["/lib.hex", "export union Direction = Less | Greater\n"],
+      ["/main.hex",
+        "export let early: Direction = Less\n" +
+        "import { Direction, Less, Greater } from \"./lib\"\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      // The type name above the import is unknown for the same reason (#465);
+      // what matters here is the term, which is the prelude's `Less` — silently,
+      // before #466 — and is now nothing at all.
+      "unknown type `Direction`; this slice supports primitive, tuple, and declared union types",
+      "unknown name `Less`",
+    ]);
+  });
+});
+
 describe("in prelude source, the prelude layer is the §5.5 visible prefix", () => {
   // `Result.hex` sees the members before it and only those, so `show` —
   // `Show.hex` is first in the set — is an ordinary prelude name there. The rule

@@ -1775,9 +1775,22 @@ class Parser {
     }
     if (token.kind === "UpperName") {
       this.#advance();
-      const name = parsedName(token);
+      // Modules §3.2: "Constructors qualify the same way (`Geo.Circle(1.0)`),
+      // including in patterns." The pattern grammar's uppercase-start rule
+      // therefore extends one dot — a module alias, or a prelude module's own
+      // name, then the constructor. Only `Upper.Upper` is taken: an uppercase
+      // name followed by anything else is the bare constructor it always was,
+      // so nothing that parsed before parses differently now.
+      let qualifier: Parsed.Name | undefined;
+      let head = token;
+      if (this.#at("Dot") && this.#peek(1).kind === "UpperName") {
+        this.#advance();
+        qualifier = parsedName(token);
+        head = this.#advance() as Lexed.NameToken;
+      }
+      const name = parsedName(head);
       const args: Parsed.Pattern[] = [];
-      let end = token.span;
+      let end = head.span;
       if (this.#at("LeftParen")) {
         this.#advance();
         while (!this.#at("RightParen") && !this.#at("Eof")) {
@@ -1794,6 +1807,7 @@ class Parser {
       }
       return {
         kind: "Constructor",
+        ...(qualifier === undefined ? {} : { qualifier }),
         name,
         arguments: args,
         span: spanFrom(token.span, end),
