@@ -1470,23 +1470,50 @@ class Resolver {
       if (!frame.later.has(later.name.text)) frame.later.set(later.name.text, later);
     };
     // Modules §5.4's reservation, claimed by the forms that may take a prelude
-    // name over: the four sequential binders (Statements §5.1's exemption) and a
-    // constraint's members, which bind at module level the way a `let` does. A
+    // name over: the four sequential binders (Statements §5.1's exemption), a
+    // constraint's members, which bind at module level the way a `let` does, and
+    // an import's locals, which §5.4 lists beside them. A
     // name one of the module's *own* layers already binds is a rule-1 collision
     // rather than an occlusion, and reserves nothing — the lookup below is what
     // tells the two apart, and it runs before any item of this block is walked,
     // so the block's own later declarations cannot answer it.
-    const reserve = (name: Parsed.Name): void => {
-      if (scope.lookupOwner(name.text) === this.#preludeScope) frame.reserved.add(name.text);
+    const reserve = (name: string): void => {
+      if (scope.lookupOwner(name) === this.#preludeScope) frame.reserved.add(name);
     };
     for (const item of items) {
       if (item.kind === "Fun" || item.kind === "Let" || item.kind === "Var") {
         declare({ name: item.name, fun: item.kind === "Fun" });
-        reserve(item.name);
+        reserve(item.name.text);
       } else if (item.kind === "LetPattern") {
         for (const name of Parsed.patternNames(item.pattern)) {
           declare({ name, fun: false });
-          reserve(name);
+          reserve(name.text);
+        }
+      } else if (item.kind === "Import") {
+        // §5.4 names the import among the occluders, and the reservation is
+        // stated over all of them alike: an imported local takes the prelude's
+        // binding over module-wide, so a reference above the import line
+        // resolves as if the prelude did not bind the name. Nothing is
+        // `declare`d beside it — an import is not a declaration the walk
+        // reaches, so what the reference gets is the unknown-name error an
+        // import's local already gets above its line, prelude or no prelude.
+        //
+        // What the exporting module actually exports is the test, not what the
+        // import line asks for: an import that binds nothing occludes nothing,
+        // and reserving there would turn one reported error — a missing export,
+        // a member imported severally (§3.1) — into a second one at every use
+        // below it.
+        if (item.form.kind === "Named") {
+          const exporter = this.#imports.get(item.specifier);
+          for (const name of item.form.names) {
+            if (exporter?.terms.has(name.imported.text) === true) reserve(name.local.text);
+            // A constraint arrives with its members (§3.1), which bind in the
+            // term namespace exactly as an imported function does — and are not
+            // importable severally, so the constraint's own name is the only
+            // spelling here that names them.
+            const imported = exporter?.constraints.get(name.imported.text);
+            for (const member of imported?.members ?? []) reserve(member.binding.name);
+          }
         }
       } else {
         // The term names a type-namespace declaration binds. Their references
@@ -1494,7 +1521,7 @@ class Resolver {
         // themselves, and every type-position mention of them, stay order-free.
         for (const { name, owner } of termNamesBound(item)) {
           declare({ name, fun: false, owner });
-          if (owner === "constraint") reserve(name);
+          if (owner === "constraint") reserve(name.text);
         }
       }
     }

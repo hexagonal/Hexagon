@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
-import { projectDiagnostics, runMain } from "../support/test-project.js";
+import { compileFiles, projectDiagnostics, runMain, runProject } from "../support/test-project.js";
 
 /**
  * Conformance for the prelude occlusion rule (Modules §5.4;
@@ -57,7 +57,22 @@ function diagnostics(entry: string, result: string = RESULT_WITH_VALUE[1]): read
 /**
  * The control comparison: the same program written at a prelude name and at a
  * name nothing binds must produce the same diagnostics, name for name.
- *
+ */
+function sameAsControl(
+  atPrelude: readonly string[],
+  atFresh: readonly string[],
+  preludeNames: readonly string[],
+  freshNames: readonly string[],
+): void {
+  expect(atPrelude).toEqual(atFresh.map((message) =>
+    freshNames.reduce(
+      (text, fresh, index) => text.replaceAll(fresh, preludeNames[index]!),
+      message,
+    )
+  ));
+}
+
+/**
  * `at` receives the names to use — the prelude's on one call, fresh ones on the
  * other — so the two sources differ in nothing else.
  */
@@ -66,15 +81,29 @@ function matchesControl(
   preludeNames: readonly string[],
   freshNames: readonly string[],
 ): void {
-  const control = projectDiagnostics(at(...freshNames));
-  const renamed = control.map((message) =>
-    freshNames.reduce(
-      (text, fresh, index) => text.replaceAll(fresh, preludeNames[index]!),
-      message,
-    )
+  sameAsControl(
+    projectDiagnostics(at(...preludeNames)),
+    projectDiagnostics(at(...freshNames)),
+    preludeNames,
+    freshNames,
   );
+}
 
-  expect(projectDiagnostics(at(...preludeNames))).toEqual(renamed);
+/** The same, where the shape needs a second module — an import's exporter. */
+function matchesProjectControl(
+  at: (...names: readonly string[]) => readonly (readonly [string, string])[],
+  preludeNames: readonly string[],
+  freshNames: readonly string[],
+): void {
+  const messages = (files: readonly (readonly [string, string])[]): readonly string[] =>
+    compileFiles(files).diagnostics.map(({ message }) => message);
+
+  sameAsControl(
+    messages(at(...preludeNames)),
+    messages(at(...freshNames)),
+    preludeNames,
+    freshNames,
+  );
 }
 
 describe("a module-level binder may occlude a prelude value", () => {
@@ -408,6 +437,68 @@ describe("module-wide is enforced the same way (§5.4's reservation, defect 2)",
         "export let r: String = early(7)\n",
       ["show"],
       ["zephyr"],
+    );
+  });
+});
+
+describe("an import occludes and reserves too (§5.4's \"or import\")", () => {
+  // An explicit import enters the *same* layer as a local binding, so it takes a
+  // prelude name over module-wide and reserves it exactly as a `let` would. The
+  // control here is the shape at a name the prelude does not bind: a term
+  // reference above an import line is an unknown name today, and that — not the
+  // prelude's meaning — is what the prelude name must get too. (Whether §3's
+  // placement freedom ought to make the control legal is a separate question
+  // about imports, and this pin follows the control wherever it goes.)
+
+  test("a use above an occluding import reads as the control does", () => {
+    // Before this, the shape compiled with zero diagnostics and two meanings:
+    // `early` was the prelude's "1", `late` the import's "custom".
+    matchesProjectControl(
+      (name) => [
+        ["/lib.hex", `export fun ${name}(x: Int): String = "custom"\n`],
+        ["/main.hex",
+          `export let early: String = ${name}(1)\n` +
+          `import { ${name} } from "./lib"\n` +
+          `export let late: String = ${name}(2)\n`],
+      ],
+      ["show"],
+      ["zork"],
+    );
+    expect(compileFiles([
+      ["/lib.hex", "export fun show(x: Int): String = \"custom\"\n"],
+      ["/main.hex",
+        "export let early: String = show(1)\n" +
+        "import { show } from \"./lib\"\n" +
+        "export let late: String = show(2)\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual(["unknown name `show`"]);
+  });
+
+  test("below the import the local meaning stands, and it is the import's", async () => {
+    const exports = await runProject([
+      ["/lib.hex", "export fun show(x: Int): String = \"imported ${x}\"\n"],
+      ["/main.hex",
+        "import { show } from \"./lib\"\n" +
+        "export let late: String = show(2)\n"],
+    ]);
+
+    expect(exports.late).toBe("imported 2");
+  });
+
+  test("a constraint's members arrive with it and reserve the same way", () => {
+    // Modules §3.1: members are not importable severally, so the constraint's
+    // name is the only spelling at the import line — and every member it brings
+    // occludes, the pattern's author never having written those names either.
+    matchesProjectControl(
+      (name) => [
+        ["/lib.hex",
+          "export constraint Labelled<a> =\n" +
+          `    ${name}(subject: a): String\n`],
+        ["/main.hex",
+          `export let early: String = ${name}(1)\n` +
+          "import { Labelled } from \"./lib\"\n"],
+      ],
+      ["show"],
+      ["zork"],
     );
   });
 });
