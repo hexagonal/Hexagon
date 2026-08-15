@@ -7359,7 +7359,11 @@ class Checker {
     // id order, so their own ids come out in the same order (#447). A scheme
     // variable's id *is* FFI Part 9 §6.2's type-variable ordinal — binders mint
     // in declared-head order, and `dictionaryEntries` reads the ordinal back by
-    // sorting on the number — while `scheme.variables` is in the order
+    // sorting on the number. (Where no binder names a constrained variable it
+    // mints at first use instead; Part 9 §6.2.1 leaves that placement to us,
+    // since such a function is refused export and its suffix is unobservable.
+    // Preserving the id order is what keeps both ends of its calls agreeing.)
+    // Meanwhile `scheme.variables` is in the order
     // generalization met the variables in the *type*, which is a different
     // sequence the moment a head is spelled `<b, a>` over `(x: a, y: b)`.
     // Minting in array order renumbers that head as if it were `<a, b>`, and

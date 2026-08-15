@@ -279,6 +279,52 @@ describe("variables follow the declared ordinal, not the type's occurrence order
   });
 });
 
+describe("a first-use constrained variable takes no specified position", () => {
+  /**
+   * FFI Part 9 §6.2.1. The ordinal is a position in the *declared* list, and
+   * Functions §4.2.1 makes a second introduction form canonical, so a private
+   * function can carry a constrained variable that no declared list names —
+   * here `a`, whose `Show` comes from `show(x)` and from nowhere else.
+   *
+   * What is pinned is what the spec promises: the two ends agree, so the call
+   * answers. Where `a`'s dictionary sits in the suffix is deliberately **not**
+   * pinned — §6.2.1 leaves it to the implementation, and a pin here would make
+   * an unobservable mint order into a conformance obligation. The reason it is
+   * unobservable is the export refusal below: writing the binder that makes
+   * this function exportable is the same act that gives `a` an ordinal.
+   */
+  const HALF = "let mix<b: Show>(x: a, y: b): String = show(x) ++ show(y)\n";
+
+  test("the half-declared function answers", async () => {
+    const exports = await runProject(
+      [["/main.hex", HALF + "export let out: String = mix(2, True)\n"]],
+      { transform: distinct("evidence suffix order: mix declares b only") },
+    );
+
+    expect(exports["out"]).toBe("2True");
+  });
+
+  test("both arguments reach the member they belong to", async () => {
+    const exports = await runProject(
+      [["/main.hex", HALF + "export let out: String = mix(True, 2)\n"]],
+      { transform: distinct("evidence suffix order: mix declares b only, swapped") },
+    );
+
+    expect(exports["out"]).toBe("True2");
+  });
+
+  test("exporting it is refused, which is why the position is unobservable", () => {
+    const project = compileFiles([[
+      "/main.hex",
+      "export " + HALF,
+    ]]);
+
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([
+      "exported function `mix` must declare every constraint in its signature; write `<a: Show>`",
+    ]);
+  });
+});
+
 describe("the ordinal survives every copy of the scheme", () => {
   /**
    * `let alias = twice` emits as the **bare name** (Constraints §6.1), so the

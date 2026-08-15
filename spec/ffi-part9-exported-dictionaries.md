@@ -228,6 +228,18 @@ export declare function inspect<a, b>(
 
 Suffix **positions** are the ABI; the `.d.ts` parameter names (`eqA`, `showA`, …) are representative documentation, generated as lowercase-constraint + variable for readability, and carry no contract.
 
+#### 6.2.1 The ordinal's extent
+
+The ordinal is a position in the **declared** type-parameter list, so it is defined exactly where such a list exists. Functions §4.2.1 makes a second introduction form canonical — a type variable is introduced by its first appearance in a parameter or return annotation — and a private function may mix the two:
+
+```hexagon
+let mix<b: Show>(x: a, y: b): String = show(x) ++ show(y)
+```
+
+`a` takes an evidence slot, its `Show` demanded by `show(x)` and discharged by nothing, while appearing in no declared list. It has no declared position and can have none: Modules §4.1.1 refuses to export a function that leaves a constraint undeclared, and writing the binder that makes the function exportable is the same act that gives its variables ordinals. Such a variable therefore takes no **public** position. Its evidence is internal, where it sits within the suffix is the implementation's, and no conforming program can observe it — this section's ABI is unaffected, because every constrained variable in an exported scheme is declared. A variable introduced by first use and left *unconstrained* raises no question at all: it takes no evidence and so needs no ordinal.
+
+Unspecified is not unstable. An implementation still places the whole suffix deterministically, so that a callee's parameters and every call's arguments read one order; that agreement is a correctness obligation, and only the choice among orders is free.
+
 ---
 
 ## 7. Base constraints and duplicate elimination
@@ -349,7 +361,7 @@ Public dictionaries from separately compiled Hexagon packages interoperate **onl
 | Public handles force dictionary materialization: module-level constants, stable ESM identity, frozen where practical | §3.4 |
 | Parameterized evidence is a real companion factory (`Vector.show(Show.string)`); argument order = instance-head parameter order (ABI); memoization licensed by coherence, identity of results unpromised | §4 |
 | Public-evidence closure: nameability (4 conditions), never consumption; generated, never written (`export honor` stays illegal); feeds Part 8 §4.1's "publicly obtainable" | §5 |
-| Two-ended elaboration doctrine; suffix ordered by (type-variable ordinal, constraint name); positions are ABI, parameter names representative | §6 |
+| Two-ended elaboration doctrine; suffix ordered by (type-variable ordinal, constraint name); positions are ABI, parameter names representative; the ordinal reaches exactly the declared variables, and a first-use constrained variable — never exportable — takes no public position | §6, §6.2.1 |
 | Base constraint evidence nested (Constraints §6.2); callers pass the most specific dictionary; **suffix contains maximal constraints only**, eliminated before ordering, same rule internally and publicly (confirmed at review) | §7, §13.2 |
 | Part 8 relationship by reference: Algorithm G trigger, base-name reservation, additive/breaking ABI events; specializations are not wrappers; handles independent of specializations | §8 |
 | **Direct export of the internal trailing-evidence function when conventions match; stable wrapper only for ABI plumbing** (Part 7 correction preserved); wrapper discipline unchanged where one exists | §9 |
