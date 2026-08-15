@@ -309,6 +309,47 @@ describe("resolve", () => {
     expect(patternHead.diagnostics).toEqual([]);
   });
 
+  test("a block-level fun may not rebind an outer name", () => {
+    // #456: the fun-group predeclare checked with a same-block-only lookup,
+    // so a nested block's `fun` could rebind any outer name — parameters
+    // included — while `let`/`var` were refused. Now layered exactly like
+    // `let`: module-level occlusion stays legal (prelude-occlusion
+    // conformance pins it), block-level walks all the way out.
+    const nested = resolveSource(
+      "let f() =\n" +
+        "    let x = 1\n" +
+        "    let g() =\n" +
+        "        fun x() = 2\n" +
+        "        3\n" +
+        "    g() + x",
+    );
+    expect(nested.diagnostics.map(({ message }) => message)).toEqual([
+      "`x` is already bound (line 2); Hexagon does not allow rebinding — " +
+        "choose a different name.",
+    ]);
+
+    const parameter = resolveSource(
+      "let f(x: Int) =\n    fun x() = 2\n    3",
+    );
+    expect(parameter.diagnostics.map(({ message }) => message)).toEqual([
+      "`x` is already bound (line 1); Hexagon does not allow rebinding — " +
+        "choose a different name.",
+    ]);
+
+    const varOuter = resolveSource(
+      "let f() =\n" +
+        "    var x = 1\n" +
+        "    let g() =\n" +
+        "        fun x() = 2\n" +
+        "        3\n" +
+        "    g()",
+    );
+    expect(varOuter.diagnostics.map(({ message }) => message)).toEqual([
+      "`x` is already bound (line 2); Hexagon does not allow rebinding — " +
+        "choose a different name.",
+    ]);
+  });
+
   test("diagnoses self-reference because let is non-recursive", () => {
     const module = resolveSource("let loop = x => loop(x)");
 

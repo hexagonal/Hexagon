@@ -1765,3 +1765,37 @@ than settling a style question.
   question, and the circular error-kind justification — and independently
   reproduced every claim of fact the draft made, which is the only reason the
   rest of it stands.
+
+## 2026-08-15 — block-level `fun` rebinding checks were same-block only (#456)
+
+- **Classification:** compiler defect against specification; no design change.
+- **Authority:** Statements §5.1 rule 1 — a sequential binder may not reuse any
+  name in scope, at any nesting depth — with `fun` names named sequential
+  binders explicitly (§5's classification and the doctrine bullet). Modules
+  §5.4 supplies the one layering: module-level binders may occlude a prelude
+  name; function-local binders occlude nothing.
+- **Defect origin:** the fun-group predeclare in the resolver checked rebinding
+  with `lookupLocal` — the current scope's own map only. That got module-level
+  occlusion right by accident and silently licensed every block-level shape the
+  rule bans: a nested block's `fun` rebinding an outer `let`, an outer `var`,
+  or the enclosing lambda's own parameter, all compiling clean while the same
+  claimant spelled `let` or `var` was refused. The legality of a rebinding
+  turned on the claimant's keyword — the same inconsistency shape #455 removed
+  for pending names.
+- **Correction:** the predeclare's lookup takes the layered form the `Let` case
+  already uses — `lookupLocal` when the scope *is* the module scope, full
+  `lookup` otherwise. Scope identity, not depth (the PR #89 finding F1 lesson,
+  recorded at the `Let` site). The pending-name arbitration (#455) composes
+  unchanged: with the full lookup, a `fun` claimant inside an occluding
+  module-level binding's RHS now finds the prelude symbol and correctly hands
+  it to the pending diagnostic rather than rule 1.
+- **Executable conformance:** resolver tests pin the three banned shapes
+  (nested-block `fun` vs outer `let`, vs outer `var`, vs the enclosing
+  parameter); the prelude-occlusion conformance suite already pins that
+  module-level `fun` occlusion survives; `conformance/pending-binder.test.ts`
+  pins the `fun`/`let` diagnostic parity inside an occluding binding's RHS.
+  No stdlib source declares a block-level `fun`, so the full-suite run is the
+  no-regression guard.
+- **Credit:** found by a cold Opus review round on #455 — its fun-site probes
+  established the gap and that it predated the branch under review; James
+  ordered the fix in-session.

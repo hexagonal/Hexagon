@@ -1477,7 +1477,17 @@ class Resolver {
         for (let scan = index; scan < items.length; scan += 1) {
           const member = items[scan];
           if (member?.kind !== "Fun") break;
-          const existing = scope.lookupLocal(member.name.text);
+          // Rule 1, layered by Modules §5.4 exactly as the `Let` case below:
+          // a module-level `fun` may occlude a prelude name, so the lookup
+          // stops at the module's own layer there; in any block the ban is
+          // absolute and layer-blind, so it walks all the way out. This was
+          // `lookupLocal` unconditionally, which got module-level occlusion
+          // right and silently licensed a block-level `fun` to rebind any
+          // outer name — parameters included (#456; the conformance defect
+          // log carries the record).
+          const existing = scope === this.#moduleScope
+            ? scope.lookupLocal(member.name.text)
+            : scope.lookup(member.name.text);
           const pendingHit = this.#reportPendingRebinding(member.name, existing, scope);
           if (!pendingHit && existing !== undefined) {
             this.#reportRebinding(member.name, existing);
