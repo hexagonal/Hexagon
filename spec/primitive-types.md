@@ -87,7 +87,9 @@ type name from a type variable and enables implicit generalisation without `fora
 
 **Semantics:** IEEE 754 binary64, i.e. exactly a JS `number`, warts included.
 
-**Value space includes `NaN`, `Infinity`, `-Infinity`, `-0`.** There is **no literal syntax** for the special values; the stdlib **owes** named constants `Float.nan`, `Float.infinity` (and negation covers the rest) — a stdlib-listing item not yet shipped: `stdlib/Float.hex` landed with the ruled minimal surface (instances plus `mod`/`rem`, #344), and the constants join it at the listing's discretion. *(Implementers: a lexer diagnostic already points at `Float.infinity`; until the constant ships, that hint names a spelling that does not resolve.)* Comparison/equality semantics around `NaN` and `-0` are specified in the constraint (Eq/Ord) spec, not here.
+**Value space includes `NaN`, `Infinity`, `-Infinity`, `-0`.** There is **no literal syntax** for the special values; `stdlib/Float.hex` names them instead — `Float.nan` and `Float.infinity`, with negation reaching the third (`-Float.infinity`), which is the spelling the lexer's overflow fix-it points at (Lexer §5, §10). Neither constant needs an intrinsic door: a float division is exact about these answers, so they are ordinary source.
+
+Detection is named too, because it cannot be spelled by hand: `Float.isNan` and `Float.isFinite`. The imported idiom `x != x` is **uniformly `False`** here — `Eq<Float>` is SameValueZero, so a `NaN` equals itself (a deliberate choice, so that a float can key a hash table) — and with every partial float operation answering `NaN` rather than throwing, a caller would otherwise hold a value with no test for it. The same equality that retires the idiom implements the replacement: `Float.isNan(x)` is `x == Float.nan`. Comparison/equality semantics around `NaN` and `-0` are specified in the constraint (Eq/Ord) spec, not here.
 
 **Literals:** monomorphic, always `Float` — a literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Decimal literals do **not** participate in the polymorphic literal scheme in v1 (deferred; the blocker is that `Rat`'s exact-binary `fromFloat` is not what a user writing `0.1` means — see Numeric Literals spec §7).
 
@@ -263,7 +265,7 @@ Unchanged and still worth its ink here: **`Unit`'s `undefined` must not be confu
 | String length/indexing: codepoints, 1-based, O(n) accepted; graphemes maybe-later | this doc §5.1 |
 | `_` separators: JS rule, all numeric literals; decimal-only bases in v1 | this doc §8 |
 | `Unit` = `()` = JS `undefined` | this doc §9 |
-| `Float.nan` / `Float.infinity` constants; no special-value literals | this doc §3 |
+| `Float.nan` / `Float.infinity` constants and `Float.isNan` / `Float.isFinite` detectors; no special-value literals; `x != x` is uniformly `False` | this doc §3 |
 | Int overflow: silent past ±2^53, plain-JS operators; checked stdlib variants; `--checked-int` reserved; int32/`\|0` rejected | this doc §2.1 |
 | `Ord String` = codepoint lexicographic, permanent regardless of grapheme indexing; collation is stdlib, never Ord | this doc §5 |
 | Types uppercase-start; type variables non-uppercase-start (`a b c` by convention) | this doc §1; Lexer §3 |

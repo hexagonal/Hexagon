@@ -612,3 +612,80 @@ describe("the companion's own emitted shape", () => {
     expect(text).not.toContain("NegativeExponentError");
   });
 });
+
+describe("the special values and their detectors (#358)", () => {
+  /**
+   * Primitive Types §3 owed four names, and the lexer's overflow fix-it had
+   * been naming one of them since before it existed. None needs a door: the
+   * two constants are exact float divisions, and the two predicates are
+   * ordinary Hexagon over `Eq<Float>`.
+   *
+   * `isNan` is the one worth reading twice. The imported detector `x != x` is
+   * uniformly `False` in Hexagon because `Eq<Float>` is SameValueZero, so NaN
+   * detection had no spelling at all while `Float.hex`'s own doctrine — float
+   * partiality is `NaN` rather than a throw — kept handing callers values they
+   * could not test. The same equality that killed the idiom supplies the fix:
+   * `value == Float.nan` is true of exactly the NaNs.
+   *
+   * Executed rather than asserted on shape, per this file's rule: a constant
+   * that quietly emitted `0` would satisfy every spelling assertion here.
+   */
+  test("the constants are the IEEE specials, and negation reaches the third", async () => {
+    const exports = await runMain(
+      'export let out: String = show(Float.infinity) ++ " " ++ show(-Float.infinity)\n' +
+        '    ++ " " ++ show(Float.nan)\n',
+    );
+
+    expect(exports["out"]).toBe("Infinity -Infinity NaN");
+  });
+
+  test("`isNan` answers where `x != x` cannot", async () => {
+    const exports = await runMain(
+      "export let out: String =\n" +
+        "    show(Float.isNan(Float.nan)) ++ show(Float.isNan(0.0 / 0.0))\n" +
+        "      ++ show(Float.isNan(1.0)) ++ show(Float.isNan(Float.infinity))\n",
+    );
+
+    expect(exports["out"]).toBe("TrueTrueFalseFalse");
+  });
+
+  /** The dead idiom, pinned dead, so its absence stays a decision. */
+  test("`x != x` is uniformly `False`, NaN included", async () => {
+    const exports = await runMain(
+      "let selfDiffers(value: Float): Bool = value != value\n" +
+        "export let out: String =\n" +
+        "    show(selfDiffers(Float.nan)) ++ show(selfDiffers(1.0))\n",
+    );
+
+    expect(exports["out"]).toBe("FalseFalse");
+  });
+
+  test("`isFinite` excludes both infinities and NaN, and admits both zeroes", async () => {
+    const exports = await runMain(
+      "export let out: String =\n" +
+        "    show(Float.isFinite(1.0)) ++ show(Float.isFinite(0.0))\n" +
+        "      ++ show(Float.isFinite(-0.0)) ++ show(Float.isFinite(Float.infinity))\n" +
+        "      ++ show(Float.isFinite(-Float.infinity)) ++ show(Float.isFinite(Float.nan))\n",
+    );
+
+    expect(exports["out"]).toBe("TrueTrueTrueFalseFalseFalse");
+  });
+
+  /** Modules §5.5: one exporter, so the bare spellings resolve too. */
+  test("the four names are bare in prelude scope as well as qualified", async () => {
+    const exports = await runMain(
+      "export let out: String =\n" +
+        "    show(infinity) ++ show(isNan(nan)) ++ show(isFinite(2.5))\n",
+    );
+
+    expect(exports["out"]).toBe("InfinityTrueTrue");
+  });
+
+  /** The hint the lexer has always given now names something that resolves. */
+  test("the overflow fix-it's spelling compiles", () => {
+    // The bad literal also derails the parse, so only the fix-it is asserted.
+    expect(projectDiagnostics("export let big: Float = 1e400\n"))
+      .toContain("Float literal is too large; use `Float.infinity`");
+    expect(projectDiagnostics("export let big: Float = Float.infinity\n")).toEqual([]);
+  });
+});

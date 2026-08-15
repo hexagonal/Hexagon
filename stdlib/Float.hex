@@ -108,3 +108,24 @@ export let mod(left: Float, right: Float): Float =
         remainder + (if right < 0.0 then -right else right)
     else
         remainder
+
+(** Positive infinity — what every overflow saturates to, and what a positive
+    float divided by zero answers. There is no literal for it, so this is the
+    spelling: negate it for the other one, `-Float.infinity`. *)
+export let infinity: Float = 1.0 / 0.0
+
+(** The not-a-number float — the answer every partial float operation gives in
+    place of throwing, since nothing in this module guards. Test for it with
+    `Float.isNan` and never with `x != x`: `Eq<Float>` is SameValueZero, so a
+    `NaN` here equals itself and the C idiom is uniformly `False`. *)
+export let nan: Float = 0.0 / 0.0
+
+(** Whether `value` is the not-a-number float. This is `value == Float.nan`,
+    which works for exactly the reason the imported `x != x` idiom does not:
+    `Eq<Float>` is SameValueZero, so `NaN` compares equal to itself. *)
+export let isNan(value: Float): Bool = value == nan
+
+(** Whether `value` is an ordinary float — neither infinite nor `NaN`. Both
+    zeroes and every subnormal are finite. *)
+export let isFinite(value: Float): Bool =
+    value != infinity and value != -infinity and not isNan(value)
