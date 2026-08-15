@@ -240,14 +240,107 @@ export interface JavaScriptEmissionOptions {
    * specifiers; a basename with no entry takes the same-directory default.
    */
   readonly runtimes?: RuntimeLocations;
+  /**
+   * The local each routed member seat binds under, by `memberSeatKey` — the
+   * answer to Dictionary Sharing §8's seat-binding rule, which only a finished
+   * rendering can give (#444). Absent on the discovery pass; see
+   * `emitJavaScript`.
+   */
+  readonly memberSeatLocals?: ReadonlyMap<string, string>;
 }
 
+/**
+ * Which routed member seats earn the member's **source** spelling is a fact
+ * about the whole finished module, so emission runs twice when — and only when
+ * — one of them does.
+ *
+ * Dictionary Sharing §8: a consumer binds an imported seat under the member's
+ * source spelling where that spelling is uncontested in the consumer, and the
+ * two decisive contests are legible nowhere earlier. Whether the member's
+ * *forwarder* is bound here is whether any surviving reference named it, which
+ * `#referencedSymbols` answers only once every body is rendered; and whether
+ * two seats want one member spelling is a property of the whole set of routed
+ * calls, so the first one cannot be given the spelling on the promise that no
+ * second appears. The name has to be in the body text as it is written, so the
+ * body is written twice rather than patched.
+ *
+ * The discovery pass is a complete, correct emission — every seat under its
+ * generated spelling — so a module where no seat earns the source spelling
+ * pays nothing, and the pass that runs second is the one whose output ships.
+ * Rendering is a pure function of the module and these options, so the second
+ * pass repeats the first's routing decisions exactly; the only names it claims
+ * that the first did not are the source spellings themselves, which no
+ * generated name can contest (every one of those carries Lexer §3.2's reserved
+ * prefix, and a member's source spelling cannot).
+ */
 export function emitJavaScript(
   module: Core.Module,
   options: JavaScriptEmissionOptions = {},
 ): Emitted.JavaScript {
-  return new JavaScriptEmitter(module, options).emit();
+  const discovery = new JavaScriptEmitter(module, options);
+  const emitted = discovery.emit();
+  const memberSeatLocals = discovery.memberSeatSpellings();
+  if (memberSeatLocals === undefined) return emitted;
+  return new JavaScriptEmitter(module, { ...options, memberSeatLocals }).emit();
 }
+
+/** One routed seat's identity across the two passes: the module it lives in, and its name there. */
+function memberSeatKey(specifier: string, seat: string): string {
+  return `${specifier} ${seat}`;
+}
+
+/**
+ * Every name a module's items bind at module level in the emitted JavaScript
+ * (#444) — the eagerly legible part of Dictionary Sharing §8's contest set.
+ *
+ * Deliberately over-approximate on one axis and exact on the other: an
+ * *explicit* import's locals are counted whether or not the body names them,
+ * because the source asked for those and the line is emitted either way, while
+ * a synthesized prelude import's are left out here and added by
+ * `memberSeatSpellings` from what rendering actually referenced. Generated
+ * names are out of scope by construction — Lexer §3.2's reserved prefix is on
+ * every one of them and can be on no member's source spelling.
+ */
+function moduleLevelBindings(module: Core.Module): readonly string[] {
+  const identifier = (binding: Core.Binding | Core.Constructor): string =>
+    isSafeIdentifier(binding.name) ? binding.name : `__binding${Number(binding.symbol)}`;
+  return module.items.flatMap((item): readonly string[] => {
+    switch (item.kind) {
+      case "Let":
+      case "Fun":
+      case "Var":
+        return [identifier(item.binding)];
+      case "LetPattern":
+        return patternBindings(item.pattern).map(identifier);
+      case "Union":
+        return item.constructors.map(identifier);
+      case "RecordDeclaration":
+        return [identifier(item.constructor)];
+      case "Exception":
+        return [identifier(item.binding)];
+      case "ConstraintDeclaration":
+        // The forwarders, and the §6.5 helper each defaulted member hoists.
+        return item.members.flatMap((member) => [
+          identifier(member.binding),
+          ...(member.defaultValue === undefined
+            ? []
+            : [defaultHelperName(member.binding.name)]),
+        ]);
+      case "ExternBlock":
+        return item.declarations.flatMap((declaration) =>
+          declaration.kind === "ExternType" ? [] : [declaration.localName]
+        );
+      case "Import":
+        if (item.synthesized || item.form.kind === "Effect") return [];
+        return item.form.kind === "Namespace"
+          ? [item.form.alias]
+          : item.form.names.map(({ local }) => local);
+      default:
+        return [];
+    }
+  });
+}
+
 
 export interface DeclarationEmissionOptions {
   /**
@@ -322,6 +415,19 @@ type DerivedSlot = {
     readonly body: string;
   };
 };
+
+/**
+ * One member of a **declared** instance's completed set (Constraints §2), and
+ * the lambda that implements it (#444).
+ *
+ * Named rather than pre-joined into `name: value` because the implementation is
+ * now the initializer of the instance's member seat (§6.1) as often as it is a
+ * slot's value, and the two spellings must come from one rendering.
+ */
+interface MemberImplementation {
+  readonly name: string;
+  readonly rendered: string;
+}
 
 /** A dictionary slot holding an arrow this emitter wrote. */
 function derivedArrow(
@@ -1330,6 +1436,51 @@ class JavaScriptEmitter {
    * source actually named, and so two aliases over one module bind once.
    */
   readonly #usedSpecializations = new Map<Core.ImportItem, Map<string, string>>();
+  /**
+   * Where a concrete member call reaches each ground instance's seats
+   * (Constraints §6.1, #444), keyed by the **local** dictionary name — which is
+   * what `Core.InstanceEvidence` carries, so the classifier reads the checker's
+   * own selection rather than re-deciding it.
+   *
+   * `specifier` is absent for this module's own instances, whose seats are
+   * module-level `const`s already in scope, and present for every arriving one,
+   * where it names the module that *declares* the instance rather than the one
+   * the dictionary was imported through — a diamond of re-exports settles the
+   * dictionary on the first specifier in source order, and a transit module
+   * re-exports the record, not its seats.
+   */
+  readonly #instanceSeats = new Map<
+    string,
+    {
+      readonly seats: ReadonlyMap<string, string>;
+      readonly specifier?: string;
+    }
+  >();
+  /**
+   * The member seats this module *calls* in another module, and the local each
+   * is bound under — the import lines of #444, decided by rendering like every
+   * other post-rendering import channel. Keyed by specifier rather than by
+   * import item, because the declaring module may have no import item here at
+   * all: a prelude companion has none by construction, and a transitively
+   * reached instance's declaring module has none by definition.
+   */
+  readonly #usedMemberSeats = new Map<
+    string,
+    Map<string, { readonly member: string; readonly local: string }>
+  >();
+  /** This pass's answer to §8's seat-binding rule, or empty on the discovery pass. */
+  readonly #memberSeatLocals: ReadonlyMap<string, string>;
+  /**
+   * Every name this module binds at **module level** in the emitted JavaScript,
+   * as far as its items settle it (#444).
+   *
+   * The contest set §8's seat-binding rule reads, minus the two entries only a
+   * finished rendering can supply — a surviving forwarder import and a second
+   * routed seat — which `memberSeatSpellings` adds. Generated names are absent
+   * and need not be here: every one carries Lexer §3.2's reserved prefix, and a
+   * constraint member's source spelling never can.
+   */
+  readonly #moduleBindings = new Set<string>();
   readonly #generatedBodies: {
     readonly specialization: FundamentalSpecialization;
     readonly text: string;
@@ -1397,7 +1548,10 @@ class JavaScriptEmitter {
       ...this.#defaultHelpers,
       ...module.items.flatMap((item) =>
         item.kind === "Honor"
-          ? [item.dictionary]
+          // The member seats ride with their dictionary (§6.1): they are
+          // module-level `const`s the resolver already named, so the mint has
+          // to dodge them for the same reason and by the same route.
+          ? [item.dictionary, ...item.memberSeats.map(({ seat }) => seat)]
           : item.kind === "Import"
           ? item.instances.map(({ localDictionary }) => localDictionary)
           : []
@@ -1409,6 +1563,34 @@ class JavaScriptEmitter {
       for (const { localDictionary } of item.instances) {
         this.#importedInstanceLocals.add(localDictionary);
       }
+    }
+    this.#memberSeatLocals = options.memberSeatLocals ?? new Map();
+    for (const name of moduleLevelBindings(module)) this.#moduleBindings.add(name);
+    // The seat inventory, from the three channels an instance reaches a module
+    // by. This module's own is seated first and never overwritten: an entry
+    // arriving from outside for a dictionary declared here would be the same
+    // instance travelling back, and its seats are in scope already.
+    for (const item of module.items) {
+      if (item.kind !== "Honor" || item.memberSeats.length === 0) continue;
+      this.#instanceSeats.set(item.dictionary, {
+        seats: new Map(item.memberSeats.map(({ member, seat }) => [member, seat])),
+      });
+    }
+    for (
+      const instance of [
+        ...module.items.flatMap((item) => item.kind === "Import" ? item.instances : []),
+        ...module.preludeInstances,
+      ]
+    ) {
+      if (instance.memberSeats.length === 0) continue;
+      // No specifier is no route: the seats exist in the declaring module, and
+      // a call with no way to name that module keeps its forwarder.
+      if (instance.seatSpecifier === undefined) continue;
+      if (this.#instanceSeats.has(instance.localDictionary)) continue;
+      this.#instanceSeats.set(instance.localDictionary, {
+        seats: new Map(instance.memberSeats.map(({ member, seat }) => [member, seat])),
+        specifier: instance.seatSpecifier,
+      });
     }
     for (const item of module.items) {
       if (item.kind !== "Import" || item.form.kind === "Effect") continue;
@@ -1573,6 +1755,8 @@ class JavaScriptEmitter {
     body.push(...preludeTermImports.map(({ line }) => line));
     const specializationImports = this.#specializationImports();
     body.push(...specializationImports.flatMap(({ line }) => line === undefined ? [] : [line]));
+    const memberSeatImports = this.#memberSeatImports();
+    body.push(...memberSeatImports.map(({ line }) => line));
     const runtimeImports = this.#runtimeImports();
     body.push(...runtimeImports.map(({ line }) => line));
     body.push(...this.#constraintMemberImports());
@@ -1641,6 +1825,9 @@ class JavaScriptEmitter {
       ],
       specializationImports: [
         ...new Set(specializationImports.map(({ specifier }) => specifier)),
+      ],
+      memberSeatImports: [
+        ...new Set(memberSeatImports.map(({ specifier }) => specifier)),
       ],
       runtimeImports: runtimeImports.map(({ specifier }) => specifier),
       diagnostics: this.#diagnostics.toArray(),
@@ -2011,14 +2198,12 @@ class JavaScriptEmitter {
       const baseConstraints = baseEvidence.map(({ name, rendered }) =>
         objectProperty((name[0]?.toLowerCase() ?? "") + name.slice(1), rendered)
       );
-      const members = item.derived
+      const members: MemberImplementation[] = item.derived
         ? this.#derivedMembers(item, localEvidence)
-        : item.members.map((member) =>
-            objectProperty(
-              member.name,
-              this.#emitExpr(member.value, depth, localEvidence),
-            )
-          );
+        : item.members.map((member) => ({
+            name: member.name,
+            rendered: this.#emitExpr(member.value, depth, localEvidence),
+          }));
       // §6.5: a default inherited from an *exported* constraint is a reference
       // to the home module's helper, applied at call time. Deferring is not
       // cosmetic — `localDictionary` is the const currently being initialized,
@@ -2029,12 +2214,12 @@ class JavaScriptEmitter {
           { length: inherited.arity },
           (_, index) => `__arg${index}`,
         );
-        return objectProperty(
-          inherited.name,
-          `${arrowParameters(parameters_)} => ${
+        return {
+          name: inherited.name,
+          rendered: `${arrowParameters(parameters_)} => ${
             this.#defaultHelperLocal(inherited.member, inherited.name)
           }(${[localDictionary, ...parameters_].join(", ")})`,
-        );
+        };
       });
       const completedMembers =
         !item.derived && item.constraint === "Eq" &&
@@ -2042,15 +2227,58 @@ class JavaScriptEmitter {
           ? [
               ...members,
               ...inheritedDefaults,
-              `notEquals: (__left, __right) => !${localDictionary}.equals(__left, __right)`,
+              {
+                name: "notEquals",
+                rendered: `(__left, __right) => !${localDictionary}.equals(__left, __right)`,
+              },
             ]
           : [...members, ...inheritedDefaults];
-      const value = `{ ${[...baseConstraints, ...completedMembers].join(", ")} }`;
       if (this.#exportInstanceEvidence) {
         this.#exportEvidence(item.dictionary, item.exportedDictionary ?? item.dictionary);
       }
+      // Constraints §6.1: at a **ground** instance every member's implementation
+      // hoists to its own module-level binding — the instance's member seat —
+      // and the record's slots reference the seats by name. That is §4.6's law
+      // reaching emission: a member definition *is* a module-level binding, and
+      // now emits as one, which is what a concrete member call routes to.
+      //
+      // Default versus override never reaches this shape. The three ways a slot
+      // arrives — supplied, a §6.5 helper wrapper, the `Eq` completion above —
+      // are three renderings of one completed member set (§2), and each takes a
+      // seat on the same terms. A **parameterized** instance has none: its
+      // members close over the factory's evidence parameters, so `seats` is
+      // empty and the record carries its lambdas inline exactly as before.
+      const seats = parameters.length === 0 ? item.memberSeats : [];
+      const seatLines: string[] = [];
+      const seatedSlots: string[] = [];
+      const seated = new Set<string>();
+      for (const { member, seat, exportedSeat } of seats) {
+        const implementation = completedMembers.find(({ name }) => name === member);
+        if (implementation === undefined) continue;
+        seated.add(member);
+        // §6.3's rider: the seat is emitted before the record that references
+        // it, which costs nothing because a seat is a lambda and evaluates
+        // nothing — and the record's slot reads stay call-time either way.
+        seatLines.push(`${prefix}const ${seat} = ${implementation.rendered};`);
+        seatedSlots.push(objectProperty(member, seat));
+        // §8: the seats travel the declared-instance plumbing sweep under their
+        // generated spellings, so a consumer's concrete call can import them.
+        if (this.#exportInstanceEvidence) this.#exportEvidence(seat, exportedSeat ?? seat);
+      }
+      const slots = [
+        ...baseConstraints,
+        ...seatedSlots,
+        // A slot the seat list does not name is one the constraint declaration
+        // does not declare — an extra member, which the checker has already
+        // refused. It keeps its inline rendering so a diagnosed module still
+        // emits the record it emitted before.
+        ...completedMembers
+          .filter(({ name }) => !seated.has(name))
+          .map(({ name, rendered }) => objectProperty(name, rendered)),
+      ];
+      const value = `{ ${slots.join(", ")} }`;
       if (parameters.length === 0) {
-        return [`${prefix}const ${item.dictionary} = ${value};`];
+        return [...seatLines, `${prefix}const ${item.dictionary} = ${value};`];
       }
       return [
         `${prefix}const ${item.dictionary} = ${arrowParameters(parameters)} => {`,
@@ -3128,6 +3356,8 @@ class JavaScriptEmitter {
           return `(${node}).slice()`;
       }
     }
+    const member = this.#memberCall(expression, depth, evidenceNames);
+    if (member !== undefined) return member;
     const specialized = this.#specializedCallee(expression);
     const emittedCallee = specialized ??
       this.#emitExpr(expression.callee, depth, evidenceNames);
@@ -3149,6 +3379,226 @@ class JavaScriptEmitter {
       );
     }
     return `${callee}(${arguments_.join(", ")})`;
+  }
+
+  /**
+   * Constraints §6.1's three-arm concrete-call doctrine, or `undefined` where
+   * this call is not one (#444).
+   *
+   * A source-written member **call** — bare `show(x)`, qualified `Int.show(x)`,
+   * dot `x.show()`, and a pipe stage, which desugars to the bare call and rides
+   * with it — whose head resolves to a **concrete type** is a call to the
+   * instance's method, and it erases by what the instance is:
+   *
+   * - a **ground declared instance** is a direct call to the honoring module's
+   *   member seat, the forwarder hop and the evidence both gone — §4.6's law
+   *   made emission-true, since bare-in-module, qualified, and dispatch now
+   *   reach one binding;
+   * - a **parameterized declared instance at a ground head** has no
+   *   evidence-free binding to call — its members close over element evidence —
+   *   so the member is read off Dictionary Sharing §3.1's hoisted ground
+   *   application, `__Show_Option_Int.show(x)`;
+   * - a head whose ground demand is **compiler-built** — tuples, `Unit`,
+   *   `Bool` — reads the member off §3.4's hoisted structural dictionary, the
+   *   same shape again.
+   *
+   * The gate is what the *checker* selected, never syntax. Evidence that is not
+   * ground — a dictionary parameter anywhere in the tree — is a genuinely
+   * polymorphic call, which keeps the forwarder and its trailing evidence
+   * unchanged; so is a member reference that is not a callee, which the §6.1
+   * constrained-function-as-value bullet owns and `#emitConstrainedValue`
+   * renders. Elaboration-internal dispatch (interpolation, comparison
+   * fallbacks, `Hash`, iteration) never arrives here at all: it carries no
+   * `Call` node naming a member.
+   *
+   * The two slot-reading arms deliberately do not go through `#emitMemberCall`.
+   * That path is Dictionary Sharing §9.1's literal-member seat, which reduces a
+   * compiler-built literal it selects in place; this clause fixes the emitted
+   * shape as a read off the hoisted binding, and there is no literal at the
+   * site to reduce.
+   */
+  #memberCall(
+    expression: Core.CallExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string | undefined {
+    if (expression.callee.kind !== "Name") return undefined;
+    const symbol = this.#symbols.get(expression.callee.symbol);
+    if (symbol === undefined || symbol.kind !== "constraint-member") return undefined;
+    // A member's scheme carries exactly one constraint — v1 members introduce
+    // no type variables of their own (§2) — so a call site with any other
+    // arity is not one this clause describes.
+    if (expression.evidence.length !== 1) return undefined;
+    const { constraint, value: evidence } = expression.evidence[0]!;
+    if (evidence.kind === "Error" || !isGroundEvidence(evidence)) return undefined;
+    const arguments_ = expression.arguments.map((argument) =>
+      this.#emitExpr(argument, depth, evidenceNames)
+    );
+    const seat = this.#memberSeat(evidence, constraint, symbol.name);
+    if (seat !== undefined) return `${seat}(${arguments_.join(", ")})`;
+    const dictionary = this.#emitEvidence(
+      evidence,
+      constraint,
+      expression.span,
+      evidenceNames,
+    );
+    return `${dictionary}.${symbol.name}(${arguments_.join(", ")})`;
+  }
+
+  /**
+   * The seat this member call names, or `undefined` where the instance has none
+   * and the call reads a slot instead (#444).
+   *
+   * Only a **ground declared** instance has seats. A factory application is not
+   * one — its evidence carries arguments, and a member closing over them could
+   * not have hoisted — and neither is compiler-built structural evidence, whose
+   * dictionary no module declares. Both fall to the hoisted-binding arms.
+   *
+   * A `Primitive` leaf is the same declared instance under the tag elaboration
+   * stamps for a migrated companion (#344), so it resolves to that companion's
+   * dictionary first and asks the same question of it.
+   *
+   * Routing to a seat is a materialization demand on the instance — record and
+   * seats together — in the honoring module. This module's own instances are
+   * emitted unconditionally, which discharges it locally; across a boundary the
+   * declared-instance plumbing sweep (Dictionary Sharing §8) has already
+   * emitted and exported both.
+   */
+  #memberSeat(
+    evidence: Core.Evidence,
+    constraint: Typed.ConstraintName,
+    member: string,
+  ): string | undefined {
+    const dictionary = evidence.kind === "Primitive"
+      ? this.#sourceInstanceDictionary(constraint, evidence.instance)
+      : evidence.kind === "Instance" && evidence.arguments.length === 0
+      ? evidence.dictionary
+      : undefined;
+    if (dictionary === undefined) return undefined;
+    const instance = this.#instanceSeats.get(dictionary);
+    const seat = instance?.seats.get(member);
+    if (instance === undefined || seat === undefined) return undefined;
+    // A local instance's seat is a `const` in this module and is called by its
+    // own name: there is nothing to import and so nothing to bind it under.
+    return instance.specifier === undefined
+      ? seat
+      : this.#memberSeatLocal(instance.specifier, seat, member);
+  }
+
+  /**
+   * The local one imported member seat is called by here, claimed on first use
+   * — `#specializationLocal`'s treatment of an imported edition, over a name
+   * that already carries the reserved prefix.
+   *
+   * Dictionary Sharing §8's seat-binding rule is applied from the plan the
+   * discovery pass computed (`memberSeatSpellings`): where the member's source
+   * spelling was uncontested it is bound here, so the routed call reads exactly
+   * as the source wrote it — `import { __Show_Int_show as show }`, then
+   * `show(5)`. With no plan, or on any contest, the generated spelling stands.
+   */
+  #memberSeatLocal(specifier: string, seat: string, member: string): string {
+    let names = this.#usedMemberSeats.get(specifier);
+    if (names === undefined) {
+      names = new Map();
+      this.#usedMemberSeats.set(specifier, names);
+    }
+    const existing = names.get(seat);
+    if (existing !== undefined) return existing.local;
+    // Taken from the plan rather than claimed: the discovery pass established
+    // that nothing in this module binds the spelling, and no generated name can
+    // contest it — every one of those carries Lexer §3.2's prefix.
+    const planned = this.#memberSeatLocals.get(memberSeatKey(specifier, seat));
+    const local = planned ?? this.#generatedNames.claimGenerated(seat);
+    names.set(seat, { member, local });
+    return local;
+  }
+
+  /**
+   * Dictionary Sharing §8's seat-binding rule, answered once every body is
+   * rendered: which routed seats earn the member's **source** spelling, keyed
+   * by `memberSeatKey`. `undefined` when none do, which is the signal that this
+   * pass's output is already final (`emitJavaScript`).
+   *
+   * A spelling is contested by three things, and the first two are why this
+   * cannot be decided at the call site:
+   *
+   * - **the forwarder.** Any surviving use of the member that is not a routed
+   *   call — a value reference, a genuinely polymorphic call — binds the
+   *   forwarder under the member's own name (Constraints §6.5), and whether one
+   *   survives is exactly `#referencedSymbols`, which only rendering fills.
+   * - **a second seat.** Two instances' seats for one member — `show(5)` beside
+   *   `show("hi")` — are two bindings wanting one spelling, and §8 gives it to
+   *   neither: *all* contestants keep their generated names, with no numbering,
+   *   because a seat's generated spelling is already unique and reads better
+   *   here than `show_1` would.
+   * - **an ordinary binding**, whether the module's own or an import's
+   *   (`#moduleBindings`), plus the prelude terms rendering actually
+   *   referenced — the same filter `#preludeTermImports` applies, asked here so
+   *   a prelude term and a seat cannot both claim one name.
+   *
+   * A **local** instance's member counts as a contestant too. Honoring a
+   * constraint claims each member's name in the module's term space (§4.6), and
+   * a bare use there means that instance's member — so binding some *other*
+   * instance's seat to the same JavaScript name would make the emitted spelling
+   * mean what the source spelling does not.
+   */
+  memberSeatSpellings(): ReadonlyMap<string, string> | undefined {
+    const routed = [...this.#usedMemberSeats].flatMap(([specifier, names]) =>
+      [...names].map(([seat, { member }]) => ({ specifier, seat, member }))
+    );
+    if (routed.length === 0) return undefined;
+    const contested = new Set<string>(this.#moduleBindings);
+    for (const item of this.#module.items) {
+      if (item.kind !== "Honor") continue;
+      for (const { member } of item.memberSeats) contested.add(member);
+    }
+    // The two import channels rendering decides — a synthesized prelude import
+    // and a constraint's members — read exactly as their own renderers read
+    // them, so a name that survives the filter there is a binding here.
+    for (const item of [...this.#synthesizedImports, ...this.#constraintImports]) {
+      if (item.form.kind === "Effect") continue;
+      for (const { imported, local, symbol } of item.form.names) {
+        if (symbol === undefined || !this.#referencedSymbols.has(symbol)) continue;
+        contested.add(this.#constrainedImports.get(symbol) ?? local ?? imported);
+      }
+    }
+    const wanted = new Map<string, number>();
+    for (const { member } of routed) wanted.set(member, (wanted.get(member) ?? 0) + 1);
+    const plan = new Map<string, string>();
+    for (const { specifier, seat, member } of routed) {
+      if (contested.has(member) || wanted.get(member) !== 1) continue;
+      plan.set(memberSeatKey(specifier, seat), member);
+    }
+    return plan.size === 0 ? undefined : plan;
+  }
+
+  /**
+   * `import` lines for the member seats this module's concrete calls reach in
+   * another module, and the module edges they create (#444).
+   *
+   * A line of its own, always: the declaring module need have no import item
+   * here — a prelude companion has none by construction, and an instance
+   * reached through a re-export chain is declared in a module this one may
+   * never name. That is defect 8's shape exactly, which is why the specifier is
+   * reported to `project.ts` beside the line rather than inferred from the
+   * tree. Sorted, so the emitted text is a function of what the module calls
+   * rather than of where it calls it.
+   */
+  #memberSeatImports(): readonly {
+    readonly line: string;
+    readonly specifier: string;
+  }[] {
+    return [...this.#usedMemberSeats]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([specifier, names]) => ({
+        line: `import { ${
+          [...names]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([source, { local }]) => source === local ? source : `${source} as ${local}`)
+            .join(", ")
+        } } from ${JSON.stringify(emittedModuleSpecifier(specifier))};`,
+        specifier,
+      }));
   }
 
   /**
@@ -4125,36 +4575,45 @@ class JavaScriptEmitter {
    * (Collections Part 2 §4.3), so every type reachable from a `Hash` subject
    * has derived equality and the structural answer *is* the instance's answer.
    */
-  #derivedMembers(item: Core.HonorItem, evidenceNames: EvidenceNames): readonly string[] {
+  #derivedMembers(
+    item: Core.HonorItem,
+    evidenceNames: EvidenceNames,
+  ): MemberImplementation[] {
     const subject = item.subject;
     const components = componentEvidence(item.components);
     const equals = (left: string, right: string): string =>
       this.#derivedEquals(subject, left, right, evidenceNames, false, components);
     if (item.constraint === "Eq") {
       return [
-        `equals: (__left, __right) => ${equals("__left", "__right")}`,
-        `notEquals: (__left, __right) => !(${equals("__left", "__right")})`,
+        { name: "equals", rendered: `(__left, __right) => ${equals("__left", "__right")}` },
+        {
+          name: "notEquals",
+          rendered: `(__left, __right) => !(${equals("__left", "__right")})`,
+        },
       ];
     }
     if (item.constraint === "Show") {
-      return [
-        `show: __value => ${this.#derivedShow(subject, "__value", evidenceNames, components)}`,
-      ];
+      return [{
+        name: "show",
+        rendered: `__value => ${this.#derivedShow(subject, "__value", evidenceNames, components)}`,
+      }];
     }
     if (item.constraint === "Ord") {
-      return [
-        `compare: (__left, __right) => ${this.#derivedCompare(
+      return [{
+        name: "compare",
+        rendered: `(__left, __right) => ${this.#derivedCompare(
           subject,
           "__left",
           "__right",
           evidenceNames,
           components,
         )}`,
-      ];
+      }];
     }
-    return [
-      `hash: __value => ${this.#derivedHash(subject, "__value", evidenceNames)}`,
-    ];
+    return [{
+      name: "hash",
+      rendered: `__value => ${this.#derivedHash(subject, "__value", evidenceNames)}`,
+    }];
   }
 
   /**
@@ -8521,6 +8980,21 @@ class GeneratedNames {
     if (this.#used.has(name)) return this.#claim(name);
     this.#used.add(name);
     return name;
+  }
+
+  /**
+   * A **generated** spelling arriving from another module — an imported member
+   * seat (#444). `claimPublic`'s rule with the reserved prefix already on the
+   * name: the bare spelling when nothing here holds it, and the family's own
+   * probe when something does, over the stem rather than the whole name, since
+   * re-prefixing would spell `____Show_Int_show`.
+   */
+  claimGenerated(name: string): string {
+    if (!this.#used.has(name)) {
+      this.#used.add(name);
+      return name;
+    }
+    return this.#claim(name.startsWith("__") ? name.slice(2) : name);
   }
 
   /**

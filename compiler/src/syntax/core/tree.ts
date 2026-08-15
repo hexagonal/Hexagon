@@ -342,6 +342,13 @@ export interface HonorItem {
   readonly dictionary: string;
   /** The interface spelling to re-export it under, where §8 moves them apart. */
   readonly exportedDictionary?: string;
+  /**
+   * Constraints §6.1's member seats, named in the resolver; see
+   * `Resolved.MemberSeat`. Empty for a parameterized instance and for one whose
+   * constraint declaration was not in view, both of which emit their members
+   * inline in the record.
+   */
+  readonly memberSeats: readonly Resolved.MemberSeat[];
   readonly baseConstraints: readonly HonorBaseConstraint[];
   /**
    * For a derived instance, the evidence for each component of the subject —

@@ -725,7 +725,10 @@ describe("the companion's own emitted shape", () => {
     expect(text).toContain("(__a, __b) => __a ** __b");
     expect(text).toContain('"Int.div: divisor is zero"');
     expect(text).toContain('"an integer exponent cannot be negative"');
-    // The self-identity is the plain binding, with no host call behind it.
-    expect(text).toContain("fromInt: value => value");
+    // The self-identity is the plain binding, with no host call behind it —
+    // now the member's own seat, which is where every member's implementation
+    // lives since #444 (Constraints §6.1).
+    expect(text).toContain("const __Signed_Int_fromInt = value => value;");
+    expect(text).toContain("fromInt: __Signed_Int_fromInt");
   });
 });

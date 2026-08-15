@@ -50,6 +50,19 @@ export interface JavaScript extends Output {
    */
   readonly specializationImports: readonly string[];
   /**
+   * Specifiers of the modules this file calls a **member seat** in (#444), in
+   * source form — the honoring module's per-member bindings a concrete
+   * constraint-member call reaches instead of the forwarder and its evidence
+   * (Constraints §6.1).
+   *
+   * A channel of its own rather than a widening of the one above, because it is
+   * the one edge that can name a module the tree does not mention at all: an
+   * instance reached through a chain of re-exports is *declared* somewhere the
+   * importer never spelled, and the seats live only there — a transit module
+   * re-exports the dictionary, not its seats. Missing it is defect 8 exactly.
+   */
+  readonly memberSeatImports: readonly string[];
+  /**
    * The specifiers of the runtime modules this file imports operations from, in
    * source form — empty when it imports none, which is every file that touches
    * neither a `Vector(a)` nor a `Map(k, v)`.

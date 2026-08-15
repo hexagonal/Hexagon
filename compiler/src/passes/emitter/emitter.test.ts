@@ -116,18 +116,18 @@ describe("emitJavaScript", () => {
     expect(text("/main.hex")).toContain(
       'import { set, fromSeq, at } from "./Vector.js";',
     );
-    // The member reaches its row through the Constraints §6.5 forwarder, with
-    // the row's dictionary rendered inline as the trailing evidence argument —
-    // no import, because no module exports it.
-    expect(text("/main.hex")).toContain(
-      'import { __toSeq as toSeq } from "./Iterable.js";',
-    );
+    // The forwarder is gone since #444: `Vector.toSeq(updated)` is a
+    // source-written member call at a concrete head, and the head's ground
+    // demand is compiler-built — a provided row, rendered rather than declared
+    // — so Constraints §6.1's third arm reads the member off the §3.4 binding.
+    // No module exports a seat for a row no module declares.
+    expect(text("/main.hex")).not.toContain('from "./Iterable.js";');
     // Ground, so the row's dictionary is Dictionary Sharing §3.4's hoisted
     // module constant since #446 rather than a literal rebuilt at the call.
     expect(text("/main.hex")).toContain(
       "const __Iterable_Vector_Int = ({ toSeq: __seqFromIterable });",
     );
-    expect(text("/main.hex")).toContain("toSeq(updated, __Iterable_Vector_Int)");
+    expect(text("/main.hex")).toContain("__Iterable_Vector_Int.toSeq(updated)");
     // `fromSeq` lowers to the outbound driver in the module whose door declares
     // it; the inbound adapter is there too, because the unexported `elements`
     // row still crosses the same boundary.
@@ -1891,8 +1891,13 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
+    // The member's implementation hoists to its own seat and the record's slot
+    // references it by name (Constraints §6.1, #444).
     expect(output.text).toContain(
-      'const __Render_Point = { render: point => "Point(" + String(point.x) + ")" };',
+      'const __Render_Point_render = point => "Point(" + String(point.x) + ")";',
+    );
+    expect(output.text).toContain(
+      "const __Render_Point = { render: __Render_Point_render };",
     );
     expect(output.text).toContain(
       "const text = display({ x: 3 }, __Render_Point);",
@@ -1914,11 +1919,22 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
     expect(output.diagnostics).toEqual([]);
+    // The inherited default's materialized body takes a seat of its own, like
+    // every other member of the completed set (Constraints §6.1, #444): the
+    // instance *has* `different`, and default-versus-override never reaches
+    // emitted shape. Its body still reads the slot through the forwarder,
+    // because a default is checked in the constraint's generic context and its
+    // member references are dictionary reads, not name references (§4.6).
     expect(output.text).toContain(
-      "different: (left, right) => !same(left, right, __Same_Token)",
+      "const __Same_Token_different = (left, right) => !same(left, right, __Same_Token);",
     );
     expect(output.text).toContain(
-      "different({ value: 1 }, { value: 2 }, __Same_Token)",
+      "const __Same_Token = { same: __Same_Token_same, different: __Same_Token_different };",
+    );
+    // The call site is concrete, so it reaches the seat directly (§6.1's
+    // ground-declared-instance arm) rather than the forwarder.
+    expect(output.text).toContain(
+      "__Same_Token_different({ value: 1 }, { value: 2 })",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1942,7 +1958,10 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(module);
     expect(output.diagnostics).toEqual([]);
     expect(output.text).toContain(
-      "const __Labeled_Token = { same: __Same_Token, label: value => \"token\" };",
+      "const __Labeled_Token = { same: __Same_Token, label: __Labeled_Token_label };",
+    );
+    expect(output.text).toContain(
+      'const __Labeled_Token_label = value => "token";',
     );
     expect(output.text).toMatch(/same\(left, right, __Labeled_a\.same\)/u);
     expect(output.diagnostics).toEqual([]);
@@ -1979,7 +1998,10 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain(
       "const __Render_Box_Int = __Render_Box(__Render_Int);",
     );
-    expect(output.text).toContain("render(boxed, __Render_Box_Int)");
+    // A parameterized instance at a ground head has no evidence-free binding to
+    // call — its member closes over element evidence — so Constraints §6.1's
+    // second arm reads the member off the hoisted application (#444).
+    expect(output.text).toContain("__Render_Box_Int.render(boxed)");
     expect(output.text).not.toContain("render(boxed, __Render_Box(");
     expect(output.diagnostics).toEqual([]);
   });
@@ -2029,7 +2051,7 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain(
       "const __Describe_Tree_Int = __Describe_Tree(__Describe_Int);",
     );
-    expect(output.text).toContain("describe(tree, __Describe_Tree_Int)");
+    expect(output.text).toContain("__Describe_Tree_Int.describe(tree)");
     expect(output.text).not.toContain("describe(tree, __Describe_Tree)");
   });
 
@@ -2057,8 +2079,10 @@ describe("emitJavaScript", () => {
     // dictionary, and both use sites passed no evidence at all.
     expect(output.text).toContain("pick(value, __Pick_Int)");
     expect(output.text).toContain("pick(value, __Pick_String)");
-    expect(output.text).toContain("pickHeld(0, Held2(42), __Pick_Int)");
-    expect(output.text).toContain('pickHeld("x", Held2("y"), __Pick_String)');
+    // Both call sites are concrete, so each reaches its own instance's seat for
+    // the inherited default (#444) — which is where the copy now lives.
+    expect(output.text).toContain("__Pick_Int_pickHeld(0, Held2(42))");
+    expect(output.text).toContain('__Pick_String_pickHeld("x", Held2("y"))');
   });
 
   test("expands derives headers into structural dictionaries", () => {
@@ -2069,9 +2093,16 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
+    // A derived instance is an ordinary instance thereafter (Constraints §4.5),
+    // so its generated members take seats like any others (#444).
     expect(output.text).toContain(
-      "const __Eq_Point = { equals: (__left, __right) => __left.x === __right.x && __left.y === __right.y",
+      "const __Eq_Point_equals = (__left, __right) => __left.x === __right.x && __left.y === __right.y;",
     );
+    expect(output.text).toContain(
+      "const __Eq_Point = { equals: __Eq_Point_equals, notEquals: __Eq_Point_notEquals };",
+    );
+    // The `==` operator is a comparison lowering, not a source-written member
+    // call, so it keeps reading the slot (§6.1's last sentence).
     expect(output.text).toContain("__Eq_Point.equals(");
     expect(output.diagnostics).toEqual([]);
   });
@@ -2106,12 +2137,11 @@ describe("emitJavaScript", () => {
 
     expect(module.diagnostics).toEqual([]);
     const output = emitJavaScript(module);
+    expect(output.text).toContain("const __Source_Box_get = box => box.value;");
     expect(output.text).toContain(
-      "const __Source_Box = { get: box => box.value };",
+      "const __Source_Box = { get: __Source_Box_get };",
     );
-    expect(output.text).toContain(
-      "const answer = get({ value: 42 }, __Source_Box);",
-    );
+    expect(output.text).toContain("const answer = __Source_Box_get({ value: 42 });");
     expect(output.text).not.toContain("Item");
     expect(output.diagnostics).toEqual([]);
   });

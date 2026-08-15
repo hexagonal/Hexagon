@@ -20,6 +20,7 @@ import {
   isIntrinsicScheme,
   nearestIntrinsicKey,
 } from "../../intrinsics.js";
+import { relativeSpecifier } from "../../support/paths.js";
 import type * as Source from "../../support/source.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
@@ -76,6 +77,14 @@ export interface InstanceInterface {
   readonly subject: Resolved.TypeAnnotation;
   readonly impliedTypes: readonly Resolved.HonorImpliedType[];
   readonly dictionary: string;
+  /**
+   * The instance's member seats under this interface's spellings (#444), and
+   * the path of the module that declared it — see `Resolved.InstanceImport`,
+   * whose two fields these become on the far side. Both pass through a transit
+   * re-export untouched, because both are the declaring module's word.
+   */
+  readonly memberSeats: readonly Resolved.MemberSeat[];
+  readonly declaringPath?: string;
   readonly span: Source.Span;
 }
 
@@ -289,6 +298,20 @@ export function dictionaryName(constraint: string, subject: string): string {
 }
 
 /**
+ * A member seat's preferred spelling: the dictionary family's name with the
+ * member appended (`spec/constraints.md` §6.1 — a generated family keyed
+ * (constraint, subject, member), which is what `__Show_Int_show` reads as).
+ *
+ * `dictionary` is the instance's *preferred* spelling, never a suffixed local:
+ * seats and dictionaries are one rank assigned in one pass, so a seat that read
+ * a neighbour's already-resolved local would depend on the order the pass
+ * happened to visit them in.
+ */
+export function memberSeatName(dictionary: string, member: string): string {
+  return `${dictionary}_${member}`;
+}
+
+/**
  * Dictionary Sharing §5's naming and collision rules, applied once per module
  * over every dictionary that will hold a module-level seat (#425).
  *
@@ -305,8 +328,15 @@ export function dictionaryName(constraint: string, subject: string): string {
  *   none keeps the bare name — so a bare dictionary name certifies that its
  *   spelling is uncontested in the module it appears in. Suffixes are assigned
  *   in the canonical order §5 fixes: declared instances in declaration order,
- *   then hoisted bindings in emission order, then imports in specifier order,
- *   with the prelude channel last. Same module, same names, every compile.
+ *   each followed by its **member seats** in member declaration order
+ *   (Constraints §6.1, #444), then hoisted bindings in emission order, then
+ *   imports in specifier order, with the prelude channel last. Same module,
+ *   same names, every compile.
+ *
+ *   A seat is a declared contestant in every sense, §8's export clause
+ *   included: it keeps the bare spelling at the interface unless another
+ *   declared name of the module contests it, so a consumer routing a concrete
+ *   member call reads an uncontested name and predicts nothing.
  *
  *   The **hoisted** rank is not assigned here, and cannot be (#449): a hoisted
  *   binding exists only because some use site demanded its ground evidence
@@ -364,8 +394,18 @@ export function nameDictionaries(
   };
 
   const declaredSeats = new Map<Resolved.HonorItem, Seat>();
+  const memberSeats = new Map<Resolved.HonorItem, Seat[]>();
   for (const item of items) {
-    if (item.kind === "Honor") declaredSeats.set(item, seat(item.dictionary, true));
+    if (item.kind !== "Honor") continue;
+    declaredSeats.set(item, seat(item.dictionary, true));
+    // §5's canonical order: "member seats with their instance in member
+    // declaration order". With their instance, so a member seat is a declared
+    // contestant seated immediately behind the record it fills — not a rank of
+    // its own after every dictionary.
+    memberSeats.set(
+      item,
+      item.memberSeats.map(({ seat: preferred }) => seat(preferred, true)),
+    );
   }
   const importedSeats = new Map<Resolved.InstanceImport | Resolved.PreludeInstance, Seat>();
   for (const item of items) {
@@ -419,10 +459,20 @@ export function nameDictionaries(
       if (item.kind === "Honor") {
         const entry = declaredSeats.get(item)!;
         const exported = exportedName(entry);
+        const seats = memberSeats.get(item) ?? [];
         return {
           ...item,
           dictionary: entry.local,
           ...(exported === entry.local ? {} : { exportedDictionary: exported }),
+          memberSeats: item.memberSeats.map(({ member }, index) => {
+            const assigned = seats[index]!;
+            const exportedSeat = exportedName(assigned);
+            return {
+              member,
+              seat: assigned.local,
+              ...(exportedSeat === assigned.local ? {} : { exportedSeat }),
+            };
+          }),
         };
       }
       if (item.kind !== "Import") return item;
@@ -448,7 +498,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
   const records = new Map<string, Resolved.RecordDeclaration>();
   const aliases = new Map<string, Resolved.TypeAliasItem>();
   const externTypes = new Map<string, Resolved.ExternTypeDeclaration>();
-  const discoveredInstances: InstanceInterface[] = module.items.flatMap((item) => {
+  const discoveredInstances: InstanceInterface[] = module.items.flatMap((item): InstanceInterface[] => {
     if (item.kind === "Honor") {
       return [{
         identity: `${Number(module.fileId)}:${item.dictionary}`,
@@ -463,6 +513,15 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
         // binding never outranks the module's own instance for its interface
         // name — and then `exportedDictionary` is the suffixed name itself.
         dictionary: item.exportedDictionary ?? item.dictionary,
+        // §8's export clause read from the other side, seat by seat: the bare
+        // spelling unless a declared-versus-declared contest pushed a suffix
+        // this far. `declaringPath` is this module's, because this is the arm
+        // where the instance is declared.
+        memberSeats: item.memberSeats.map(({ member, seat, exportedSeat }) => ({
+          member,
+          seat: exportedSeat ?? seat,
+        })),
+        ...(module.path === undefined ? {} : { declaringPath: module.path }),
         span: item.span,
       }];
     }
@@ -475,6 +534,12 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       subject: instance.subject,
       impliedTypes: instance.impliedTypes,
       dictionary: instance.localDictionary,
+      // Untouched in transit: the seats belong to the declaring module and are
+      // reached there, never through the hop that carried the dictionary.
+      memberSeats: instance.memberSeats,
+      ...(instance.declaringPath === undefined
+        ? {}
+        : { declaringPath: instance.declaringPath }),
       span: instance.span,
     }));
   });
@@ -1155,7 +1220,10 @@ class Resolver {
     // instance and every imported one in one place, and both channels are only
     // complete here.
     const { items, preludeInstances } = nameDictionaries(
-      [...this.#preludeImport(module.span, resolvedItems), ...resolvedItems],
+      this.#assignMemberSeats([
+        ...this.#preludeImport(module.span, resolvedItems),
+        ...resolvedItems,
+      ]),
       preludeChannel,
     );
 
@@ -1478,6 +1546,7 @@ class Resolver {
       subject,
       derived: true,
       dictionary: dictionaryName(constraint, item.name),
+      memberSeats: [],
       impliedTypes: [],
       members: [],
       span: item.span,
@@ -1741,6 +1810,8 @@ class Resolver {
             // The exporter's interface name, unaliased. `nameDictionaries`
             // suffixes it later if this module contests the spelling (§5).
             localDictionary: instance.dictionary,
+            memberSeats: instance.memberSeats,
+            ...this.#seatOrigin(instance.declaringPath),
             span: item.span,
           })),
           constraints: boundConstraints,
@@ -1942,6 +2013,9 @@ class Resolver {
             this.#namedConstraint(item.constraint.text)?.name ?? item.constraint.text,
             annotationHeadName(subject),
           ),
+          // Filled by `#assignMemberSeats`, which runs once every declaration is
+          // resolved and the constraint behind this head is in view.
+          memberSeats: [],
           impliedTypes: item.impliedTypes.map((impliedType) => ({
             name: impliedType.name.text,
             annotation: this.#resolveTypeAnnotation(
@@ -3702,6 +3776,12 @@ class Resolver {
           importedDictionary: instance.dictionary,
           // Unaliased, as in the explicit channel; `nameDictionaries` decides.
           localDictionary: instance.dictionary,
+          memberSeats: instance.memberSeats,
+          // `specifier` above names the prelude member this instance was
+          // *found* in, which the deduplication above may have settled on
+          // ahead of the module that declares it; the seats are reached at the
+          // declaration, so they take their own route (#444).
+          ...this.#seatOrigin(instance.declaringPath),
           specifier,
           span,
         });
@@ -4222,6 +4302,65 @@ class Resolver {
       return declaration.members.map(({ binding }) => binding.name);
     }
     return PRE_REGISTERED_CONSTRAINT_MEMBERS[item.constraint] ?? [];
+  }
+
+  /**
+   * Constraints §6.1's member seats, one per member of every **ground**
+   * instance this module declares, under their preferred spellings (#444).
+   *
+   * Run once, immediately before `nameDictionaries`, because it needs exactly
+   * what that pass needs: every declaration resolved, so the constraint behind
+   * each `honor` is in view. The member list is the constraint declaration's —
+   * `#honoredMemberNames`, the same enumeration §4.6's spelling claim already
+   * runs on — which is what makes the seat set the instance's *completed* one:
+   * an inherited default has no line in the block to be read off, and a derived
+   * instance has no lines at all, yet §2's completed member set holds both and
+   * §4.6 qualifies `Int.notEquals` either way.
+   *
+   * "Ground" is the emitter's own test, spelled the way emission spells it: an
+   * instance takes an evidence parameter per (binder, constraint) pair, so an
+   * instance with no such pair is a record and every other one is a factory. A
+   * factory's members close over its parameters and so cannot hoist (§6.1's
+   * parameterized bullet), which is why those instances get no seats here.
+   */
+  #assignMemberSeats(items: readonly Resolved.Item[]): readonly Resolved.Item[] {
+    return items.map((item) => {
+      if (item.kind !== "Honor") return item;
+      if (item.typeParameters.some(({ constraints }) => constraints.length > 0)) {
+        return item;
+      }
+      const members = this.#honoredMemberNames(item);
+      if (members.length === 0) return item;
+      return {
+        ...item,
+        memberSeats: members.map((member) => ({
+          member,
+          seat: memberSeatName(item.dictionary, member),
+        })),
+      };
+    });
+  }
+
+  /**
+   * Where an imported instance's member seats are reached from **here**: the
+   * declaring module's path, carried on unchanged, plus that path as an import
+   * specifier from this module (#444).
+   *
+   * Both are absent together, and the compilation that has neither is the one
+   * that gave no module a path — the pass-level harnesses. Routing a concrete
+   * member call across a module boundary then has no specifier to write, so it
+   * declines and the call keeps its forwarder, which is the shape those
+   * harnesses measured before this existed.
+   */
+  #seatOrigin(declaringPath: string | undefined): {
+    readonly declaringPath?: string;
+    readonly seatSpecifier?: string;
+  } {
+    if (declaringPath === undefined || this.#path === undefined) return {};
+    return {
+      declaringPath,
+      seatSpecifier: relativeSpecifier(this.#path, declaringPath),
+    };
   }
 
   #reportRebinding(name: Parsed.Name, existing: Resolved.SymbolId): void {

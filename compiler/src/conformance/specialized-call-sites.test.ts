@@ -125,9 +125,18 @@ describe("a concrete call to a prelude constrained export", () => {
    * and `equals` are forwarders emitted from a `constraint` item, and the plan
    * walks `let` and `fun` items only, so no `showFloat` or `equalsString` exists
    * anywhere to call. The issue's specimen names both; the rule as implemented
-   * covers `log` and `trace` — declarations — and leaves a member call as it
-   * was. Nothing here is a choice this change made, and widening it would be
-   * minting editions the export surface does not have.
+   * covers `log` and `trace` — declarations — and leaves a member call to its
+   * own machinery. Nothing here is a choice this change made, and widening it
+   * would be minting editions the export surface does not have.
+   *
+   * The permanent half is the `showInt` clause, and it is permanent: Constraints
+   * §6.1 fixes the forwarder as the seat the member name denotes as a
+   * module-scope *term* — a reference, a generalized alias, the exported ABI
+   * face — so it has no Part 8 specialization at any type and no generic
+   * edition. What #444 changed is the other half: a concrete member **call** is
+   * a call to the instance's method, so it reaches `Int.hex`'s member seat.
+   * That is routing to a binding the honoring module already owed, not a minted
+   * edition, and the two claims are independent — the pin below holds both.
    */
   test("a constraint member forwarder has no edition, at any type", () => {
     const javascript = emitted([[
@@ -135,8 +144,24 @@ describe("a concrete call to a prelude constrained export", () => {
       "export let rendered: String = show(42)\n",
     ]]);
 
+    expect(javascript).toContain('import { __Show_Int_show as show } from "./Int.js";');
+    expect(javascript).toContain("const rendered = show(42);");
+    expect(javascript).not.toContain("showInt");
+  });
+
+  /**
+   * And the forwarder is still what a *polymorphic* member call reaches, which
+   * is the other side of the same pin: no edition exists there either, so the
+   * evidence rides the trailing suffix exactly as it always did.
+   */
+  test("a polymorphic member call keeps the forwarder and its evidence", () => {
+    const javascript = emitted([[
+      "/main.hex",
+      "export let render<a: Show>(value: a): String = show(value)\n",
+    ]]);
+
     expect(javascript).toContain('import { __show as show } from "./Show.js";');
-    expect(javascript).toContain("const rendered = show(42, __Show_Int);");
+    expect(javascript).toContain("const render = (value, __Show_a) => show(value, __Show_a);");
     expect(javascript).not.toContain("showInt");
   });
 

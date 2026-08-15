@@ -7720,6 +7720,9 @@ class Checker {
       subject: imported.subject,
       derived: false,
       dictionary: imported.localDictionary,
+      // The declaring module's spellings, carried on so that a concrete member
+      // call in *this* module can route to them (#444).
+      memberSeats: imported.memberSeats,
       impliedTypes: imported.impliedTypes,
       members: [],
       span: imported.span,
@@ -7853,6 +7856,7 @@ class Checker {
         // and it is `__`-prefixed so a stray emission would be a loud
         // ReferenceError rather than a silent capture of a user identifier.
         dictionary: `__provided_Iterable_${head}`,
+        memberSeats: [],
         impliedTypes: [],
         members: [],
         span,
@@ -9179,6 +9183,7 @@ class Checker {
         ...(item.exportedDictionary === undefined
           ? {}
           : { exportedDictionary: item.exportedDictionary }),
+        memberSeats: item.memberSeats,
         baseConstraints: this.#publicRequirements(
           this.#instanceBaseConstraints.get(item) ?? [],
         ),
