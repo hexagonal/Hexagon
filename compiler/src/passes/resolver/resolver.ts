@@ -1478,13 +1478,15 @@ class Resolver {
           const member = items[scan];
           if (member?.kind !== "Fun") break;
           const existing = scope.lookupLocal(member.name.text);
-          if (existing !== undefined) this.#reportRebinding(member.name, existing);
-          else this.#reportPendingRebinding(member.name);
+          const pendingHit = this.#reportPendingRebinding(member.name, existing);
+          if (!pendingHit && existing !== undefined) {
+            this.#reportRebinding(member.name, existing);
+          }
           const binding = this.#declare(member.name, "fun");
           this.#predeclaredBindings.set(member, binding);
           frame.funSymbols.add(binding.symbol);
           frame.later.delete(member.name.text);
-          if (existing === undefined) {
+          if (existing === undefined || pendingHit) {
             scope.define(member.name.text, binding.symbol, item.span.start.offset);
           }
         }
@@ -2055,8 +2057,10 @@ class Resolver {
         const existing = scope === this.#moduleScope
           ? scope.lookupLocal(item.name.text)
           : scope.lookup(item.name.text);
-        if (existing !== undefined) this.#reportRebinding(item.name, existing);
-        else this.#reportPendingRebinding(item.name);
+        const pendingHit = this.#reportPendingRebinding(item.name, existing);
+        if (!pendingHit && existing !== undefined) {
+          this.#reportRebinding(item.name, existing);
+        }
 
         const binding = this.#declare(item.name, "let");
         this.#pending.push({ name: item.name, kind: "let" });
@@ -2067,7 +2071,10 @@ class Resolver {
         // a rejected rebinding to change how subsequent names resolve.
         // Visible from the end of its own item: a sequential binder scopes over
         // the rest of its block (Statements §5.1), not over its own value.
-        if (existing === undefined) {
+        // A pending-name collision defines despite the error: the meaning it
+        // displaces is the definition in progress, which later references could
+        // only hit as a second, misleading self-reference diagnostic.
+        if (existing === undefined || pendingHit) {
           scope.define(item.name.text, binding.symbol, item.span.end.offset);
         }
 
@@ -2124,8 +2131,10 @@ class Resolver {
       }
       case "Var": {
         const existing = scope.lookup(item.name.text);
-        if (existing !== undefined) this.#reportRebinding(item.name, existing);
-        else this.#reportPendingRebinding(item.name);
+        const pendingHit = this.#reportPendingRebinding(item.name, existing);
+        if (!pendingHit && existing !== undefined) {
+          this.#reportRebinding(item.name, existing);
+        }
         if (this.#lambdaDepth === 0) {
           this.#diagnostics.add({
             severity: "error",
@@ -2138,7 +2147,7 @@ class Resolver {
         this.#pending.push({ name: item.name, kind: "var" });
         const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
         this.#pending.pop();
-        if (existing === undefined) {
+        if (existing === undefined || pendingHit) {
           scope.define(item.name.text, binding.symbol, item.span.end.offset);
         }
         return {
@@ -2904,13 +2913,11 @@ class Resolver {
     const existing = scope === this.#moduleScope
       ? scope.lookupLocal(name.text)
       : scope.lookup(name.text);
-    if (existing === undefined) {
-      // A pending-name collision is reported but still claims: there is no
-      // existing meaning to preserve, and defining the refused binder keeps
-      // later references from cascading into the Functions §6 diagnostic.
-      this.#reportPendingRebinding(name);
-      return true;
-    }
+    // A pending-name collision is reported but still claims: there is no
+    // meaning worth preserving over it, and defining the refused binder keeps
+    // later references from cascading into a self-reference diagnostic.
+    if (this.#reportPendingRebinding(name, existing)) return true;
+    if (existing === undefined) return true;
     this.#reportRebinding(name, existing);
     return false;
   }
@@ -3817,21 +3824,39 @@ class Resolver {
    * (`#honorMembers` — a member is a `let` header, Constraints §4.6). Head
    * binders never reach this check (rule 2 extends over pending names).
    *
-   * Answers whether it reported. Every caller checks in-scope names first, so
-   * a hit here means the name is otherwise undefined and the caller may still
-   * define the refused binder — later references then resolve to the meaning
-   * the source obviously intended instead of cascading into the Functions §6
-   * self-reference diagnostic.
+   * `existing` is what the ordinary in-scope lookup found, and it arbitrates
+   * between the two collisions a spelling can have inside a member body. The
+   * member's spelling is usually *bound* there — the prelude constraint's
+   * export, or the honor claim itself — yet the nearest meaning is still the
+   * definition in progress, so a `constraint-member` hit takes this diagnostic
+   * (whose line N the author can see) over rule 1's (whose "previous binding"
+   * is a prelude file). Any other in-scope hit is a genuine eclipse — a head
+   * binder shadowing the pending spelling — and rule 1 owns it: the caller
+   * falls through to `#reportRebinding`. The `#pending` arm needs no such
+   * arbitration because a `let`/`var` LHS name is never in scope during its own
+   * RHS; if the spelling resolves, the collision is with whatever it resolved
+   * to.
+   *
+   * Answers whether it reported. On a hit the caller must still define the
+   * refused binder — there is no meaning worth preserving over it, and defining
+   * keeps later references resolving to what the source obviously intended
+   * instead of cascading into the Functions §6 or Constraints §4.6
+   * self-reference diagnostics.
    */
-  #reportPendingRebinding(name: Parsed.Name): boolean {
-    const pending = this.#findPending(name.text);
+  #reportPendingRebinding(
+    name: Parsed.Name,
+    existing: Resolved.SymbolId | undefined,
+  ): boolean {
+    const pending = existing === undefined
+      ? this.#findPending(name.text)
+      : undefined;
+    const member = this.#honorMembers.at(-1);
     const collision = pending !== undefined
       ? { span: pending.name.span, form: `the enclosing \`${pending.kind}\`` }
-      : this.#honorMembers.at(-1)?.text === name.text
-      ? {
-        span: this.#honorMembers.at(-1)!.span,
-        form: "the enclosing member definition",
-      }
+      : member?.text === name.text &&
+          (existing === undefined ||
+            this.#symbol(existing).kind === "constraint-member")
+      ? { span: member.span, form: "the enclosing member definition" }
       : undefined;
     if (collision === undefined) return false;
     this.#diagnostics.add({

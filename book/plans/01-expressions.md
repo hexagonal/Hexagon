@@ -70,4 +70,6 @@ they survive revision.
   errors rather than unification failures.
 - `ignore` is a prelude function, not syntax.
 - State the no-shadowing rule narrowly here: sequential `let` names may not reuse an
-  in-scope name. Head-binder shadowing belongs with functions and patterns.
+  in-scope name, nor one whose definition is in progress (the block computing a
+  binding's value may not rebind the binding's own name). Head-binder shadowing
+  belongs with functions and patterns.

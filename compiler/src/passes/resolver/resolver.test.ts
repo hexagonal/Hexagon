@@ -301,8 +301,11 @@ describe("resolve", () => {
     expect(lambdaHead.diagnostics).toEqual([]);
 
     // Pattern parameters classify head by position (Statements §5.2) and take
-    // the same exemption.
-    const patternHead = resolveSource("let y = ((y, z) => y + z)((1, 2))");
+    // the same exemption. The doubled parentheses matter: `((y, z)) => e` is
+    // one tuple-destructured parameter (Pattern Matching §6.5), which is what
+    // routes through the pattern-binder claim; `(y, z) => e` would be two
+    // plain parameters and would only re-cover the case above.
+    const patternHead = resolveSource("let y = (((y, z)) => y + z)((1, 2))");
     expect(patternHead.diagnostics).toEqual([]);
   });
 

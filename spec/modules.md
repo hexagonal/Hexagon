@@ -211,7 +211,7 @@ The prelude's `Int.div`, `Map.get`, `Vector.map` are this exact pattern — auto
 
 ### 5.4 The prelude occlusion rule
 
-The prelude enters every module's scope as a **distinct outermost layer**. The Head Binder Shadowing rule (Statements §5) is untouched in statement — sequential binders never reuse a name in their scope layer or any inner layer — but "in scope" is now layered:
+The prelude enters every module's scope as a **distinct outermost layer**. The Head Binder Shadowing rule (Statements §5) is untouched in statement — sequential binders never reuse a name in their scope layer or any inner layer, nor one whose definition is in progress (Statements §5.1) — but "in scope" is now layered:
 
 - A **module-level** `let`/`fun` (or import, or declaration) **may occlude a prelude name**. `fun show(x) = ...` at module level is legal; the local `show` wins unqualified module-wide, and the prelude's version remains reachable qualified (`String.show` etc. — §6.4 guarantees a qualified home exists). Explicit imports enter the *same* layer as local bindings and fight under the full ban.
 - A **function-local** binder may occlude **nothing**, prelude included: `let show = ...` inside a function in a module that has not occluded `show` remains the hard error. Inside any function body the ban is absolute and layer-blind — which is where the "refactoring bugs live in names *you* bound" rationale actually lives. You never wrote the prelude name, so a module-level occlusion changes no line of yours; a function-local one could.
