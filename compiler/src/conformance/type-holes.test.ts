@@ -540,10 +540,9 @@ describe("§8.13 grammar boundaries", () => {
   });
 
   test("§4.4 the seed's written order does not survive into the display", () => {
-    // The bracket's conjuncts sort by constraint name, because the display
-    // previews the evidence suffix and the suffix orders by `(type-variable
-    // ordinal, constraint name)` regardless of what was written (Functions
-    // §5.1, FFI Part 9 §6.2). Written `(Show, Eq)` therefore displays exactly
+    // The bracket's conjuncts sort by constraint name, matching the evidence
+    // suffix's second key within one variable, regardless of what was written
+    // (Functions §5.1, FFI Part 9 §6.2). Written `(Show, Eq)` therefore displays exactly
     // as written `(Eq, Show)` does — the pair above is the falsifier.
     expect(scheme(`let f(x: _ : (Show, Eq)) = x\n${TAIL}`, "f")).toBe("<a: (Eq, Show)> a -> a");
     expect(scheme(`let f(x: _ : (Show, Eq)) = x\n${TAIL}`, "f"))

@@ -36,11 +36,16 @@ export function displayScheme(scheme: Typed.Scheme): string {
  * variable's second and further constraints join it inside one entry:
  * `<a: (Num, Show)>`. Entries follow the display's variable-letter order —
  * which is the scheme's quantifier order, not the constraint list's — and
- * conjuncts within an entry order alphabetically by constraint name. Both are
- * the evidence suffix's own order, `(type-variable ordinal, constraint name)`
- * (FFI Part 9 §6.2, Constraints §6.1), so the bracket previews the dictionaries
- * a call site appends; the order constraints happened to accumulate in is no
- * more visible here than it is in the ABI.
+ * conjuncts within an entry order alphabetically by constraint name, which is
+ * the evidence suffix's second key (FFI Part 9 §6.2, Constraints §6.1). The
+ * order constraints happened to accumulate in is no more visible here than it
+ * is in the ABI.
+ *
+ * Across variables the bracket does **not** track the suffix, and is not meant
+ * to: the letters follow the type, while the suffix's ordinal is a declared
+ * position, so `<b: Show, a: Show>(x: a, y: b)` displays `<a: Show, b: Show>`
+ * against an arriving `(__Show_b, __Show_a)`. Both faces are canonical and
+ * neither is wrong; they answer different questions (Functions §5.1).
  *
  * A generalized scheme constrains only bare type variables (even
  * `show((x, y))` decomposes structurally before generalization), so every

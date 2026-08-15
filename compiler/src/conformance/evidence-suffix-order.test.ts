@@ -47,6 +47,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileFiles, runProject } from "../support/test-project.js";
+import * as Typed from "../syntax/typed/index.js";
 
 /** Makes a graph's modules byte-distinct, so the test gets its own instances. */
 function distinct(label: string): (path: string, javascript: string) => string {
@@ -276,6 +277,74 @@ describe("variables follow the declared ordinal, not the type's occurrence order
     expect(javascript).toContain(
       "const out = both(2, 3.5, __Num_Float, __Show_Float, __Num_Int, __Show_Int);",
     );
+  });
+});
+
+describe("the display is canonical and does not track the suffix across variables", () => {
+  /**
+   * Functions §5.1, and the counterpart to everything above: the display's
+   * letters follow the *type*, while the suffix's ordinal is a **declared**
+   * position, so the two faces answer different questions and part company the
+   * moment a head is spelled in an order the type does not share. Three
+   * spellings, one display, two suffixes — which is why §5.1 no longer says a
+   * display previews the order the dictionaries arrive in, and why nothing may
+   * read an ABI off a hover.
+   */
+  function displayed(source: string): string {
+    const project = compileFiles([["/main.hex", source]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const typed = project.modules.find(({ source: file }) => file.path === "/main.hex")!.typed;
+    const symbol = typed.symbols.find(
+      (candidate) => candidate.name === "f" && candidate.kind !== "parameter",
+    );
+    if (symbol === undefined) throw new Error("no symbol `f`");
+    return Typed.displayScheme(symbol.scheme);
+  }
+
+  const TAIL = "export let out: String = f(2, True)\n";
+  const CANONICAL = "let f<a: Show, b: Show>(x: a, y: b): String = show(x) ++ show(y)\n";
+  /** The head's order is not the type's. */
+  const HEAD_SWAPPED = "let f<b: Show, a: Show>(x: a, y: b): String = show(x) ++ show(y)\n";
+  /** Neither is it here, reached from the other side — the head is alphabetical. */
+  const TYPE_SWAPPED = "let f<a: Show, b: Show>(x: b, y: a): String = show(x) ++ show(y)\n";
+
+  test("all three spellings display one canonical bracket", () => {
+    const canonical = "<a: Show, b: Show> (a, b) -> String";
+
+    expect(displayed(CANONICAL + TAIL)).toBe(canonical);
+    expect(displayed(HEAD_SWAPPED + TAIL)).toBe(canonical);
+    expect(displayed(TYPE_SWAPPED + TAIL)).toBe(canonical);
+  });
+
+  test("they do not all emit one suffix", () => {
+    expect(emitted([["/main.hex", CANONICAL + TAIL]]))
+      .toContain("const f = (x, y, __Show_a, __Show_b) =>");
+    expect(emitted([["/main.hex", HEAD_SWAPPED + TAIL]]))
+      .toContain("const f = (x, y, __Show_b, __Show_a) =>");
+    expect(emitted([["/main.hex", TYPE_SWAPPED + TAIL]]))
+      .toContain("const f = (x, y, __Show_b, __Show_a) =>");
+  });
+
+  /** Both faces speak the same canonical letters, and still disagree. */
+  test("each spelling answers, whichever face one reads", async () => {
+    for (const [label, source] of [
+      ["canonical", CANONICAL],
+      ["head swapped", HEAD_SWAPPED],
+    ] as const) {
+      const exports = await runProject(
+        [["/main.hex", source + TAIL]],
+        { transform: distinct(`display vs suffix: ${label}`) },
+      );
+
+      expect(exports["out"]).toBe("2True");
+    }
+
+    const swapped = await runProject(
+      [["/main.hex", TYPE_SWAPPED + "export let out: String = f(True, 2)\n"]],
+      { transform: distinct("display vs suffix: type swapped") },
+    );
+
+    expect(swapped["out"]).toBe("True2");
   });
 });
 
