@@ -59,7 +59,7 @@ declaration head in the table without changing it.
 | Lambda or match-arm `=>` with no same-line body | Body block |
 | Conditional header ending in mandatory `then` | True-branch block |
 | `for` or `while` head | Loop body |
-| `match` head | Arm block |
+| `match` head (with or without a scrutinee — the bare head is the match function, Pattern Matching §6.7) | Arm block |
 | Bare `try` | Try body |
 | `else` or `catch` with no same-line body | Clause body / arm block |
 | `constraint ... =` or `honor ... =` | Member block |
@@ -248,3 +248,4 @@ These are binding on the implementation, same status as the Functions spec's dia
 | A line starting with an expression-continuation token continues the preceding item (leading `-` excluded) | §2.3 |
 | Module is an implicit block; clauses attach without VSEP | §2 |
 | `catch` continues a preceding `match` item exactly as it continues `try` — the match catch clause (Exceptions §5.4); attachment by column, no new layout machinery | §2 |
+| A scrutinee-less `match` head opens its arm block through the same inventory row — the match function (Pattern Matching §6.7) needs no new layout rule | §2.1 |

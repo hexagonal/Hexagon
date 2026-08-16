@@ -328,6 +328,28 @@ Pins that make this airtight:
 | `for..in` | full | irrefutable | no |
 | lambda param | full, depth rule for tuples | irrefutable | no |
 
+(The match function, §6.7, adds no row: its arms are ordinary `match` arms, and its parameter is a compiler-fresh binder no pattern ever names.)
+
+### 6.7 The match function — `match` without a scrutinee *(#505)*
+
+A `match` that **ends its logical item** — no scrutinee expression, nothing after the keyword — is a **function literal**: the unary function that matches its argument against the arm block.
+
+```
+let labels = Vector.map(options, match
+    Some(value) => value
+    None => "missing"
+)
+```
+
+- **Semantics by desugar, normatively.** `match` + arms is `$x => match $x` + arms, for a fresh, unnameable binder. Everything follows from the desugar: the type is `p -> r` (the patterns' type to the unified body type, with the expected type flowing in from context as for any lambda); the full arm grammar with guards; colour — the arrow's colour joins from the arm bodies exactly as any lambda body's (Effects §3.1); single evaluation, trivially.
+- **Exhaustiveness is demanded** (§7.1), as for every match: the function must be total over its parameter type. Reachability likewise (§7.2). This is the form's whole point — the disciplined door to refutable matching in callback position, which §6.5's irrefutability gate refuses to lambda heads. The gate itself is untouched; its `Some(x) => e` hard error now carries the fixit "for a matching function, write `match` with arms."
+- **Unary, permanently.** OCaml's `function` is currying's child; the match function is the n-ary language's counterpart, and there is no n-ary reading (no currying, no tuple↔args conversion — Functions/Products doctrine). Application and arity are the ordinary rules on `p -> r`.
+- **Disambiguation is one token of lookahead**: any token after `match` on the same line means the scrutinee form, unchanged (§6.1). The arm block is required, as for every match; a scrutinee-less head with nothing following is the ordinary missing-arms parse error. A bare `match` at line end had no parse before this form existed, so the grant is purely additive.
+- **A match function is a lambda literal** wherever the written form is asked for — in particular Functions §7.1's `fun`-RHS restriction accepts it, because constructing it evaluates nothing, which is the property that check protects — and it is a syntactic value (Functions §8.2).
+- **No `catch` clause, on principle.** The clause observes the scrutinee's evaluation (Exceptions §5.4), and a match function's scrutinee is its parameter — a value already produced, under other handlers, before the function was entered; there is nothing left to observe. The desugar makes this the §7.2 cannot-throw class by construction (a bare variable read). A `catch` at the seat gets the dedicated diagnostic with the honest rewrite: "a match function's parameter is already a value; there is nothing here for `catch` to observe — to guard the arm bodies, write `x => try match x … catch …`". Body-wrapping sugar, should callback evidence ever demand it, would be a different construct and starts from field evidence.
+
+Emission is the desugar's: an arrow function over the ordinary match lowering, its binder named under the emitter's hygiene rules — the readable-JS commitments are unchanged.
+
 ---
 
 ## 7. Exhaustiveness and reachability
@@ -410,7 +432,8 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 
 | Situation | Error / hint |
 |---|---|
-| Refutable pattern at `let`/`for..in`/lambda param | "this pattern can fail: ⟨witness⟩; use `match`" (§5.3) |
+| Refutable pattern at `let`/`for..in`/lambda param | "this pattern can fail: ⟨witness⟩; use `match`" (§5.3); at a lambda param the fixit adds "for a matching function, write `match` with arms" (§6.7) |
+| `catch` clause on a match function | "a match function's parameter is already a value; there is nothing here for `catch` to observe — to guard the arm bodies, write `x => try match x … catch …`" (§6.7; Exceptions §9) |
 | Sole-constructor pattern flips refutable after a union gains a constructor | same family, naming the new constructor (§5.2) |
 | Non-exhaustive `match` | "match is missing cases: ⟨witnesses⟩" via §7.3 renderer — add the missing arm(s) or a `_` catch-all |
 | Unreachable arm (incl. guarded-arm subtleties) | hard error naming the shadowing arm (§7.2); remove the arm or reorder it above its shadower |
@@ -458,6 +481,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | Binder class is positional (Statements §5): arm/lambda/loop binders head, `let`-pattern binders sequential; no third class; duplicate-in-whole-pattern error incl. `as`, class-independent | §1, §2.1, §4, §6.3 |
 | Vector patterns shipped, owned by Collections Part 3 §3; `Vector` owns `[...]` in v1 (no `List`, no `Array` pattern surface); range patterns → guards; type-test patterns → never | §2, §10, §11.1 |
 | Match catch clause (#500, owned by Exceptions §5.4): catch arms' second seat, one grammar and one semantics in both; window = scrutinee evaluation only; exhaustiveness and reachability per-section, plus the cannot-throw judgment (post-elaboration, erasure-gated); §14.3's edit note discharged on the same touch | §6.1, §6.2, §7.2, §14 |
+| The match function (#505): scrutinee-less `match` = unary function literal, semantics by fresh-binder desugar; exhaustiveness demanded (totality); unary permanently (no n-ary reading); a lambda literal for written-form checks and a syntactic value; no `catch` clause on principle (the parameter is already a value — nothing to observe; body-wrapping sugar would be a different construct, field-evidence-first); §6.5's gate untouched, its lambda fixit added | §6.7 |
 | §1's emission bullet restated post-#147 (2026-07-29): readable emission is an emitter commitment, standing because it constrains no language semantics; TS-author phrasing retired | §1, §15(n) |
 | `()` reclassified (2026-07-30, #159): the dedicated `Unit` pattern dissolves into the arity-0 tuple pattern; `Unit` exhaustiveness via the tuple clause; the standalone finite-domain listing deleted; no diagnostic or verdict changes | §2, §2.3, §5.1, §7.1; Products §2.7 |
 
