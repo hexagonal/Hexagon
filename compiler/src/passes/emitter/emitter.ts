@@ -3856,15 +3856,40 @@ class JavaScriptEmitter {
       `${inner}try {`,
       `${armIndent}return ${this.#emitExpr(expression.body, depth + 2, evidenceNames)};`,
       `${inner}} catch (${error}) {`,
+      ...this.#emitCatchArms(expression.arms, error, depth + 2, evidenceNames),
+      `${armIndent}throw ${error};`,
+      `${inner}}`,
+      `${prefix}})()`,
     ];
-    for (const arm of expression.arms) {
+    return lines.join("\n");
+  }
+
+  /**
+   * §7.4's discrimination as the body of a JS `catch (error)` block — the arms
+   * only. One `if` per or-pattern alternative, each matching arm returning its
+   * body's value, guards inside the block exactly where §5.3 puts them (a
+   * throwing guard propagates, and a failing one falls through to the next arm).
+   *
+   * The implicit rethrow is the caller's `throw error;` after these lines, so
+   * both of `catch`'s seats — `try`'s clause and the match catch clause
+   * (Exceptions §5.1, §5.4) — emit one block of arms from one place.
+   */
+  #emitCatchArms(
+    arms: readonly Core.MatchArm[],
+    error: string,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string[] {
+    const armIndent = indent(depth);
+    const lines: string[] = [];
+    for (const arm of arms) {
       for (const alternative of expandOrPatterns(arm.pattern)) {
         const plan = this.#emitPatternPlan(alternative, error, true);
         const condition = plan.tests.length === 0
           ? "true"
           : plan.tests.join(" && ");
         lines.push(`${armIndent}if (${condition}) {`);
-        const bodyDepth = depth + 3;
+        const bodyDepth = depth + 1;
         const bodyIndent = indent(bodyDepth);
         for (const binding of plan.bindings) {
           lines.push(`${bodyIndent}${binding}`);
@@ -3884,18 +3909,57 @@ class JavaScriptEmitter {
         lines.push(`${armIndent}}`);
       }
     }
-    lines.push(
-      `${armIndent}throw ${error};`,
-      `${inner}}`,
-      `${prefix}})()`,
-    );
-    return lines.join("\n");
+    return lines;
   }
 
+  /**
+   * A `match` in a position that returns its value — the statement-lifted rung
+   * of the ladder, and what the IIFE rung wraps.
+   *
+   * The match catch clause (Exceptions §5.4) is lowered here, because its whole
+   * observable contract is about what the emitted `try` encloses: the scrutinee
+   * is evaluated into a binding *inside* the `try`, §7.4's discrimination runs
+   * in the JS `catch` — a matched arm `return`s, so control never reaches the
+   * data arms, and an unmatched one rethrows — and the data arms are lowered
+   * after the `try` closes, on the binding. No data-arm test, guard, or body,
+   * and no catch-arm guard or body, sits inside the protected region.
+   */
   #emitReturningMatch(
     expression: Core.MatchExpr,
     depth: number,
     evidenceNames: EvidenceNames,
+  ): string[] {
+    if (expression.catchArms === undefined) {
+      return this.#emitMatchArms(expression, depth, evidenceNames);
+    }
+    const scrutinee = this.#generatedNames.fresh("scrutinee");
+    const error = this.#generatedNames.fresh("error");
+    const prefix = indent(depth);
+    const inner = indent(depth + 1);
+    return [
+      `${prefix}let ${scrutinee};`,
+      `${prefix}try {`,
+      `${inner}${scrutinee} = ${
+        this.#emitExpr(expression.scrutinee, depth + 1, evidenceNames)
+      };`,
+      `${prefix}} catch (${error}) {`,
+      ...this.#emitCatchArms(expression.catchArms, error, depth + 1, evidenceNames),
+      `${inner}throw ${error};`,
+      `${prefix}}`,
+      ...this.#emitMatchArms(expression, depth, evidenceNames, scrutinee),
+    ];
+  }
+
+  /**
+   * The data arms alone. `bound` names a local the scrutinee has already been
+   * evaluated into — the match catch clause's temporary — and its presence is
+   * what keeps the scrutinee from being emitted (and so evaluated) twice.
+   */
+  #emitMatchArms(
+    expression: Core.MatchExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+    bound?: string,
   ): string[] {
     if (
       expression.union === undefined ||
@@ -3903,7 +3967,7 @@ class JavaScriptEmitter {
         arm.guard !== undefined || !isSimpleSwitchPattern(arm.pattern)
       )
     ) {
-      return this.#emitConditionalMatch(expression, depth, evidenceNames);
+      return this.#emitConditionalMatch(expression, depth, evidenceNames, bound);
     }
     const prefix = indent(depth);
     const armIndent = indent(depth + 1);
@@ -3914,18 +3978,18 @@ class JavaScriptEmitter {
     const needsMatchName = tagged || expression.arms.some(
       (arm) => arm.pattern.kind === "Binding",
     );
-    const matchName = needsMatchName
-      ? this.#generatedNames.fresh("match")
-      : undefined;
-    const scrutinee = this.#emitExpr(
-      expression.scrutinee,
-      depth,
-      evidenceNames,
-    );
+    const matchName = bound ??
+      (needsMatchName ? this.#generatedNames.fresh("match") : undefined);
     const lines = matchName === undefined
-      ? [`${prefix}switch (${scrutinee}) {`]
+      ? [`${prefix}switch (${
+          this.#emitExpr(expression.scrutinee, depth, evidenceNames)
+        }) {`]
       : [
-          `${prefix}const ${matchName} = ${scrutinee};`,
+          ...(bound === undefined
+            ? [`${prefix}const ${matchName} = ${
+                this.#emitExpr(expression.scrutinee, depth, evidenceNames)
+              };`]
+            : []),
           `${prefix}switch (${matchName}${tagged ? ".tag" : ""}) {`,
         ];
     for (const arm of expression.arms) {
@@ -3986,11 +4050,15 @@ class JavaScriptEmitter {
     expression: Core.MatchExpr,
     depth: number,
     evidenceNames: EvidenceNames,
+    bound?: string,
   ): string[] {
     const prefix = indent(depth);
-    const matchName = this.#generatedNames.fresh("match");
-    const scrutinee = this.#emitExpr(expression.scrutinee, depth, evidenceNames);
-    const lines = [`${prefix}const ${matchName} = ${scrutinee};`];
+    const matchName = bound ?? this.#generatedNames.fresh("match");
+    const lines = bound === undefined
+      ? [`${prefix}const ${matchName} = ${
+          this.#emitExpr(expression.scrutinee, depth, evidenceNames)
+        };`]
+      : [];
 
     for (const arm of expression.arms) {
       const alternatives = expandOrPatterns(arm.pattern);

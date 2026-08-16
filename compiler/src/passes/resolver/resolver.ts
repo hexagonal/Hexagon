@@ -2768,6 +2768,30 @@ class Resolver {
     }
   }
 
+  /**
+   * A block of `pattern [when g] => body` arms. One arm form serves `match`,
+   * `try`'s `catch`, and the match catch clause (Pattern Matching §6.1–§6.2),
+   * so one resolver does: each arm opens its own scope and its binders are head
+   * binders (Statements §5).
+   */
+  #resolveArms(
+    arms: readonly Parsed.MatchArm[],
+    scope: Scope,
+  ): readonly Resolved.MatchArm[] {
+    return arms.map((arm) => {
+      const armScope = this.#openScope(scope, arm.span);
+      const pattern = this.#resolvePattern(arm.pattern, armScope, new Map(), "head");
+      return {
+        pattern,
+        ...(arm.guard === undefined
+          ? {}
+          : { guard: this.#resolveExpr(arm.guard, armScope) }),
+        body: this.#resolveExpr(arm.body, armScope),
+        span: arm.span,
+      };
+    });
+  }
+
   #resolveExpr(expression: Parsed.Expr, scope: Scope): Resolved.Expr {
     switch (expression.kind) {
       case "Name":
@@ -2873,49 +2897,24 @@ class Resolver {
           span: expression.span,
         };
       }
-      case "Match":
+      case "Match": {
+        const { catchArms, ...head } = expression;
         return {
-          ...expression,
+          ...head,
           scrutinee: this.#resolveExpr(expression.scrutinee, scope),
-          arms: expression.arms.map((arm) => {
-            const armScope = this.#openScope(scope, arm.span);
-            const pattern = this.#resolvePattern(
-              arm.pattern,
-              armScope,
-              new Map(),
-              "head",
-            );
-            return {
-              pattern,
-              ...(arm.guard === undefined
-                ? {}
-                : { guard: this.#resolveExpr(arm.guard, armScope) }),
-              body: this.#resolveExpr(arm.body, armScope),
-              span: arm.span,
-            };
-          }),
+          arms: this.#resolveArms(expression.arms, scope),
+          // The match catch clause's arms (Exceptions §5.4) resolve exactly as
+          // `try`'s do — one grammar, one arm form, one resolver.
+          ...(catchArms === undefined
+            ? {}
+            : { catchArms: this.#resolveArms(catchArms, scope) }),
         };
+      }
       case "Try":
         return {
           kind: "Try",
           body: this.#resolveExpr(expression.body, scope),
-          arms: expression.arms.map((arm) => {
-            const armScope = this.#openScope(scope, arm.span);
-            const pattern = this.#resolvePattern(
-              arm.pattern,
-              armScope,
-              new Map(),
-              "head",
-            );
-            return {
-              pattern,
-              ...(arm.guard === undefined
-                ? {}
-                : { guard: this.#resolveExpr(arm.guard, armScope) }),
-              body: this.#resolveExpr(arm.body, armScope),
-              span: arm.span,
-            };
-          }),
+          arms: this.#resolveArms(expression.arms, scope),
           span: expression.span,
         };
       case "Call":

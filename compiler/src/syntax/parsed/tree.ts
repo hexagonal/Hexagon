@@ -741,6 +741,13 @@ export interface MatchExpr {
   readonly kind: "Match";
   readonly scrutinee: Expr;
   readonly arms: readonly MatchArm[];
+  /**
+   * The match catch expression's clause (Exceptions §5.4, #500): catch arms in
+   * `catch`'s second seat, guarding the *scrutinee's evaluation only*. Absent is
+   * the ordinary `match`; the arms are `try`'s arms in every respect, so they
+   * share `MatchArm` and the whole of §5.2–§5.3.
+   */
+  readonly catchArms?: readonly MatchArm[];
   readonly span: Source.Span;
 }
 

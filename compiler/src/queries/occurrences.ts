@@ -573,7 +573,11 @@ class Collector {
       case "Match":
       case "Try":
         this.#visitExpr(expression.kind === "Match" ? expression.scrutinee : expression.body);
-        for (const arm of expression.arms) {
+        for (
+          const arm of expression.kind === "Match"
+            ? [...expression.arms, ...expression.catchArms ?? []]
+            : expression.arms
+        ) {
           this.#visitPattern(arm.pattern);
           if (arm.guard !== undefined) this.#visitExpr(arm.guard);
           this.#visitExpr(arm.body);
@@ -734,7 +738,11 @@ class Collector {
       case "Match":
       case "Try":
         this.#visitParsedExpr(expression.kind === "Match" ? expression.scrutinee : expression.body);
-        for (const arm of expression.arms) {
+        for (
+          const arm of expression.kind === "Match"
+            ? [...expression.arms, ...expression.catchArms ?? []]
+            : expression.arms
+        ) {
           if (arm.guard !== undefined) this.#visitParsedExpr(arm.guard);
           this.#visitParsedExpr(arm.body);
         }

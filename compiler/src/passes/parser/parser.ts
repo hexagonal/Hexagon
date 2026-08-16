@@ -186,6 +186,20 @@ class Parser {
    */
   readonly #reservedNameExemptions = new Set<number>();
 
+  /**
+   * The token index the current logical item began at (Exceptions §5.4, #500).
+   *
+   * Layout continues a `catch` after *any* item and stays agnostic about who
+   * owns it (Lexer & Layout §2); ownership is decided here, by item head. `try`
+   * claims its clause from `#parseTry` — it heads the item even when its body is
+   * a `match` — and a `match` claims one only when its own head is the item's
+   * first token. Every other head leaves the `catch` unclaimed, and an
+   * unclaimed one is §9's alignment error.
+   *
+   * `-1` while no item is being parsed, so nothing can accidentally match.
+   */
+  #itemStart = -1;
+
   constructor(
     tokens: readonly LaidOut.Token[],
     diagnostics: Diagnostics.Bag,
@@ -243,6 +257,9 @@ class Parser {
 
   #parseItems(moduleItems = false): readonly Parsed.Item[] {
     const items: Parsed.Item[] = [];
+    // A nested block's items are items of their own, so `#itemStart` belongs to
+    // whichever block is being read; the enclosing item resumes on the way out.
+    const enclosingItemStart = this.#itemStart;
     this.#skipSeparators();
 
     while (!this.#at("VClose") && !this.#at("Eof")) {
@@ -250,9 +267,19 @@ class Parser {
       // block claims its declaration by the token the declaration begins with
       // (§4.1), and virtual tokens are invisible to that (§4).
       const start = this.#current().span.start.offset;
+      this.#itemStart = this.#index;
       const item = this.#parseItem(moduleItems);
+      this.#itemStart = enclosingItemStart;
       this.#documentItem(start, item);
       items.push(item);
+
+      // A `catch` still standing here belongs to no construct: layout continued
+      // it after this item, `try` and a line-initial `match` head both consume
+      // their own, and everything else is Exceptions §9's alignment error.
+      if (this.#at("Catch")) {
+        this.#reportUnattachedCatch();
+        continue;
+      }
 
       if (this.#at("VSep") || this.#at("Semicolon")) {
         this.#skipSeparators();
@@ -263,7 +290,24 @@ class Parser {
       }
     }
 
+    this.#itemStart = enclosingItemStart;
     return items;
+  }
+
+  /**
+   * Exceptions §9's alignment error, with the clause consumed for recovery so
+   * one misplaced `catch` does not cascade into its own arms.
+   */
+  #reportUnattachedCatch(): void {
+    const clause = this.#advance();
+    this.#errorAt(
+      clause.span,
+      "a `catch` clause must align with a `match` that begins its line — " +
+        "align the `catch` with the `match`'s column; if the `match` head is " +
+        "mid-line, move it onto its own line",
+    );
+    if (this.#at("VOpen")) this.#parseCatchArms();
+    this.#skipSeparators();
   }
 
   /**
@@ -2585,15 +2629,52 @@ class Parser {
   }
 
   #parseMatch(outerStops: ReadonlySet<TokenKind>): Parsed.MatchExpr {
+    // Exceptions §5.4: only a `match` head that begins its logical item may take
+    // a catch clause. Read before the head is consumed, because that is what the
+    // index compares against.
+    const headsItem = this.#index === this.#itemStart;
     const start = this.#advance();
     const scrutinee = this.#parseExpression(
       0,
-      withStops(outerStops, "VOpen"),
+      withStops(outerStops, "VOpen", "Catch"),
     );
+    // `match e` with the `catch` on the next line at the head's column: layout
+    // continued the clause rather than opening an arm block, so there are no
+    // arms at all. Exceptions §9's own message, ahead of the generic one.
+    if (this.#at("Catch") && headsItem) {
+      this.#errorAt(
+        start.span,
+        "`match` requires at least one arm; to handle only exceptions, use `try`/`catch`",
+      );
+      this.#advance();
+      const only = this.#parseCatchArms();
+      return {
+        kind: "Match",
+        scrutinee,
+        arms: [],
+        catchArms: only,
+        span: spanFrom(start.span, this.#previous().span),
+      };
+    }
     this.#expect("VOpen", "expected an indented block of match arms");
     const arms: Parsed.MatchArm[] = [];
+    let indentedCatch: readonly Parsed.MatchArm[] | undefined;
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
+      // A `catch` at the arm block's own column: layout continued it as a clause
+      // (Lexer & Layout §2), so it arrives here where an arm's pattern is due.
+      // Exceptions §9's fixit, then the clause is read anyway so one misplaced
+      // keyword does not cascade through its arms.
+      if (this.#at("Catch")) {
+        const clause = this.#advance();
+        this.#errorAt(
+          clause.span,
+          "align `catch` with `match` to attach a catch clause",
+        );
+        indentedCatch = this.#parseCatchArms();
+        this.#skipSeparators();
+        continue;
+      }
       const pattern = this.#parsePattern();
       if (pattern === undefined) {
         this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
@@ -2622,21 +2703,36 @@ class Parser {
       this.#skipSeparators();
     }
     const closing = this.#expect("VClose", "expected the match arms to close");
+    let end = closing?.span ?? arms.at(-1)?.span ?? scrutinee.span;
+
+    // The match catch clause (Exceptions §5.4, #500). Layout has already
+    // continued the `catch` after this item; it is this match's only if this
+    // match's own head opened the item. `try match e … catch` therefore keeps
+    // its clause — `try` is the item head — and `let x = match e … catch` keeps
+    // none, which is the alignment error `#parseItems` reports.
+    let catchArms = indentedCatch;
+    if (this.#at("Catch") && headsItem) {
+      this.#advance();
+      catchArms = this.#parseCatchArms();
+      end = this.#previous().span;
+    }
+
     return {
       kind: "Match",
       scrutinee,
       arms,
-      span: spanFrom(
-        start.span,
-        closing?.span ?? arms.at(-1)?.span ?? scrutinee.span,
-      ),
+      ...(catchArms === undefined ? {} : { catchArms }),
+      span: spanFrom(start.span, end),
     };
   }
 
-  #parseTry(outerStops: ReadonlySet<TokenKind>): Parsed.TryExpr {
-    const start = this.#advance();
-    const body = this.#parseBodyExpression(withStops(outerStops, "Catch"));
-    this.#expect("Catch", "`try` requires a `catch`");
+  /**
+   * The arm block of a `catch`, in either of its two seats (Exceptions §5.1 and
+   * §5.4): one grammar, one arm form, one parser. The `catch` token itself is
+   * the caller's — `try` requires it, a `match` clause claims it — and this
+   * begins at the block it opens.
+   */
+  #parseCatchArms(): readonly Parsed.MatchArm[] {
     this.#expect("VOpen", "expected an indented block of catch arms");
     const arms: Parsed.MatchArm[] = [];
     this.#skipSeparators();
@@ -2666,8 +2762,16 @@ class Parser {
       });
       this.#skipSeparators();
     }
-    const closing = this.#expect("VClose", "expected the catch arms to close");
-    let end = closing?.span ?? arms.at(-1)?.span ?? body.span;
+    this.#expect("VClose", "expected the catch arms to close");
+    return arms;
+  }
+
+  #parseTry(outerStops: ReadonlySet<TokenKind>): Parsed.TryExpr {
+    const start = this.#advance();
+    const body = this.#parseBodyExpression(withStops(outerStops, "Catch"));
+    this.#expect("Catch", "`try` requires a `catch`");
+    const arms = this.#parseCatchArms();
+    let end = this.#previous().span;
     if (this.#at("Finally")) {
       const finallyToken = this.#advance();
       this.#errorAt(finallyToken.span, "Hexagon has no `finally`; resources are scoped with `use`");

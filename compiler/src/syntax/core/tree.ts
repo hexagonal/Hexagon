@@ -623,6 +623,12 @@ export interface MatchExpr extends ExpressionFields {
   readonly kind: "Match";
   readonly scrutinee: Expr;
   readonly arms: readonly MatchArm[];
+  /**
+   * The match catch clause's arms (Exceptions §5.4, #500). Emission narrows the
+   * JS `try` to the scrutinee's evaluation and runs §7.4's discrimination in the
+   * JS `catch`; the data arms lower outside it, on the bound scrutinee.
+   */
+  readonly catchArms?: readonly MatchArm[];
   readonly union?: Resolved.UnionId;
 }
 
