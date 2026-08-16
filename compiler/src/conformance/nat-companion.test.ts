@@ -147,7 +147,7 @@ describe("the guards name `Nat`, which they never did before", () => {
     const messages = ["Div", "Mod", "Quot", "Rem"].map((member) => {
       const error = threw(exports[`by${member}`] as () => unknown) as Error;
       expect(error.name).toBe("DivideByZeroError");
-      expect((error as Error & { $hex?: boolean }).$hex).toBe(true);
+      expect((error as Error & { $hex?: string }).$hex).toBe("Integral");
       return error.message;
     });
 

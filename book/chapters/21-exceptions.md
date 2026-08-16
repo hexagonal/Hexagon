@@ -191,14 +191,19 @@ A Hexagon exception is a genuine JavaScript `Error` object extended with plain f
 
 ```js
 Object.assign(new Error("unexpected token"), {
-  $hex: true,
+  $hex: "parser",
   name: "ParseError",
   line: 12
 });
 ```
 
-The `$hex` brand distinguishes Hexagon exceptions from foreign errors; `name` identifies
-the constructor. There are no generated exception classes or `instanceof` chains.
+The `$hex` brand distinguishes Hexagon exceptions from foreign errors, and it says *whose*
+they are: its value is the declaring module's identity — the project-root-relative path
+with the extension dropped, so `parser.hex` brands `"parser"` and `client/errors.hex`
+brands `"client/errors"`. `name` identifies the constructor. Identity is therefore the
+pair, which is why two modules that each declare `exception Boom` declare two different
+exceptions and a catch arm for one never catches the other. There are no generated
+exception classes or `instanceof` chains.
 
 Every mention of a nullary exception constructs a fresh `Error` so its stack points to
 the useful site. This differs intentionally from allocation-free nullary union values:
@@ -208,14 +213,31 @@ An exported exception has an equally direct TypeScript face:
 
 ```ts
 type ParseError = Error & {
-  $hex: true;
+  $hex: "parser";
   name: "ParseError";
   line: number;
 };
 ```
 
-`Exn` itself appears as `Error` at the TypeScript boundary. Catch emission first checks
-the brand, then the exception name, and automatically rethrows anything unmatched.
+Catch emission first checks the brand, then the exception name, and automatically rethrows
+anything unmatched.
+
+A JavaScript consumer gets that discrimination ready-made rather than hand-written. Every
+exported exception constructor carries a guard, and a module exporting one also exports a
+general guard for the first question a `catch` asks:
+
+```ts
+export declare function ParseError(line: number, message: string): ParseError;
+export declare namespace ParseError {
+  function is(err: unknown): err is ParseError;
+}
+export declare function isHexError(
+  err: unknown,
+): err is Error & { readonly $hex: string; readonly name: string };
+```
+
+Both are TypeScript type predicates, so a branch narrows an `unknown` catch binding to the
+published face. Neither exists on the Hexagon side: the domestic eliminator is `catch`.
 
 ## Summary
 

@@ -319,7 +319,7 @@ describe("the seven door lowerings", () => {
     } catch (error) {
       thrown = error;
     }
-    expect(thrown).toMatchObject({ name: "KeyError", $hex: true });
+    expect(thrown).toMatchObject({ name: "KeyError", $hex: "Map" });
     // Nullary: §4.3 rules out a key payload (a polymorphic key cannot be an
     // exception slot) and rules out every lying substitute for it.
     expect(Object.keys(thrown as object)).not.toContain("key");

@@ -299,6 +299,25 @@ export interface ResolveOptions {
    * never by the module's text — a file does not know where it lives.
    */
   readonly path?: string;
+  /**
+   * This module's **brand identity** (`spec/exceptions.md` §7.1, #488): the
+   * string every exception declared here carries as `$hex`, and the literal its
+   * `.d.ts` face publishes.
+   *
+   * A module's identity in Hexagon is its path (Modules §2), so the spelling is
+   * the project-root-relative path with forward slashes, the `.hex` extension
+   * dropped and no leading slash — `client/errors.hex` is `"client/errors"` —
+   * except for an injected module, which brands its **canonical injected name**
+   * (`"Seq"`, `"Vector"`, `"Map"`) wherever in the project its file happens to
+   * sit. Only `compileProject` knows the project root and the injection set, so
+   * only it can spell this; like `path` and `privileged`, it is settled by the
+   * caller and never by the module's text.
+   *
+   * Absent for a pass-level harness that compiles a module with no project
+   * around it, which brands `""` — one module, no second identity to be
+   * distinguished from.
+   */
+  readonly identity?: string;
 }
 
 export function resolve(
@@ -804,6 +823,8 @@ class Resolver {
   readonly #companionPrimitive: Resolved.PrimitiveName | undefined;
   /** This module's own path; see `ResolveOptions.path`. */
   readonly #path: string | undefined;
+  /** This module's brand identity; see `ResolveOptions.identity`. */
+  readonly #identity: string;
   readonly #preludeScope = new Scope();
   /** Every scope opened, in the order they were opened — see `Module.scopes`. */
   readonly #openScopes: Scope[] = [];
@@ -957,6 +978,7 @@ class Resolver {
     this.#privileged = options.privileged ?? false;
     this.#companionPrimitive = options.companionPrimitive;
     this.#path = options.path;
+    this.#identity = options.identity ?? "";
     this.#nextSymbol = options.symbolBase ?? 0;
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
@@ -2714,6 +2736,10 @@ class Resolver {
             annotation: this.#resolveTypeAnnotation(slot.annotation),
             span: slot.span,
           })),
+          // Exceptions §7.1's brand, stamped where the declaration is made:
+          // whichever module later names this constructor in a catch arm tests
+          // *this* string, so it cannot be re-derived at the reading end.
+          owner: this.#identity,
           span: item.span,
         };
       }

@@ -261,7 +261,7 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
     ] as const) {
       const error = threw(exports[name] as () => unknown);
       expect(error).toBeInstanceOf(Error);
-      expect(error).toMatchObject({ name: "DivideByZeroError", $hex: true, message });
+      expect(error).toMatchObject({ name: "DivideByZeroError", $hex: "Integral", message });
     }
   });
 

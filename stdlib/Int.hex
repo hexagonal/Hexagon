@@ -61,7 +61,7 @@ honor Show<Int> =
     show(value) = nativeShow(value)
 
 honor Pow<Int> =
-    (** `left` raised to the power `right`. Raises `NegativeExponentError` when
+    (** `left` raised to the power `right`. Throws `NegativeExponentError` when
         `right` is negative: a negative power of an integer is not an integer. *)
     pow(left, right) =
         if right < 0 then
@@ -76,7 +76,7 @@ honor Hash<Int> =
 
 honor Integral<Int> =
     (** The truncated quotient of `left` divided by `right`, rounding toward
-        zero. Raises `DivideByZeroError` when `right` is zero. *)
+        zero. Throws `DivideByZeroError` when `right` is zero. *)
     quot(left, right) =
         if right == 0 then
             throw(DivideByZeroError("Int.quot: divisor is zero"))
@@ -84,7 +84,7 @@ honor Integral<Int> =
             nativeQuot(left, right)
 
     (** The truncated remainder of `left` divided by `right`, taking the sign of
-        `left` — this is JS's `%`. Raises `DivideByZeroError` when `right` is
+        `left` — this is JS's `%`. Throws `DivideByZeroError` when `right` is
         zero, where JS would answer `NaN`. *)
     rem(left, right) =
         if right == 0 then
@@ -93,7 +93,7 @@ honor Integral<Int> =
             nativeRem(left, right)
 
     (** The Euclidean remainder of `left` divided by `right`: always
-        non-negative, whatever the signs. Raises `DivideByZeroError` when
+        non-negative, whatever the signs. Throws `DivideByZeroError` when
         `right` is zero. *)
     mod(left, right) =
         if right == 0 then
@@ -106,7 +106,7 @@ honor Integral<Int> =
                 remainder
 
     (** The Euclidean quotient of `left` divided by `right`: the unique partner
-        of `mod` satisfying `div(l, r) * r + mod(l, r) == l`. Raises
+        of `mod` satisfying `div(l, r) * r + mod(l, r) == l`. Throws
         `DivideByZeroError` when `right` is zero. *)
     div(left, right) =
         if right == 0 then

@@ -1924,15 +1924,18 @@ than settling a style question.
   channel: it rewrites a *value* reference into a construction, and an imported
   exception's value face is the exporter's — the separate defect
   `map-prelude-companion.test.ts` pins.
-- **Residue, recorded not fixed:** Exceptions §7.1 represents a raised exception
-  as an `Error` carrying `$hex` and the declared `name`, so identity at run time
-  **is the name string**. Two exceptions declared under one name in two modules
-  therefore have one representation, and an arm naming either catches both —
-  `B.Boom(tag)` catches what `A.raise()` threw, with `tag` bound to `undefined`.
-  Nothing in this is about occlusion, the prelude, or the qualified spelling;
-  it was simply unwritable while a catch arm could name no foreign exception at
-  all. Pinned as it behaves in
-  `conformance/qualified-exception-patterns.test.ts`.
+- **Residue, since discharged (#488).** Exceptions §7.1 represented a raised
+  exception as an `Error` carrying `$hex: true` and the declared `name`, so
+  identity at run time **was the name string**. Two exceptions declared under one
+  name in two modules therefore had one representation, and an arm naming either
+  caught both — `B.Boom(tag)` caught what `A.raise()` threw, with `tag` bound to
+  `undefined`. Nothing in this was about occlusion, the prelude, or the qualified
+  spelling; it was simply unwritable while a catch arm could name no foreign
+  exception at all, which is why it was recorded here rather than fixed here.
+  **Closed by #488**: the brand now carries the declaring module's path identity,
+  discrimination is the (module, name) pair (§7.4), and the pin in
+  `conformance/qualified-exception-patterns.test.ts` flipped to the capability —
+  `A`'s `Boom` passes a `B.Boom` arm and is rethrown intact.
 - **Executable conformance:**
   `conformance/qualified-exception-patterns.test.ts` — `Vector.IndexError(i, s)`
   catches and binds both slots; `Map.KeyError` catches the bracket's throw; the

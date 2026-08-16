@@ -96,6 +96,93 @@ export function extractDocContent(comment: Source.Comment): string {
     .join("\n");
 }
 
+/**
+ * One recognized **throws manifest** (`spec/doc-comments.md` §6.1): the declared
+ * exception a documented declaration says it may raise, and the condition under
+ * which it does.
+ */
+export interface ThrowsManifest {
+  /** The bare declared name from the backticks — what `@throws {X}` carries. */
+  readonly name: string;
+  /** The prose after `when`, without the sentence's trailing period. */
+  readonly condition: string;
+}
+
+/** The backticked head of a manifest: `Throws`, then one backticked name, then `when`. */
+const MANIFEST_HEAD = /(?<![\p{L}\p{N}_])Throws\s+`([^`\n]*)`\s+when\b/gu;
+
+/**
+ * A manifest head *inside* a condition, which refuses the whole sentence (§6.1).
+ * Deliberately not the head above: what refuses is a backticked uppercase-start
+ * name followed by `when`, with or without a second `Throws` in front of it —
+ * ``Throws `X` when a, and `Y` when b.`` has only one `Throws`.
+ */
+const NESTED_HEAD = /`[A-Z][A-Za-z0-9_]*`\s+when(?![\p{L}\p{N}_])/u;
+
+/** The bare declared name a manifest may carry: uppercase-start, identifier shaped. */
+const MANIFEST_NAME = /^[A-Z][A-Za-z0-9_]*$/u;
+
+/**
+ * Every throws manifest in doc content, in source order (§6.1).
+ *
+ * Recognition is **exact and conservative**, and the deviations are all one
+ * answer — ordinary prose, no tag: a lowercase or non-identifier name, a missing
+ * period, an empty condition. The one rule that is not a mere non-match is the
+ * refusal: a condition that itself contains a manifest head fires *nothing*
+ * rather than one mangled tag, which is what makes one sentence per exception
+ * the grammar and not merely the style.
+ *
+ * Fenced code blocks are not prose, so nothing inside one is read — a manifest
+ * quoted in an example fires nothing. Inline spans need no such treatment: a
+ * backtick cannot nest inside a backtick.
+ */
+export function throwsManifests(content: string): readonly ThrowsManifest[] {
+  const prose = withoutFencedCode(content);
+  const manifests: ThrowsManifest[] = [];
+  MANIFEST_HEAD.lastIndex = 0;
+  for (
+    let match = MANIFEST_HEAD.exec(prose);
+    match !== null;
+    match = MANIFEST_HEAD.exec(prose)
+  ) {
+    const name = match[1]!;
+    const rest = prose.slice(MANIFEST_HEAD.lastIndex);
+    const period = rest.indexOf(".");
+    if (period < 0) continue;
+    const condition = rest.slice(0, period);
+    if (!MANIFEST_NAME.test(name)) continue;
+    if (NESTED_HEAD.test(condition)) continue;
+    // The condition is carried verbatim but must become one tag line, so the
+    // line breaks a doc block wraps its prose over collapse to single spaces.
+    const collapsed = condition.trim().replace(/\s+/gu, " ");
+    if (collapsed === "") continue;
+    manifests.push({ name, condition: collapsed });
+  }
+  return manifests;
+}
+
+/**
+ * The content with every fenced code block blanked out (§6.1's prose-only rule).
+ *
+ * Blanked rather than removed so that nothing downstream has to reason about
+ * shifted offsets; the recognizer reads text, never positions. A fence closes on
+ * the same character it opened with, and an unclosed one runs to the end —
+ * CommonMark's rule, and the conservative one here besides.
+ */
+function withoutFencedCode(content: string): string {
+  let fence: string | undefined;
+  return content.split("\n").map((line) => {
+    const marker = /^ {0,3}(`{3,}|~{3,})/u.exec(line)?.[1]?.[0];
+    if (fence === undefined) {
+      if (marker === undefined) return line;
+      fence = marker;
+      return "";
+    }
+    if (marker === fence) fence = undefined;
+    return "";
+  }).join("\n");
+}
+
 /** The longest whitespace prefix every given line starts with. */
 function commonWhitespacePrefix(lines: readonly string[]): string {
   let prefix: string | undefined;

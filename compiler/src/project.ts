@@ -258,6 +258,15 @@ export function compileProject(
       // declared here is stamped with, which together let the checker name
       // another module's *file* in Collections Part 5 §3.3's diagnostic.
       path,
+      // The same fact read the other way round: what this module *is*, for
+      // Exceptions §7.1's brand (#488). Root-relative and extensionless, except
+      // that an injected module brands its canonical injected name wherever its
+      // file sits — a project supplying its own `stdlib/Vector.hex` is still
+      // `Vector`, which is what keeps the brand a property of the module rather
+      // than of the directory a host happened to unpack the stdlib into.
+      identity: isInjected
+        ? basenameIdentity(path)
+        : rootRelativeIdentity(path, root),
       imports,
       symbolBase: isInjected ? preludeSymbolBase : symbolBase,
       unionBase: isInjected ? preludeUnionBase : unionBase,
@@ -606,6 +615,31 @@ function injectEmbedded(
     sources.set(path, new Source.File(Source.fileId(maxId), path, module.source));
     return path;
   });
+}
+
+/**
+ * An injected module's brand identity: its canonical injected name, which is
+ * its basename with the extension dropped (`spec/exceptions.md` §7.1, #488).
+ *
+ * `injectEmbedded` seats an injected module at whichever project file already
+ * carries its basename, so the directory is the host's business and the name is
+ * the language's — `stdlib/Vector.hex` and an embedded `Vector.hex` are one
+ * module, `Vector`, and one brand.
+ */
+function basenameIdentity(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1).replace(/\.hex$/u, "");
+}
+
+/**
+ * An ordinary module's brand identity: its path relative to the project root,
+ * forward slashes, `.hex` dropped, no leading slash (§7.1). One module per
+ * path, so the brand is unique by construction and needs no naming rule.
+ */
+function rootRelativeIdentity(path: string, root: string): string {
+  const relative = root !== "" && path.startsWith(`${root}/`)
+    ? path.slice(root.length + 1)
+    : path;
+  return relative.replace(/^\//u, "").replace(/\.hex$/u, "");
 }
 
 /** Longest shared directory prefix of the given file paths. */

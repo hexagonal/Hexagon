@@ -59,7 +59,7 @@ honor Hash<Nat> =
 
 honor Integral<Nat> =
     (** The truncated quotient of `left` divided by `right`, which at `Nat` is
-        the Euclidean one. Raises `DivideByZeroError` when `right` is zero. *)
+        the Euclidean one. Throws `DivideByZeroError` when `right` is zero. *)
     quot(left, right) =
         if right == 0 then
             throw(DivideByZeroError("Nat.quot: divisor is zero"))
@@ -67,7 +67,7 @@ honor Integral<Nat> =
             nativeQuot(left, right)
 
     (** The truncated remainder of `left` divided by `right`, which at `Nat` is
-        the Euclidean one. Raises `DivideByZeroError` when `right` is zero. *)
+        the Euclidean one. Throws `DivideByZeroError` when `right` is zero. *)
     rem(left, right) =
         if right == 0 then
             throw(DivideByZeroError("Nat.rem: divisor is zero"))
@@ -76,7 +76,7 @@ honor Integral<Nat> =
 
     (** The Euclidean remainder of `left` divided by `right`. Neither operand
         can be negative, so it is the truncated remainder value for value, and
-        it carries its own guard so a zero divisor names this member. Raises
+        it carries its own guard so a zero divisor names this member. Throws
         `DivideByZeroError` when `right` is zero. *)
     mod(left, right) =
         if right == 0 then
@@ -85,7 +85,7 @@ honor Integral<Nat> =
             nativeRem(left, right)
 
     (** The Euclidean quotient of `left` divided by `right`, equal to the
-        truncated quotient at this type and guarded in its own name. Raises
+        truncated quotient at this type and guarded in its own name. Throws
         `DivideByZeroError` when `right` is zero. *)
     div(left, right) =
         if right == 0 then

@@ -507,6 +507,39 @@ function primitive(name: Typed.PrimitiveName): Constructor {
 }
 
 /**
+ * The fixed public name of the stage-1 exception guard a module exporting an
+ * exception publishes (`spec/exceptions.md` §7.6, FFI Part 7 §6 — #478). The
+ * checker knows it because it owns the one collision rule around it (Part 7
+ * §11); emission spells it independently, as it spells every face it writes.
+ */
+const IS_HEX_ERROR = "isHexError";
+
+/** Whether any binder of a destructuring `let` claims the guard's name. */
+function patternBindsGuardName(pattern: Resolved.Pattern): boolean {
+  switch (pattern.kind) {
+    case "Binding":
+      return pattern.binding.name === IS_HEX_ERROR;
+    case "As":
+      return pattern.binding.name === IS_HEX_ERROR ||
+        patternBindsGuardName(pattern.pattern);
+    case "Vector":
+      return pattern.elements.some(patternBindsGuardName) ||
+        (pattern.rest?.pattern !== undefined &&
+          patternBindsGuardName(pattern.rest.pattern));
+    case "Tuple":
+      return pattern.elements.some(patternBindsGuardName);
+    case "Record":
+      return pattern.fields.some((field) => patternBindsGuardName(field.pattern));
+    case "Or":
+      return pattern.alternatives.some(patternBindsGuardName);
+    case "Constructor":
+      return pattern.arguments.some(patternBindsGuardName);
+    default:
+      return false;
+  }
+}
+
+/**
  * The two nominal identity spaces are separate counters, so a record and a union
  * can share a number. These two functions are the only place either becomes a
  * companion key, which is what keeps `record:3` and `union:3` apart.
@@ -8354,7 +8387,65 @@ class Checker {
     }
   }
 
+  /**
+   * FFI Part 7 §11's one owned error (#478): a module that exports an exception
+   * publishes the fixed generated face `isHexError` (Exceptions §7.6), and a
+   * module-level declaration of that name has nowhere to go.
+   *
+   * `isHexError` is a **face**, deliberately outside Lexer §3.2's reserved
+   * prefix, so it cannot be moved aside by the probe every generated name uses;
+   * and the source's name cannot be moved aside silently, which is the whole of
+   * the Part 8 §6.2 family's posture. So both sites are named and the fix is a
+   * source rename. The family's two wordings are kept: an *exported* collision
+   * asks for the export to be renamed, an unexported one for the declaration —
+   * and both are errors here, because unlike a specialization the guard is
+   * always public, so a private binding of the name would put two `isHexError`
+   * declarations in one emitted module.
+   */
+  #checkGeneratedGuardCollision(items: readonly Resolved.Item[]): void {
+    const exception = items.find(
+      (item): item is Resolved.ExceptionItem => item.kind === "Exception" && item.exported,
+    );
+    if (exception === undefined) return;
+    const named = (binding: Resolved.Binding): boolean => binding.name === IS_HEX_ERROR;
+    for (const item of items) {
+      const site: { readonly span: Source.Span; readonly exported: boolean } | undefined =
+        (item.kind === "Let" || item.kind === "Fun" || item.kind === "Var") && named(item.binding)
+          ? { span: item.span, exported: item.kind !== "Var" && item.exported }
+          : item.kind === "LetPattern" && patternBindsGuardName(item.pattern)
+          ? { span: item.span, exported: false }
+          : item.kind === "ExternBlock"
+          ? item.declarations
+            .flatMap((declaration) =>
+              declaration.kind !== "ExternType" && named(declaration.binding)
+                ? [{ span: declaration.span, exported: declaration.exported }]
+                : []
+            )[0]
+          : item.kind === "ConstraintDeclaration"
+          ? item.members
+            .flatMap((member) =>
+              named(member.binding)
+                ? [{ span: member.span, exported: item.exported }]
+                : []
+            )[0]
+          : undefined;
+      if (site === undefined) continue;
+      this.#diagnostics.add({
+        severity: "error",
+        message: site.exported
+          ? `generated guard \`${IS_HEX_ERROR}\` conflicts with exported \`${IS_HEX_ERROR}\`; rename the export`
+          : `generated guard \`${IS_HEX_ERROR}\` conflicts with binding \`${IS_HEX_ERROR}\`; rename the declaration`,
+        primary: site.span,
+        labels: [{
+          span: exception.span,
+          message: `exported exception \`${exception.binding.name}\` requires the guard`,
+        }],
+      });
+    }
+  }
+
   #checkPublicSignatures(items: readonly Resolved.Item[]): void {
+    this.#checkGeneratedGuardCollision(items);
     const publicUnions = new Set(items.flatMap((item) => item.kind === "Union" && item.exported ? [item.union] : []));
     const publicRecords = new Set(items.flatMap((item) => item.kind === "RecordDeclaration" && item.exported ? [item.record] : []));
     const publicExternTypes = new Set(
@@ -9147,6 +9238,7 @@ class Checker {
         type: this.#publicType(this.#annotationType(slot.annotation)),
         span: slot.span,
       })),
+      owner: item.owner,
       span: item.span,
     };
   }
