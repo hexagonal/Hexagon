@@ -1,6 +1,6 @@
 # Hexagon Spec: Exceptions
 
-**Status:** Decided (July 2026); re-based onto the effects discipline (#480) — the cut is now stated here, not merely inferable from Effects §1, and `Result.attempt`'s arrows link; `finally` resolved to never (#481). With a **hanging-questions** section (§10; §10.1 since resolved); nothing there blocks implementation of §1–§9.
+**Status:** Decided (July 2026); re-based onto the effects discipline (#480) — the cut is now stated here, not merely inferable from Effects §1, and `Result.attempt`'s arrows link; `finally` resolved to never (#481); boundary guards added (#478, §7.6). With a **hanging-questions** section (§10; §10.1 since resolved); nothing there blocks implementation of §1–§9.
 **Scope:** The `exception` declaration (an open extensible sum of error constructors), the `Exn` type, `throw`, the `try`/`catch` expression, foreign (JS-originated) throwables and the `JsError` door, the tagged-`Error`-plus-brand runtime representation, prelude additions (`JsError`, `Result.attempt`), emission and `.d.ts` shapes.
 **Not in scope:** `finally` (resolved: never — §10.1), the full pattern grammar (pattern-matching spec — catch arms use the same flat constructor patterns as `match`, Unions §4.2), the `JsValue` type and its decoding surface (FFI Part 11; this doc consumes its two conservative `JsError` accessors), module-level qualification of exception constructor names (modules spec), async/promise-rejection interactions (FFI/async spec, if any).
 **Companions:** Unions spec (constructor grammar reused wholesale; the closed/open contrast is this doc's reason to exist), Functions spec (arity, constructors-as-terms, value restriction), Lexer & Layout spec (`try`/`catch` bodies are layout blocks), Constraints spec (no derived instances for `Exn`, §7), Effects spec (§1 owns the cut this doc's §1 restates; §2.2's linked arrows are `Result.attempt`'s, §8.2).
@@ -190,12 +190,23 @@ try {
 An exported exception appears as the intersection type that states the §7.1 representation honestly — which is also exactly the shape a hand-written branded error's declaration takes (an outcome, post-#147, not the ground):
 
 ```ts
-type ParseError = Error & { $hex: true; name: "ParseError"; line: number };
+type ParseError = Error & { readonly $hex: true; readonly name: "ParseError"; readonly line: number };
 ```
 
 - **The brand is included, deliberately**: JS-side code constructing Hexagon exceptions to throw into Hexagon does it correctly or not at all.
 - Exported exceptions ship constructor functions for JavaScript callers (FFI Part 7 §6). Payload constructors follow declared slot order. Nullary exceptions are also function-shaped for JavaScript and construct a fresh branded `Error` on every call, preserving call-site stack capture; they are never exported as shared constants.
 - `Exn` itself, where it appears in exported signatures (e.g. `Result.attempt`'s error side), is `Error` in the `.d.ts` — honest about the foreign door: any caught value is presented as an `Error`-typed thing at the boundary. (Foreign non-`Error` throwables make this a white lie of the same size every TS `catch` clause tells; recorded, accepted.)
+
+### 7.6 Boundary guards: `.is` and `isHexError` *(#478)*
+
+The discrimination a JS consumer must write — §7.4's two-stage test, read from the outside — is manufactured for them at emission, in two shapes:
+
+- **Every exported exception constructor carries a guard property `is`.** `ParseError.is(err)` is the domestic test at this name — `err != null && err.$hex === true && err.name === "ParseError"` — and its declaration types it as a TypeScript predicate, `(err: unknown) => err is ParseError`, so a consumer's branch narrows to §7.5's intersection face. The property seat is deliberately collision-free: no Hexagon surface can occupy a property of an exception constructor — a nullary's dotted spelling is ruled out by §3, and a payload constructor's resolves as Modules §5.1's module namespace, never as a property — so no name is spent and no collision rule is needed. Nullary exceptions carry the same property on their function-shaped export (FFI Part 7 §6).
+- **A module that exports at least one exception also exports `isHexError`** — stage 1 alone, `err != null && err.$hex === true`, typed `(err: unknown) => err is Error & { readonly $hex: true; readonly name: string }`. It answers the domestic-or-foreign question every consuming `catch` asks first; the foreign branch is its negation.
+- **`isHexError` is a face, not a hygiene name** (Lexer §3.2 keeps generated public spellings outside the `__` prefix), so it is spelled plainly — and, being a fixed generated public name, a collision with an explicit export of the same module is the Part 8 §6.2 family's hard error: both sites named, the fix a source rename, never a silent one.
+- **Guards certify the brand, not the payload.** They witness construction by §7.1's representation contract, nothing structural; §7.1's spoofing paragraph transfers unchanged — a guard moves the consumer's check from hand-written to correct, not from honest to safe.
+- **`JsError` ships no guard.** Its wrapping is virtual (§6.2): outside §6.2's exotic first-class residue, what a JS consumer receives from Hexagon is never a branded `"JsError"` — it is the original foreign throwable — so a `JsError.is` would match only that residue and mislead everywhere else. The foreign branch is `!isHexError(err)`.
+- **Nothing here exists on the Hexagon side of the boundary.** `.is` and `isHexError` are emission artifacts like the constructor functions themselves (FFI Part 7 §6 owns their `.d.ts` faces); Hexagon source can neither name nor need them — the domestic eliminator is `catch` (§3).
 
 ---
 
@@ -276,5 +287,6 @@ The arrows are linked (Effects §2.2): the thunk's `->?` is the signature's inle
 | Throwing is not an effect — the cut restated from this side; `throw` is `->` pure; `try`/`catch` colours by ordinary join; exceptions-as-tracked-effect and throw-pure/catch-impure both rejected, reasons recorded; catch-in-pure bounds the Effects §7 reordering licence (observable throws pin order) | §1, §3, §5.3 |
 | `Result.attempt`'s arrows link — the thunk's `->?` is the inlet, `attempt` a conduit | §8.2 |
 | `finally`: resolved to never (supersedes the deferral row above) — keyword reserved permanently, purely for the diagnostic; resources are the v2 `use` story | §5.1, §9, §10.1 |
+| Boundary guards (#478): `.is` on every exported exception constructor (TS predicate to the §7.5 face); `isHexError` per exception-exporting module (stage-1 test); fixed generated face, collision = Part 8 §6.2-family hard error; `JsError` excluded (virtual wrapping); guards certify the brand only; nothing exists Hexagon-side | §7.6 |
 | Four hanging questions recorded | §10 |
 | §7.5's `.d.ts` phrasing re-grounded post-#147 (2026-07-29): the intersection face is the honest statement of §7.1's representation; TS-author phrasing demoted to outcome; face unchanged | §7.5 |
