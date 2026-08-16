@@ -881,8 +881,10 @@ late pedagogy pass, not a commitment to the current order.
   original foreign value.
 - `Result.attempt : (() ->? a) ->? Result(a, Exn)` bridges exceptional computation
   back to data; linked arrows — the call is exactly as effectful as its thunk.
-- Runtime values are branded JavaScript `Error` objects; nullary exceptions construct
-  fresh values for useful stacks; exported faces are branded `Error` intersections.
+- Runtime values are branded JavaScript `Error` objects; the `$hex` brand names the
+  declaring module, so identity is the (module, name) pair; nullary exceptions
+  construct fresh values for useful stacks; exported faces are branded `Error`
+  intersections.
 - JS consumers discriminate with the generated `is` guards and `isHexError`; the
   recognized ``Throws `X` when <condition>.`` doc sentence derives `@throws` in
   emitted JSDoc.

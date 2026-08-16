@@ -251,9 +251,9 @@ An exported exception has an equally direct TypeScript face:
 
 ```ts
 type ParseError = Error & {
-  $hex: "parser";
-  name: "ParseError";
-  line: number;
+  readonly $hex: "parser";
+  readonly name: "ParseError";
+  readonly line: number;
 };
 ```
 
