@@ -97,11 +97,26 @@ Hard errors, per house rule — there is no warning tier, so the choice is error
 
 ## 6. Content model
 
-Documentation content is **Markdown** (CommonMark). The compiler does not parse, validate, or transform it — content is carried opaque and emitted verbatim (§7); Markdown is the *contract with tooling*, which renders doc content as Markdown everywhere it is surfaced.
+Documentation content is **Markdown** (CommonMark). The compiler does not parse, validate, or transform it — content is carried opaque and emitted verbatim (§7), with exactly one recognized sentence form, read additively and never rewritten: the throws manifest (§6.1). Markdown is the *contract with tooling*, which renders doc content as Markdown everywhere it is surfaced.
 
 - A fenced code block with no info string defaults to Hexagon (` ``` ` = ` ```hexagon `) in every Hexagon-aware renderer; emitted JSDoc keeps the fence as written (§7.2).
 - There is **no tag language**. `@param`, `@returns`, and their kin have no Hexagon meaning; a line beginning `@word` is ordinary Markdown text and passes through. Rationale: the `.d.ts` already carries every exported signature completely and honestly (Modules §4.1.1, FFI Part 7) — a hand-written `@param` row duplicates what the compiler states better, and duplicated statements drift. Deferred, not banned forever, with a revisit bar: §9.2. **But note the boundary consequence** (§7.2): "no Hexagon meaning" does not make a tag inert in the shipped artifact, because TypeScript tooling reads emitted JSDoc with its own tag vocabulary.
 - There is **no intra-doc link resolution** in v1 — no OCaml `{!Vector.map}`, no Rust ``[`Vector`]``. A Markdown link is a Markdown link. Deferred: §9.2.
+
+### 6.1 The throws manifest *(#479)*
+
+One sentence form in doc content is **recognized** — read, never rewritten, never removed:
+
+```
+Throws `X` when <condition>.
+```
+
+- Recognition is exact and conservative: the word `Throws` followed by one backticked uppercase-start name followed by `when` and prose, ending at the sentence's period, anywhere in the doc content (the stdlib writes it mid-paragraph). Anything that deviates is ordinary prose and recognition does not fire — the deriver never guesses.
+- One sentence per exception; several exceptions, several sentences.
+- House style: every exported declaration that throws a declared exception carries the manifest for each (manual voice, as the stdlib's throwing companions already do — spelled `Throws`, the language's own verb, not `Raises`).
+- Recognition changes nothing in the body: the sentence emits verbatim in its place like all content (§7.2). What recognition adds is generated documentation — the `@throws` tags of §7.4.
+- **This is not a tag language.** §6's bullet stands and §9.2's bar is untouched: no `@word` gains Hexagon meaning, nothing is written in tag syntax in Hexagon source; the one recognized form is a prose sentence, and the tag is emission's output, not the author's input.
+- Nothing is checked: whether the declaration actually throws `X` is not verified — the manifest is documentation (a lint is parked with Exceptions §10.4's posture).
 
 ## 7. Emission
 
@@ -129,6 +144,20 @@ Content emits verbatim as the JSDoc body — Markdown is what TS tooling renders
 ### 7.3 Coexistence with generated documentation
 
 The emitter already generates documentation of its own: the union representation-cliff warning (FFI Part 7 §4.1, Unions §6.2). Where a declaration carries both user documentation and generated documentation, they emit as **one** JSDoc block — user content first, generated content after a blank line — because TS tooling attaches only the immediately preceding JSDoc block, and two blocks would silently drop one. Edit note to FFI Part 7: §13.
+
+### 7.4 Generated `@throws` tags *(#479)*
+
+Each recognized throws manifest (§6.1) on a documented **exported** declaration yields one generated tag line in that declaration's JSDoc block, in §7.3's generated-content position:
+
+```
+@throws {X} when <condition>
+```
+
+- **`@throws`**, not the legacy alias `@exception` — the spelling TypeScript hover renders and JSDoc linting checks.
+- The brace carries the **bare declared name**: untyped to `tsc` (which never checks throws), link-resolved by documentation tooling where the exported exception type is in scope, degrading to text elsewhere. Module qualification, where it matters, lives in the manifest's prose — the brand's path identity (Exceptions §7.1, #488) is a runtime spelling, not a documentation one.
+- Emitted in **both** artifacts, per §7.1's rule — the `.js` block and the `.d.ts` block.
+- Hand-written `@`-lines in doc content remain §7.2's recorded pass-through, unchanged: the deriver neither deduplicates against them nor validates them; an author who writes tag syntax by hand is in boundary-tooling territory, outside the convention.
+- Unexported declarations: the manifest is still house style and still renders in Hexagon-side tooling (§8); no tag is generated where no boundary block exists (§7.1's no-seat rule).
 
 ## 8. Tooling *(non-normative)*
 
@@ -243,6 +272,7 @@ export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` doe
 | Emission: JSDoc in both `.js` and `.d.ts` at every corresponding seat; `*/` → `*\/`; no seat → tooling-only | §7 |
 | Verbatim emission makes TS's tag vocabulary live at the boundary — recorded, neither validated nor suppressed; the tag-language ruling inherits it | §6, §7.2, §9.2 |
 | User + generated docs merge into one JSDoc block, user first | §7.3 |
+| The throws manifest (#479): ``Throws `X` when <condition>.`` is the one recognized sentence form — read additively, never rewritten; spelled `Throws` (the language's verb), exact-match recognition, no checking; emission derives `@throws {X} when <condition>` in the generated-content position, both artifacts, exported seats only; not a tag language — §9.2's bar untouched | §6.1, §7.4 |
 | Module docs deferred with a named bar and **no reserved spelling** (JSDoc expresses them within the one form) | §9.1 |
 | Tag language, intra-doc links, parameter docs deferred with bars | §9.2 |
 | Rejected: `///` in any doc role, inner-doc spellings (`(*!`/`//!`), trailing docs, silent danglers, XML docs, v1 tag DSL, `(***` as doc, `.d.ts`-only emission, docs-as-tokens, blank-line detachment | §10 |
