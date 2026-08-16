@@ -280,8 +280,8 @@ The arrows are linked (Effects §2.2): the thunk's `->?` is the signature's inle
 | `catch` clause on a cannot-throw scrutinee (bare variable read / primitive-erased literal, §5.4's class) | hard error: "this `catch` can never run: evaluating ⟨scrutinee⟩ cannot throw" (§5.4) |
 | `match e` followed directly by `catch` (no data arms) | parse error: "`match` requires at least one arm; to handle only exceptions, use `try`/`catch`" (§5.4) |
 | `catch` indented as a match arm | parse error + fixit: "align `catch` with `match` to attach a catch clause" (§5.4) |
-| `catch` at an enclosing item's column, or aligned with a mid-line `match` head's item | alignment error + fixit: "a `catch` clause must align with a `match` that begins its line — align the `catch` with the `match`'s column; if the `match` head is mid-line, move it onto its own line" (§5.4) |
-| `catch` on a match function (scrutinee-less `match`, Pattern Matching §6.7) | "a match function's parameter is already a value; there is nothing here for `catch` to observe — to guard the arm bodies, write `x => try match x … catch …`" (§5.4) |
+| `catch` at an enclosing item's column, or aligned with a mid-line `match` head's item | alignment error + fixit: "a `catch` clause must align with a `match` that begins its line — align the `catch` with the `match`'s column; if the `match` head is mid-line, move it onto its own line" (§5.4); when the trailing `match` is scrutinee-less, report the match-function diagnostic (row below) directly instead |
+| `catch` on a match function (scrutinee-less `match`, Pattern Matching §6.7) | "a match function's parameter is already a value; there is nothing here for `catch` to observe — to guard the arm bodies, write a lambda whose body is `try match x …` with `catch` aligned to the `try`" (§5.4) |
 
 ---
 
