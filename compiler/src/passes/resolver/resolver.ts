@@ -30,6 +30,14 @@ export interface ModuleInterface {
   readonly terms: ReadonlyMap<string, Resolved.Symbol>;
   readonly unions: ReadonlyMap<string, Resolved.Union>;
   readonly records: ReadonlyMap<string, Resolved.RecordDeclaration>;
+  /**
+   * Exceptions this module exports, by declared name. Their *names* are in
+   * `terms` like any other constructor — this is the **declaration** beside it,
+   * which an importer's checker needs in order to know the symbol is an
+   * exception constructor at all and to read its payload slots
+   * (`Resolved.Module.visibleExceptions`, #469).
+   */
+  readonly exceptions: ReadonlyMap<string, Resolved.ExceptionItem>;
   readonly aliases: ReadonlyMap<string, Resolved.TypeAliasItem>;
   readonly externTypes: ReadonlyMap<string, Resolved.ExternTypeDeclaration>;
   readonly instances: readonly InstanceInterface[];
@@ -531,6 +539,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
   const terms = new Map<string, Resolved.Symbol>();
   const unions = new Map<string, Resolved.Union>();
   const records = new Map<string, Resolved.RecordDeclaration>();
+  const exceptions = new Map<string, Resolved.ExceptionItem>();
   const aliases = new Map<string, Resolved.TypeAliasItem>();
   const externTypes = new Map<string, Resolved.ExternTypeDeclaration>();
   const discoveredInstances: InstanceInterface[] = module.items.flatMap((item): InstanceInterface[] => {
@@ -632,6 +641,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
     } else if (item.kind === "Exception") {
       const symbol = symbols.get(item.binding.symbol);
       if (symbol !== undefined) terms.set(item.binding.name, symbol);
+      exceptions.set(item.binding.name, item);
     }
   }
   return {
@@ -639,6 +649,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
     terms,
     unions,
     records,
+    exceptions,
     aliases,
     externTypes,
     instances,
@@ -916,6 +927,12 @@ class Resolver {
   readonly #qualifiedConstraints = new Map<string, Resolved.ConstraintItem>();
   /** Every constraint declaration the import graph reaches, by identity. */
   readonly #visibleConstraints = new Map<string, Resolved.ConstraintItem>();
+  /**
+   * Every exception declaration the prelude layer and this module's imports
+   * bring, by constructor symbol — `Module.visibleExceptions`. This module's own
+   * are its items and are deliberately absent.
+   */
+  readonly #visibleExceptions = new Map<Resolved.SymbolId, Resolved.ExceptionItem>();
   readonly #impliedTypeOwners = new Map<string, Set<string>>();
   readonly #pending: { readonly name: Parsed.Name; readonly kind: "let" | "var" }[] = [];
   readonly #predeclaredBindings = new WeakMap<Parsed.FunItem | Parsed.ExternFunDeclaration | Parsed.ExternLetDeclaration, Resolved.Binding>();
@@ -1279,6 +1296,15 @@ class Resolver {
         this.#visibleConstraints.set(declaration.identity, declaration);
       }
     }
+    // The exception declarations behind the constructor names just seeded — the
+    // `visibleConstraints` channel one line up, for the other declaration form
+    // whose *terms* cross while its shape stays behind (#469). A prelude
+    // exception is reachable in a catch arm bare, and — §6.4's qualified home
+    // being what `moduleName` above registered — as `Map.KeyError` too; the
+    // checker needs the declaration to answer for either spelling.
+    for (const declaration of prelude.exceptions.values()) {
+      this.#visibleExceptions.set(declaration.binding.symbol, declaration);
+    }
     for (const [name, union] of prelude.unions) {
       seedTypeName(name);
       // Kept separately from `#unionNames` for the reason given below for
@@ -1407,6 +1433,7 @@ class Resolver {
       // are only all resolved by now.
       preludeTypeImports: this.#preludeTypeImports.map((entry) => ({ ...entry })),
       visibleConstraints: [...this.#visibleConstraints.values()],
+      visibleExceptions: [...this.#visibleExceptions.values()],
       externTypes: this.#externTypes,
       comments: module.comments,
       docs: module.docs,
@@ -1990,6 +2017,14 @@ class Resolver {
           if (!this.#visibleConstraints.has(declaration.identity)) {
             this.#visibleConstraints.set(declaration.identity, declaration);
           }
+        }
+        // The imported module's exception declarations, on the same terms and
+        // for every import form (#469). Metadata, not a binding: whether this
+        // line puts `Boom` in bare scope, reaches it as `Lib.Boom`, or neither,
+        // is decided by the halves below — this only lets the checker recognise
+        // the constructor symbol whichever spelling arrives.
+        for (const declaration of importedModule?.exceptions.values() ?? []) {
+          this.#visibleExceptions.set(declaration.binding.symbol, declaration);
         }
         // The alias and its qualified constraints bound before the walk; what is
         // left here is the emission inventory, which is a table this module

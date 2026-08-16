@@ -411,6 +411,30 @@ export interface Module {
    * needs the link need not be the one that imported it.
    */
   readonly visibleConstraints: readonly ConstraintItem[];
+  /**
+   * Every exception declaration this module can see but did not itself write —
+   * the prelude layer's (Modules §5.5) and the ones its imports reach.
+   *
+   * The `unions`/`records` channel for exceptions, and it exists for the same
+   * reason: an exception is a **constructor** (Exceptions §1), so a catch arm
+   * names it with the flat constructor patterns of Unions §4.2 — bare, or
+   * qualified through Modules §3.3 — and the checker cannot tell a resolved
+   * constructor symbol is an exception's, nor read its payload slots, from a
+   * scheme alone. Without this the checker's exception table held the module's
+   * own `exception` items and nothing else, and every in-scope exception the
+   * module had not written was refused in a catch arm by either spelling
+   * (#469).
+   *
+   * This module's own declarations are **not** here: they are its `Exception`
+   * items, which the checker walks anyway to validate their slots. Same
+   * division as `visibleConstraints`.
+   *
+   * Metadata, never scope. What a catch arm may *name* is settled by
+   * resolution — bare through the module scope's prelude layer, qualified
+   * through `#namedModule` — so an entry no spelling reaches is inert rather
+   * than a widening of what is in scope.
+   */
+  readonly visibleExceptions: readonly ExceptionItem[];
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**

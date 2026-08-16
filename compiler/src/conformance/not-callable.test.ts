@@ -340,21 +340,22 @@ export fun pong(n: Int): Unit =
     ).toEqual(["`Missing` is a value, not a function; write it without `()`"]);
   });
 
-  test("an imported nullary exception must not take the constructor hint", () => {
-    // The exception short-circuit above reads `#exceptions`, which holds only
-    // local declarations, so an imported nullary exception reaches the
-    // not-callable arm — where the constructor hint's membership test
-    // (`#constructorUnions`) must exclude it, exception constructors sharing
-    // the resolver's `"constructor"` symbol kind notwithstanding. That it
-    // lands on the generic sentence rather than Exceptions §2.1's hint is the
-    // pre-existing import gap filed as #439; what this test pins is the
-    // boundary: no union-constructor hint, and no fixit deleting the `()`.
+  test("an imported nullary exception takes the exception hint, not the constructor one", () => {
+    // The exception short-circuit above reads `#exceptions`, which held only
+    // local declarations until #469 widened it to every exception constructor
+    // in scope — so an imported nullary exception now reaches it and gets
+    // Exceptions §2.1's sentence, the flip #439 asked for and the ledger row
+    // §9 draws with no local/imported distinction.
+    //
+    // What stays pinned is the boundary the split has to keep either way: this
+    // is the exception arm and not the union-constructor one, so no fixit
+    // deleting the `()` rides along — that offer belongs to §2.2's hint.
     const compiled = compileFiles([
       ["/lib.hex", "export exception Missing\n"],
       ["/main.hex", 'import { Missing } from "./lib"\nexport let bad: Exn = Missing()\n'],
     ]);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
-      "`Missing` is not a function — it has type `Exn`, and this call supplies no arguments",
+      "`Missing` is a value, not a function; write it without `()`",
     ]);
     expect(compiled.diagnostics[0]?.fixes).toBeUndefined();
   });

@@ -251,20 +251,13 @@ describe("consumers see nothing new (§8.2)", () => {
   });
 
   /**
-   * **A pre-existing gap, not this milestone's.** The checker's exception table
-   * is built from `module.items` alone, so a `catch` arm can only name an
-   * exception the *same module* declares: an imported one and a prelude one
-   * alike report "`X` is not an exception constructor", and `Seq.hex`'s
-   * `ReentrancyError` has been uncatchable since it joined the prelude. Making
-   * `IndexError` prelude-visible does not change that, and the fix is a checker
-   * change with a scope of its own (every imported exception, not `Vector`'s
-   * two).
-   *
-   * `test.fails` rather than `skip`: when the table learns about imported
-   * constructors this goes red, which is the signal to delete the comment and
-   * flip it to an ordinary `test`.
+   * The gap this arrived as a `test.fails` against is closed (#469): the
+   * checker's exception table is every exception constructor *in scope*, so the
+   * prelude's `IndexError` is catchable here by the bare name §5.5 puts in
+   * scope — the flip the old comment asked for, made once the table learned
+   * about the constructors this module did not write.
    */
-  test.fails("a `catch` arm can name the prelude `IndexError`", async () => {
+  test("a `catch` arm can name the prelude `IndexError`", async () => {
     const main = await runProject([[
       "/main.hex",
       "let values: Vector(Int) = [10, 20]\n" +

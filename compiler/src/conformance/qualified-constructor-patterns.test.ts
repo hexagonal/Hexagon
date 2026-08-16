@@ -221,21 +221,21 @@ describe("the hatch #466 depends on: an occluding module still reaches the prelu
   });
 });
 
-describe("catch arms take the same form, and hit the same wall bare spellings do", () => {
+describe("catch arms take the same form, and now reach as far", () => {
   /**
    * Catch arms are the flat constructor patterns of Unions §4.2
    * (exceptions.md §5.2), so they run through one pattern resolver and the
    * qualified form arrives there with no arm of its own.
    *
-   * What it cannot do is reach an exception the module did not itself declare —
-   * and **neither can the bare spelling**. That limit is the checker's, it
-   * predates #466, and it is symmetric: an imported exception is refused in a
-   * catch arm whether it is named `Boom` or `Lib.Boom`. So constructor
-   * occlusion costs an exception nothing it had (a module that occludes
-   * `Vector.IndexError` could not have caught `Vector`'s one before either),
-   * but §5.4's "reachable qualified in both positions" is, for exceptions
-   * specifically, a promise the compiler does not yet keep. Pinned as it
-   * behaves, not as it should.
+   * When #466 shipped, the *checker* then refused what the resolver had just
+   * answered: its exception table held the module's own `exception` items, so
+   * an exception the module had not written was refused in a catch arm by
+   * either spelling. #469 widened the table to every exception constructor in
+   * scope, which is what makes §5.4's "reachable qualified in both positions"
+   * true for exceptions too. `qualified-exception-patterns.test.ts` is that
+   * arc's conformance; what stays here is the identity claim this file is
+   * about — the two spellings resolve alike in catch position as they do in a
+   * match.
    */
 
   const catchArm = (arm: string): readonly string[] =>
@@ -253,12 +253,13 @@ describe("catch arms take the same form, and hit the same wall bare spellings do
 
   test("a qualified exception pattern parses and resolves, then reads as the bare one does", () => {
     expect(catchArm("Lib.Boom(c)")).toEqual(catchArm("Boom(c)"));
-    expect(catchArm("Lib.Boom(c)")).toEqual(["`Boom` is not an exception constructor"]);
+    expect(catchArm("Lib.Boom(c)")).toEqual([]);
   });
 
   test("an exception the module declares itself is caught through its bare name", async () => {
-    // The half that works, and the half constructor occlusion actually needs:
-    // the module's own declaration, occluding `Vector.IndexError`.
+    // The half constructor occlusion actually needs: the module's own
+    // declaration, occluding `Vector.IndexError`, caught by the bare name that
+    // occlusion made its own.
     const exports = await runMain(
       "export exception IndexError(code: Int)\n" +
       "export fun caught(): Int =\n" +
