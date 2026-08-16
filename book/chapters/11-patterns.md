@@ -235,6 +235,79 @@ parameters, preserving ordinary n-ary functions:
 The extra parentheses in `((x, y))` matter: the outer pair is the parameter list, and
 the inner pair is the tuple pattern.
 
+## A `match` with no scrutinee is a function
+
+The rule above leaves a gap that callbacks fall into constantly. Mapping over a
+`Vector(Option(String))` means writing a function from `Option(String)` to `String`, and
+the natural spelling is refused:
+
+```hexagon
+Vector.map(options, Some(value) => value)   // error: this pattern can fail
+```
+
+A parameter must be irrefutable, and `Some(value)` is not. The honest expansion is a
+lambda whose whole body is a `match`, which spends a name on a value that is only ever
+handed straight to the arms:
+
+```hexagon
+Vector.map(options, option =>
+    match option
+        Some(value) => value
+        None => "missing"
+)
+```
+
+Hexagon lets you drop that name. **A `match` with nothing after it on the line is a
+function** — the unary function that matches its argument against the arms:
+
+```hexagon
+let labels = Vector.map(options, match
+    Some(value) => value
+    None => "missing"
+)
+```
+
+This is exactly the previous example with the parameter and the scrutinee removed, and
+that is its definition rather than a resemblance: `match` with arms *means*
+`x => match x` with those arms, for a name you cannot write and never need. Everything
+else follows from that. It is a function value like any other, so it can be bound,
+passed, and returned. Its type is read off the patterns and the arm bodies. The arms
+take the full pattern language, guards included.
+
+The disambiguation is one token: anything after `match` on the same line is a scrutinee,
+so `match option` is the expression you already know and only a bare `match` is the
+function. A bare `match` had no meaning before, so nothing changed underneath you.
+
+Being a `match`, it must be exhaustive over its parameter's type — which is the whole
+point. The reason lambda parameters refuse refutable patterns is that a lambda has no
+second arm to fall through to; a match function has as many as you write, and the
+compiler holds you to covering the type. The refusal above even says so:
+
+```text
+a constructor pattern is refutable and cannot be used in a binding position;
+use `match` — for a match function, write `match` with arms
+```
+
+Because it is a lambda, it satisfies the rule that a `fun` binding's right-hand side must
+be written as a function literal — which makes it the natural spelling for a recursive
+matcher:
+
+```hexagon
+fun size = match
+    Leaf => 0
+    Node(left, _, right) => 1 + size(left) + size(right)
+```
+
+Note the layout: the `match` ends the `fun` line. Moving it to the next line would make
+it the binding block's contents rather than the right-hand side as written, and `fun`
+asks for the written form.
+
+One thing a match function will not take is a `catch` clause. The exceptions chapter
+gives a `match` the option of a clause that guards the *scrutinee's* evaluation; here the
+scrutinee is the parameter, a value the caller already produced before this function was
+entered, so there is nothing left for a clause to watch. That chapter's version of this
+paragraph says what to write instead.
+
 ## Patterns compile to ordinary tests and bindings
 
 Pattern matching adds no runtime pattern objects. The compiler emits readable tag or
@@ -263,8 +336,10 @@ dialects.
 - or-pattern alternatives must bind the same names;
 - as-patterns retain both a matched component and its whole value;
 - guards test runtime conditions and contribute nothing to exhaustiveness;
-- missing and unreachable cases are compile errors; and
-- `let`, loop, and parameter patterns must be irrefutable.
+- missing and unreachable cases are compile errors;
+- `let`, loop, and parameter patterns must be irrefutable; and
+- a `match` with nothing after it on the line is the function that matches its argument,
+  which is how refutable patterns reach callback position.
 
 Together, tuples provide positions, records provide fields, nominal declarations
 provide identity, unions provide alternatives, and patterns take all those shapes

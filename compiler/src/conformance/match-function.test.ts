@@ -408,6 +408,24 @@ describe("no `catch` clause, at either seat (Exceptions §5.4, §9)", () => {
         "export let answer: Int = describe(Just(-1))\n",
     )).toEqual([]);
   });
+
+  test("the rewrite compiles in callback position too — the book's shape", () => {
+    // Where the match function would have gone: the lambda's body block holds a
+    // `try` heading its own line, and the whole thing is still one argument.
+    expect(projectDiagnostics(
+      maybe + boom +
+        "let risky(n: Int): Int = if n > 0 then n else throw(Boom(\"negative\"))\n" +
+        "let apply(value: Maybe, transform: (Maybe) -> Int): Int = transform(value)\n" +
+        "export let answer(value: Maybe): Int =\n" +
+        "    apply(value, option =>\n" +
+        "        try match option\n" +
+        "            Just(n) => risky(n)\n" +
+        "            Nothing => 0\n" +
+        "        catch\n" +
+        "            Boom(_) => 1\n" +
+        "    )\n",
+    )).toEqual([]);
+  });
 });
 
 describe("emission: an arrow over the ordinary match lowering", () => {
