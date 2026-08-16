@@ -1,5 +1,6 @@
 import { helloWorld, type PlaygroundExample } from "./hello-world";
 import { constraints } from "./constraints";
+import { exceptions } from "./exceptions";
 import { internationalIdentifiers } from "./international-identifiers";
 import { modules } from "./modules";
 import { patterns } from "./patterns";
@@ -25,6 +26,7 @@ export const playgroundExamples: readonly PlaygroundExample[] = [
   sequences,
   modules,
   specializations,
+  exceptions,
   internationalIdentifiers,
 ];
 
