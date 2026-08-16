@@ -343,7 +343,7 @@ class Parser {
     // Exceptions §9's short-circuit: an item whose trailing construct is a match
     // function has no clause to align anything to, so it takes §6.7's message
     // rather than advice about a column that would not help.
-    const matchFunction = this.#index === this.#matchFunctionEnd;
+    const matchFunction = this.#trailingMatchFunction();
     const clause = this.#advance();
     this.#errorAt(
       clause.span,
@@ -355,6 +355,33 @@ class Parser {
     );
     if (this.#at("VOpen")) this.#parseCatchArms();
     this.#skipSeparators();
+  }
+
+  /**
+   * Whether the item this `catch` continues ends in a match function — the test
+   * Exceptions §9's short-circuit turns on.
+   *
+   * **VCLOSE-transparent.** A match function may be the last item of a block
+   * that the `catch`'s dedent closes on its way out: `let describe =` with the
+   * `match` on the next line, the clause back at the binding's column. Those
+   * closes sit between where the desugar's parse stopped and where the keyword
+   * now stands, and a bare index equality would miss the case — leaving the
+   * writer the alignment advice, which on being followed produces §6.7's refusal
+   * on the next compile. A two-hop trap is worse than either message alone.
+   *
+   * Transparent to VCLOSE and nothing else, which is what keeps it honest: those
+   * closes exist only because the match function ended each of those blocks, so
+   * the item genuinely trails in it. Any other token in the gap means something
+   * was parsed after the arms, and this is not that item's trailing construct.
+   */
+  #trailingMatchFunction(): boolean {
+    if (this.#matchFunctionEnd === -1 || this.#matchFunctionEnd > this.#index) {
+      return false;
+    }
+    for (let index = this.#matchFunctionEnd; index < this.#index; index += 1) {
+      if (this.#tokens[index]?.kind !== "VClose") return false;
+    }
+    return true;
   }
 
   /**

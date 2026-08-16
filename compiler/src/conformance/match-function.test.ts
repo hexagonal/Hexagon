@@ -374,6 +374,65 @@ describe("no `catch` clause, at either seat (Exceptions §5.4, §9)", () => {
     )).toEqual([noClause]);
   });
 
+  test("a trailing match function behind a binding block still short-circuits", () => {
+    // The same seat with the `match` on its own line as the binding's block RHS
+    // — so the `catch`'s dedent closes that block on its way out and its VCLOSE
+    // sits between the desugar's end and the keyword. Missing this case would
+    // hand the writer the alignment advice, which on being followed produces
+    // §6.7's refusal on the *next* compile: a two-hop trap, worse than either
+    // message alone.
+    const project = compileMain(
+      maybe + boom +
+        "let describe =\n" +
+        "    match\n" +
+        "        Just(n) => n\n" +
+        "        Nothing => 0\n" +
+        "catch\n" +
+        "    Boom(_) => 1\n" +
+        "export let after: Int = 1\n",
+    );
+
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([noClause]);
+    const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
+    // Local report, not a cascade: what follows the block still compiles.
+    expect(main.javascript.text).toContain("const after = 1;");
+  });
+
+  test("it stays transparent through more than one closed block", () => {
+    expect(projectDiagnostics(
+      maybe + boom +
+        "export let answer(value: Maybe): Int =\n" +
+        "    let describe =\n" +
+        "        match\n" +
+        "            Just(n) => n\n" +
+        "            Nothing => 0\n" +
+        "    catch\n" +
+        "        Boom(_) => 1\n" +
+        "    describe(value)\n",
+    )).toEqual([noClause]);
+  });
+
+  test("transparency is to VCLOSE alone: anything parsed after the arms ends it", () => {
+    // A match function *is* in this item, and its own block was closed — but the
+    // call after it is what the item trails in, so the alignment message is the
+    // right one and the short-circuit must not fire.
+    expect(projectDiagnostics(
+      maybe + boom +
+        "let described =\n" +
+        "    let describe = match\n" +
+        "        Just(n) => n\n" +
+        "        Nothing => 0\n" +
+        "    describe(Nothing)\n" +
+        "catch\n" +
+        "    Boom(_) => 1\n" +
+        "export let after: Int = 1\n",
+    )).toEqual([
+      "a `catch` clause must align with a `match` that begins its line — align the " +
+      "`catch` with the `match`'s column; if the `match` head is mid-line, move it " +
+      "onto its own line",
+    ]);
+  });
+
   test("the alignment message still stands where the trailing match has a scrutinee", () => {
     // The control for the short-circuit above: same shape, one scrutinee added.
     expect(projectDiagnostics(
