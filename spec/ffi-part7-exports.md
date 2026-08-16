@@ -244,7 +244,7 @@ Each JS call constructs a fresh branded `Error` and captures the call-site stack
 
 > Hexagon writes `throw(NotFound)`; JavaScript writes `throw NotFound()`.
 
-The exported constructor is an ordinary function with stable ESM identity; the brand — `$hex` carrying the declaring module's name (#488) — appears in the face deliberately (Exceptions §7.5) so JS-side construction is done correctly or not at all. This discharges the constructor-export flags in Exceptions §7.5 and Unions §6.5 (edit notes, §10).
+The exported constructor is an ordinary function with stable ESM identity; the brand — `$hex` carrying the declaring module's path identity (#488; Exceptions §7.1 fixes the spelling: root-relative path, injected modules by canonical name) — appears in the face deliberately (Exceptions §7.5) so JS-side construction is done correctly or not at all: the literal in the face is the exact string a JS constructor-writer copies. This discharges the constructor-export flags in Exceptions §7.5 and Unions §6.5 (edit notes, §10).
 
 **Every exported exception also ships its guard** *(#478; Exceptions §7.6)*. The constructor function carries a property `is`, declared by function/namespace merge so the property types as a predicate and the consumer's branch narrows to the intersection face:
 
