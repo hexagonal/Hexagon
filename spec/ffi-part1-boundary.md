@@ -95,7 +95,7 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 | `union` (any payload) | string-tagged POJOs (Unions §6.1) | discriminated union on `tag` | direct | trusted |
 | `extern enum` | captured foreign enum-object values | per `ffi-foreign-enums.md` | direct | trusted; checked `fromJsT` for uncertain data |
 | `Option(a)` | its real union representation (`{tag:"Some"; value:a}` / shared `{tag:"None"}` constant) | the discriminated union — **never erased to nullability** | direct | trusted |
-| declared `exception` values (e.g. `ParseError`) | branded `Error` (Exceptions §7.1) | `Error & {$hex: true; name: "..."; ...}` (Exceptions §7.5; export surface Part 7) | direct | trusted |
+| declared `exception` values (e.g. `ParseError`) | branded `Error` (Exceptions §7.1) | `Error & {$hex: "<module>"; name: "..."; ...}` (Exceptions §7.5, brand value per #488; export surface Part 7) | direct | trusted |
 | `Exn` (in exported signatures) | whatever was thrown — branded `Error` or the raw foreign throwable | plain `Error` (Exceptions §7.5's accepted white lie) | direct | trusted |
 | `Range` | materialized range object implementing the JS iterable protocol (Loops §8) | `Hex.Range` — branded interface extending `Iterable<number>` (§8.1); the brand is §8.3's structural phantom marker, **not** Part 7 §5's `unique symbol` | direct | trusted |
 | opaque extern Promise handles | the foreign `Promise` object, unchanged and by identity | the declared opaque type, per the general extern-type facing rule (Parts 4/7) | direct | trusted; §4.4 (rejection is a foreign async event) |
