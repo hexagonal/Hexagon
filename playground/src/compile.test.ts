@@ -152,7 +152,7 @@ describe("compileSource", () => {
     expect(thrown).toMatchObject({
       name: "IndexError",
       message: "index -3 out of bounds for size 2",
-      $hex: true,
+      $hex: "Vector",
       index: -3,
       size: 2,
     });
@@ -479,7 +479,7 @@ describe("compileSource", () => {
     expect(thrown).toMatchObject({
       name: "DivideByZeroError",
       message: "Rat.divide: divisor is zero",
-      $hex: true,
+      $hex: "Integral",
     });
   });
 

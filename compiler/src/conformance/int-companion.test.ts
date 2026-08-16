@@ -172,7 +172,7 @@ describe("the guards moved into source and kept their names", () => {
     ].join("\n"));
 
     expect(threw(exports["branded"] as () => unknown))
-      .toMatchObject({ name: "DivideByZeroError", $hex: true });
+      .toMatchObject({ name: "DivideByZeroError", $hex: "Integral" });
   });
 
   /** A generic body reaching the member gets the guard with it. */
@@ -370,7 +370,7 @@ describe("`pow` and its guard", () => {
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
       name: "NegativeExponentError",
       message: "an integer exponent cannot be negative",
-      $hex: true,
+      $hex: "Pow",
     });
     expect(threw(exports["alsoBoom"] as () => unknown))
       .toMatchObject({ name: "NegativeExponentError" });

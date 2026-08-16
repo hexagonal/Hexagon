@@ -599,6 +599,8 @@ export interface ExceptionItem {
   readonly exported: boolean;
   readonly binding: Binding;
   readonly slots: readonly ConstructorSlot[];
+  /** The declaring module's brand identity (#488); see `Resolved.ExceptionItem`. */
+  readonly owner: string;
   readonly span: Source.Span;
 }
 

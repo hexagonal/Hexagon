@@ -258,6 +258,13 @@ export function compileProject(
       // declared here is stamped with, which together let the checker name
       // another module's *file* in Collections Part 5 §3.3's diagnostic.
       path,
+      // The same fact read the other way round: what this module *is*, for
+      // Exceptions §7.1's brand (#488). Root-relative and extensionless, except
+      // that an injected module brands its canonical injected name wherever its
+      // file sits — a project supplying its own `stdlib/Vector.hex` is still
+      // `Vector`, which is what keeps the brand a property of the module rather
+      // than of the directory a host happened to unpack the stdlib into.
+      identity: moduleBrandIdentity(path, root, isInjected),
       imports,
       symbolBase: isInjected ? preludeSymbolBase : symbolBase,
       unionBase: isInjected ? preludeUnionBase : unionBase,
@@ -606,6 +613,54 @@ function injectEmbedded(
     sources.set(path, new Source.File(Source.fileId(maxId), path, module.source));
     return path;
   });
+}
+
+/**
+ * A module's **brand identity** — the string its exceptions carry as `$hex`
+ * (`spec/exceptions.md` §7.1, #488).
+ *
+ * Two rules, and which one applies is settled by how the module is compiled,
+ * never by its text:
+ *
+ * - An **injected** module brands its canonical injected name: its basename with
+ *   the extension dropped. `injectEmbedded` seats an injected module at whichever
+ *   project file already carries its basename, so the directory is the host's
+ *   business and the name is the language's — `stdlib/Vector.hex` and an embedded
+ *   `Vector.hex` are one module, `Vector`, and one brand.
+ * - Every other module brands its path **relative to the project root**, with
+ *   the extension dropped and no leading separator: one module per path, so the
+ *   brand is unique by construction and needs no naming rule.
+ *
+ * **The rendering is canonical, not the host's path text.** Backslashes become
+ * forward slashes here as well as in `normalizePath`, so a Windows build and a
+ * POSIX build of one project brand identically — the brand is compiled into
+ * emitted JavaScript and into `.d.ts` literals a consumer copies, so a
+ * separator that varied by build machine would be a real incompatibility, not a
+ * cosmetic one. Written at the rendering rather than relied on upstream because
+ * this is the rule; `normalizePath` merely happens to agree.
+ *
+ * The result never begins with `/` or `../`: `root` is `commonRoot`, a prefix of
+ * every source path in the program, so the relativization is a plain suffix and
+ * has no ascent to express. The non-prefix branch is defensive only.
+ *
+ * Exported because the identity rule is a *rule* — the same reason
+ * `resolveSpecifier` is — and because pinning the canonical rendering means
+ * handing it a separator the test platform never produces.
+ */
+export function moduleBrandIdentity(
+  path: string,
+  root: string,
+  injected: boolean,
+): string {
+  const canonical = path.replaceAll("\\", "/");
+  if (injected) {
+    return canonical.slice(canonical.lastIndexOf("/") + 1).replace(/\.hex$/u, "");
+  }
+  const canonicalRoot = root.replaceAll("\\", "/");
+  const relative = canonicalRoot !== "" && canonical.startsWith(`${canonicalRoot}/`)
+    ? canonical.slice(canonicalRoot.length + 1)
+    : canonical;
+  return relative.replace(/^\//u, "").replace(/\.hex$/u, "");
 }
 
 /** Longest shared directory prefix of the given file paths. */

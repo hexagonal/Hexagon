@@ -202,7 +202,7 @@ describe("consumers see nothing new (§8.2)", () => {
 
     const refuse = main["refuse"] as (index: number) => number;
     expect(() => refuse(9)).toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: true, index: 9, size: 0 }),
+      expect.objectContaining({ name: "IndexError", $hex: "Vector", index: 9, size: 0 }),
     );
   });
 
@@ -219,14 +219,14 @@ describe("consumers see nothing new (§8.2)", () => {
       "let values: Vector(Int) = [10, 20]\n" +
       "export let bad: Int = Vector.at(values, 99)\n",
     ]])).rejects.toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: true, index: 99, size: 2 }),
+      expect.objectContaining({ name: "IndexError", $hex: "Vector", index: 99, size: 2 }),
     );
     await expect(runProject([[
       "/main.hex",
       "let values: Vector(Int) = [10, 20]\n" +
       "export let bad: Int = values[7]\n",
     ]])).rejects.toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: true, index: 7, size: 2 }),
+      expect.objectContaining({ name: "IndexError", $hex: "Vector", index: 7, size: 2 }),
     );
   });
 

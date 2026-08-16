@@ -1057,6 +1057,18 @@ export interface ExceptionItem {
   readonly exported: boolean;
   readonly binding: Binding;
   readonly slots: readonly ConstructorSlot[];
+  /**
+   * The declaring module's **brand identity** (`spec/exceptions.md` §7.1, #488):
+   * the string this exception's `$hex` carries at run time, and the literal its
+   * `.d.ts` face publishes. See `ResolveOptions.identity` for how it is spelled.
+   *
+   * It travels on the declaration rather than on the module because emission
+   * reads it for exceptions this module did not write: a catch arm naming
+   * another module's constructor tests *that* module's brand, which is the
+   * whole of #488 (§7.4's (module, name) pair). `Module.visibleExceptions`
+   * carries the entries an importer sees, each still stamped with its own home.
+   */
+  readonly owner: string;
   readonly span: Source.Span;
 }
 

@@ -6,7 +6,7 @@
 import * as Diagnostics from "../../support/diagnostics.js";
 import { INTRINSIC_INVENTORY, isIntrinsicScheme } from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_BASENAMES } from "../../prelude.js";
-import type { Documentation } from "../../support/documentation.js";
+import { type Documentation, throwsManifests } from "../../support/documentation.js";
 import type * as Source from "../../support/source.js";
 import { isSyntheticParameterName } from "../../support/synthetic.js";
 import type * as Core from "../../syntax/core/index.js";
@@ -802,12 +802,29 @@ class DocIndex {
    * user's content in **one** block, user content first and generated content
    * after a blank line, because TS tooling attaches only the immediately
    * preceding block and two blocks would silently drop one (§7.3).
+   *
+   * `exported` opens the second generated channel: the `@throws` tags derived
+   * from the content's own throws manifests (§6.1, §7.4 — #479). They come last
+   * within the generated position, where JSDoc tags conventionally sit, and only
+   * at an **exported** seat: the tag is consumer-boundary documentation, so a
+   * private binding's `.js` block carries the manifest sentence verbatim like
+   * all content and derives nothing.
    */
-  lines(span: Source.Span, indent = "", generated: readonly string[] = []): string[] {
+  lines(
+    span: Source.Span,
+    indent = "",
+    generated: readonly string[] = [],
+    exported = false,
+  ): string[] {
     const doc = this.#byTarget.get(span.start.offset);
     if (doc !== undefined) this.#seated.add(doc);
     const written = doc === undefined ? "" : doc.content;
-    const content = [written, ...generated].filter((part) => part !== "").join("\n\n");
+    const tags = exported
+      ? throwsManifests(written).map(({ name, condition }) => `@throws {${name}} when ${condition}`)
+      : [];
+    const content = [written, ...generated, tags.join("\n")]
+      .filter((part) => part !== "")
+      .join("\n\n");
     return content === "" ? [] : jsDocBlock(content, indent);
   }
 
@@ -830,6 +847,25 @@ class DocIndex {
    */
   span(span: Source.Span): Source.Span | undefined {
     return this.#byTarget.get(span.start.offset)?.span;
+  }
+}
+
+/**
+ * Whether an item's own declaration crosses the module boundary — the ground
+ * §7.4 puts the derived `@throws` tags on. A module-level `var` and a
+ * destructuring `let` never do (their `exported` is `false` by type), and a
+ * kind with no seat of its own is never asked.
+ */
+function itemExported(item: Core.Item): boolean {
+  switch (item.kind) {
+    case "Let":
+    case "LetPattern":
+    case "Fun":
+    case "RecordDeclaration":
+    case "Exception":
+      return item.exported;
+    default:
+      return false;
   }
 }
 
@@ -1291,6 +1327,13 @@ class JavaScriptEmitter {
   readonly #constraints = new Map<string, Core.ConstraintItem>();
   readonly #nullaryExceptions = new Set<Resolved.SymbolId>();
   /**
+   * This module's brand identity (Exceptions §7.1, #488), read off its own
+   * `exception` declarations — every one of them was stamped with it by the
+   * resolver, so any one answers. `""` for a module that declares none, which
+   * is exactly the module whose emission never spells a brand of its own.
+   */
+  readonly #identity: string;
+  /**
    * This module's own internal export spellings, by source name; see
    * `internalNamePlan`.
    */
@@ -1628,12 +1671,15 @@ class JavaScriptEmitter {
     for (const declaration of module.visibleExceptions) {
       this.#exceptions.set(declaration.binding.symbol, declaration);
     }
+    let identity = "";
     for (const item of module.items) {
       if (item.kind === "ConstraintDeclaration") this.#constraints.set(item.name, item);
       if (item.kind !== "Exception") continue;
       this.#exceptions.set(item.binding.symbol, item);
+      identity = item.owner;
       if (item.slots.length === 0) this.#nullaryExceptions.add(item.binding.symbol);
     }
+    this.#identity = identity;
     for (const item of module.items) {
       if (item.kind !== "Import" || item.form.kind === "Effect") continue;
       for (const name of item.form.names) {
@@ -1691,7 +1737,7 @@ class JavaScriptEmitter {
       // emitted forms are its members' rather than its own has no seat for the
       // item's own documentation (§7.1).
       const doc = lines.length > 0 && hasJavaScriptSeat(item)
-        ? this.#docs.lines(item.span)
+        ? this.#docs.lines(item.span, "", [], itemExported(item))
         : [];
       return {
         item,
@@ -1756,6 +1802,7 @@ class JavaScriptEmitter {
           (dependency) => this.#helperName(dependency),
           (operation) => this.#useVectorRuntime(operation),
           (operation) => this.#useHashTrieRuntime(operation),
+          this.#identity,
         )
       );
 
@@ -1818,6 +1865,14 @@ class JavaScriptEmitter {
         ...(entry.kind === "Comment" ? commentLines(entry.comment) : entry.lines),
       );
       previousSpan = entry.span;
+    }
+    // The stage-1 guard (Exceptions §7.6, #478), once per module that exports an
+    // exception. It sits with the export lines rather than beside any one
+    // constructor because it is the *module's* face, not a declaration's — and
+    // it is a `const`, not a hoisted `function`, so nothing can call it above
+    // its own definition and a JavaScript reader sees one generated line.
+    if (this.#module.items.some((item) => item.kind === "Exception" && item.exported)) {
+      body.push(IS_HEX_ERROR_GUARD);
     }
     body.push(...this.#exports);
     body.push(...this.#runtimeExports());
@@ -1969,7 +2024,9 @@ class JavaScriptEmitter {
           declaration.binding.symbol,
           declaration.localName,
         );
-        lines.push(...this.#docs.lines(declaration.span, prefix));
+        lines.push(
+          ...this.#docs.lines(declaration.span, prefix, [], declaration.exported),
+        );
         if (!item.intrinsic && isIntrinsicScheme(item.specifier)) {
           // A `hex:`-scheme block the gate refused (§5). The module is errored,
           // so what is emitted is best-effort — but it must not be either of the
@@ -2143,7 +2200,7 @@ class JavaScriptEmitter {
         // A constraint member's `.js` seat is the forwarder emitted for it; the
         // dictionary type it also documents (§7.1) has no `.d.ts` form yet.
         return [
-          ...this.#docs.lines(member.span, prefix),
+          ...this.#docs.lines(member.span, prefix, [], item.exported),
           `${prefix}const ${name} = ${arrowParameters(parameters)} => ${dictionary}.${member.binding.name}(${sourceParameters.join(", ")});`,
           ...this.#defaultHelper(item, member, depth, evidenceNames),
         ];
@@ -2387,7 +2444,7 @@ class JavaScriptEmitter {
           );
         }
         // Constructor documentation rides the materialized constructor (§7.1).
-        const doc = this.#docs.lines(constructor.span, prefix);
+        const doc = this.#docs.lines(constructor.span, prefix, [], item.exported);
         const slots = constructor.slots ?? [];
         if (slots.length > 0) {
           const parameters = slots.map(({ field }) => field);
@@ -2449,7 +2506,21 @@ class JavaScriptEmitter {
             : `export { ${name} as ${item.binding.name} };`,
         );
       }
-      return [`${prefix}const ${name} = ${value};`];
+      // The boundary guard (Exceptions §7.6, FFI Part 7 §6 — #478): assigned
+      // once beside the constructor, on the exported ones only, because it is
+      // the JS consumer's side of §7.4's discrimination and nothing on the
+      // Hexagon side can name it. A nullary exception carries it too — its
+      // export is function-shaped for JavaScript (Part 7 §6) — and the property
+      // seat is collision-free by §7.6: no Hexagon surface can occupy a
+      // property of an exception constructor.
+      const guard = item.exported && depth === 0
+        ? [
+          `${prefix}${name}.is = (${GUARD_PARAMETER}) => ${
+            guardTest(GUARD_PARAMETER, item.owner, item.binding.name)
+          };`,
+        ]
+        : [];
+      return [`${prefix}const ${name} = ${value};`, ...guard];
     }
 
     if (item.kind === "Fun") {
@@ -4088,8 +4159,17 @@ class JavaScriptEmitter {
           : undefined;
         const metadata = this.#constructors.get(pattern.symbol);
         const pinned = this.#pinnedBoolLiteral(pattern.symbol);
+        // Exceptions §7.4's two-stage discrimination, written as one chain per
+        // arm: `!= null` so a `throw null` reaches the discriminator without
+        // crashing it, then the **(module, name) pair** (#488). Comparing the
+        // brand against a string subsumes stage 1's class test — a value whose
+        // `$hex` equals this module's identity has a string `$hex` — and §7.4
+        // fixes the pair per arm as the observable rule, leaving the shape of
+        // the chain, including any hoist of the owner across a module's arms,
+        // to the emitter. Testing `name` alone is what let module `A`'s `Boom`
+        // through an arm written `B.Boom(tag)`, binding `tag` to `undefined`.
         const test = exception !== undefined
-          ? `${value} != null && ${value}.$hex === true && ${value}.name === ${JSON.stringify(pattern.tag)}`
+          ? `${value} != null && ${value}.$hex === ${JSON.stringify(exception.owner)} && ${value}.name === ${JSON.stringify(pattern.tag)}`
           : pinned !== undefined
           // The pin again: a `Bool` pattern tests the boolean it actually is.
           ? `${value} === ${pinned}`
@@ -6827,7 +6907,7 @@ class DeclarationEmitter {
           if (!declaration.exported) continue;
           // The brand line goes before the documentation: JSDoc binds to the
           // declaration that immediately follows it.
-          const doc = this.#docs.lines(declaration.span);
+          const doc = this.#docs.lines(declaration.span, "", [], true);
           if (declaration.kind === "ExternType") {
             const brand = this.#opaqueBrands.get(declaration.localName)!;
             declarations.push(`declare const ${brand}: unique symbol;`);
@@ -6843,6 +6923,7 @@ class DeclarationEmitter {
                 declaration.span,
                 "",
                 hexagonFaceDoc(declaration.binding.scheme),
+                true,
               ),
             );
             declarations.push(...renderExternFunctionDeclaration(declaration, true, this.#faces));
@@ -6862,7 +6943,7 @@ class DeclarationEmitter {
         const variables = typeVariableNames(item.parameters);
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
-        declarations.push(...this.#docs.lines(item.span));
+        declarations.push(...this.#docs.lines(item.span, "", [], true));
         declarations.push(`export type ${item.name}${generics} = ${renderType(item.type, variables, this.#faces, false)};`);
         isExternalModule = true;
         continue;
@@ -6874,12 +6955,12 @@ class DeclarationEmitter {
           const names = item.parameters.map((parameter) => variables.get(parameter)!);
           const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
           declarations.push(`declare const ${brand}: unique symbol;`);
-          declarations.push(...this.#docs.lines(item.span));
+          declarations.push(...this.#docs.lines(item.span, "", [], true));
           declarations.push(`export type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
           isExternalModule = true;
           continue;
         }
-        declarations.push(...this.#docs.lines(item.span));
+        declarations.push(...this.#docs.lines(item.span, "", [], true));
         declarations.push(renderUnionDeclaration(item, item.exported, this.#faces));
         if (item.exported) {
           isExternalModule = true;
@@ -6897,7 +6978,7 @@ class DeclarationEmitter {
                 ? item.name
                 : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
               : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
-            declarations.push(...this.#docs.lines(constructor.span));
+            declarations.push(...this.#docs.lines(constructor.span, "", [], true));
             declarations.push(
               `export declare const ${constructor.name}: ${type};`,
             );
@@ -6913,7 +6994,7 @@ class DeclarationEmitter {
         if (item.opaque) {
           const brand = this.#opaqueBrands.get(item.name)!;
           declarations.push(`declare const ${brand}: unique symbol;`);
-          declarations.push(...this.#docs.lines(item.span));
+          declarations.push(...this.#docs.lines(item.span, "", [], true));
           declarations.push(`export type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
           isExternalModule = true;
           continue;
@@ -6922,7 +7003,7 @@ class DeclarationEmitter {
           `${field.name}: ${renderType(field.type, variables, this.#faces, false)}`
         ).join("; ")} }`;
         const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
-        declarations.push(...this.#docs.lines(item.span));
+        declarations.push(...this.#docs.lines(item.span, "", [], true));
         // Field documentation needs the one seat TypeScript tooling reads it
         // from — the property in the structural type (§7.1) — and a property
         // only gets its own JSDoc when the type is written across lines.
@@ -6935,13 +7016,10 @@ class DeclarationEmitter {
       }
       if (item.kind === "Exception") {
         if (!item.exported) continue;
-        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#faces, false)}`).join("")} }`;
-        declarations.push(...this.#docs.lines(item.span));
-        declarations.push(`export type ${item.binding.name} = ${face};`);
-        const constructor = item.slots.length === 0
-          ? `() => ${item.binding.name}`
-          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#faces, false)}`).join(", ")}) => ${item.binding.name}`;
-        declarations.push(`export declare const ${item.binding.name}: ${constructor};`);
+        declarations.push(...this.#docs.lines(item.span, "", [], true));
+        declarations.push(
+          ...renderExceptionDeclarations(item, "export ", this.#faces),
+        );
         isExternalModule = true;
         continue;
       }
@@ -6963,7 +7041,12 @@ class DeclarationEmitter {
           // is one per specialization — so its documentation rides each, and so
           // does the Hexagon face, which is the specialization's own.
           declarations.push(
-            ...this.#docs.lines(item.span, "", hexagonFaceDoc(specialized.binding.scheme)),
+            ...this.#docs.lines(
+              item.span,
+              "",
+              hexagonFaceDoc(specialized.binding.scheme),
+              true,
+            ),
           );
           declarations.push(
             renderFunctionDeclaration(
@@ -6980,7 +7063,9 @@ class DeclarationEmitter {
       }
       isExternalModule = true;
 
-      declarations.push(...this.#docs.lines(item.span, "", hexagonFaceDoc(item.binding.scheme)));
+      declarations.push(
+        ...this.#docs.lines(item.span, "", hexagonFaceDoc(item.binding.scheme), true),
+      );
       const safeName = isSafeIdentifier(item.binding.name);
       const local = safeName
         ? item.binding.name
@@ -7000,6 +7085,13 @@ class DeclarationEmitter {
         declarations.push(`declare const ${local}: ${type};`);
         declarations.push(`export { ${local} as ${item.binding.name} };`);
       }
+    }
+    // The stage-1 guard's face (Exceptions §7.6, #478), once, after the module's
+    // own rows: it is the module's guard, not any one exception's, and its
+    // emitted counterpart sits with the export lines for the same reason.
+    if (this.#module.items.some((item) => item.kind === "Exception" && item.exported)) {
+      declarations.push(renderIsHexErrorDeclaration());
+      isExternalModule = true;
     }
     // The prelude types the rendered faces actually reached (§2.4). Unshifted
     // for the reason the runtime import below is: a compiler-written import
@@ -7109,7 +7201,7 @@ class TypeScriptPreviewEmitter {
       if (item.kind === "ExternBlock") {
         for (const declaration of item.declarations) {
           const prefix = declaration.exported ? "export " : "";
-          const doc = this.#docs.lines(declaration.span);
+          const doc = this.#docs.lines(declaration.span, "", [], declaration.exported);
           if (declaration.kind === "ExternType") {
             const brand = this.#opaqueBrands.get(declaration.localName)!;
             declarations.push(`declare const ${brand}: unique symbol;`);
@@ -7145,7 +7237,7 @@ class TypeScriptPreviewEmitter {
         const variables = typeVariableNames(item.parameters);
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
-        declarations.push(...this.#docs.lines(item.span));
+        declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
         declarations.push(`${prefix}type ${item.name}${generics} = ${renderType(item.type, variables, this.#faces, false)};`);
         isExternalModule ||= item.exported;
         continue;
@@ -7158,12 +7250,12 @@ class TypeScriptPreviewEmitter {
           const names = item.parameters.map((parameter) => variables.get(parameter)!);
           const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
           declarations.push(`declare const ${brand}: unique symbol;`);
-          declarations.push(...this.#docs.lines(item.span));
+          declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
           declarations.push(`${prefix}type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
           isExternalModule ||= item.exported;
           continue;
         }
-        declarations.push(...this.#docs.lines(item.span));
+        declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
         declarations.push(renderUnionDeclaration(item, item.exported, this.#faces));
         const variables = typeVariableNames(item.parameters);
         const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
@@ -7178,7 +7270,7 @@ class TypeScriptPreviewEmitter {
               ? item.name
               : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
             : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
-          declarations.push(...this.#docs.lines(constructor.span));
+          declarations.push(...this.#docs.lines(constructor.span, "", [], item.exported));
           declarations.push(
             `${prefix}declare const ${constructor.name}: ${type};`,
           );
@@ -7194,7 +7286,7 @@ class TypeScriptPreviewEmitter {
         if (item.opaque) {
           const brand = this.#opaqueBrands.get(item.name)!;
           declarations.push(`declare const ${brand}: unique symbol;`);
-          declarations.push(...this.#docs.lines(item.span));
+          declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
           declarations.push(`${prefix}type ${item.name}${generics} = { readonly [${brand}]: ${names.length === 0 ? "never" : names.join(" | ")} };`);
           isExternalModule ||= item.exported;
           continue;
@@ -7203,7 +7295,7 @@ class TypeScriptPreviewEmitter {
           `${field.name}: ${renderType(field.type, variables, this.#faces, false)}`
         ).join("; ")} }`;
         const result = names.length === 0 ? item.name : `${item.name}<${names.join(", ")}>`;
-        declarations.push(...this.#docs.lines(item.span));
+        declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
         declarations.push(
           ...this.#renderRecordType(item, variables, `${prefix}type ${item.name}${generics} = `),
         );
@@ -7212,14 +7304,14 @@ class TypeScriptPreviewEmitter {
         continue;
       }
       if (item.kind === "Exception") {
-        const prefix = item.exported ? "export " : "";
-        const face = `Error & { readonly $hex: true; readonly name: ${JSON.stringify(item.binding.name)}${item.slots.map((slot) => `; readonly ${slot.field}: ${renderType(slot.type, new Map(), this.#faces, false)}`).join("")} }`;
-        declarations.push(...this.#docs.lines(item.span));
-        declarations.push(`${prefix}type ${item.binding.name} = ${face};`);
-        const constructor = item.slots.length === 0
-          ? `() => ${item.binding.name}`
-          : `(${item.slots.map((slot) => `${slot.field}: ${renderType(slot.type, new Map(), this.#faces, false)}`).join(", ")}) => ${item.binding.name}`;
-        declarations.push(`${prefix}declare const ${item.binding.name}: ${constructor};`);
+        declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
+        declarations.push(
+          ...renderExceptionDeclarations(
+            item,
+            item.exported ? "export " : "",
+            this.#faces,
+          ),
+        );
         isExternalModule ||= item.exported;
         continue;
       }
@@ -7248,7 +7340,7 @@ class TypeScriptPreviewEmitter {
           );
           // A constrained binding has no single `.d.ts` declaration — its face
           // is one per specialization — so its documentation rides each.
-          declarations.push(...this.#docs.lines(item.span));
+          declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
           declarations.push(
             renderFunctionDeclaration(
               specialization.name,
@@ -7266,7 +7358,7 @@ class TypeScriptPreviewEmitter {
       const name = isSafeIdentifier(item.binding.name)
         ? item.binding.name
         : `__binding${Number(item.binding.symbol)}`;
-      declarations.push(...this.#docs.lines(item.span));
+      declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
       if (item.exported) {
         if (item.kind === "Fun") {
           declarations.push(
@@ -7301,6 +7393,13 @@ class TypeScriptPreviewEmitter {
           `declare const ${name}: ${renderScheme(item.binding.scheme, this.#faces, item.value)};`,
         );
       }
+    }
+
+    // The stage-1 guard's face (Exceptions §7.6), on the same condition the
+    // `.d.ts` emits it on: at least one *exported* exception.
+    if (this.#module.items.some((item) => item.kind === "Exception" && item.exported)) {
+      declarations.push(renderIsHexErrorDeclaration());
+      isExternalModule = true;
     }
 
     // The preview is one pane of inspection-only text with no file to import
@@ -7391,6 +7490,38 @@ interface PatternPlan {
   readonly tests: readonly string[];
   readonly bindings: readonly string[];
 }
+
+/**
+ * The parameter the emitted boundary guards take (Exceptions §7.6, #478).
+ *
+ * Lexer §3.2's reserved prefix, and deliberately: `is` and `isHexError` are the
+ * **faces**, spelled plainly because a TypeScript reader sees them; the binder
+ * inside one is generated code like any other, and `__error` is the spelling
+ * `GeneratedNames.fresh("error")` already gives a catch binding.
+ */
+const GUARD_PARAMETER = "__error";
+
+/**
+ * One exception's guard body: §7.4's (module, name) pair read from the outside,
+ * which is exactly the test a catch arm for the same constructor emits (#488).
+ */
+function guardTest(value: string, owner: string, name: string): string {
+  return `${value} != null && ${value}.$hex === ${JSON.stringify(owner)}` +
+    ` && ${value}.name === ${JSON.stringify(name)}`;
+}
+
+/**
+ * The stage-1 guard a module exporting at least one exception publishes
+ * (Exceptions §7.6): domestic-or-foreign, the question every consuming `catch`
+ * asks first, with the foreign branch its negation. The shape is the emitter's;
+ * the predicate is normative.
+ */
+const IS_HEX_ERROR_GUARD =
+  `export const isHexError = (${GUARD_PARAMETER}) => ` +
+  `${GUARD_PARAMETER} != null && typeof ${GUARD_PARAMETER}.$hex === "string";`;
+
+/** The fixed public name of that guard — a face, so no reserved prefix. */
+const IS_HEX_ERROR = "isHexError";
 
 function addSpecializationCollisionDiagnostics(
   diagnostics: Diagnostics.Bag,
@@ -7883,6 +8014,13 @@ function renderHelper(
    * derived instances of both companions (#370, #373).
    */
   hashTrieName: (operation: HashTrieRuntimeOperation) => string,
+  /**
+   * The emitting module's brand identity (Exceptions §7.1, #488) — what the
+   * `exception` helper bakes in. Only that helper reads it: every other throw
+   * site below raises a *prelude* exception, whose brand is its own declaring
+   * module's and is spelled by the constants beside them.
+   */
+  identity: string,
 ): string[] {
   switch (helper) {
     // The HAMT's placement mix (#365). The seed is read **once**, when the
@@ -7979,10 +8117,13 @@ function renderHelper(
         "  const __text = String(__value); let __hash = 0; for (let __index = 0; __index < __text.length; __index += 1) __hash = Math.imul(__hash, 31) + __text.charCodeAt(__index) | 0; return __hash;",
         "}",
       ];
+    // Exceptions §7.2's construction helper. It is per-module precisely so the
+    // brand can be baked in rather than passed: every exception it builds was
+    // declared here, so `$hex` is this module's identity and never a parameter.
     case "exception":
       return [
         `function ${name}(__name, __message, __fields) {`,
-        "  return Object.assign(new Error(__message), { $hex: true, name: __name }, __fields);",
+        `  return Object.assign(new Error(__message), { $hex: ${JSON.stringify(identity)}, name: __name }, __fields);`,
         "}",
       ];
     case "floatEquals":
@@ -8048,11 +8189,22 @@ function renderHelper(
     // declaration would change both, for no gain — the trie carries no bounds
     // policy of its own, which is exactly why its `get`/`set` are documented as
     // caller-checked.
+    //
+    // **The brand is `"Vector"`, a literal, and belongs to the declaring module
+    // rather than to the one this helper is emitted into** (Exceptions §7.1,
+    // #488). A bounds check inlined into `client/report.hex` still raises
+    // `Vector`'s `IndexError`, and a catch arm written `Vector.IndexError(…)`
+    // anywhere tests `"Vector"`; branding the emitting module would put every
+    // such arm permanently past it. The literal is safe because an injected
+    // module brands its **canonical injected name** wherever in a project its
+    // file sits, so `stdlib/Vector.hex` and an embedded `Vector.hex` agree.
+    // `SliceError` below, `mapIndex`'s `KeyError` and `seqFromIterable`'s
+    // `ReentrancyError` are the same rule at `"Vector"`, `"Map"` and `"Seq"`.
     case "vectorIndex":
       return [
         `function ${name}(__values, __index) {`,
         `  const __size = ${runtimeName("size")}(__values);`,
-        "  if (__index < 1 || __index > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = true; __error.index = __index; __error.size = __size; throw __error; }",
+        "  if (__index < 1 || __index > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("get")}(__values, __index - 1);`,
         "}",
       ];
@@ -8061,7 +8213,7 @@ function renderHelper(
         `function ${name}(__values, __index) {`,
         `  const __size = ${runtimeName("size")}(__values);`,
         "  const __position = __index < 0 ? __size + __index + 1 : __index;",
-        "  if (__position < 1 || __position > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = true; __error.index = __index; __error.size = __size; throw __error; }",
+        "  if (__position < 1 || __position > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("get")}(__values, __position - 1);`,
         "}",
       ];
@@ -8155,7 +8307,7 @@ function renderHelper(
         '  if (__found.tag === "Some") return __found.value;',
         "  const __error = new Error(`no value for key ${String(__key)}`);",
         '  __error.name = "KeyError";',
-        "  __error.$hex = true;",
+        '  __error.$hex = "Map";',
         "  throw __error;",
         "}",
       ];
@@ -8256,7 +8408,7 @@ function renderHelper(
       return [
         `function ${name}(__values, __index, __value) {`,
         `  const __size = ${runtimeName("size")}(__values);`,
-        "  if (__index < 1 || __index > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = true; __error.index = __index; __error.size = __size; throw __error; }",
+        "  if (__index < 1 || __index > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("set")}(__values, __index - 1, __value);`,
         "}",
       ];
@@ -8266,7 +8418,7 @@ function renderHelper(
       // "single call with zero guard code" the spec pins, modulo the offset.
       return [
         `function ${name}(__values, __range) {`,
-        "  if (__range.descending) { const __error = new RangeError(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = true; __error.start = __range.start; __error.end = __range.end; throw __error; }",
+        "  if (__range.descending) { const __error = new RangeError(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = \"Vector\"; __error.start = __range.start; __error.end = __range.end; throw __error; }",
         `  return ${runtimeName("window")}(__values, __range.start - 1, __range.end);`,
         "}",
       ];
@@ -8283,14 +8435,14 @@ function renderHelper(
       return [
         `function ${name}(__text, __index) {`,
         "  const __points = Array.from(__text);",
-        "  if (__index < 1 || __index > __points.length) { const __error = new RangeError(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexError\"; __error.$hex = true; __error.index = __index; __error.size = __points.length; throw __error; }",
+        "  if (__index < 1 || __index > __points.length) { const __error = new RangeError(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __points.length; throw __error; }",
         "  return __points[__index - 1];",
         "}",
       ];
     case "stringSlice":
       return [
         `function ${name}(__text, __range) {`,
-        "  if (__range.descending) { const __error = new RangeError(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = true; __error.start = __range.start; __error.end = __range.end; throw __error; }",
+        "  if (__range.descending) { const __error = new RangeError(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = \"Vector\"; __error.start = __range.start; __error.end = __range.end; throw __error; }",
         "  return Array.from(__text).slice(Math.max(0, __range.start - 1), Math.max(0, __range.end)).join(\"\");",
         "}",
       ];
@@ -8420,10 +8572,10 @@ function renderHelper(
       //
       // Constructed inline as Exceptions §7.1's representation rather than by
       // calling `Seq.hex`'s constructor, exactly as the emitted `IndexError` and
-      // `SliceError` are: exception identity is `name` under the `$hex` brand,
-      // chosen over prototype identity precisely so that every module's copy of
-      // this helper and the one `.hex` declaration coincide on one nominal
-      // exception. Fresh per refusal (§7.3 of Exceptions), so the stack points
+      // `SliceError` are: exception identity is the (module, name) pair — `name`
+      // under the declaring module's `$hex` brand, `"Seq"` here (#488) — chosen
+      // over prototype identity precisely so that every module's copy of this
+      // helper and the one `.hex` declaration coincide on one nominal exception. Fresh per refusal (§7.3 of Exceptions), so the stack points
       // at the reentrant pull. The message is a diagnostic rendering and is
       // non-normative — recognition is the `name`, never the text.
       //
@@ -8463,7 +8615,7 @@ function renderHelper(
         "      pull: () => {",
         "        if (__step === undefined && __failure === undefined) {",
         "          if (__forcing) {",
-        '            throw Object.assign(new Error("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: true, name: "ReentrancyError" });',
+        '            throw Object.assign(new Error("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: "Seq", name: "ReentrancyError" });',
         "          }",
         "          __forcing = true;",
         "          try {",
@@ -9469,7 +9621,10 @@ function renderType(
         case "BigInt":
           return "bigint";
         case "Exn":
-          return "Error & { readonly $hex: true; readonly name: string }";
+          // The brand carries the declaring module (#488), so the face that
+          // admits *any* Hexagon exception says `string` — the same shape
+          // `isHexError` narrows to (Exceptions §7.6).
+          return "Error & { readonly $hex: string; readonly name: string }";
       }
     case "Variable":
       return variables.get(type.id) ?? "unknown";
@@ -9647,6 +9802,56 @@ function renderUnionDeclaration(
       : JSON.stringify(name))
     .join(" | ");
   return `${prefix}type ${item.name}${generics} = ${alternatives};`;
+}
+
+/**
+ * One exception's `.d.ts` rows (Exceptions §7.5, FFI Part 7 §6): the branded
+ * intersection type, the constructor JavaScript calls, and — for an exported
+ * one — the `is` guard (§7.6, #478).
+ *
+ * The constructor is a **`declare function`**, not the `declare const` of an
+ * arrow type, because that is what carries the guard: a namespace merges with a
+ * function declaration and with nothing an initializer-less `const` can be, and
+ * the merge is what types `ParseError.is` as a predicate so a consumer's branch
+ * narrows to the intersection face. The two spellings are the same value to
+ * every caller; only the declaration form differs.
+ *
+ * The brand literal is the declaring module's identity (#488) — the exact string
+ * a JS constructor-writer copies, which is the reason §7.5 puts it in the face
+ * at all.
+ */
+function renderExceptionDeclarations(
+  item: Core.ExceptionItem,
+  prefix: string,
+  faces: DeclarationFaces,
+): readonly string[] {
+  const name = item.binding.name;
+  const slot = (slot: Typed.ConstructorSlot): string =>
+    `${slot.field}: ${renderType(slot.type, new Map(), faces, false)}`;
+  const face = `Error & { readonly $hex: ${JSON.stringify(item.owner)}` +
+    `; readonly name: ${JSON.stringify(name)}` +
+    `${item.slots.map((declared) => `; readonly ${slot(declared)}`).join("")} }`;
+  const rows = [
+    `${prefix}type ${name} = ${face};`,
+    `${prefix}declare function ${name}(${item.slots.map(slot).join(", ")}): ${name};`,
+  ];
+  if (prefix === "") return rows;
+  return [
+    ...rows,
+    `${prefix}declare namespace ${name} {`,
+    `  function is(${GUARD_PARAMETER}: unknown): ${GUARD_PARAMETER} is ${name};`,
+    "}",
+  ];
+}
+
+/**
+ * The stage-1 guard's `.d.ts` row (Exceptions §7.6, FFI Part 7 §6), emitted by a
+ * module that exports at least one exception. Its predicate narrows an
+ * `unknown` catch binding to the shape every Hexagon exception shares.
+ */
+function renderIsHexErrorDeclaration(): string {
+  return `export declare function ${IS_HEX_ERROR}(${GUARD_PARAMETER}: unknown): ` +
+    `${GUARD_PARAMETER} is Error & { readonly $hex: string; readonly name: string };`;
 }
 
 function patternBindings(pattern: Core.Pattern): Core.Binding[] {

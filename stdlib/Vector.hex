@@ -23,11 +23,11 @@ extern from "hex:intrinsic"
     export fun vectorPrepend as prepend(values: Vector(a), value: a): Vector(a)
 
     (** The element at a signed `index`: 1-based from the start, or from the end
-        when negative, so `at(values, -1)` is the last element. Raises
+        when negative, so `at(values, -1)` is the last element. Throws
         `IndexError` when no such element exists — zero never addresses one. *)
     export fun vectorAt as at(values: Vector(a), index: Int): a
 
-    (** `values` with the element at 1-based `index` replaced by `value`. Raises
+    (** `values` with the element at 1-based `index` replaced by `value`. Throws
         `IndexError` when `index` is out of range; it never extends the vector. *)
     export fun vectorSet as set(values: Vector(a), index: Int, value: a): Vector(a)
 

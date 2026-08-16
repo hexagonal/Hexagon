@@ -166,7 +166,7 @@ describe("emitJavaScript", () => {
     await expect(runProject(files)).rejects.toThrowError(
       expect.objectContaining({
         name: "IndexError",
-        $hex: true,
+        $hex: "Vector",
         index: -3,
         size: 2,
       }),
@@ -749,7 +749,7 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
     expect(javascript).toContain(
-      "return Object.assign(new Error(__message), { $hex: true, name: __name }, __fields);",
+      'return Object.assign(new Error(__message), { $hex: "main", name: __name }, __fields);',
     );
     expect(javascript).toContain(
       'const ParseError = (line, message) => __exception("ParseError", message, { line, message });',
@@ -758,14 +758,14 @@ describe("emitJavaScript", () => {
       'const Note = message => __exception("Note", message, { message });',
     );
     expect(javascript).toContain(
-      '$hex === true && __error.name === "ParseError"',
+      '$hex === "main" && __error.name === "ParseError"',
     );
     expect(javascript).toContain("throw Missing();");
     expect(emitDeclarations(module).text).toContain(
-      'export type ParseError = Error & { readonly $hex: true; readonly name: "ParseError"; readonly line: number; readonly message: string };',
+      'export type ParseError = Error & { readonly $hex: "main"; readonly name: "ParseError"; readonly line: number; readonly message: string };',
     );
     expect(emitDeclarations(module).text).toContain(
-      "export declare const Missing: () => Missing;",
+      "export declare function Missing(): Missing;",
     );
   });
 
@@ -786,7 +786,7 @@ describe("emitJavaScript", () => {
       ),
     );
 
-    expect(output.text).toContain('$hex === true');
+    expect(output.text).toContain('$hex === "main"');
     expect(output.text).toContain('.reason.tag === "Code"');
     expect(output.text).toMatch(/if \(code > 0\)/u);
     const execute = Function(
@@ -1436,7 +1436,7 @@ describe("emitJavaScript", () => {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).toMatchObject({ name: "DivideByZeroError", $hex: true });
+    expect(thrown).toMatchObject({ name: "DivideByZeroError", $hex: "Integral" });
     expect((thrown as Error).message).toBe("Int.mod: divisor is zero");
   });
 
@@ -1537,7 +1537,7 @@ describe("emitJavaScript", () => {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).toMatchObject({ name: "NegativeExponentError", $hex: true });
+    expect(thrown).toMatchObject({ name: "NegativeExponentError", $hex: "Pow" });
     expect((thrown as Error).message).toBe("an integer exponent cannot be negative");
   });
 
@@ -1566,7 +1566,7 @@ describe("emitJavaScript", () => {
     expect(thrown).toMatchObject({
       name: "NegativeExponentError",
       message: "an integer exponent cannot be negative",
-      $hex: true,
+      $hex: "Pow",
     });
   });
 

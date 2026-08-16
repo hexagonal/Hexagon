@@ -154,10 +154,15 @@ describe("a module alias qualifies an imported exception", () => {
     expect((await runProject(files))["r"]).toBe(5);
   });
 
-  test("the emitted arm tests the declared `name`, not the spelling", () => {
+  test("the emitted arm tests the declaring module and name, not the spelling", () => {
     // Exceptions §7.1's representation, which is what the bare form emits too.
     // A qualified arm that tested a union tag — the shape a constructor whose
     // declaration never crossed compiles to — would match nothing thrown.
+    //
+    // The brand is the *declaring* module's identity (§7.1, #488), so an arm in
+    // `/main.hex` naming `/lib.hex`'s exception tests `"lib"`: the alias the
+    // importer chose is nowhere in the emitted text, and neither is the
+    // importer's own identity.
     const javascript = compileFiles([
       ["/lib.hex", "export exception Boom(code: Int)\n"],
       ["/main.hex",
@@ -170,7 +175,7 @@ describe("a module alias qualifies an imported exception", () => {
     ]).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
     expect(javascript).toContain('.name === "Boom"');
-    expect(javascript).toContain("$hex === true");
+    expect(javascript).toContain('$hex === "lib"');
     expect(javascript).not.toContain("Lib.Boom");
   });
 });
@@ -217,20 +222,21 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
   });
 
   /**
-   * **Pinned as it behaves, and it is not this arc's to fix.** Exceptions §7.1
-   * represents a raised exception as an `Error` carrying `$hex` and the
-   * declared `name`, so *identity is the name string* at run time. Two
-   * exceptions declared in two modules under one name therefore have one
-   * representation, and an arm naming either catches both — the arms below are
-   * one test emitted twice.
+   * **The #488 flip, and the residue it discharges.** Exceptions §7.1 used to
+   * represent a raised exception as an `Error` carrying `$hex: true` and the
+   * declared `name`, so *identity was the name string* at run time: two
+   * exceptions declared in two modules under one name had one representation,
+   * and an arm naming either caught both — `B.Boom(tag)` swallowed `A`'s throw
+   * and bound `tag` to `undefined`, an accident needing no adversary.
    *
-   * Nothing here is about occlusion, the prelude, or the qualified spelling:
-   * the same two arms written for two ordinary imports behave the same way. It
-   * was simply unreachable while a catch arm could name no exception the module
-   * had not written; #469 makes it writable, which is why it is recorded now.
-   * See the residue bullet in `spec/notes/compiler-conformance-defects.md`.
+   * The brand now carries the **declaring module** (§7.1), so identity is the
+   * (module, name) pair and the arms below are two arms again. Nothing here is
+   * about occlusion, the prelude, or the qualified spelling: two ordinary
+   * imports are all it ever took. It was simply unwritable while a catch arm
+   * could name no exception the module had not written, which is why #469 made
+   * it reachable and #488 closed it.
    */
-  test("two exceptions of one declared name share one representation", async () => {
+  test("two exceptions of one declared name are two representations", async () => {
     const files = [
       ["/a.hex", "export exception Boom(code: Int)\nexport fun raise(): Int = throw(Boom(1))\n"],
       ["/b.hex", "export exception Boom(tag: String)\n"],
@@ -247,9 +253,34 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
     ] as const;
 
     // Both arms compile — they are two distinct constructors, so §5.3 has no
-    // objection — and `B`'s catches what `A` threw.
+    // objection — and `A`'s throw passes the `B.Boom` arm to reach `A.Boom`.
     expect(compileFiles(files).diagnostics).toEqual([]);
-    expect((await runProject(files))["r"]).toBe(2);
+    expect((await runProject(files))["r"]).toBe(1);
+  });
+
+  test("with only the foreign arm, the domestic exception is rethrown", async () => {
+    // The other half of the pair: an arm that no longer captures does not
+    // silently swallow either. `B.Boom` matches nothing `A` raises, so §7.4's
+    // implicit rethrow carries the exception out of the `try` intact — payload
+    // and all, which is what a `tag` bound `undefined` used to destroy.
+    const files = [
+      ["/a.hex", "export exception Boom(code: Int)\nexport fun raise(): Int = throw(Boom(7))\n"],
+      ["/b.hex", "export exception Boom(tag: String)\n"],
+      ["/main.hex",
+        "import * as A from \"./a\"\n" +
+        "import * as B from \"./b\"\n" +
+        "export fun f(): Int =\n" +
+        "    try\n" +
+        "        A.raise()\n" +
+        "    catch\n" +
+        "        B.Boom(tag) => 2\n"],
+    ] as const;
+
+    expect(compileFiles(files).diagnostics).toEqual([]);
+    const f = (await runProject(files))["f"] as () => number;
+    expect(f).toThrowError(
+      expect.objectContaining({ name: "Boom", $hex: "a", code: 7 }),
+    );
   });
 });
 

@@ -1204,7 +1204,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
       "  try { outcome = 'OK:' + JSON.stringify(fn()); }",
       // Recorded the way §7.4 says a program recognizes it — the brand and the
       // `name`, never the message, which is a non-normative rendering.
-      "  catch (error) { outcome = 'ERR:' + (error.$hex === true) + ':' + error.name; }",
+      "  catch (error) { outcome = 'ERR:' + (error.$hex === 'Seq') + ':' + error.name; }",
       "}",
       reenterBody,
       sourceBody,
