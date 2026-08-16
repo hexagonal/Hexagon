@@ -137,9 +137,10 @@ open specification work does not make the book outline provisional.
     `for` over a stream, no `take`/`drop`, and no replay of any kind.
 
 21. **Exceptions** — `exception`, `throw`, and pattern-based
-    `try`/`catch` handle exceptional control flow. Unmatched catches rethrow, Hexagon
-    exceptions use branded JavaScript `Error` values, and foreign thrown values appear
-    through `JsError`; `Result.attempt` provides a value-oriented alternative.
+    `try`/`catch` handle exceptional control flow. A line-initial `match` may take a
+    `catch` clause guarding its scrutinee's evaluation alone. Unmatched catches rethrow,
+    Hexagon exceptions use branded JavaScript `Error` values, and foreign thrown values
+    appear through `JsError`; `Result.attempt` provides a value-oriented alternative.
 
 ## Collections
 

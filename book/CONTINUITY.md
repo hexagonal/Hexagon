@@ -873,6 +873,12 @@ late pedagogy pass, not a commitment to the current order.
 - `try`/`catch` is expression-valued and uses the full pattern language, including
   module-qualified constructors in catch arms (`Vector.IndexError(i, s)`). Missing
   cases implicitly rethrow; unreachable arms remain hard errors.
+- A `match` that begins its own line may take a `catch` clause at the head's column
+  (#500). It is the same `catch` in a second seat, and its window is the *scrutinee's*
+  evaluation alone — the contrast with `try match … catch`, which wraps the arms too,
+  is the section's teaching point. Exhaustiveness stays with the data arms; a mid-line
+  head takes no clause and rewraps by one indent; a scrutinee that cannot throw makes
+  the clause a dead-code error.
 - Throwing is not an effect: a pure function may throw and may catch. Chapter 21
   restates Chapter 19's cut in exception terms (`Int.div` stays pure-and-partial).
 - There is no `finally`, by design; paired acquire-and-release is a future `use`
