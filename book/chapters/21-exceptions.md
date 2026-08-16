@@ -70,6 +70,14 @@ let requireName(possibleName: Option(String)): String =
 
 The function still returns `String` when it returns normally.
 
+Notice what the marks from Chapter 19 are *not* doing here. `requireName` is pure, and
+the `throw` inside it costs nothing: throwing is not an effect. The effect discipline
+tracks observable interaction with the world, and an exception is failure, not
+interaction, so the two channels stay separate — a pure function may throw, and a pure
+function may catch. `Int.div` divides or throws `DivideByZeroError` and is pure either
+way. Purity promises that a call cannot touch the world; it has never promised that
+the call must succeed.
+
 The stack trace is captured when the exception value is constructed, as it is for
 JavaScript `Error`. Constructing beside the `throw` therefore records the useful throw
 site. If an exception is constructed and stored for later, its stack points to that
@@ -84,7 +92,7 @@ an exhaustiveness error:
 ```hexagon
 let loadConfiguration(path: String): Configuration =
     try
-        readConfiguration(path)
+        readConfiguration!(path)
     catch
         ParseError(line, message) =>
             log("Line ${line}: ${message}")
@@ -93,11 +101,31 @@ let loadConfiguration(path: String): Configuration =
 ```
 
 The `try` body and every catch-arm body must produce the same type. Here successful
-loading and both recovery paths produce `Configuration`.
+loading and both recovery paths produce `Configuration`. The `!` belongs to the file
+read, not to the possibility of `ParseError`: failing is free, touching the disk is
+not.
 
 Catch arms are tried from top to bottom. Constructor, tuple, record, literal, or-, and
 as-patterns may nest, and guards work as they do in `match`. Pattern binders are local
 to their arm and may use familiar short names.
+
+A catch arm may also name its constructor through a module, exactly as `match`
+patterns can. The standard library's exceptions read naturally this way:
+
+```hexagon
+let scoreAt(scores: Vector(Int), index: Int): Int =
+    try
+        Vector.at(scores, index)
+    catch
+        Vector.IndexError(requested, size) =>
+            log("asked for ${requested} of ${size}")
+            0
+```
+
+The same spelling catches an imported module's exceptions — `Geo.ParseError(line,
+message)` under a module alias — and it remains available when your own module
+declares an exception of the same name, so the standard library's is never out of
+reach.
 
 An exception thrown while evaluating a catch arm is not caught again by that same
 `catch`; it propagates outward.
@@ -128,8 +156,11 @@ arm is an error.
 exhaustiveness; an open exception type cannot. Use `try`/`catch` as its elimination
 form.
 
-There is no `finally` form. `try`/`catch` handles recovery and propagation, not an
-additional unconditional cleanup block.
+There is no `finally`, by design. The cleanup problem `finally` was invented for is
+really paired acquire-and-release, and that job belongs to a dedicated scoped-resource
+construct — a future `use` binding — rather than to a bare cleanup block bolted onto
+`try`. The emitter keeps JavaScript's own `try`/`finally` for such internal lowering,
+so the surface language never needs the keyword.
 
 ## Foreign failures enter through `JsError`
 
@@ -144,7 +175,7 @@ Catch it like another constructor:
 
 ```hexagon
 try
-    callForeignParser(input)
+    callForeignParser!(input)
 catch
     JsError(error) => handleForeignError(error)
 ```
@@ -171,16 +202,23 @@ When a program wants to capture any exceptional outcome as an explicit value,
 `Result.attempt` has this type:
 
 ```text
-Result.attempt : (() -> a) -> Result(a, Exn)
+Result.attempt : (() ->? a) ->? Result(a, Exn)
 ```
 
 It runs a nullary function and returns `Ok(value)` on normal completion or `Err(error)`
-when anything is thrown:
+when anything is thrown — Hexagon or foreign; a foreign throwable arrives as
+`Err(JsError(…))`:
 
 ```hexagon
 let loaded: Result(Configuration, Exn) =
-    Result.attempt(() => readConfiguration(path))
+    Result.attempt!(() => readConfiguration!(path))
 ```
+
+Both `->?` are the same variable, as always: `attempt` is a conduit, exactly as
+effectful as the thunk it is handed. Reading configuration touches the disk, so the
+thunk's body wears `!` and the `attempt` call does too; hand it a pure thunk and the
+whole call is pure and bare. A pure-only face would refuse exactly the
+boundary-wrapping calls this function exists for.
 
 This is an explicit bridge, not a coercion between `Exn` and `Result`. Once captured,
 the caller handles the outcome with ordinary union pattern matching.
@@ -213,9 +251,9 @@ An exported exception has an equally direct TypeScript face:
 
 ```ts
 type ParseError = Error & {
-  $hex: "parser";
-  name: "ParseError";
-  line: number;
+  readonly $hex: "parser";
+  readonly name: "ParseError";
+  readonly line: number;
 };
 ```
 
@@ -239,16 +277,27 @@ export declare function isHexError(
 Both are TypeScript type predicates, so a branch narrows an `unknown` catch binding to the
 published face. Neither exists on the Hexagon side: the domestic eliminator is `catch`.
 
+Documentation crosses the boundary in the same spirit. One documentation-comment
+sentence is recognized — ``Throws `ParseError` when the input is malformed.`` — and an
+exported declaration carrying it gains a matching `@throws` tag in its emitted JSDoc,
+so a TypeScript consumer's hover lists what a call may throw. This is documentation,
+not typing: nothing verifies the claim, but the sentence and its tag travel with the
+declaration.
+
 ## Summary
 
 - predictable failure belongs in `Result` or another closed union;
 - independently declared exception constructors all produce the open type `Exn`;
 - constructing an exception and throwing it are separate operations;
+- throwing is not an effect: a pure function may throw, and a pure function may catch;
 - `throw` never returns and can occupy any expected result position;
-- `try`/`catch` is an expression using the established pattern language;
+- `try`/`catch` is an expression using the established pattern language, and a catch
+  arm may name its constructor through a module;
 - unmatched exceptions are implicitly rethrown, while reachability is still checked;
+- there is no `finally`; paired acquire-and-release is a future `use` binding's job;
 - all foreign throwables enter through `JsError`;
-- `Result.attempt` converts exceptional computation into explicit union data; and
+- `Result.attempt` converts exceptional computation into explicit union data and is
+  exactly as effectful as the thunk it runs; and
 - Hexagon exceptions are branded JavaScript `Error` values, not classes.
 
 Together, local mutation, loops, lazy iteration, and exceptions cover sequential and
