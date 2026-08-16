@@ -870,13 +870,22 @@ late pedagogy pass, not a commitment to the current order.
   `Exn` type.
 - `exception` is module-level, has concrete payload types, and introduces first-class
   constructors. Construction is separate from `throw`.
-- `try`/`catch` is expression-valued and uses the full pattern language. Missing cases
-  implicitly rethrow; unreachable arms remain hard errors.
+- `try`/`catch` is expression-valued and uses the full pattern language, including
+  module-qualified constructors in catch arms (`Vector.IndexError(i, s)`). Missing
+  cases implicitly rethrow; unreachable arms remain hard errors.
+- Throwing is not an effect: a pure function may throw and may catch. Chapter 21
+  restates Chapter 19's cut in exception terms (`Int.div` stays pure-and-partial).
+- There is no `finally`, by design; paired acquire-and-release is a future `use`
+  binding's job, and the emitter keeps JS `try`/`finally` for internal lowering.
 - `JsError` is the sole foreign-throwable door; ordinary catch/rethrow preserves the
   original foreign value.
-- `Result.attempt` bridges exceptional computation back to `Result(a, Exn)`.
+- `Result.attempt : (() ->? a) ->? Result(a, Exn)` bridges exceptional computation
+  back to data; linked arrows — the call is exactly as effectful as its thunk.
 - Runtime values are branded JavaScript `Error` objects; nullary exceptions construct
   fresh values for useful stacks; exported faces are branded `Error` intersections.
+- JS consumers discriminate with the generated `is` guards and `isHexError`; the
+  recognized ``Throws `X` when <condition>.`` doc sentence derives `@throws` in
+  emitted JSDoc.
 - Chapter 21 (Exceptions) closes the fifth drafting group. Its review is
   recorded in `reviews/05-state-iteration-and-failure.md`. *(It was chapter 19 when
   that group was drafted; Streams took the number at the un-flagging milestone, #364,
