@@ -97,7 +97,7 @@ Hard errors, per house rule — there is no warning tier, so the choice is error
 
 ## 6. Content model
 
-Documentation content is **Markdown** (CommonMark). The compiler does not parse, validate, or transform it — content is carried opaque and emitted verbatim (§7), with exactly one recognized sentence form, read additively and never rewritten: the throws manifest (§6.1). Markdown is the *contract with tooling*, which renders doc content as Markdown everywhere it is surfaced.
+Documentation content is **Markdown** (CommonMark). The compiler does not otherwise parse, validate, or transform it — content is carried opaque and emitted verbatim (§7), with exactly one recognized sentence form, read additively and never rewritten: the throws manifest (§6.1). Markdown is the *contract with tooling*, which renders doc content as Markdown everywhere it is surfaced.
 
 - A fenced code block with no info string defaults to Hexagon (` ``` ` = ` ```hexagon `) in every Hexagon-aware renderer; emitted JSDoc keeps the fence as written (§7.2).
 - There is **no tag language**. `@param`, `@returns`, and their kin have no Hexagon meaning; a line beginning `@word` is ordinary Markdown text and passes through. Rationale: the `.d.ts` already carries every exported signature completely and honestly (Modules §4.1.1, FFI Part 7) — a hand-written `@param` row duplicates what the compiler states better, and duplicated statements drift. Deferred, not banned forever, with a revisit bar: §9.2. **But note the boundary consequence** (§7.2): "no Hexagon meaning" does not make a tag inert in the shipped artifact, because TypeScript tooling reads emitted JSDoc with its own tag vocabulary.
@@ -111,8 +111,8 @@ One sentence form in doc content is **recognized** — read, never rewritten, ne
 Throws `X` when <condition>.
 ```
 
-- Recognition is exact and conservative: the word `Throws` followed by one backticked uppercase-start name followed by `when` and prose, ending at the sentence's period, anywhere in the doc content (the stdlib writes it mid-paragraph). Anything that deviates is ordinary prose and recognition does not fire — the deriver never guesses.
-- One sentence per exception; several exceptions, several sentences.
+- Recognition is exact and conservative: the word `Throws` followed by one backticked uppercase-start name, then `when` and prose, ending at the sentence's period — anywhere in the doc content's **prose** (the stdlib writes it mid-paragraph), never inside a fenced code block (fences are code, §6's own bullet; a quoted manifest in an example fires nothing).
+- **A condition containing a manifest head refuses recognition entirely**: if the text between `when` and the period itself contains a backticked uppercase-start name followed by `when`, the sentence fires nothing — ``Throws `X` when a, and `Y` when b.`` derives no tag at all, not one mangled one. One sentence per exception is therefore the grammar, not merely the style; several exceptions take several sentences. Anything else that deviates is likewise ordinary prose — the deriver never guesses.
 - House style: every exported declaration that throws a declared exception carries the manifest for each (manual voice, as the stdlib's throwing companions already do — spelled `Throws`, the language's own verb, not `Raises`).
 - Recognition changes nothing in the body: the sentence emits verbatim in its place like all content (§7.2). What recognition adds is generated documentation — the `@throws` tags of §7.4.
 - **This is not a tag language.** §6's bullet stands and §9.2's bar is untouched: no `@word` gains Hexagon meaning, nothing is written in tag syntax in Hexagon source; the one recognized form is a prose sentence, and the tag is emission's output, not the author's input.
@@ -157,7 +157,7 @@ Each recognized throws manifest (§6.1) on a documented **exported** declaration
 - The brace carries the **bare declared name**: untyped to `tsc` (which never checks throws), link-resolved by documentation tooling where the exported exception type is in scope, degrading to text elsewhere. Module qualification, where it matters, lives in the manifest's prose — the brand's path identity (Exceptions §7.1, #488) is a runtime spelling, not a documentation one.
 - Emitted in **both** artifacts, per §7.1's rule — the `.js` block and the `.d.ts` block.
 - Hand-written `@`-lines in doc content remain §7.2's recorded pass-through, unchanged: the deriver neither deduplicates against them nor validates them; an author who writes tag syntax by hand is in boundary-tooling territory, outside the convention.
-- Unexported declarations: the manifest is still house style and still renders in Hexagon-side tooling (§8); no tag is generated where no boundary block exists (§7.1's no-seat rule).
+- **Exported seats only, on the tag's real ground: the tag is consumer-boundary documentation.** A documented unexported term still gets its `.js` JSDoc block (§7.1's "exported or not"), and its manifest sentence rides in it verbatim like all content — but no `@throws` is generated there, because the `.js` binding of an unexported term is not a consumer surface and the tag exists for the consumer's hover. The manifest remains house style everywhere and renders in Hexagon-side tooling (§8).
 
 ## 8. Tooling *(non-normative)*
 
@@ -255,6 +255,22 @@ export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` doe
 (*! not special *)                       -- ordinary comment; no inner-doc spelling exists or is reserved (§9.1)
 ```
 
+The throws manifest (§6.1, §7.4) — golden adds the derived-tag column:
+
+```
+(** Parses. Throws `ParseError` when the input is malformed. *)
+export fun parse(s: String): Ast = ...   -- recognized: sentence verbatim in both JSDoc blocks; generated position gains `@throws {ParseError} when the input is malformed`
+
+(** Throws `ParseError` when a, and `IndexError` when b. *)
+export fun bad(s: String): Ast = ...     -- refused entirely (manifest head inside the condition): ordinary prose, no tag — not one mangled tag (§6.1)
+
+(** Throws `parseError` when lowercase. *)
+export fun odd(s: String): Ast = ...     -- deviant (lowercase name): ordinary prose, no tag
+
+(** Throws `ParseError` when the input is malformed. *)
+fun helper(s: String): Ast = ...         -- unexported: manifest is house style, .js block carries the sentence verbatim, no tag generated (§7.4)
+```
+
 ## 12. Decisions log
 
 | Decision | Where |
@@ -272,7 +288,7 @@ export (** misplaced *) fun m(): Unit = ()  -- ERROR: mid-declaration; `fun` doe
 | Emission: JSDoc in both `.js` and `.d.ts` at every corresponding seat; `*/` → `*\/`; no seat → tooling-only | §7 |
 | Verbatim emission makes TS's tag vocabulary live at the boundary — recorded, neither validated nor suppressed; the tag-language ruling inherits it | §6, §7.2, §9.2 |
 | User + generated docs merge into one JSDoc block, user first | §7.3 |
-| The throws manifest (#479): ``Throws `X` when <condition>.`` is the one recognized sentence form — read additively, never rewritten; spelled `Throws` (the language's verb), exact-match recognition, no checking; emission derives `@throws {X} when <condition>` in the generated-content position, both artifacts, exported seats only; not a tag language — §9.2's bar untouched | §6.1, §7.4 |
+| The throws manifest (#479): ``Throws `X` when <condition>.`` is the one recognized sentence form — read additively, never rewritten; spelled `Throws` (the language's verb); exact-match recognition, prose only (fences excluded), a manifest head inside the condition refuses entirely; no checking; emission derives `@throws {X} when <condition>` in the generated-content position, both artifacts, exported seats only (the tag is consumer-boundary documentation); not a tag language — §9.2's bar untouched | §6.1, §7.4, §11 |
 | Module docs deferred with a named bar and **no reserved spelling** (JSDoc expresses them within the one form) | §9.1 |
 | Tag language, intra-doc links, parameter docs deferred with bars | §9.2 |
 | Rejected: `///` in any doc role, inner-doc spellings (`(*!`/`//!`), trailing docs, silent danglers, XML docs, v1 tag DSL, `(***` as doc, `.d.ts`-only emission, docs-as-tokens, blank-line detachment | §10 |

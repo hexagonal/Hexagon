@@ -265,9 +265,9 @@ export declare function isHexError(
 ): err is Error & { readonly $hex: string; readonly name: string };
 ```
 
-`isHexError` is a generated public **face** — deliberately outside Lexer §3.2's `__` prefix — and a fixed name, so its collision with an explicit export of the same module is the Part 8 §6.2 family's hard error (both sites named; the fix is a source rename, never a silent one).
+`isHexError` is a generated public **face** — deliberately outside Lexer §3.2's `__` prefix — and a fixed name, so its collision with an explicit export of the same module is the Part 8 §6.2 family's hard error (both sites named; the fix is a source rename, never a silent one). **`JsError` ships no `is` guard**: its wrapping is virtual (Exceptions §6.2), so outside that section's exotic first-class residue a JS consumer never receives a branded `"JsError"` — the foreign branch of their discrimination is `!isHexError(err)`.
 
-**Generated `@throws` tags** *(#479)*: a documented exported declaration whose doc content carries throws manifests (``Throws `X` when <condition>.``, Doc Comments §6.1) gains a generated `@throws {X} when <condition>` line per manifest in its JSDoc block — one block, user content first, the generated-content position (Doc Comments §7.3–§7.4) — in both emitted artifacts. Documentation, not typing: nothing verifies the declaration throws what it documents. **`JsError` ships no `is` guard**: its wrapping is virtual (Exceptions §6.2), so outside that section's exotic first-class residue a JS consumer never receives a branded `"JsError"` — the foreign branch of their discrimination is `!isHexError(err)`.
+**Generated `@throws` tags** *(#479)*: a documented exported declaration whose doc content carries throws manifests (``Throws `X` when <condition>.``, Doc Comments §6.1) gains a generated `@throws {X} when <condition>` line per manifest in its JSDoc block — one block, user content first, the generated-content position (Doc Comments §7.3–§7.4) — in both emitted artifacts. Documentation, not typing: nothing verifies the declaration throws what it documents.
 
 ---
 
