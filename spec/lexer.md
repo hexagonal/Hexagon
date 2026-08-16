@@ -198,8 +198,9 @@ The groups are:
   #147: Bool is the prelude union `False | True`; its values are ordinary
   uppercase constructor names, which the lexer treats like any `UpperName`)*;
 - derivation: `derive`, legal only as the complete body of an `honor` declaration;
-- reserved future control word: `finally`. It is tokenized now but has no v1
-  grammar, so its use receives the targeted deferred-feature diagnostic.
+- reserved control word: `finally`. It is tokenized but has no grammar and never
+  will (Exceptions §10.1 — Hexagon has no `finally`); it stays reserved
+  permanently, purely to power the targeted diagnostic.
 
 `honor` is the current instance-declaration keyword. The superseded `implement` is
 not reserved; in a declaration-shaped position it should receive a migration hint to

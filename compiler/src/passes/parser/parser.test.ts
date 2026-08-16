@@ -852,7 +852,7 @@ describe("parse", () => {
       },
     ]);
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "`finally` is not part of Hexagon v1",
+      "Hexagon has no `finally`; resources are scoped with `use`",
     ]);
   });
 

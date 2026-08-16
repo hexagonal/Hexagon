@@ -1,9 +1,9 @@
 # Hexagon Spec: Exceptions
 
-**Status:** Decided (July 2026) — with a **hanging-questions** section (§10); nothing there blocks implementation of §1–§9.
+**Status:** Decided (July 2026); re-based onto the effects discipline (#480) — the cut is now stated here, not merely inferable from Effects §1, and `Result.attempt`'s arrows link; `finally` resolved to never (#481). With a **hanging-questions** section (§10; §10.1 since resolved); nothing there blocks implementation of §1–§9.
 **Scope:** The `exception` declaration (an open extensible sum of error constructors), the `Exn` type, `throw`, the `try`/`catch` expression, foreign (JS-originated) throwables and the `JsError` door, the tagged-`Error`-plus-brand runtime representation, prelude additions (`JsError`, `Result.attempt`), emission and `.d.ts` shapes.
-**Not in scope:** `finally` (deferred, §10.1), the full pattern grammar (pattern-matching spec — catch arms use the same flat constructor patterns as `match`, Unions §4.2), the `JsValue` type and its decoding surface (FFI Part 11; this doc consumes its two conservative `JsError` accessors), module-level qualification of exception constructor names (modules spec), async/promise-rejection interactions (FFI/async spec, if any).
-**Companions:** Unions spec (constructor grammar reused wholesale; the closed/open contrast is this doc's reason to exist), Functions spec (arity, constructors-as-terms, value restriction), Lexer & Layout spec (`try`/`catch` bodies are layout blocks), Constraints spec (no derived instances for `Exn`, §7).
+**Not in scope:** `finally` (resolved: never — §10.1), the full pattern grammar (pattern-matching spec — catch arms use the same flat constructor patterns as `match`, Unions §4.2), the `JsValue` type and its decoding surface (FFI Part 11; this doc consumes its two conservative `JsError` accessors), module-level qualification of exception constructor names (modules spec), async/promise-rejection interactions (FFI/async spec, if any).
+**Companions:** Unions spec (constructor grammar reused wholesale; the closed/open contrast is this doc's reason to exist), Functions spec (arity, constructors-as-terms, value restriction), Lexer & Layout spec (`try`/`catch` bodies are layout blocks), Constraints spec (no derived instances for `Exn`, §7), Effects spec (§1 owns the cut this doc's §1 restates; §2.2's linked arrows are `Result.attempt`'s, §8.2).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, layout pass, readable-JS emission with `.d.ts`.
 
@@ -12,6 +12,7 @@ Written for a future implementation session against the existing `hexc` architec
 ## 1. Doctrine
 
 - **Predictable failure is data; unpredictable failure is exceptions.** When a failure mode can be anticipated at a call site, return `Result` or a custom `union` — that is what closed sums and exact exhaustiveness are for. `exception` exists for the failures that *cannot* be enumerated in advance. This division is the spec's first sentence on purpose: exceptions are the pressure valve that lets `union` stay closed. There will be no open unions in Hexagon's data; there is exactly one open sum in the language, and it is `Exn`.
+- **Throwing is not an effect.** The effect discipline tracks observable interaction with the world (Effects §1), and exceptions stand deliberately outside it — the partiality/defect channel beside the data channel, not a third colour. `throw` carries the pure constant arrow (§3), a `->` function may throw *and may catch*, and `Int.div` stays pure-and-partial: without this cut, the throwing-companion doctrine would mark the whole prelude impure, and silence — the strongest claim — would die of noise. Two alternatives were weighed and rejected; recorded so they are not re-litigated without new information. **Exceptions as a tracked effect** (the Koka direction) is structurally excluded: the lattice has two points and a signature has one variable, so "throws but world-pure" has no spelling — and would need one everywhere, because the prelude throws. **Throw-pure/catch-impure** (Haskell's cut) is rejected with its price named. Imprecise exceptions make the *observed* exception depend on evaluation order — which is what buys an optimizer the freedom to reorder pure code without regard to what it throws, a freedom laziness left Haskell unable to decline. Hexagon takes the other side: catching stays legal in pure code (the OCaml/F# position), exception identity is therefore observable in pure code, and the Effects §7 reordering licence is bounded by that observability — a conforming compiler may not reorder or fuse pure computations where doing so changes which exception is thrown, or whether one is. JS's fully specified evaluation order means the emitter meets the bound by doing nothing; it is recorded so a future optimizer does not spend a licence that was never that wide.
 - **SML semantics, JS spelling.** The design is Standard ML's `exception` — an extensible sum whose constructors are declared independently, whose values are first-class, with a non-exhaustive handler that implicitly re-raises. The surface vocabulary is what every Hexagon user already knows: `try`/`catch` syntax and the ordinary `throw` function (not `raise`/`handle`).
 - **`Exn` is a real type, and its values are ordinary values.** An exception can be constructed, bound, stored in a record, passed to a function, and thrown later. Construction and throwing are separate acts (as in SML, and as in JS's `new Error` vs `throw`).
 - **`catch` is a `match` that cannot be exhaustive.** Because the sum is open, "missing cases" is meaningless; the rule inverts. Where `match` demands exhaustiveness (Unions §4.3), `catch` provides an implicit *anything-unmatched propagates*. No error, no warning, no mandatory `_` arm. This does not weaken the exhaustiveness doctrine — that payoff was always about data; control-flow escape is a different contract.
@@ -49,7 +50,7 @@ Exactly the union rules (Unions §2.2), restated for closure:
 ## 3. Typing
 
 - **`Exn` is an opaque prelude type constant.** It unifies with itself and nothing else. No structural anything; no user code can name its "constructor set" because it doesn't have a closed one.
-- `throw : Exn -> a` — a prelude function (not a keyword-with-special-grammar; ordinary call syntax `throw(e)`). It never returns, so its result type is a fresh variable that unifies with any expected type — the standard typing of divergence. `if broken then throw(NotFound) else 5` types as `Int`.
+- `throw : Exn -> a` — a prelude function (not a keyword-with-special-grammar; ordinary call syntax `throw(e)`). It never returns, so its result type is a fresh variable that unifies with any expected type — the standard typing of divergence. `if broken then throw(NotFound) else 5` types as `Int`. Its arrow is the pure constant `->`, deliberately (§1): a throw neither colours the enclosing body nor wears a call mark — `throw(NotFound)` is a bare call, legal in a `->` body.
 - **`Exn` is not `Result`'s friend by subtyping or coercion** — there is no implicit relationship. The explicit bridge is `Result.attempt` (§8.2).
 - `match` on an `Exn` scrutinee is **not permitted** — "match requires a union type in v1" (Unions §4.2) already excludes it, and it stays excluded permanently: an open sum can never satisfy `match`'s exhaustiveness contract. The only eliminator for `Exn` is a `catch` block. (Consequently there is also no dot access, no predicates — the Unions §5 doctrine transfers whole.)
 
@@ -82,7 +83,7 @@ catch
 ```
 
 - **`try` takes a body** — same line or an indented layout block, final expression is its value (identical to lambda bodies, Functions §3.1). **`catch` takes a layout block of arms**, one per VSEP/`;`, each `pattern => body` — syntactically the same arm form as `match` (Unions §4.1), parsed in the same arm context, with the same `=>` token. Braced forms do not exist; a `{` after `try` or `catch` gets the standard records-not-blocks diagnostic (Lexer & Layout §5).
-- **`catch` is mandatory** — a bare `try` block is a parse error ("`try` requires a `catch`"). There is no `finally` in v1 (deferred, §10.1).
+- **`catch` is mandatory** — a bare `try` block is a parse error ("`try` requires a `catch`"). There is no `finally` — in v1 or ever (§10.1).
 - **`try`/`catch` is an expression**: the try-body's type and every arm body's type unify to one result type. The scrutinee position is implicit (the in-flight exception); arms are evaluated against it top to bottom.
 
 ### 5.2 Patterns
@@ -98,6 +99,7 @@ The one addition: **`JsError(e)`** is a legal arm — a prelude exception (§6) 
 - A `_` (or bare-variable) arm catches **everything** — Hexagon exceptions and foreign throwables alike (§6 makes this true, not merely claimed).
 - **Reachability is still checked and still a hard error** (Unions §4.3 transfers): a constructor arm already covered above, or any arm after `_`/bare-variable, or a constructor arm after a `JsError` arm *only if* — no: `JsError` covers only the foreign branch, so domestic arms after it are fine; but a second `JsError` arm, or anything after `_`, is unreachable. With flat patterns this remains exact set logic; do not approximate.
 - The try-body is evaluated once; exceptions thrown *inside a catch arm's body* are not caught by the same `catch` (they propagate outward) — standard, but stated because JS's `try`/`catch` behaves identically and the emission (§7.4) gets it for free.
+- **Colours: nothing here owns an effect rule.** The try-body and every arm body are ordinary expression positions — their call marks join into the enclosing body's colour exactly as any other subexpression's do, and a `?` call inside either conducts the enclosing signature's variable as usual (Effects §3.1). Catching never launders an effect, and throwing never creates one (§1).
 
 ---
 
@@ -206,10 +208,12 @@ Per §6.1. Declared in the prelude; FFI Part 11 finalizes its `JsValue` payload 
 ### 8.2 `Result.attempt`
 
 ```
-Result.attempt : (() -> a) -> Result(a, Exn)
+Result.attempt : (() ->? a) ->? Result(a, Exn)
 ```
 
 Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexagon or foreign (foreign arrives as the `JsError`-branch value, i.e. `Err(JsError(e))` observationally). This is the bridge from the exception world back to the data world, expected to be the single most-used exception function in practice; it is ordinary Hexagon (a `try`/`catch` with a `_` arm) and may be written in the stdlib, not compiler magic. The inverse direction is `throw` composed on `match`/`Err` and needs no dedicated function.
+
+The arrows are linked (Effects §2.2): the thunk's `->?` is the signature's inlet, and `attempt` is a conduit — its body is a `?` call on the thunk under a catch-all — so running `attempt` is exactly as effectful as the thunk it is handed. Instantiated pure, the whole call is pure and bare; instantiated impure, it wears `!`. A pure-only face would refuse exactly the boundary-wrapping calls this function exists for.
 
 *(Naming note: subject-first convention doesn't bite — the thunk is the only argument.)*
 
@@ -228,7 +232,7 @@ Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexago
 | Constructor/pattern arity mismatch | standard arity errors + `Circle(_)`-style hints (Unions §4.2 family) |
 | Duplicate exception name (module / in-scope) | constructor-collision rule family (§2) |
 | Bare `try` without `catch` | "`try` requires a `catch`" (§5.1) |
-| `finally` | "`finally` is not part of Hexagon v1" (§10.1) |
+| `finally` | "Hexagon has no `finally`; resources are scoped with `use`" (§10.1) |
 | Braced `try { ... }` / `catch { ... }` | records-not-blocks diagnostic (Lexer & Layout §5) |
 | Unreachable catch arm (covered constructor, arm after `_`, second `JsError`) | hard error, naming the shadowing arm (§5.3) |
 | `match` on an `Exn` scrutinee | "match requires a union type; exceptions are inspected with `try`/`catch`" (§3) |
@@ -237,9 +241,9 @@ Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexago
 
 ---
 
-## 10. Hanging questions (recorded, not decided)
+## 10. Hanging questions (recorded; §10.1 since resolved)
 
-1. **`finally`.** Deferred from v1 by agreement. It is a resource-management feature and drags real questions (may `finally` throw? does it overwrite the in-flight exception? interaction with the expression-typing of `try`?) that deserve their own session, probably alongside whatever resource/effect story the FFI develops. The keyword should be reserved by the parser now (targeted diagnostic above) so adding it later is non-breaking.
+1. **`finally`. Resolved: never.** `finally` is an accident of language-history sequencing: `unwind-protect` patched the non-local exits exceptions created, and the patch fossilized into surface syntax (Modula-3, then Java, then C# and JS) before the dominant use case — paired acquire/release — got its own construct. The counterfactual has been run: C++ and Ada had the resource construct first and never grew `finally`; the languages that shipped `finally` and later confronted the resource case added the paired construct and demoted it (Python's `with`, Java's try-with-resources, TC39's `using`; C#'s `using` was sugar over try/finally from the start); and the greenfield designs that revisited the question chose the paired construct instead (`defer` in Go, Swift, and Zig; `Drop` in Rust). The primitive must exist somewhere, but not as surface syntax: a future `use` lowers to emitted JS `try`/`finally`, so the emitter holds unwind-protect for free and the surface never needs the keyword. In an expression language `finally` is statement-shaped — it contributes no value — and every question the deferral recorded (may it throw? does it overwrite the in-flight exception? what does it do to `try`'s typing?) dissolves unasked. The keyword stays reserved permanently, purely to power the diagnostic (§9); the v2 resource story (`use`, a scoped binding in the F# style) files its own issue when that arc opens, and nothing here pre-decides its shape beyond the diagnostic's forward reference. Do not re-litigate without new information.
 2. **Async.** JS promise rejections are exceptions in a trench coat; if Hexagon grows async/await or a Task type, the rejection channel presumably carries `Exn` with the same brand discipline. Nothing here precludes it; flagged so the async design remembers.
 3. **`Show<Exn>` / constraints on `Exn`.** Presumption: `Exn` has **no** derived or prelude instances in v1 — not `Show` (what would it show, given foreign values?), not `Eq` (identity vs structural on error objects is a swamp). Interpolating an `Exn` is therefore a compile error; users show `JsError.message(e)` or their own formatting. Presumed here, confirm in the stdlib listing.
 4. **Warning on over-broad catches?** A lint flagging `_`-arms that swallow everything (the classic error-hiding bug) was floated informally. Linting policy is out of scope for specs so far; parked.
@@ -268,6 +272,9 @@ Runs the thunk; `Ok(value)` on normal return, `Err(exn)` on any throw — Hexago
 | Nullary exceptions construct fresh (stack capture); union shared-constant trick not applied | §7.3 |
 | Two-stage catch discrimination (brand, then name); `err != null` guard; `_` catches truly everything | §7.4 |
 | `.d.ts`: `Error & {$hex: true; name: "..."; ...}`; brand included; exported constructor functions (nullary included, fresh per call); `Exn` at the boundary is `Error` | §7.5; FFI Part 7 §6 |
-| Prelude: `JsError`, `Result.attempt : (() -> a) -> Result(a, Exn)` (stdlib, not magic) | §8 |
+| Prelude: `JsError`, `Result.attempt : (() ->? a) ->? Result(a, Exn)` (stdlib, not magic) | §8 |
+| Throwing is not an effect — the cut restated from this side; `throw` is `->` pure; `try`/`catch` colours by ordinary join; exceptions-as-tracked-effect and throw-pure/catch-impure both rejected, reasons recorded; catch-in-pure bounds the Effects §7 reordering licence (observable throws pin order) | §1, §3, §5.3 |
+| `Result.attempt`'s arrows link — the thunk's `->?` is the inlet, `attempt` a conduit | §8.2 |
+| `finally`: resolved to never (supersedes the deferral row above) — keyword reserved permanently, purely for the diagnostic; resources are the v2 `use` story | §5.1, §9, §10.1 |
 | Four hanging questions recorded | §10 |
 | §7.5's `.d.ts` phrasing re-grounded post-#147 (2026-07-29): the intersection face is the honest statement of §7.1's representation; TS-author phrasing demoted to outcome; face unchanged | §7.5 |
