@@ -1866,9 +1866,90 @@ than settling a style question.
   two spellings, so constructor occlusion costs an exception nothing it had; but
   §5.4's "reachable qualified in both positions" is, for exceptions
   specifically, not yet kept.
+  **Discharged — filed as #469 and fixed; see that entry below.** The table is
+  now every exception constructor in scope, so §5.4's sentence holds in catch
+  position too.
 - **Executable conformance:**
   `conformance/qualified-constructor-patterns.test.ts` — a whole `Ordering`
   match spelled qualified is exhaustive and runs; qualified and bare mix in one
   match; the same constructor spelled both ways is the unreachable-case report;
   the emitted switch tests `"Less"`, not `"Prelude.Less"`, and adds no import.
 - **Credit:** Opus, probing #466's escape hatch before relying on it.
+
+## 2026-08-16 — a catch arm reached only the module's own exceptions (#469)
+
+- **Classification:** compiler defect against specification; no design change.
+  Recorded as residue by the #466 arc, and pre-existing: the checker's exception
+  table has always been the module's own `Exception` items.
+- **Authority:** Exceptions §1 — a catch arm is written with "the same flat
+  constructor patterns as `match`" — which Unions §4.2 supplies and §5.2
+  repeats, so Modules §3.3's qualified constructor form is part of the arm's
+  grammar. Modules §5.5 puts a prelude module's exports in bare scope, §6.4
+  gives every prelude member a qualified home, and §5.4 requires an occluded
+  prelude constructor to stay reachable qualified in **both** positions.
+- **Defect origin:** the checker's `#exceptions` was filled by walking
+  `module.items` for `Exception`, so `#inferExceptionPattern`'s membership test
+  answered "not an exception constructor" for every exception the module had not
+  written — the prelude's included, bare or qualified. The resolver had answered
+  correctly all along: `Map.KeyError` reaches the right symbol through
+  `#namedModule`, and bare `IndexError` through the prelude layer. Only the
+  checker's table was narrow. Emission had the same narrowness for the same
+  reason, and its failure is the silent one: a catch arm whose constructor is
+  not known to be an exception's compiles to a union tag comparison rather than
+  Exceptions §7.1's `$hex`/`name` test, and matches nothing thrown.
+  #466 is what made the gap cost something. Once a module's own declaration may
+  occlude a prelude exception's name, an occluding module had **no spelling at
+  all** for the prelude's — bare meant its own, qualified was refused — and only
+  a catch-all arm and a rethrow were left.
+- **Correction:** one channel, `Module.visibleExceptions` — the exception
+  declarations the prelude layer and this module's imports bring, gathered in
+  the resolver beside `visibleConstraints` (the metadata loop that already runs
+  for every import form) and in `#seedPrelude`. The checker seeds `#exceptions`
+  from it before walking its own items, and the emitter seeds its `#exceptions`
+  from it likewise; the declaration crosses the checker on `Typed.Module` and
+  passes through elaboration untouched.
+  No new resolution path was built: the qualified spelling goes through the door
+  #466 opened for match patterns (`#qualifiedConstructor`), which is why arity,
+  payload binding, and every refusal read identically for the two spellings, and
+  why §5.3's reachability check — keyed on the resolved symbol — reports a
+  qualified arm after its bare twin as already caught.
+  Metadata, never scope: an entry no spelling reaches is inert, so the channel
+  widens what the checker *recognises* and never what is in scope.
+- **A byproduct, and a pin flipped:** the same table gates Exceptions §2.1's
+  targeted hint for a nullary exception called with `()`, so an imported one now
+  takes that sentence instead of the generic not-callable report. That is #439
+  exactly, and its own issue names the pin in
+  `conformance/not-callable.test.ts` as the one to flip.
+  `#nullaryExceptions` in the emitter is deliberately **not** fed from the new
+  channel: it rewrites a *value* reference into a construction, and an imported
+  exception's value face is the exporter's — the separate defect
+  `map-prelude-companion.test.ts` pins.
+- **Residue, recorded not fixed:** Exceptions §7.1 represents a raised exception
+  as an `Error` carrying `$hex` and the declared `name`, so identity at run time
+  **is the name string**. Two exceptions declared under one name in two modules
+  therefore have one representation, and an arm naming either catches both —
+  `B.Boom(tag)` catches what `A.raise()` threw, with `tag` bound to `undefined`.
+  Nothing in this is about occlusion, the prelude, or the qualified spelling;
+  it was simply unwritable while a catch arm could name no foreign exception at
+  all. Pinned as it behaves in
+  `conformance/qualified-exception-patterns.test.ts`.
+- **Executable conformance:**
+  `conformance/qualified-exception-patterns.test.ts` — `Vector.IndexError(i, s)`
+  catches and binds both slots; `Map.KeyError` catches the bracket's throw; the
+  bare spelling reaches the same declaration; all six prelude exceptions plus
+  `Seq.hex`'s `ReentrancyError` compile in an arm by both spellings; an imported
+  exception is caught through an alias with no term import; the emitted arm
+  tests `.name === "Boom"` and never the qualifier; an occluding module catches
+  its own bare and the prelude's qualified; a qualified arm after its bare twin
+  is the already-caught report and two different constructors of one bare name
+  are not; arity, non-exception constructors, unknown qualifiers, unexported
+  names, and private declarations all report as before.
+  **Verified sensitive:** reverting the checker's seeding reddens fourteen of
+  the twenty, the emitter's alone reddens nine — the second number being the
+  silent half, which typechecks and runs wrong.
+  Three pre-existing pins moved from refusal to capability:
+  `vector-prelude-companion.test.ts`'s `test.fails` on the prelude `IndexError`
+  (the flip its own comment asked for), `renamed-constructor-imports.test.ts`'s
+  aliased catch arm, and `qualified-constructor-patterns.test.ts`'s catch block.
+- **Credit:** filed by Opus out of #466's probes, which established that the
+  qualified form resolved and the checker refused it.

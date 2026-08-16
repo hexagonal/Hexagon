@@ -127,6 +127,14 @@ export interface Module {
    * scope emits nothing for it.
    */
   readonly preludeTypeImports: readonly Resolved.PreludeTypeImport[];
+  /**
+   * Exception declarations in scope here that this module did not write (#469);
+   * see `Resolved.Module.visibleExceptions`. Emission reads it exactly as it
+   * reads this module's own `Exception` items — to recognise a catch arm's
+   * constructor and to name its payload fields — and for nothing else: no entry
+   * emits a declaration, a runtime value, or an import.
+   */
+  readonly visibleExceptions: readonly Typed.ExceptionItem[];
   readonly externTypes: readonly Typed.ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**
