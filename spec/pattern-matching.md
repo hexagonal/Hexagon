@@ -259,9 +259,13 @@ Two **permanent** exclusions:
 
 Everything else from Unions §4 stands: layout arms, `pattern [when g] => body`, expression semantics, single evaluation of the scrutinee, no braced form.
 
+**A `match` whose head begins its logical item may take a `catch` clause** — the match catch expression, owned by Exceptions §5.4: a `catch` block at the match head's column whose arms handle exceptions thrown by the *scrutinee's evaluation only* (a mid-line head takes no clause). The clause changes nothing in this section — the scrutinee types against the data arms as above, the data arms alone satisfy exhaustiveness (§7.1), and both permanent exclusions stand; in particular, a catch clause does not make `match` an eliminator for `Exn`.
+
 ### 6.2 `catch` arms
 
 Inherit the full grammar — nesting, literals, or-patterns, `as`, guards — as Exceptions §5.2 promised. The open-`Exn` model is unchanged: no exhaustiveness demand, implicit rethrow, reachability still checked (§7.2) and still a hard error. Or-patterns mixing domestic and foreign arms are legal: `ParseError(_) | JsError(_) => fallback`.
+
+Catch arms occupy two seats — `try`'s clause (Exceptions §5.1) and the match catch clause (Exceptions §5.4) — with one grammar and one semantics in both; everything in this section reads on the arms, not the construct holding them.
 
 ### 6.3 `let` patterns
 
@@ -344,6 +348,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 - Two arms with the same pattern and different guards are both reachable (the checker cannot prove a guard total): legal.
 - A guarded arm whose pattern is already fully covered by an earlier **unguarded** arm is unreachable — `when True` does not launder it.
 - Anything after a catch-all arm is unreachable. In `catch`, the Exceptions §5.3 logic transfers with or-patterns folded in: a second `JsError(_)` arm, or anything after `_`, is unreachable; domestic arms after a `JsError` arm are fine.
+- The match catch clause (Exceptions §5.4) adds one judgment of its own, run where these judgments already run — after elaboration: a scrutinee whose elaborated form is a bare variable read (a plain reference, never an evidence application) or a literal whose elaboration erases to a primitive construction (Numeric Literals §5; hole-free String literals qualify, composite literals never) cannot throw, so the entire clause is unreachable — hard error, same doctrine as every dead arm. Exact and deliberately minimal: no throw-analysis through calls exists (throwing is not an effect), and the judgment never leans on an unchecked law — where user `Num` elaboration is in play, it declines. Inside the clause, the catch logic above applies unchanged; across the section boundary there is nothing to check (the two arm-sets never compete for one evaluation).
 
 ### 7.3 Counterexample rendering (normative for diagnostics)
 
@@ -416,6 +421,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | Guard on `let`/`for..in`/lambda param | "guards are only legal on `match` and `catch` arms; use a `match`" (§3) |
 | `when` inside a nested pattern | parse error, same message (§3) |
 | `match` on `Exn` | "match requires a closed type; exceptions are inspected with `try`/`catch`" (§6.1) |
+| `catch` clause on a cannot-throw scrutinee | "this `catch` can never run: evaluating ⟨scrutinee⟩ cannot throw" (§7.2; Exceptions §5.4) |
 | `match` on constraint-bounded abstract type | "cannot match on a value of abstract type `c`; use the operations its constraints provide" (§6.1) |
 | Bare record pattern on nominal-record scrutinee | "destructure it with `Point({x, y})`" (§2.4) |
 | `:` in a term-position record (pattern or literal), e.g. `{x: p}` | Products §6/§8 fixit: "record fields bind with `=`; `:` gives a field its type in record *types*"; uppercase-start RHS (`{x: Float}`) appends "if you meant a type, patterns destructure values; annotate outside the pattern" (§2.4, §16) |
@@ -451,6 +457,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | Construction punning ships in v1; emits JS shorthand; term-level only | §9 |
 | Binder class is positional (Statements §5): arm/lambda/loop binders head, `let`-pattern binders sequential; no third class; duplicate-in-whole-pattern error incl. `as`, class-independent | §1, §2.1, §4, §6.3 |
 | Vector patterns shipped, owned by Collections Part 3 §3; `Vector` owns `[...]` in v1 (no `List`, no `Array` pattern surface); range patterns → guards; type-test patterns → never | §2, §10, §11.1 |
+| Match catch clause (#500, owned by Exceptions §5.4): catch arms' second seat, one grammar and one semantics in both; window = scrutinee evaluation only; exhaustiveness and reachability per-section, plus the cannot-throw judgment (post-elaboration, erasure-gated); §14.3's edit note discharged on the same touch | §6.1, §6.2, §7.2, §14 |
 | §1's emission bullet restated post-#147 (2026-07-29): readable emission is an emitter commitment, standing because it constrains no language semantics; TS-author phrasing retired | §1, §15(n) |
 | `()` reclassified (2026-07-30, #159): the dedicated `Unit` pattern dissolves into the arity-0 tuple pattern; `Unit` exhaustiveness via the tuple clause; the standalone finite-domain listing deleted; no diagnostic or verdict changes | §2, §2.3, §5.1, §7.1; Products §2.7 |
 
@@ -462,7 +469,7 @@ Apply on next touch; until then this doc governs.
 
 1. **Unions §4.2** → the flat-pattern restrictions (no nesting, no literals, no guards, no or/as, union-only scrutinees) are superseded; replace with a pointer here. The "nested patterns arrive with pattern matching" diagnostic is retired. §4.3's exhaustiveness text gains a pointer to §7 here. The decisions-log row "v1 patterns: flat + `_`" gains "superseded by Pattern Matching spec".
 2. **Products §2.4** → flat-`let`-destructuring restrictions superseded (nesting now legal); lambda-parameter-patterns sentence superseded by §6.5 here. **§3.1** → "No shorthand `{x, y}`" is dissolved: construction punning ships (§9 here); strike the fast-follow note.
-3. **Exceptions §5.2** → "the pattern-matching spec owns the superset grammar" is now discharged; catch arms take the full grammar. §5.3 reachability text gains the or-pattern note (§7.2 here).
+3. **Exceptions §5.2** → **Discharged** (on the #500 touch): §5.2 repoints here as grammar owner — catch arms take the full grammar; §5.3 carries the or-pattern note (§7.2 here) and the guard-semantics note; the deferred-to-pattern-spec diagnostics row is retired.
 4. **Operators §2/§3.2** → `match` "joins from the pattern-matching spec": joined. `when` joins the keyword inventory (arm syntax; not an operator, no table row).
 5. **Lexer & Layout** → `when` and pattern-position `as` need keyword-table entries; no new layout rules (arms unchanged).
 6. **hexagon-for-typescript-coders** → new chapter material: destructuring in lambda heads (`{a, b} =>` as the JS-muscle-memory hook), newtype unwrapping via `let UserId(n) =`, construction punning; `let`-pattern rebinding errors vs TS shadowing muscle memory (Statements §9.2 owns the same note).

@@ -36,8 +36,14 @@ and VCLOSE immediately before EOF. Nested blocks use the same mechanics:
   it is deeper. This is what keeps a multi-line declaration, operator expression,
   or argument list together.
 - `else` and `catch` at the enclosing indentation continue the preceding
-  `if`/`try` item: any nested body is closed before the clause, but no VSEP is
-  inserted between the body and its clause.
+  item: any nested body is closed before the clause, but no VSEP is inserted
+  between the body and its clause. Which construct owns a
+  continued `catch` is the parser's question, answered by column: it belongs to
+  the construct whose head begins that logical item — a `try` (even when the
+  try-body is a `match`), or a `match` head opening its line (the match catch
+  clause, Exceptions §5.4). A `catch` continuing an item headed by anything
+  else — a binding whose RHS ends in a mid-line `match`, say — is the
+  Exceptions §9 alignment error; the layout pass itself stays agnostic.
 - **Interaction with the physical lexer:** string-interpolation holes do not participate in layout (Physical Lexer §6.1; Primitive Types §5.2). Columns are UTF-16 code-unit columns supplied by physical token spans; the layout pass consumes them as-is.
 - The physical lexer rejects tabs in leading whitespace (Physical Lexer §2.2;
   Decisions Batch 2026-07 §4), so layout never expands tabs.
@@ -241,3 +247,4 @@ These are binding on the implementation, same status as the Functions spec's dia
 | Every term binding opens a block (`let x =` alike to `let f(...) =`); type declarations stay continuations | §2.1 |
 | A line starting with an expression-continuation token continues the preceding item (leading `-` excluded) | §2.3 |
 | Module is an implicit block; clauses attach without VSEP | §2 |
+| `catch` continues a preceding `match` item exactly as it continues `try` — the match catch clause (Exceptions §5.4); attachment by column, no new layout machinery | §2 |

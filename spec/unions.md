@@ -86,6 +86,7 @@ match shape
 - Each arm is `pattern => body`. The `=>` is the same token as the lambda arrow; no ambiguity arises because arms occur only inside a `match` block (the parser is in match-arm context after VOPEN following a `match` head). A pattern is *not* a parameter list; the parser must not route it through lambda parsing.
 - The arm body is an expression: same line, or an indented block whose final expression is the arm's value — identical to lambda bodies (Functions §3.1).
 - `match` is an **expression**; all arm bodies unify to one result type. The scrutinee is evaluated once.
+- A `match` whose head begins its logical item may take a **`catch` clause** at that column, after the arm block — the match catch expression, whose arms handle exceptions thrown by the scrutinee's evaluation only (a mid-line head takes no clause). Owned by Exceptions §5.4; nothing in this section changes when the clause is present.
 
 ### 4.2 Constructor patterns (this grammar's degenerate case; the full grammar is Pattern Matching's)
 
