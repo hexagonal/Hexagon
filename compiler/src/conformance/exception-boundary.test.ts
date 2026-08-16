@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { moduleBrandIdentity } from "../project.js";
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 import { typeScriptErrors } from "../support/typescript-check.js";
 
@@ -134,6 +135,40 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
       'export type Splat = Error & { readonly $hex: "client/failures"; ' +
         'readonly name: "Splat"; readonly code: number };',
     );
+  });
+
+  test("the rendering is canonical: a host separator never reaches the brand", () => {
+    // The brand is compiled into emitted JavaScript and into a `.d.ts` literal a
+    // consumer copies, so a separator that varied with the build machine would
+    // be a real incompatibility. This suite cannot run on Windows, so the
+    // rendering is exercised directly with the input that platform produces.
+    expect(moduleBrandIdentity("C:\\app\\client\\errors.hex", "C:\\app", false))
+      .toBe("client/errors");
+    expect(moduleBrandIdentity("C:\\app\\Vector.hex", "C:\\app", true)).toBe("Vector");
+    // And the POSIX rendering of the same project is the same string, which is
+    // the whole claim.
+    expect(moduleBrandIdentity("/app/client/errors.hex", "/app", false))
+      .toBe("client/errors");
+  });
+
+  test("no brand ascends out of the project root", () => {
+    // `root` is `commonRoot`, a prefix of every source path in the program, so
+    // the relativization is a plain suffix with no ascent to express. Pinned so
+    // it stays true: a `../`-prefixed brand would be neither unique nor a name
+    // a JS consumer could copy, and the non-prefix branch below is defensive
+    // only — reached by no compilation.
+    for (
+      const [path, root] of [
+        ["/app/src/errors.hex", "/app/src"],
+        ["/errors.hex", ""],
+        ["/other/errors.hex", "/app"],
+        ["errors.hex", "/app"],
+      ] as const
+    ) {
+      const identity = moduleBrandIdentity(path, root, false);
+      expect(identity.startsWith("../")).toBe(false);
+      expect(identity.startsWith("/")).toBe(false);
+    }
   });
 
   test("stage 1 is a class test: `Exn` faces any string brand", () => {
@@ -302,6 +337,46 @@ describe("boundary guards (#478, §7.6)", () => {
     ]);
   });
 
+  test("and so is one with an import that binds the name", () => {
+    // An import binds a module-level name in the emitted JavaScript exactly as a
+    // declaration does. Without this the module compiled clean and emitted both
+    // the import line and `export const isHexError = …` — a duplicate
+    // declaration, and a `SyntaxError` before a line of it ran.
+    expect(compileFiles([
+      ["/lib.hex", "export let isHexError: Int = 1\n"],
+      ["/main.hex",
+        "import { isHexError } from \"./lib\"\n" +
+        "export exception Boom(code: Int)\n" +
+        "export let seed: Int = isHexError\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "generated guard `isHexError` conflicts with binding `isHexError`; rename the declaration",
+    ]);
+  });
+
+  test("an aliased import is the same collision — the alias is the binding", () => {
+    // The spelling the source chose, not the one the exporter published. An
+    // alias can name anything, so the rule reads locals and never imported
+    // names.
+    expect(compileFiles([
+      ["/lib.hex", "export let seed: Int = 1\n"],
+      ["/main.hex",
+        "import { seed as isHexError } from \"./lib\"\n" +
+        "export exception Boom(code: Int)\n" +
+        "export let value: Int = isHexError\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "generated guard `isHexError` conflicts with binding `isHexError`; rename the declaration",
+    ]);
+  });
+
+  test("an importing module that exports no exception is untouched", () => {
+    expect(compileFiles([
+      ["/lib.hex", "export let seed: Int = 1\n"],
+      ["/main.hex",
+        "import { seed as isHexError } from \"./lib\"\n" +
+        "export let value: Int = isHexError\n"],
+    ]).diagnostics).toEqual([]);
+  });
+
   test("a module exporting no exception may bind the name freely", () => {
     expect(projectDiagnostics(
       "export fun isHexError(value: Int): Bool = value > 0\n",
@@ -361,6 +436,45 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
 
     expect(javascript).toContain("Throws `ParseError` when the input is malformed.");
     expect(javascript).not.toContain("@throws");
+  });
+
+  test("a dotted name inside the condition is not the sentence's period", () => {
+    // The sentence ends at *its* period, and a dot inside an inline code span is
+    // not one. Stopping at the first dot emitted `@throws {IndexError} when
+    // `Vector` — a tag truncated mid-span, with a dangling backtick in it.
+    const declarations = derived(
+      "(** Reads. Throws `IndexError` when `Vector.at` receives an index out of range. *)\n" +
+      "export fun read(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain(
+      "@throws {IndexError} when `Vector.at` receives an index out of range\n",
+    );
+    expect(declarations).not.toContain("when `Vector\n");
+  });
+
+  test("a nested manifest head past an interior dot still refuses", () => {
+    // The truncation was not only cosmetic: the refusal was run over the
+    // shortened span, so an early dot carried a second head past the check.
+    const declarations = derived(
+      "(** Throws `IndexError` when `Vector.at` is bad, and `SliceError` when the window descends. *)\n" +
+      "export fun read(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain("Throws `IndexError` when `Vector.at` is bad");
+    expect(declarations).not.toContain("@throws");
+  });
+
+  test("an unbalanced inline code span is ordinary prose", () => {
+    // The deriver never guesses: backticks that do not pair leave the sentence
+    // with no terminator this rule can trust, so no tag is derived at all.
+    const declarations = derived(
+      "(** Throws `IndexError` when `index is out of range. *)\n" +
+      "export fun read(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain("Throws `IndexError` when `index is out of range.");
+    expect(declarations).not.toContain("@throws");
   });
 
   test("a sentence without a period fires nothing", () => {

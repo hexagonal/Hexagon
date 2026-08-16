@@ -104,7 +104,10 @@ export function extractDocContent(comment: Source.Comment): string {
 export interface ThrowsManifest {
   /** The bare declared name from the backticks — what `@throws {X}` carries. */
   readonly name: string;
-  /** The prose after `when`, without the sentence's trailing period. */
+  /**
+   * The prose after `when`, without the sentence's trailing period. Interior
+   * whitespace is collapsed — a tag is one line — and nothing else is touched.
+   */
   readonly condition: string;
 }
 
@@ -127,14 +130,21 @@ const MANIFEST_NAME = /^[A-Z][A-Za-z0-9_]*$/u;
  *
  * Recognition is **exact and conservative**, and the deviations are all one
  * answer — ordinary prose, no tag: a lowercase or non-identifier name, a missing
- * period, an empty condition. The one rule that is not a mere non-match is the
- * refusal: a condition that itself contains a manifest head fires *nothing*
- * rather than one mangled tag, which is what makes one sentence per exception
- * the grammar and not merely the style.
+ * period, an empty condition, an unbalanced inline code span. The one rule that
+ * is not a mere non-match is the refusal: a condition that itself contains a
+ * manifest head fires *nothing* rather than one mangled tag, which is what makes
+ * one sentence per exception the grammar and not merely the style.
  *
  * Fenced code blocks are not prose, so nothing inside one is read — a manifest
- * quoted in an example fires nothing. Inline spans need no such treatment: a
- * backtick cannot nest inside a backtick.
+ * quoted in an example fires nothing.
+ *
+ * **The sentence ends at its period, and a dot inside an inline code span is not
+ * one.** ``Throws `IndexError` when `Vector.at` receives a bad index.`` has two
+ * dots and one sentence; stopping at the first would emit a tag truncated
+ * mid-span, with an unbalanced backtick in it, and — worse — would run the
+ * nested-head refusal over a span shorter than the sentence, letting an early
+ * dot carry a second manifest head past the check. So the terminator is found by
+ * scanning outside code spans, and the refusal then reads the whole condition.
  */
 export function throwsManifests(content: string): readonly ThrowsManifest[] {
   const prose = withoutFencedCode(content);
@@ -147,10 +157,14 @@ export function throwsManifests(content: string): readonly ThrowsManifest[] {
   ) {
     const name = match[1]!;
     const rest = prose.slice(MANIFEST_HEAD.lastIndex);
-    const period = rest.indexOf(".");
-    if (period < 0) continue;
+    const period = sentenceEnd(rest);
+    if (period === undefined) continue;
     const condition = rest.slice(0, period);
     if (!MANIFEST_NAME.test(name)) continue;
+    // Belt and braces over the scan above, which cannot stop inside a span: the
+    // deriver never guesses, so a condition whose backticks do not pair is
+    // ordinary prose rather than a tag with a dangling delimiter in it.
+    if (unbalancedCodeSpans(condition)) continue;
     if (NESTED_HEAD.test(condition)) continue;
     // The condition is carried verbatim but must become one tag line, so the
     // line breaks a doc block wraps its prose over collapse to single spaces.
@@ -159,6 +173,52 @@ export function throwsManifests(content: string): readonly ThrowsManifest[] {
     manifests.push({ name, condition: collapsed });
   }
   return manifests;
+}
+
+/**
+ * The offset of the period that ends the sentence beginning at `text`, or
+ * nothing when there is none outside an inline code span.
+ *
+ * Spans follow CommonMark's rule: a run of *n* backticks opens one, and the next
+ * run of exactly *n* closes it. An unclosed run therefore swallows the rest of
+ * the content and the sentence has no terminator — which is the refusal, not a
+ * fallback to the last dot seen.
+ */
+function sentenceEnd(text: string): number | undefined {
+  let index = 0;
+  let open: number | undefined;
+  while (index < text.length) {
+    const character = text[index]!;
+    if (character === "`") {
+      let run = 0;
+      while (text[index + run] === "`") run += 1;
+      if (open === undefined) open = run;
+      else if (open === run) open = undefined;
+      index += run;
+      continue;
+    }
+    if (character === "." && open === undefined) return index;
+    index += 1;
+  }
+  return undefined;
+}
+
+/** Whether a condition's backtick runs fail to pair — see `sentenceEnd`. */
+function unbalancedCodeSpans(condition: string): boolean {
+  let index = 0;
+  let open: number | undefined;
+  while (index < condition.length) {
+    if (condition[index] !== "`") {
+      index += 1;
+      continue;
+    }
+    let run = 0;
+    while (condition[index + run] === "`") run += 1;
+    if (open === undefined) open = run;
+    else if (open === run) open = undefined;
+    index += run;
+  }
+  return open !== undefined;
 }
 
 /**

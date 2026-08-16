@@ -1957,3 +1957,32 @@ than settling a style question.
   aliased catch arm, and `qualified-constructor-patterns.test.ts`'s catch block.
 - **Credit:** filed by Opus out of #466's probes, which established that the
   qualified form resolved and the checker refused it.
+
+## 2026-08-16 — the brand's project root moves with the file set (#488, residue)
+
+- **Classification:** recorded residue of a landed ruling; resolution belongs to
+  **#494**, not here.
+- **Authority:** Exceptions §7.1 — a non-injected module brands "the
+  project-root-relative path, forward slashes, `.hex` dropped".
+- **What is recorded:** the compiler's project root is `commonRoot`, the longest
+  shared directory prefix of the *files it was handed*, so the root is a property
+  of the compilation rather than of the project. With sources under `/app/src`,
+  `/app/src/errors.hex` brands `"errors"`; adding `/app/test/probe.hex` to the
+  same invocation moves the root to `/app` and re-brands the very same module
+  `"src/errors"`. Nothing inside one compilation disagrees — the brand is written
+  once and read by every site from the same place — so no program miscompiles;
+  the drift is *across* builds, and it reaches the emitted `.d.ts` literal a
+  JavaScript consumer copies and any Hexagon module compiled against a different
+  file set.
+  The canonical **rendering** is not the question: separators are normalized to
+  forward slashes at the rendering itself, so a Windows and a POSIX build of one
+  file set agree, and no brand can ascend out of the root (`commonRoot` is a
+  prefix of every source path) — both pinned in
+  `conformance/exception-boundary.test.ts`. What varies is which directory the
+  root *is*.
+- **Not fixed here:** choosing the root is a project-model question (a manifest
+  root, the nearest `hexagon.json`, an explicit option), and #488's ruling
+  settles the identity's shape rather than the project model. Filed as **#494**.
+- **Executable conformance:** `conformance/exception-boundary.test.ts` pins the
+  root-relative rendering under a `/src` root and the canonical separator rule,
+  so a repair for #494 changes a test that exists rather than one that does not.

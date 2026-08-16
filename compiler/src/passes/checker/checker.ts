@@ -8401,6 +8401,12 @@ class Checker {
    * and both are errors here, because unlike a specialization the guard is
    * always public, so a private binding of the name would put two `isHexError`
    * declarations in one emitted module.
+   *
+   * The scan is over **every module-level name the emitted JavaScript binds**,
+   * not over declarations alone: an import binds one too, and an aliased import
+   * can choose any spelling. Modules §11.2 blesses the emitter renaming its own
+   * generated needs, not a name the source chose — so this reports rather than
+   * repairs, in either direction.
    */
   #checkGeneratedGuardCollision(items: readonly Resolved.Item[]): void {
     const exception = items.find(
@@ -8428,6 +8434,22 @@ class Checker {
                 ? [{ span: member.span, exported: item.exported }]
                 : []
             )[0]
+          // An **import** binds a module-level name in the emitted JavaScript
+          // exactly as a declaration does, plain or aliased — `import { seed as
+          // isHexError }` is the guard's name claimed by the source, and an
+          // import line beside `export const isHexError = …` is a duplicate
+          // declaration and a `SyntaxError` at load. The emitted binding is the
+          // namespace alias or each named local (`moduleLevelBindings` in the
+          // emitter is the same walk), so both forms are read here.
+          //
+          // Synthesized imports are skipped: those are the compiler's own
+          // prelude line, not a name the source asked for, and a prelude export
+          // of this name would be a compiler defect rather than a user error.
+          : item.kind === "Import" && !item.synthesized && item.form.kind !== "Effect"
+          ? (item.form.kind === "Namespace"
+            ? [item.form.alias]
+            : item.form.names.map(({ local }) => local))
+            .flatMap((local) => local === IS_HEX_ERROR ? [{ span: item.span, exported: false }] : [])[0]
           : undefined;
       if (site === undefined) continue;
       this.#diagnostics.add({
