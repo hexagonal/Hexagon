@@ -24,7 +24,7 @@
 | decisions-sol-review-2026-07.md | N (cross-cutting closure) | supersede | same model; **hosts the Rewrite Rule (§E) and bare-call doctrine (§A)** — must gain canonical homes before archive |
 | declarations-preamble.md | N | canon | pending notes block (l.234): targets incl. constraints diagnostics; slated to host Deferred-Goals Doctrine (method-syntax §15) |
 | division-remainder.md | N | keep | one optional TS-guide note (l.171) |
-| exceptions.md | N | canon | §10 hanging (incl. `finally` deferral); §13 prelude additions (`KeyError` from Coll P4); FFI §6.1/§7.5 discharges — verify applied |
+| exceptions.md | N | canon | §10 hanging (§10.1 `finally` since resolved: never, #481); §13 prelude additions (`KeyError` from Coll P4); FFI §6.1/§7.5 discharges — verify applied |
 | ffi-foreign-enums.md | N | canon (light) | ffi.md §11.2 boundary sentence applied; remove drafting-history scaffolding only |
 | ffi-part1-boundary.md | N | canon (light) | Hex-alias closeout applied in §10; §8.1 Loops note marked applied — verify |
 | ffi-part2-nullable-array.md | N | canon (light) | §5/§127 **Unions §8 supersession note pending** (→ §5.1 below); §11 open questions: none |
@@ -101,7 +101,7 @@ Counts: 41 `spec/` + 11 `notes/` = 52. N=38 · R=5 · S=1 · H=8. Dispositions: 
 | Carrier | Items (compressed) |
 |---|---|
 | constraints §9 | recorded not-decided items (incl. named-instance/newtype pressure family) |
-| exceptions §10 | `finally`/resource mgmt (keyword reserved); checked-ness; others |
+| exceptions §10 | `finally` resolved: never (#481; keyword reserved for the diagnostic) — resource mgmt (`use`) is v2; checked-ness; others |
 | modules §12 | package/bare-specifier resolution; re-exports; Elm-strict coexistence (v2); constraint-member selective import; formatter policy |
 | loops §11 | **break/continue deep-dive owed**; others recorded |
 | method-syntax §12 | constraint-member dot access (expected permanent no); bound methods (no); stdlib inventories; three-spellings watch |

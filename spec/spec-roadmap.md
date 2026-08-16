@@ -24,7 +24,7 @@
 | Async / `AsyncSeq` — committed direction, own spec; independent of implied types | promise-rejection channel flagged in `exceptions.md` §10 item 2; boundary constraints routed by `ffi.md` §9.2 |
 | `break` / `continue` deep-dive | `loops-ranges-iteration.md` §9 item 4 (field evidence; "prove the need") |
 | Generators / `yield` | `loops-ranges-iteration.md` §11 item 3 (own coroutine spec if revisited) |
-| `finally` / resource management; keyword reserved | `exceptions.md` §10.1 |
+| `finally` resolved: never (#481; keyword reserved purely for the diagnostic) — resource management (`use`) is the v2 story | `exceptions.md` §10.1 |
 | Pattern-spec deferrals — range patterns (guards cover it), named-slot constructor patterns, string prefix patterns (not planned), closed-record patterns (evidence-gated) | `pattern-matching.md` |
 | Package system — bare-specifier resolution, lockfile story, re-exports, cross-package coherence/interface files, dictionary-ABI metadata, runtime-subpath layout | `modules.md` §12.1–12.2; `ffi-part9-exported-dictionaries.md` §11/§13.3 |
 | Flow-sensitive narrowing — language/type-system deep dive with the recorded comparison bar | `ffi-part2-nullable-array.md` §2.5 |
