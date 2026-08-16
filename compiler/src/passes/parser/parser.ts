@@ -301,9 +301,15 @@ class Parser {
    * Called from **every** loop that reads a block of items — `#parseItems` and
    * the three member blocks that have their own loops (`extern`, `constraint`,
    * `honor`). Layout continues a `catch` after any item in any of them, so a
-   * loop that does not ask reads the keyword as the start of its next member
-   * and reports whatever that block's shape rule says instead, truncating the
-   * module. The question belongs wherever an item can end.
+   * loop that does not ask reads the keyword as whatever comes next in its own
+   * grammar and reports that instead, truncating the module. The question
+   * belongs wherever an item can end.
+   *
+   * *Where* in the loop differs by what else the loop does. `#parseItems` and
+   * the `extern` block both complain about a missing separator between items,
+   * and that complaint would fire first and synchronize past the clause — so
+   * they ask right after the item, ahead of it. The `constraint` and `honor`
+   * loops have no such step and ask at the top.
    */
   #reportUnattachedCatch(): void {
     const clause = this.#advance();
@@ -596,10 +602,6 @@ class Parser {
     const declarations: Parsed.ExternDeclaration[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
-      if (this.#at("Catch")) {
-        this.#reportUnattachedCatch();
-        continue;
-      }
       const declarationStart = this.#current().span.start.offset;
       const declaration = this.#parseExternDeclaration(intrinsic);
       // Every item form the block admits introduces a name, so every one is
@@ -611,6 +613,12 @@ class Parser {
         this.#docs.attach(declarationStart, declaration.span, [declaration.localName.span]);
       }
       if (this.#at("VSep") || this.#at("Semicolon")) this.#skipSeparators();
+      // Before the separator complaint, exactly as in `#parseItems`: layout
+      // continued this `catch` after the declaration rather than separating it,
+      // so "expected a newline" is a description of the wrong defect — and its
+      // `#synchronize` would then swallow the clause's own block and the rest
+      // of the file with it.
+      else if (this.#at("Catch")) this.#reportUnattachedCatch();
       else if (!this.#at("VClose") && !this.#at("Eof")) {
         this.#error("expected a newline or `;` between extern declarations");
         this.#synchronize(new Set(["VSep", "VClose", "Eof"]));

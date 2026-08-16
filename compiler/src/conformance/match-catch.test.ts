@@ -560,6 +560,25 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
     });
 
     test("an `extern` block", () => {
+      // At the *member* column, which is the one the extern loop itself reads.
+      // The block's own "expected a newline or `;` between extern declarations"
+      // complaint stands between the declaration and the loop top, so the
+      // question has to be asked ahead of it — as `#parseItems` asks it — or
+      // that complaint fires and synchronizes past the rest of the file.
+      expect(survives(
+        'extern from "m"\n' +
+          "    fun f(): Int\n" +
+          "    catch\n" +
+          "        _ => 1\n" +
+          "export let after: Int = 1\n",
+      )).toEqual([alignment]);
+    });
+
+    test("a `catch` after an `extern` block, at the module's column", () => {
+      // The same source one dedent out. This one never reaches the extern loop
+      // — layout closes the block first, so it is `#parseItems`'s guard that
+      // answers. Kept as the pair to the test above, which is the extern
+      // loop's own.
       expect(survives(
         'extern from "m"\n' +
           "    fun f(): Int\n" +
