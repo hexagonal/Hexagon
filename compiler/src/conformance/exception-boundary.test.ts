@@ -453,6 +453,178 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     expect(declarations).not.toContain("when `Vector\n");
   });
 
+  test("a decimal in plain prose is not the sentence's period", () => {
+    // The period is a dot *followed by whitespace or the end of the content*;
+    // anything else after it is interior. Without that edge the decimal ended
+    // the sentence and the tag read "when the timeout exceeds 1".
+    const declarations = derived(
+      "(** Waits. Throws `IndexError` when the timeout exceeds 1.5 seconds. *)\n" +
+      "export fun wait(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain(
+      "@throws {IndexError} when the timeout exceeds 1.5 seconds\n",
+    );
+    expect(declarations).not.toContain("when the timeout exceeds 1\n");
+  });
+
+  test("a dotted name written as prose is not the sentence's period either", () => {
+    // Same rule, no code span to lean on: what disqualifies the interior dot is
+    // the letter after it, not the span the pin above happens to sit inside.
+    const declarations = derived(
+      "(** Reads. Throws `IndexError` when Vector.at receives a bad index. *)\n" +
+      "export fun read(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain(
+      "@throws {IndexError} when Vector.at receives a bad index\n",
+    );
+    expect(declarations).not.toContain("when Vector\n");
+  });
+
+  test("a decimal sentence with no period at all fires nothing", () => {
+    // The conservative direction, and the companion to the pin above: the dot
+    // that used to terminate here is interior now, and no qualifying dot
+    // follows it before the paragraph ends — which here is the end of the
+    // content — so the answer is no tag rather than the truncated one this once
+    // derived. That is the whole of the rule: a missing period fires nothing
+    // when nothing else in the *paragraph* qualifies, and otherwise reads on to
+    // the next dot that does (the two pins below hold both halves).
+    const declarations = derived(
+      "(** Waits. Throws `IndexError` when the timeout exceeds 1.5 seconds *)\n" +
+      "export fun wait(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain("when the timeout exceeds 1.5 seconds");
+    expect(declarations).not.toContain("@throws");
+  });
+
+  test("a sentence never crosses a blank line, so a paragraph break fires nothing", () => {
+    // The bound that keeps the deviation local. Without it the missing period
+    // annexed the paragraphs after it and derived a tag out of prose that was
+    // never the manifest — the next paragraph's own sentence supplying the
+    // terminator.
+    const declarations = derived(
+      "(** Throws `IndexError` when the timeout exceeds 1.5 seconds\n" +
+      "\n" +
+      "    See the manual for details. More. *)\n" +
+      "export fun wait(index: Int): Int = index\n",
+    );
+
+    expect(declarations).not.toContain("@throws");
+    expect(declarations).not.toContain(
+      "@throws {IndexError} when the timeout exceeds 1.5 seconds See the manual for details",
+    );
+  });
+
+  test("within one paragraph, a missing period reads on to the next qualifying dot", () => {
+    // The honest other half: a line break is not a paragraph break, so the
+    // sentence runs over the wrap and ends at the first dot that qualifies. The
+    // condition is longer than the author's own sentence — which is what makes
+    // the blank-line bound above matter, and is as far as the deviation reaches.
+    const declarations = derived(
+      "(** Throws `IndexError` when the timeout exceeds 1.5 seconds\n" +
+      "    See the manual for details. More. *)\n" +
+      "export fun wait(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain(
+      "@throws {IndexError} when the timeout exceeds 1.5 seconds See the manual for details\n",
+    );
+    expect(declarations).not.toContain(
+      "@throws {IndexError} when the timeout exceeds 1.5 seconds\n",
+    );
+  });
+
+  test("a closing mark after the dot does not unseat the period", () => {
+    // Emphasis is house prose, not a deviation: the whitespace the period needs
+    // may arrive across the closing `**`, and the marks ride outside the
+    // condition. Reading the dot as interior lost the tag in silence — the
+    // sentence emitted exactly as written, and only the `.d.ts` was poorer.
+    const declarations = derived(
+      "(** **Throws `IndexError` when the index is bad.** The caller must check first. *)\n" +
+      "export fun read(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain("@throws {IndexError} when the index is bad\n");
+    expect(declarations).not.toContain("@throws {IndexError} when the index is bad.**");
+  });
+
+  test("two emphasized manifests in one block derive both tags", () => {
+    // The silent loss doubled: a block documenting two exceptions in the
+    // paragraph style lost both, and each half of the pin fails on its own.
+    const declarations = derived(
+      "(** **Throws `IndexError` when the index is out of range.**\n" +
+      "\n" +
+      "    **Throws `SliceError` when the window descends.** *)\n" +
+      "export fun slice(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain("@throws {IndexError} when the index is out of range\n");
+    expect(declarations).toContain("@throws {SliceError} when the window descends\n");
+  });
+
+  test("a dot before a closing paren at the end of the content terminates", () => {
+    // The closers are a run and may end the content themselves: what follows
+    // the skipped marks is nothing at all, which is the other half of the
+    // whitespace condition.
+    const declarations = derived(
+      "(** Reads. (Throws `IndexError` when the index is bad.) *)\n" +
+      "export fun read(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain("@throws {IndexError} when the index is bad\n");
+    expect(declarations).not.toContain("@throws {IndexError} when the index is bad.)");
+  });
+
+  test("a run of dots is never the period, closing marks or no", () => {
+    // The two rules compose in the order that matters: the run disqualifies its
+    // last dot before the closer skip could rescue it, so `...)` is interior and
+    // the sentence still ends at the later qualifying dot.
+    const declarations = derived(
+      "(** Throws `IndexError` when the index is bad (bad...) and more. Done. *)\n" +
+      "export fun read(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain(
+      "@throws {IndexError} when the index is bad (bad...) and more\n",
+    );
+    expect(declarations).not.toContain("@throws {IndexError} when the index is bad..\n");
+  });
+
+  test("a run of dots is never the sentence's period", () => {
+    // An ellipsis is interior, so the sentence ends at the *later* qualifying
+    // dot. The run's last dot has whitespace after it and would otherwise
+    // qualify on its own, carrying the leading two into the tag as `bad..` —
+    // a malformed tag line in the shipped `.d.ts`.
+    const declarations = derived(
+      "(** Throws `IndexError` when the index is bad... and more. Done. *)\n" +
+      "export fun read(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain(
+      "@throws {IndexError} when the index is bad... and more\n",
+    );
+    expect(declarations).not.toContain("bad..\n");
+  });
+
+  test("an exotic spacing character after the dot does not end the sentence", () => {
+    // Whitespace is the closed set the source language admits (Lexer §2.2): a
+    // space, a tab, a line ending. A non-breaking space is none of them, so the
+    // dot before it is interior and nothing fires — where `\s` would have
+    // matched it and derived a tag off a separator no reader can see.
+    // Spelled as an escape here because the hazard is exactly that it looks
+    // like a space in the source it came from.
+    const nbsp = "\u{00A0}";
+    const declarations = derived(
+      `(** Throws \`IndexError\` when the index is bad.${nbsp}And more *)\n` +
+      "export fun read(index: Int): Int = index\n",
+    );
+
+    expect(declarations).toContain(`when the index is bad.${nbsp}And more`);
+    expect(declarations).not.toContain("@throws");
+  });
+
   test("a nested manifest head past an interior dot still refuses", () => {
     // The truncation was not only cosmetic: the refusal was run over the
     // shortened span, so an early dot carried a second head past the check.
