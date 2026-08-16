@@ -197,6 +197,7 @@ type ParseError = Error & { readonly $hex: "Parser"; readonly name: "ParseError"
 - **The brand is included, deliberately**: JS-side code constructing Hexagon exceptions to throw into Hexagon does it correctly or not at all.
 - Exported exceptions ship constructor functions for JavaScript callers (FFI Part 7 §6). Payload constructors follow declared slot order. Nullary exceptions are also function-shaped for JavaScript and construct a fresh branded `Error` on every call, preserving call-site stack capture; they are never exported as shared constants.
 - `Exn` itself, where it appears in exported signatures (e.g. `Result.attempt`'s error side), is `Error` in the `.d.ts` — honest about the foreign door: any caught value is presented as an `Error`-typed thing at the boundary. (Foreign non-`Error` throwables make this a white lie of the same size every TS `catch` clause tells; recorded, accepted.)
+- **The throws manifest** *(#479)*: an exported declaration documents each declared exception it may throw with the recognized sentence ``Throws `X` when <condition>.`` (Doc Comments §6.1 — `Throws`, the language's own verb), and emission surfaces each as a generated `@throws` tag in the JSDoc block (Doc Comments §7.4; FFI Part 7 §6). Documentation, not typing; nothing is checked (§10.4's linting posture).
 
 ### 7.6 Boundary guards: `.is` and `isHexError` *(#478)*
 
