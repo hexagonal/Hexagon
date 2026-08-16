@@ -259,7 +259,7 @@ Two **permanent** exclusions:
 
 Everything else from Unions §4 stands: layout arms, `pattern [when g] => body`, expression semantics, single evaluation of the scrutinee, no braced form.
 
-**A `match` may take a `catch` clause** — the match catch expression, owned by Exceptions §5.4: a `catch` block at the match head's column whose arms handle exceptions thrown by the *scrutinee's evaluation only*. The clause changes nothing in this section — the scrutinee types against the data arms as above, the data arms alone satisfy exhaustiveness (§7.1), and both permanent exclusions stand; in particular, a catch clause does not make `match` an eliminator for `Exn`.
+**A `match` whose head begins its logical item may take a `catch` clause** — the match catch expression, owned by Exceptions §5.4: a `catch` block at the match head's column whose arms handle exceptions thrown by the *scrutinee's evaluation only* (a mid-line head takes no clause). The clause changes nothing in this section — the scrutinee types against the data arms as above, the data arms alone satisfy exhaustiveness (§7.1), and both permanent exclusions stand; in particular, a catch clause does not make `match` an eliminator for `Exn`.
 
 ### 6.2 `catch` arms
 

@@ -36,8 +36,8 @@ and VCLOSE immediately before EOF. Nested blocks use the same mechanics:
   it is deeper. This is what keeps a multi-line declaration, operator expression,
   or argument list together.
 - `else` and `catch` at the enclosing indentation continue the preceding
-  `if`/`try`/`match` item: any nested body is closed before the clause, but no
-  VSEP is inserted between the body and its clause. Which construct owns a
+  item: any nested body is closed before the clause, but no VSEP is inserted
+  between the body and its clause. Which construct owns a
   continued `catch` is the parser's question, answered by column: it belongs to
   the construct whose head begins that logical item — a `try` (even when the
   try-body is a `match`), or a `match` head opening its line (the match catch
