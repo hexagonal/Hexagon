@@ -246,6 +246,27 @@ Each JS call constructs a fresh branded `Error` and captures the call-site stack
 
 The exported constructor is an ordinary function with stable ESM identity; the brand's `$hex: true` appears in the face deliberately (Exceptions §7.5) so JS-side construction is done correctly or not at all. This discharges the constructor-export flags in Exceptions §7.5 and Unions §6.5 (edit notes, §10).
 
+**Every exported exception also ships its guard** *(#478; Exceptions §7.6)*. The constructor function carries a property `is`, declared by function/namespace merge so the property types as a predicate and the consumer's branch narrows to the intersection face:
+
+```ts
+export declare function ParseError(line: number, message: string): ParseError;
+export declare namespace ParseError {
+  function is(err: unknown): err is ParseError;
+}
+```
+
+At runtime the property is assigned once, beside the constructor: `ParseError.is = (err) => err != null && err.$hex === true && err.name === "ParseError";`. Nullary exceptions carry the same property on their function-shaped export. The property seat spends no export name and has no collision rule — no Hexagon surface can occupy it.
+
+A module that exports at least one exception additionally exports the stage-1 guard:
+
+```ts
+export declare function isHexError(
+  err: unknown,
+): err is Error & { readonly $hex: true; readonly name: string };
+```
+
+`isHexError` is a generated public **face** — deliberately outside Lexer §3.2's `__` prefix — and a fixed name, so its collision with an explicit export of the same module is the Part 8 §6.2 family's hard error (both sites named; the fix is a source rename, never a silent one). **`JsError` ships no `is` guard**: its wrapping is virtual (Exceptions §6.2), so a JS consumer never receives a branded `"JsError"` — the foreign branch of their discrimination is `!isHexError(err)`.
+
 ---
 
 ## 7. Direct exports versus stable wrappers
@@ -323,10 +344,11 @@ export let sum(xs: Seq(Int)): Int = ...
 
 ## 11. Diagnostics checklist
 
-This part introduces **no new hard errors**. The boundary-shape and collision errors it relies on land elsewhere:
+This part introduces **one hard error of its own** — #478's `isHexError` collision (§6), the Part 8 §6.2 family applied to a fixed generated face. Every other boundary-shape and collision error it relies on lands elsewhere:
 
 | Situation | Owner |
 |---|---|
+| `isHexError` colliding with an explicit export of an exception-exporting module | **this part, §6** (Part 8 §6.2 family: hard error, both sites named, source-rename fixit) |
 | generated specialization name colliding with an explicit export | Part 8 §6.2 (Algorithm N; hard error) |
 | adapter-requiring type nested in an exported signature | Part 1 §5.3 |
 | adapter-requiring callback signature in an exported function | Part 6 §5.4 |
@@ -367,6 +389,7 @@ This part introduces **no new hard errors**. The boundary-shape and collision er
 | The union representation cliff warning is a normative generated-documentation obligation (+ representative `.d.ts` doc comment) | §4.1 |
 | Uniform opaque brand: non-exported `unique symbol`, brand-only type face, TS-only (no runtime artifact), identity crossing; covers opaque records/unions, extern types, extern class types; never re-exported foreign typings; discharges Modules §11.4 | §5, §12.3 |
 | Exceptions: intersection face with `$hex` included; payload constructors in slot order; **nullary exceptions function-shaped for JS with fresh call-site stack** (`throw(NotFound)` vs `throw NotFound()`) | §6 |
+| Boundary guards (#478): `.is` property on every exported exception constructor (function/namespace merge; predicate to the intersection face); `isHexError` per exception-exporting module; fixed face, §6.2-family collision hard error; `JsError` guardless | §6, §11 |
 | Direct-vs-wrapper rule: direct wherever representation and public ABI match; one stable module-level wrapper for adapted top-level positions, exported receiver members, and constrained generic editions only when ABI plumbing requires it; wrapper identity stable (once per ESM binding); per-value adapters remain distinct | §7 |
 | Constrained exports referenced only; Parts 8–9 govern; generated exports obey this part's naming/binder/identity rules; collisions stay Part 8 §6.2 | §8 |
 | Companion specs discharged: Modules §11.4, Products §5.4, Unions §6.4–§6.5, Exceptions §7.5 | §10 |
