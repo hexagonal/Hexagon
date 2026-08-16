@@ -2670,7 +2670,7 @@ class Parser {
     let end = closing?.span ?? arms.at(-1)?.span ?? body.span;
     if (this.#at("Finally")) {
       const finallyToken = this.#advance();
-      this.#errorAt(finallyToken.span, "`finally` is not part of Hexagon v1");
+      this.#errorAt(finallyToken.span, "Hexagon has no `finally`; resources are scoped with `use`");
       const rejectedBody = this.#parseBodyExpression(outerStops);
       end = rejectedBody.span;
     }
