@@ -37,10 +37,13 @@ and VCLOSE immediately before EOF. Nested blocks use the same mechanics:
   or argument list together.
 - `else` and `catch` at the enclosing indentation continue the preceding
   `if`/`try`/`match` item: any nested body is closed before the clause, but no
-  VSEP is inserted between the body and its clause. Attachment is by column —
-  a `catch` aligned with a `try` is the try's (even when the try-body is a
-  `match`); a `catch` aligned with a `match` head is that match's catch clause
-  (Exceptions §5.4).
+  VSEP is inserted between the body and its clause. Which construct owns a
+  continued `catch` is the parser's question, answered by column: it belongs to
+  the construct whose head begins that logical item — a `try` (even when the
+  try-body is a `match`), or a `match` head opening its line (the match catch
+  clause, Exceptions §5.4). A `catch` continuing an item headed by anything
+  else — a binding whose RHS ends in a mid-line `match`, say — is the
+  Exceptions §9 alignment error; the layout pass itself stays agnostic.
 - **Interaction with the physical lexer:** string-interpolation holes do not participate in layout (Physical Lexer §6.1; Primitive Types §5.2). Columns are UTF-16 code-unit columns supplied by physical token spans; the layout pass consumes them as-is.
 - The physical lexer rejects tabs in leading whitespace (Physical Lexer §2.2;
   Decisions Batch 2026-07 §4), so layout never expands tabs.
