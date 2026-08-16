@@ -1936,8 +1936,9 @@ than settling a style question.
 - **Executable conformance:**
   `conformance/qualified-exception-patterns.test.ts` — `Vector.IndexError(i, s)`
   catches and binds both slots; `Map.KeyError` catches the bracket's throw; the
-  bare spelling reaches the same declaration; all six prelude exceptions plus
-  `Seq.hex`'s `ReentrancyError` compile in an arm by both spellings; an imported
+  bare spelling reaches the same declaration; the six the prelude exports —
+  `Seq.hex`'s `ReentrancyError` among them — compile in an arm by both
+  spellings; an imported
   exception is caught through an alias with no term import; the emitted arm
   tests `.name === "Boom"` and never the qualifier; an occluding module catches
   its own bare and the prelude's qualified; a qualified arm after its bare twin

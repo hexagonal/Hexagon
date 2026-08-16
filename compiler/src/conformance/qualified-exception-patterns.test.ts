@@ -87,10 +87,10 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
   });
 
   test("every prelude exception is nameable in a catch arm, by both spellings", () => {
-    // The six the prelude exports, plus `Seq.hex`'s `ReentrancyError` — which
-    // has been in the prelude and uncatchable since it was declared (FFI Part 3
-    // §7.4). Compilation is the claim; the arms are unreachable at run time
-    // because nothing here throws.
+    // The six the prelude exports — `Seq.hex`'s `ReentrancyError` among them,
+    // which has been in the prelude and uncatchable since it was declared (FFI
+    // Part 3 §7.4). Compilation is the claim; the arms are unreachable at run
+    // time because nothing here throws.
     const arms: readonly (readonly [string, string])[] = [
       ["Map", "KeyError"],
       ["Vector", "IndexError(index, size)"],
