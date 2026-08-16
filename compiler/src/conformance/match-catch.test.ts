@@ -299,6 +299,11 @@ describe("typing and the two sections' laws", () => {
   });
 
   test("the `Exn`-scrutinee ban is untouched by the clause", () => {
+    // Both reports, pinned as a decision rather than hidden behind a
+    // `toContain`: the ban is the checker's, and the cannot-throw judgment runs
+    // afterwards and independently, on an elaborated scrutinee that happens to
+    // be a bare variable read. Two true statements about one line; neither
+    // suppresses the other, and the ban is the one that names the fix.
     expect(projectDiagnostics(
       preamble +
         "export let run(error: Exn): Int =\n" +
@@ -306,7 +311,10 @@ describe("typing and the two sections' laws", () => {
         "        _ => 1\n" +
         "    catch\n" +
         "        Boom(_, _) => 2\n",
-    )).toContain("match requires a closed type; exceptions are inspected with `try`/`catch`");
+    )).toEqual([
+      "match requires a closed type; exceptions are inspected with `try`/`catch`",
+      "this `catch` can never run: evaluating error cannot throw",
+    ]);
   });
 });
 
@@ -336,6 +344,67 @@ describe("the cannot-throw judgment (§5.4; Pattern Matching §7.2)", () => {
   test("fires on a hole-free String literal", () => {
     expect(projectDiagnostics(clause("\"fixed\"")))
       .toEqual(["this `catch` can never run: evaluating \"fixed\" cannot throw"]);
+  });
+
+  test("fires on the `Unit` literal", () => {
+    expect(projectDiagnostics(
+      preamble +
+        "export let run(ignored: Int): Int =\n" +
+        "    match ()\n" +
+        "        () => 1\n" +
+        "    catch\n" +
+        "        Boom(_, _) => 2\n",
+    )).toEqual(["this `catch` can never run: evaluating () cannot throw"]);
+  });
+
+  test("fires on a Float literal", () => {
+    // `match` on `Float` is unsupported, so the checker speaks first; the
+    // judgment's own report is the second entry, and the exact list is the
+    // point — a Float literal carries no elaboration evidence at all.
+    expect(projectDiagnostics(clause("1.5"))).toEqual([
+      "cannot match on `Float` yet",
+      "this `catch` can never run: evaluating 1.5 cannot throw",
+    ]);
+  });
+
+  test("fires on a BigInt literal, which folds to a `kn` literal", () => {
+    expect(projectDiagnostics(clause("3n"))).toEqual([
+      "cannot match on `BigInt` yet",
+      "this `catch` can never run: evaluating 3n cannot throw",
+    ]);
+  });
+
+  test("fires on a nullary constructor — a plain reference, evidence-free", () => {
+    expect(projectDiagnostics(
+      preamble +
+        "export let run(ignored: Int): Int =\n" +
+        "    match None\n" +
+        "        Some(n) => n\n" +
+        "        None => 0\n" +
+        "    catch\n" +
+        "        Boom(_, _) => 2\n",
+    )).toEqual(["this `catch` can never run: evaluating None cannot throw"]);
+  });
+
+  test("declines where a user `Num` instance's `fromNat` does the elaborating", () => {
+    // The load-bearing decline. `3` at `Ratio` elaborates to a `ConvertNat`
+    // calling this module's own `fromNat`, which is pure and may still throw:
+    // its totality is a documented law of `Num`, not a checked property. The
+    // judgment declines rather than lean on it.
+    expect(projectDiagnostics(
+      "exception Boom(line: Int, message: String)\n" +
+        "union Ratio = Whole(Int) | Part(Int, Int)\n" +
+        "honor Num<Ratio> =\n" +
+        "    add(left, right) = left\n" +
+        "    multiply(left, right) = right\n" +
+        "    fromNat(value) = Whole(value)\n" +
+        "export let run(ignored: Int): Int =\n" +
+        "    match (3 : Ratio)\n" +
+        "        Whole(_) => 1\n" +
+        "        Part(_, _) => 2\n" +
+        "    catch\n" +
+        "        Boom(_, _) => 3\n",
+    )).toEqual([]);
   });
 
   test("declines on a call — no throw analysis reaches through one", () => {
@@ -439,6 +508,66 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
         "            Boom(_, _) => 1\n" +
         "    y\n",
     )).toEqual([]);
+  });
+
+  /**
+   * The three member blocks with loops of their own. Layout continues a `catch`
+   * after an item in *any* block, so each of these can be handed one — and a
+   * loop that does not ask reads the keyword as the start of its next member,
+   * reports whatever that block's shape rule says, and truncates the module.
+   * The pins are the message and the survival of what follows.
+   */
+  describe("a member block's own loop asks the same question", () => {
+    const survives = (source: string): readonly string[] => {
+      const project = compileMain(source);
+      const main = project.modules.find(({ source: file }) => file.path === "/main.hex")!;
+      // The declaration after the offending block still compiled and emitted:
+      // the report is local, not a cascade that eats the rest of the file.
+      expect(main.javascript.text).toContain("const after = 1;");
+      return project.diagnostics.map(({ message }) => message);
+    };
+
+    const alignment = "a `catch` clause must align with a `match` that begins its line — " +
+      "align the `catch` with the `match`'s column; if the `match` head is mid-line, " +
+      "move it onto its own line";
+
+    test("an `honor` member block", () => {
+      expect(survives(
+        "exception Boom(line: Int)\n" +
+          "record Ratio = {top: Int, bottom: Int}\n" +
+          "honor Show<Ratio> =\n" +
+          "    show(r) =\n" +
+          "        match r.top\n" +
+          "            _ => \"r\"\n" +
+          "    catch\n" +
+          "        Boom(_) => \"boom\"\n" +
+          "export let after: Int = 1\n",
+      )).toEqual([alignment]);
+    });
+
+    test("a `constraint` member block", () => {
+      expect(survives(
+        "exception Boom(line: Int)\n" +
+          "constraint Sizey<a> =\n" +
+          "    size(x: a): Int\n" +
+          "    doubled(x: a): Int =\n" +
+          "        match size(x)\n" +
+          "            n => n\n" +
+          "    catch\n" +
+          "        Boom(_) => 0\n" +
+          "export let after: Int = 1\n",
+      )).toEqual([alignment]);
+    });
+
+    test("an `extern` block", () => {
+      expect(survives(
+        'extern from "m"\n' +
+          "    fun f(): Int\n" +
+          "catch\n" +
+          "    _ => 1\n" +
+          "export let after: Int = 1\n",
+      )).toEqual([alignment]);
+    });
   });
 
   test("`try` wins when it heads the item, even with a `match` body", async () => {

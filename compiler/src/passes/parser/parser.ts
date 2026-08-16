@@ -297,6 +297,13 @@ class Parser {
   /**
    * Exceptions §9's alignment error, with the clause consumed for recovery so
    * one misplaced `catch` does not cascade into its own arms.
+   *
+   * Called from **every** loop that reads a block of items — `#parseItems` and
+   * the three member blocks that have their own loops (`extern`, `constraint`,
+   * `honor`). Layout continues a `catch` after any item in any of them, so a
+   * loop that does not ask reads the keyword as the start of its next member
+   * and reports whatever that block's shape rule says instead, truncating the
+   * module. The question belongs wherever an item can end.
    */
   #reportUnattachedCatch(): void {
     const clause = this.#advance();
@@ -589,6 +596,10 @@ class Parser {
     const declarations: Parsed.ExternDeclaration[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
+      if (this.#at("Catch")) {
+        this.#reportUnattachedCatch();
+        continue;
+      }
       const declarationStart = this.#current().span.start.offset;
       const declaration = this.#parseExternDeclaration(intrinsic);
       // Every item form the block admits introduces a name, so every one is
@@ -906,6 +917,10 @@ class Parser {
     const members: Parsed.ConstraintMember[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
+      if (this.#at("Catch")) {
+        this.#reportUnattachedCatch();
+        continue;
+      }
       if (this.#at("Type")) {
         const memberStart = this.#current().span.start.offset;
         const type = this.#advance();
@@ -1031,6 +1046,10 @@ class Parser {
     const members: Parsed.HonorMember[] = [];
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
+      if (this.#at("Catch")) {
+        this.#reportUnattachedCatch();
+        continue;
+      }
       if (this.#at("Type")) {
         const memberStart = this.#current().span.start.offset;
         const type = this.#advance();
