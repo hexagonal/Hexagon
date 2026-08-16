@@ -3710,6 +3710,9 @@ class Resolver {
             "parameter",
           ),
           value,
+          // The seat, carried for one diagnostic's sake (Pattern Matching §6.5):
+          // downstream this is a `let` in every other respect.
+          parameter: true,
           span: destructuring.span,
         };
       },
