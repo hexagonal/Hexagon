@@ -72,18 +72,22 @@ For example, the intended source and boundary experience has this shape:
 **Hexagon source**
 
 ```hexagon
-export let greet(name) = "Hello, " ++ name ++ "!"
+export let greet(name: String): String =
+    "Hello, " ++ name ++ "!"
 ```
 
 **JavaScript output**
 
-```js
-export const greet = name => "Hello, " + name + "!";
+```javascript
+const greet = name => {
+  return "Hello, " + name + "!";
+};
+export { greet };
 ```
 
 **TypeScript declaration**
 
-```ts
+```typescript
 export declare const greet: (name: string) => string;
 ```
 
