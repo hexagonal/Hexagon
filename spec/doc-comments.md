@@ -112,6 +112,7 @@ Throws `X` when <condition>.
 ```
 
 - Recognition is exact and conservative: the word `Throws` followed by one backticked uppercase-start name, then `when` and prose, ending at the sentence's period — anywhere in the doc content's **prose** (the stdlib writes it mid-paragraph), never inside a fenced code block (fences are code, §6's own bullet; a quoted manifest in an example fires nothing).
+- **The sentence's period is a dot outside an inline code span that whitespace follows, or that ends the content** — whitespace being a space, a tab, or a line ending, the set the source language itself admits (Lexer §2.1, §2.2): there is no invisible second spelling of a space in doc content either, and an exotic spacing character after the dot leaves the sentence unterminated rather than guessed at. A dot with anything else after it is interior to the sentence, not its end: ``Throws `IndexError` when the timeout exceeds 1.5 seconds.`` ends at the final dot, and a bare `Vector.at` written in prose rather than a span is likewise no terminator. A run of two or more dots is never a period, so an ellipsis is interior too — the condition reaches the tag as the author's own text (§7.4), and a run's leading dots would otherwise ride into it. Where no such dot follows the head, the sentence has no period and fires nothing, like every other deviation: the deriver never guesses.
 - **A condition containing a manifest head refuses recognition entirely**: if the text between `when` and the period itself contains a backticked uppercase-start name followed by `when`, the sentence fires nothing — ``Throws `X` when a, and `Y` when b.`` derives no tag at all, not one mangled one. One sentence per exception is therefore the grammar, not merely the style; several exceptions take several sentences. Anything else that deviates is likewise ordinary prose — the deriver never guesses.
 - House style: every exported declaration that throws a declared exception carries the manifest for each (manual voice, as the stdlib's throwing companions already do — spelled `Throws`, the language's own verb, not `Raises`).
 - Recognition changes nothing in the body: the sentence emits verbatim in its place like all content (§7.2). What recognition adds is generated documentation — the `@throws` tags of §7.4.
@@ -154,6 +155,7 @@ Each recognized throws manifest (§6.1) on a documented **exported** declaration
 ```
 
 - **`@throws`**, not the legacy alias `@exception` — the spelling TypeScript hover renders and JSDoc linting checks.
+- **The condition is the author's text, on one line.** The tag is a single line, so a condition the doc block wrapped over several arrives with its interior runs of whitespace collapsed to single spaces and its ends trimmed; nothing else is added, removed, or rewritten. A condition that collapses to nothing derives no tag.
 - The brace carries the **bare declared name**: untyped to `tsc` (which never checks throws), link-resolved by documentation tooling where the exported exception type is in scope, degrading to text elsewhere. Module qualification, where it matters, lives in the manifest's prose — the brand's path identity (Exceptions §7.1, #488) is a runtime spelling, not a documentation one.
 - Emitted in **both** artifacts, per §7.1's rule — the `.js` block and the `.d.ts` block.
 - Hand-written `@`-lines in doc content remain §7.2's recorded pass-through, unchanged: the deriver neither deduplicates against them nor validates them; an author who writes tag syntax by hand is in boundary-tooling territory, outside the convention.
@@ -264,6 +266,9 @@ export fun parse(s: String): Ast = ...   -- recognized: sentence verbatim in bot
 (** Throws `ParseError` when a, and `IndexError` when b. *)
 export fun bad(s: String): Ast = ...     -- refused entirely (manifest head inside the condition): ordinary prose, no tag — not one mangled tag (§6.1)
 
+(** Throws `IndexError` when the timeout exceeds 1.5 seconds. *)
+export fun wait(s: String): Ast = ...    -- recognized: the decimal's dot is interior (no whitespace after it), the sentence ends at the final dot (§6.1)
+
 (** Throws `parseError` when lowercase. *)
 export fun odd(s: String): Ast = ...     -- deviant (lowercase name): ordinary prose, no tag
 
@@ -288,7 +293,7 @@ fun helper(s: String): Ast = ...         -- unexported: manifest is house style,
 | Emission: JSDoc in both `.js` and `.d.ts` at every corresponding seat; `*/` → `*\/`; no seat → tooling-only | §7 |
 | Verbatim emission makes TS's tag vocabulary live at the boundary — recorded, neither validated nor suppressed; the tag-language ruling inherits it | §6, §7.2, §9.2 |
 | User + generated docs merge into one JSDoc block, user first | §7.3 |
-| The throws manifest (#479): ``Throws `X` when <condition>.`` is the one recognized sentence form — read additively, never rewritten; spelled `Throws` (the language's verb); exact-match recognition, prose only (fences excluded), a manifest head inside the condition refuses entirely; no checking; emission derives `@throws {X} when <condition>` in the generated-content position, both artifacts, exported seats only (the tag is consumer-boundary documentation); not a tag language — §9.2's bar untouched | §6.1, §7.4, §11 |
+| The throws manifest (#479): ``Throws `X` when <condition>.`` is the one recognized sentence form — read additively, never rewritten; spelled `Throws` (the language's verb); exact-match recognition, prose only (fences excluded), a manifest head inside the condition refuses entirely; the terminating period is a dot outside an inline code span, never one of a run, that whitespace follows or that ends the content; no checking; emission derives `@throws {X} when <condition>` in the generated-content position, both artifacts, exported seats only (the tag is consumer-boundary documentation); not a tag language — §9.2's bar untouched | §6.1, §7.4, §11 |
 | Module docs deferred with a named bar and **no reserved spelling** (JSDoc expresses them within the one form) | §9.1 |
 | Tag language, intra-doc links, parameter docs deferred with bars | §9.2 |
 | Rejected: `///` in any doc role, inner-doc spellings (`(*!`/`//!`), trailing docs, silent danglers, XML docs, v1 tag DSL, `(***` as doc, `.d.ts`-only emission, docs-as-tokens, blank-line detachment | §10 |

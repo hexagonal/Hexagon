@@ -138,13 +138,17 @@ const MANIFEST_NAME = /^[A-Z][A-Za-z0-9_]*$/u;
  * Fenced code blocks are not prose, so nothing inside one is read — a manifest
  * quoted in an example fires nothing.
  *
- * **The sentence ends at its period, and a dot inside an inline code span is not
- * one.** ``Throws `IndexError` when `Vector.at` receives a bad index.`` has two
- * dots and one sentence; stopping at the first would emit a tag truncated
- * mid-span, with an unbalanced backtick in it, and — worse — would run the
- * nested-head refusal over a span shorter than the sentence, letting an early
- * dot carry a second manifest head past the check. So the terminator is found by
- * scanning outside code spans, and the refusal then reads the whole condition.
+ * **The sentence ends at its period, which is neither a dot inside an inline
+ * code span nor a dot the sentence runs straight through.**
+ * ``Throws `IndexError` when `Vector.at` receives a bad index.`` has two dots
+ * and one sentence; stopping at the first would emit a tag truncated mid-span,
+ * with an unbalanced backtick in it, and — worse — would run the nested-head
+ * refusal over a span shorter than the sentence, letting an early dot carry a
+ * second manifest head past the check. So the terminator is found by scanning
+ * outside code spans, and the refusal then reads the whole condition — and only
+ * a dot that whitespace or the end of the content follows is that terminator
+ * (`sentenceEnd`), which is what keeps a decimal in plain prose from ending the
+ * sentence a word early.
  */
 export function throwsManifests(content: string): readonly ThrowsManifest[] {
   const prose = withoutFencedCode(content);
@@ -183,6 +187,16 @@ export function throwsManifests(content: string): readonly ThrowsManifest[] {
  * run of exactly *n* closes it. An unclosed run therefore swallows the rest of
  * the content and the sentence has no terminator — which is the refusal, not a
  * fallback to the last dot seen.
+ *
+ * **A period is a dot followed by whitespace, or one that ends the content, and
+ * never one of a run** (§6.1 — `endsSentence` holds both halves and why the
+ * whitespace class is closed). A dot that does not qualify is interior to the
+ * sentence, so scanning continues past it and a later qualifying dot still
+ * terminates: the decimal in ``Throws `IndexError` when the timeout exceeds 1.5
+ * seconds.`` would otherwise derive the condition "when the timeout exceeds 1",
+ * and a dotted name written as prose rather than a span — `Vector.at` without
+ * its backticks — would truncate the same way where the span form already does
+ * not.
  */
 function sentenceEnd(text: string): number | undefined {
   let index = 0;
@@ -197,10 +211,34 @@ function sentenceEnd(text: string): number | undefined {
       index += run;
       continue;
     }
-    if (character === "." && open === undefined) return index;
+    if (character === "." && open === undefined && endsSentence(text, index)) {
+      return index;
+    }
     index += 1;
   }
   return undefined;
+}
+
+/**
+ * Whether the dot at `index` is the sentence's period — see `sentenceEnd`.
+ *
+ * Whitespace is the closed set the source language itself admits (Lexer §2.2):
+ * a space, a tab, or a line ending. `\s` would be a wider and stranger class
+ * than any reader could guess — it admits U+FEFF and refuses U+200B — and doc
+ * content gets no invisible second spelling of a space that Hexagon source is
+ * denied, so an exotic spacing character after the dot leaves the sentence
+ * unterminated rather than guessed at.
+ *
+ * A dot immediately preceded by another dot is not a period either: an ellipsis
+ * is interior. The condition is carried verbatim, so without this the last dot
+ * of `bad... and more.` would qualify — whitespace follows it — and the run's
+ * leading dots would ride into the tag as `when the index is bad..`.
+ */
+function endsSentence(text: string, index: number): boolean {
+  if (text[index - 1] === ".") return false;
+  const next = text[index + 1];
+  return next === undefined || next === " " || next === "\t" ||
+    next === "\n" || next === "\r";
 }
 
 /** Whether a condition's backtick runs fail to pair — see `sentenceEnd`. */
