@@ -407,6 +407,26 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
     ]);
   });
 
+  test("a `catch` at an enclosing item's column is the same alignment error", () => {
+    // The `match` here does begin *its* line, but the `catch` is at the outer
+    // `let`'s column, and that column belongs to the `let`.
+    expect(projectDiagnostics(
+      preamble +
+        "export let run(fail: Bool): Int =\n" +
+        "    let y =\n" +
+        "        match source(fail)\n" +
+        "            Some(n) => n\n" +
+        "            None => 0\n" +
+        "    catch\n" +
+        "        Boom(_, _) => 1\n" +
+        "    y\n",
+    )).toEqual([
+      "a `catch` clause must align with a `match` that begins its line — align the " +
+      "`catch` with the `match`'s column; if the `match` head is mid-line, move it " +
+      "onto its own line",
+    ]);
+  });
+
   test("the rewrap the fixit names — one indent — compiles", () => {
     expect(projectDiagnostics(
       preamble +
@@ -459,6 +479,33 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
     // The data arm threw: the inner clause is out of the window, the outer
     // `try` is not.
     expect(run(false)).toBe(2);
+  });
+
+  test("a clause attaches inside an arm body block, and two siblings coexist", async () => {
+    // Each clause's scrutinee binding is a fresh generated name, so the two
+    // `let`s can sit in sibling `case` bodies of one emitted `switch` without
+    // redeclaring anything.
+    const exports = await runMain(
+      preamble +
+        "export let run(outer: Bool, fail: Bool): Int =\n" +
+        "    match outer\n" +
+        "        True =>\n" +
+        "            match source(fail)\n" +
+        "                Some(n) => n\n" +
+        "                None => 0\n" +
+        "            catch\n" +
+        "                Boom(line, _) => line\n" +
+        "        False =>\n" +
+        "            match source(fail)\n" +
+        "                Some(n) => n * 2\n" +
+        "                None => 0\n" +
+        "            catch\n" +
+        "                Boom(line, _) => line * 2\n",
+    );
+
+    const run = exports["run"] as (outer: boolean, fail: boolean) => number;
+    expect([run(true, false), run(true, true), run(false, false), run(false, true)])
+      .toEqual([7, 3, 14, 6]);
   });
 });
 

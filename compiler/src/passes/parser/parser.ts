@@ -2656,7 +2656,7 @@ class Parser {
         span: spanFrom(start.span, this.#previous().span),
       };
     }
-    this.#expect("VOpen", "expected an indented block of match arms");
+    const opened = this.#expect("VOpen", "expected an indented block of match arms");
     const arms: Parsed.MatchArm[] = [];
     let indentedCatch: readonly Parsed.MatchArm[] | undefined;
     this.#skipSeparators();
@@ -2710,8 +2710,11 @@ class Parser {
     // match's own head opened the item. `try match e … catch` therefore keeps
     // its clause — `try` is the item head — and `let x = match e … catch` keeps
     // none, which is the alignment error `#parseItems` reports.
+    // `opened` guards the recovery case: with no arm block to close, the loop
+    // above swallowed the *enclosing* block's VCLOSE, so a `catch` standing here
+    // is at some enclosing column and is not this match's to claim.
     let catchArms = indentedCatch;
-    if (this.#at("Catch") && headsItem) {
+    if (this.#at("Catch") && headsItem && opened !== undefined) {
       this.#advance();
       catchArms = this.#parseCatchArms();
       end = this.#previous().span;
