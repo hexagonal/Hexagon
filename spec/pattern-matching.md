@@ -259,9 +259,13 @@ Two **permanent** exclusions:
 
 Everything else from Unions §4 stands: layout arms, `pattern [when g] => body`, expression semantics, single evaluation of the scrutinee, no braced form.
 
+**A `match` may take a `catch` clause** — the match catch expression, owned by Exceptions §5.4: a `catch` block at the match head's column whose arms handle exceptions thrown by the *scrutinee's evaluation only*. The clause changes nothing in this section — the scrutinee types against the data arms as above, the data arms alone satisfy exhaustiveness (§7.1), and both permanent exclusions stand; in particular, a catch clause does not make `match` an eliminator for `Exn`.
+
 ### 6.2 `catch` arms
 
 Inherit the full grammar — nesting, literals, or-patterns, `as`, guards — as Exceptions §5.2 promised. The open-`Exn` model is unchanged: no exhaustiveness demand, implicit rethrow, reachability still checked (§7.2) and still a hard error. Or-patterns mixing domestic and foreign arms are legal: `ParseError(_) | JsError(_) => fallback`.
+
+Catch arms occupy two seats — `try`'s clause (Exceptions §5.1) and the match catch clause (Exceptions §5.4) — with one grammar and one semantics in both; everything in this section reads on the arms, not the construct holding them.
 
 ### 6.3 `let` patterns
 
@@ -344,6 +348,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 - Two arms with the same pattern and different guards are both reachable (the checker cannot prove a guard total): legal.
 - A guarded arm whose pattern is already fully covered by an earlier **unguarded** arm is unreachable — `when True` does not launder it.
 - Anything after a catch-all arm is unreachable. In `catch`, the Exceptions §5.3 logic transfers with or-patterns folded in: a second `JsError(_)` arm, or anything after `_`, is unreachable; domestic arms after a `JsError` arm are fine.
+- The match catch clause (Exceptions §5.4) adds one judgment of its own: a scrutinee that is a bare variable or an interpolation-free literal cannot throw, so the entire clause is unreachable — hard error, same doctrine as every dead arm. Inside the clause, the catch logic above applies unchanged; across the section boundary there is nothing to check (the two arm-sets never compete for one evaluation).
 
 ### 7.3 Counterexample rendering (normative for diagnostics)
 
@@ -416,6 +421,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | Guard on `let`/`for..in`/lambda param | "guards are only legal on `match` and `catch` arms; use a `match`" (§3) |
 | `when` inside a nested pattern | parse error, same message (§3) |
 | `match` on `Exn` | "match requires a closed type; exceptions are inspected with `try`/`catch`" (§6.1) |
+| `catch` clause on a cannot-throw scrutinee | "this `catch` can never run: evaluating `x` cannot throw" (§7.2; Exceptions §5.4) |
 | `match` on constraint-bounded abstract type | "cannot match on a value of abstract type `c`; use the operations its constraints provide" (§6.1) |
 | Bare record pattern on nominal-record scrutinee | "destructure it with `Point({x, y})`" (§2.4) |
 | `:` in a term-position record (pattern or literal), e.g. `{x: p}` | Products §6/§8 fixit: "record fields bind with `=`; `:` gives a field its type in record *types*"; uppercase-start RHS (`{x: Float}`) appends "if you meant a type, patterns destructure values; annotate outside the pattern" (§2.4, §16) |
@@ -451,6 +457,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | Construction punning ships in v1; emits JS shorthand; term-level only | §9 |
 | Binder class is positional (Statements §5): arm/lambda/loop binders head, `let`-pattern binders sequential; no third class; duplicate-in-whole-pattern error incl. `as`, class-independent | §1, §2.1, §4, §6.3 |
 | Vector patterns shipped, owned by Collections Part 3 §3; `Vector` owns `[...]` in v1 (no `List`, no `Array` pattern surface); range patterns → guards; type-test patterns → never | §2, §10, §11.1 |
+| Match catch clause (#500, owned by Exceptions §5.4): catch arms' second seat, one grammar and one semantics in both; window = scrutinee evaluation only; exhaustiveness and reachability per-section, plus the cannot-throw judgment | §6.1, §6.2, §7.2 |
 | §1's emission bullet restated post-#147 (2026-07-29): readable emission is an emitter commitment, standing because it constrains no language semantics; TS-author phrasing retired | §1, §15(n) |
 | `()` reclassified (2026-07-30, #159): the dedicated `Unit` pattern dissolves into the arity-0 tuple pattern; `Unit` exhaustiveness via the tuple clause; the standalone finite-domain listing deleted; no diagnostic or verdict changes | §2, §2.3, §5.1, §7.1; Products §2.7 |
 
