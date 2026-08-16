@@ -148,7 +148,14 @@ const MANIFEST_NAME = /^[A-Z][A-Za-z0-9_]*$/u;
  * outside code spans, and the refusal then reads the whole condition — and only
  * a dot that whitespace or the end of the content follows is that terminator
  * (`sentenceEnd`), which is what keeps a decimal in plain prose from ending the
- * sentence a word early.
+ * sentence a word early — whitespace that reaches the dot across a run of
+ * closing marks counts, so a manifest written `**in bold.**` or ending
+ * `(in parentheses.)` terminates where its reader sees it end.
+ *
+ * The scan stops at a blank line as well. A sentence never crosses a paragraph
+ * break, so a manifest whose period is missing takes the rest of *its*
+ * paragraph and nothing beyond it — the alternative reads on into the next
+ * paragraph and derives a tag out of prose that was never the manifest.
  */
 export function throwsManifests(content: string): readonly ThrowsManifest[] {
   const prose = withoutFencedCode(content);
@@ -181,7 +188,8 @@ export function throwsManifests(content: string): readonly ThrowsManifest[] {
 
 /**
  * The offset of the period that ends the sentence beginning at `text`, or
- * nothing when there is none outside an inline code span.
+ * nothing when there is none outside an inline code span, and none before the
+ * paragraph the sentence began in ends.
  *
  * Spans follow CommonMark's rule: a run of *n* backticks opens one, and the next
  * run of exactly *n* closes it. An unclosed run therefore swallows the rest of
@@ -189,20 +197,30 @@ export function throwsManifests(content: string): readonly ThrowsManifest[] {
  * fallback to the last dot seen.
  *
  * **A period is a dot followed by whitespace, or one that ends the content, and
- * never one of a run** (§6.1 — `endsSentence` holds both halves and why the
- * whitespace class is closed). A dot that does not qualify is interior to the
- * sentence, so scanning continues past it and a later qualifying dot still
- * terminates: the decimal in ``Throws `IndexError` when the timeout exceeds 1.5
- * seconds.`` would otherwise derive the condition "when the timeout exceeds 1",
- * and a dotted name written as prose rather than a span — `Vector.at` without
- * its backticks — would truncate the same way where the span form already does
- * not.
+ * never one of a run** (§6.1 — `endsSentence` holds those halves, the closing
+ * marks a period keeps its office under, and why each class is closed). A dot
+ * that does not qualify is interior to the sentence, so scanning continues past
+ * it and a later qualifying dot still terminates: the decimal in
+ * ``Throws `IndexError` when the timeout exceeds 1.5 seconds.`` would otherwise
+ * derive the condition "when the timeout exceeds 1", and a dotted name written
+ * as prose rather than a span — `Vector.at` without its backticks — would
+ * truncate the same way where the span form already does not.
+ *
+ * **A blank line ends the scan with no period**, because a sentence does not
+ * cross a paragraph break. That bound is what keeps "reads on to the next
+ * qualifying dot" honest: without it a manifest missing its period annexes the
+ * paragraphs after it, and the deviation stops being local. It applies even
+ * with a code span still open, which costs nothing — an inline span cannot
+ * contain a blank line in CommonMark either. It is also what stops the scan at
+ * a fenced code block, since `withoutFencedCode` leaves a fence behind as empty
+ * lines.
  */
 function sentenceEnd(text: string): number | undefined {
   let index = 0;
   let open: number | undefined;
   while (index < text.length) {
     const character = text[index]!;
+    if (character === "\n" && blankLineFollows(text, index)) return undefined;
     if (character === "`") {
       let run = 0;
       while (text[index + run] === "`") run += 1;
@@ -220,25 +238,59 @@ function sentenceEnd(text: string): number | undefined {
 }
 
 /**
+ * The marks a period keeps its office under: the closers of quotation,
+ * bracketing, and Markdown emphasis (§6.1). ASCII only, and closed for the same
+ * reason the whitespace set is — a curly quote or an exotic bracket would be a
+ * second spelling no reader of the clause could enumerate.
+ */
+const CLOSING_MARKS = new Set([")", "]", "}", "\"", "'", "*", "_"]);
+
+/**
  * Whether the dot at `index` is the sentence's period — see `sentenceEnd`.
  *
- * Whitespace is the closed set the source language itself admits (Lexer §2.2):
- * a space, a tab, or a line ending. `\s` would be a wider and stranger class
- * than any reader could guess — it admits U+FEFF and refuses U+200B — and doc
- * content gets no invisible second spelling of a space that Hexagon source is
- * denied, so an exotic spacing character after the dot leaves the sentence
- * unterminated rather than guessed at.
+ * Whitespace is the closed set the source language itself admits (Lexer §2.1,
+ * §2.2): a space, a tab, or a line ending. `\s` would be a wider and stranger
+ * class than any reader could guess — it admits U+FEFF and refuses U+200B — and
+ * doc content gets no invisible second spelling of a space that Hexagon source
+ * is denied, so an exotic spacing character after the dot leaves the sentence
+ * unterminated rather than guessed at. §2.2 calls a tab inside a comment
+ * content rather than horizontal whitespace, but that is a stance about
+ * tokenizing the comment, not about the prose inside it: here a tab separates
+ * one word from the next, which is why it stays in the set.
  *
  * A dot immediately preceded by another dot is not a period either: an ellipsis
  * is interior. The condition is carried verbatim, so without this the last dot
  * of `bad... and more.` would qualify — whitespace follows it — and the run's
  * leading dots would ride into the tag as `when the index is bad..`.
+ *
+ * The whitespace may arrive **across a run of closing marks**: `(paren.)`,
+ * `"quote."`, and `**bold.**` all end their sentence at the dot, and the marks
+ * ride outside the condition rather than unseating the period. A manifest
+ * emphasized in its own paragraph is ordinary house prose, and reading its
+ * period as interior lost the whole tag silently — two such paragraphs lost
+ * two.
  */
 function endsSentence(text: string, index: number): boolean {
   if (text[index - 1] === ".") return false;
-  const next = text[index + 1];
+  let after = index + 1;
+  while (after < text.length && CLOSING_MARKS.has(text[after]!)) after += 1;
+  const next = text[after];
   return next === undefined || next === " " || next === "\t" ||
     next === "\n" || next === "\r";
+}
+
+/**
+ * Whether the line ending at `index` is followed by a blank one — the paragraph
+ * break `sentenceEnd` stops at.
+ *
+ * Doc content arrives with its line endings already normalized to `\n`
+ * (`extractDocContent`), so the break is one newline, the horizontal whitespace
+ * §2.2 admits, and a second newline.
+ */
+function blankLineFollows(text: string, index: number): boolean {
+  let ahead = index + 1;
+  while (text[ahead] === " " || text[ahead] === "\t") ahead += 1;
+  return text[ahead] === "\n";
 }
 
 /** Whether a condition's backtick runs fail to pair — see `sentenceEnd`. */
