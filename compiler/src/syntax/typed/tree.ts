@@ -286,6 +286,15 @@ export interface Module {
   readonly preludeInstances: readonly Resolved.PreludeInstance[];
   /** Prelude-visible nominal types (#227, FFI Part 7 §2.4); see `Resolved.Module`. */
   readonly preludeTypeImports: readonly Resolved.PreludeTypeImport[];
+  /**
+   * Exception declarations in scope here that this module did not write (#469);
+   * see `Resolved.Module.visibleExceptions`. Carried past the checker because
+   * emission needs it too: a catch arm's tag test is the `$hex`/`name` one only
+   * where the pattern is known to be an exception's, and a constructor whose
+   * declaration did not cross compiles to a union tag comparison no thrown value
+   * ever satisfies.
+   */
+  readonly visibleExceptions: readonly ExceptionItem[];
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**

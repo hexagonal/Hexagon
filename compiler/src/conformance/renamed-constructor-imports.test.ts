@@ -258,10 +258,11 @@ describe("an exception constructor imported under another name", () => {
    * module's function, so the alias reaches emission as an import spelling and
    * the raised error carries the declared `name`.
    *
-   * Catching it in the importing module is refused, and was before #468: the
-   * checker admits only exceptions the module declares itself into a catch arm,
-   * whatever the arm spells them (`qualified-constructor-patterns.test.ts`
-   * pins the qualified half of the same limit). Pinned as it behaves.
+   * Catching it in the importing module works since #469, and the alias is what
+   * this file is about: the arm names the *local* spelling, and the tag it
+   * tests is still the declared one, because #468 made a constructor pattern
+   * carry the declaration's name rather than the source text.
+   * `qualified-exception-patterns.test.ts` pins the rest of the widened table.
    */
 
   test("thrown through the alias, caught by the declaring module under its own name", async () => {
@@ -282,25 +283,27 @@ describe("an exception constructor imported under another name", () => {
     expect(exports.survived).toBe(7);
   });
 
-  test("a catch arm cannot name an imported exception, aliased or not", () => {
-    const catchArm = (arm: string, clause: string): readonly string[] =>
-      compileFiles([
-        ["/blast.hex", "export exception Blast(code: Int)\n"],
-        ["/main.hex",
-          `import { ${clause} } from "./blast"\n` +
-          "export fun f(): Int =\n" +
-          "    try\n" +
-          `        throw(${clause.includes(" as ") ? "Kaboom" : "Blast"}(3))\n` +
-          "    catch\n" +
-          `        ${arm} => 1\n`],
-      ]).diagnostics.map(({ message }) => message);
+  test("a catch arm names an imported exception, aliased or not", async () => {
+    const files = (arm: string, clause: string): readonly (readonly [string, string])[] => [
+      ["/blast.hex", "export exception Blast(code: Int)\n"],
+      ["/main.hex",
+        `import { ${clause} } from "./blast"\n` +
+        "export fun f(): Int =\n" +
+        "    try\n" +
+        `        throw(${clause.includes(" as ") ? "Kaboom" : "Blast"}(3))\n` +
+        "    catch\n" +
+        `        ${arm} => c\n` +
+        "export let caught: Int = f()\n"],
+    ];
 
-    expect(catchArm("Blast(c)", "Blast")).toEqual(["`Blast` is not an exception constructor"]);
-    // The alias changes the wording and nothing else — the refusal is the
-    // importing module's, not the spelling's.
-    expect(catchArm("Kaboom(c)", "Blast as Kaboom")).toEqual([
-      "`Kaboom` is not an exception constructor",
-    ]);
+    expect(compileFiles(files("Blast(c)", "Blast")).diagnostics).toEqual([]);
+    expect((await runProject(files("Blast(c)", "Blast")))["caught"]).toBe(3);
+    // The alias changes the spelling and nothing else: the arm is written
+    // `Kaboom`, the thrown error's `name` is `Blast`, and the pattern tests the
+    // declared tag (#468) — so the local rename catches what the declaring
+    // module threw.
+    expect(compileFiles(files("Kaboom(c)", "Blast as Kaboom")).diagnostics).toEqual([]);
+    expect((await runProject(files("Kaboom(c)", "Blast as Kaboom")))["caught"]).toBe(3);
   });
 });
 

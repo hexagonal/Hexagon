@@ -1464,6 +1464,21 @@ class Checker {
         this.#expressionTypes.set(member.defaultValue, expected);
       }
     }
+    // Exceptions §1 delegates a catch arm to Unions §4.2's flat constructor
+    // patterns, and Modules §3.3's qualified form is one of them — so the table
+    // a catch arm is read against has to be every exception constructor *in
+    // scope*, not the ones this file happens to declare (#469). The prelude
+    // layer's and the imports' arrive first; the module's own overwrite them
+    // below, which changes nothing (a declaration is in one of the two sets, not
+    // both) and keeps the loop that validates their slots the single place a
+    // written `exception` is checked.
+    //
+    // Only the declaration crosses. The imported constructor's *scheme* is the
+    // exporter's, already seeded from `importedSchemes`, and re-deriving it here
+    // from the annotations would give the same type by a second route.
+    for (const declaration of module.visibleExceptions) {
+      this.#exceptions.set(declaration.binding.symbol, declaration);
+    }
     for (const item of module.items) {
       if (item.kind !== "Exception") continue;
       this.#exceptions.set(item.binding.symbol, item);
@@ -1771,6 +1786,9 @@ class Checker {
       preludeUnions: module.preludeUnions,
       preludeInstances: module.preludeInstances,
       preludeTypeImports: module.preludeTypeImports,
+      visibleExceptions: module.visibleExceptions.map((declaration) =>
+        this.#materializeException(declaration)
+      ),
       externTypes: module.externTypes,
       comments: module.comments,
       docs: module.docs,
@@ -9107,6 +9125,32 @@ class Checker {
     };
   }
 
+  /**
+   * An `exception` declaration in its typed form — split out of
+   * `#materializeItem` because it runs over two sets: this module's own items,
+   * and `visibleExceptions`, the prelude's and the imports' (#469). The second
+   * set is nothing special here: an exception payload is concrete by rule
+   * (Exceptions §3), so a foreign slot annotation elaborates without a
+   * substitution, and the constructor's scheme is the one `importedSchemes`
+   * already seeded.
+   */
+  #materializeException(item: Resolved.ExceptionItem): Typed.ExceptionItem {
+    return {
+      kind: "Exception",
+      exported: item.exported,
+      binding: {
+        ...item.binding,
+        scheme: this.#publicScheme(this.#scheme(item.binding.symbol)),
+      },
+      slots: item.slots.map((slot) => ({
+        field: slot.field,
+        type: this.#publicType(this.#annotationType(slot.annotation)),
+        span: slot.span,
+      })),
+      span: item.span,
+    };
+  }
+
   #materializeItem(item: Resolved.Item): Typed.Item {
     if (item.kind === "ErrorItem") return item;
     // Imports pass through unchanged. Pruning an import's unused instance
@@ -9366,22 +9410,7 @@ class Checker {
         span: item.span,
       };
     }
-    if (item.kind === "Exception") {
-      return {
-        kind: "Exception",
-        exported: item.exported,
-        binding: {
-          ...item.binding,
-          scheme: this.#publicScheme(this.#scheme(item.binding.symbol)),
-        },
-        slots: item.slots.map((slot) => ({
-          field: slot.field,
-          type: this.#publicType(this.#annotationType(slot.annotation)),
-          span: slot.span,
-        })),
-        span: item.span,
-      };
-    }
+    if (item.kind === "Exception") return this.#materializeException(item);
     const scheme = this.#publicScheme(this.#scheme(item.binding.symbol));
     if (item.kind === "Var") {
       return {

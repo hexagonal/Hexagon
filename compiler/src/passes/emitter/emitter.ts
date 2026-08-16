@@ -1615,6 +1615,19 @@ class JavaScriptEmitter {
     for (const record of module.records) {
       this.#recordConstructors.add(record.constructor.symbol);
     }
+    // The prelude's and the imports' exception declarations, which a catch arm
+    // may name by either spelling since #469. `#exceptions` decides what a
+    // constructor pattern *tests* — Exceptions §7.1's `$hex`/`name` form rather
+    // than a union tag — so a declaration that did not reach here compiles a
+    // catch arm to a string comparison no thrown value satisfies, silently.
+    //
+    // `#nullaryExceptions` is deliberately not fed from here. It rewrites a
+    // **value** reference into a construction, and an imported exception's value
+    // face is the exporter's already-constructed one, reached by the import's
+    // local name.
+    for (const declaration of module.visibleExceptions) {
+      this.#exceptions.set(declaration.binding.symbol, declaration);
+    }
     for (const item of module.items) {
       if (item.kind === "ConstraintDeclaration") this.#constraints.set(item.name, item);
       if (item.kind !== "Exception") continue;
