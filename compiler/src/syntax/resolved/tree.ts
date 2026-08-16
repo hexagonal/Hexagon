@@ -825,6 +825,15 @@ export interface LetPatternItem {
   readonly exported: false;
   readonly pattern: Pattern;
   readonly value: Expr;
+  /**
+   * Set when this `let` is a **lambda parameter's** destructuring rather than a
+   * written binding (Pattern Matching §6.5). The two are the same item by
+   * construction — that is the point of desugaring here — but they are not the
+   * same *seat*, and one diagnostic distinguishes them: a refutable pattern at a
+   * lambda parameter carries §6.7's match-function fixit, which would be advice
+   * about the wrong construct anywhere else.
+   */
+  readonly parameter?: true;
   readonly span: Source.Span;
 }
 

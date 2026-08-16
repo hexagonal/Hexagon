@@ -708,6 +708,12 @@ late pedagogy pass, not a commitment to the current order.
   patterns may appear in `let`, loop, and parameter binding positions.
 - `(x, y) =>` remains two parameters; `((x, y)) =>` is one tuple-destructured
   parameter.
+- **A `match` with nothing after it on the line is a function** (#505) — the unary
+  function matching its argument, taught as the answer to the irrefutability gate in
+  callback position. It *means* `x => match x` with those arms; exhaustiveness is
+  demanded over the parameter type; the disambiguation is one token; it is a lambda
+  literal, so `fun f = match` line-final is the recursive-matcher spelling; and it takes
+  no `catch` clause (Chapter 21 carries the one-line callback).
 - Vector patterns, loop patterns, and `catch` patterns are taught with collections,
   loops, and exceptions respectively as extensions of this same grammar.
 - A lowercase pattern name binds, `_` ignores, and a name cannot be bound twice within

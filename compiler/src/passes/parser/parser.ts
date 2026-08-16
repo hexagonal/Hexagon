@@ -132,6 +132,21 @@ const markSeatError =
   "a call mark governs an argument list; write it immediately before `(`, " +
   "or (in a `|>` stage) at the end of the stage — a reference carries no colour";
 
+/**
+ * Exceptions §9's match-function row (Pattern Matching §6.7): what *every*
+ * `catch` reaching a match function gets, at whichever column it was written.
+ *
+ * The clause observes the scrutinee's evaluation, and a match function's
+ * scrutinee is its parameter — a value already produced, under other handlers,
+ * before the function was entered. So there is nothing to weaken here and
+ * nothing to widen: the message names the composition that does what the writer
+ * wanted, and that composition's one legal layout.
+ */
+const matchFunctionCatchError =
+  "a match function's parameter is already a value; there is nothing here for " +
+  "`catch` to observe — to guard the arm bodies, write a lambda whose body is " +
+  "`try match x …` with `catch` aligned to the `try`";
+
 /** Parses one layout-aware file and retains diagnostics from earlier passes. */
 export function parse(file: LaidOut.File): Parsed.Module {
   const diagnostics = new Diagnostics.Bag();
@@ -199,6 +214,19 @@ class Parser {
    * `-1` while no item is being parsed, so nothing can accidentally match.
    */
   #itemStart = -1;
+
+  /**
+   * The token index the most recently parsed match function's desugar ended at
+   * (Pattern Matching §6.7), or `-1`.
+   *
+   * Exceptions §9 short-circuits the alignment seat: when the item a `catch`
+   * continues ends in a *scrutinee-less* match, the alignment message is the
+   * wrong advice — no column would attach a clause there — so the seat reports
+   * §6.7's message instead. "Ends in" is exactly this equality: the match
+   * function's parse stopped where the `catch` now stands, with nothing
+   * consumed in between.
+   */
+  #matchFunctionEnd = -1;
 
   constructor(
     tokens: readonly LaidOut.Token[],
@@ -312,15 +340,48 @@ class Parser {
    * loops have no such step and ask at the top.
    */
   #reportUnattachedCatch(): void {
+    // Exceptions §9's short-circuit: an item whose trailing construct is a match
+    // function has no clause to align anything to, so it takes §6.7's message
+    // rather than advice about a column that would not help.
+    const matchFunction = this.#trailingMatchFunction();
     const clause = this.#advance();
     this.#errorAt(
       clause.span,
-      "a `catch` clause must align with a `match` that begins its line — " +
-        "align the `catch` with the `match`'s column; if the `match` head is " +
-        "mid-line, move it onto its own line",
+      matchFunction
+        ? matchFunctionCatchError
+        : "a `catch` clause must align with a `match` that begins its line — " +
+          "align the `catch` with the `match`'s column; if the `match` head is " +
+          "mid-line, move it onto its own line",
     );
     if (this.#at("VOpen")) this.#parseCatchArms();
     this.#skipSeparators();
+  }
+
+  /**
+   * Whether the item this `catch` continues ends in a match function — the test
+   * Exceptions §9's short-circuit turns on.
+   *
+   * **VCLOSE-transparent.** A match function may be the last item of a block
+   * that the `catch`'s dedent closes on its way out: `let describe =` with the
+   * `match` on the next line, the clause back at the binding's column. Those
+   * closes sit between where the desugar's parse stopped and where the keyword
+   * now stands, and a bare index equality would miss the case — leaving the
+   * writer the alignment advice, which on being followed produces §6.7's refusal
+   * on the next compile. A two-hop trap is worse than either message alone.
+   *
+   * Transparent to VCLOSE and nothing else, which is what keeps it honest: those
+   * closes exist only because the match function ended each of those blocks, so
+   * the item genuinely trails in it. Any other token in the gap means something
+   * was parsed after the arms, and this is not that item's trailing construct.
+   */
+  #trailingMatchFunction(): boolean {
+    if (this.#matchFunctionEnd === -1 || this.#matchFunctionEnd > this.#index) {
+      return false;
+    }
+    for (let index = this.#matchFunctionEnd; index < this.#index; index += 1) {
+      if (this.#tokens[index]?.kind !== "VClose") return false;
+    }
+    return true;
   }
 
   /**
@@ -2655,12 +2716,21 @@ class Parser {
     };
   }
 
-  #parseMatch(outerStops: ReadonlySet<TokenKind>): Parsed.MatchExpr {
+  #parseMatch(outerStops: ReadonlySet<TokenKind>): Parsed.Expr {
     // Exceptions §5.4: only a `match` head that begins its logical item may take
     // a catch clause. Read before the head is consumed, because that is what the
     // index compares against.
     const headsItem = this.#index === this.#itemStart;
     const start = this.#advance();
+    // Pattern Matching §6.7's disambiguation, and it is exactly one token of
+    // lookahead: anything after `match` on the same line is the scrutinee form,
+    // unchanged; a head that ends its line is the match function. `Eof` counts
+    // as nothing following, so a file ending on a bare `match` takes §6.7's
+    // ordinary missing-arms error rather than a missing-scrutinee one.
+    const next = this.#current();
+    if (next.kind === "Eof" || next.span.start.line > start.span.end.line) {
+      return this.#parseMatchFunction(start, headsItem);
+    }
     const scrutinee = this.#parseExpression(
       0,
       withStops(outerStops, "VOpen", "Catch"),
@@ -2683,6 +2753,106 @@ class Parser {
         span: spanFrom(start.span, this.#previous().span),
       };
     }
+    const block = this.#parseArmBlock(false);
+    let end = block.closing?.span ?? block.arms.at(-1)?.span ?? scrutinee.span;
+
+    // The match catch clause (Exceptions §5.4, #500). Layout has already
+    // continued the `catch` after this item; it is this match's only if this
+    // match's own head opened the item. `try match e … catch` therefore keeps
+    // its clause — `try` is the item head — and `let x = match e … catch` keeps
+    // none, which is the alignment error `#parseItems` reports.
+    // `opened` guards the recovery case: with no arm block to close, the loop
+    // above swallowed the *enclosing* block's VCLOSE, so a `catch` standing here
+    // is at some enclosing column and is not this match's to claim.
+    let catchArms = block.indentedCatch;
+    if (this.#at("Catch") && headsItem && block.opened) {
+      this.#advance();
+      catchArms = this.#parseCatchArms();
+      end = this.#previous().span;
+    }
+
+    return {
+      kind: "Match",
+      scrutinee,
+      arms: block.arms,
+      ...(catchArms === undefined ? {} : { catchArms }),
+      span: spanFrom(start.span, end),
+    };
+  }
+
+  /**
+   * The match function (Pattern Matching §6.7): a `match` that ends its logical
+   * item is the unary function literal matching its argument against the arms.
+   *
+   * **Desugared here, by construction.** §6.7 defines the form *as*
+   * `$x => match $x …`, so the parser builds that node and every consequence
+   * follows without a second code path to keep in step: the typing and the
+   * expected-type flow are a lambda's, the colour joins from the arm bodies as
+   * any lambda body's do, Functions §7.1's written-form check sees a lambda
+   * literal, and §8.2's value restriction sees a syntactic value. Header sugar
+   * (`let f(x) = …`) is desugared in the same seat for the same reason.
+   *
+   * The binder is `#freshParameterName`'s — the spelling a pattern parameter's
+   * binder already takes. Lexer §3.2 reserves its prefix, so no source can name
+   * it (and the reserved-name sweep reads *tokens*, which this name is not), and
+   * `displayParameterName` renders it `_` wherever a reader would meet one. Its
+   * span is the empty point just past the `match` keyword: the binder and its
+   * one reference occupy no source, so no position query can land on either.
+   */
+  #parseMatchFunction(start: LaidOut.Token, headsItem: boolean): Parsed.Expr {
+    const point: Source.Span = {
+      fileId: start.span.fileId,
+      start: start.span.end,
+      end: start.span.end,
+    };
+    const name = this.#freshParameterName(point, 0);
+    const block = this.#parseArmBlock(true);
+    const end = block.closing?.span ?? block.arms.at(-1)?.span ?? start.span;
+
+    // §6.7 grants no clause, ever. A `catch` at the head's own column reaches
+    // here (the arm-column one was answered inside the block); both take the
+    // same message, and the clause is consumed for recovery without attaching.
+    if (this.#at("Catch") && headsItem && block.opened) {
+      const clause = this.#advance();
+      this.#errorAt(clause.span, matchFunctionCatchError);
+      this.#parseCatchArms();
+    }
+    // Where the desugar's parse ended, for `#reportUnattachedCatch`: a `catch`
+    // standing at exactly this token continues an item whose trailing construct
+    // is this match function, and Exceptions §9 sends that seat here rather than
+    // to the alignment message.
+    this.#matchFunctionEnd = this.#index;
+
+    const span = spanFrom(start.span, end);
+    return {
+      kind: "Lambda",
+      parameters: [{ name, span: point }],
+      body: {
+        kind: "Match",
+        scrutinee: { kind: "Name", name, span: point },
+        arms: block.arms,
+        span,
+      },
+      span,
+    };
+  }
+
+  /**
+   * A `match`'s block of arms, shared by both of the head's forms (Pattern
+   * Matching §6.1 and §6.7).
+   *
+   * `matchFunction` decides only what a `catch` indented among the arms is told:
+   * a scrutinee form can be given the alignment fixit, because there is a clause
+   * for it to be aligned *to*; a match function has none to offer, so it gets
+   * §6.7's own message. Either way the clause is read and dropped, so one
+   * misplaced keyword does not cascade through its arms.
+   */
+  #parseArmBlock(matchFunction: boolean): {
+    readonly arms: readonly Parsed.MatchArm[];
+    readonly indentedCatch: readonly Parsed.MatchArm[] | undefined;
+    readonly opened: boolean;
+    readonly closing: LaidOut.Token | undefined;
+  } {
     const opened = this.#expect("VOpen", "expected an indented block of match arms");
     const arms: Parsed.MatchArm[] = [];
     let indentedCatch: readonly Parsed.MatchArm[] | undefined;
@@ -2690,15 +2860,16 @@ class Parser {
     while (!this.#at("VClose") && !this.#at("Eof")) {
       // A `catch` at the arm block's own column: layout continued it as a clause
       // (Lexer & Layout §2), so it arrives here where an arm's pattern is due.
-      // Exceptions §9's fixit, then the clause is read anyway so one misplaced
-      // keyword does not cascade through its arms.
       if (this.#at("Catch")) {
         const clause = this.#advance();
         this.#errorAt(
           clause.span,
-          "align `catch` with `match` to attach a catch clause",
+          matchFunction
+            ? matchFunctionCatchError
+            : "align `catch` with `match` to attach a catch clause",
         );
-        indentedCatch = this.#parseCatchArms();
+        const recovered = this.#parseCatchArms();
+        if (!matchFunction) indentedCatch = recovered;
         this.#skipSeparators();
         continue;
       }
@@ -2730,30 +2901,7 @@ class Parser {
       this.#skipSeparators();
     }
     const closing = this.#expect("VClose", "expected the match arms to close");
-    let end = closing?.span ?? arms.at(-1)?.span ?? scrutinee.span;
-
-    // The match catch clause (Exceptions §5.4, #500). Layout has already
-    // continued the `catch` after this item; it is this match's only if this
-    // match's own head opened the item. `try match e … catch` therefore keeps
-    // its clause — `try` is the item head — and `let x = match e … catch` keeps
-    // none, which is the alignment error `#parseItems` reports.
-    // `opened` guards the recovery case: with no arm block to close, the loop
-    // above swallowed the *enclosing* block's VCLOSE, so a `catch` standing here
-    // is at some enclosing column and is not this match's to claim.
-    let catchArms = indentedCatch;
-    if (this.#at("Catch") && headsItem && opened !== undefined) {
-      this.#advance();
-      catchArms = this.#parseCatchArms();
-      end = this.#previous().span;
-    }
-
-    return {
-      kind: "Match",
-      scrutinee,
-      arms,
-      ...(catchArms === undefined ? {} : { catchArms }),
-      span: spanFrom(start.span, end),
-    };
+    return { arms, indentedCatch, opened: opened !== undefined, closing };
   }
 
   /**

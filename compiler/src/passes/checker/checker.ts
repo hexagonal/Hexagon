@@ -1155,6 +1155,12 @@ class Checker {
   readonly #programNominals: VarianceDeclarations;
   /** This module's file id, held for constraint identity; set by `check`. */
   #fileId = 0;
+  /**
+   * Whether the `let` pattern being checked is a lambda parameter's
+   * destructuring (Pattern Matching §6.5) rather than a written binding. Read
+   * only by `#matchFunctionFixit`.
+   */
+  #patternSeatIsLambdaParameter = false;
   #nextVariable = 0;
 
   constructor(diagnostics: Diagnostics.Bag, options: CheckOptions) {
@@ -3018,6 +3024,14 @@ class Checker {
         // aggregate and every binder names a projection of it, so no binder
         // here can carry a constrained scheme however function-typed its own
         // component happens to be.
+        //
+        // The seat is a field rather than a parameter because it is read only by
+        // the refutability reports, which sit several recursive levels down and
+        // would otherwise thread it through every pattern arm. Nothing inside a
+        // `let` pattern can start another one, so the save is a formality kept
+        // for the reader.
+        const enclosingSeat = this.#patternSeatIsLambdaParameter;
+        this.#patternSeatIsLambdaParameter = item.parameter === true;
         this.#inferPattern(
           item.pattern,
           valueType,
@@ -3025,6 +3039,7 @@ class Checker {
           this.#isValue(item.value),
           valueType,
         );
+        this.#patternSeatIsLambdaParameter = enclosingSeat;
         continue;
       }
 
@@ -4579,6 +4594,22 @@ class Checker {
     return type;
   }
 
+  /**
+   * The refutability refusals' tail, at the lambda-parameter seat only (Pattern
+   * Matching §6.5, §6.7).
+   *
+   * The gate itself is untouched by #505 — a refutable pattern is still refused
+   * in every binding position. What changed is that the writer of
+   * `Some(x) => e` now has a construct that does what they meant, so the refusal
+   * names it. It is offered at this seat alone: at a `let` or a `for..in`, a
+   * match function is not the rewrite.
+   */
+  #matchFunctionFixit(): string {
+    return this.#patternSeatIsLambdaParameter
+      ? " — for a match function, write `match` with arms"
+      : "";
+  }
+
   #inferPattern(
     pattern: Resolved.Pattern,
     expected: Mono,
@@ -4641,7 +4672,8 @@ class Checker {
       if (!this.#isIrrefutablePattern(pattern, expected)) {
         this.#diagnostics.add({
           severity: "error",
-          message: "this or-pattern does not cover every possible value and cannot be used in a binding position; use `match`",
+          message: "this or-pattern does not cover every possible value and cannot be used in a binding position; use `match`" +
+            this.#matchFunctionFixit(),
           primary: pattern.span,
         });
       }
@@ -4653,7 +4685,8 @@ class Checker {
       if (union === undefined || union.constructors.length !== 1) {
         this.#diagnostics.add({
           severity: "error",
-          message: "a constructor pattern is refutable and cannot be used in a binding position; use `match`",
+          message: "a constructor pattern is refutable and cannot be used in a binding position; use `match`" +
+            this.#matchFunctionFixit(),
           primary: pattern.span,
         });
         return;
@@ -4695,7 +4728,8 @@ class Checker {
     ) {
       this.#diagnostics.add({
         severity: "error",
-        message: "a literal pattern is refutable and cannot be used in a binding position; use `match`",
+        message: "a literal pattern is refutable and cannot be used in a binding position; use `match`" +
+          this.#matchFunctionFixit(),
         primary: pattern.span,
       });
       return;
@@ -4714,7 +4748,8 @@ class Checker {
       if (pattern.rest === undefined || pattern.elements.length > 0) {
         this.#diagnostics.add({
           severity: "error",
-          message: "this vector pattern can fail because of its length and cannot be used in `let`; use `match`",
+          message: "this vector pattern can fail because of its length and cannot be used in `let`; use `match`" +
+          this.#matchFunctionFixit(),
           primary: pattern.span,
         });
       }
@@ -9490,8 +9525,12 @@ class Checker {
       return { ...item, expression: this.#materializeExpr(item.expression) };
     }
     if (item.kind === "LetPattern") {
+      // `parameter` is dropped rather than carried: it records which seat wrote
+      // the `let` for one refutability report, and that report has already been
+      // made. Nothing past the checker distinguishes the two.
+      const { parameter, ...rest } = item;
       return {
-        ...item,
+        ...rest,
         pattern: this.#materializePattern(item.pattern),
         value: this.#materializeExpr(item.value),
       };

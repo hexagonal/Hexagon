@@ -298,8 +298,11 @@ describe("check", () => {
       "union Maybe = Some(value: Int) | None\n" +
         "let unwrap = Some(value) => value",
     );
+    // The gate is unchanged by #505; at a lambda parameter the refusal now names
+    // the construct that does what this writer meant (Pattern Matching §6.7).
     expect(refutable.diagnostics.map(({ message }) => message)).toContain(
-      "a constructor pattern is refutable and cannot be used in a binding position; use `match`",
+      "a constructor pattern is refutable and cannot be used in a binding position; " +
+        "use `match` — for a match function, write `match` with arms",
     );
   });
 
