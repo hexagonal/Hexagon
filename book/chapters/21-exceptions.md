@@ -162,6 +162,106 @@ construct — a future `use` binding — rather than to a bare cleanup block bol
 `try`. The emitter keeps JavaScript's own `try`/`finally` for such internal lowering,
 so the surface language never needs the keyword.
 
+## A `match` can catch what its scrutinee throws
+
+The two constructs compose. A `match` written at the start of its own line may take a
+`catch` clause, aligned with the `match` keyword, after the arms:
+
+```hexagon
+let compile(input: String): Output =
+    match parse(input)
+        Ok(ast) => generate(ast)
+        Err(reason) => report(reason)
+    catch
+        ParseError(line, message) => reportAt(line, message)
+```
+
+The clause is a `catch` in every respect the previous sections described: the full
+pattern language, guards, `JsError`, implicit rethrow of anything unmatched,
+reachability still checked. Nothing about writing catch arms changes because they are
+sitting under a `match` instead of a `try`.
+
+What changes is *what they protect*. **A `catch` on a `match` guards the scrutinee, not
+your arms — and that is the point.** `parse(input)` is inside the protected region.
+`generate(ast)`, `report(reason)`, and any guard you attach to a data arm are outside
+it. If `parse` returns, the data arms run exactly as an ordinary `match`'s do and the
+catch arms are dead for that evaluation. If `parse` throws, the data arms never run and
+the catch arms are tried instead.
+
+That is a different expression from the one you get by wrapping the whole `match`:
+
+```hexagon
+-- The window is the scrutinee: a ParseError from `generate` escapes.
+let narrow(input: String): Output =
+    match parse(input)
+        Ok(ast) => generate(ast)
+        Err(reason) => report(reason)
+    catch
+        ParseError(line, message) => reportAt(line, message)
+
+-- The window is everything: a ParseError from `generate` is caught here.
+let wide(input: String): Output =
+    try match parse(input)
+        Ok(ast) => generate(ast)
+        Err(reason) => report(reason)
+    catch
+        ParseError(line, message) => reportAt(line, message)
+```
+
+Both compile, and they read almost the same. In `narrow`, a `ParseError` raised inside
+`generate` propagates to the caller — the handler was for parsing, and it stays for
+parsing. In `wide`, that same failure is quietly rerouted into a message about a parse
+error at some line, which is the bug the narrow form exists to make unwritable. Reach
+for the clause when the handler belongs to the thing being matched; reach for
+`try`/`catch` when it belongs to the whole computation.
+
+The two sections keep their own laws. Every body — data arm and catch arm alike —
+produces the one result type, as in any `match`. The data arms alone must be exhaustive:
+a thrown exception is not a case of the scrutinee's type, so the clause discharges
+nothing, and dropping `Err(reason)` above is still a missing-case error. The catch arms,
+being arms over the open `Exn`, carry no exhaustiveness demand at all.
+
+Only a `match` that *begins its line* can take a clause, because attachment is by
+column and a mid-line head has no column a following line could sit at. So this does not
+work:
+
+```hexagon
+let x = match parse(input)
+    Ok(ast) => generate(ast)
+    Err(reason) => report(reason)
+catch                                  -- ERROR: aligned with the `let`, not the `match`
+    ParseError(line, message) => reportAt(line, message)
+```
+
+The `catch` is at the `let`'s column, and the `let` is what owns that column. The fix is
+one indent — move the `match` onto its own line as the binding's block, and the clause
+has a head to align with:
+
+```hexagon
+let x =
+    match parse(input)
+        Ok(ast) => generate(ast)
+        Err(reason) => report(reason)
+    catch
+        ParseError(line, message) => reportAt(line, message)
+```
+
+One more error is worth expecting. A clause whose scrutinee cannot possibly throw is
+dead code, and dead handlers are errors here exactly as dead arms are:
+
+```hexagon
+match result                           -- ERROR: this `catch` can never run:
+    Ok(ast) => generate(ast)           -- evaluating result cannot throw
+    Err(reason) => report(reason)
+catch
+    ParseError(_, _) => fallback
+```
+
+Reading a variable throws nothing, so nothing could reach those arms. The compiler only
+claims this where it is certain — a bare variable or a plain literal. It never tries to
+prove that a *call* cannot throw, because nothing in the language would let it: throwing
+is not an effect, and a pure function may throw.
+
 ## Foreign failures enter through `JsError`
 
 JavaScript may throw an `Error`, a string, `null`, or any other value. Hexagon exposes
@@ -293,6 +393,8 @@ declaration.
 - `throw` never returns and can occupy any expected result position;
 - `try`/`catch` is an expression using the established pattern language, and a catch
   arm may name its constructor through a module;
+- a line-initial `match` may take a `catch` clause of its own, guarding the scrutinee's
+  evaluation and nothing else;
 - unmatched exceptions are implicitly rethrown, while reachability is still checked;
 - there is no `finally`; paired acquire-and-release is a future `use` binding's job;
 - all foreign throwables enter through `JsError`;

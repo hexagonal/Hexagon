@@ -192,7 +192,7 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
         return;
       case "Match":
         visitExpr(expression.scrutinee);
-        for (const arm of expression.arms) {
+        for (const arm of [...expression.arms, ...expression.catchArms ?? []]) {
           visitPattern(arm.pattern);
           if (arm.guard !== undefined) visitExpr(arm.guard);
           visitExpr(arm.body);

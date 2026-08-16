@@ -4081,6 +4081,14 @@ class Checker {
           }
           this.#unify(result, this.#inferExpr(arm.body, level), arm.body.span);
         }
+        // The match catch clause (Exceptions §5.4): its arms are `try`'s arms in
+        // a second seat, so they carry §5.3 whole and their bodies join the one
+        // result type. Reachability is per-section — the loop above has already
+        // finished, and the two sets never compete for one evaluation — and the
+        // data arms' exhaustiveness demand below is untouched by the clause.
+        if (expression.catchArms !== undefined) {
+          this.#checkCatchArms(expression.catchArms, result, level);
+        }
         const actual = this.#prune(scrutinee);
         if (actual.kind === "Union") {
           this.#matchUnions.set(expression, actual.union);
@@ -4175,58 +4183,7 @@ class Checker {
       }
       case "Try": {
         const result = this.#inferExpr(expression.body, level);
-        let catchesAll = false;
-        const coveredConstructors = new Set<Resolved.SymbolId>();
-        const constructorPatterns = new Map<
-          Resolved.SymbolId,
-          Resolved.ConstructorPattern[]
-        >();
-        for (const arm of expression.arms) {
-          if (catchesAll) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: "this catch arm is unreachable because an earlier arm catches everything",
-              primary: arm.span,
-            });
-          }
-          const guarded = arm.guard !== undefined;
-          let armCatchesAll = false;
-          const armConstructors: Resolved.ConstructorPattern[] = [];
-          for (const coveragePattern of coverageAlternatives(arm.pattern)) {
-            if (coveragePattern.kind === "Constructor") {
-              if (coveredConstructors.has(coveragePattern.symbol)) {
-                this.#diagnostics.add({
-                  severity: "error",
-                  message: `exception \`${coveragePattern.text}\` is already caught above`,
-                  primary: coveragePattern.span,
-                });
-              }
-              if (!guarded && this.#exceptions.has(coveragePattern.symbol)) {
-                armConstructors.push(coveragePattern);
-              }
-            } else if (
-              coveragePattern.kind === "Binding" ||
-              coveragePattern.kind === "Wildcard"
-            ) {
-              armCatchesAll = true;
-            }
-          }
-          for (const pattern of armConstructors) {
-            const patterns = constructorPatterns.get(pattern.symbol) ?? [];
-            patterns.push(pattern);
-            constructorPatterns.set(pattern.symbol, patterns);
-            if (this.#constructorPatternsAreExhaustive(patterns)) {
-              coveredConstructors.add(pattern.symbol);
-            }
-          }
-          if (!guarded && armCatchesAll) catchesAll = true;
-          this.#inferExceptionPattern(arm.pattern, level);
-          if (arm.guard !== undefined) {
-            const guard = this.#inferExpr(arm.guard, level);
-            this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
-          }
-          this.#unify(result, this.#inferExpr(arm.body, level), arm.body.span);
-        }
+        this.#checkCatchArms(expression.arms, result, level);
         type = result;
         break;
       }
@@ -4898,6 +4855,71 @@ class Checker {
     pattern.arguments.forEach((argument, index) =>
       this.#inferMatchPattern(argument, parameters[index] ?? ERROR, level)
     );
+  }
+
+  /**
+   * A block of catch arms, in either of `catch`'s two seats — `try`'s clause
+   * (Exceptions §5.1) and the match catch clause (§5.4). One grammar, one
+   * semantics: §5.3's exact reachability set logic, no exhaustiveness demand
+   * (the sum is open), and every arm body unified into the one result type.
+   */
+  #checkCatchArms(
+    arms: readonly Resolved.MatchArm[],
+    result: Mono,
+    level: number,
+  ): void {
+    let catchesAll = false;
+    const coveredConstructors = new Set<Resolved.SymbolId>();
+    const constructorPatterns = new Map<
+      Resolved.SymbolId,
+      Resolved.ConstructorPattern[]
+    >();
+    for (const arm of arms) {
+      if (catchesAll) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: "this catch arm is unreachable because an earlier arm catches everything",
+          primary: arm.span,
+        });
+      }
+      const guarded = arm.guard !== undefined;
+      let armCatchesAll = false;
+      const armConstructors: Resolved.ConstructorPattern[] = [];
+      for (const coveragePattern of coverageAlternatives(arm.pattern)) {
+        if (coveragePattern.kind === "Constructor") {
+          if (coveredConstructors.has(coveragePattern.symbol)) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `exception \`${coveragePattern.text}\` is already caught above`,
+              primary: coveragePattern.span,
+            });
+          }
+          if (!guarded && this.#exceptions.has(coveragePattern.symbol)) {
+            armConstructors.push(coveragePattern);
+          }
+        } else if (
+          coveragePattern.kind === "Binding" ||
+          coveragePattern.kind === "Wildcard"
+        ) {
+          armCatchesAll = true;
+        }
+      }
+      for (const pattern of armConstructors) {
+        const patterns = constructorPatterns.get(pattern.symbol) ?? [];
+        patterns.push(pattern);
+        constructorPatterns.set(pattern.symbol, patterns);
+        if (this.#constructorPatternsAreExhaustive(patterns)) {
+          coveredConstructors.add(pattern.symbol);
+        }
+      }
+      if (!guarded && armCatchesAll) catchesAll = true;
+      this.#inferExceptionPattern(arm.pattern, level);
+      if (arm.guard !== undefined) {
+        const guard = this.#inferExpr(arm.guard, level);
+        this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
+      }
+      this.#unify(result, this.#inferExpr(arm.body, level), arm.body.span);
+    }
   }
 
   #inferExceptionPattern(pattern: Resolved.Pattern, level: number): void {
@@ -9714,6 +9736,16 @@ class Checker {
     };
   }
 
+  /** One arm form, three seats (`match`, `try`'s `catch`, the match catch clause). */
+  #materializeArms(arms: readonly Resolved.MatchArm[]): readonly Typed.MatchArm[] {
+    return arms.map((arm) => ({
+      pattern: this.#materializePattern(arm.pattern),
+      ...(arm.guard === undefined ? {} : { guard: this.#materializeExpr(arm.guard) }),
+      body: this.#materializeExpr(arm.body),
+      span: arm.span,
+    }));
+  }
+
   #materializeExpr(expression: Resolved.Expr): Typed.Expr {
     const value = this.#materializeUnwidenedExpr(expression);
     const natWidening = this.#natWidenings.get(expression);
@@ -9866,14 +9898,7 @@ class Checker {
         return {
           kind: "Try",
           body: this.#materializeExpr(expression.body),
-          arms: expression.arms.map((arm) => ({
-            pattern: this.#materializePattern(arm.pattern),
-            ...(arm.guard === undefined
-              ? {}
-              : { guard: this.#materializeExpr(arm.guard) }),
-            body: this.#materializeExpr(arm.body),
-            span: arm.span,
-          })),
+          arms: this.#materializeArms(expression.arms),
           type,
           span: expression.span,
         };
@@ -9882,14 +9907,10 @@ class Checker {
         return {
           kind: "Match",
           scrutinee: this.#materializeExpr(expression.scrutinee),
-          arms: expression.arms.map((arm) => ({
-            pattern: this.#materializePattern(arm.pattern),
-            ...(arm.guard === undefined
-              ? {}
-              : { guard: this.#materializeExpr(arm.guard) }),
-            body: this.#materializeExpr(arm.body),
-            span: arm.span,
-          })),
+          arms: this.#materializeArms(expression.arms),
+          ...(expression.catchArms === undefined
+            ? {}
+            : { catchArms: this.#materializeArms(expression.catchArms) }),
           ...(union === undefined ? {} : { union }),
           type,
           span: expression.span,

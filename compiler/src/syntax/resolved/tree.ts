@@ -1375,6 +1375,8 @@ export interface MatchExpr {
   readonly kind: "Match";
   readonly scrutinee: Expr;
   readonly arms: readonly MatchArm[];
+  /** The match catch clause's arms (Exceptions §5.4, #500); absent is a plain `match`. */
+  readonly catchArms?: readonly MatchArm[];
   readonly span: Source.Span;
 }
 

@@ -4,14 +4,35 @@
  * for emitted helpers; those decisions belong to emission.
  */
 
+import * as Diagnostics from "../../support/diagnostics.js";
+import type * as Source from "../../support/source.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Typed from "../../syntax/typed/index.js";
 
-export function elaborate(module: Typed.Module): Core.Module {
+/**
+ * Every match catch clause elaborated in the module being processed, in source
+ * order (Exceptions §5.4, #500).
+ *
+ * The cannot-throw judgment's subject is *the elaborated scrutinee*, so its
+ * input is collected as elaboration produces it rather than re-walked from the
+ * finished tree: a second traversal would be a second reading of the same rule,
+ * free to drift from the first. Elaboration is synchronous and one module at a
+ * time, and `elaborate` clears this before it starts.
+ */
+let elaboratedCatchClauses: Core.MatchExpr[] = [];
+
+export function elaborate(module: Typed.Module, source?: Source.File): Core.Module {
+  elaboratedCatchClauses = [];
+  const items = module.items.map(elaborateItem);
+  const clauses = elaboratedCatchClauses;
+  elaboratedCatchClauses = [];
+  const diagnostics = new Diagnostics.Bag();
+  for (const diagnostic of module.diagnostics) diagnostics.add(diagnostic);
+  for (const clause of clauses) reportUnreachableCatchClause(clause, diagnostics, source);
   return {
     kind: "Module",
     fileId: module.fileId,
-    items: module.items.map(elaborateItem),
+    items,
     symbols: module.symbols,
     unions: module.unions,
     records: module.records,
@@ -24,7 +45,7 @@ export function elaborate(module: Typed.Module): Core.Module {
     comments: module.comments,
     docs: module.docs,
     span: module.span,
-    diagnostics: module.diagnostics,
+    diagnostics: diagnostics.toArray(),
   };
 }
 
@@ -91,6 +112,87 @@ function elaborateItem(item: Typed.Item): Core.Item {
     case "ErrorItem":
       return item;
   }
+}
+
+/**
+ * Exceptions §5.4's cannot-throw judgment: a scrutinee whose evaluation provably
+ * cannot throw makes the whole catch clause unreachable — a hard error, the same
+ * doctrine as every dead arm.
+ *
+ * The class is exact and deliberately minimal, and it is read off the
+ * *elaborated* scrutinee because that is where the guarantee lives:
+ *
+ * - a **bare variable read** — a plain `Name` with no evidence hanging off it.
+ *   An evidence application is excluded on purpose: a generalized literal
+ *   binding's use re-runs its `Num` elaboration, which may be user code.
+ * - a **literal whose elaboration erases to a primitive construction** — the
+ *   Numeric Literals §5 codegen guarantee. `Number`, `BigInt`, and `Float`
+ *   nodes are exactly the erased ones; a `ConvertNat` is the *unerased* case
+ *   and declines, which is how the judgment avoids leaning on `Num`'s unchecked
+ *   totality law. A `String` qualifies only with no interpolation holes, since
+ *   a hole runs a `Show` call; a vector, tuple, or record literal never does.
+ *
+ * Nothing wider is available: throwing is not an effect (§1), so no colour
+ * analysis can prove throw-freedom through a call, and purity would not prove it
+ * either — a `->` function may throw.
+ */
+function scrutineeCannotThrow(scrutinee: Core.Expr): boolean {
+  switch (scrutinee.kind) {
+    case "Name":
+      return scrutinee.evidence === undefined || scrutinee.evidence.length === 0;
+    case "Number":
+    case "BigInt":
+    case "Float":
+    case "Unit":
+      return true;
+    case "String":
+      return scrutinee.parts.every((part) => part.kind === "Text");
+    default:
+      return false;
+  }
+}
+
+/** The scrutinee as written, for the message; reconstructed if no source came along. */
+function scrutineeText(scrutinee: Core.Expr, source: Source.File | undefined): string {
+  if (source !== undefined && source.id === scrutinee.span.fileId) {
+    return source.text.slice(scrutinee.span.start.offset, scrutinee.span.end.offset);
+  }
+  switch (scrutinee.kind) {
+    case "Name":
+      return scrutinee.text;
+    case "Number":
+    case "BigInt":
+      return scrutinee.decimal;
+    case "Float":
+      return scrutinee.spelling;
+    case "Unit":
+      return "()";
+    default:
+      return "the scrutinee";
+  }
+}
+
+function reportUnreachableCatchClause(
+  expression: Core.MatchExpr,
+  diagnostics: Diagnostics.Bag,
+  source: Source.File | undefined,
+): void {
+  if (!scrutineeCannotThrow(expression.scrutinee)) return;
+  diagnostics.add({
+    severity: "error",
+    message: "this `catch` can never run: evaluating " +
+      `${scrutineeText(expression.scrutinee, source)} cannot throw`,
+    primary: expression.catchArms?.[0]?.span ?? expression.span,
+  });
+}
+
+function elaborateArms(arms: readonly Typed.MatchArm[]): readonly Core.MatchArm[] {
+  return arms.map((arm) => ({
+    pattern: elaboratePattern(arm.pattern),
+    ...(arm.guard === undefined ? {} : { guard: elaborateExpr(arm.guard) }),
+    body: elaborateExpr(arm.body),
+    span: arm.span,
+  }));
 }
 
 function elaborateExpr(expression: Typed.Expr): Core.Expr {
@@ -220,28 +322,19 @@ function elaborateExpr(expression: Typed.Expr): Core.Expr {
       return {
         ...expression,
         body: elaborateExpr(expression.body),
-        arms: expression.arms.map((arm) => ({
-          pattern: elaboratePattern(arm.pattern),
-          ...(arm.guard === undefined
-            ? {}
-            : { guard: elaborateExpr(arm.guard) }),
-          body: elaborateExpr(arm.body),
-          span: arm.span,
-        })),
+        arms: elaborateArms(expression.arms),
       };
-    case "Match":
-      return {
-        ...expression,
+    case "Match": {
+      const { catchArms, ...head } = expression;
+      const elaborated: Core.MatchExpr = {
+        ...head,
         scrutinee: elaborateExpr(expression.scrutinee),
-        arms: expression.arms.map((arm) => ({
-          pattern: elaboratePattern(arm.pattern),
-          ...(arm.guard === undefined
-            ? {}
-            : { guard: elaborateExpr(arm.guard) }),
-          body: elaborateExpr(arm.body),
-          span: arm.span,
-        })),
+        arms: elaborateArms(expression.arms),
+        ...(catchArms === undefined ? {} : { catchArms: elaborateArms(catchArms) }),
       };
+      if (elaborated.catchArms !== undefined) elaboratedCatchClauses.push(elaborated);
+      return elaborated;
+    }
     case "Call":
       return {
         kind: "Call",

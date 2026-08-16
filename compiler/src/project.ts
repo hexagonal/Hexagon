@@ -329,7 +329,9 @@ export function compileProject(
     const typed = check(resolved, { importedSchemes, programNominals });
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
-    const core = elaborate(typed);
+    // The source travels with the tree so the post-elaboration judgments can
+    // quote what was written (Exceptions §5.4's cannot-throw message).
+    const core = elaborate(typed, source);
     const runtimes = runtimesFor(path, runtimeModulePathsByBasename);
     const result: CompiledModule = {
       source,
