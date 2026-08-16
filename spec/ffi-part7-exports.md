@@ -1,6 +1,6 @@
 # Hexagon FFI Part 7: Hexagon Exports and TypeScript Declarations
 
-**Status:** Decided (July 2026), revised in place after external review (Sol) before landing; §2.2 and §12.1 amended 2026-08-02 — a polymorphic non-function declaration faces as its `never` instantiation, generalizing §12.1 beyond nullary constructors — see correction record §14.1; §2.1 amended and §2.4 added 2026-08-04 — cross-module Hexagon types in faces take type-only named imports (#227) — see correction record §14.2; §6 and §11 amended — exported exceptions ship boundary guards (`.is`, `isHexError`), the one hard error this part owns (#478). Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §7, plus the export-surface pieces earlier parts assigned here: the exact opaque-brand `.d.ts` form (Part 4 §12.3), stable export wrappers' emission rules (Parts 3/6), and the discharge of Modules §11.4's deferred opaque-representation question. The draft's three clarifications were confirmed in §12: generic nullary constants use the `never` instantiation; export forces stable constructor materialization; and all four opaque-faced families use one non-exported-`unique symbol` brand mechanism. Inherits: generated opaque brands for exported extern types, never re-exported foreign typings; raw identity for representation-direct functions; stable module-level wrappers where adapted signatures or receiver conventions require them, with fresh per-value adapters remaining distinct from those named callable wrappers (Part 6 §1); exported Hexagon `Unit` functions genuinely returning `undefined` (Part 6 §3.2); the `Error & {$hex: true; ...}` exception face (Exceptions §7.5); constrained exports referenced but governed by Parts 8–9.
+**Status:** Decided (July 2026), revised in place after external review (Sol) before landing; §2.2 and §12.1 amended 2026-08-02 — a polymorphic non-function declaration faces as its `never` instantiation, generalizing §12.1 beyond nullary constructors — see correction record §14.1; §2.1 amended and §2.4 added 2026-08-04 — cross-module Hexagon types in faces take type-only named imports (#227) — see correction record §14.2; §6 and §11 amended — exported exceptions ship boundary guards (`.is`, `isHexError`), the one hard error this part owns (#478). Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §7, plus the export-surface pieces earlier parts assigned here: the exact opaque-brand `.d.ts` form (Part 4 §12.3), stable export wrappers' emission rules (Parts 3/6), and the discharge of Modules §11.4's deferred opaque-representation question. The draft's three clarifications were confirmed in §12: generic nullary constants use the `never` instantiation; export forces stable constructor materialization; and all four opaque-faced families use one non-exported-`unique symbol` brand mechanism. Inherits: generated opaque brands for exported extern types, never re-exported foreign typings; raw identity for representation-direct functions; stable module-level wrappers where adapted signatures or receiver conventions require them, with fresh per-value adapters remaining distinct from those named callable wrappers (Part 6 §1); exported Hexagon `Unit` functions genuinely returning `undefined` (Part 6 §3.2); the `Error & {$hex: "<module>"; ...}` exception face (Exceptions §7.5, brand value per #488); constrained exports referenced but governed by Parts 8–9.
 **Scope:** ESM export correspondence; the generated `.d.ts` (structure, the `Hex` namespace import, lowercase Hexagon-originated generic binders, cross-module type imports); records; unions, exported constructors, and the all-nullary representation cliff; opaque branded values — the uniform brand for `export opaque` types, extern types, and extern class types; exceptions, including the nullary function-shape difference; direct exports versus stable wrappers; edit notes discharging flags in Modules, Unions, and Exceptions.
 **Not in scope:** the specialization and generic-edition machinery for constrained exports (Part 8, `ffi-zero-cost-fundamental-exports.md`) and dictionary types, handles, and factories (Part 9, `ffi-part9-exported-dictionaries.md`); extern declaration syntax (Parts 4–5); calling convention (Part 6); `JsMap`/`JsSet` and `JsValue` faces (finalized by Parts 10–11).
 **Companions:** Modules §4/§11 (export semantics; ESM emission; the §11.4 deferral); Unions §6 (representations, the cliff, constructor emission, `.d.ts`); Products §5.4 (record constructor erasure); Exceptions §7 (branded representation, `.d.ts`, construction sites); Part 1 §4/§8 (master table; `Hex` namespace); Part 3 §9.1 (exported `Seq` replayability); Part 6 §1/§3 (wrapper list; `Unit`); Part 8 §3.4/§6 (zero-entry-point exception; Algorithm N collisions).
@@ -221,7 +221,7 @@ export exception ParseError(line: Int, message: String)
 
 ```ts
 export type ParseError = Error & {
-  readonly $hex: true;
+  readonly $hex: "Parser";
   readonly name: "ParseError";
   readonly line: number;
 };
@@ -244,7 +244,7 @@ Each JS call constructs a fresh branded `Error` and captures the call-site stack
 
 > Hexagon writes `throw(NotFound)`; JavaScript writes `throw NotFound()`.
 
-The exported constructor is an ordinary function with stable ESM identity; the brand's `$hex: true` appears in the face deliberately (Exceptions §7.5) so JS-side construction is done correctly or not at all. This discharges the constructor-export flags in Exceptions §7.5 and Unions §6.5 (edit notes, §10).
+The exported constructor is an ordinary function with stable ESM identity; the brand — `$hex` carrying the declaring module's name (#488) — appears in the face deliberately (Exceptions §7.5) so JS-side construction is done correctly or not at all. This discharges the constructor-export flags in Exceptions §7.5 and Unions §6.5 (edit notes, §10).
 
 **Every exported exception also ships its guard** *(#478; Exceptions §7.6)*. The constructor function carries a property `is`, declared by function/namespace merge so the property types as a predicate and the consumer's branch narrows to the intersection face:
 
@@ -255,14 +255,14 @@ export declare namespace ParseError {
 }
 ```
 
-At runtime the property is assigned once, beside the constructor: `ParseError.is = (err) => err != null && err.$hex === true && err.name === "ParseError";`. Nullary exceptions carry the same property on their function-shaped export. The property seat spends no export name and has no collision rule — no Hexagon surface can occupy it.
+At runtime the property is assigned once, beside the constructor: `ParseError.is = (err) => err != null && err.$hex === "Parser" && err.name === "ParseError";` — #488's (module, name) identity. Nullary exceptions carry the same property on their function-shaped export. The property seat spends no export name and has no collision rule — no Hexagon surface can occupy it.
 
 A module that exports at least one exception additionally exports the stage-1 guard:
 
 ```ts
 export declare function isHexError(
   err: unknown,
-): err is Error & { readonly $hex: true; readonly name: string };
+): err is Error & { readonly $hex: string; readonly name: string };
 ```
 
 `isHexError` is a generated public **face** — deliberately outside Lexer §3.2's `__` prefix — and a fixed name, so its collision with an explicit export of the same module is the Part 8 §6.2 family's hard error (both sites named; the fix is a source rename, never a silent one). **`JsError` ships no `is` guard**: its wrapping is virtual (Exceptions §6.2), so outside that section's exotic first-class residue a JS consumer never receives a branded `"JsError"` — the foreign branch of their discrimination is `!isHexError(err)`.

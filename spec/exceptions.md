@@ -1,6 +1,6 @@
 # Hexagon Spec: Exceptions
 
-**Status:** Decided (July 2026); re-based onto the effects discipline (#480) — the cut is now stated here, not merely inferable from Effects §1, and `Result.attempt`'s arrows link; `finally` resolved to never (#481); boundary guards added (#478, §7.6). With a **hanging-questions** section (§10; §10.1 since resolved); nothing there blocks implementation of §1–§9.
+**Status:** Decided (July 2026); re-based onto the effects discipline (#480) — the cut is now stated here, not merely inferable from Effects §1, and `Result.attempt`'s arrows link; `finally` resolved to never (#481); boundary guards added (#478, §7.6); the brand carries the declaring module (#488, §7.1). With a **hanging-questions** section (§10; §10.1 since resolved); nothing there blocks implementation of §1–§9.
 **Scope:** The `exception` declaration (an open extensible sum of error constructors), the `Exn` type, `throw`, the `try`/`catch` expression, foreign (JS-originated) throwables and the `JsError` door, the tagged-`Error`-plus-brand runtime representation, prelude additions (`JsError`, `Result.attempt`), emission and `.d.ts` shapes.
 **Not in scope:** `finally` (resolved: never — §10.1), the full pattern grammar (pattern-matching spec — catch arms use the same flat constructor patterns as `match`, Unions §4.2), the `JsValue` type and its decoding surface (FFI Part 11; this doc consumes its two conservative `JsError` accessors), module-level qualification of exception constructor names (modules spec), async/promise-rejection interactions (FFI/async spec, if any).
 **Companions:** Unions spec (constructor grammar reused wholesale; the closed/open contrast is this doc's reason to exist), Functions spec (arity, constructors-as-terms, value restriction), Lexer & Layout spec (`try`/`catch` bodies are layout blocks), Constraints spec (no derived instances for `Exn`, §7), Effects spec (§1 owns the cut this doc's §1 restates; §2.2's linked arrows are `Result.attempt`'s, §8.2).
@@ -17,7 +17,7 @@ Written for a future implementation session against the existing `hexc` architec
 - **`Exn` is a real type, and its values are ordinary values.** An exception can be constructed, bound, stored in a record, passed to a function, and thrown later. Construction and throwing are separate acts (as in SML, and as in JS's `new Error` vs `throw`).
 - **`catch` is a `match` that cannot be exhaustive.** Because the sum is open, "missing cases" is meaningless; the rule inverts. Where `match` demands exhaustiveness (Unions §4.3), `catch` provides an implicit *anything-unmatched propagates*. No error, no warning, no mandatory `_` arm. This does not weaken the exhaustiveness doctrine — that payoff was always about data; control-flow escape is a different contract.
 - **The entire foreign world enters through exactly one door: `JsError`** (§6). Every Hexagon-originated exception is a declared constructor; everything else JS can throw is a `JsError`. One door is a doctrine.
-- **Representation: a branded plain `Error`, no classes** (§7). Hexagon emits no `class`, ever — unions are tagged POJOs; exceptions are tagged `Error` objects with a brand field. Same shape of idea: `tag` answers "which constructor" for data, `name` answers it for exceptions, `$hex` answers "whose exception."
+- **Representation: a branded plain `Error`, no classes** (§7). Hexagon emits no `class`, ever — unions are tagged POJOs; exceptions are tagged `Error` objects with a brand field. Same shape of idea: `tag` answers "which constructor" for data, `name` answers it for exceptions, `$hex` answers "whose exception" — and answers it fully *(#488)*: its value is the **declaring module's name**, so one field says both whose language (non-null: Hexagon's) and whose declaration (which module's). A closed sum's constructor names are scoped by its type and `match` is type-directed, so `tag` needs no qualifier; the open sum lost that protection when every `exception` in the program joined one type, so its discriminant carries the uniqueness the type system no longer can — runtime identity is the (module, name) pair, exactly the checker's own.
 
 ---
 
@@ -134,23 +134,23 @@ Every Hexagon-constructed exception is a **plain JS `Error` object** — real st
 
 ```js
 Object.assign(new Error("bad"), {
-  $hex: true,               // the brand: "this is a Hexagon exception"
+  $hex: "Parser",           // the brand: "this is a Hexagon exception" — and whose (the declaring module)
   name: "ParseError",       // the discriminant (JS consoles print name: message)
   line: 3                   // payload slots, flat, under their declared names
 })
 ```
 
-- **The brand is `$hex: true`** — a plain own-property, chosen over a `Symbol` key deliberately: it is honest data, survives structured-clone/realms/workers/bundler-duplication (all the places prototype identity breaks), and `$hex` is not a legal Hexagon identifier, so it can never collide with a user slot (§2's `$` reservation makes this airtight).
+- **The brand is `$hex: "<declaring module>"`** *(#488; supersedes `$hex: true`)* — a plain own-property, chosen over a `Symbol` key deliberately: it is honest data, survives structured-clone/realms/workers/bundler-duplication (all the places prototype identity breaks), and `$hex` is not a legal Hexagon identifier, so it can never collide with a user slot (§2's `$` reservation makes this airtight). The value is the declaring module's name (`"Parser"` above): two modules each declaring `exception Boom` produce distinguishable representations, so a catch arm binds only the constructor it names — without the module in the brand, `B.Boom(tag)` catches `A`'s `Boom` with `tag` bound `undefined`, an accident needing no adversary. Module names are program-unique in v1; if a package system ever makes them collide across packages, the brand's value widens to whatever spelling that story makes canonical — a continuation, not a redesign.
 - **`name` is the discriminant** — doing for exceptions exactly what `tag` does for unions, with the bonus that `name` is the field JS consoles and error reporters already print: uncaught output reads `ParseError: bad` plus a stack, indistinguishable from a well-written JS library's error.
 - The `message` slot, if declared, feeds `new Error(message)` (§2); an exception without a `message` slot constructs `new Error()` with an empty message.
 - Unnamed slots emit as `item1 … itemN` fields, the products vocabulary (Unions §6.1), flat beside the brand.
 - **Rejected: one `HexagonError` class, or a class per exception** (the F#/Fable shape) — considered at length and declined. Classes reintroduce `instanceof` and prototype identity, which breaks across bundler duplicates and realms — a known ecosystem wart the branded-POJO-over-`Error` design simply doesn't have — and would put `class` declarations in emitted output that is otherwise class-free. The reconciliation paragraph that design needed is the tell; this design needs none. Do not re-litigate without new information.
 - **Rejected: bare tagged POJOs (no `Error`)** — an uncaught `{tag: "NotFound"}` surfaces as `[object Object]` with no stack: a catastrophic debugging experience and a readable-JS violation in spirit. The `Error` base is non-negotiable.
-- Spoofing residue, recorded honestly: a JS library *deliberately* throwing `{$hex: true, name: "ParseError", ...}` impersonates a Hexagon exception. The brand moves the failure mode from "breaks by accident" (any library setting `err.name`, which is conventional) to "breaks only on purpose," which is where every tagged representation in the language already lives — nothing stops JS handing Hexagon a fake `{tag: "Some"}` either.
+- Spoofing residue, recorded honestly: a JS library *deliberately* throwing `{$hex: "Parser", name: "ParseError", ...}` impersonates a Hexagon exception. The brand moves the failure mode from "breaks by accident" (any library setting `err.name`, which is conventional) to "breaks only on purpose," which is where every tagged representation in the language already lives — nothing stops JS handing Hexagon a fake `{tag: "Some"}` either.
 
 ### 7.2 Construction sites
 
-The emitter provides one tiny module-level helper (shape at its discretion, e.g. `const $mkExn = (name, message, fields) => Object.assign(new Error(message), {$hex: true, name}, fields);`) so construction sites stay readable: `$mkExn("ParseError", "bad", {line: 3})`. Direct `Object.assign` inline is equally acceptable for the emitter where it reads better; the representation, not the helper, is the contract.
+The emitter provides one tiny module-level helper (shape at its discretion, e.g. `const $mkExn = (name, message, fields) => Object.assign(new Error(message), {$hex: "Parser", name}, fields);` — per-module, so the helper bakes in its own module's name, #488) so construction sites stay readable: `$mkExn("ParseError", "bad", {line: 3})`. Direct `Object.assign` inline is equally acceptable for the emitter where it reads better; the representation, not the helper, is the contract.
 
 ### 7.3 Nullary exceptions construct fresh
 
@@ -164,11 +164,11 @@ Brand first, then name — this is the structure that makes the semantics of §5
 try {
   ...
 } catch (err) {
-  if (err != null && err.$hex === true) {          // stage 1: domestic?
-    if (err.name === "ParseError") {               // stage 2: which one
+  if (err != null && typeof err.$hex === "string") {          // stage 1: domestic?
+    if (err.$hex === "Parser" && err.name === "ParseError") { // stage 2: which one — (module, name)
       const line = err.line;
       ...
-    } else if (err.name === "NotFound") {
+    } else if (err.$hex === "Parser" && err.name === "NotFound") {
       ...
     } else throw err;                              // unmatched Hexagon exn: implicit rethrow
   } else {                                         // foreign branch
@@ -179,7 +179,8 @@ try {
 ```
 
 - The `err != null` guard is load-bearing: JS code can `throw null` / `throw "oops"`, and those must flow to the foreign branch rather than crash the discriminator.
-- Verify against the two failure modes this structure exists to kill: a Hexagon `NotFound` reaching a `JsError`-only catch is branded → domestic branch → no name match → rethrown (`JsError` never swallows domestic exceptions); a foreign `new Error` with `name === "ParseError"` is unbranded → foreign branch (no impersonation-by-coincidence).
+- Verify against the three failure modes this structure exists to kill: a Hexagon `NotFound` reaching a `JsError`-only catch is branded → domestic branch → no name match → rethrown (`JsError` never swallows domestic exceptions); a foreign `new Error` with `name === "ParseError"` is unbranded → foreign branch (no impersonation-by-coincidence); and module `A`'s `Boom` reaching an arm written `B.Boom(tag)` is branded `"A"`, not `"B"` → no match → rethrown *(#488 — no cross-module capture, no `undefined` payloads)*.
+- Where every arm's constructor is declared by one module — the common case — the emitter may hoist the owner comparison (`err.$hex === "Parser" && (err.name === "ParseError" ? … : err.name === "NotFound" ? … : …)`); the observable rule is the (module, name) pair per arm, not the shape of the chain.
 - A `_`/bare-variable arm emits as the catch-all in **both** branches (or equivalently, a hoisted structure — emitter's choice; the observable rule is that `_` truly catches everything, foreign included).
 - Name discrimination may use `if`/`else` chains or `switch (err.name)`; catch blocks are cold by definition, so the emitter should prefer whichever reads better.
 - `try`/`catch`-as-expression uses the same strategy ladder as `match` (Unions §6.3): statement lifting into `return`/`const`-assignment positions first, IIFE for genuinely inline positions.
@@ -190,7 +191,7 @@ try {
 An exported exception appears as the intersection type that states the §7.1 representation honestly — which is also exactly the shape a hand-written branded error's declaration takes (an outcome, post-#147, not the ground):
 
 ```ts
-type ParseError = Error & { readonly $hex: true; readonly name: "ParseError"; readonly line: number };
+type ParseError = Error & { readonly $hex: "Parser"; readonly name: "ParseError"; readonly line: number };
 ```
 
 - **The brand is included, deliberately**: JS-side code constructing Hexagon exceptions to throw into Hexagon does it correctly or not at all.
@@ -201,8 +202,8 @@ type ParseError = Error & { readonly $hex: true; readonly name: "ParseError"; re
 
 The discrimination a JS consumer must write — §7.4's two-stage test, read from the outside — is manufactured for them at emission, in two shapes:
 
-- **Every exported exception constructor carries a guard property `is`.** `ParseError.is(err)` is the domestic test at this name — `err != null && err.$hex === true && err.name === "ParseError"` — and its declaration types it as a TypeScript predicate, `(err: unknown) => err is ParseError`, so a consumer's branch narrows to §7.5's intersection face. The property seat is deliberately collision-free: no Hexagon surface can occupy a property of an exception constructor — a nullary's dotted spelling is ruled out by §3, and a payload constructor's resolves as Modules §5.1's module namespace, never as a property — so no name is spent and no collision rule is needed. Nullary exceptions carry the same property on their function-shaped export (FFI Part 7 §6).
-- **A module that exports at least one exception also exports `isHexError`** — stage 1 alone, `err != null && err.$hex === true`, typed `(err: unknown) => err is Error & { readonly $hex: true; readonly name: string }`. It answers the domestic-or-foreign question every consuming `catch` asks first; the foreign branch is its negation.
+- **Every exported exception constructor carries a guard property `is`.** `ParseError.is(err)` is the domestic test at this identity — `err != null && err.$hex === "Parser" && err.name === "ParseError"` (#488's (module, name) pair) — and its declaration types it as a TypeScript predicate, `(err: unknown) => err is ParseError`, so a consumer's branch narrows to §7.5's intersection face. The property seat is deliberately collision-free: no Hexagon surface can occupy a property of an exception constructor — a nullary's dotted spelling is ruled out by §3, and a payload constructor's resolves as Modules §5.1's module namespace, never as a property — so no name is spent and no collision rule is needed. Nullary exceptions carry the same property on their function-shaped export (FFI Part 7 §6).
+- **A module that exports at least one exception also exports `isHexError`** — stage 1 alone, `err != null && typeof err.$hex === "string"`, typed `(err: unknown) => err is Error & { readonly $hex: string; readonly name: string }`. It answers the domestic-or-foreign question every consuming `catch` asks first; the foreign branch is its negation.
 - **`isHexError` is a face, not a hygiene name** (Lexer §3.2 keeps generated public spellings outside the `__` prefix), so it is spelled plainly — and, being a fixed generated public name, a collision with an explicit export of the same module is the Part 8 §6.2 family's hard error: both sites named, the fix a source rename, never a silent one.
 - **Guards certify the brand, not the payload.** They witness construction by §7.1's representation contract, nothing structural; §7.1's spoofing paragraph transfers unchanged — a guard moves the consumer's check from hand-written to correct, not from honest to safe.
 - **`JsError` ships no guard.** Its wrapping is virtual (§6.2): outside §6.2's exotic first-class residue, what a JS consumer receives from Hexagon is never a branded `"JsError"` — it is the original foreign throwable — so a `JsError.is` would match only that residue and mislead everywhere else. The foreign branch is `!isHexError(err)`.
@@ -288,5 +289,6 @@ The arrows are linked (Effects §2.2): the thunk's `->?` is the signature's inle
 | `Result.attempt`'s arrows link — the thunk's `->?` is the inlet, `attempt` a conduit | §8.2 |
 | `finally`: resolved to never (supersedes the deferral row above) — keyword reserved permanently, purely for the diagnostic; resources are the v2 `use` story | §5.1, §9, §10.1 |
 | Boundary guards (#478): `.is` on every exported exception constructor (TS predicate to the §7.5 face); `isHexError` per exception-exporting module (stage-1 test); fixed generated face, collision = Part 8 §6.2-family hard error; `JsError` excluded (virtual wrapping); guards certify the brand only; nothing exists Hexagon-side | §7.6 |
+| #488: the brand carries the declaring module — `$hex: "<module>"`, superseding `true` in the two rows above — runtime identity is the (module, name) pair, the checker's own; stage 1 = string check; two same-named exceptions in two modules stay distinct, no cross-module capture; v1 module names program-unique, a future package story widens the value | §1, §7.1, §7.2, §7.4–§7.6 |
 | Four hanging questions recorded | §10 |
 | §7.5's `.d.ts` phrasing re-grounded post-#147 (2026-07-29): the intersection face is the honest statement of §7.1's representation; TS-author phrasing demoted to outcome; face unchanged | §7.5 |

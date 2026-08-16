@@ -454,7 +454,7 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 - **Loops §4:** the `while` condition grammar reference resolves to §11.1 here.
 
 ### 14.2 Exceptions spec
-- Add **`NegativeExponentError`** to the exception registry (thrown by `Int.pow`/`BigInt.pow` on `y < 0`; the `**` operator reaches it through those instances). Same branding scheme (`$hex: true`, `name` discriminant) as `IndexError`/`DivideByZeroError`. *(#344: its declared home is `stdlib/Pow.hex`.)*
+- Add **`NegativeExponentError`** to the exception registry (thrown by `Int.pow`/`BigInt.pow` on `y < 0`; the `**` operator reaches it through those instances). Same branding scheme (`$hex` carrying the declaring module per #488, `name` discriminant) as `IndexError`/`DivideByZeroError`. *(#344: its declared home is `stdlib/Pow.hex`.)*
 
 ### 14.3 Constraints spec §7 (prelude listing)
 - Add `Pow<a: Num>` with member `pow(x: a, y: a): a`; instances `Nat`, `Int`, `Float`, `BigInt` (§6.3).

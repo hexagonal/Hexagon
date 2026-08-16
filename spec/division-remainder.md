@@ -59,7 +59,7 @@ Int.rem(a: Int, b: Int): Int      -- truncated remainder (JS's `%` exactly)
 
 `BigInt.div` / `BigInt.mod` / `BigInt.quot` / `BigInt.rem`, same conventions, same identities, same `DivideByZeroError` on a zero divisor.
 
-One implementation wrinkle, binding: **native JS BigInt `/` and `%` already throw on `0n`** — but a `RangeError`, not a branded Hexagon exception. The runtime helpers must produce `DivideByZeroError` (the standard `$hex: true` + `name` branding, Exceptions spec) — by pre-checking `b === 0n`, not by catch-and-rebrand (a `try`/`catch` around every remainder is worse readable-JS than one comparison). The observable rule is uniform: **a zero divisor at any integer type throws `DivideByZeroError`, never a raw JS error, never `NaN`.**
+One implementation wrinkle, binding: **native JS BigInt `/` and `%` already throw on `0n`** — but a `RangeError`, not a branded Hexagon exception. The runtime helpers must produce `DivideByZeroError` (the standard `$hex` — the declaring module, #488 — plus `name` branding, Exceptions spec) — by pre-checking `b === 0n`, not by catch-and-rebrand (a `try`/`catch` around every remainder is worse readable-JS than one comparison). The observable rule is uniform: **a zero divisor at any integer type throws `DivideByZeroError`, never a raw JS error, never `NaN`.**
 
 Note JS BigInt's native `%` is truncated, same as `number`'s — so `BigInt.rem` enjoys the same near-bare emission as `Int.rem` (§6).
 
