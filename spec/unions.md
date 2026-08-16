@@ -87,6 +87,7 @@ match shape
 - The arm body is an expression: same line, or an indented block whose final expression is the arm's value — identical to lambda bodies (Functions §3.1).
 - `match` is an **expression**; all arm bodies unify to one result type. The scrutinee is evaluated once.
 - A `match` whose head begins its logical item may take a **`catch` clause** at that column, after the arm block — the match catch expression, whose arms handle exceptions thrown by the scrutinee's evaluation only (a mid-line head takes no clause). Owned by Exceptions §5.4; nothing in this section changes when the clause is present.
+- A `match` that **ends** its logical item — no scrutinee at all — is the **match function**, the unary function literal matching its argument (Pattern Matching §6.7). Any token after `match` on the same line means this section's scrutinee form, unchanged.
 
 ### 4.2 Constructor patterns (this grammar's degenerate case; the full grammar is Pattern Matching's)
 

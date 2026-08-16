@@ -45,6 +45,7 @@ x => body                 -- one parameter, no parens needed
 - **Each parameter is a full irrefutable pattern** (Pattern Matching §6.5, the owner of the grammar and the depth rule). In a lambda head the outer parentheses are the parameter list and **top-level commas separate parameters**: `(x, y) => e` is two parameters, permanently; `((x, y)) => e` is one tuple-destructured parameter; `{a, b} => e` is one record-destructured parameter. The zero/one/many arity doctrine here is untouched by pattern syntax. Refutable patterns are rejected by Pattern Matching's irrefutability gate; that spec owns the algorithm and diagnostics.
 - Body is an expression. Block bodies use the language's ordinary block form (Statements spec); the block's final expression is the lambda's value.
 - A lambda is a *syntactic value*: constructing it evaluates nothing. This property is load-bearing for §7 (`fun` groups) and §8 (value restriction).
+- **The match function** (Pattern Matching §6.7): `match` ending its logical item, followed by an arm block, is a unary lambda — `$x => match $x …` by definition, with exhaustiveness demanded over the parameter type. It is a lambda literal for every written-form check (§7.1 included) and a syntactic value like any other lambda.
 
 ### 3.2 `let`-bound functions
 
@@ -364,7 +365,7 @@ Consequences:
 
 ### 7.1 RHS restriction
 
-The RHS of `fun` **must be syntactically a lambda literal** — written directly (`fun f = (n) => body`) or via header sugar (`fun f(n) = body`). Anything else is a compile error:
+The RHS of `fun` **must be syntactically a lambda literal** — written directly (`fun f = (n) => body`), via header sugar (`fun f(n) = body`), or as a match function (Pattern Matching §6.7 — a lambda literal in written form, evaluating nothing at bind time). Anything else is a compile error:
 
 ```
 fun f(n) = body            -- allowed (header syntax)
