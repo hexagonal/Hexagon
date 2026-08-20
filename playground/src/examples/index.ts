@@ -8,6 +8,7 @@ import { payloadUnions } from "./payload-unions";
 import { polymorphism } from "./polymorphism";
 import { records } from "./records";
 import { rat } from "./rat";
+import { temperatures } from "./temperatures";
 import { recursion } from "./recursion";
 import { sequences } from "./sequences";
 import { specializations } from "./specializations";
@@ -21,6 +22,7 @@ export const playgroundExamples: readonly PlaygroundExample[] = [
   records,
   constraints,
   polymorphism,
+  temperatures,
   rat,
   vectors,
   sequences,

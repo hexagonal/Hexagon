@@ -481,6 +481,17 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Primitive Types
 
+- **The temperature converter** (`toCelsius`/`toFahrenheit`, "`/` always means division")
+  is the numerics showcase: the C integer-division trap, then correct-in-`Float`,
+  exact-in-`Rat`, refused-without-a-face. Establishes the phrase **"the written type is
+  the arithmetic's home"** and the three-verdict framing (refused / correct / exact).
+  The Playground `temperatures` example mirrors it; if either changes, change both.
+  Emitted-JS fact established: `Float` arithmetic emits literals with `.0` spellings,
+  recording the inferred type for the reader. The exact leg currently spells
+  `Rat.create((f - 32) * 5, 9)` because `Rat` cannot yet be named in a type
+  annotation (#529); when that closes, upgrade both the book and Playground legs to
+  the face spelling `let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9` — the
+  doctrine's own specimen (spec/friendly-numerics.md §1).
 - Primitive boundary table (seven rows, #158): `Nat`/`Int`/`Float` → `number`,
   `Bool` → `boolean` (by the Unions representation pin), `String` → `string`,
   `BigInt` → `bigint`, and `Unit` → `undefined` (`void` in TS return position; the
