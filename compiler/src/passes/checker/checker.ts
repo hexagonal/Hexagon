@@ -386,8 +386,9 @@ function liftsAtOperator(operator: Resolved.BinaryOperator): boolean {
 }
 
 /**
- * One call's argument checking, split so a **prefix** of it can run before the
- * remaining arguments are elaborated (Functions §4.3's argument seat, #513).
+ * One call's argument checking, split so the **first pass** of it can run
+ * before the deferred lambda literals are elaborated (Functions §4.3's argument
+ * seat, #513/#517).
  */
 interface ArgumentPass {
   /**
@@ -5630,16 +5631,11 @@ class Checker {
       this.#unify(right, primitive("Int"), expression.right.span);
       return { kind: "Range" };
     }
+    // One source of truth for the operator's constraint, shared with the lift's
+    // gate: `Concat` is the only operator left here that names no arithmetic
+    // algebra, the logical four and `Range` having returned above.
     const constraint: Typed.ConstraintName =
-      expression.operator === "Divide"
-        ? "Frac"
-        : expression.operator === "Power"
-          ? "Pow"
-        : expression.operator === "Concat"
-          ? "Concat"
-          : expression.operator === "Subtract"
-            ? "Signed"
-            : "Num";
+      liftConstraint(expression.operator) ?? "Concat";
     let common = left;
     if (home !== undefined) {
       // The home **is** the common type: each operand reaches it by exact
