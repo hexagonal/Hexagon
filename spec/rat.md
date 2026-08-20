@@ -72,22 +72,19 @@ multiplication never round. `Num<Rat>` owns those operations and defines
 it never rounds and has no IEEE infinity or `NaN` result: a zero divisor throws
 `DivideByZeroError`.
 
-`Pow<Rat>` owns exponentiation under the **integer-exponent guard** (Operators
-§6.3): `pow(x, y)` is exact for integer-valued exponents of either sign — the
-predicate is a canonical bottom of `1n` — and a negative exponent inverts the
-base first, so `pow(2/3, -2/1)` is exactly `9/4`, the case `Pow<Int>`
-structurally cannot serve. A non-integer exponent throws
-`FractionalExponentError`, declared in `stdlib/Pow.hex` beside
-`NegativeExponentError`: an irrational result cannot be a `Rat`. A zero base
-with a negative integer exponent reaches the existing `DivideByZeroError`
-through the smart-construction boundary, like every other vanishing denominator.
-Where the two conditions overlap, the integrality guard is checked **first** —
-`pow(0/1, -1/2)` throws `FractionalExponentError`, not `DivideByZeroError` — so
-the guard stays a predicate of the exponent alone, decided before the base is
-consulted. The guard's predicate is statable of the operands alone, never of
-the base's factorization — perfect-power extraction is rejected permanently, in
-any spelling (Operators §13; friendly-numerics tenet 5). The exponentiation itself is exact `BigInt` power on
-the canonical pair; nothing converts to `Float`, even internally.
+`Pow<Rat>` owns exponentiation, **exact at either sign of the exponent** —
+`pow(value: Rat, exponent: Int)` per the constraint's `Int` exponent seat
+(Operators §6.3). A negative exponent inverts the base first, so `pow(2/3, -2)`
+is exactly `9/4` — the case `Pow<Int>` structurally cannot serve. A fractional
+exponent is refused by the seat's type, at compile time; no runtime guard
+exists, and none is needed. A zero base with a negative exponent reaches the
+existing `DivideByZeroError` through the smart-construction boundary, like
+every other vanishing denominator. What no `Rat` power will ever consult is
+the base's factorization — perfect-power extraction is rejected permanently,
+in any spelling (Operators §13; friendly-numerics tenet 5); the analytic power
+belongs to the approximate world, through `Float.pow` (Operators §6.3.1). The
+exponentiation itself is exact `BigInt` power on the canonical pair, through
+the `BigInt.pow` door; nothing converts to `Float`, even internally.
 
 ## 5. Constraints
 
@@ -100,8 +97,8 @@ the canonical pair; nothing converts to `Float`, even internally.
 - `Num<Rat>`, `Signed<Rat>`, and `Frac<Rat>` are provided. Num owns addition,
   multiplication, and exact `fromNat`; Signed extends it with subtraction, negation,
   and exact `fromInt`; Frac supplies exact division through `create`.
-- `Pow<Rat>` is provided under the integer-exponent guard (§4): exact at
-  integer-valued exponents of either sign, `FractionalExponentError` otherwise.
+- `Pow<Rat>` is provided, exact at either sign of its `Int` exponent (§4); a
+  fractional exponent is a type error at the seat, never a runtime throw.
 - `Integral<Rat>` is not provided: a rational is not an integer.
 
 ## 6. Surface
@@ -165,8 +162,8 @@ not merely round-trips.
   `Rat.divide: divisor is zero`.
 - Attempts to access fields outside Rat's home module receive the standard opaque
   record diagnostic and point to `Rat.top` / `Rat.bottom`.
-- A non-integer exponent at `Rat.pow` reports `FractionalExponentError` with the
-  provenance-tagged message `Rat.pow: exponent is not an integer`.
+- A non-integer exponent at `**` or `Rat.pow` is a compile-time type error at
+  the `Int` exponent seat (Operators §6.3's fixit family), not a runtime report.
 - A zero base with a negative exponent at `Rat.pow` reports `DivideByZeroError`
   through the smart-construction boundary; no `Rat.pow`-specific message is
   minted for it.
@@ -188,13 +185,12 @@ Rat.create(1, 2) / Rat.create(1, 3)
     == Rat.create(3, 2)                         -- true
 show(Rat.create(10, 12))                      -- "5/6"
 Rat.create(1, 0)                              -- DivideByZeroError
-Rat.pow(Rat.create(2, 1), Rat.create(10, 1))
+Rat.pow(Rat.create(2, 1), 10)
     == Rat.create(1024, 1)                        -- true
-Rat.pow(Rat.create(2, 3), Rat.create(-2, 1))
+Rat.pow(Rat.create(2, 3), -2)
     == Rat.create(9, 4)                           -- true (negative exponent inverts, exact)
-Rat.pow(Rat.create(4, 9), Rat.create(1, 2))   -- FractionalExponentError
-Rat.pow(Rat.create(0, 1), Rat.create(-1, 1))  -- DivideByZeroError
-Rat.pow(Rat.create(0, 1), Rat.create(-1, 2))  -- FractionalExponentError (guard checked first)
+Rat.pow(Rat.create(4, 9), 0)  == Rat.create(1, 1) -- true (x ** 0 is 1/1)
+Rat.pow(Rat.create(0, 1), -1)                 -- DivideByZeroError
 Rat.toFloat(Rat.create(1, 2))                 -- 0.5
 Rat.toFloat(Rat.create(1, 3))                 -- 0.3333333333333333 (nearest double)
 Rat.toFloat(Rat.create(-7, 4))                -- -1.75
