@@ -21,6 +21,7 @@ import {
 } from "./variance.js";
 import {
   declaredConstraintIdentity,
+  PRE_REGISTERED_CONSTRAINT_MEMBERS,
   PRE_REGISTERED_CONSTRAINTS,
   preRegisteredConstraintIdentity,
 } from "../../constraints.js";
@@ -5627,8 +5628,10 @@ class Checker {
    * operation runs in when its seat wrote one. The gate is two conditions and
    * no more — the expectation prunes to a **concrete** type, and that type
    * carries the operator's own constraint instance. An expectation that is a
-   * variable, or a concrete type without the instance (`Pow` has no `Rat`),
-   * lifts nothing and the operation elaborates from its operands alone.
+   * variable, or a concrete type without the instance (a user nominal honoring
+   * `Num` and `Signed` but not `Pow`), lifts nothing and the operation
+   * elaborates from its operands alone. *(The example this sentence used to
+   * give, `Pow` having no `Rat`, stopped being one at #523.)*
    *
    * `#supportsTarget` reads the instance table, which is the one channel for
    * every subject there is (#344), so the gate is the same question evidence
@@ -9274,14 +9277,26 @@ class Checker {
     for (const item of items) {
       if (item.kind !== "Honor") continue;
       const declaration = this.#constraintsByIdentity.get(item.constraintIdentity);
-      if (declaration === undefined) continue;
       const subject = this.#instanceSubjects.get(item);
       if (subject === undefined) continue;
       const instance = `${item.constraint}<${this.#display(subject)}>`;
-      for (const candidate of constraintMemberCandidates(declaration)) {
+      // The member list, with the wired fallback the resolver's claim also
+      // carries for a compile with no declaration in view. A member reached
+      // that way has no scheme to compare against, so it can never generalise
+      // and always refuses — which is the claim's own verdict, kept rather than
+      // quietly lost with the pass that used to give it.
+      const candidates: readonly (MemberCandidate | { readonly member: string })[] =
+        declaration === undefined
+          ? (PRE_REGISTERED_CONSTRAINT_MEMBERS[item.constraint] ?? [])
+            .map((member) => ({ member }))
+          : constraintMemberCandidates(declaration);
+      for (const candidate of candidates) {
         const door = exported.get(candidate.member);
         if (door === undefined) continue;
-        if (this.#generalises(door.binding.symbol, candidate, subject, item.span)) {
+        if (
+          "symbol" in candidate &&
+          this.#generalises(door.binding.symbol, candidate, subject, item.span)
+        ) {
           continue;
         }
         // The claim's own two forms, so the primary lands on the later of the

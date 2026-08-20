@@ -168,6 +168,15 @@ describe("the `Pow` home selection — the base seat alone (#541)", () => {
     expect(javascript).not.toContain("Signed_Float.fromInt(b)");
   });
 
+  test("the same boundary where a conversion would *show*: a `BigInt` home", () => {
+    // At `Float` the two conversions erase (§5.2), so that pin cannot tell a
+    // converted exponent from an unconverted one. `BigInt` can: an `Int`
+    // crossing into it emits `BigInt(…)`, so a base seat that converts and an
+    // exponent seat that does not are visibly different in one line.
+    expect(emitted("export let r: BigInt = a ** b\n"))
+      .toContain("__Pow_BigInt.pow(BigInt(a), b)");
+  });
+
   test("an exponent tower's right spine runs at `Int`, whatever the base's home", async () => {
     // `**` is right-associative, so `r ** b ** c` is `r ** (b ** c)`: the inner
     // power sits in the outer's exponent seat, where the expectation is `Int`.
