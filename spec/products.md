@@ -225,7 +225,7 @@ For `p : Point` (all pure elaboration against the definition row — no row unif
 
 What does **not** work, by design: passing `p` directly where `{x: Float, ...}` is expected (type error; diagnostic must suggest `{...p}`), and unifying `Point` with any structural record type or other nominal name. The crossings are terms, not coercions.
 
-**Recorded v2 option (considered, not adopted):** implicit nominal→structural coercion inserted in *checking* mode only (where the expected type is annotation-known — decidable, no inference pollution; the bidirectional machinery planned for rank-2 would host it). Declined for v1 because "compiles with an annotation, fails without" is a confusing failure mode for exactly our audience. Revisit only with field evidence that `{...p}` ceremony is a real pain point.
+**Recorded v2 option (considered, not adopted):** implicit nominal→structural coercion inserted in *checking* mode only (where the expected type is annotation-known — decidable, no inference pollution; Functions §4.3's expected-type propagation is the machinery that would host it, #513 — note that §4.3 as ruled inserts nothing: it orders unifications and performs no coercion, so adopting this option would be a genuine extension of that section's contract, not a consequence of it). Declined for v1 because "compiles with an annotation, fails without" is a confusing failure mode for exactly our audience. Revisit only with field evidence that `{...p}` ceremony is a real pain point.
 
 ### 5.4 Emission
 
