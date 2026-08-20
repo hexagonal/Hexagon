@@ -172,6 +172,21 @@ describe("the callee-position flavours: arguments first", () => {
     expect(parameterOf(floatPlain, "flavour")).toMatchObject(INT);
   });
 
+  test("a lambda-callee application's own arguments keep the two passes", () => {
+    // The schedule is **one ordered list**, not two positions with two rules:
+    // non-lambda arguments, then lambda-literal arguments, then the
+    // lambda-literal callee. A lambda *argument* here defers exactly as it
+    // would at a named callee, so `p + one` types `p` before `useNat(p)` reads
+    // it — and the argument-swapped mirror reaches the same verdict, the
+    // deferred class being position-independent on both sides of the call.
+    const callbackFirst = "fun outer(p) = ((cb, v) => \"x\")(x => useNat(p), p + one)\n";
+    const callbackLast = "fun outer(p) = ((cb, v) => \"x\")(p + one, x => useNat(p))\n";
+    expect(verdict(callbackFirst)).toEqual([mismatch]);
+    expect(verdict(callbackLast)).toEqual(verdict(callbackFirst));
+    expect(parameterOf(callbackFirst, "outer")).toMatchObject(INT);
+    expect(parameterOf(callbackLast, "outer")).toMatchObject(INT);
+  });
+
   test("an application whose callee is anything else still elaborates callee first", () => {
     // A *name* bound to a lambda is not a lambda literal, so this call keeps the
     // callee-first order — and the callee's own elaboration decides nothing
@@ -272,6 +287,82 @@ describe("the deferred class is syntactic", () => {
       "fun outer(p) = g(sign, useNat(p))\n";
     expect(verdict(source)).toEqual([]);
     expect(parameterOf(source, "outer")).toMatchObject(NAT);
+  });
+});
+
+describe("the dot spelling checks as a named call (Method Syntax §2.2)", () => {
+  // §1: the spellings are **one call**. §2.2 says a dot call at a head-known
+  // receiver "checks as a named call to the resolved member, its signature
+  // supplying each argument's expected type" — so the first pass must resolve
+  // the member's instantiation at the dot exactly as it does at the qualified
+  // spelling. The receiver alone is not enough: this member's callback takes
+  // its parameter type from a **non-receiver sibling**, and before the
+  // cross-check the dot spelling saw a variable where the qualified one saw
+  // `Int`.
+  const home = "export record Bag = {items: Vector(Int)}\n" +
+    "export fun zipWith(bag: Bag, other: Vector(a), cb: (a) -> String): String =\n" +
+    "    cb(other[0])\n" +
+    "let ys: Vector(Int) = [1]\n" +
+    "let bag: Bag = Bag({items = ys})\n";
+  const arms = "    v when v < 0 => \"negative\"\n    _ => \"other\"\n";
+
+  test("both spellings accept, the callback reading `Int` off the sibling", () => {
+    const dot = home + "export let out: String = bag.zipWith(ys, match\n" + arms + ")\n";
+    const qualified = home + "export let out: String = zipWith(bag, ys, match\n" + arms + ")\n";
+    expect(projectDiagnostics(dot)).toEqual([]);
+    expect(projectDiagnostics(qualified)).toEqual(projectDiagnostics(dot));
+  });
+
+  test("a clashing sibling reports once, and identically in both spellings", () => {
+    // The early check and the whole-signature unification are the same
+    // unification twice. Where the early one reports, its argument is given an
+    // `Error` for the later one to absorb — so the dot spelling gains an
+    // expectation without gaining a duplicate diagnostic.
+    const clash = "export record Bag = {items: Vector(Int)}\n" +
+      "export fun pairWith(bag: Bag, first: Vector(a), second: Vector(a),\n" +
+      "                    cb: (a) -> String): String = cb(first[0])\n" +
+      "let ints: Vector(Int) = [1]\n" +
+      "let texts: Vector(String) = [\"a\"]\n" +
+      "let bag: Bag = Bag({items = ints})\n";
+    const dot = clash + "export let out: String = bag.pairWith(ints, texts, match\n" + arms + ")\n";
+    const qualified = clash +
+      "export let out: String = pairWith(bag, ints, texts, match\n" + arms + ")\n";
+    expect(projectDiagnostics(dot)).toEqual(["type mismatch: expected Int, found String"]);
+    expect(projectDiagnostics(qualified)).toEqual(projectDiagnostics(dot));
+  });
+
+  test("a receiver still unsolved at the dot keeps the pending path", () => {
+    // §3.6's asymmetry is untouched: the goal pends, the arguments synthesize,
+    // and the arms see a variable. The cross-check runs only where §2.2's
+    // second entry moment does.
+    expect(verdict(
+      "fun go(v) = v.map(match\n" +
+        "    x when x < 0 => \"negative\"\n" +
+        "    _ => \"other\"\n" +
+        ")\n",
+    )).toEqual([
+      "cannot match on a value of abstract type; the parameter's type is not " +
+      "determined here; give the parameter a type — bind the function with its " +
+      "own annotated `let`, or use it where its parameter type is known",
+    ]);
+  });
+});
+
+describe("the first pass establishes, and never decides", () => {
+  test("a concrete argument to the RIGHT of an unsolved one still establishes", () => {
+    // The check **skips** an argument that is not already concrete; it does not
+    // stop at one. `p` is unsolved and establishes nothing, but `ys` stands to
+    // its right and resolves `b` for the callback — which a stop-at-the-first
+    // reading would lose, refusing this program with §6.1's rider.
+    const source = "let g(a1: a, xs: Vector(b), cb: (b) -> String): String = \"x\"\n" +
+      "let ys: Vector(Int) = [1]\n" +
+      "fun outer(p) = g(p, ys, match\n" +
+      "    v when v < 0 => \"negative\"\n" +
+      "    _ => \"other\"\n" +
+      ")\n";
+    expect(verdict(source)).toEqual([]);
+    // And `p` is still undecided by its own parameter — the guard the skip keeps.
+    expect(parameterOf(source, "outer")).toMatchObject({ kind: "Variable" });
   });
 });
 

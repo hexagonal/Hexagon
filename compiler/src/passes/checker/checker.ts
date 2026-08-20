@@ -396,6 +396,20 @@ interface ArgumentPass {
    * lambda class — before the second pass elaborates.
    */
   readonly establishFirstPass: (deferredLambdas: ReadonlySet<number>) => void;
+  /**
+   * The dot-call half of `establishFirstPass` (Method Syntax §2.2): resolves
+   * the member's instantiation from the first pass, and nothing else. A dot
+   * call's authority is the whole-signature unification that follows, not this
+   * pass, so an argument whose type §5.1 could **convert** — a `Nat` or an
+   * `Int`, the only two sources — is left entirely to that check, which reads
+   * the inferred type rather than the conversion. Every other argument is
+   * checked exactly, which is what resolves the instantiation. Returns the
+   * indices whose check *reported*, which the caller gives an `Error` so the
+   * whole-signature unification absorbs them rather than repeating the report.
+   */
+  readonly resolveInstantiation: (
+    deferredLambdas: ReadonlySet<number>,
+  ) => ReadonlySet<number>;
   /** The rest of the sweep, then the two deferred classes. */
   readonly finish: () => void;
 }
@@ -2393,20 +2407,40 @@ class Checker {
     // pruned at its turn. The member's first parameter is the receiver's, so
     // the arguments read from index 1.
     const types: Mono[] = expression.arguments.map(() => ERROR);
-    const deferred: number[] = [];
+    const deferredLambdas = new Set(
+      expression.arguments.flatMap((argument, index) =>
+        defersAsLambda(argument) ? [index] : []
+      ),
+    );
+    const pass = parameters === undefined ? undefined : this.#argumentPass(
+      parameters.slice(1),
+      types,
+      expression.arguments,
+      expression.span,
+    );
     for (const [index, argument] of expression.arguments.entries()) {
-      if (defersAsLambda(argument)) {
-        deferred.push(index);
-        continue;
-      }
+      if (deferredLambdas.has(index)) continue;
       types[index] = this.#inferExpr(argument, level, parameters?.[index + 1]);
     }
-    for (const index of deferred) {
-      types[index] = this.#inferExpr(
-        expression.arguments[index]!,
-        level,
-        parameters?.[index + 1],
-      );
+    if (deferredLambdas.size > 0) {
+      // §2.2: the call "checks as a named call to the resolved member", and the
+      // three spellings are one call (§1) — so the first pass resolves the
+      // member's instantiation before the second reads its expectations, here
+      // as at the qualified spelling. The receiver unification above covers
+      // only the instantiation the *receiver* determines;
+      // `xs.zipWith(ys, match …)` reads its callback's parameter type off the
+      // sibling, and without this it would see a variable where
+      // `Vector.zipWith(xs, ys, match …)` sees `Int`.
+      for (const index of pass?.resolveInstantiation(deferredLambdas) ?? []) {
+        types[index] = ERROR;
+      }
+      for (const index of deferredLambdas) {
+        types[index] = this.#inferExpr(
+          expression.arguments[index]!,
+          level,
+          parameters?.[index + 1],
+        );
+      }
     }
     return types;
   }
@@ -4579,8 +4613,19 @@ class Checker {
           // over a fresh undetermined result. The landing rules govern from
           // there: an arity mismatch declines silently and the seat's ordinary
           // diagnostics stand.
+          //
+          // The schedule is **one ordered list**, not two positions with two
+          // rules: non-lambda arguments, then lambda-literal arguments, then
+          // the lambda-literal callee. A lambda *argument* of a lambda-callee
+          // application defers exactly as it would anywhere else, so
+          // `((cb, v) => …)(x => f(p), p + one)` types `p` from `p + one`
+          // first — the same verdict its argument-swapped mirror reaches.
           for (const [index, argument] of expression.arguments.entries()) {
+            if (deferredLambdas.has(index)) continue;
             arguments_[index] = this.#inferExpr(argument, level);
+          }
+          for (const index of deferredLambdas) {
+            arguments_[index] = this.#inferExpr(expression.arguments[index]!, level);
           }
         }
         const callee = calleeIsLambda
@@ -5760,6 +5805,34 @@ class Checker {
           if (deferral(index) !== undefined) continue;
           eager(index);
         }
+      },
+      resolveInstantiation: (
+        deferredLambdas: ReadonlySet<number>,
+      ): ReadonlySet<number> => {
+        const reported = new Set<number>();
+        for (let index = 0; index < actuals.length; index += 1) {
+          if (deferredLambdas.has(index)) continue;
+          const actual = actuals[index];
+          if (actual === undefined) continue;
+          const source = this.#prune(actual);
+          // Establishes nothing, exactly as in `establishFirstPass`.
+          if (source.kind === "Variable") continue;
+          // **`Nat` and `Int` are the only sources §5.1 converts**, so they are
+          // the only ones whose check could record a conversion. A dot call's
+          // authority is the whole-signature unification below, which sees the
+          // *inferred* type and not the conversion, so an argument that could
+          // convert is left entirely to it. Nothing is lost: against a variable
+          // destination such an argument is already the deferred numeric class,
+          // and against any other it resolves no instantiation.
+          if (source.kind === "Constructor" && ["Nat", "Int"].includes(source.name)) {
+            continue;
+          }
+          if (deferral(index) !== undefined) continue;
+          const before = this.#diagnostics.count;
+          eager(index);
+          if (this.#diagnostics.count !== before) reported.add(index);
+        }
+        return reported;
       },
       finish: (): void => {
         // The eager sweep in index order, skipping what the first pass already

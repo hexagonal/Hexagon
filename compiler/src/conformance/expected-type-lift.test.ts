@@ -215,6 +215,20 @@ describe("the recursion", () => {
     expect(verdict("export let r: BigInt = -a\n")).toEqual([]);
     expect(emitted("export let r: BigInt = -a\n")).toContain("-BigInt(a)");
   });
+
+  test("negation lifts a `Nat` operand too — the `Num.fromNat` route", () => {
+    // `Nat` has no `Signed`, so `-n` is well-typed exactly when a written face
+    // names an algebra that embeds it. `Float` erases, so the conversion is
+    // invisible there and the verdict is the whole pin; `BigInt` shows the
+    // converted operand. This is the only path through the `Nat` conversion in
+    // the unary arm — the `Int` case above takes the `Signed.fromInt` one.
+    expect(verdict("export let x: Nat = -n\n"))
+      .toEqual(["type `Nat` has no `Signed` instance"]);
+    expect(verdict("export let x: Float = -n\n")).toEqual([]);
+    expect(emitted("export let x: Float = -n\n")).toContain("-n");
+    expect(verdict("export let x: BigInt = -n\n")).toEqual([]);
+    expect(emitted("export let x: BigInt = -n\n")).toContain("-BigInt(n)");
+  });
 });
 
 describe("the landing pair (Functions §4.3)", () => {
