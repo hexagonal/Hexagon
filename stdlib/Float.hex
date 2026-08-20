@@ -2,6 +2,18 @@
 // companion (Constraints §5.3), so this file is where `Float`'s instances are
 // declared and where the orphan rule lets them be declared.
 
+// The one exception this file declares, and the one nothing in this file
+// throws: `Float`'s own partiality is `NaN`, so no operation below guards. It
+// belongs to the doors *into* `Float` from the exact world — `Rat.toFloat`
+// today — because the range that fails is `Float`'s, stated once where every
+// such door can share it (the `DivideByZeroError`-in-`Integral.hex` pattern),
+// and because the brand follows the declaring module, so this home never has to
+// move.
+(** Raised when an exact value has no `Float` that approximates it: past
+    `Float`'s finite range, or nonzero yet small enough to erase to zero.
+    `message` names the operation that threw. *)
+export exception FloatRangeError(message: String)
+
 // The natives, and only the natives. An own-operation member body cannot be
 // written in operators or interpolation — that sugar selects the very slot being
 // defined (Constraints §6.1) — so every such member is a one-line delegation to

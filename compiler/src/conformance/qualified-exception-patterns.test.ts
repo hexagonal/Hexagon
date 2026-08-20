@@ -87,10 +87,13 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
   });
 
   test("every prelude exception is nameable in a catch arm, by both spellings", () => {
-    // The seven the prelude exports — `Seq.hex`'s `ReentrancyError` among them,
+    // The eight the prelude exports — `Seq.hex`'s `ReentrancyError` among them,
     // which has been in the prelude and uncatchable since it was declared (FFI
-    // Part 3 §7.4). Compilation is the claim; the arms are unreachable at run
-    // time because nothing here throws.
+    // Part 3 §7.4), and `Float.hex`'s `FloatRangeError`, which nothing in its
+    // own home module throws either (#526: it is the range the doors *into*
+    // `Float` from the exact world fail, `Rat.toFloat` first). Compilation is
+    // the claim; the arms are unreachable at run time because nothing here
+    // throws.
     const arms: readonly (readonly [string, string])[] = [
       ["Map", "KeyError"],
       ["Vector", "IndexError(index, size)"],
@@ -99,6 +102,7 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
       ["Integral", "DivideByZeroError(message)"],
       ["Pow", "NegativeExponentError(message)"],
       ["Pow", "FractionalExponentError(message)"],
+      ["Float", "FloatRangeError(message)"],
     ];
     for (const [home, arm] of arms) {
       for (const spelling of [arm, `${home}.${arm}`]) {
