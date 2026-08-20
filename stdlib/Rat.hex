@@ -66,3 +66,23 @@ honor Frac<Rat> =
             throw(DivideByZeroError("Rat.divide: divisor is zero"))
         else
             create(left.top * right.bottom, left.bottom * right.top)
+
+// `FractionalExponentError` is `Pow.hex`'s, in scope through the prelude,
+// beside the `NegativeExponentError` the integer types throw.
+honor Pow<Rat> =
+    pow(left, right) =
+        // The integrality guard is a predicate of the exponent alone and is
+        // decided before the base is consulted, so `pow(0/1, -1/2)` is the
+        // fractional error rather than the zero-base one.
+        if right.bottom != 1 then
+            throw(FractionalExponentError("Rat.pow: exponent is not an integer"))
+        else
+            // A negative exponent inverts the base first; `reciprocal` routes
+            // through `create`, so a zero base reaches `DivideByZeroError`
+            // there rather than minting a message of its own.
+            let inverted = right.top < 0
+            let base = if inverted then reciprocal(left) else left
+            let exponent = if inverted then -right.top else right.top
+            // A reduced pair stays reduced under powers and a canonical bottom
+            // is positive, so the invariant survives the raw constructor.
+            Rat({top = base.top ** exponent, bottom = base.bottom ** exponent})

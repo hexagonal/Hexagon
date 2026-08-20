@@ -489,7 +489,7 @@ describe("compileSource", () => {
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
     // #429's complaint: a one-line program opened with three import lines it
-    // never asked for — a `Rat` namespace, the seven-instance inventory a
+    // never asked for — a `Rat` namespace, the eight-instance inventory a
     // non-prelude import carries, and a `Vector` namespace that did nothing.
     expect(response.javascript).not.toContain("./stdlib/Rat.js");
     expect(response.javascript).not.toContain("./stdlib/Vector.js");

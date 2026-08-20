@@ -2,6 +2,11 @@
     answer at that type. `message` names the operation that threw. *)
 export exception NegativeExponentError(message: String)
 
+(** Raised when a rational is raised to a non-integer power, whose answer is
+    in general irrational and so not a `Rat`. `message` names the operation
+    that threw. *)
+export exception FractionalExponentError(message: String)
+
 (** The polymorphic face of exponentiation. Honoring `Pow` gives a type the `**`
     operator. *)
 export constraint Pow<a: Num> =

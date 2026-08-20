@@ -17,8 +17,12 @@
  *   own seat, never one written somewhere later.
  * - **The instance gate.** A concrete expectation *without* the operator's
  *   instance lifts nothing, and the gated decline is identical to the ungated
- *   elaboration — `Pow` has no `Rat`, so `let r: Rat = a ** b` runs the power at
- *   `Int` and injects the finished value.
+ *   elaboration. Since `Rat` honors `Pow` (#523), the gate's remaining subjects
+ *   are user nominals: at `let t: T = a ** b` for a `T` honoring `Num` and
+ *   `Signed` but not `Pow`, the power runs at `Int` and the finished value
+ *   injects. No in-tower written face is gated out any more — every tower face
+ *   reachable by injection carries every operator whose operands can land at
+ *   `Nat` or `Int`.
  *
  * Every graph here is byte-distinct where it executes: emitted modules mount as
  * `data:` URLs cached by their full text, so two tests compiling the same
@@ -63,6 +67,14 @@ function withRat(source: string): readonly (readonly [string, string])[] {
 
 function ratVerdict(source: string): readonly string[] {
   return compileFiles(withRat(source)).diagnostics.map(({ message }) => message);
+}
+
+/** The same, for a `Rat` client: `/main.hex`'s JavaScript, project clean. */
+function ratEmitted(source: string): string {
+  const project = compileFiles(withRat(source));
+  expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+  return project.modules.find(({ source: file }) => file.path === "/main.hex")!
+    .javascript.text;
 }
 
 /** `/main.hex`'s emitted JavaScript, with the project asserted clean. */
@@ -142,11 +154,65 @@ describe("the `Pow` home selection", () => {
     expect(exports["x"]).toBe(0.5);
   });
 
-  test("the gated decline: `Pow` has no `Rat`, so the power runs at `Int`", () => {
-    // The instance gate is a boundary, and it is what keeps every gated decline
-    // identical to the ungated elaboration — the finished `Int` value injects,
-    // exactly as §5.1 always read.
+  test("`let r: Rat = a ** b` lifts to `Pow<Rat>` — the acceptance #523 inverted", () => {
+    // Was the gated decline, on the strength of `Pow` having no `Rat`. `Rat`
+    // honors `Pow` now, so the written face names the algebra here too: the
+    // power runs at `Rat`, exactly, and it is total *here* by construction —
+    // an injected operand is integer-valued, so the instance's integrality
+    // guard is passed before it is asked.
     expect(ratVerdict("export let r: Rat.Rat = a ** b\n")).toEqual([]);
+    // Acceptance alone cannot tell the lift from the decline it replaced —
+    // both compile clean. The selection is what changed, so pin it: the power
+    // is `Pow<Rat>`'s member over two converted operands, not `Pow<Int>`'s
+    // finished value injected.
+    expect(ratEmitted("export let r: Rat.Rat = a ** b\n"))
+      .toContain("__Pow_Rat.pow(");
+  });
+
+  test("`let r: Rat = b ** negOne` is exactly `1/4` — the negative exponent", async () => {
+    // The pin that discriminates three elaborations: `Pow<Rat>` answers `1/4`;
+    // the retired decline ran the power at `Int` and threw
+    // `NegativeExponentError`; a `Pow<Float>` leak would answer `0.25`.
+    const exports = await runProject(withRat(
+      "// Rat power\n" +
+      "let quarter: Rat.Rat = b ** negOne\n" +
+      "export let top: BigInt = Rat.top(quarter)\n" +
+      "export let bottom: BigInt = Rat.bottom(quarter)\n" +
+      "export let shown: String = \"${quarter}\"\n",
+    ));
+    expect(exports["top"]).toBe(1n);
+    expect(exports["bottom"]).toBe(4n);
+    expect(exports["shown"]).toBe("1/4");
+  });
+
+  test("the gated decline, at the gate's remaining subject: a user nominal", async () => {
+    // A nominal honoring `Num` and `Signed` but not `Pow`. The instance gate is
+    // a boundary, and it is what keeps every gated decline identical to the
+    // ungated elaboration — the power runs at `Int` and the finished value
+    // injects, exactly as §5.1 always read.
+    const nominal = "// gated decline\n" +
+      "export opaque record Boxed = { inner: Int }\n" +
+      "honor Num<Boxed> =\n" +
+      "    add(left, right) = Boxed({inner = left.inner + right.inner})\n" +
+      "    multiply(left, right) = Boxed({inner = left.inner * right.inner})\n" +
+      "    fromNat(value) = Boxed({inner = Int.fromNat(value)})\n" +
+      "honor Signed<Boxed> =\n" +
+      "    subtract(left, right) = Boxed({inner = left.inner - right.inner})\n" +
+      "    negate(value) = Boxed({inner = -value.inner})\n" +
+      "    fromInt(value) = Boxed({inner = value})\n" +
+      "export let unbox(value: Boxed): Int = value.inner\n" +
+      "export let t: Boxed = a ** b\n" +
+      "export let declined: Int = unbox(t)\n";
+
+    expect(verdict(nominal)).toEqual([]);
+    // 6 ** 4 at `Int`, then injected: the value a lift could not have produced,
+    // since `Boxed` has no power of its own to run.
+    const exports = await runProject([["/main.hex", fixtures + nominal]]);
+    expect(exports["declined"]).toBe(1296);
+    // The elaboration shape: `Signed<Boxed>.fromInt` wrapping the finished
+    // `Int` power, not an operation at `Boxed`.
+    expect(emitted(nominal))
+      .toContain("__Signed_Boxed.fromInt(__Pow_Int.pow(a, b))");
   });
 });
 
