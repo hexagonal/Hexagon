@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 
 import * as Source from "../../support/source.js";
+import { compileFiles } from "../../support/test-project.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
 import { applyLayout } from "../layout/layout.js";
 import { lex } from "../lexer/lexer.js";
@@ -556,7 +557,7 @@ describe("resolve", () => {
       },
     });
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "unknown type `Widget`; this slice supports primitive, tuple, and declared union types",
+      "unknown type `Widget`",
     ]);
   });
 
@@ -698,6 +699,65 @@ describe("resolve", () => {
       }),
       { numRuns: 250 },
     );
+  });
+});
+
+/**
+ * What an unresolved bare type name says (#529).
+ *
+ * The message these replace listed a slice — "primitive, tuple, and declared
+ * union types" — that stopped being the truth once records joined the
+ * annotation position, and it was silent about the one case where the name is
+ * visible and merely in the wrong namespace: a module alias.
+ *
+ * These run through `compileFiles` because the interesting branch needs a
+ * second module to import from.
+ */
+describe("unknown type names", () => {
+  /** Every message the project reported, in order. */
+  function messages(files: readonly (readonly [string, string])[]): readonly string[] {
+    return compileFiles(files).diagnostics.map(({ message }) => message);
+  }
+
+  test("a namespace alias over a same-named type names both working spellings", () => {
+    expect(messages([
+      ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"],
+      ["/main.hex", 'import * as Point from "./point"\nexport let f(p: Point): Int = 1\n'],
+    ])).toEqual([
+      "`Point` is a module alias, not a type; write `Point.Point` for the type it exports, " +
+        'or name it bare with `import { Point } from "./point"`',
+    ]);
+  });
+
+  test("both spellings the message offers compile", () => {
+    // The repairs are the message's whole content, so they are asserted rather
+    // than described: a message naming a line that does not work is worse than
+    // the bare refusal it replaced.
+    const point = ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"] as const;
+
+    expect(messages([
+      point,
+      ["/main.hex", 'import * as Point from "./point"\nexport let f(p: Point.Point): Int = 1\n'],
+    ])).toEqual([]);
+    expect(messages([
+      point,
+      ["/main.hex", 'import { Point } from "./point"\nexport let f(p: Point): Int = 1\n'],
+    ])).toEqual([]);
+  });
+
+  test("an alias exporting no such type is told where its types are", () => {
+    expect(messages([
+      ["/lib.hex", "export let one: Int = 1\n"],
+      ["/main.hex", 'import * as Lib from "./lib"\nexport let f(x: Lib): Int = 1\n'],
+    ])).toEqual([
+      "`Lib` is a module alias, not a type; the types it exports are reached through it, " +
+        "as `Lib.Name`",
+    ]);
+  });
+
+  test("a name that is nothing at all draws the plain refusal", () => {
+    expect(messages([["/main.hex", "export let f(w: Widget): Int = 1\n"]]))
+      .toEqual(["unknown type `Widget`"]);
   });
 });
 

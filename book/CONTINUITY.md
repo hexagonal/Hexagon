@@ -487,11 +487,12 @@ late pedagogy pass, not a commitment to the current order.
   the arithmetic's home"** and the three-verdict framing (refused / correct / exact).
   The Playground `temperatures` example mirrors it; if either changes, change both.
   Emitted-JS fact established: `Float` arithmetic emits literals with `.0` spellings,
-  recording the inferred type for the reader. The exact leg currently spells
-  `Rat.create((f - 32) * 5, 9)` because `Rat` cannot yet be named in a type
-  annotation (#529); when that closes, upgrade both the book and Playground legs to
-  the face spelling `let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9` — the
-  doctrine's own specimen (spec/friendly-numerics.md §1).
+  recording the inferred type for the reader. The exact leg is the face spelling
+  `let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9` — the doctrine's own specimen
+  (spec/friendly-numerics.md §1) — in both the book and the Playground (#529). `Rat`
+  is outside the prelude by design, so a file project reaching for it writes
+  `import { Rat } from "…"`; the Playground injects that line as equipment, which is
+  why the example carries no import.
 - Primitive boundary table (seven rows, #158): `Nat`/`Int`/`Float` → `number`,
   `Bool` → `boolean` (by the Unions representation pin), `String` → `string`,
   `BigInt` → `bigint`, and `Unit` → `undefined` (`void` in TS return position; the
