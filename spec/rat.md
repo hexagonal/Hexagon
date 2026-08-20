@@ -198,8 +198,8 @@ Rat.pow(Rat.create(0, 1), Rat.create(-1, 2))  -- FractionalExponentError (guard 
 Rat.toFloat(Rat.create(1, 2))                 -- 0.5
 Rat.toFloat(Rat.create(1, 3))                 -- 0.3333333333333333 (nearest double)
 Rat.toFloat(Rat.create(-7, 4))                -- -1.75
-Rat.toFloat(Rat.create(2n ** 1100n, 1n))      -- FloatRangeError (would be Infinity)
-Rat.toFloat(Rat.create(1n, 2n ** 1100n))      -- FloatRangeError (nonzero would erase to 0)
+Rat.toFloat(Rat.create(2 ** 1100, 1))         -- FloatRangeError (would be Infinity)
+Rat.toFloat(Rat.create(1, 2 ** 1100))         -- FloatRangeError (nonzero would erase to 0)
 ```
 
 The compiler conformance suite must execute the emitted JavaScript for normalization
