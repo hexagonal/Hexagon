@@ -245,14 +245,14 @@ observable exactly where the instances differ: at a wider-than-f64 home (`BigInt
 operand-driven selection took `Pow<Int>` with its negative-exponent guard (Operators
 §6.3): the written face names the algebra, fractional results and all.
 
-Conformance pins the lift owes: the two acceptances (`let x: Int = n - m` at
-`n, m : Nat`; `let mean: Float = sum / size` and `let r: Rat = a / b` at `Int`
-operands); one observable-exactness case at a wider-than-f64 home (a `Rat` or `BigInt`
-sum whose `Int` elaboration would fold past 2^53, value-checked); the `Pow` home
-selection (`let x: Float = 2 ** negOne` yields `0.5`, no guard); the gated decline
-(`let r: Rat = a ** b` — `Int` power, result injected); the no-face boundary
-(`let s = count + count` stays `Int`); and the recursion depth (`let r: Rat =
-(a + b) * c` runs entirely at `Rat`).
+Conformance pins the lift owes (fixtures: `n, m : Nat`; `a, b, c, count, sum, size : Int`;
+`negOne : Int`, value −1): the two acceptances (`let x: Int = n - m`;
+`let mean: Float = sum / size` and `let r: Rat = a / b`); one observable-exactness case
+at a wider-than-f64 home (a `Rat` or `BigInt` sum whose `Int` elaboration would fold
+past 2^53, value-checked); the `Pow` home selection (`let x: Float = 2 ** negOne`
+yields `0.5`, no guard); the gated decline (`let r: Rat = a ** b` — `Int` power, result
+injected); the no-face boundary (`let s = count + count` stays `Int`); and the
+recursion depth (`let r: Rat = (a + b) * c` runs entirely at `Rat`).
 
 ### 5.2 Literal emission
 

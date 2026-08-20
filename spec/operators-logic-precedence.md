@@ -373,7 +373,7 @@ this is the F# rule for else-less `unit` conditionals, adopted July 2026 on
 re-examination of the original strict decision; Statements §10.3 records
 the reversal.)
 
-Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms resolve to one type: exact unification wins, followed by Numeric Literals §5.1's contextual widening: established `Nat` through `Num.fromNat`, or established `Int` through `Signed.fromInt`, when the other arm — or the form's own seat, both branches being forwarding positions for a landed expected type (Functions §4.3) — independently establishes the corresponding target. The whole form has the resulting type.
+Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms resolve to one type: exact unification wins, followed by Numeric Literals §5.1's contextual widening: established `Nat` through `Num.fromNat`, or established `Int` through `Signed.fromInt`, when the other arm independently establishes the corresponding target. A landed expected type reaches both arms as forwarding positions (Functions §4.3), where it feeds Numeric Literals §5.1's lift at an arithmetic arm; a bare-value arm still widens at the form's own seat boundary, as ever. The whole form has the resulting type.
 
 ### 11.3 Canonical formatting
 
