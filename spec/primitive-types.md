@@ -91,6 +91,8 @@ type name from a type variable and enables implicit generalisation without `fora
 
 Detection is named too, because it cannot be spelled by hand: `Float.isNan` and `Float.isFinite`. The imported idiom `x != x` is **uniformly `False`** here — `Eq<Float>` is SameValueZero, so a `NaN` equals itself (a deliberate choice, so that a float can key a hash table) — and with every partial float operation answering `NaN` rather than throwing, a caller would otherwise hold a value with no test for it. The same equality that retires the idiom implements the replacement: `Float.isNan(x)` is `x == Float.nan`. Comparison/equality semantics around `NaN` and `-0` are specified in the constraint (Eq/Ord) spec, not here.
 
+`stdlib/Float.hex` also declares `FloatRangeError` — the range guard thrown by the exact world's doors into `Float` (`rat.md` §6): such a door's result must be finite, and nonzero when the input is nonzero.
+
 **Literals:** monomorphic, always `Float` — a literal is a Float literal iff it contains a `.` or an exponent (`1.5`, `0.0`, `1e9`, `2.5e-3`). `_` separators allowed per §8. Decimal literals do **not** participate in the polymorphic literal scheme in v1 (deferred; the blocker is that `Rat`'s exact-binary `fromFloat` is not what a user writing `0.1` means — see Numeric Literals spec §7).
 
 **Standard constraints:** `Num`, `Signed`, `Frac` (generic `divide`, lawful up to rounding), `Eq`, `Ord`, `Show`, `Pow` (Operators §6.3), `Hash` (Collections Part 2 §2.5). Never `Integral` — permanently, so that `gcd(1.5, 2.0)` fails with the right message (Integral §3) *(corrected 2026-07-28, #137 — record in §11)*.

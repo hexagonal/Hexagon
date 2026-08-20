@@ -119,10 +119,29 @@ Rat.divide
 Rat.negate
 Rat.reciprocal
 Rat.pow
+Rat.toFloat
 ```
 
-All binary operations are subject-first and therefore dot-callable. Additional
-conversion conveniences belong to the stdlib listing and must not weaken exactness.
+All binary operations are subject-first and therefore dot-callable.
+
+`Rat.toFloat` is the sanctioned exit from the exact world (friendly-numerics
+tenet 7). Within range it answers the **correctly rounded nearest double** —
+one rounding, ties to even. Rounding error is what an approximation *is*; no
+exception attends it, and no apology. It throws `FloatRangeError` exactly where
+the honest IEEE answer would not be an approximation at all: **the result must
+be finite, and nonzero when the input is nonzero.** Overflow past `Float`'s
+finite range would fabricate ±Infinity — infinite error — and the erasure of a
+nonzero rational to `0` would be a total one; both ends fail the same one-line
+guard. The exception's declared home is `stdlib/Float.hex`: the error is
+`Float`'s range, stated once where any door from the exact world can share it
+(the `DivideByZeroError`-in-`Integral.hex` pattern), and the brand follows the
+declaring module (Exceptions §7.1), so the home is chosen where the declaration
+never needs to move. The reverse direction does not exist in any spelling — no
+`fromFloat`, ever: precision may be spent, never minted (tenet 7).
+
+Additional conversion conveniences belong to the stdlib listing and must not
+weaken exactness; `toFloat` does not — it is an explicit, guarded exit, and
+exactness ends only where the caller names its end.
 
 ## 7. Emission
 
@@ -130,6 +149,13 @@ conversion conveniences belong to the stdlib listing and must not weaken exactne
 record implemented in the prelude/stdlib using the primitive `BigInt` division and
 `Integral` operations. This is intentional: Rat is the first conformance client of
 those general mechanisms, not a privileged compiler type.
+
+`toFloat` must round **once**. `Number(top) / Number(bottom)` is not correctly
+rounded when either magnitude exceeds 2^53 — each `Number(…)` rounds, then the
+division rounds again. The implementation aligns the quotient to 53 significant
+bits by `BigInt` shifts and rounds a single time on the remainder
+(scale-and-shift); the conformance suite must pin known double-rounding traps,
+not merely round-trips.
 
 ## 8. Diagnostics
 
@@ -144,6 +170,9 @@ those general mechanisms, not a privileged compiler type.
 - A zero base with a negative exponent at `Rat.pow` reports `DivideByZeroError`
   through the smart-construction boundary; no `Rat.pow`-specific message is
   minted for it.
+- An out-of-range conversion at `Rat.toFloat` reports `FloatRangeError` with the
+  provenance-tagged message `Rat.toFloat: value does not fit in Float` — one
+  message for both ends of the guard; which end failed is evident from the value.
 
 ## 9. Acceptance tests
 
@@ -166,6 +195,11 @@ Rat.pow(Rat.create(2, 3), Rat.create(-2, 1))
 Rat.pow(Rat.create(4, 9), Rat.create(1, 2))   -- FractionalExponentError
 Rat.pow(Rat.create(0, 1), Rat.create(-1, 1))  -- DivideByZeroError
 Rat.pow(Rat.create(0, 1), Rat.create(-1, 2))  -- FractionalExponentError (guard checked first)
+Rat.toFloat(Rat.create(1, 2))                 -- 0.5
+Rat.toFloat(Rat.create(1, 3))                 -- 0.3333333333333333 (nearest double)
+Rat.toFloat(Rat.create(-7, 4))                -- -1.75
+Rat.toFloat(Rat.create(2n ** 1100n, 1n))      -- FloatRangeError (would be Infinity)
+Rat.toFloat(Rat.create(1n, 2n ** 1100n))      -- FloatRangeError (nonzero would erase to 0)
 ```
 
 The compiler conformance suite must execute the emitted JavaScript for normalization
