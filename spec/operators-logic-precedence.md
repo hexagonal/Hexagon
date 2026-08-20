@@ -231,7 +231,7 @@ a < f() < c
 
 ### 6.1 The `Num`/`Signed`/`Frac` arithmetic family
 
-`+` and `*` elaborate to `Num`; binary `-` to `Signed.subtract`; `/` to `Frac.divide`. Operands normally share one type after Numeric Literals §5.1 has injected an established `Nat` through `Num.fromNat` or an established `Int` through `Signed.fromInt`. `Int + Int` stays Int; `Int * Nat` widens Nat to Int; and `count * cost` is Float when `count : Int` and `cost : Float`. Nat honors Num but not Signed; Int honors both but not Frac. Numeric literals elaborate per the Numeric Literals spec. There is no `%` operator (§13).
+`+` and `*` elaborate to `Num`; binary `-` to `Signed.subtract`; `/` to `Frac.divide`. Operands normally share one type after Numeric Literals §5.1 has injected an established `Nat` through `Num.fromNat` or an established `Int` through `Signed.fromInt`. `Int + Int` stays Int; `Int * Nat` widens Nat to Int; and `count * cost` is Float when `count : Int` and `cost : Float`. Nat honors Num but not Signed; Int honors both but not Frac. Operand-driven selection is the no-expectation case: where the operation's seat lands a concrete expected type carrying the operator's constraint instance, Numeric Literals §5.1's expected-type lift selects that type as the operation's home instead — `let mean: Float = sum / size` is `Frac<Float>` division of two injected `Int`s, and `let x: Int = n - m` is `Signed<Int>` subtraction of two injected `Nat`s. Numeric literals elaborate per the Numeric Literals spec. There is no `%` operator (§13).
 
 `Float` and `Rat` both honor `Frac`, with type-owned failure and precision semantics:
 Float division is native IEEE 754 division, while Rat division is exact and throws
@@ -251,6 +251,8 @@ Level 3, elaborates to `negate`. Interactions, all decided:
 `**` is chosen over `^` (Python/JS spelling; `^` stays free and unused — better permanently absent than meaning XOR to half the audience and power to the other half).
 
 **Right-associative, because mathematics says so:** `a ** b ** c` means `a ** (b ** c)` — a tower of exponents is read top-down, i.e. right-to-left, and left association would make the parenthesized form `(a**b)**c = a**(b·c)`, a different and less useful function. Record for the curious implementer: JS and Python happen to agree with math here, so no conflict arises — the JS divergence is only the unary-minus refusal (§6.2).
+
+Instance selection at `**` follows §6.1's rule: operand-driven where no expectation lands, the seat's written face where one does (Numeric Literals §5.1's lift) — `let x: Float = a ** b` at `Int` operands is `Pow<Float>`'s native, total `**`, fractional results and all, where operand-driven selection is `Pow<Int>` with its negative-exponent guard.
 
 Elaboration target — a new small prelude constraint (edit note to Constraints §7):
 
@@ -306,6 +308,7 @@ xs |> map(x => x + 1) |> filter(p) |> take(3)
 
 - Left-associative, level 13 (loosest infix — §3.3 covers the two `=>` interaction cases).
 - **Desugar shape:** if the right operand is syntactically a call `E(args…)`, rewrite to `E(a, args…)`; otherwise treat the whole right operand as a callee and rewrite to `RHS(a)` (this is what makes the bare form and `a |> (x => x + 1)` work). Because the rewrite precedes inference, the type checker, constraint resolution, and dictionary insertion never know pipes exist.
+- **Typing rides the rewritten application** (Functions §4.3): when the bare-form rewrite makes the callee a lambda literal — `a |> (x => …)`, `a |> match …` — that application elaborates its argument before its callee, so the lambda's parameter reads its type off `a`. This is the elaboration schedule only; the evaluation-order footnote below is unchanged.
 - *(#355.)* **A pipe stage is a call, so it takes a call mark** (Effects §3). A stage with its own argument list marks that list as any call does: `x |> take!(3)` rewrites to `take!(x, 3)`. The bare form's mark stands at the end of the stage — `x |> save!` — and the rewrite carries it onto the call it builds: `save!(x)`. The stage end is one of the mark's two grammatical seats (Effects §3.2; Lexer §8.1); the checker still never knows pipes exist — it sees the rewritten, marked call.
 - **Evaluation-order footnote:** the rewrite moves `a` into argument position, so JS evaluation order runs the callee expression before `a`. Observable only when the callee expression itself has effects; accepted, not worth a temporary.
 - The pipe is why the stdlib convention exists: **the first parameter of every stdlib function is the subject being operated on** (ReScript/OCaml order). One data-last straggler breaks every chain it appears in. This convention is normative for the prelude and stdlib specs.
@@ -370,7 +373,7 @@ this is the F# rule for else-less `unit` conditionals, adopted July 2026 on
 re-examination of the original strict decision; Statements §10.3 records
 the reversal.)
 
-Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms resolve to one type: exact unification wins, followed by Numeric Literals §5.1's contextual widening: established `Nat` through `Num.fromNat`, or established `Int` through `Signed.fromInt`, when the other arm independently establishes the corresponding target. The whole form has the resulting type.
+Eats to the right (§3.2): `expr2` extends as far as possible, so `1 + if c then a else b` is `1 + (if c then a else b)` and `if c then a else b + 1` is `if c then a else (b + 1)` — the `else` arm ate the `+ 1`. Chained: `if c1 then a else if c2 then b else c` nests rightward with no special grammar. Both arms resolve to one type: exact unification wins, followed by Numeric Literals §5.1's contextual widening: established `Nat` through `Num.fromNat`, or established `Int` through `Signed.fromInt`, when the other arm independently establishes the corresponding target. A landed expected type reaches both arms as forwarding positions (Functions §4.3), where it feeds Numeric Literals §5.1's lift at an arithmetic arm; a bare-value arm still widens at the form's own seat boundary, as ever. The whole form has the resulting type.
 
 ### 11.3 Canonical formatting
 

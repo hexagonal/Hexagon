@@ -25,7 +25,7 @@ Key rules:
 4. `1n` does **not** participate in the polymorphic scheme. The `n` suffix is a type annotation, exactly as in JavaScript. There is no `fromBigInt` method in `Num` (deliberately — see §7, Rejected alternatives).
 5. Decimal literals do not participate either. `1.5 : Float`, always, in v1.
 6. **Codegen guarantee:** when `α` resolves to `Int`, `Float`, or `BigInt`, the `fromNat` wrapper is erased and the literal is emitted respectively as `k`, `k.0`, or `kn`. The Float spelling deliberately preserves inferred type intent for a human reader even though `k` and `k.0` are identical JavaScript numbers. Only literals inside genuinely polymorphic (dictionary-taking) functions emit `dict.fromNat(k)`.
-7. **Contextual numeric widening:** an established `Nat` may be injected through `Num<a>.fromNat`; an established `Int` may be injected through `Signed<a>.fromInt`. The target must be independently established. Exact unification wins first, and widening never invents a polymorphic target merely to make an expression type-check (§5.1).
+7. **Contextual numeric widening:** an established `Nat` may be injected through `Num<a>.fromNat`; an established `Int` may be injected through `Signed<a>.fromInt`. The target must be independently established — by an annotation, a concrete operand, a boundary, or (at an arithmetic operation only, through the expected-type lift) the seat's expected type — and widening never invents a polymorphic target merely to make an expression type-check. At an arithmetic operation whose expected type is concrete **and carries the operator's constraint instance**, that type is the operation's home: the operands widen in and the operation runs at the written type; without the instance, or where no expectation lands, the operation elaborates from its operands and exact unification wins first (§5.1).
 
 ---
 
@@ -78,6 +78,10 @@ Rat.create(1, 3)                        -- emits: Rat.create(1n, 3n)
 let count: Int = 3
 let cost: Float = 1.50
 let total = count * cost                -- Float.fromInt(count) * cost : Float
+
+-- (k) A written face is the arithmetic's home: the operation runs at the annotated type.
+let exact: Rat = count + count          -- Rat addition of two injected Ints (§5.1's lift)
+let mean: Float = count / 2             -- Frac<Float> division; Int alone has no Frac
 ```
 
 **BigInt spelling convention.** The `n` suffix is idiomatic when no surrounding
@@ -153,22 +157,59 @@ The checker admits two exact, evidence-directed contextual conversions:
 ```
 
 “Independently established” means that the target is fixed by an annotation, a concrete
-operand or argument, a branch or assignment boundary, or an already-constrained type
-variable. It is not a fresh inference variable whose only reason to acquire `Num` would
-be the proposed conversion. Exact unification has priority, and an outer expected type
-does not flow inward to replace an already-valid exact operation. (Functions §4.3's
-expected-type propagation, #513, does not weaken this sentence: propagation lands only
-at lambdas, never at an operation, and a propagated expectation establishes no widening
-target of its own — this rule's "independently established" list is closed against it.) For example,
-`let r: Rat = count + count` performs Int addition and then widens its result, whereas
-`count + ratio` performs Rat addition because the other operand establishes Rat at the operation itself.
-Consequences:
+operand or argument, a branch or assignment boundary, an already-constrained type
+variable — or, **at an arithmetic operation the expected-type lift below governs**, the
+seat's expected type (Functions §4.3), a written face arriving where an annotation could
+have been written. The expectation route exists only through the lift: at every other
+position an expectation establishes no widening target of its own (Functions §4.3's
+ordering pin), and a value reaches a written face by the seat's ordinary widening, as
+this list always allowed. The target is never a fresh inference variable whose only
+reason to acquire `Num` would be the proposed conversion. Where no expectation lands,
+exact unification has priority. The substitution these tests read is the one Functions
+§4.3's normative elaboration schedule built: the schedule is the semantics, and two
+programs differing only in the order of sibling expressions sharing an undetermined
+variable may widen differently, by design (Functions §4.3's ordering pin).
+
+**The expected-type lift — the written type is the arithmetic's home.** At an arithmetic
+operation (the `Num`/`Signed`/`Frac`/`Pow` operators, unary negation included) whose
+expected type is **concrete** and carries the operator's constraint instance, the expected
+type **is** the operation's common type: each operand reaches it by exact unification or
+by the two conversions above, and the operation's evidence is selected at it. The
+expectation reaches operands recursively — an operand seat of a lifted operation expects
+the same type — so a whole arithmetic expression runs at its written type. An expectation
+that is a variable, or a concrete type without the instance, lifts nothing: the operation
+elaborates from its operands alone, exactly as below. The distinction the lift turns on:
+widening a **value** is always exact, but which *algebra an operation runs in* decides
+what the value is — and the lift decides it for the written face.
 
 ```hexagon
-count + count       // Int; exact match, no widening
-count * cost        // Float when cost : Float
+let r: Rat = count + count    // Rat addition of two injected Ints — exact at any magnitude
+let r: Rat = 1 + 2            // Rat addition already — literals are polymorphic, nothing to lift
+let x: Int = n - m            // n, m : Nat — both widen; Signed<Int> subtraction, possibly negative
+let mean: Float = sum / size  // sum, size : Int — Frac<Float> division; Int has no Frac and needs none here
+let s = count + count         // no written face: Int addition, as ever
+```
+
+The first line is the rule's reason. Without the lift, `count + count` runs at `Int` and
+only the finished sum is injected — an exact conversion of a sum the silent-overflow
+`Int` addition may already have folded past 2^53. The lift closes the asymmetry between
+the first two lines: an established value follows the written face exactly as a literal
+does. The third and fourth lines are the lift's own acceptances — an operation
+whose operand types alone support no instance (`Nat` has no `Signed`, `Int` no `Frac`)
+is well-typed exactly when a written face names an algebra that embeds them. The last
+line is its boundary: a binding without an annotation has no written face, and arithmetic
+happens at the type written on *its own* seat, never one written somewhere later —
+`let s = count + count` then `let r: Rat = s` widens the finished `Int` value, exactly
+as written. The instance gate is equally a boundary, and it is what keeps every gated
+decline identical to the ungated elaboration: `let r: Rat = a ** b` at `a, b : Int` lifts
+nothing (`Pow` has no `Rat` instance — Operators §6.3), so the power runs at `Int` and
+the finished value injects, exactly as this section always read. Consequences:
+
+```hexagon
+count + count       // Int; no written face, exact match, no widening
+count * cost        // Float when cost : Float — the operand establishes the target
 plus(count, 1.5)    // Float; selects the Float instantiation of plus
-let value: Rat = count
+let value: Rat = count        // value widening at the annotation — exact for any Int
 
 let scale<a: Signed>(count: Int, value: a): a = count * value
 // generic body: num.multiply(fromInt(count), value), using one Signed<a> dictionary
@@ -193,6 +234,25 @@ erase because they use the JavaScript `number` representation; either source int
 `BigInt` emits `BigInt(value)`. A concrete nominal instance emits `fromNat` or `fromInt`
 as selected; a genuinely polymorphic target emits the corresponding dictionary call.
 The source expression is evaluated exactly once and ordinary evaluation order is preserved.
+A lifted operation emits the home type's operation over the injected operands —
+`let r: Rat = count + count` emits `Rat`'s addition of two `Rat.fromInt` calls — each
+operand converted once, in source order. For the `Num`/`Signed` operators at an erasing
+home (`Float`), the lifted emission is byte-identical to the result-injected one — the
+same JavaScript `+`/`-`/`*` on the same doubles. The lift's home selection is
+observable exactly where the instances differ: at a wider-than-f64 home (`BigInt`,
+`Rat`), where it is the exactness this rule exists for, and at `**`, where
+`let x: Float = a ** b` selects `Pow<Float>` — the native, total `**` — where
+operand-driven selection took `Pow<Int>` with its negative-exponent guard (Operators
+§6.3): the written face names the algebra, fractional results and all.
+
+Conformance pins the lift owes (fixtures: `n, m : Nat`; `a, b, c, count, sum, size : Int`;
+`negOne : Int`, value −1): the two acceptances (`let x: Int = n - m`;
+`let mean: Float = sum / size` and `let r: Rat = a / b`); one observable-exactness case
+at a wider-than-f64 home (a `Rat` or `BigInt` sum whose `Int` elaboration would fold
+past 2^53, value-checked); the `Pow` home selection (`let x: Float = 2 ** negOne`
+yields `0.5`, no guard); the gated decline (`let r: Rat = a ** b` — `Int` power, result
+injected); the no-face boundary (`let s = count + count` stays `Int`); and the
+recursion depth (`let r: Rat = (a + b) * c` runs entirely at `Rat`).
 
 ### 5.2 Literal emission
 
