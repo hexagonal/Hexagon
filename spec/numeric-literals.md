@@ -156,7 +156,10 @@ The checker admits two exact, evidence-directed contextual conversions:
 operand or argument, a branch or assignment boundary, or an already-constrained type
 variable. It is not a fresh inference variable whose only reason to acquire `Num` would
 be the proposed conversion. Exact unification has priority, and an outer expected type
-does not flow inward to replace an already-valid exact operation. For example,
+does not flow inward to replace an already-valid exact operation. (Functions §4.3's
+expected-type propagation, #513, does not weaken this sentence: propagation lands only
+at lambdas, never at an operation, and a propagated expectation establishes no widening
+target of its own — this rule's "independently established" list is closed against it.) For example,
 `let r: Rat = count + count` performs Int addition and then widens its result, whereas
 `count + ratio` performs Rat addition because the other operand establishes Rat at the operation itself.
 Consequences:
