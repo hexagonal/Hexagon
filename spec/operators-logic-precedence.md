@@ -275,14 +275,14 @@ Instances:
 
 The polymorphic case is the ordinary dictionary call. `pow` is also directly callable as a member, like every constraint member — bare, or qualified through a companion, where Modules §5.3's generalisation law decides which face the qualified spelling shows (§6.3.1).
 
-A `Float` exponent at `**` is a type error with a mandatory fixit (§14.1 family): "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, use `Float.pow(value, exponent)`."
+A non-`Int` exponent at `**` is a type error with a mandatory fixit (§14.1 family), branched on the exponent's type: at `Float`, "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, use `Float.pow(value, exponent)`"; at `BigInt`, "the exponent of `**` is an `Int`; for a `BigInt` exponent, use `BigInt.pow(value, exponent)`" — the spelling `2n ** 3n` is the fixit's target case; at any other type, the plain seat error with no door named.
 
 #### 6.3.1 The two power doors — `Float.pow` and `BigInt.pow`
 
 Two companions export a **generalisation** of their own `Pow` member under the member's name (Modules §5.3's generalisation law: the export accepts every call the member accepts, agrees with it on the shared domain, and the member is its restriction — one implementation, factored):
 
 - **`Float.pow(value: Float, exponent: Float): Float`** — the analytic power, total, honestly IEEE (`NaN` edges and all): `Float.pow(2.0, 0.5)` is `√2`'s nearest double. The `Pow<Float>` member is this door restricted to integer exponents.
-- **`BigInt.pow(value: BigInt, exponent: BigInt): BigInt`** — the exact power at exponents beyond `Int`'s range, whose useful domain the host defines (`1n`, `0n`, `-1n` bases answer at any exponent; elsewhere implementation limits apply as they do to all `BigInt` growth); `exponent < 0` throws `NegativeExponentError` exactly as the member does. The `Pow<BigInt>` member is this door precomposed with the exact `Int -> BigInt` conversion.
+- **`BigInt.pow(value: BigInt, exponent: BigInt): BigInt`** — the exact power at exponents beyond `Int`'s range, whose useful domain the host defines (`1n`, `0n`, `-1n` bases answer at any non-negative exponent; elsewhere implementation limits apply as they do to all `BigInt` growth); `exponent < 0` throws `NegativeExponentError` exactly as the member does. The `Pow<BigInt>` member is this door precomposed with the exact `Int -> BigInt` conversion.
 
 The qualified spellings `Float.pow`/`BigInt.pow` and the dot calls `x.pow(y)` denote the doors — the widest face of the one operation (Modules §5.3, Method Syntax §6.1). The operator `**` always elaborates to the member. Companions without a wider power (`Int.hex`, `Nat.hex`, `Rat.hex`) export no door, and their qualified `pow` spellings denote the members, as uniform access always read.
 
@@ -509,7 +509,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Else-less `if` whose `then` branch is not `Unit` | type error + fixit "an `if` without `else` produces `Unit`; its `then` branch is `String` — add an `else` branch to produce a value" |
 | `x := y := z` | "`:=` does not chain; assignment produces `Unit`" |
 | `**` at `Nat`/`Int`/`BigInt` with negative exponent (and `BigInt.pow` likewise) | runtime `NegativeExponentError` |
-| non-`Int` exponent at `**` (e.g. `x ** 0.5`) | type error, mandatory fixit: "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, use `Float.pow(value, exponent)`" (§6.3) |
+| non-`Int` exponent at `**` (`x ** 0.5`, `2n ** 3n`) | type error, mandatory fixit branched on the exponent's type — `Float.pow` for a `Float` exponent, `BigInt.pow` for a `BigInt` one, the plain seat error otherwise (§6.3) |
 
 ---
 
@@ -530,7 +530,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Chains: directionally consistent families {`<`,`<=`,`==`} / {`>`,`>=`,`==`}; `!=` never chains | §5.3 |
 | Single-evaluation rule: duplicated operands bound once, left-to-right, invisible temporaries | §5.4 |
 | `**` level 2, right-assoc (math); tighter than unary minus on its left, admits it on its right; JS's `-2**2` SyntaxError not adopted, emission parenthesizes | §6.2–6.3 |
-| `Pow<a: Num>` member is `pow(value: a, exponent: Int)` — the algebraic power; `Nat`/`Int`/`BigInt` throw `NegativeExponentError` on a negative exponent, `Float` and `Rat` are total over it; a fractional exponent is a type error; analytic power = the `Float.pow` door, `BigInt` exponents = the `BigInt.pow` door (both generalisations of their members) | §6.3, §6.3.1 |
+| `Pow<a: Num>` member is `pow(value: a, exponent: Int)` — the algebraic power; `Nat`/`Int`/`BigInt` throw `NegativeExponentError` on a negative exponent, `Float` is total over it, `Rat` exact at either sign (a zero base with a negative exponent excepted — `DivideByZeroError`, `rat.md` §4); a fractional exponent is a type error; analytic power = the `Float.pow` door, `BigInt` exponents = the `BigInt.pow` door (both generalisations of their members, qualifiable-not-bare) | §6.3, §6.3.1 |
 | `++` = `Concat.concat`; level 5 with `+`; `String` in v1, `List` owed; `+` on strings rejected with fixit | §7 |
 | Pipe: F# token, ReScript first-arg semantics, pre-inference rewrite; bare `a \|> f` = `f(a)`; subject-first stdlib convention normative | §8 |
 | `..` level 6 (looser than arithmetic, tighter than comparison), non-assoc, non-chaining | §9 |
