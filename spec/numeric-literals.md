@@ -201,9 +201,15 @@ line is its boundary: a binding without an annotation has no written face, and a
 happens at the type written on *its own* seat, never one written somewhere later —
 `let s = count + count` then `let r: Rat = s` widens the finished `Int` value, exactly
 as written. The instance gate is equally a boundary, and it is what keeps every gated
-decline identical to the ungated elaboration: `let r: Rat = a ** b` at `a, b : Int` lifts
-nothing (`Pow` has no `Rat` instance — Operators §6.3), so the power runs at `Int` and
-the finished value injects, exactly as this section always read. Consequences:
+decline identical to the ungated elaboration: at `let t: T = a ** b` (`a, b : Int`) for
+a nominal `T` honoring `Num` and `Signed` but not `Pow`, the expectation lifts nothing,
+so the power runs at `Int` and the finished value injects, exactly as this section
+always read. The gate's remaining subjects are exactly such user nominals: since `Rat`
+honors `Pow` (Operators §6.3), every tower face reachable by injection carries the
+constraint of every operator whose operand elaboration can land at `Nat` or `Int` —
+`+`, `-`, `*`, `**`, unary negation — so no in-tower written face is ever gated out: a
+tower face either lifts or (where the operand elaboration itself has no instance, as at
+`Int` division) refuses. Consequences:
 
 ```hexagon
 count + count       // Int; no written face, exact match, no widening
@@ -243,16 +249,23 @@ observable exactly where the instances differ: at a wider-than-f64 home (`BigInt
 `Rat`), where it is the exactness this rule exists for, and at `**`, where
 `let x: Float = a ** b` selects `Pow<Float>` — the native, total `**` — where
 operand-driven selection took `Pow<Int>` with its negative-exponent guard (Operators
-§6.3): the written face names the algebra, fractional results and all.
+§6.3): the written face names the algebra, fractional results and all. `let r: Rat =
+a ** b` selects `Pow<Rat>` the same way — exact rational power, and total *here* by
+construction: an injected operand is integer-valued, so the instance's integrality
+guard (Operators §6.3) is passed before it is asked — where operand-driven selection
+was `Pow<Int>` with its negative-exponent throw.
 
 Conformance pins the lift owes (fixtures: `n, m : Nat`; `a, b, c, count, sum, size : Int`;
-`negOne : Int`, value −1): the two acceptances (`let x: Int = n - m`;
+`b` value 4; `negOne : Int`, value −1): the two acceptances (`let x: Int = n - m`;
 `let mean: Float = sum / size` and `let r: Rat = a / b`); one observable-exactness case
 at a wider-than-f64 home (a `Rat` or `BigInt` sum whose `Int` elaboration would fold
-past 2^53, value-checked); the `Pow` home selection (`let x: Float = 2 ** negOne`
-yields `0.5`, no guard); the gated decline (`let r: Rat = a ** b` — `Int` power, result
-injected); the no-face boundary (`let s = count + count` stays `Int`); and the
-recursion depth (`let r: Rat = (a + b) * c` runs entirely at `Rat`).
+past 2^53, value-checked); the `Pow` home selections (`let x: Float = 2 ** negOne`
+yields `0.5`, no guard; `let r: Rat = b ** negOne` yields exactly `1/4`, value-checked —
+the negative exponent `Pow<Int>` would have thrown on); the gated decline at the gate's
+remaining subject (`let t: T = a ** b` for a user nominal `T` honoring `Num` and
+`Signed` but not `Pow` — `Int` power, result injected); the no-face boundary
+(`let s = count + count` stays `Int`); and the recursion depth
+(`let r: Rat = (a + b) * c` runs entirely at `Rat`).
 
 ### 5.2 Literal emission
 
