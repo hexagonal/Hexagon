@@ -581,8 +581,7 @@ describe("code actions: infer return type", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "the signature of `m` has an error to fix first: " +
-        "unknown type `I`; this slice supports primitive, tuple, and declared union types",
+      "the signature of `m` has an error to fix first: unknown type `I`",
     );
 
     // What refusing buys, stated as the thing that would otherwise happen: had

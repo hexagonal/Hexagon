@@ -17,8 +17,9 @@ log("212F = \${toCelsius(212)}C")
 log("98F = \${toCelsius(98)}C")
 log("37C = \${toFahrenheit(37)}F")
 
-// Want exactness instead of floating point? Ask Rat for the same arithmetic.
-let exactCelsius(f: Int) = Rat.create((f - 32) * 5, 9)
+// Want exactness instead of floating point? Write Rat as the face: the same
+// expression, exact — the division is rational arithmetic, not rounded.
+let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9
 
 log("98F is exactly \${exactCelsius(98)}C")
 

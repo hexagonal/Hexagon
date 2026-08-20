@@ -165,13 +165,24 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
   // compiler's prelude, and equipment the buffer never names would cost every
   // program an import line and an instance inventory it does not use.
   const spelled = spelledWords(source);
+  const declaredTypes = declaredTypeNames(source);
   const equipmentPrefix = hosted
     .filter(({ companion }) =>
       playgroundEquipment.includes(companion) && spelled.has(companion)
     )
     .map(({ companion, path }) => {
-      const specifier = `.${path.slice(0, -".hex".length)}`;
-      return `import * as ${companion} from ${JSON.stringify(specifier)}`;
+      const specifier = JSON.stringify(`.${path.slice(0, -".hex".length)}`);
+      // Both halves of the companion idiom: the alias reaches `Rat.create`, and
+      // the named import is what makes the bare `Rat` face writable in an
+      // annotation — a namespace import binds no type name (Modules §5.1).
+      // The named half is dropped where the buffer declares that type itself,
+      // which is a same-namespace collision at the import line rather than a
+      // shadowing; a `module Rat` block never reaches here, having already left
+      // `hosted` through `shadowedCompanions`.
+      const named = declaredTypes.has(companion)
+        ? []
+        : [`import { ${companion} } from ${specifier}`];
+      return [`import * as ${companion} from ${specifier}`, ...named].join("\n");
     }).join("\n");
   const mainPrefix = equipmentPrefix.length === 0 ? "" : `${equipmentPrefix}\n`;
 
@@ -222,4 +233,21 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
  */
 function spelledWords(source: string): ReadonlySet<string> {
   return new Set(source.match(/[\p{ID_Continue}$]+/gu) ?? []);
+}
+
+/**
+ * Every name the buffer appears to declare as a type.
+ *
+ * This gate over-approximates in the *opposite* direction to `spelledWords`,
+ * and for the same reason: a name spelled after `record` inside a comment costs
+ * the buffer the named half of one equipment import, and the annotation that
+ * wanted it draws a message naming both working spellings. A missed declaration
+ * costs the buffer its own `record Rat`, colliding with an import line the user
+ * cannot see, cannot move, and cannot delete.
+ */
+function declaredTypeNames(source: string): ReadonlySet<string> {
+  const heads = source.matchAll(
+    /(?<![\p{ID_Continue}$])(?:record|union|type)\s+([\p{ID_Start}_][\p{ID_Continue}$]*)/gu,
+  );
+  return new Set([...heads].map(([, name]) => name!));
 }

@@ -894,6 +894,15 @@ class Resolver {
   readonly #explicitlyImported = new Set<Resolved.SymbolId>();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
   /**
+   * The specifier each alias was imported from, as the module wrote it.
+   *
+   * Only a diagnostic reads this: the named-import repair a bare alias in type
+   * position gets offered has to be a line the user can type, and the exporter's
+   * own path is not that line — the route from here is what the import already
+   * spells.
+   */
+  readonly #moduleAliasSpecifiers = new Map<string, string>();
+  /**
    * The `import * as` aliases whose item the walk has not reached yet, each
    * mapped to the alias's own name node.
    *
@@ -1570,6 +1579,7 @@ class Resolver {
         } else {
           aliasBound = true;
           this.#moduleAliases.set(item.form.alias.text, imported);
+          this.#moduleAliasSpecifiers.set(item.form.alias.text, item.specifier);
           // Bound but not yet *reached*: the alias's term-position doors
           // (`Lib.area`, `Lib.Circle`) stay shut until the walk passes the item.
           this.#pendingImportAliases.set(item.form.alias.text, item.form.alias);
@@ -4021,11 +4031,29 @@ class Resolver {
       });
       return { kind: "ErrorType", span: annotation.span };
     }
+    // Modules §5.1 rule 2 read in the direction a namespace import makes
+    // tempting: the alias binds nothing in the type namespace, so a bare `Rat`
+    // beside `import * as Rat` is unknown here however plainly it reads. The
+    // sibling message runs the other way ("`Shape` is a type, not a module").
+    const aliased = this.#moduleAliases.get(name);
+    if (aliased !== undefined) {
+      const specifier = this.#moduleAliasSpecifiers.get(name);
+      const exportsSameName = aliased.unions.has(name) || aliased.records.has(name) ||
+        aliased.aliases.has(name) || aliased.externTypes.has(name);
+      this.#diagnostics.add({
+        severity: "error",
+        message: exportsSameName && specifier !== undefined
+          ? `\`${name}\` is a module alias, not a type; write \`${name}.${name}\` for the type it ` +
+            `exports, or name it bare with \`import { ${name} } from ${JSON.stringify(specifier)}\``
+          : `\`${name}\` is a module alias, not a type; the types it exports are reached ` +
+            `through it, as \`${name}.Name\``,
+        primary: annotation.span,
+      });
+      return { kind: "ErrorType", span: annotation.span };
+    }
     this.#diagnostics.add({
       severity: "error",
-      message:
-        `unknown type \`${annotation.name.text}\`; this slice supports primitive, ` +
-        "tuple, and declared union types",
+      message: `unknown type \`${name}\``,
       primary: annotation.span,
     });
     return { kind: "ErrorType", span: annotation.span };

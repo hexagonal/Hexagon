@@ -26,11 +26,17 @@ export const hostedModules: readonly HostedModule[] = [
 ];
 
 /**
- * "Playground equipment": hosted modules auto-imported (`import * as X`) into a
- * workspace that mentions them — the fun, show-off pieces you'd normally import
- * yourself. This is a Playground affordance, distinct from the language prelude
+ * "Playground equipment": hosted modules auto-imported into a workspace that
+ * mentions them — the fun, show-off pieces you'd normally import yourself. This
+ * is a Playground affordance, distinct from the language prelude
  * (`Ordering`/`Option`/`Result`, supplied implicitly by the compiler), and it
  * covers only what the prelude does not reach.
+ *
+ * Both halves of the companion idiom go in, `import * as X` and `import { X }`:
+ * the alias is the module (`Rat.create`), the named import is the type name a
+ * written face needs (`let exact(f: Int): Rat = …`), and a namespace import
+ * binds no type of its own (Modules §5.1). `layOutWorkspace` owns the one case
+ * where a half is dropped — a buffer declaring that type itself.
  *
  * `Vector` is not equipment: it is a prelude module, and Modules §6.4 registers
  * every prelude module's basename as a qualified home, so `Vector.append` and
