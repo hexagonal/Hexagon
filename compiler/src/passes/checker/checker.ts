@@ -1933,6 +1933,7 @@ class Checker {
     // that colour computable from the interface alone.
     this.#settleEffects();
     this.#checkPublicSignatures(module.items);
+    this.#checkGeneralisingExports(module.items);
 
     const symbols = module.symbols.map((symbol) => ({
       ...symbol,
@@ -2261,7 +2262,18 @@ class Checker {
       ? undefined
       : this.#companionOperations.get(companion)?.get(name);
     const claimed = this.#honoredMembers(actual).get(name) ?? [];
-    const members = claimed.filter(({ subjectFirst }) => subjectFirst);
+    // Method Syntax §6.1's **one claimant** (#541): a companion export and that
+    // companion's own honored member related by the generalisation law are one
+    // operation wearing two widths, not two rival sources. Dropping the member
+    // from the claimant list is the whole of the carve — the call then takes
+    // the companion-operation rewrite below, which under Modules §5.3's
+    // resolution order is the operation's widest face. A pair the law does not
+    // relate counts two, and is refused exactly as before.
+    const members = claimed.filter(({ subjectFirst }) => subjectFirst).filter(
+      (member) =>
+        operation === undefined ||
+        !this.#generalises(operation.id, member, actual, callee.field.span),
+    );
     if (members.length > 0) {
       const claimants = [
         ...(recordHasField ? [`a field \`${name}\``] : []),
@@ -3580,7 +3592,9 @@ class Checker {
     } else if (item.constraint === "Concat") {
       members.set("concat", binary);
     } else if (item.constraint === "Pow") {
-      members.set("pow", binary);
+      // The one heterogeneous member in the table (#541): the exponent is an
+      // `Int` seat, not a second subject.
+      members.set("pow", { parameters: [subject, primitive("Int")], result: subject });
     } else if (item.constraint === "Integral") {
       for (const name of ["div", "mod", "quot", "rem", "gcd"] as const) {
         members.set(name, binary);
@@ -5648,9 +5662,21 @@ class Checker {
     // lifted operation expects the same type — so a whole arithmetic expression
     // runs at its written type: `let r: Rat = (a + b) * c` is `Rat` throughout.
     // Away from the lift the operands take no expectation, exactly as before.
+    //
+    // `**` is the one heterogeneous operator (#541): `Pow`'s member is
+    // `pow(value: a, exponent: Int)`, so the home governs the **base seat
+    // only** and the exponent seat is an ordinary written-`Int` seat. §5.1
+    // applies *into* it independently, with `Int` as the written face — which
+    // is how the right spine of an exponent tower runs at `Int` whatever the
+    // base's home (Operators §6.3, Numeric Literals §5.1).
     const home = this.#operationHome(expression.operator, expected);
+    const exponentSeat = expression.operator === "Power";
     const left = this.#inferExpr(expression.left, level, home);
-    const right = this.#inferExpr(expression.right, level, home);
+    const right = this.#inferExpr(
+      expression.right,
+      level,
+      exponentSeat ? primitive("Int") : home,
+    );
 
     if (["And", "Or", "Implies", "Iff"].includes(expression.operator)) {
       const bool = this.#boolType(expression.span);
@@ -5681,6 +5707,21 @@ class Checker {
     // algebra, the logical four and `Range` having returned above.
     const constraint: Typed.ConstraintName =
       liftConstraint(expression.operator) ?? "Concat";
+    if (exponentSeat) {
+      // The exponent is checked at `Int` and takes no part in the common type
+      // (Operators §6.3): the instance subject is the **left** operand alone,
+      // selected from it where no expectation lands and from the written face
+      // where one does. One operand, so there is no widening race to run.
+      this.#checkExponent(expression.right, right);
+      let base = left;
+      if (home !== undefined) {
+        this.#unifyExpected(home, left, expression.left, expression.span, true);
+        base = home;
+      }
+      const power = this.#require(constraint, base, expression.span);
+      this.#requirements.set(expression, [power]);
+      return base;
+    }
     let common = left;
     if (home !== undefined) {
       // The home **is** the common type: each operand reaches it by exact
@@ -5704,6 +5745,38 @@ class Checker {
     const requirement = this.#require(constraint, common, expression.span);
     this.#requirements.set(expression, [requirement]);
     return common;
+  }
+
+  /**
+   * `**`'s exponent seat, checked at `Int` *(#541, Operators §6.3)*.
+   *
+   * An ordinary written-`Int` seat: an established `Nat` widens into it through
+   * §5.1's conversion, everything else unifies. What the seat adds is the
+   * **mandatory fixit**, branched on the exponent's own type — the two types a
+   * user reaching for the retired homogeneous `**` would write are the two with
+   * a door to be pointed at, and every other type takes the plain seat error
+   * with no door named.
+   */
+  #checkExponent(expression: Resolved.Expr, actual: Mono): void {
+    const seat = primitive("Int");
+    if (this.#tryWidenNumeric(expression, actual, seat, expression.span)) return;
+    const found = this.#prune(actual);
+    const door = found.kind !== "Constructor"
+      ? undefined
+      : found.name === "Float"
+        ? "for a fractional exponent at `Float`, use `Float.pow(value, exponent)`"
+        : found.name === "BigInt"
+          ? "for a `BigInt` exponent, use `BigInt.pow(value, exponent)`"
+          : undefined;
+    if (door === undefined) {
+      this.#unify(seat, actual, expression.span);
+      return;
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message: `the exponent of \`**\` is an \`Int\`; ${door}`,
+      primary: expression.span,
+    });
   }
 
   /**
@@ -9170,6 +9243,162 @@ class Checker {
         }],
       });
     }
+  }
+
+  /**
+   * Modules §5.3's **generalisation law**, checked where the export is declared
+   * *(#541; Constraints §4.6's exemption)*.
+   *
+   * A companion may export a term under the name of a constraint member it
+   * honors at its own type — `Float.pow` over `Pow<Float>`'s member — and the
+   * law is what makes that lawful rather than a drift hazard: the export must
+   * **properly generalise** the member. The signature half is this check; the
+   * behavioural half (they agree on the shared domain, the member is the
+   * export's restriction) is a stated law of the same standing as instance
+   * lawfulness, reviewed rather than machine-checked.
+   *
+   * The resolver deliberately lets every *exported* binding of a member's
+   * spelling past §4.6's claim, because the exemption turns on signatures it
+   * cannot read. So this is the seat of both verdicts: a generalising export is
+   * legal and silent, and every other one draws the rebinding error the claim
+   * would have drawn, with the law named so the fix is the one the law wants.
+   */
+  #checkGeneralisingExports(items: readonly Resolved.Item[]): void {
+    const exported = new Map<string, Resolved.Item & { binding: Resolved.Binding }>();
+    for (const item of items) {
+      if ((item.kind === "Let" || item.kind === "Fun") && item.exported) {
+        exported.set(item.binding.name, item);
+      }
+    }
+    if (exported.size === 0) return;
+    for (const item of items) {
+      if (item.kind !== "Honor") continue;
+      const declaration = this.#constraintsByIdentity.get(item.constraintIdentity);
+      if (declaration === undefined) continue;
+      const subject = this.#instanceSubjects.get(item);
+      if (subject === undefined) continue;
+      const instance = `${item.constraint}<${this.#display(subject)}>`;
+      for (const candidate of constraintMemberCandidates(declaration)) {
+        const door = exported.get(candidate.member);
+        if (door === undefined) continue;
+        if (this.#generalises(door.binding.symbol, candidate, subject, item.span)) {
+          continue;
+        }
+        // The claim's own two forms, so the primary lands on the later of the
+        // two exactly as §4.6's refusal does — with the law named in place of
+        // the plain no-rebinding sentence, because for an *export* the repair
+        // is not only a rename.
+        const bound = door.binding.span;
+        const law = "an exported binding of a member's spelling is legal only " +
+          "when it properly generalises the member (Modules §5.3) — same " +
+          "subject seat, same result, at least one remaining seat properly " +
+          "wider — so widen it or choose a different name.";
+        const claimFirst = item.span.start.offset < bound.start.offset;
+        this.#diagnostics.add({
+          severity: "error",
+          message: claimFirst
+            ? `\`${candidate.member}\` is already bound: the \`${instance}\` ` +
+              `instance binds it as a member (line ${item.span.start.line + 1}); ${law}`
+            : `the \`${instance}\` instance binds \`${candidate.member}\`, which ` +
+              `is already bound (line ${bound.start.line + 1}); ${law}`,
+          primary: claimFirst ? bound : item.span,
+          labels: claimFirst
+            ? [{ span: item.span, message: "the member is bound here" }]
+            : [{ span: bound, message: "previous binding" }],
+        });
+      }
+    }
+  }
+
+  /**
+   * Whether one exported term properly generalises one constraint member at a
+   * given subject (#541) — the law's signature half, and the same predicate the
+   * dot call's one-claimant rule asks (Method Syntax §6.1).
+   *
+   * Same arity, same subject seat, same result; every remaining member
+   * parameter accepted at the export's corresponding seat exactly or through
+   * Numeric Literals §5.1's exact conversions; and **at least one seat properly
+   * wider**, because an identical signature generalises nothing and is exactly
+   * the delegation pattern §4.6 rules ill-formed.
+   */
+  #generalises(
+    door: Resolved.SymbolId,
+    candidate: MemberCandidate,
+    subject: Mono,
+    span: Source.Span,
+  ): boolean {
+    const doorScheme = this.#schemes.get(door);
+    const memberScheme = this.#schemes.get(candidate.symbol);
+    if (doorScheme === undefined || memberScheme === undefined) return false;
+    // Both copies are fresh, so the pinning unification below binds only the
+    // copy's own variables and nothing this check can observe elsewhere.
+    const wider = this.#prune(this.#instantiate(doorScheme, 0, undefined, span));
+    const member = this.#prune(
+      this.#instantiate(memberScheme, 0, undefined, span, subject),
+    );
+    if (wider.kind !== "Function" || member.kind !== "Function") return false;
+    if (wider.parameters.length !== member.parameters.length) return false;
+    const [memberSubject, ...rest] = member.parameters;
+    const [doorSubject] = wider.parameters;
+    if (memberSubject === undefined || doorSubject === undefined) return false;
+    if (!this.#sameSeat(memberSubject, doorSubject)) return false;
+    if (!this.#sameSeat(member.result, wider.result)) return false;
+    let widened = false;
+    for (const [offset, from] of rest.entries()) {
+      const to = wider.parameters[offset + 1]!;
+      if (this.#sameSeat(from, to)) continue;
+      if (!this.#acceptsExactly(from, to)) return false;
+      widened = true;
+    }
+    return widened;
+  }
+
+  /**
+   * Whether a value at one seat's type reaches another seat exactly — the same
+   * type, or Numeric Literals §5.1's two conversions, which are the only exact
+   * ones the language has.
+   */
+  #acceptsExactly(from: Mono, to: Mono): boolean {
+    if (this.#sameSeat(from, to)) return true;
+    const source = this.#prune(from);
+    if (source.kind !== "Constructor") return false;
+    if (source.name === "Nat") return this.#supportsNumericTarget(to);
+    if (source.name === "Int") return this.#supportsSignedTarget(to);
+    return false;
+  }
+
+  /**
+   * Type equality as the generalisation law needs it: **conservative**, so a
+   * shape it does not recognise answers "not the same" and the exemption is
+   * simply not granted. The law is a permission, and a permission decided by a
+   * guess is worse than one withheld.
+   */
+  #sameSeat(left: Mono, right: Mono): boolean {
+    const first = this.#prune(left);
+    const second = this.#prune(right);
+    if (first === second) return true;
+    if (first.kind !== second.kind) return false;
+    if (first.kind === "Constructor" && second.kind === "Constructor") {
+      return first.name === second.name;
+    }
+    if (first.kind === "NominalRecord" && second.kind === "NominalRecord") {
+      return first.record === second.record &&
+        first.arguments.length === second.arguments.length &&
+        first.arguments.every((argument, index) =>
+          this.#sameSeat(argument, second.arguments[index]!)
+        );
+    }
+    if (first.kind === "Union" && second.kind === "Union") {
+      return first.union === second.union &&
+        first.arguments.length === second.arguments.length &&
+        first.arguments.every((argument, index) =>
+          this.#sameSeat(argument, second.arguments[index]!)
+        );
+    }
+    if (first.kind === "Variable" && second.kind === "Variable") {
+      return first.id === second.id;
+    }
+    return false;
   }
 
   #checkPublicSignatures(items: readonly Resolved.Item[]): void {

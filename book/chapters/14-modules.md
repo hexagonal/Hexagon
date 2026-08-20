@@ -14,7 +14,7 @@ Suppose `geometry.hex` contains:
 export record Point = {x: Float, y: Float}
 
 export let distanceFromOrigin(point: Point): Float =
-    (point.x ** 2.0 + point.y ** 2.0) ** 0.5
+    Float.pow(point.x ** 2 + point.y ** 2, 0.5)
 
 let origin = Point({x = 0.0, y = 0.0})
 ```

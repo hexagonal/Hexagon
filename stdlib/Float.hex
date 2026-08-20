@@ -44,7 +44,7 @@ extern from "hex:intrinsic"
     fun floatEquals as nativeEquals(left: Float, right: Float): Bool
     fun floatCompare as nativeCompare(left: Float, right: Float): Ordering
     fun floatShow as nativeShow(value: Float): String
-    fun floatPow as nativePow(left: Float, right: Float): Float
+    fun floatPow as nativePow(value: Float, exponent: Float): Float
     fun floatHash as nativeHash(value: Float): Int
 
     (** The truncated remainder of `left` divided by `right`, taking the sign of
@@ -101,11 +101,24 @@ honor Frac<Float> =
         divisor answers an infinity, or `NaN` when the dividend is zero too. *)
     divide(left, right) = nativeDivide(left, right)
 
+// The two power faces of this module are one implementation — `nativePow`, the
+// raw IEEE `**` — under Modules §5.3's generalisation law (#541): the export
+// below is the door, the member is that door restricted to integer exponents,
+// and neither is a second definition of the other. The member's `Int` exponent
+// crosses into the door's `Float` seat by Numeric Literals §5.1's exact
+// conversion, which is the restriction spelled out.
+
+(** `value` raised to the power `exponent` — the analytic power, `exp(exponent *
+    ln value)`. Total and honestly IEEE, `NaN` edges and all: `Float.pow(2.0,
+    0.5)` is the nearest float to the square root of two. The operator `**`
+    takes an `Int` exponent; this door is where a fractional one belongs. *)
+export let pow(value: Float, exponent: Float): Float = nativePow(value, exponent)
+
 honor Pow<Float> =
-    (** `left` raised to the power `right`. It never throws: a negative float
-        exponent is an ordinary float operation, so the guard the integer types
-        carry does not exist here. *)
-    pow(left, right) = nativePow(left, right)
+    (** `value` raised to the power `exponent`. It never throws: every `Int`
+        exponent has a `Float` answer, negative ones included, so the guard the
+        integer types carry does not exist here. *)
+    pow(value, exponent) = nativePow(value, exponent)
 
 (** The Euclidean remainder of `left` divided by `right`: never negative,
     whatever the signs — which is what angle wrapping, phase accumulation, and

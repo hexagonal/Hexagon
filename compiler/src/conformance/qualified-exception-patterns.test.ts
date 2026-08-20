@@ -87,7 +87,7 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
   });
 
   test("every prelude exception is nameable in a catch arm, by both spellings", () => {
-    // The eight the prelude exports — `Seq.hex`'s `ReentrancyError` among them,
+    // The seven the prelude exports — `Seq.hex`'s `ReentrancyError` among them,
     // which has been in the prelude and uncatchable since it was declared (FFI
     // Part 3 §7.4), and `Float.hex`'s `FloatRangeError`, which nothing in its
     // own home module throws either (#526: it is the range the doors *into*
@@ -101,7 +101,6 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
       ["Seq", "ReentrancyError"],
       ["Integral", "DivideByZeroError(message)"],
       ["Pow", "NegativeExponentError(message)"],
-      ["Pow", "FractionalExponentError(message)"],
       ["Float", "FloatRangeError(message)"],
     ];
     for (const [home, arm] of arms) {

@@ -1076,7 +1076,7 @@ describe("emitJavaScript", () => {
           "let difference = 1 - (2 - 3)\n" +
           "let logic = (True or False) and True\n" +
           "let sum = 1 + 2 * 3\n" +
-          "let power = (-2.0) ** 3.0",
+          "let power = (-2.0) ** 3",
       ),
     );
 
@@ -1085,7 +1085,7 @@ describe("emitJavaScript", () => {
         "const difference = 1 - (2 - 3);\n" +
         "const logic = (true || false) && true;\n" +
         "const sum = 1 + 2 * 3;\n" +
-        "const power = (-2.0) ** 3.0;\n",
+        "const power = (-2.0) ** 3;\n",
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1520,7 +1520,7 @@ describe("emitJavaScript", () => {
     // Same message, same name, one implementation — and a `$hex`-branded one,
     // which the helper never was. Linked and run for that reason.
     const files = [["/main.hex",
-      "let raise<a: Pow>(base: a, exponent: a): a = base ** exponent\n" +
+      "let raise<a: Pow>(base: a, exponent: Int): a = base ** exponent\n" +
         "export let boom(): Int = raise(2, -1)\n",
     ]] as const;
     const project = compileFiles(files);
@@ -1546,8 +1546,8 @@ describe("emitJavaScript", () => {
     // (#344) — the guard is `stdlib/BigInt.hex`'s and throws the same
     // `Pow.hex` exception.
     const files = [["/main.hex",
-      "let raise<a: Pow>(base: a, exponent: a): a = base ** exponent\n" +
-        "export let boom(): BigInt = raise(2n, -1n)\n",
+      "let raise<a: Pow>(base: a, exponent: Int): a = base ** exponent\n" +
+        "export let boom(): BigInt = raise(2n, -1)\n",
     ]] as const;
     const project = compileFiles(files);
 
@@ -1741,7 +1741,7 @@ describe("emitJavaScript", () => {
         "let negative = -1\n" +
           "let quotient = 4.0 / 2.0\n" +
           'let joined = "a" ++ "b"\n' +
-          "let powered = 2n ** 3n\n" +
+          "let powered = 2n ** 3\n" +
           "let logic = not False and True or False\n" +
           'let display = x => "${x}"\n' +
           "let equal = x => x == x",
@@ -1753,9 +1753,11 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain('const joined = "a" + "b";');
     // `**` at `BigInt` reaches `Pow<BigInt>`'s member now, whose body is the
     // negative-exponent guard over the raw native (#344) — the helper the row
-    // used to name is `Int`'s alone.
+    // used to name is `Int`'s alone. The exponent crosses as the plain `Int`
+    // the member's seat declares (#541); it is the *member's own body* that
+    // converts, because JS `**` never mixes `bigint` and `number`.
     expect(output.text).not.toContain("__checkedPower");
-    expect(output.text).toContain("const powered = __Pow_BigInt.pow(2n, 3n);");
+    expect(output.text).toContain("const powered = __Pow_BigInt.pow(2n, 3);");
     expect(output.text).toContain(
       "const logic = !false && true || false;",
     );

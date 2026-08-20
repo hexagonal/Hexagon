@@ -215,7 +215,7 @@ Annotations are useful when they communicate intent:
 
 ```hexagon
 export let circleArea(radius: Float): Float =
-    3.14 * radius ** 2.0
+    3.14 * radius ** 2
 ```
 
 They also resolve an otherwise ambiguous producer or deliberately restrict a more

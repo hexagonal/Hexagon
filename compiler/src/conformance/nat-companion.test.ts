@@ -187,14 +187,17 @@ describe("`gcd` needs no absolute value here", () => {
   });
 });
 
-describe("`Pow<Nat>` is the raw native, guard and all absent", () => {
+describe("`Pow<Nat>` carries the guard the `Int` exponent made reachable (#541)", () => {
   /**
-   * Operators §6.3's amended row: the negative-exponent guard `Int` and `BigInt`
-   * carry is dead by typing at `Nat`, so it is not written. That makes `**` at
-   * `Nat` the one integer exponentiation that still *inlines* — the raw operator
-   * really is the slot, so rendering it is not a second implementation.
+   * Operators §6.3's `Nat` row, as the reshape rewrote it. The old homogeneous
+   * member gave `Nat` a *`Nat`* exponent, which refused a negative one by type
+   * and left the guard dead — the row said so, and the instance was the raw
+   * native with nothing above it. The `Int` exponent seat makes `pow(n, -1)`
+   * spellable at `Nat`, so the guard is now written and reachable, and `**` at
+   * `Nat` joins `Int` and `BigInt` in taking the dictionary route to its
+   * companion's member rather than inlining.
    */
-  test("`**` at `Nat` computes, and emits as the operator", async () => {
+  test("`**` at `Nat` computes, and reaches its companion's guarded member", async () => {
     const source = [
       "export let eight: Nat = 2 ** 3",
       "export let one: Nat = 7 ** 0",
@@ -207,22 +210,40 @@ describe("`Pow<Nat>` is the raw native, guard and all absent", () => {
     expect(exports["eight"]).toBe(8);
     expect(exports["one"]).toBe(1);
     expect(exports["big"]).toBe(243);
-    expect(text).toContain("const eight = 2 ** 3;");
-    expect(text).toContain("const big = 3 ** 5;");
+    expect(text).toContain("__Pow_Nat.pow(2, 3)");
+    expect(text).toContain("__Pow_Nat.pow(3, 5)");
     expect(text).not.toContain("__checkedPower");
-    expect(text).not.toContain("Pow_Nat");
   });
 
-  /** Contrast, in one program: the same operator at `Int` takes its guard. */
-  test("`Int` and `Nat` part ways at `pow`, in the same module", () => {
+  test("a negative exponent at `Nat` throws, where the old seat refused it by type", async () => {
+    // The regression the reshape accepted knowingly, and the only behavioural
+    // one it has: `Nat`'s algebra runs out exactly where `Int`'s does, and says
+    // so with the message the whole integer family shares.
+    const exports = await runMain([
+      "let one: Nat = 1",
+      "let negative: Int = -1",
+      "export let boom(): Nat = one ** negative",
+      "",
+    ].join("\n"));
+
+    const error = threw(exports["boom"] as () => unknown);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).toMatchObject({
+      name: "NegativeExponentError",
+      message: "an integer exponent cannot be negative",
+    });
+  });
+
+  /** In one program: the two integer instances now agree, guard and route. */
+  test("`Int` and `Nat` no longer part ways at `pow`", () => {
     const text = emitted([
       "export let guarded: Int = 4 ** 2",
-      "export let bare: Nat = 5 ** 2",
+      "export let alsoGuarded: Nat = 5 ** 2",
       "",
     ].join("\n"));
 
     expect(text).toContain("__Pow_Int.pow(4, 2)");
-    expect(text).toContain("const bare = 5 ** 2;");
+    expect(text).toContain("__Pow_Nat.pow(5, 2)");
   });
 });
 
@@ -319,8 +340,9 @@ describe("Primitive Types §1's checked boundary conversion", () => {
     expect(text).toContain("__a => __a");
     expect(text).toContain("(__a, __b) => __a ** __b");
     expect(text).toContain('"Nat.mod: divisor is zero"');
-    // No guard above `pow`, which is the absence this type is about.
-    expect(text).not.toContain("NegativeExponentError");
+    // `natPow` is still the *raw* `**`, its guard now sitting above it in
+    // Hexagon (#541) exactly as `intPow`'s and `bigIntPow`'s do.
+    expect(text).toContain("an integer exponent cannot be negative");
     // The self-identity is the plain binding, with no host call behind it —
     // now the member's own seat (Constraints §6.1, #444).
     expect(text).toContain("const __Num_Nat_fromNat = value => value;");

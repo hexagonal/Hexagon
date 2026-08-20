@@ -20,7 +20,7 @@ extern from "hex:intrinsic"
     fun natEquals as nativeEquals(left: Nat, right: Nat): Bool
     fun natCompare as nativeCompare(left: Nat, right: Nat): Ordering
     fun natShow as nativeShow(value: Nat): String
-    fun natPow as nativePow(left: Nat, right: Nat): Nat
+    fun natPow as nativePow(value: Nat, exponent: Int): Nat
     fun natHash as nativeHash(value: Nat): Int
     fun natQuot as nativeQuot(left: Nat, right: Nat): Nat
     fun natRem as nativeRem(left: Nat, right: Nat): Nat
@@ -47,10 +47,14 @@ honor Show<Nat> =
     show(value) = nativeShow(value)
 
 honor Pow<Nat> =
-    (** `left` raised to the power `right`. It never throws: the guard `Int` and
-        `BigInt` carry is dead here, because a `Nat` exponent cannot be
-        negative. *)
-    pow(left, right) = nativePow(left, right)
+    (** `value` raised to the power `exponent`. Throws `NegativeExponentError`
+        when `exponent` is negative: a negative power of a natural number is not
+        a natural number. *)
+    pow(value, exponent) =
+        if exponent < 0 then
+            throw(NegativeExponentError("an integer exponent cannot be negative"))
+        else
+            nativePow(value, exponent)
 
 honor Hash<Nat> =
     (** A hash of `value`. Equal `Nat`s hash equally, which is what `Eq` above

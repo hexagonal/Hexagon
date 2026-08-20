@@ -66,7 +66,7 @@ record Point = {x: Float, y: Float}
 
 let distanceFromOrigin(point: Point): Float =
     match point
-        Point({x, y}) => (x ** 2.0 + y ** 2.0) ** 0.5
+        Point({x, y}) => Float.pow(x ** 2 + y ** 2, 0.5)
 ```
 
 `Point({x, y})` is the pattern-side counterpart of constructing with `Point({...})`.

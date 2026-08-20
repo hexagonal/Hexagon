@@ -4435,17 +4435,18 @@ class JavaScriptEmitter {
     // dictionary route below, which is where its implementation actually lives.
     //
     // `pow` is the one member whose inlining depends on where its guard lives.
-    // At `BigInt` and at `Int` the negative-exponent guard is Hexagon in the
-    // companion now (#344), so inlining `a ** b` would reinstate the retired
-    // implementation beside the source one — those two take the dictionary
-    // route to the member their own module exports. `Nat` and `Float` still
-    // inline, and correctly: at `Nat` the guard is dead by typing, so the raw
-    // `**` *is* the slot, and `Float` never had a guard at all.
+    // At `BigInt`, `Int`, and now `Nat` the negative-exponent guard is Hexagon
+    // in the companion, so inlining `a ** b` would reinstate the retired
+    // implementation beside the source one — those three take the dictionary
+    // route to the member their own module exports. `Nat` joined them with the
+    // `Int` exponent seat (#541), which made a negative exponent spellable
+    // there and so gave the guard something to catch. Only `Float` still
+    // inlines, and correctly: it never had a guard at all, and its member's
+    // `Int` exponent is the same JavaScript `number` the raw `**` wants.
     const candidate = INLINED_OPERATOR_MEMBERS.includes(expression.member)
       ? primitiveInstance(expression.evidence)
       : undefined;
-    const instance = expression.member === "pow" &&
-        (candidate === "BigInt" || candidate === "Int")
+    const instance = expression.member === "pow" && candidate !== "Float"
       ? undefined
       : candidate;
     if (instance === undefined) {
@@ -4507,10 +4508,12 @@ class JavaScriptEmitter {
           operand(rightExpression, Precedence.Additive)
         );
       case "pow": {
-        // Every instance still reaching this arm inlines to the raw operator
-        // (#344): `BigInt` and `Int` were routed to their companions' guarded
-        // members above, so what is left is `Nat`, whose guard is dead by
-        // typing, and `Float`, which never had one. JS `**` refuses an
+        // The one instance still reaching this arm inlines to the raw operator:
+        // `Nat`, `Int`, and `BigInt` were routed to their companions' guarded
+        // members above, so what is left is `Float`, which never had a guard.
+        // Its member's exponent is an `Int` and its own seat a `Float`, but
+        // both are one JavaScript `number` and the conversion between them is
+        // the identity, so the raw `**` is the slot exactly. JS `**` refuses an
         // unparenthesized unary left operand, so a negated base gets its
         // parentheses here rather than from the precedence table.
         const left = leftExpression === undefined
