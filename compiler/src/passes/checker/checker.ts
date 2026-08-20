@@ -5538,29 +5538,44 @@ class Checker {
     const establishedVariables = new Set<number>();
     let next = 0;
 
-    // One index of the eager sweep. Returns whether it unified — a deferred
-    // argument has been filed rather than checked.
-    const eager = (index: number): boolean => {
+    // Which deferred class an argument belongs to, or `undefined` for one the
+    // sweep unifies on the spot. Classification is a *question*, asked without
+    // filing anything: `establishPrefix` needs the answer to decide whether it
+    // may proceed, and an argument it declines must still arrive at `finish`
+    // undispositioned — asked again there, at the moment the unsplit sweep would
+    // have asked, since a destination it saw as a variable may have been solved
+    // in between.
+    const deferral = (index: number): "literal" | "numeric" | undefined => {
+      const source = this.#prune(actuals[index] ?? ERROR);
+      const destination = this.#prune(parameters[index] ?? ERROR);
+      if (destination.kind !== "Variable") return undefined;
+      if (source.kind === "Variable" && source.literalOnly) return "literal";
+      if (source.kind === "Constructor" && ["Nat", "Int"].includes(source.name)) {
+        return "numeric";
+      }
+      return undefined;
+    };
+
+    // One index of the eager sweep, dispositioned exactly once: unified here, or
+    // filed to the class it belongs to. Every caller advances `next` past it, so
+    // no index can be filed twice — a double filing is invisible while the
+    // unification succeeds and reports the same mismatch once per copy when it
+    // does not.
+    const eager = (index: number): void => {
       const actual = actuals[index] ?? ERROR;
       const expected = parameters[index] ?? ERROR;
       const expression = expressions[index];
-      if (expression === undefined) return true;
-      const source = this.#prune(actual);
-      const destination = this.#prune(expected);
-      if (
-        source.kind === "Variable" && source.literalOnly &&
-        destination.kind === "Variable"
-      ) {
+      if (expression === undefined) return;
+      const filed = deferral(index);
+      if (filed === "literal") {
         deferredLiteralArguments.push(index);
-        return false;
+        return;
       }
-      if (
-        source.kind === "Constructor" && ["Nat", "Int"].includes(source.name) &&
-        destination.kind === "Variable"
-      ) {
+      if (filed === "numeric") {
         deferredNumericArguments.push(index);
-        return false;
+        return;
       }
+      const source = this.#prune(actual);
       const independentlyEstablished = source.kind !== "Variable" ||
         this.#supportsNumericTarget(source, true);
       this.#unifyExpected(expected, actual, expression, span, true);
@@ -5568,7 +5583,6 @@ class Checker {
       if (independentlyEstablished && established.kind === "Variable") {
         establishedVariables.add(established.id);
       }
-      return true;
     };
 
     return {
@@ -5584,15 +5598,21 @@ class Checker {
           // it must keep doing so.
           const actual = actuals[next];
           if (actual === undefined || this.#prune(actual).kind === "Variable") return;
-          if (!eager(next)) return;
+          // A deferred argument is left where it stands, unfiled: it establishes
+          // nothing for the callback either, and filing it here would file it
+          // again at every later turn and once more at `finish`.
+          if (deferral(next) !== undefined) return;
+          eager(next);
           next += 1;
         }
       },
       finish: (): void => {
         // The remainder of the eager sweep, still in index order: the prefix
         // above and this loop partition the arguments at one boundary, so the
-        // order the sweep sees is the order it always saw.
+        // order the sweep sees is the order it always saw, and every index is
+        // dispositioned by exactly one of the two.
         for (let index = next; index < actuals.length; index += 1) eager(index);
+        next = actuals.length;
         this.#checkDeferredArguments(
           parameters,
           actuals,

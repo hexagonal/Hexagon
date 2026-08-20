@@ -209,6 +209,113 @@ describe("the forwarding forms (§4.3)", () => {
     )).toEqual([]);
   });
 
+  /**
+   * The **one-sided** shapes, for every branching form that forwards.
+   *
+   * A specimen with a match function in *both* branches proves less than it
+   * looks: the seat only has to notice one of them to open, so the second read
+   * is never exercised and a compiler that consulted only the first would pass.
+   * Each pin below puts the lambda in exactly one branch and an ordinary
+   * reference in the other, so every branch read is load-bearing on its own.
+   */
+  describe("one branch at a time", () => {
+    const other = "let other: (Int) -> String = value => \"other\"\n";
+
+    const oneSided = (body: string): readonly string[] =>
+      projectDiagnostics(
+        other +
+          "let flag: Bool = True\n" +
+          `let sign: (Int) -> String =\n${body}` +
+          "export let a: String = sign(3)\n",
+      );
+
+    test("`if` — the lambda in only the *then* branch", () => {
+      expect(oneSided(
+        "    if flag then\n" +
+          "        match\n" +
+          guardOnly("            ") +
+          "    else\n" +
+          "        other\n",
+      )).toEqual([]);
+    });
+
+    test("`if` — the lambda in only the *else* branch", () => {
+      expect(oneSided(
+        "    if flag then\n" +
+          "        other\n" +
+          "    else\n" +
+          "        match\n" +
+          guardOnly("            "),
+      )).toEqual([]);
+    });
+
+    test("`match` — the lambda in only the first arm body", () => {
+      expect(oneSided(
+        "    match flag\n" +
+          "        True => match\n" +
+          guardOnly("            ") +
+          "        False => other\n",
+      )).toEqual([]);
+    });
+
+    test("`match` — the lambda in only the last arm body", () => {
+      expect(oneSided(
+        "    match flag\n" +
+          "        True => other\n" +
+          "        False => match\n" +
+          guardOnly("            "),
+      )).toEqual([]);
+    });
+
+    test("`try` — the lambda in only the body", () => {
+      expect(projectDiagnostics(
+        "exception Boom(reason: String)\n" +
+          other +
+          "let sign: (Int) -> String =\n" +
+          "    try\n" +
+          "        match\n" +
+          guardOnly("            ") +
+          "    catch\n" +
+          "        Boom(_) => other\n" +
+          "export let a: String = sign(3)\n",
+      )).toEqual([]);
+    });
+
+    test("the match catch clause — the lambda in only a catch arm body", () => {
+      // Catch arms occupy two seats with one grammar (Pattern Matching §6.2),
+      // and the clause on a `match` is the second. Its arm bodies are value
+      // paths of the construct exactly as `try`'s are, so they forward too.
+      expect(projectDiagnostics(
+        "exception Boom(reason: String)\n" +
+          other +
+          "let risky(flag: Bool): Bool = if flag then throw(Boom(\"x\")) else True\n" +
+          "let flag: Bool = True\n" +
+          "let sign: (Int) -> String =\n" +
+          "    match risky(flag)\n" +
+          "        True => other\n" +
+          "        False => other\n" +
+          "    catch\n" +
+          "        Boom(_) => match\n" +
+          guardOnly("            ") +
+          "export let a: String = sign(3)\n",
+      )).toEqual([]);
+    });
+
+    test("`try` — the lambda in only a catch arm body", () => {
+      expect(projectDiagnostics(
+        "exception Boom(reason: String)\n" +
+          other +
+          "let sign: (Int) -> String =\n" +
+          "    try\n" +
+          "        other\n" +
+          "    catch\n" +
+          "        Boom(_) => match\n" +
+          guardOnly("            ") +
+          "export let a: String = sign(3)\n",
+      )).toEqual([]);
+    });
+  });
+
   test("no other form forwards: a tuple component declines", () => {
     // The pin that makes "no other form forwards" a claim with teeth. A tuple
     // literal's components synthesize exactly as before, so the match function
@@ -295,6 +402,32 @@ describe("the ordering pin (§4.3)", () => {
       parameters: [{ kind: "Primitive", name: "Float" }],
       result: { kind: "Primitive", name: "String" },
     });
+  });
+
+  test("a mismatched argument reports once, however many landings precede it", () => {
+    // The prefix and the closing sweep partition the arguments: every index is
+    // dispositioned by exactly one of them. An argument the prefix declines is
+    // left where it stands rather than filed, or each later landing — and the
+    // sweep after them — would file it again, and a copy of a *failing*
+    // unification is a copy of its diagnostic.
+    //
+    // Here `n` is an `Int` against the variable parameter `a`, so it is
+    // deferred; two match-function arguments follow it, each opening a prefix;
+    // and `"boom"` then settles `a` at `String`, which the deferred `Int` no
+    // longer meets. The named-function spelling of the same call is the
+    // control — it lands nothing, opens no prefix, and has always reported once.
+    const call = (callbacks: string): string =>
+      "let g(a1: a, m1: (Int) -> String, m2: (Int) -> String, a2: a): String = \"x\"\n" +
+      "let n: Int = 1\n" +
+      "let sign: (Int) -> String = match\n" +
+      guardOnly("    ") +
+      `export let r: String = g(n, ${callbacks}, "boom")\n`;
+
+    const landings = "match\n" + guardOnly("    ") + ", match\n" + guardOnly("    ");
+    expect(projectDiagnostics(call(landings)))
+      .toEqual(["type mismatch: expected String, found Int"]);
+    expect(projectDiagnostics(call("sign, sign")))
+      .toEqual(["type mismatch: expected String, found Int"]);
   });
 
   test("the callee-position flavours keep compiling at `p : Float` (#517's ledger)", () => {
