@@ -301,41 +301,88 @@ function signatureInlet(
 }
 
 /**
- * Whether an expectation given to this expression could reach a **lambda** —
- * the only place Functions §4.3 lets one land. The walk is exactly §4.3's
+ * The two-pass schedule's **deferred class** (Functions §4.3): a syntactic
+ * lambda literal — the arrow form, and Pattern Matching §6.7's scrutinee-less
+ * `match`, which the parser desugars *to* one — annotated parameters or not,
+ * **read through grouping parentheses**, so `(x => e)` defers as `x => e` does.
+ * Nothing else defers: a name bound to a lambda, a call producing one, and an
+ * ascribed lambda — whose face the ascription itself supplies — are all first
+ * pass. One class serves both positions: argument, and callee (the pipe seat).
+ */
+function defersAsLambda(expression: Resolved.Expr): boolean {
+  return expression.kind === "Lambda" ||
+    (expression.kind === "Group" && defersAsLambda(expression.expression));
+}
+
+/**
+ * Whether an expectation given to this expression could **land** — Functions
+ * §4.3's two landing sites, a lambda literal and an arithmetic operation
+ * (Numeric Literals §5.1's expected-type lift) — reached through §4.3's
  * forwarding set: grouping parentheses, a block's final expression, both `if`
  * branches, a `try`'s body block, and every `match`/`try` arm body, catch arms
- * included. **No other form forwards**, so a tuple component, an operand, or a
- * call's own result stops it here.
+ * included. **No other form forwards**, so a tuple component or a call's own
+ * result stops it here. An operand does not forward either, but the operation
+ * *above* it is a landing site, and the lift reaches the operands from there.
  *
- * This is not a typing rule and adds none: propagation is inert away from a
- * lambda, so a seat whose expectation cannot possibly land does not need to
+ * This is not a typing rule and adds none: propagation is inert away from the
+ * two sites, so a seat whose expectation cannot possibly land does not need to
  * compute one — and a seat that elaborates its annotation only when the answer
- * is `true` keeps every other program's elaboration order to the byte, which is
- * how the monotonicity pin is *implemented* rather than merely argued.
+ * is `true` keeps every other program's elaboration order to the byte.
  */
-function landsAtLambda(expression: Resolved.Expr): boolean {
+function expectationLands(expression: Resolved.Expr): boolean {
   switch (expression.kind) {
     case "Lambda":
       return true;
+    case "Binary":
+      return liftsAtOperator(expression.operator);
+    case "Unary":
+      return expression.operator !== "Not";
     case "Group":
-      return landsAtLambda(expression.expression);
+      return expectationLands(expression.expression);
     case "Block": {
       const final = expression.items.at(-1);
-      return final?.kind === "ExprItem" && landsAtLambda(final.expression);
+      return final?.kind === "ExprItem" && expectationLands(final.expression);
     }
     case "If":
-      return landsAtLambda(expression.consequence) ||
-        landsAtLambda(expression.alternative);
+      return expectationLands(expression.consequence) ||
+        expectationLands(expression.alternative);
     case "Try":
-      return landsAtLambda(expression.body) ||
-        expression.arms.some((arm) => landsAtLambda(arm.body));
+      return expectationLands(expression.body) ||
+        expression.arms.some((arm) => expectationLands(arm.body));
     case "Match":
-      return expression.arms.some((arm) => landsAtLambda(arm.body)) ||
-        (expression.catchArms ?? []).some((arm) => landsAtLambda(arm.body));
+      return expression.arms.some((arm) => expectationLands(arm.body)) ||
+        (expression.catchArms ?? []).some((arm) => expectationLands(arm.body));
     default:
       return false;
   }
+}
+
+/**
+ * The constraint an arithmetic operator elaborates to, or `undefined` for an
+ * operator outside the lift's reach. Numeric Literals §5.1 names exactly four:
+ * `Num`, `Signed`, `Frac`, `Pow`. `Concat`, the logical four, and `Range` carry
+ * no algebra a written face could name, so no expectation lifts at them.
+ */
+function liftConstraint(
+  operator: Resolved.BinaryOperator,
+): Typed.ConstraintName | undefined {
+  switch (operator) {
+    case "Add":
+    case "Multiply":
+      return "Num";
+    case "Subtract":
+      return "Signed";
+    case "Divide":
+      return "Frac";
+    case "Power":
+      return "Pow";
+    default:
+      return undefined;
+  }
+}
+
+function liftsAtOperator(operator: Resolved.BinaryOperator): boolean {
+  return liftConstraint(operator) !== undefined;
 }
 
 /**
@@ -343,8 +390,11 @@ function landsAtLambda(expression: Resolved.Expr): boolean {
  * remaining arguments are elaborated (Functions §4.3's argument seat, #513).
  */
 interface ArgumentPass {
-  /** Checks the already-elaborated arguments before `limit`, while it is safe. */
-  readonly establishPrefix: (limit: number) => void;
+  /**
+   * Checks the first pass's arguments — every index outside the deferred
+   * lambda class — before the second pass elaborates.
+   */
+  readonly establishFirstPass: (deferredLambdas: ReadonlySet<number>) => void;
   /** The rest of the sweep, then the two deferred classes. */
   readonly finish: () => void;
 }
@@ -2333,13 +2383,31 @@ class Checker {
     // whole-signature unification below repeats it harmlessly.
     if (
       parameters !== undefined && receiver !== undefined &&
-      expression.arguments.some(landsAtLambda)
+      expression.arguments.some(expectationLands)
     ) {
       this.#unify(parameters[0] ?? ERROR, receiver, expression.callee.span);
     }
-    return expression.arguments.map((argument, index) =>
-      this.#inferExpr(argument, level, parameters?.[index + 1]),
-    );
+    // §4.3's two passes, here as at a named call: non-lambda arguments in
+    // source order, then lambda literals in source order, each expectation
+    // pruned at its turn. The member's first parameter is the receiver's, so
+    // the arguments read from index 1.
+    const types: Mono[] = expression.arguments.map(() => ERROR);
+    const deferred: number[] = [];
+    for (const [index, argument] of expression.arguments.entries()) {
+      if (defersAsLambda(argument)) {
+        deferred.push(index);
+        continue;
+      }
+      types[index] = this.#inferExpr(argument, level, parameters?.[index + 1]);
+    }
+    for (const index of deferred) {
+      types[index] = this.#inferExpr(
+        expression.arguments[index]!,
+        level,
+        parameters?.[index + 1],
+      );
+    }
+    return types;
   }
 
   /**
@@ -2837,7 +2905,7 @@ class Checker {
         //
         // A partially annotated face supplies what it writes; its holes ride
         // along as the ordinary inference variables they elaborate to.
-        const suppliedFace = annotation !== undefined && landsAtLambda(item.value)
+        const suppliedFace = annotation !== undefined && expectationLands(item.value)
           ? this.#inAnnotationPosition(annotation, () =>
             this.#annotationType(
               annotation,
@@ -3110,7 +3178,7 @@ class Checker {
         // established. The unannotated `var` supplies nothing: first-use pinning
         // has settled nothing yet at the initializer.
         const annotation = item.annotation;
-        const suppliedFace = annotation !== undefined && landsAtLambda(item.value)
+        const suppliedFace = annotation !== undefined && expectationLands(item.value)
           ? this.#inAnnotationPosition(annotation, () =>
             this.#annotationType(
               annotation,
@@ -3660,14 +3728,15 @@ class Checker {
   }
 
   /**
-   * Functions §4.3 *(#513)*: `expected` is the type a **seat** wrote around this
-   * expression, carried inward through the forwarding forms and **landing only
-   * at a lambda**. Everywhere else it is inert — no unification, no conversion,
-   * no diagnostic, and no Numeric Literals §5.1 widening target — because the
-   * seat's own final check remains the typing authority. Absent it, every path
-   * below is byte-for-byte what it was before propagation existed, which is the
-   * monotonicity pin's implementation: propagation only *moves* the seat's own
-   * unifications earlier, at the one place a lambda's parameters are born.
+   * Functions §4.3 *(#513, #517)*: `expected` is the type a **seat** wrote
+   * around this expression, carried inward through the forwarding forms and
+   * landing at exactly two sites — a **lambda literal**, where it fixes the
+   * parameters before the body is inferred, and an **arithmetic operation**,
+   * where a concrete type carrying the operator's instance is the operation's
+   * home (Numeric Literals §5.1's lift). **One boundary at operations, none
+   * elsewhere**: away from those two sites the expectation is inert — no
+   * unification, no conversion, no diagnostic, and no widening target — because
+   * the seat's own final check remains the typing authority.
    */
   #inferExpr(expression: Resolved.Expr, level: number, expected?: Mono): Mono {
     let type: Mono;
@@ -3856,7 +3925,7 @@ class Checker {
         // it establishes its own expectation and passes no enclosing one on.
         const enclosingAscribedType = this.#ascribedTypeSpan;
         let suppliedFace: Mono | undefined;
-        if (landsAtLambda(expression.expression)) {
+        if (expectationLands(expression.expression)) {
           this.#ascribedTypeSpan = expression.annotation.span;
           suppliedFace = this.#annotationType(
             expression.annotation,
@@ -4040,13 +4109,14 @@ class Checker {
         // binding annotation supplies its value — elaborated early only where an
         // expectation can land, so every other program keeps its elaboration
         // order to the letter. The expectation's own result component supplies
-        // otherwise; neither is *unified* with the body here — that stays the
-        // seat's final check, which is why `let g: (Int) -> Float = x => x + x`
-        // keeps failing (Numeric Literals §5.1: propagation establishes no
-        // widening target).
+        // otherwise. Neither is *unified* with the body here; that stays the
+        // seat's final check. What the body's expectation does reach is §5.1's
+        // lift at an arithmetic body, which is why the landing pair agrees:
+        // `let g: (Int) -> Float = x => x + x` runs its addition at `Float`,
+        // and `let g = (x: Int): Float => x + x` emits the same JavaScript.
         let returnAnnotationType: Mono | undefined;
         if (
-          expression.returnAnnotation !== undefined && landsAtLambda(expression.body)
+          expression.returnAnnotation !== undefined && expectationLands(expression.body)
         ) {
           returnAnnotationType = this.#annotationType(
             expression.returnAnnotation,
@@ -4483,23 +4553,42 @@ class Checker {
             break;
           }
         }
-        const callee = this.#inferExpr(expression.callee, level);
-        // §4.3's argument seat. **An application elaborates its callee before
-        // its arguments** — unchanged, and the reason a known callee can supply
-        // at all. Where the callee's type is a function of this call's arity,
-        // its parameter types supply the arguments pointwise; constructor
-        // applications included, a constructor being a function with a known
-        // type. A callee whose type is still an undetermined variable supplies
-        // nothing, and the arguments synthesize exactly as before.
-        //
-        // Arguments are checked **in source order, left to right**, each
-        // argument's expectation *pruned at its turn* — which is what makes the
-        // subject-first convention pay, the subject resolving the instantiation
-        // before the callback's expectation is read. The two-pass order
-        // (lambdas last) is deliberately not adopted: contextual widening makes
-        // elaboration order observable through variables shared between sibling
-        // arguments, so deferring a lambda would lose programs the source order
-        // accepts — which the monotonicity pin forbids (#517 holds the ledger).
+        // §4.3's normative elaboration schedule *(#517)*. An application
+        // elaborates its **callee first unless the callee is a lambda literal**,
+        // then non-lambda arguments in source order, then lambda-literal
+        // arguments in source order. Where the callee's type is a function of
+        // this call's arity, its parameter types supply the arguments pointwise;
+        // constructor applications included, a constructor being a function with
+        // a known type. A callee whose type is still an undetermined variable
+        // supplies nothing, and the arguments synthesize exactly as before.
+        const arguments_: Mono[] = expression.arguments.map(() => ERROR);
+        const deferredLambdas = new Set(
+          expression.arguments.flatMap((argument, index) =>
+            defersAsLambda(argument) ? [index] : []
+          ),
+        );
+        const calleeIsLambda = defersAsLambda(expression.callee);
+        if (calleeIsLambda) {
+          // **The pipe seat** (§4.3, Operators §8). `value |> match …` rewrites
+          // to `(match …)(value)` before inference, so the seat that supplies a
+          // pipe stage's lambda *is* this application: the deferred class in
+          // callee position, one schedule serving both. The arguments elaborate
+          // first — reading no expectation, there being no callee type yet —
+          // and the callee then lands the function type they build, pointwise,
+          // over a fresh undetermined result. The landing rules govern from
+          // there: an arity mismatch declines silently and the seat's ordinary
+          // diagnostics stand.
+          for (const [index, argument] of expression.arguments.entries()) {
+            arguments_[index] = this.#inferExpr(argument, level);
+          }
+        }
+        const callee = calleeIsLambda
+          ? this.#inferExpr(expression.callee, level, {
+            kind: "Function",
+            parameters: [...arguments_],
+            result: this.#fresh(level, false),
+          })
+          : this.#inferExpr(expression.callee, level);
         const calleeParameters = (() => {
           const known = this.#prune(callee);
           return known.kind === "Function" &&
@@ -4507,20 +4596,31 @@ class Checker {
             ? known.parameters
             : undefined;
         })();
-        const arguments_: Mono[] = [];
         const pass = calleeParameters === undefined ? undefined : this.#argumentPass(
           calleeParameters,
           arguments_,
           expression.arguments,
           expression.span,
         );
-        for (const [index, argument] of expression.arguments.entries()) {
-          // The expectation has to *be* something by the time it is read, so the
-          // arguments to this one's left are checked first — but only where an
-          // expectation can land, and only over the prefix that is already
-          // concrete. Everything else keeps its order to the letter.
-          if (pass !== undefined && landsAtLambda(argument)) pass.establishPrefix(index);
-          arguments_.push(this.#inferExpr(argument, level, calleeParameters?.[index]));
+        if (!calleeIsLambda) {
+          for (const [index, argument] of expression.arguments.entries()) {
+            if (deferredLambdas.has(index)) continue;
+            arguments_[index] = this.#inferExpr(argument, level, calleeParameters?.[index]);
+          }
+          if (deferredLambdas.size > 0) {
+            // An expectation has to *be* something by the time it is read, so
+            // the whole first pass is checked before the second elaborates: a
+            // callback anywhere in the list — ahead of its subject included —
+            // reads its expectation off a resolved instantiation.
+            pass?.establishFirstPass(deferredLambdas);
+            for (const index of deferredLambdas) {
+              arguments_[index] = this.#inferExpr(
+                expression.arguments[index]!,
+                level,
+                calleeParameters?.[index],
+              );
+            }
+          }
         }
         const result = this.#fresh(level, false);
         const knownCallee = this.#prune(callee);
@@ -4662,20 +4762,29 @@ class Checker {
         break;
       }
       case "Unary": {
-        const operand = this.#inferExpr(expression.operand, level);
+        // Numeric Literals §5.1's lift reaches unary negation too — the same
+        // gate, at `Signed`. `Not` is not arithmetic and lifts nothing.
+        const home = expression.operator === "Not"
+          ? undefined
+          : this.#operationHome("Negate", expected);
+        const operand = this.#inferExpr(expression.operand, level, home);
         if (expression.operator === "Not") {
           this.#unify(operand, this.#boolType(expression.span), expression.span);
           type = this.#boolType(expression.span);
           this.#requirements.set(expression, []);
         } else {
-          const requirement = this.#require("Signed", operand, expression.span);
+          if (home !== undefined) {
+            this.#unifyExpected(home, operand, expression.operand, expression.span, true);
+          }
+          const common = home ?? operand;
+          const requirement = this.#require("Signed", common, expression.span);
           this.#requirements.set(expression, [requirement]);
-          type = operand;
+          type = common;
         }
         break;
       }
       case "Binary":
-        type = this.#inferBinary(expression, level);
+        type = this.#inferBinary(expression, level, expected);
         break;
       case "Comparison": {
         const operands = expression.operands.map((operand) =>
@@ -5453,15 +5562,49 @@ class Checker {
     );
   }
 
-  #inferBinary(expression: Resolved.BinaryExpr, level: number): Mono {
+  /**
+   * Numeric Literals §5.1's **expected-type lift**: the home an arithmetic
+   * operation runs in when its seat wrote one. The gate is two conditions and
+   * no more — the expectation prunes to a **concrete** type, and that type
+   * carries the operator's own constraint instance. An expectation that is a
+   * variable, or a concrete type without the instance (`Pow` has no `Rat`),
+   * lifts nothing and the operation elaborates from its operands alone.
+   *
+   * `#supportsTarget` reads the instance table, which is the one channel for
+   * every subject there is (#344), so the gate is the same question evidence
+   * selection will ask.
+   */
+  #operationHome(
+    operator: Resolved.BinaryOperator | "Negate",
+    expected: Mono | undefined,
+  ): Mono | undefined {
+    if (expected === undefined) return undefined;
+    const constraint = operator === "Negate" ? "Signed" : liftConstraint(operator);
+    if (constraint === undefined) return undefined;
+    const target = this.#prune(expected);
+    if (target.kind === "Variable" || target.kind === "Error") return undefined;
+    return this.#supportsTarget(target, constraint) ? target : undefined;
+  }
+
+  #inferBinary(
+    expression: Resolved.BinaryExpr,
+    level: number,
+    expected?: Mono,
+  ): Mono {
     if (expression.operator === "Pipe") {
       const call = rewritePipe(expression);
       this.#pipeCalls.set(expression, call);
       return this.#inferExpr(call, level);
     }
 
-    const left = this.#inferExpr(expression.left, level);
-    const right = this.#inferExpr(expression.right, level);
+    // The written type is the arithmetic's home (Numeric Literals §5.1). The
+    // expectation reaches the operands **recursively** — an operand seat of a
+    // lifted operation expects the same type — so a whole arithmetic expression
+    // runs at its written type: `let r: Rat = (a + b) * c` is `Rat` throughout.
+    // Away from the lift the operands take no expectation, exactly as before.
+    const home = this.#operationHome(expression.operator, expected);
+    const left = this.#inferExpr(expression.left, level, home);
+    const right = this.#inferExpr(expression.right, level, home);
 
     if (["And", "Or", "Implies", "Iff"].includes(expression.operator)) {
       const bool = this.#boolType(expression.span);
@@ -5498,7 +5641,17 @@ class Checker {
             ? "Signed"
             : "Num";
     let common = left;
-    if (this.#tryWidenNumeric(expression.left, left, right, expression.span, true)) {
+    if (home !== undefined) {
+      // The home **is** the common type: each operand reaches it by exact
+      // unification or by §5.1's two conversions, each converted once, and the
+      // operation's evidence is selected at it. Operand-driven selection is the
+      // no-expectation case below.
+      this.#unifyExpected(home, left, expression.left, expression.span, true);
+      this.#unifyExpected(home, right, expression.right, expression.span, true);
+      common = home;
+    } else if (
+      this.#tryWidenNumeric(expression.left, left, right, expression.span, true)
+    ) {
       common = right;
     } else if (
       this.#tryWidenNumeric(expression.right, right, left, expression.span, true)
@@ -5513,16 +5666,16 @@ class Checker {
   }
 
   /**
-   * The bookkeeping one call's argument checking carries, so that a **prefix**
-   * of it can run early *(#513)*.
+   * The bookkeeping one call's argument checking carries, so that the **first
+   * pass** of it can run before the second elaborates *(#513, #517)*.
    *
-   * The pass itself is unchanged — the eager sweep in index order, then the two
-   * deferred classes. What #513 adds is `establishPrefix`: at the turn of an
-   * argument an expectation could land in, the already-elaborated arguments to
-   * its left are checked *first*, so a generic callee's instantiation is
-   * resolved before the callback's expected type is read off it. That is the
-   * subject-first convention paying for itself (§5.4): `Seq.map(xs, match …)`
-   * resolves `a` from `xs` and hands the arms `Int`.
+   * The sweep itself is unchanged — index order, then the two deferred
+   * numeric/literal classes. What the schedule adds is `establishFirstPass`:
+   * once every non-lambda argument has elaborated, they are checked against
+   * their parameters, so a callback *anywhere* in the list reads its expected
+   * type off an instantiation the first pass has already resolved (§4.3).
+   * `Seq.map(xs, match …)` resolves `a` from `xs` and hands the arms `Int`;
+   * so does the callback-first `apply(match …, xs)`.
    */
   #argumentPass(
     parameters: readonly Mono[],
@@ -5536,12 +5689,15 @@ class Checker {
     const deferredNumericArguments: number[] = [];
     const deferredLiteralArguments: number[] = [];
     const establishedVariables = new Set<number>();
-    let next = 0;
+    // Every index is dispositioned exactly once — unified, or filed to the
+    // class it belongs to. The two entry points partition the arguments
+    // between them, and `finish` re-asks about anything the first pass left.
+    const disposed = new Set<number>();
 
     // Which deferred class an argument belongs to, or `undefined` for one the
     // sweep unifies on the spot. Classification is a *question*, asked without
-    // filing anything: `establishPrefix` needs the answer to decide whether it
-    // may proceed, and an argument it declines must still arrive at `finish`
+    // filing anything: `establishFirstPass` needs the answer to decide whether
+    // it may proceed, and an argument it declines must still arrive at `finish`
     // undispositioned — asked again there, at the moment the unsplit sweep would
     // have asked, since a destination it saw as a variable may have been solved
     // in between.
@@ -5557,15 +5713,16 @@ class Checker {
     };
 
     // One index of the eager sweep, dispositioned exactly once: unified here, or
-    // filed to the class it belongs to. Every caller advances `next` past it, so
-    // no index can be filed twice — a double filing is invisible while the
-    // unification succeeds and reports the same mismatch once per copy when it
-    // does not.
+    // filed to the class it belongs to. `disposed` is what makes that "once" —
+    // a double filing is invisible while the unification succeeds and reports
+    // the same mismatch once per copy when it does not.
     const eager = (index: number): void => {
+      if (disposed.has(index)) return;
       const actual = actuals[index] ?? ERROR;
       const expected = parameters[index] ?? ERROR;
       const expression = expressions[index];
       if (expression === undefined) return;
+      disposed.add(index);
       const filed = deferral(index);
       if (filed === "literal") {
         deferredLiteralArguments.push(index);
@@ -5586,33 +5743,34 @@ class Checker {
     };
 
     return {
-      establishPrefix: (limit: number): void => {
-        while (next < limit) {
-          // Stops at the first argument that is not *already* concrete. An
-          // argument still sitting on an unsolved variable establishes nothing
-          // (the sweep's own `independentlyEstablished` test says so), and
-          // unifying one here would decide it from the parameter rather than
-          // letting a sibling decide it — the order race the pin forbids:
-          // `g(p, p + one)` at `g : (Float, Int) -> …` types `p` at `Int`
-          // through the sibling's arithmetic and widens the first argument, and
-          // it must keep doing so.
-          const actual = actuals[next];
-          if (actual === undefined || this.#prune(actual).kind === "Variable") return;
-          // A deferred argument is left where it stands, unfiled: it establishes
-          // nothing for the callback either, and filing it here would file it
-          // again at every later turn and once more at `finish`.
-          if (deferral(next) !== undefined) return;
-          eager(next);
-          next += 1;
+      establishFirstPass: (deferredLambdas: ReadonlySet<number>): void => {
+        for (let index = 0; index < actuals.length; index += 1) {
+          // The second pass's own arguments have not elaborated yet; their
+          // turn comes at `finish`.
+          if (deferredLambdas.has(index)) continue;
+          // Skips — never *decides* — an argument that is not already
+          // concrete. One still sitting on an unsolved variable establishes
+          // nothing (the sweep's own `independentlyEstablished` test says so),
+          // and unifying it here would decide it from the parameter rather than
+          // letting the second pass's lambda body decide it: `g(p, x =>
+          // useInt(p))` at `g : (Float, (Int) -> String) -> …` types `p` at
+          // `Int` through the callback and widens the first argument, and it
+          // must keep doing so.
+          const actual = actuals[index];
+          if (actual === undefined || this.#prune(actual).kind === "Variable") continue;
+          // A deferred numeric or literal argument is left where it stands,
+          // unfiled: it establishes nothing for the callback either, and its
+          // destination may still be solved before `finish` asks again.
+          if (deferral(index) !== undefined) continue;
+          eager(index);
         }
       },
       finish: (): void => {
-        // The remainder of the eager sweep, still in index order: the prefix
-        // above and this loop partition the arguments at one boundary, so the
-        // order the sweep sees is the order it always saw, and every index is
-        // dispositioned by exactly one of the two.
-        for (let index = next; index < actuals.length; index += 1) eager(index);
-        next = actuals.length;
+        // The eager sweep in index order, skipping what the first pass already
+        // dispositioned: every index is dispositioned by exactly one of the
+        // two, and the order among those the first pass left is the order the
+        // unsplit sweep saw.
+        for (let index = 0; index < actuals.length; index += 1) eager(index);
         this.#checkDeferredArguments(
           parameters,
           actuals,
