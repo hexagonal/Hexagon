@@ -3,25 +3,28 @@ import { describe, expect, test } from "vitest";
 import { compileMain, projectDiagnostics, runMain } from "../support/test-project.js";
 
 /**
- * Conformance for **expected-type propagation** — Functions §4.3, #513.
+ * Conformance for **expected-type propagation** — Functions §4.3, #513/#517.
  *
  * > An expected type flows in from the seats that write one, through the forms
- * > that return a subexpression's value, and lands at lambdas.
+ * > that return a subexpression's value, and lands at lambdas — and, as a
+ * > widening home, at arithmetic operations.
  *
  * The section is an **ordering device over the same HM judgments**, not a new
  * one: it performs early exactly the unifications the seat's final check
  * performs anyway. Three sentences of it are normative and shape this file:
  *
- * - **Landing only at lambdas.** Everywhere else the expectation is inert —
- *   never a diagnostic, never a conversion, never a Numeric Literals §5.1
- *   widening target. The tuple-component and widening pins below are what make
- *   that testable rather than merely asserted.
- * - **Left to right.** Arguments are checked in source order, each expectation
- *   read as resolved at its turn. The two-pass order (lambdas last) is
- *   *refuted*, not merely unchosen, by the order-race specimens here.
- * - **Monotone.** Every program accepted without propagation is accepted with
- *   it, at the same types. The whole existing suite is that sweep; the
- *   spot-checks here name the shapes the arc actually moved.
+ * - **Two landing sites, and no third.** A lambda literal, and an arithmetic
+ *   operation whose expected type is concrete and carries the operator's
+ *   instance (Numeric Literals §5.1's lift, whose own pins live in
+ *   `expected-type-lift.test.ts`). Everywhere else the expectation is inert —
+ *   never a diagnostic, never a conversion, never a widening target. The
+ *   tuple-component pin below is what makes that testable.
+ * - **The schedule is the semantics.** Callee first unless the callee is a
+ *   lambda literal, then non-lambda arguments in source order, then lambda
+ *   literals in source order. The schedule pins live in
+ *   `argument-schedule.test.ts`.
+ * - **Propagation is an ordering device, not a judgment.** No diagnostic names
+ *   it, in any outcome.
  *
  * The everyday beneficiary is the match function (Pattern Matching §6.7), whose
  * parameter type is often fixed by nothing *inside* it — so the guard-only
@@ -349,7 +352,12 @@ describe("the decline paths (§4.3)", () => {
     )).toEqual([rider]);
   });
 
-  test("a data-last call to a generic callee declines; the concrete shape supplies", () => {
+  test("a callback-first call to a generic callee now supplies (#517)", () => {
+    // §4.3's callback-first pin. The callback stands *ahead* of its subject, so
+    // under a source-order schedule the instantiation was unresolved at its
+    // turn and the arms saw a variable. Under the two-pass schedule the first
+    // pass elaborates `xs` and checks it against `Vector(a)`, and the second
+    // hands the arms `Int`.
     const generic = "let apply(transform: (a) -> b, values: Vector(a)): Vector(b) =\n" +
       "    [transform(values[0])]\n";
     const concrete = "let apply(transform: (Int) -> String, values: Vector(Int)): Vector(String) =\n" +
@@ -359,10 +367,8 @@ describe("the decline paths (§4.3)", () => {
       guardOnly("    ") +
       ", xs)\n";
 
-    // At the callback's turn the instantiation is unresolved — the subject
-    // stands to its *right* — so the arms see a variable.
-    expect(projectDiagnostics(generic + call)).toEqual([rider]);
-    // The same shape at concrete parameter types supplies and succeeds.
+    expect(projectDiagnostics(generic + call)).toEqual([]);
+    // The same shape at concrete parameter types supplies as it always did.
     expect(projectDiagnostics(concrete + call)).toEqual([]);
   });
 
@@ -374,24 +380,26 @@ describe("the decline paths (§4.3)", () => {
 });
 
 describe("the ordering pin (§4.3)", () => {
-  test("the widening pair: the propagated face is not a widening boundary", () => {
-    // Both members. Propagation moves unifications earlier; it does not move
-    // `Float` into the body's arithmetic (Numeric Literals §5.1's
-    // "independently established" list is closed against it).
-    expect(projectDiagnostics("let g: (Int) -> Float = x => x + x\n"))
-      .toEqual(["type mismatch: expected Float, found Int"]);
-    // The *written* return annotation is a widening boundary, as it always was.
+  test("the landing pair: both written faces are the arithmetic's home", () => {
+    // §4.3's landing pair, deliberate and now both members. The seat's written
+    // return type is the addition's home (Numeric Literals §5.1's lift), so the
+    // body runs at `Float`; the header spelling compiles identically. `Float`
+    // erases to the same representation, so both emit the `Int` addition's JS —
+    // `expected-type-lift.test.ts` value-checks the emission.
+    expect(projectDiagnostics(
+      "let g: (Int) -> Float = x => x + x\nexport let a: Float = g(1)\n",
+    )).toEqual([]);
     expect(projectDiagnostics(
       "let g = (x: Int): Float => x + x\nexport let a: Float = g(1)\n",
     )).toEqual([]);
   });
 
-  test("the order race: a source-first lambda pins what a sibling then widens", () => {
-    // The pin that guards the left-to-right order. `x => useFloat(p)` exactly
-    // pins the enclosing parameter at `Float`; the sibling `p + one` then
-    // widens to follow it. Under the two-pass order (lambdas last) the sibling
-    // would type `p` at `Int` first and strand this program — which is why that
-    // order is refused whole rather than adopted in part.
+  test("a concrete parameter type is the sibling argument's arithmetic home", () => {
+    // The first pass reads `total: Float` as `p + one`'s expected type, and the
+    // lift makes `Float` the addition's home — so `p` is `Float` before the
+    // deferred lambda is elaborated at all. Under the source-order schedule the
+    // *lambda* pinned `p` first and the sibling widened to follow; the written
+    // face now reaches the same type through the seat that wrote it.
     const source = "let useFloat(value: Float): String = \"f\"\n" +
       "let one: Int = 1\n" +
       "let combine(label: (Int) -> String, total: Float): String = label(0)\n" +
@@ -405,17 +413,17 @@ describe("the ordering pin (§4.3)", () => {
   });
 
   test("a mismatched argument reports once, however many landings precede it", () => {
-    // The prefix and the closing sweep partition the arguments: every index is
-    // dispositioned by exactly one of them. An argument the prefix declines is
-    // left where it stands rather than filed, or each later landing — and the
-    // sweep after them — would file it again, and a copy of a *failing*
+    // The first pass's check and the closing sweep partition the arguments:
+    // every index is dispositioned by exactly one of them. An argument the
+    // first pass declines is left where it stands rather than filed, or the
+    // sweep after it would file it again — and a copy of a *failing*
     // unification is a copy of its diagnostic.
     //
     // Here `n` is an `Int` against the variable parameter `a`, so it is
-    // deferred; two match-function arguments follow it, each opening a prefix;
-    // and `"boom"` then settles `a` at `String`, which the deferred `Int` no
-    // longer meets. The named-function spelling of the same call is the
-    // control — it lands nothing, opens no prefix, and has always reported once.
+    // deferred; two match-function arguments defer to the second pass; and
+    // `"boom"` then settles `a` at `String`, which the deferred `Int` no longer
+    // meets. The named-function spelling of the same call is the control — it
+    // defers nothing, checks nothing early, and has always reported once.
     const call = (callbacks: string): string =>
       "let g(a1: a, m1: (Int) -> String, m2: (Int) -> String, a2: a): String = \"x\"\n" +
       "let n: Int = 1\n" +
@@ -430,59 +438,60 @@ describe("the ordering pin (§4.3)", () => {
       .toEqual(["type mismatch: expected String, found Int"]);
   });
 
-  test("the callee-position flavours keep compiling at `p : Float` (#517's ledger)", () => {
-    // An application elaborates its callee before its arguments, and the pipe
-    // rewrites to exactly such an application. Both lambda-literal callee kinds
-    // are pinned here: the plain lambda, and the match function whose patterns
-    // fix its own type. A free reference in the callee's body pins `p` at
-    // `Float` before the argument's arithmetic is ever reached; argument-first
-    // would re-type it at `Int` and strand these callers.
+  test("the callee-position flavours read `p` off the argument (#517)", () => {
+    // An application elaborates its callee *after* its arguments when the
+    // callee is a lambda literal, and the pipe rewrites to exactly such an
+    // application. Both lambda-literal callee kinds are pinned here: the plain
+    // lambda, and the match function. The argument's arithmetic settles `p` at
+    // `Int` first; the callee's body then reads it, so `useFloat(p)` widens the
+    // `Int` value and `flavour` is `(Int) -> String`. Callee-first typed `p` at
+    // `Float`.
     const plain = "let useFloat(value: Float): String = \"f\"\n" +
       "let one: Int = 1\n" +
       "fun flavour(p) = (p + one) |> (x => useFloat(p))\n" +
-      "export let a: String = flavour(1.5)\n";
+      "export let a: String = flavour(1)\n";
     const matched = "let useFloat(value: Float): String = \"f\"\n" +
       "let one: Int = 1\n" +
       "fun flavour(p) = (show(p + one)) |> match\n" +
       "    \"0\" => useFloat(p)\n" +
       "    _ => \"other\"\n" +
-      "export let a: String = flavour(1.5)\n";
+      "export let a: String = flavour(1)\n";
 
     for (const source of [plain, matched]) {
       expect(projectDiagnostics(source)).toEqual([]);
       expect(schemeOf(source, "flavour")).toMatchObject({
-        parameters: [{ kind: "Primitive", name: "Float" }],
+        parameters: [{ kind: "Primitive", name: "Int" }],
       });
     }
   });
 });
 
-describe("the pipe seat's deferral (#517)", () => {
-  test("a guard-only pipe match refuses with the rider, in both §6.7 spellings", () => {
-    // The seat is deferred *whole*: `value |> match …` is the application whose
-    // callee is a lambda literal, and that seat would need the argument
-    // elaborated before the callee's body — the reorder the pins above forbid.
-    // So both spellings synthesize alike, and the rider's first rewrite (a
-    // preceding annotated `let`, then `value |> classify`) is the working pipe
-    // spelling.
+describe("the pipe seat supplies (#517)", () => {
+  test("a guard-only pipe match compiles, in both §6.7 spellings", () => {
+    // The pipe seat: `value |> match …` is the application whose callee is a
+    // lambda literal, so the argument elaborates first and the callee lands the
+    // function type it builds. Both spellings of §6.7 are served alike, and
+    // they agree — the desugar-equality pin, now succeeding together.
     const written = projectDiagnostics(
       "let classify: (Int) -> String = value =>\n" +
         "    value |> (v =>\n" +
         "        match v\n" +
         "            n when n > 0 => \"positive\"\n" +
-        "            _ => \"other\")\n",
+        "            _ => \"other\")\n" +
+        "export let a: String = classify(3)\n",
     );
     const desugared = projectDiagnostics(
       "let classify: (Int) -> String = value =>\n" +
         "    value |> match\n" +
         "        n when n > 0 => \"positive\"\n" +
-        "        _ => \"other\"\n",
+        "        _ => \"other\"\n" +
+        "export let a: String = classify(3)\n",
     );
-    expect(desugared).toEqual([rider]);
+    expect(desugared).toEqual([]);
     expect(written).toEqual(desugared);
   });
 
-  test("the rider's own rewrite is the working pipe spelling", () => {
+  test("the annotated-`let` rewrite is still a working pipe spelling", () => {
     expect(projectDiagnostics(
       "let classify: (Int) -> String = match\n" +
         "    n when n > 0 => \"positive\"\n" +
@@ -581,9 +590,9 @@ describe("monotonicity spot-checks (§4.3)", () => {
   });
 
   test("an unsolved argument is still decided by its sibling, not by its parameter", () => {
-    // The same race as the ordering pin above, in the shape the argument seat
-    // could have broken: a *lambda* argument means the arguments to its left are
-    // checked early, so the sweep stops at the first one that is not already
+    // The shape the argument seat could have broken: a deferred lambda means
+    // the first pass's arguments are checked before the second elaborates, and
+    // that check *skips* — never decides — an argument that is not already
     // concrete. `p` establishes nothing at its turn; the lambda's body decides
     // it, and the first argument then widens to `Float` exactly as it did
     // before propagation existed. Unifying `p` from its parameter here would

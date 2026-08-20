@@ -74,6 +74,17 @@ export class Bag {
   }
 
   /**
+   * How many diagnostics have been added, in production order and without the
+   * sorting `toArray` does. A pass that performs a unification early — one a
+   * later, coarser check will perform again — reads this before and after to
+   * learn whether its own attempt reported, so the later check can be given an
+   * `Error` to absorb instead of reporting the same mismatch twice.
+   */
+  get count(): number {
+    return this.#diagnostics.length;
+  }
+
+  /**
    * Returns diagnostics in source order while preserving production order for
    * diagnostics at the same location. This makes host output deterministic
    * without requiring passes to coordinate how they discover failures.
