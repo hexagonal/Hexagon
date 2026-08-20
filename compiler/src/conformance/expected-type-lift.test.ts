@@ -197,6 +197,20 @@ describe("the recursion", () => {
       .toContain("(BigInt(a) + BigInt(b)) * BigInt(c)");
   });
 
+  test("the recursion is observable in the value, not only the emission", async () => {
+    // A nested sum that folds past 2^53 at `Int`. If the home reached only the
+    // outermost operation, the inner sum would elaborate at `Int` and the
+    // finished, already-folded value would inject.
+    const exports = await runProject([["/main.hex",
+      "// nested exactness\n" +
+      "let large: Int = 9007199254740991\n" +
+      "let two: Int = 2\n" +
+      "let unit: Int = 1\n" +
+      "export let r: BigInt = (large + two) * unit\n",
+    ]]);
+    expect(exports["r"]).toBe(9007199254740993n);
+  });
+
   test("unary negation is a lifted operation too", () => {
     expect(verdict("export let r: BigInt = -a\n")).toEqual([]);
     expect(emitted("export let r: BigInt = -a\n")).toContain("-BigInt(a)");
