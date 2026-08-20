@@ -86,3 +86,117 @@ honor Pow<Rat> =
             // A reduced pair stays reduced under powers and a canonical bottom
             // is positive, so the invariant survives the raw constructor.
             Rat({top = base.top ** exponent, bottom = base.bottom ** exponent})
+
+// -- `toFloat`, and the exact integer arithmetic the single rounding needs. --
+//
+// `FloatRangeError` is `Float.hex`'s, in scope through the prelude: the range
+// that fails belongs to `Float`, not to any one door into it.
+//
+// The language has no shift operator, so every shift below is `2 ** k` at
+// `BigInt`, exact by `Pow<BigInt>`. Nothing here crosses into `Float` until the
+// final assembly, which is why the rounding happens once.
+
+// The number of binary digits in a positive `value`: the unique `n` with
+// `2 ** (n - 1) <= value < 2 ** n`. A doubling search finds a bound and a
+// bisection closes on it, so the cost is logarithmic in the answer rather than
+// linear in it — the exponents here reach into the thousands.
+let bitLength(value: BigInt): BigInt =
+    var high: BigInt = 1
+    while (2 ** high) <= value
+        high := high * 2
+    var low: BigInt = if high == 1 then 0 else high.quot(2)
+    while high - low > 1
+        let middle = (low + high).quot(2)
+        if (2 ** middle) <= value then
+            low := middle
+        else
+            high := middle
+    high
+
+// The two halves of `numerator * 2 ** scale / denominator` kept as an exact
+// integer pair: a positive `scale` scales the top and a negative one the
+// bottom, so no shift is ever undone and no quotient is ever taken twice.
+let scaledTop(value: BigInt, scale: BigInt): BigInt =
+    if scale > 0 then value * (2 ** scale) else value
+
+let scaledBottom(value: BigInt, scale: BigInt): BigInt =
+    if scale < 0 then value * (2 ** (-scale)) else value
+
+// The `scale` at which `floor(numerator * 2 ** scale / denominator)` holds
+// exactly 53 binary digits — the width of a double's significand. The two digit
+// counts place the quotient within a factor of two, so the first guess is right
+// or exactly one too high, and one comparison settles which.
+let alignedScale(numerator: BigInt, denominator: BigInt): BigInt =
+    let guess = 53 - (bitLength(numerator) - bitLength(denominator))
+    let raw = scaledTop(numerator, guess).quot(scaledBottom(denominator, guess))
+    if raw >= (2 ** 53) then guess - 1 else guess
+
+// The one rounding: the scaled quotient, carried up when the discarded
+// remainder is past half, and on an exact half only when carrying is what
+// leaves the significand even.
+let roundedSignificand(
+    numerator: BigInt,
+    denominator: BigInt,
+    scale: BigInt
+): BigInt =
+    let dividend = scaledTop(numerator, scale)
+    let divisor = scaledBottom(denominator, scale)
+    let quotient = dividend.quot(divisor)
+    let twiceRemainder = dividend.rem(divisor) * 2
+    if twiceRemainder > divisor then
+        quotient + 1
+    else
+        if twiceRemainder == divisor and quotient.rem(2) != 0 then
+            quotient + 1
+        else
+            quotient
+
+// `2 ** exponent` as a `Float`, exactly: a power of two inside the range is
+// among the values `BigInt.toFloat` never rounds.
+let powerOfTwo(exponent: BigInt): Float = (2 ** exponent).toFloat()
+
+// `significand * 2 ** -scale` as a `Float`, exactly. The significand holds at
+// most 53 bits, so it crosses exactly; the power is applied in two halves
+// because one whole factor would leave the range at either end — `2 ** 1074`
+// overflows and `2 ** -1074` is the smallest subnormal, whose product would
+// round a second time — while both halved intermediates stay normal.
+let assemble(significand: BigInt, scale: BigInt): Float =
+    let value = significand.toFloat()
+    if scale >= 0 then
+        let half = scale.quot(2)
+        value / powerOfTwo(half) / powerOfTwo(scale - half)
+    else
+        let magnitude = -scale
+        let half = magnitude.quot(2)
+        value * powerOfTwo(half) * powerOfTwo(magnitude - half)
+
+(** `value` as the nearest `Float` — correctly rounded, ties to even, and
+    rounded exactly once. Throws `FloatRangeError` where the honest answer would
+    not be an approximation at all: past `Float`'s finite range, or a nonzero
+    rational that would erase to zero. *)
+export let toFloat(value: Rat): Float =
+    if value.top == 0 then
+        0.0
+    else
+        let negative = value.top < 0
+        let numerator = if negative then -value.top else value.top
+        let denominator = value.bottom
+        let aligned = alignedScale(numerator, denominator)
+        // Below `2 ** -1022` a double keeps fewer than 53 bits, on a grid fixed
+        // at `2 ** -1074`. Rounding to 53 bits and scaling down afterwards would
+        // round a second time on that coarser grid, so the retained width is cut
+        // *before* the single rounding rather than after it.
+        let scale = if aligned > 1074 then 1074 else aligned
+        let significand = roundedSignificand(numerator, denominator, scale)
+        // A carry out of the 53rd bit renormalizes; the value is unchanged.
+        let carried = significand == (2 ** 53)
+        let bits = if carried then 2 ** 52 else significand
+        let exponent = if carried then scale - 1 else scale
+        // The guard, one line and one message for both of its ends: the result
+        // must be finite, and nonzero when the input is nonzero. A `scale` below
+        // -971 puts a 53-bit significand at or past `2 ** 1024`.
+        if bits == 0 or exponent < -971 then
+            throw(FloatRangeError("Rat.toFloat: value does not fit in Float"))
+        else
+            let assembled = assemble(bits, exponent)
+            if negative then -assembled else assembled

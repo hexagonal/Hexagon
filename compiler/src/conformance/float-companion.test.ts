@@ -607,9 +607,17 @@ describe("the companion's own emitted shape", () => {
     );
     // The Euclidean adjustment is Hexagon here, not a helper anywhere else.
     expect(text).toContain("const remainder = rem(left, right);");
-    // And nothing in the file guards: `Float` has no exception to throw.
-    expect(text).not.toContain("DivideByZeroError");
-    expect(text).not.toContain("NegativeExponentError");
+    // And nothing in the file guards. `Float` gained a *declared* exception at
+    // #526 — `FloatRangeError`, the range the doors into `Float` from the exact
+    // world fail — but no operation here throws it or anything else, which is
+    // the claim: not a single `throw` in the whole emitted companion.
+    expect(text).not.toContain("throw ");
+    expect(text).toContain(
+      "const FloatRangeError = message => " +
+        "__exception(\"FloatRangeError\", message, { message });",
+    );
+    // The brand is the declaring module's path identity, so `Float.hex`'s own.
+    expect(text).toContain("__error.$hex === \"Float\"");
   });
 });
 
