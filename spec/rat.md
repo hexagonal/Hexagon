@@ -79,11 +79,14 @@ base first, so `pow(2/3, -2/1)` is exactly `9/4`, the case `Pow<Int>`
 structurally cannot serve. A non-integer exponent throws
 `FractionalExponentError`, declared in `stdlib/Pow.hex` beside
 `NegativeExponentError`: an irrational result cannot be a `Rat`. A zero base
-with a negative exponent reaches the existing `DivideByZeroError` through the
-smart-construction boundary, like every other vanishing denominator. The guard's
-predicate is statable of the operands alone, never of the base's factorization —
-perfect-root extraction is rejected permanently, in any spelling (Operators §13;
-friendly-numerics tenet 5). The exponentiation itself is exact `BigInt` power on
+with a negative integer exponent reaches the existing `DivideByZeroError`
+through the smart-construction boundary, like every other vanishing denominator.
+Where the two conditions overlap, the integrality guard is checked **first** —
+`pow(0/1, -1/2)` throws `FractionalExponentError`, not `DivideByZeroError` — so
+the guard stays a predicate of the exponent alone, decided before the base is
+consulted. The guard's predicate is statable of the operands alone, never of
+the base's factorization — perfect-power extraction is rejected permanently, in
+any spelling (Operators §13; friendly-numerics tenet 5). The exponentiation itself is exact `BigInt` power on
 the canonical pair; nothing converts to `Float`, even internally.
 
 ## 5. Constraints
@@ -162,6 +165,7 @@ Rat.pow(Rat.create(2, 3), Rat.create(-2, 1))
     == Rat.create(9, 4)                           -- true (negative exponent inverts, exact)
 Rat.pow(Rat.create(4, 9), Rat.create(1, 2))   -- FractionalExponentError
 Rat.pow(Rat.create(0, 1), Rat.create(-1, 1))  -- DivideByZeroError
+Rat.pow(Rat.create(0, 1), Rat.create(-1, 2))  -- FractionalExponentError (guard checked first)
 ```
 
 The compiler conformance suite must execute the emitted JavaScript for normalization
