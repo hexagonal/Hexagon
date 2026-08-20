@@ -176,7 +176,12 @@ expected type is **concrete** and carries the operator's constraint instance, th
 type **is** the operation's common type: each operand reaches it by exact unification or
 by the two conversions above, and the operation's evidence is selected at it. The
 expectation reaches operands recursively — an operand seat of a lifted operation expects
-the same type — so a whole arithmetic expression runs at its written type. An expectation
+the same type — so a whole arithmetic expression runs at its written type. At `**` the
+common type governs the **base seat only**: the exponent seat is the member's concrete
+`Int` parameter (Operators §6.3), an ordinary written-`Int` seat that neither joins the
+common type nor receives the outer expectation — this rule applies *into* it
+independently, with `Int` as the written face, which is how the right spine of an
+exponent tower runs at `Int` whatever the base's home. An expectation
 that is a variable, or a concrete type without the instance, lifts nothing: the operation
 elaborates from its operands alone, exactly as below. The distinction the lift turns on:
 widening a **value** is always exact, but which *algebra an operation runs in* decides
@@ -246,14 +251,12 @@ operand converted once, in source order. For the `Num`/`Signed` operators at an 
 home (`Float`), the lifted emission is byte-identical to the result-injected one — the
 same JavaScript `+`/`-`/`*` on the same doubles. The lift's home selection is
 observable exactly where the instances differ: at a wider-than-f64 home (`BigInt`,
-`Rat`), where it is the exactness this rule exists for, and at `**`, where
-`let x: Float = a ** b` selects `Pow<Float>` — the native, total `**` — where
-operand-driven selection took `Pow<Int>` with its negative-exponent guard (Operators
-§6.3): the written face names the algebra, fractional results and all. `let r: Rat =
-a ** b` selects `Pow<Rat>` the same way — exact rational power, and total *here* by
-construction: an injected operand is integer-valued, so the instance's integrality
-guard (Operators §6.3) is passed before it is asked — where operand-driven selection
-was `Pow<Int>` with its negative-exponent throw.
+`Rat`), where it is the exactness this rule exists for, and at `**`, where the base's
+home decides the guard: `let x: Float = a ** b` selects `Pow<Float>` — total, a negative
+exponent an ordinary float reciprocal power — and `let r: Rat = a ** b` selects
+`Pow<Rat>` — exact at either sign — where operand-driven selection took `Pow<Int>` with
+its negative-exponent throw (Operators §6.3). The exponent `b` stays an `Int` in every
+one of these: only the base's algebra moves with the written face.
 
 Conformance pins the lift owes (fixtures: `n, m : Nat`; `a, b, c, count, sum, size : Int`;
 `b` value 4; `negOne : Int`, value −1): the two acceptances (`let x: Int = n - m`;
@@ -261,11 +264,13 @@ Conformance pins the lift owes (fixtures: `n, m : Nat`; `a, b, c, count, sum, si
 at a wider-than-f64 home (a `Rat` or `BigInt` sum whose `Int` elaboration would fold
 past 2^53, value-checked); the `Pow` home selections (`let x: Float = 2 ** negOne`
 yields `0.5`, no guard; `let r: Rat = b ** negOne` yields exactly `1/4`, value-checked —
-the negative exponent `Pow<Int>` would have thrown on); the gated decline at the gate's
-remaining subject (`let t: T = a ** b` for a user nominal `T` honoring `Num` and
-`Signed` but not `Pow` — `Int` power, result injected); the no-face boundary
-(`let s = count + count` stays `Int`); and the recursion depth
-(`let r: Rat = (a + b) * c` runs entirely at `Rat`).
+the negative exponent `Pow<Int>` would have thrown on; in both, the exponent seat stays
+`Int` — the lift moves the base alone); the base-seat-only boundary (`let x: Float =
+a ** b` leaves `b : Int` at the exponent seat — no conversion of `b` to `Float` is
+emitted or permitted); the gated decline at the gate's remaining subject
+(`let t: T = a ** b` for a user nominal `T` honoring `Num` and `Signed` but not `Pow` —
+`Int` power, result injected); the no-face boundary (`let s = count + count` stays
+`Int`); and the recursion depth (`let r: Rat = (a + b) * c` runs entirely at `Rat`).
 
 ### 5.2 Literal emission
 

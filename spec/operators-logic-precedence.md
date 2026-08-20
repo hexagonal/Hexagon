@@ -252,28 +252,39 @@ Level 3, elaborates to `negate`. Interactions, all decided:
 
 **Right-associative, because mathematics says so:** `a ** b ** c` means `a ** (b ** c)` — a tower of exponents is read top-down, i.e. right-to-left, and left association would make the parenthesized form `(a**b)**c = a**(b·c)`, a different and less useful function. Record for the curious implementer: JS and Python happen to agree with math here, so no conflict arises — the JS divergence is only the unary-minus refusal (§6.2).
 
-Instance selection at `**` follows §6.1's rule: operand-driven where no expectation lands, the seat's written face where one does (Numeric Literals §5.1's lift) — `let x: Float = a ** b` at `Int` operands is `Pow<Float>`'s native, total `**`, fractional results and all, where operand-driven selection is `Pow<Int>` with its negative-exponent guard.
+**`**` is the algebraist's power, and its exponent is an `Int` — by type.** Mathematics has two operations that share the word: the *algebraic* power (exponent in ℤ — repeated multiplication and, where reciprocals exist, its inverse), meaningful at every numeric type and exact wherever the type is; and the *analytic* power (`exp(y·ln x)`, exponent in ℝ), meaningful only where approximation is the contract — at `Float`, through the named door `Float.pow` (Primitive Types §3). `**` is the first alone. The ML family reached this split unanimously — Haskell's `^`/`^^` against a `Floating`-only `**`, F#'s `pown` beside a float-only `**`, Lean's `zpow` against `Real.rpow` — and the split is what lets every instance below be exact and lets most partiality be *typing* rather than a runtime guard.
 
-Elaboration target — a new small prelude constraint (edit note to Constraints §7):
+Elaboration target — a small prelude constraint (edit note to Constraints §7):
 
 ```
 constraint Pow<a: Num> =
-    pow(x: a, y: a): a
+    pow(value: a, exponent: Int): a
 ```
 
-`pow` is not folded into `Num` (it would obligate every `Num` instance forever) nor into `Frac`. Instances:
+`pow` is not folded into `Num` (it would obligate every `Num` instance forever) nor into `Frac`. The exponent seat is a **concrete `Int` parameter** — the established constraint-member shape of `Num.fromNat` and `Signed.fromInt`, here behind an operator: at `value ** exponent`, the left operand elaborates at the instance subject exactly as the §6.1 family's operands do (operand-driven where no expectation lands, the written face where one does — Numeric Literals §5.1's lift, which at `**` reaches the **base seat only**), and the right operand is checked at `Int`, excluded from common-type unification. The exponent seat is an ordinary written-`Int` seat, so §5.1 applies *into* it independently: in `a ** b ** c` the right spine is expected at `Int` and runs there — a tower of exponents is `Int` arithmetic over one typed base, which is what right-associativity (§6.2) always meant.
+
+Instances:
 
 | Instance | Semantics | Emission |
 |---|---|---|
-| `Nat` | non-negative exponent; exact within the safe range under Nat's ordinary overflow contract | native `**` *(#344: the source `Pow<Nat>` member in `stdlib/Nat.hex` is the raw-native door key `natPow` with nothing above it — a `Nat` exponent cannot be negative, so the guard the checked helper carried was dead by typing here; this row previously said "checked numeric `**` helper", and behaviour is unchanged because the removed guard was unreachable)* |
-| `Float` | IEEE 754, JS `**` exactly (including `NaN` edges) | native `**` *(#344: the source `Pow<Float>` member in `stdlib/Float.hex` is the raw-native door key `floatPow` with nothing above it — a negative float exponent is an ordinary float operation, so no guard exists to write; behaviour unchanged)* |
-| `Int` | exact for `y >= 0` within the safe range (overflow policy = ordinary Int arithmetic, Primitive Types §2.1); **`y < 0` throws `NegativeExponentError`** — a fractional result cannot be an `Int`, same species of partiality as `Int.div`'s zero check | `Int.pow(x, y)` *(#344: now the source `Pow<Int>` member in `stdlib/Int.hex` — Hexagon guard over the raw-native door key `intPow`, exactly `BigInt`'s shape in the row below; this cell previously said "helper (carries the guard)"; behaviour and message unchanged)* |
-| `BigInt` | exact; `y < 0` throws `NegativeExponentError` (JS `**` on bigints throws `RangeError`; we brand our own — Exceptions edit note §14.2) | `BigInt.pow(x, y)` helper *(#344: now the source `Pow<BigInt>` member in `stdlib/BigInt.hex` — Hexagon guard over the raw-native door key `bigIntPow`; the exception's declared home is `stdlib/Pow.hex`; behaviour and message unchanged)* |
-| `Rat` | **exact for integer-valued exponents of either sign** — the predicate is a canonical bottom of `1n`. A negative exponent inverts the base first, so `(2/3) ** (-2/1)` is exactly `9/4` — the case `Pow<Int>` structurally cannot serve and `Rat` serves perfectly. **A non-integer exponent throws `FractionalExponentError`** — an irrational result cannot be a `Rat`, the same species of partiality as the `Int` row's guard. `0 ** negative-integer` reaches `Rat`'s ordinary `DivideByZeroError` through the smart-construction boundary; where both conditions overlap the integrality guard is checked first (`rat.md` §4) | the source `Pow<Rat>` member in `stdlib/Rat.hex` — the integrality guard over exact `BigInt` exponentiation of the canonical top/bottom pair; `FractionalExponentError`'s declared home is `stdlib/Pow.hex`, beside `NegativeExponentError` |
+| `Nat` | exact for `exponent >= 0` within the safe range under Nat's ordinary overflow contract; **`exponent < 0` throws `NegativeExponentError`** — a fractional result cannot be a `Nat`. *(The guard is new with the `Int` exponent seat: the old homogeneous member's `Nat` exponent refused negatives by type.)* | source member in `stdlib/Nat.hex` — Hexagon guard over the raw-native door key `natPow` |
+| `Int` | exact for `exponent >= 0` within the safe range (overflow policy = ordinary Int arithmetic, Primitive Types §2.1); **`exponent < 0` throws `NegativeExponentError`** — a fractional result cannot be an `Int`, same species of partiality as `Int.div`'s zero check | source member in `stdlib/Int.hex` — Hexagon guard over the raw-native door key `intPow` |
+| `Float` | **total.** IEEE 754, native `**`; a negative exponent is an ordinary float reciprocal power. No guard exists to write — every `Int` exponent has a `Float` answer | source member in `stdlib/Float.hex`, the restriction of the `Float.pow` door (§6.3.1) |
+| `BigInt` | exact; **`exponent < 0` throws `NegativeExponentError`** (JS `**` on bigints throws `RangeError`; we brand our own — Exceptions edit note §14.2) | source member in `stdlib/BigInt.hex`, the restriction of the `BigInt.pow` door (§6.3.1); emission converts the `Int` exponent explicitly — JS `**` never mixes `bigint` and `number` |
+| `Rat` | **exact, at either sign.** A negative exponent inverts the base first, so `(2/3) ** -2` is exactly `9/4` — the case `Pow<Int>` structurally cannot serve and `Rat` serves perfectly. `0 ** negative` reaches `Rat`'s ordinary `DivideByZeroError` through the smart-construction boundary (`rat.md` §4). A fractional exponent is refused **by the type of the seat**, not by any guard — the runtime `FractionalExponentError` this row once carried is deleted with the homogeneous signature that made it reachable | source member in `stdlib/Rat.hex` — exact `BigInt` exponentiation of the canonical top/bottom pair through the `BigInt.pow` door |
 
-The polymorphic case is the ordinary dictionary call. `pow` is also directly callable as a member, like every constraint member.
+The polymorphic case is the ordinary dictionary call. `pow` is also directly callable as a member, like every constraint member — bare, or qualified through a companion, where Modules §5.3's generalisation law decides which face the qualified spelling shows (§6.3.1).
 
-The `Rat` row moves a Haskell discipline into the runtime guard: Haskell gives `Rational` exactly integer-exponent power and splits the capability across operators to say so (`^`/`^^`, with `**` reserved to `Floating`); Hexagon's one homogeneous `pow` keeps the single spelling and lets the guard own the boundary, exactly as the `Int` row already does. The guard's predicate is statable of the operands alone — what no `Pow` instance will ever consult is the *base's* structure (perfect-power extraction, §13).
+A `Float` exponent at `**` is a type error with a mandatory fixit (§14.1 family): "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, use `Float.pow(value, exponent)`."
+
+#### 6.3.1 The two power doors — `Float.pow` and `BigInt.pow`
+
+Two companions export a **generalisation** of their own `Pow` member under the member's name (Modules §5.3's generalisation law: the export accepts every call the member accepts, agrees with it on the shared domain, and the member is its restriction — one implementation, factored):
+
+- **`Float.pow(value: Float, exponent: Float): Float`** — the analytic power, total, honestly IEEE (`NaN` edges and all): `Float.pow(2.0, 0.5)` is `√2`'s nearest double. The `Pow<Float>` member is this door restricted to integer exponents.
+- **`BigInt.pow(value: BigInt, exponent: BigInt): BigInt`** — the exact power at exponents beyond `Int`'s range, whose useful domain the host defines (`1n`, `0n`, `-1n` bases answer at any exponent; elsewhere implementation limits apply as they do to all `BigInt` growth); `exponent < 0` throws `NegativeExponentError` exactly as the member does. The `Pow<BigInt>` member is this door precomposed with the exact `Int -> BigInt` conversion.
+
+The qualified spellings `Float.pow`/`BigInt.pow` and the dot calls `x.pow(y)` denote the doors — the widest face of the one operation (Modules §5.3, Method Syntax §6.1). The operator `**` always elaborates to the member. Companions without a wider power (`Int.hex`, `Nat.hex`, `Rat.hex`) export no door, and their qualified `pow` spellings denote the members, as uniform access always read.
 
 ---
 
@@ -446,7 +457,8 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 | Direction-mixed comparison chains (`a < b > c`) | §5.3; error with split-into-`and` fixit. |
 | Chaining `!=` | §5.3; `a != b != c` universally misread as "all distinct." |
 | `pow` as a `Num` member | Would obligate every `Num` instance forever; separate `Pow` constraint (§6.3). |
-| Perfect-power extraction for `Pow<Rat>` (succeed when an exact root exists) | Rejected permanently, in any spelling — operator or named function. Success would be a number-theoretic property of the base's prime factorization, so meaning-preserving rewrites would move the throw boundary: `(2 * 8) ** (1/2)` succeeds while `2 ** (1/2) * 8 ** (1/2)` throws twice. Algebra must commute with definedness (friendly-numerics tenet 5); the integrality guard is a statable operand predicate, a factorization is not (§6.3). |
+| Homogeneous `pow(x: a, y: a)` (the original member shape) | Retired for the `Int` exponent seat (§6.3). One signature straddled two operations — algebraic power (ℤ exponent, every type) and analytic power (ℝ exponent, `Float` only) — and every runtime guard `Pow` ever carried patched that seam; at `Rat` the seam demanded a `FractionalExponentError` for exponents the algebra almost never serves. The ML family splits the two unanimously (Haskell `^`/`^^` vs `**`, F# `pown`, Lean `zpow` vs `rpow`); the heterogeneous member makes the fractional-exponent refusal *typing* and leaves the analytic power to the `Float.pow` door. |
+| Perfect-power extraction for rational power (succeed when an exact root exists) | Rejected permanently, in any spelling — the operator's typing now forecloses the fractional exponent, and the rejection equally forecloses any **named** door (`Rat`-exponent `pow`, `root`, `sqrt` over `Rat`). Success would be a number-theoretic property of the base's prime factorization, so meaning-preserving rewrites would move the throw boundary: a perfect-power product succeeds where its refactored factors throw twice. Algebra must commute with definedness (friendly-numerics tenet 5); an exponent's integrality is a statable operand predicate — now a type — a factorization is not (§6.3). |
 | Bitwise operators | No v1 use case at the language level; stdlib functions if ever needed. Symbols stay free. |
 | Comparison operators as four primitive members | Superseded by single `Ord.compare` (§5.1): one obligation, derived totality, no double evaluation. |
 
@@ -461,11 +473,10 @@ Semantics live in Statements/Blocks/Mutability (`var`-only target, `Unit`-typed,
 - **Loops §4:** the `while` condition grammar reference resolves to §11.1 here.
 
 ### 14.2 Exceptions spec
-- Add **`NegativeExponentError`** to the exception registry (thrown by `Int.pow`/`BigInt.pow` on `y < 0`; the `**` operator reaches it through those instances). Same branding scheme (`$hex` carrying the declaring module per #488, `name` discriminant) as `IndexError`/`DivideByZeroError`. *(#344: its declared home is `stdlib/Pow.hex`.)*
-- Add **`FractionalExponentError`** beside it (thrown by `Pow<Rat>`'s member on a non-integer exponent; `**` reaches it through that instance — §6.3). Same branding scheme; declared home `stdlib/Pow.hex`.
+- Add **`NegativeExponentError`** to the exception registry (thrown by the `Nat`/`Int`/`BigInt` instances on `exponent < 0` — and by the `BigInt.pow` door; the `**` operator reaches it through those instances). Same branding scheme (`$hex` carrying the declaring module per #488, `name` discriminant) as `IndexError`/`DivideByZeroError`. *(#344: its declared home is `stdlib/Pow.hex`.)*
 
 ### 14.3 Constraints spec §7 (prelude listing)
-- Add `Pow<a: Num>` with member `pow(x: a, y: a): a`; instances `Nat`, `Int`, `Float`, `BigInt`, `Rat` (§6.3).
+- Add `Pow<a: Num>` with member `pow(value: a, exponent: Int): a`; instances `Nat`, `Int`, `Float`, `BigInt`, `Rat` (§6.3); the `Float.pow`/`BigInt.pow` doors generalise their members (§6.3.1, Modules §5.3).
 - Add `Concat<a>` with member `concat(x: a, y: a): a`; instance `String` in v1, `List` owed to collections (§7).
 
 ### 14.3a Primitive Types — `Int.div`/`Int.mod` convention REOPENED (deep-dive owed before v1)
@@ -497,8 +508,8 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `if` without `then` | parse error + "`if` requires `then`; write `if condition then` before the indented true branch" |
 | Else-less `if` whose `then` branch is not `Unit` | type error + fixit "an `if` without `else` produces `Unit`; its `then` branch is `String` — add an `else` branch to produce a value" |
 | `x := y := z` | "`:=` does not chain; assignment produces `Unit`" |
-| `Int.pow` / `**` at `Int` with negative exponent | runtime `NegativeExponentError` |
-| `**` at `Rat` with a non-integer exponent | runtime `FractionalExponentError` (§6.3; message pin `rat.md` §8) |
+| `**` at `Nat`/`Int`/`BigInt` with negative exponent (and `BigInt.pow` likewise) | runtime `NegativeExponentError` |
+| non-`Int` exponent at `**` (e.g. `x ** 0.5`) | type error, mandatory fixit: "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, use `Float.pow(value, exponent)`" (§6.3) |
 
 ---
 
@@ -519,7 +530,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Chains: directionally consistent families {`<`,`<=`,`==`} / {`>`,`>=`,`==`}; `!=` never chains | §5.3 |
 | Single-evaluation rule: duplicated operands bound once, left-to-right, invisible temporaries | §5.4 |
 | `**` level 2, right-assoc (math); tighter than unary minus on its left, admits it on its right; JS's `-2**2` SyntaxError not adopted, emission parenthesizes | §6.2–6.3 |
-| `Pow<a: Num>` constraint includes Nat; `Int`/`BigInt` throw `NegativeExponentError` on negative exponent; `Rat` is exact at integer-valued exponents of either sign and throws `FractionalExponentError` otherwise | §6.3 |
+| `Pow<a: Num>` member is `pow(value: a, exponent: Int)` — the algebraic power; `Nat`/`Int`/`BigInt` throw `NegativeExponentError` on a negative exponent, `Float` and `Rat` are total over it; a fractional exponent is a type error; analytic power = the `Float.pow` door, `BigInt` exponents = the `BigInt.pow` door (both generalisations of their members) | §6.3, §6.3.1 |
 | `++` = `Concat.concat`; level 5 with `+`; `String` in v1, `List` owed; `+` on strings rejected with fixit | §7 |
 | Pipe: F# token, ReScript first-arg semantics, pre-inference rewrite; bare `a \|> f` = `f(a)`; subject-first stdlib convention normative | §8 |
 | `..` level 6 (looser than arithmetic, tighter than comparison), non-assoc, non-chaining | §9 |
