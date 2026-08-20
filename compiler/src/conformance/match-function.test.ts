@@ -118,20 +118,18 @@ describe("a scrutinee-less `match` is a unary function literal", () => {
   });
 
   /**
-   * The other direction of "as for any lambda", and the honest half.
+   * The other direction of "as for any lambda" — and since #513, the happy half.
    *
-   * A `match` needs its scrutinee's type known where it is checked, and this
-   * compiler does not push an annotation's parameter type inward before a
-   * lambda's body is inferred. So a match function whose arms are bare binders
-   * has nothing to fix its parameter type with, and takes the ordinary
-   * abstract-scrutinee refusal — **exactly as the hand-written desugar does**.
-   * That equality is the claim §6.7 makes, and it is what is pinned; the
-   * limitation itself is the checker's, older than this form, and shared.
+   * A `match` needs its scrutinee's type known where it is checked. The
+   * annotation writes it one token away, and expected-type propagation
+   * (Functions §4.3) now lands it at the lambda before the arms are checked. So
+   * a match function whose arms are bare binders compiles at a supplying seat —
+   * **exactly as the hand-written desugar does**. That equality is the claim
+   * §6.7 makes, and it is what is pinned; both spellings now succeed *together*,
+   * as they previously failed together.
    */
-  test("a bare-binder match function is refused exactly as its desugar is", () => {
+  test("a bare-binder match function succeeds exactly as its desugar does", () => {
     const armsOnly = "    n when n > 0 => \"positive\"\n    _ => \"other\"\n";
-    const abstract = "cannot match on a value of abstract type; " +
-      "use the operations its constraints provide";
 
     const written = projectDiagnostics(
       "let sign: (Int) -> String = value =>\n" +
@@ -145,7 +143,33 @@ describe("a scrutinee-less `match` is a unary function literal", () => {
         "export let a: String = sign(3)\n",
     );
 
-    expect(written).toEqual([abstract]);
+    expect(written).toEqual([]);
+    expect(desugared).toEqual(written);
+  });
+
+  /**
+   * The refusal has not gone anywhere; it is left to the programs no seat
+   * determines (Pattern Matching §6.1, #513). With no annotation there is
+   * nothing to propagate, and the scrutinee is a lambda parameter still sitting
+   * on an undetermined inference variable — so the report carries the rider
+   * rather than the constraint-operations advice, which would point nowhere.
+   * Desugar-equality holds here too: one diagnostic, both spellings.
+   */
+  test("with no seat, both spellings still take §6.1's refusal — with the rider", () => {
+    const armsOnly = "    n when n > 0 => \"positive\"\n    _ => \"other\"\n";
+    const rider = "cannot match on a value of abstract type; the parameter's " +
+      "type is not determined here; give the parameter a type — bind the " +
+      "function with its own annotated `let`, or use it where its parameter " +
+      "type is known";
+
+    const written = projectDiagnostics(
+      "let sign = value =>\n" +
+        "    match value\n" +
+        armsOnly.replaceAll("    ", "        "),
+    );
+    const desugared = projectDiagnostics("let sign = match\n" + armsOnly);
+
+    expect(written).toEqual([rider]);
     expect(desugared).toEqual(written);
   });
 

@@ -920,14 +920,37 @@ describe("code actions: infer return type", () => {
     // being the result, so this declaration has no parameters at all and
     // nothing earlier has anything to say about it. Only writing the annotation
     // and compiling it shows the row closing.
-    const source = "export fun m() = (r) => {...r}\n";
+    //
+    // *(#513.)* The lambda sits in a **tuple component**, which is what keeps
+    // the row closing: a tuple literal is not one of Functions §4.3's
+    // forwarding forms, so the written face never reaches the lambda and its
+    // parameter is inferred, then unified with `{...a}` afterwards — the
+    // pre-propagation order, and the collapse this guard exists to catch. The
+    // bare shape (`= (r) => {...r}`) is where the return annotation now
+    // *supplies*: the parameter takes the written row itself, the two faces
+    // agree, and the action is offered. Pinned as its own case below.
+    const source = "export fun m() = ((r) => {...r}, 1)\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "writing `: {...a} -> {...a}` would change the type of `m` " +
-        "from `() -> {...a} -> {...a}` to `() -> {} -> {}`",
+      "writing `: ({...a} -> {...a}, Int)` would change the type of `m` " +
+        "from `() -> ({...a} -> {...a}, Int)` to `() -> ({} -> {}, Int)`",
     );
+  });
+
+  test("a supplied lambda keeps the row the annotation writes (#513)", () => {
+    // The specimen the case above used to be. Expected-type propagation lands
+    // the written return annotation at the lambda before its body is inferred
+    // (Functions §4.3), so `r` *is* the written `{...a}` rather than an
+    // independently inferred row unified with it afterwards — and the written
+    // face is now the inferred one. The action is offered, not disabled.
+    const source = "export fun m() = (r) => {...r}\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "m("));
+    expect(action.disabled).toBe(undefined);
+    expect(applied(source, action))
+      .toBe("export fun m(): {...a} -> {...a} = (r) => {...r}\n");
   });
 });
 
