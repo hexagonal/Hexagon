@@ -510,6 +510,40 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("Rat.reciprocal(third)");
   });
 
+  test("a written `Rat` face selects exact arithmetic, with no import to write", () => {
+    const response = compileSource(
+      18,
+      "let exact(f: Int): Rat = (f - 32) * 5 / 9\nlog(\"${exact(98)}\")\n",
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    // The named half of the equipment is what makes the annotation writable —
+    // it binds a type and no term, so it leaves no import of its own in the
+    // emitted JavaScript — and the lift is what makes the whole tree `Rat`
+    // arithmetic rather than an `Int` division converted after the damage.
+    expect(response.javascript).toContain("__Frac_Rat.divide(__Num_Rat.multiply(");
+    expect(response.javascript).not.toContain("/ 9");
+    expect(response.types).toContainEqual(expect.objectContaining({
+      name: "exact",
+      displayedType: "Int -> Rat",
+    }));
+  });
+
+  test("a buffer declaring its own `Rat` collides with no injected import", () => {
+    const response = compileSource(
+      19,
+      "record Rat = {top: Int, bottom: Int}\n" +
+        "let half = Rat({top = 1, bottom = 2})\n" +
+        "log(\"${half.top}/${half.bottom}\")\n",
+    );
+
+    // The collision the guard exists for: `record Rat` beside `import { Rat }`
+    // is a same-namespace duplicate, reported at an import line the buffer
+    // neither wrote nor can see.
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+  });
+
   test("lets a workspace Rat module occlude the fundamental companion", () => {
     const source =
       "module Rat\n" +

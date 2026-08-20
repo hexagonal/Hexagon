@@ -42,6 +42,46 @@ describe("layOutWorkspace", () => {
     expect(bareMain?.source).toBe("log(\"hello\")\n");
   });
 
+  test("injects both halves of the companion idiom", () => {
+    const main = layOutWorkspace(equipped).files.find(
+      ({ path }) => path === entryPath,
+    );
+
+    // The alias alone leaves the type unnameable: a namespace import binds no
+    // type name (Modules §5.1), so the named half is what makes `: Rat` a face
+    // a buffer can write.
+    expect(main?.source).toContain('import { Rat } from "./stdlib/Rat"');
+  });
+
+  test("drops the named half where the buffer declares that type itself", () => {
+    const own = layOutWorkspace(
+      "record Rat = {top: Int, bottom: Int}\nlet half = Rat({top = 1, bottom = 2})\n",
+    ).files.find(({ path }) => path === entryPath);
+
+    // The declaration and the import are the same namespace, so the named half
+    // would be an "already declared or imported" collision at a line the buffer
+    // does not show. The alias half is a different namespace and stays.
+    expect(own?.source).not.toContain("import { Rat }");
+    expect(own?.source).toContain('import * as Rat from "./stdlib/Rat"');
+  });
+
+  test("reads a declaration head at identifier boundaries too", () => {
+    // Whether the named half was dropped; every buffer below names `Rat`, so a
+    // `true` is the guard's doing and not an absent prefix.
+    const dropped = (source: string): boolean =>
+      !(layOutWorkspace(source).files.find(({ path }) => path === entryPath)
+        ?.source.includes("import { Rat }") ?? false);
+
+    // Every declaration head, and over-approximated the *other* way from the
+    // mention gate: a spare drop costs an annotation a message naming both
+    // repairs, a missed one costs the buffer its own declaration.
+    expect(dropped("union Rat = Whole | Half\nlet r = Rat.create(1, 2)\n")).toBe(true);
+    expect(dropped("type Rat = Int\nlet r = Rat.create(1, 2)\n")).toBe(true);
+    expect(dropped("// record Rat, one day\nlet r = Rat.create(1, 2)\n")).toBe(true);
+    expect(dropped("record Ratio = {n: Int}\nlet r = Rat.create(1, 2)\n")).toBe(false);
+    expect(dropped("log(\"prerecord Rat\")\n")).toBe(false);
+  });
+
   test("reads a mention at identifier boundaries, not as a substring", () => {
     // `Ratio` is not `Rat`, and neither is the `Rat` inside it. Over-approximate
     // the other way — a comment counts — because a spare import is harmless and
