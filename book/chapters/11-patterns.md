@@ -302,6 +302,39 @@ Note the layout: the `match` ends the `fun` line. Moving it to the next line wou
 it the binding block's contents rather than the right-hand side as written, and `fun`
 asks for the written form.
 
+A match function's type is read off its patterns, and patterns do not always say enough.
+Arms that only guard a number constrain the parameter without settling it — nothing in
+`n when n < 0 => "negative"` says what `n` is, and a `match` cannot run on a value whose
+type is unknown. Write the type anywhere around the function and the problem goes away,
+because a type written around a function reaches its parameters before the arms are
+checked:
+
+```hexagon
+let sign: (Int) -> String = match      // the annotation says it
+    n when n < 0 => "negative"
+    _ => "other"
+
+let labels = Seq.map(counts, match     // the callee's signature says it
+    n when n < 0 => "negative"
+    _ => "other"
+)
+
+let labels = counts.map(match          // the receiver's type says it
+    n when n < 0 => "negative"
+    _ => "other"
+)
+```
+
+A callback takes its parameter type from the function being called, which is one more
+reason the subject comes first in Hexagon's argument order: `counts` settles what
+`Seq.map` is mapping over, and the callback follows from it. A dot call works the same
+way, provided the receiver's type is already known at the dot — as `counts` is above, and
+as a bare parameter nothing has fixed yet is not.
+
+The pipe is the one spelling still waiting: `counts |> match` reads the arms before it
+reads what is piped into them, so a guard-only match function there still has nothing to
+go on. Bind it to an annotated `let` and pipe into the name instead.
+
 One thing a match function will not take is a `catch` clause. The exceptions chapter
 gives a `match` the option of a clause that guards the *scrutinee's* evaluation; here the
 scrutinee is the parameter, a value the caller already produced before this function was
@@ -339,7 +372,10 @@ dialects.
 - missing and unreachable cases are compile errors;
 - `let`, loop, and parameter patterns must be irrefutable; and
 - a `match` with nothing after it on the line is the function that matches its argument,
-  which is how refutable patterns reach callback position.
+  which is how refutable patterns reach callback position; and
+- a type written around a function reaches its parameters before its arms are checked, so
+  a match function whose arms only guard still works at an annotated binding, in callback
+  position, and at a receiver whose type is known at the dot.
 
 Together, tuples provide positions, records provide fields, nominal declarations
 provide identity, unions provide alternatives, and patterns take all those shapes

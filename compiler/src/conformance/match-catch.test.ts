@@ -358,11 +358,14 @@ describe("the cannot-throw judgment (§5.4; Pattern Matching §7.2)", () => {
   });
 
   test("fires on a Float literal", () => {
-    // `match` on `Float` is unsupported, so the checker speaks first; the
-    // judgment's own report is the second entry, and the exact list is the
-    // point — a Float literal carries no elaboration evidence at all.
+    // The judgment's own report, alone. *(#513.)* This list used to open with
+    // "cannot match on `Float` yet" — a refusal no spec sentence licensed:
+    // Pattern Matching §6.1 admits any scrutinee but its two permanent
+    // exclusions, and §2.5 bans the Float *literal pattern* alone (the parser's
+    // job, with its own guard fixit). The `_` arm here was always legal, so the
+    // match now checks and the exact list is one entry — the point being
+    // unchanged: a Float literal carries no elaboration evidence at all.
     expect(projectDiagnostics(clause("1.5"))).toEqual([
-      "cannot match on `Float` yet",
       "this `catch` can never run: evaluating 1.5 cannot throw",
     ]);
   });
