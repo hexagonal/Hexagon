@@ -197,7 +197,7 @@ let assemble(significand: BigInt, scale: Int): Float =
         value * powerOfTwo(half) * powerOfTwo(magnitude - half)
 
 (** `value` as the nearest `Float` — correctly rounded, ties to even, and
-    rounded exactly once. Throws `FloatRangeError` where the honest answer would
+    rounded exactly once. Throws `FloatRangeError` when the honest answer would
     not be an approximation at all: past `Float`'s finite range, or a nonzero
     rational that would erase to zero. *)
 export let toFloat(value: Rat): Float =

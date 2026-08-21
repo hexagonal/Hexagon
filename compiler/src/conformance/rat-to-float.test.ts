@@ -475,6 +475,21 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
       message: "Rat.toFloat: value does not fit in Float",
     });
   });
+
+  test("the guard reaches the TypeScript boundary as an `@throws` tag", () => {
+    // #562: the door's doc spells the manifest sentence the deriver recognizes
+    // (Exceptions §6.1), so the exported face carries the tag a JSDoc reader
+    // expects — the one word "when" is what the derivation turns on.
+    const project = compileFiles(withRat("export let f: Float = Rat.toFloat(Rat.create(1, 2))\n"));
+    expect(project.diagnostics).toEqual([]);
+    const declarations = project.modules
+      .find(({ source }) => source.path === "/Rat.hex")!.declarations.text;
+
+    expect(declarations).toContain(
+      "@throws {FloatRangeError} when the honest answer would not be an approximation at all:" +
+        " past `Float`'s finite range, or a nonzero rational that would erase to zero\n",
+    );
+  });
 });
 
 describe("the exception's identity", () => {
