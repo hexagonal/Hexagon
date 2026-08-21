@@ -431,7 +431,7 @@ describe("the conversions (Primitive Types §6)", () => {
 
   test("`toFloat`'s guard reaches the TypeScript boundary as an `@throws` tag", () => {
     // #562: the door's doc spells the manifest sentence the deriver recognizes
-    // (Exceptions §6.1), so the exported face carries the tag a JSDoc reader
+    // (Doc Comments §6.1), so the exported face carries the tag a JSDoc reader
     // expects — the one word "when" is what the derivation turns on.
     const project = compileMain("export let f: Float = BigInt.toFloat(5n)\n");
     expect(project.diagnostics).toEqual([]);

@@ -478,7 +478,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
 
   test("the guard reaches the TypeScript boundary as an `@throws` tag", () => {
     // #562: the door's doc spells the manifest sentence the deriver recognizes
-    // (Exceptions §6.1), so the exported face carries the tag a JSDoc reader
+    // (Doc Comments §6.1), so the exported face carries the tag a JSDoc reader
     // expects — the one word "when" is what the derivation turns on.
     const project = compileFiles(withRat("export let f: Float = Rat.toFloat(Rat.create(1, 2))\n"));
     expect(project.diagnostics).toEqual([]);
