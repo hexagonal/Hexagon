@@ -32,11 +32,13 @@ export const hostedModules: readonly HostedModule[] = [
  * (`Ordering`/`Option`/`Result`, supplied implicitly by the compiler), and it
  * covers only what the prelude does not reach.
  *
- * Both halves of the companion idiom go in, `import * as X` and `import { X }`:
- * the alias is the module (`Rat.create`), the named import is the type name a
- * written face needs (`let exact(f: Int): Rat = …`), and a namespace import
- * binds no type of its own (Modules §5.1). `layOutWorkspace` owns the one case
- * where a half is dropped — a buffer declaring that type itself.
+ * One line goes in, the companion idiom's own: `import * as X`. The alias is
+ * the module (`Rat.create`), and since Modules §5.1 rule 2's companion fallback
+ * (#531) it also answers the bare type name a written face needs
+ * (`let exact(f: Int): Rat = …`) — the named half the injection used to carry
+ * beside it is redundant, and with it the gate that dropped it where a buffer
+ * declared that type itself. The alias binds nothing, so a buffer's own
+ * `record Rat` wins with no collision to arrange around.
  *
  * `Vector` is not equipment: it is a prelude module, and Modules §6.4 registers
  * every prelude module's basename as a qualified home, so `Vector.append` and

@@ -1099,3 +1099,109 @@ describe("hover renders the arrow trio", () => {
     expect(await hovered("runner")).toBe("value `runner: (() ->? String) ->? Int`");
   });
 });
+
+/**
+ * Modules §5.1 rule 2's companion fallback, over the wire (#531).
+ *
+ * The fallback resolves a bare name through a module alias, in both the type
+ * and the constraint namespace. What it resolves *to* is the exporter's own
+ * declaration — the same one the qualified spelling reaches — so the editor
+ * answers must be indistinguishable from the qualified case: the hover names
+ * the declaration, and go-to-definition lands in the module the user did not
+ * open. Asked of the real server because "resolves" and "the editor can follow
+ * it" are different claims, and the second is the one a reader of §5.3's idiom
+ * actually experiences.
+ */
+describe("the companion fallback reaches the editor", () => {
+  const POINT = [
+    "export opaque record Point = {x: Float, y: Float}",
+    "",
+    "export let getX(p: Point): Float = p.x",
+    "",
+  ].join("\n");
+
+  const RENDER = [
+    "export constraint Render<a> =",
+    "    render(value: a): String",
+    "",
+  ].join("\n");
+
+  const CONSUMER = [
+    'import * as Point from "./point"',
+    'import * as Render from "./render"',
+    "",
+    "export let norm(p: Point): Float = Point.getX(p)",
+    "",
+    "export let label<a: Render>(x: a): String = Render.render(x)",
+    "",
+  ].join("\n");
+
+  let hex: Harness;
+
+  beforeAll(async () => {
+    hex = await harness({
+      "point.hex": POINT,
+      "render.hex": RENDER,
+      "main.hex": CONSUMER,
+    });
+    await hex.client.sendNotification(DidOpenTextDocumentNotification.type, {
+      textDocument: {
+        uri: hex.uriOf("main.hex"),
+        languageId: "hexagon",
+        version: 1,
+        text: CONSUMER,
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await hex.dispose();
+  });
+
+  /** The hover text an editor would show at the `nth` occurrence of `needle`. */
+  async function hovered(needle: string, nth = 1): Promise<string | null> {
+    const hover = await hex.client.sendRequest("textDocument/hover", {
+      textDocument: { uri: hex.uriOf("main.hex") },
+      position: positionOf(CONSUMER, needle, nth),
+    }) as Hover | null;
+    return hover === null ? null : (hover.contents as { value: string }).value;
+  }
+
+  /** Where go-to-definition lands at the `nth` occurrence of `needle`. */
+  async function definedAt(needle: string, nth = 1): Promise<readonly Location[]> {
+    return await hex.client.sendRequest("textDocument/definition", {
+      textDocument: { uri: hex.uriOf("main.hex") },
+      position: positionOf(CONSUMER, needle, nth),
+    }) as Location[];
+  }
+
+  test("hover on a fallback-resolved type names the declaration", async () => {
+    // The second `Point` in the file: the import line's alias comes first, then
+    // the annotation — which is the one the fallback answers.
+    expect(await hovered("Point", 2)).toBe("record `Point`");
+  });
+
+  test("go-to-definition on it crosses into the companion module", async () => {
+    const definition = await definedAt("Point", 2);
+    expect(definition).toHaveLength(1);
+    expect(definition[0]!.uri).toBe(hex.uriOf("point.hex"));
+    expect(definition[0]!.range).toEqual({
+      start: { line: 0, character: 21 },
+      end: { line: 0, character: 26 },
+    });
+  });
+
+  test("hover on a fallback-resolved constraint names the declaration", async () => {
+    expect(await hovered("Render", 2)).toBe("constraint `Render`");
+  });
+
+  test("go-to-definition on it crosses into the declaring module", async () => {
+    const definition = await definedAt("Render", 2);
+    expect(definition).toHaveLength(1);
+    expect(definition[0]!.uri).toBe(hex.uriOf("render.hex"));
+    expect(definition[0]!.range).toEqual({
+      start: { line: 0, character: 18 },
+      end: { line: 0, character: 24 },
+    });
+  });
+});

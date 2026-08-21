@@ -155,6 +155,10 @@ selects the type, bare `Point(...)` selects the constructor, and `Point.` select
 module. Many modules instead choose a plural alias, but the companion spelling is
 available without a special module system.
 
+Since the companion fallback (Modules §5.1 rule 2), the namespace import alone also
+covers type position whenever the alias matches the exported type's spelling — in this
+example the named import is doing constructor duty, not type duty.
+
 Dot calls build on this exact organization. If `translate` is exported and subject
 first, `start.translate(3.0, 4.0)` resolves to the companion operation.
 

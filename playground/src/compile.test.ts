@@ -525,10 +525,13 @@ describe("compileSource", () => {
 
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    // The named half of the equipment is what makes the annotation writable —
-    // it binds a type and no term, so it leaves no import of its own in the
-    // emitted JavaScript — and the lift is what makes the whole tree `Rat`
-    // arithmetic rather than an `Int` division converted after the damage.
+    // The one injected line is what makes the annotation writable: Modules
+    // §5.1 rule 2's companion fallback (#531) lets the namespace alias answer
+    // the bare `Rat` face, so the named half the equipment used to carry beside
+    // it is gone and nothing here reads any differently. The lift is what makes
+    // the whole tree `Rat` arithmetic rather than an `Int` division converted
+    // after the damage.
+    expect(response.javascript).toContain('import * as Rat from "./stdlib/Rat.js";');
     expect(response.javascript).toContain("__Frac_Rat.divide(__Num_Rat.multiply(");
     expect(response.javascript).not.toContain("/ 9");
     expect(response.types).toContainEqual(expect.objectContaining({
@@ -545,10 +548,14 @@ describe("compileSource", () => {
         "log(\"${half.top}/${half.bottom}\")\n",
     );
 
-    // The collision the guard exists for: `record Rat` beside `import { Rat }`
-    // is a same-namespace duplicate, reported at an import line the buffer
-    // neither wrote nor can see.
+    // The collision this used to need a guard for — `record Rat` beside
+    // `import { Rat }`, a same-namespace duplicate reported at an import line
+    // the buffer neither wrote nor can see — is now unreachable by
+    // construction: the injected line binds only a module alias, and Modules
+    // §5.1 rule 2's fallback answers nothing where a declaration already does.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).not.toContain("import { Rat }");
   });
 
   test("lets a workspace Rat module occlude the fundamental companion", () => {

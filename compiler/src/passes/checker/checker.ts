@@ -1115,6 +1115,19 @@ class Checker {
   readonly #funGroups: Set<Resolved.SymbolId>[] = [];
   readonly #constraintNames = new Set<string>(PRE_REGISTERED_CONSTRAINTS);
   /**
+   * What a module alias offers a bare name that failed to be a constraint
+   * (Modules §10's row, constraint half).
+   *
+   * The same-spelled export never lands here — §5.1 rule 2's companion fallback
+   * resolved it, and this map is only read on the refusal path. What is left is
+   * the alias whose module exports constraints under *other* spellings, where
+   * the qualified route is the repair worth naming.
+   */
+  readonly #aliasConstraints = new Map<
+    string,
+    { readonly specifier: string; readonly exported: readonly string[] }
+  >();
+  /**
    * Every constraint name this module can spell, mapped to the identity of the
    * declaration it denotes (`spec/constraints.md` §5.1.1). Seeded with the
    * pre-registered inventory — one compiler-held declaration each — and
@@ -1403,6 +1416,16 @@ class Checker {
       // The one place an imported constraint's identity joins the name→identity
       // view; every name-taking call site downstream reads it unchanged.
       if (item.kind === "Import") {
+        if (item.form.kind === "Namespace") {
+          const alias = item.form.alias;
+          const prefix = `${alias}.`;
+          const exported = item.constraints
+            .filter(({ local }) => local.startsWith(prefix))
+            .map(({ local }) => local.slice(prefix.length));
+          if (exported.length > 0) {
+            this.#aliasConstraints.set(alias, { specifier: item.specifier, exported });
+          }
+        }
         for (const { local, declaration } of item.constraints) {
           this.#constraintNames.add(local);
           this.#constraintIdentities.set(local, declaration.identity);
@@ -1498,7 +1521,7 @@ class Checker {
             if (!this.#constraintNames.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                message: `unknown constraint \`${constraint}\``,
+                message: this.#unknownConstraintMessage(constraint),
                 primary: parameter.span,
               });
               continue;
@@ -1774,7 +1797,7 @@ class Checker {
               if (!this.#constraintNames.has(constraint)) {
                 this.#diagnostics.add({
                   severity: "error",
-                  message: `unknown constraint \`${constraint}\``,
+                  message: this.#unknownConstraintMessage(constraint),
                   primary: parameter.span,
                 });
                 continue;
@@ -3076,7 +3099,7 @@ class Checker {
           if (this.#checkPreludeHonor(item, level)) continue;
           this.#diagnostics.add({
             severity: "error",
-            message: `unknown constraint \`${item.constraint}\``,
+            message: this.#unknownConstraintMessage(item.constraint),
             primary: item.span,
           });
           continue;
@@ -4160,7 +4183,7 @@ class Checker {
             if (!this.#constraintNames.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                message: `unknown constraint \`${constraint}\``,
+                message: this.#unknownConstraintMessage(constraint),
                 primary: parameter.span,
               });
               continue;
@@ -7294,6 +7317,33 @@ class Checker {
     );
   }
 
+  /**
+   * The refusal for a bare name that no constraint answers for, with the module
+   * alias's repairs where one is standing there (Modules §10's row, mirrored
+   * from the type-position message the resolver writes).
+   *
+   * The same-spelled export never reaches here: §5.1 rule 2's companion fallback
+   * resolved it, and that branch of the old message is now a resolution. What is
+   * left is the alias whose module exports constraints under other spellings —
+   * and, exactly as in type position, the **exported inventory drives which
+   * repairs are named**: one is the case worth spelling out in full, several
+   * make "the constraint it exports" a false singular.
+   */
+  #unknownConstraintMessage(constraint: string): string {
+    const refusal = `unknown constraint \`${constraint}\``;
+    const alias = this.#aliasConstraints.get(constraint);
+    if (alias === undefined) return refusal;
+    const only = alias.exported.length === 1 ? alias.exported[0]! : undefined;
+    if (only === undefined) {
+      return `${refusal}; \`${constraint}\` is a module alias — the constraints it exports ` +
+        `are reached through it, as \`${constraint}.Name\``;
+    }
+    return `${refusal}; \`${constraint}\` is a module alias — write \`${constraint}.${only}\` ` +
+      `for the constraint it exports, name it bare with ` +
+      `\`import { ${only} } from ${JSON.stringify(alias.specifier)}\`, ` +
+      `or realias as \`import * as ${only}\``;
+  }
+
   /** Whether a constraint *named* here declares implied type members. */
   #bearsProjection(constraint: string): boolean {
     return this.#projectionBearingConstraints.has(
@@ -8599,7 +8649,7 @@ class Checker {
         if (!this.#constraintNames.has(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            message: `unknown constraint \`${constraint}\``,
+            message: this.#unknownConstraintMessage(constraint),
             primary: annotation.span,
           });
           continue;
