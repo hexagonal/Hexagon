@@ -15,7 +15,7 @@ import { syntheticParameterName } from "../../support/synthetic.js";
 import type * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
 import * as Parsed from "../../syntax/parsed/index.js";
-import { DocBlocks, WIDENED_LINE_TAKES_NO_DOC } from "./doc-blocks.js";
+import { DocBlocks, widenedLineTakesNoDoc } from "./doc-blocks.js";
 
 type TokenKind = LaidOut.Token["kind"];
 
@@ -1196,7 +1196,7 @@ class Parser {
         // §4.7's "one operation, one doc": the derived member carries none of
         // its own and this line takes none. Refused rather than attached — the
         // author wrote documentation that would never be shown anywhere.
-        this.#docs.refuse(memberStart, WIDENED_LINE_TAKES_NO_DOC);
+        this.#docs.refuse(memberStart, widenedLineTakesNoDoc(name.text));
         this.#skipSeparators();
         continue;
       }

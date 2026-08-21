@@ -692,7 +692,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     ]);
   });
 
-  test("the `= widened` line takes no doc comment, and says so", () => {
+  test("the `= widened` line takes no doc comment, and says so of the line it found", () => {
     // §4.7's "one operation, one doc": the declaration documents the operation
     // at its widest face and the derived member carries none of its own.
     // Refused rather than silently attached — the author wrote documentation
@@ -707,6 +707,36 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "",
     ].join("\n"))).toEqual([
       "the `pow = widened` line takes no documentation — one operation, one " +
+        "doc: document it at its `widens` declaration, or make this an " +
+        "ordinary comment (`(* ... *)`).",
+    ]);
+
+    // The same refusal at a member that is not `pow`, which is the half that
+    // can catch the message hardcoding one: it quotes the line it actually
+    // found, not the line the two standing doors happen to write.
+    expect(compileFiles([
+      ["/scale.hex", [
+        "// scale",
+        "export constraint Scale<a> =",
+        "    scale(value: a, factor: Int): a",
+        "",
+      ].join("\n")],
+      ["/matrix.hex", [
+        "// matrix",
+        "import * as Scale from \"./scale\"",
+        "",
+        "export record Matrix = {n: Float}",
+        "",
+        "widens Scale.scale(value: Matrix, factor: Float): Matrix =",
+        "    Matrix({n = value.n * factor})",
+        "",
+        "honor Scale.Scale<Matrix> =",
+        "    (** `value` scaled by `factor`. *)",
+        "    scale = widened",
+        "",
+      ].join("\n")],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "the `scale = widened` line takes no documentation — one operation, one " +
         "doc: document it at its `widens` declaration, or make this an " +
         "ordinary comment (`(* ... *)`).",
     ]);

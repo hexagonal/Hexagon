@@ -42,10 +42,11 @@ const LEADING_ONLY =
  * is documented once, at its widest face. The accounting line reports that the
  * supply happened elsewhere and has nothing of its own to say.
  */
-export const WIDENED_LINE_TAKES_NO_DOC =
-  "the `pow = widened` line takes no documentation — one operation, one doc: " +
-  "document it at its `widens` declaration, or make this an ordinary comment " +
-  "(`(* ... *)`).";
+export function widenedLineTakesNoDoc(member: string): string {
+  return `the \`${member} = widened\` line takes no documentation — one ` +
+    "operation, one doc: document it at its `widens` declaration, or make " +
+    "this an ordinary comment (`(* ... *)`).";
+}
 
 interface Block {
   readonly comments: readonly Source.Comment[];
