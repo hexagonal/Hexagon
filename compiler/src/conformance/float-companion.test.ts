@@ -39,6 +39,26 @@ function companion(source: string): string {
     .find(({ source: file }) => file.path.endsWith("/Float.hex"))!.javascript.text;
 }
 
+/**
+ * `text` with its comments gone — block comments, the emitted JSDoc among them,
+ * and line-comment tails — leaving only what the engine runs.
+ *
+ * A claim about emitted *code* must not be answerable by prose: the companion's
+ * comments already say "throws" and "throwing", and one future doc sentence
+ * carrying the bare word would fail a raw scan without a line of `Float.hex`
+ * changing (#540). Stripping first is what makes "not a single `throw`" a claim
+ * about the module rather than about its commentary.
+ *
+ * The scan is textual rather than a JavaScript lexer's, which is exact for this
+ * one file and stays so for a reason: the emitted companion holds no string
+ * literal containing either delimiter, and its literals are the fixed set the
+ * assertions below already spell out. A string literal survives stripping — so
+ * a future one holding the word would want the statement-shaped scan instead.
+ */
+function withoutComments(text: string): string {
+  return text.replace(/\/\*[^]*?\*\//gu, "").replace(/\/\/[^\n]*/gu, "");
+}
+
 /** Every diagnostic message a multi-module project produced, in order. */
 function diagnostics(files: readonly (readonly [string, string])[]): readonly string[] {
   return compileFiles(files).diagnostics.map(({ message }) => message);
@@ -614,8 +634,10 @@ describe("the companion's own emitted shape", () => {
     // And nothing in the file guards. `Float` gained a *declared* exception at
     // #526 — `FloatRangeError`, the range the doors into `Float` from the exact
     // world fail — but no operation here throws it or anything else, which is
-    // the claim: not a single `throw` in the whole emitted companion.
-    expect(text).not.toContain("throw ");
+    // the claim: not a single `throw` in the whole emitted companion. Read on
+    // the stripped text, so the claim is about code and the file's own prose
+    // about throwing cannot answer it either way (#540).
+    expect(withoutComments(text)).not.toContain("throw");
     expect(text).toContain(
       "const FloatRangeError = message => " +
         "__exception(\"FloatRangeError\", message, { message });",

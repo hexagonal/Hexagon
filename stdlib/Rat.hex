@@ -1,4 +1,5 @@
-// Exact rational arithmetic over canonical BigInt top/bottom pairs.
+(** An exact rational number: a canonical pair of `BigInt` top and bottom,
+    always reduced, the bottom always positive. *)
 export opaque record Rat derives (Eq, Hash) = {
     top: BigInt,
     bottom: BigInt,
@@ -8,6 +9,8 @@ export opaque record Rat derives (Eq, Hash) = {
 // declaration for every type whose division is partial, rather than one per
 // honoring module (#344).
 
+(** The rational `top`/`bottom`, reduced to canonical form with any sign carried
+    by the top. Throws `DivideByZeroError` when `bottom` is zero. *)
 export let create(top: BigInt, bottom: BigInt): Rat =
     if bottom == 0 then
         throw(DivideByZeroError("Rat.create: bottom is zero"))
@@ -21,12 +24,19 @@ export let create(top: BigInt, bottom: BigInt): Rat =
         else
             Rat({top = reducedTop, bottom = reducedBottom})
 
+(** The canonical numerator of `value` — reduced, and carrying the sign. *)
 export let top(value: Rat): BigInt = value.top
+
+(** The canonical denominator of `value` — reduced, always positive. *)
 export let bottom(value: Rat): BigInt = value.bottom
 
+(** The reciprocal of `value`, exactly. Throws `DivideByZeroError` when `value`
+    is zero. *)
 export let reciprocal(value: Rat): Rat = create(value.bottom, value.top)
 
 honor Ord<Rat> =
+    (** How `left` orders against `right`, by exact cross-multiplication —
+        nothing converts to `Float`, even internally. *)
     compare(left, right) =
         let leftProduct = left.top * right.bottom
         let rightProduct = right.top * left.bottom
@@ -39,28 +49,39 @@ honor Ord<Rat> =
                 Equal
 
 honor Show<Rat> =
+    (** `value` as `top/bottom`, the `/1` included, so the representation stays
+        visible. *)
     show(value) = "${value.top}/${value.bottom}"
 
 honor Num<Rat> =
+    (** The sum of `left` and `right`, exactly. *)
     add(left, right) =
         create(
             left.top * right.bottom + right.top * left.bottom,
             left.bottom * right.bottom
         )
+    (** The product of `left` and `right`, exactly. *)
     multiply(left, right) =
         create(left.top * right.top, left.bottom * right.bottom)
+    (** The natural number `value` as a `Rat` — `value` over `1`. Total and
+        exact. *)
     fromNat(value) = create(value, 1)
 
 honor Signed<Rat> =
+    (** The difference of `left` and `right`, exactly. *)
     subtract(left, right) =
         create(
             left.top * right.bottom - right.top * left.bottom,
             left.bottom * right.bottom
         )
+    (** The additive inverse of `value`. *)
     negate(value) = Rat({top = -value.top, bottom = value.bottom})
+    (** The integer `value` as a `Rat` — `value` over `1`. Total and exact. *)
     fromInt(value) = create(value, 1)
 
 honor Frac<Rat> =
+    (** The quotient of `left` and `right`, exactly. Throws `DivideByZeroError`
+        when `right` is zero. *)
     divide(left, right) =
         if right.top == 0 then
             throw(DivideByZeroError("Rat.divide: divisor is zero"))
