@@ -369,6 +369,31 @@ describe("the generalisation law's declaration-time check (Constraints §4.6)", 
     expect(exports["operator"]).toBe(8);
   });
 
+  test("a bare in-module use beside the pair resolves to the export", () => {
+    // Constraints §4.6's bare-use sentence at the prelude layer (#544): a lawful
+    // pair is one operation, so the bare spelling means the export — the widest
+    // face — and not the member. At a *shared-domain* argument (an `Int`
+    // exponent, which both faces accept) the two answers are identical by the
+    // behavioural law, so only the emitted route can say which one answered.
+    const javascript = emitted([
+      box,
+      "export let pow(value: Box, exponent: Float): Box = core(value, exponent)",
+      "",
+      "honor Pow<Box> =",
+      "    pow(value, exponent) = core(value, exponent)",
+      "",
+      "let two: Int = 2",
+      "export let shared: Float = pow(Box({value = 3.0}), two).value",
+      "",
+    ].join("\n"));
+
+    expect(javascript).toContain("const shared = pow({ value: 3.0 }, two).value;");
+    // The instance's member seat exists; no bare use calls it.
+    expect(javascript).toContain("const __Pow_Box_pow = ");
+    expect(javascript).not.toContain("__Pow_Box_pow(");
+    expect(javascript).not.toContain("__Pow_Box.pow(");
+  });
+
   test("an identical signature generalises nothing and stays the rebinding error", () => {
     expect(verdict(
       "export let pow(value: Box, exponent: Int): Box = core(value, exponent)",
