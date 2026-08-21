@@ -926,6 +926,24 @@ class Resolver {
    */
   readonly #preludeHomesByName = new Map<string, string[]>();
   readonly #explicitlyImported = new Set<Resolved.SymbolId>();
+  /**
+   * The members a **named constraint import** brought into this module, each
+   * mapped to the import item that brought it (Modules §3.1).
+   *
+   * Only a diagnostic reads this, and it reads it for two reasons. The member's
+   * own `bindingSpan` is a line in the *imported* file, so a collision reported
+   * against it names a line the reader cannot see — §3.1 says the import item is
+   * the members' declaration site, and the prior-binding reference has to be
+   * that item, in this module. And the collision has a repair worth teaching:
+   * the door-builder reaches the constraint through a namespace import, which
+   * binds the alias alone and leaves every member spelling free (§5.3's
+   * generalisation law, whose exemption never unseats an ordinary binding —
+   * Constraints §4.6 owns that boundary).
+   */
+  readonly #arrivedConstraintMembers = new Map<
+    Resolved.SymbolId,
+    { readonly span: Source.Span; readonly item: string }
+  >();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
   /**
    * The specifier each alias was imported from, as the module wrote it.
@@ -1911,7 +1929,7 @@ class Resolver {
             : this.#lookupTerm(member.name.text, scope);
           const pendingHit = this.#reportPendingRebinding(member.name, existing, scope);
           if (!pendingHit && existing !== undefined) {
-            this.#reportRebinding(member.name, existing);
+            this.#reportRebinding(member.name, existing, member.exported);
           }
           const binding = this.#declare(member.name, "fun");
           this.#predeclaredBindings.set(member, binding);
@@ -2541,7 +2559,7 @@ class Resolver {
           : this.#lookupTerm(item.name.text, scope);
         const pendingHit = this.#reportPendingRebinding(item.name, existing, scope);
         if (!pendingHit && existing !== undefined) {
-          this.#reportRebinding(item.name, existing);
+          this.#reportRebinding(item.name, existing, item.exported);
         }
 
         const binding = this.#declare(item.name, "let");
@@ -4597,6 +4615,16 @@ class Resolver {
         startClass: "non-upper",
         span: name.span,
       };
+      // §3.1's declaration site for the arriving member: the import item, in
+      // this module. Recorded before the collision check, because it is what a
+      // *later* collision reports against — the member's own span is a line in
+      // the imported file.
+      this.#arrivedConstraintMembers.set(symbol.id, {
+        span: name.span,
+        item: `import { ${name.imported.text}${
+          name.local.text === name.imported.text ? "" : ` as ${name.local.text}`
+        } }`,
+      });
       // A member is an ordinary module-scope term, so §5.4's occlusion rule
       // governs it exactly as it governs an imported function: it may take a
       // prelude name over, and may not collide in its own layer.
@@ -5154,7 +5182,41 @@ class Resolver {
     };
   }
 
-  #reportRebinding(name: Parsed.Name, existing: Resolved.SymbolId): void {
+  /**
+   * Rule 1's refusal, plus the one collision that has a repair to teach.
+   *
+   * `exported` is read for that one case alone (Modules §3.1, #544): an
+   * **exported** module-level binding of the spelling of a member that
+   * **arrived with a named constraint import** is the would-be door — the shape
+   * §5.3's generalisation law would have licensed had the constraint come
+   * through a namespace import instead. The law is not consulted (the exemption
+   * amends Constraints §4.6's honor-claim and never unseats an ordinary
+   * binding), so the refusal stays the plain rebinding one; what it gains is the
+   * route out, and a prior-binding reference the reader can find — the import
+   * item's line in *this* module rather than the member's line in the imported
+   * file. A private binding of the same spelling has no door to build, and every
+   * other collision is an ordinary rebinding; both keep the plain form.
+   */
+  #reportRebinding(
+    name: Parsed.Name,
+    existing: Resolved.SymbolId,
+    exported = false,
+  ): void {
+    const arrival = exported ? this.#arrivedConstraintMembers.get(existing) : undefined;
+    if (arrival !== undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `\`${name.text}\` is already bound (line ${arrival.span.start.line + 1}); ` +
+          `it arrived with \`${arrival.item}\`, and a named constraint import ` +
+          `brings its members — to widen \`${name.text}\` lawfully, import the ` +
+          "module instead (`import * as …`), or choose a different export name " +
+          "(Modules §5.3's generalisation law).",
+        primary: name.span,
+        labels: [{ span: arrival.span, message: "previous binding" }],
+      });
+      return;
+    }
     const previous = this.#symbol(existing);
     this.#diagnostics.add({
       severity: "error",
