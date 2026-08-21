@@ -106,6 +106,12 @@ describe("the split-spelling defect is now refused (consequence 3)", () => {
    * module's term space wherever its block sits, so a `let` before the block
    * and a `let` after it are the same collision. Each is reported at the
    * *later* of the two, which is where a reader would make the fix.
+   *
+   * The binding is **exported** in both, so what decides them now is §4.6's
+   * generalising-export exemption (#541) rather than the claim itself — and it
+   * decides them the same way, because these two signatures are identical and
+   * an identical signature generalises nothing. The message names the law, so
+   * the repair the law wants (widen it, or rename) is the one offered.
    */
   test("`honor Show<Box>` then `export let show` is refused", () => {
     expect(projectDiagnostics([
@@ -118,7 +124,10 @@ describe("the split-spelling defect is now refused (consequence 3)", () => {
       "",
     ].join("\n"))).toEqual([
       "`show` is already bound: the `Show<Box>` instance binds it as a member " +
-        "(line 3); Hexagon does not allow rebinding — choose a different name.",
+        "(line 3); an exported binding of a member's spelling is legal only when " +
+        "it properly generalises the member (Modules §5.3) — same subject seat, " +
+        "same result, at least one remaining seat properly wider — so widen it " +
+        "or choose a different name.",
     ]);
   });
 
@@ -133,7 +142,10 @@ describe("the split-spelling defect is now refused (consequence 3)", () => {
       "",
     ].join("\n"))).toEqual([
       "the `Show<Box>` instance binds `show`, which is already bound (line 3); " +
-        "Hexagon does not allow rebinding — choose a different name.",
+        "an exported binding of a member's spelling is legal only when it " +
+        "properly generalises the member (Modules §5.3) — same subject seat, " +
+        "same result, at least one remaining seat properly wider — so widen it " +
+        "or choose a different name.",
     ]);
   });
 

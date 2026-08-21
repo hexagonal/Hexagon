@@ -223,10 +223,10 @@ describe("within range: the correctly rounded nearest double (rat.md §9)", () =
     // shows up as an exact mismatch rather than a last-bit one.
     const exports = await runRat(
       "// powers of two\n" +
-      "export let up: Float = Rat.toFloat(Rat.create(2n ** 200n, 1n))\n" +
-      "export let down: Float = Rat.toFloat(Rat.create(1n, 2n ** 200n))\n" +
+      "export let up: Float = Rat.toFloat(Rat.create(2n ** 200, 1n))\n" +
+      "export let down: Float = Rat.toFloat(Rat.create(1n, 2n ** 200))\n" +
       "export let unit: Float = Rat.toFloat(Rat.create(1, 1))\n" +
-      "export let deep: Float = Rat.toFloat(Rat.create(1n, 2n ** 1000n))\n",
+      "export let deep: Float = Rat.toFloat(Rat.create(1n, 2n ** 1000))\n",
     );
 
     expect(exports["up"]).toBe(2 ** 200);
@@ -272,7 +272,7 @@ describe("one rounding: the double-rounding traps rat.md §7 asks for", () => {
       "a numerator past 2^53 rounds before the division",
       (1n << 53n) + 1n,
       7n,
-      "Rat.create(2n ** 53n + 1n, 7n)",
+      "Rat.create(2n ** 53 + 1n, 7n)",
     ],
     [
       "both magnitudes past 2^53, quotient below one",
@@ -343,8 +343,8 @@ describe("the subnormal range: the rounding grid narrows before the rounding", (
     // because `Number(2n ** 1060n)` is an infinity.
     const exports = await runRat(
       "// subnormal, exact\n" +
-      "export let tiny: Float = Rat.toFloat(Rat.create(1n, 2n ** 1060n))\n" +
-      "export let smallest: Float = Rat.toFloat(Rat.create(1n, 2n ** 1074n))\n",
+      "export let tiny: Float = Rat.toFloat(Rat.create(1n, 2n ** 1060))\n" +
+      "export let smallest: Float = Rat.toFloat(Rat.create(1n, 2n ** 1074))\n",
     );
 
     expect(exports["tiny"]).toBe(nearestDouble(1n, 1n << 1060n));
@@ -357,7 +357,7 @@ describe("the subnormal range: the rounding grid narrows before the rounding", (
     // the smallest subnormal rather than erasing.
     const exports = await runRat(
       "// subnormal, just above half\n" +
-      "export let survives: Float = Rat.toFloat(Rat.create(3n, 2n ** 1076n))\n",
+      "export let survives: Float = Rat.toFloat(Rat.create(3n, 2n ** 1076))\n",
     );
 
     expect(exports["survives"]).toBe(nearestDouble(3n, 1n << 1076n));
@@ -387,7 +387,7 @@ describe("the subnormal range: the rounding grid narrows before the rounding", (
     const exports = await runRat(
       "// subnormal straddle\n" +
       "export let straddle: Float =\n" +
-      "    Rat.toFloat(Rat.create(2n ** 171n + 3n * (2n ** 125n) - 1n, 2n ** 1200n))\n",
+      "    Rat.toFloat(Rat.create(2n ** 171 + 3n * (2n ** 125) - 1n, 2n ** 1200))\n",
     );
 
     expect(exports["straddle"]).toBe(correct);
@@ -432,7 +432,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
     expect(nearestDouble(1n, 1n << 1075n)).toBe("erasure");
     const exports = await runRat(
       "// half the smallest subnormal\n" +
-      "export let boom(): Float = Rat.toFloat(Rat.create(1n, 2n ** 1075n))\n",
+      "export let boom(): Float = Rat.toFloat(Rat.create(1n, 2n ** 1075))\n",
     );
 
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
@@ -454,13 +454,13 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
 
     const exports = await runRat(
       "// the finite boundary\n" +
-      "export let largest: Float = Rat.toFloat(Rat.create((2n ** 53n - 1n) * 2n ** 971n, 1n))\n" +
+      "export let largest: Float = Rat.toFloat(Rat.create((2n ** 53 - 1n) * 2n ** 971, 1n))\n" +
       "export let lastGood: Float =\n" +
-      "    Rat.toFloat(Rat.create(2n ** 1024n - 2n ** 970n - 1n, 1n))\n" +
+      "    Rat.toFloat(Rat.create(2n ** 1024 - 2n ** 970 - 1n, 1n))\n" +
       "export let boom(): Float =\n" +
-      "    Rat.toFloat(Rat.create(2n ** 1024n - 2n ** 970n, 1n))\n" +
+      "    Rat.toFloat(Rat.create(2n ** 1024 - 2n ** 970, 1n))\n" +
       "export let negativeBoom(): Float =\n" +
-      "    Rat.toFloat(Rat.create(-(2n ** 1024n - 2n ** 970n), 1n))\n",
+      "    Rat.toFloat(Rat.create(-(2n ** 1024 - 2n ** 970), 1n))\n",
     );
 
     expect(exports["largest"]).toBe(Number.MAX_VALUE);
@@ -546,11 +546,9 @@ describe("the exception's identity", () => {
 
     const error = threw(main["boom"] as () => unknown);
     const negative = pow["NegativeExponentError"] as { is: (value: unknown) => boolean };
-    const fractional = pow["FractionalExponentError"] as { is: (value: unknown) => boolean };
     const divide = integral["DivideByZeroError"] as { is: (value: unknown) => boolean };
 
     expect(negative.is(error)).toBe(false);
-    expect(fractional.is(error)).toBe(false);
     expect(divide.is(error)).toBe(false);
   });
 });

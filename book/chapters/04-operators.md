@@ -51,8 +51,23 @@ Exponentiation uses `**`, not `^`, and associates to the right:
 2 ** 3 ** 2       // 2 ** (3 ** 2), which is 512
 ```
 
-Negative exponents are meaningful for `Float`. At `Int` and `BigInt`, they throw
-`NegativeExponentError` because the fractional result cannot inhabit the type.
+The exponent is always an `Int`. `**` is the algebraist's power — repeated
+multiplication, and its inverse where the type has reciprocals — so it is exact
+wherever the type is, and the whole right-hand spine of a tower runs at `Int`
+whatever the base is. Negative exponents are meaningful for `Float` and `Rat`;
+at `Nat`, `Int`, and `BigInt` they throw `NegativeExponentError`, because the
+fractional result cannot inhabit the type.
+
+The other power — the analyst's `exp(y · ln x)`, with a fractional exponent — is
+a named function rather than an operator, because it belongs only where
+approximation is the contract:
+
+```hexagon
+Float.pow(2.0, 0.5)     // the nearest float to the square root of two
+```
+
+Writing `x ** 0.5` is a type error, and the message points here. `BigInt.pow`
+is the matching door for an exponent too large to be an `Int`.
 
 One precedence rule follows mathematics where JavaScript refuses the expression:
 

@@ -69,6 +69,24 @@ export interface ModuleInterface {
    * `Resolved.Module.visibleConstraints` for why one hop is not enough.
    */
   readonly visibleConstraints: readonly Resolved.ConstraintItem[];
+  /**
+   * The exported terms above that are **generalising exports** — a companion's
+   * own wider face of a constraint member it honors at its own type (Modules
+   * §5.3's generalisation law, Constraints §4.6's exemption, #541).
+   *
+   * Such an export inherits the member's visibility rule: it is *qualifiable,
+   * not a bare export*. It stays in `terms`, because `Float.pow` and the dot
+   * call are exactly the spellings it owns; what it never does is enter a
+   * consumer's bare scope or count as an exporter for §5.5's collision
+   * arithmetic, so bare `pow` keeps its one exporter (`Pow.hex`'s member)
+   * however many companions widen their `pow`.
+   *
+   * The set is **name-keyed and signature-blind**: it is the spelling collision
+   * that decides visibility, and whether the export actually generalises is the
+   * checker's declaration-time question (a non-generalising one is the
+   * rebinding error, so its visibility never matters).
+   */
+  readonly generalisingExports: ReadonlySet<string>;
 }
 
 export interface InstanceInterface {
@@ -663,6 +681,21 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       exceptions.set(item.binding.name, item);
     }
   }
+  // Modules §5.3's generalisation law, read off the spellings alone: an
+  // exported term whose name is a member of a constraint this module honors is
+  // that member's wider face, and so shares its visibility rule (#541).
+  const honoredNames = new Set<string>();
+  for (const item of module.items) {
+    if (item.kind !== "Honor") continue;
+    const declaration = visible.get(item.constraintIdentity);
+    const names = declaration === undefined
+      ? PRE_REGISTERED_CONSTRAINT_MEMBERS[item.constraint] ?? []
+      : declaration.members.map(({ binding }) => binding.name);
+    for (const name of names) honoredNames.add(name);
+  }
+  const generalisingExports = new Set(
+    [...terms.keys()].filter((name) => honoredNames.has(name)),
+  );
   return {
     module,
     terms,
@@ -675,6 +708,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
     constraints,
     constraintMembers,
     visibleConstraints: [...visible.values()],
+    generalisingExports,
   };
 }
 
@@ -1273,19 +1307,30 @@ class Resolver {
     const moduleName = specifier.slice(specifier.lastIndexOf("/") + 1).replace(/\.js$/u, "");
     if (moduleName !== "") this.#preludeModuleAliases.set(moduleName, prelude);
     for (const [name, symbol] of prelude.terms) {
-      this.#preludeScope.define(name, symbol.id);
+      // A **generalising export** is qualifiable, not a bare export (Modules
+      // §5.3, #541): it inherits the visibility rule of the member it widens,
+      // so it takes no bare-scope binding and counts for nothing in §5.5's
+      // collision arithmetic — bare `pow` still has exactly one exporter,
+      // `Pow.hex`'s member, however many companions widen their `pow`. Every
+      // other registration below it keeps, because those are the routes it does
+      // own: `#preludeTermsByName` is the *dot-call* channel and nothing else
+      // (`#noteCompanionCandidate`), and the last three are what let the
+      // qualified spelling resolve and its import be synthesized.
+      if (!prelude.generalisingExports.has(name)) {
+        this.#preludeScope.define(name, symbol.id);
+        // The home a refused bare reference is rewritten to. `moduleName` is the
+        // same string `#preludeModuleAliases` was keyed by just above, so the
+        // diagnostic's suggestion is a spelling that resolves rather than a guess
+        // at one; the specifier stands in only if a member has no basename to be
+        // named by, which no injection path produces.
+        this.#preludeHomesByName.set(name, [
+          ...this.#preludeHomesByName.get(name) ?? [],
+          moduleName === "" ? specifier : moduleName,
+        ]);
+      }
       this.#preludeTermsByName.set(name, [
         ...this.#preludeTermsByName.get(name) ?? [],
         symbol.id,
-      ]);
-      // The home a refused bare reference is rewritten to. `moduleName` is the
-      // same string `#preludeModuleAliases` was keyed by just above, so the
-      // diagnostic's suggestion is a spelling that resolves rather than a guess
-      // at one; the specifier stands in only if a member has no basename to be
-      // named by, which no injection path produces.
-      this.#preludeHomesByName.set(name, [
-        ...this.#preludeHomesByName.get(name) ?? [],
-        moduleName === "" ? specifier : moduleName,
       ]);
       this.#preludeTerms.set(symbol.id, symbol);
       this.#preludeSpecifierBySymbol.set(symbol.id, specifier);
@@ -4978,6 +5023,14 @@ class Resolver {
    * - **The claim covers every member of the constraint**, not the ones the
    *   block writes: a defaulted member the instance inherits is bound just as
    *   much as an overridden one, and a `derives` clause is honoring too.
+   * - **An exported binding is the checker's question** (§4.6's generalising-
+   *   export exemption, #541). The exemption turns on *signatures* — the export
+   *   must properly generalise the member — which is not a question this pass
+   *   can ask, so every exported module-level binding of a member's spelling
+   *   passes here and the checker decides it. A non-generalising one is still
+   *   the rebinding error; it is reported there, with the law named. Private
+   *   bindings keep the whole refusal here, because the exemption is for
+   *   exports alone.
    *
    * Run once, after every item is resolved, which is what makes the claim
    * order-free — a `let` before the block and a `let` after it are the same
@@ -4986,10 +5039,18 @@ class Resolver {
    * absolute ban long before it could reach here.
    */
   #claimHonoredMembers(items: readonly Resolved.Item[], scope: Scope): void {
+    const exportedNames = new Set(
+      items.flatMap((item) =>
+        (item.kind === "Let" || item.kind === "Fun") && item.exported
+          ? [item.binding.name]
+          : []
+      ),
+    );
     for (const item of items) {
       if (item.kind !== "Honor") continue;
       const instance = `${item.constraint}<${annotationHeadName(item.subject)}>`;
       for (const member of this.#honoredMemberNames(item)) {
+        if (exportedNames.has(member)) continue;
         const existing = scope.lookupLocal(member);
         if (existing === undefined) continue;
         const previous = this.#symbol(existing);

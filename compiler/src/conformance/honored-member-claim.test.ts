@@ -113,6 +113,10 @@ describe("what the claim reaches", () => {
   });
 
   test("a derived `Show` claims `show` as a hand-written one does", () => {
+    // The binding here is *exported*, so §4.6's generalising-export exemption
+    // (#541) is the question asked — and an identical signature generalises
+    // nothing, so the claim still refuses, with the law named in place of the
+    // plain no-rebinding sentence.
     expect(projectDiagnostics([
       "export record Point derives (Show) = {x: Int}",
       "",
@@ -120,7 +124,10 @@ describe("what the claim reaches", () => {
       "",
     ].join("\n"))).toEqual([
       "`show` is already bound: the `Show<Point>` instance binds it as a member " +
-        "(line 1); Hexagon does not allow rebinding — choose a different name.",
+        "(line 1); an exported binding of a member's spelling is legal only when " +
+        "it properly generalises the member (Modules §5.3) — same subject seat, " +
+        "same result, at least one remaining seat properly wider — so widen it " +
+        "or choose a different name.",
     ]);
   });
 });

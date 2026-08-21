@@ -3,21 +3,18 @@ import { describe, expect, test } from "vitest";
 import { compileFiles, runProject } from "../support/test-project.js";
 
 /**
- * Conformance for **`honor Pow<Rat>` and its integer-exponent guard** — #523,
- * `rat.md` §4/§8/§9 and Operators §6.3's `Rat` row.
+ * Conformance for **`honor Pow<Rat>` under the `Int` exponent seat** — #523 as
+ * #541 reshaped it, `rat.md` §4/§8/§9 and Operators §6.3's `Rat` row.
  *
- * `Rat` is exact at integer-valued exponents of *either* sign — the predicate is
- * a canonical bottom of `1n` — so `(2/3) ** (-2/1)` is exactly `9/4`, the case
- * `Pow<Int>` structurally cannot serve. A non-integer exponent throws
- * `FractionalExponentError` (`stdlib/Pow.hex`, beside `NegativeExponentError`):
- * an irrational result cannot be a `Rat`. A zero base with a negative exponent
- * reaches `Rat`'s existing `DivideByZeroError` through `reciprocal`'s
- * smart-construction boundary, minting no message of its own.
- *
- * The **ordering** is itself a pin: the integrality guard is a predicate of the
- * exponent alone, decided before the base is consulted, so `pow(0/1, -1/2)` is
- * the fractional error and `pow(0/1, -1/1)` the zero one. A guard placed after
- * the inversion answers `DivideByZeroError` to both.
+ * `Rat` is exact at either sign of its exponent, so `(2/3) ** -2` is exactly
+ * `9/4` — the case `Pow<Int>` structurally cannot serve. What changed with the
+ * reshape is where the *refusal* lives: a fractional exponent used to throw
+ * `FractionalExponentError` at run time and is now a **type error at the seat**,
+ * because the member is `pow(value: Rat, exponent: Int)`. The exception is gone
+ * from `stdlib/Pow.hex` with the signature that made it reachable, and no guard
+ * is left in the instance at all: the only partiality is a zero base under a
+ * negative exponent, which reaches `Rat`'s existing `DivideByZeroError` through
+ * `reciprocal`'s smart-construction boundary, minting no message of its own.
  *
  * `rat.md` §9 requires the emitted JavaScript to be *executed*: an exactness
  * claim about bigint exponentiation is a claim about what the module computes,
@@ -52,6 +49,11 @@ async function runRat(source: string): Promise<Record<string, unknown>> {
   return runProject(withRat(source));
 }
 
+/** What a `Rat` client reports, if anything. */
+function ratVerdict(source: string): readonly string[] {
+  return compileFiles(withRat(source)).diagnostics.map(({ message }) => message);
+}
+
 /** What a thunk threw, or `undefined` if it returned. */
 function threw(run: () => unknown): unknown {
   try {
@@ -70,13 +72,12 @@ describe("the control: the harness reports a failure rather than passing it", ()
   });
 });
 
-describe("exact at integer-valued exponents of either sign (rat.md §9)", () => {
-  test("a positive integer exponent: `pow(2/1, 10/1)` is exactly `1024/1`", async () => {
+describe("exact at either sign of the `Int` exponent (rat.md §9)", () => {
+  test("a positive exponent: `pow(2/1, 10)` is exactly `1024/1`", async () => {
     const exports = await runRat(
       "// positive exponent\n" +
       "let base: Rat.Rat = Rat.create(2, 1)\n" +
-      "let exponent: Rat.Rat = Rat.create(10, 1)\n" +
-      "let raised: Rat.Rat = Rat.pow(base, exponent)\n" +
+      "let raised: Rat.Rat = Rat.pow(base, 10)\n" +
       "export let top: BigInt = Rat.top(raised)\n" +
       "export let bottom: BigInt = Rat.bottom(raised)\n" +
       "export let shown: String = \"${raised}\"\n",
@@ -87,14 +88,14 @@ describe("exact at integer-valued exponents of either sign (rat.md §9)", () => 
     expect(exports["shown"]).toBe("1024/1");
   });
 
-  test("a negative integer exponent inverts the base: `pow(2/3, -2/1)` is `9/4`", async () => {
+  test("a negative exponent inverts the base: `pow(2/3, -2)` is `9/4`", async () => {
     // The case `Pow<Int>` structurally cannot serve — it throws — and `Rat`
     // serves exactly. `9/4` also pins the inversion's *direction*: the wrong
     // one is `4/9`.
     const exports = await runRat(
       "// negative exponent\n" +
       "let base: Rat.Rat = Rat.create(2, 3)\n" +
-      "let exponent: Rat.Rat = Rat.create(-2, 1)\n" +
+      "let exponent: Int = -2\n" +
       "let raised: Rat.Rat = Rat.pow(base, exponent)\n" +
       "export let top: BigInt = Rat.top(raised)\n" +
       "export let bottom: BigInt = Rat.bottom(raised)\n",
@@ -112,8 +113,7 @@ describe("exact at integer-valued exponents of either sign (rat.md §9)", () => 
     const exports = await runRat(
       "// bigint exactness\n" +
       "let base: Rat.Rat = Rat.create(3, 1)\n" +
-      "let exponent: Rat.Rat = Rat.create(40, 1)\n" +
-      "let raised: Rat.Rat = Rat.pow(base, exponent)\n" +
+      "let raised: Rat.Rat = Rat.pow(base, 40)\n" +
       "export let top: BigInt = Rat.top(raised)\n",
     );
 
@@ -127,9 +127,9 @@ describe("exact at integer-valued exponents of either sign (rat.md §9)", () => 
       "// zeroth power\n" +
       "let zero: Rat.Rat = Rat.create(0, 1)\n" +
       "let seven: Rat.Rat = Rat.create(7, 2)\n" +
-      "export let unit: String = \"${seven ** Rat.create(0, 1)}\"\n" +
-      "export let zeroth: String = \"${zero ** Rat.create(0, 1)}\"\n" +
-      "export let zeroBase: String = \"${zero ** Rat.create(3, 1)}\"\n",
+      "export let unit: String = \"${seven ** 0}\"\n" +
+      "export let zeroth: String = \"${zero ** 0}\"\n" +
+      "export let zeroBase: String = \"${zero ** 3}\"\n",
     );
 
     expect(exports["unit"]).toBe("1/1");
@@ -138,52 +138,68 @@ describe("exact at integer-valued exponents of either sign (rat.md §9)", () => 
   });
 
   test("the operator spelling reaches the same member, end to end", async () => {
-    // `**` at `Rat` operands, and the same operation under Numeric Literals
-    // §5.1's expected-type lift from `Int` operands — one instance, three
-    // spellings (`Rat.pow`, `**`, the lifted `**`).
+    // `**` at a `Rat` base, and the same operation under Numeric Literals
+    // §5.1's expected-type lift from an `Int` base — one instance, three
+    // spellings (`Rat.pow`, `**`, the lifted `**`). In every one of them the
+    // exponent stays an `Int`: the lift moves the base alone.
     const exports = await runRat(
       "// operator spelling\n" +
       "let a: Int = 4\n" +
       "let negOne: Int = -1\n" +
       "let quarter: Rat.Rat = a ** negOne\n" +
-      "let direct: Rat.Rat = Rat.create(2, 3) ** Rat.create(-2, 1)\n" +
+      "let direct: Rat.Rat = Rat.create(2, 3) ** negOne\n" +
       "export let lifted: String = \"${quarter}\"\n" +
       "export let operator: String = \"${direct}\"\n" +
-      "export let member: String = \"${Rat.pow(Rat.create(2, 3), Rat.create(-2, 1))}\"\n",
+      "export let member: String = \"${Rat.pow(Rat.create(2, 3), -2)}\"\n",
     );
 
     expect(exports["lifted"]).toBe("1/4");
-    expect(exports["operator"]).toBe("9/4");
+    expect(exports["operator"]).toBe("3/2");
     expect(exports["member"]).toBe("9/4");
   });
 });
 
-describe("the guards, and the order they are checked in", () => {
-  test("a non-integer exponent throws `FractionalExponentError`, message pinned", async () => {
-    // `rat.md` §8 pins the provenance-tagged message exactly.
-    const exports = await runRat(
-      "// fractional exponent\n" +
-      "export let boom(): Rat.Rat = Rat.pow(Rat.create(4, 9), Rat.create(1, 2))\n" +
-      "export let alsoBoom(): Rat.Rat = Rat.create(2, 1) ** Rat.create(3, 2)\n",
-    );
-
-    expect(threw(exports["boom"] as () => unknown)).toMatchObject({
-      name: "FractionalExponentError",
-      message: "Rat.pow: exponent is not an integer",
-      $hex: "Pow",
-    });
-    // A *perfect* root is refused as squarely as any other: success is never a
-    // property of the base's factorization (Operators §13).
-    expect(threw(exports["alsoBoom"] as () => unknown))
-      .toMatchObject({ name: "FractionalExponentError" });
+describe("the fractional exponent is refused by the seat's type, not by a guard", () => {
+  test("the operator spelling is a compile-time type error with the `Float` fixit", () => {
+    // `rat.md` §8: a non-integer exponent at `**` or `Rat.pow` is a type error
+    // at the `Int` exponent seat, never a runtime report. The fixit names the
+    // door the analytic power lives behind.
+    expect(ratVerdict(
+      "export let boom: Rat.Rat = Rat.create(2, 1) ** 0.5\n",
+    )).toEqual([
+      "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, " +
+        "use `Float.pow(value, exponent)`",
+    ]);
   });
 
-  test("a zero base at a negative integer exponent throws `DivideByZeroError`", async () => {
+  test("the named spelling `Rat.pow(r, r2)` is refused at the argument seat", () => {
+    // The same refusal reached the other way: the member's second parameter is
+    // an `Int`, so a `Rat` argument is an ordinary seat mismatch. No fixit here
+    // — this is not the operator, and `Rat` is not one of the two door types.
+    expect(ratVerdict(
+      "export let boom: Rat.Rat = Rat.pow(Rat.create(4, 9), Rat.create(1, 2))\n",
+    )).not.toEqual([]);
+  });
+
+  test("a *perfect* root is refused as squarely as any other", () => {
+    // Success is never a property of the base's factorization (Operators §13),
+    // and now the refusal does not even reach the base.
+    expect(ratVerdict(
+      "export let boom: Rat.Rat = Rat.create(4, 1) ** 0.5\n",
+    )).toEqual([
+      "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, " +
+        "use `Float.pow(value, exponent)`",
+    ]);
+  });
+});
+
+describe("the one partiality left, and where it reports", () => {
+  test("a zero base at a negative exponent throws `DivideByZeroError`", async () => {
     // Through the smart-construction boundary — `reciprocal` is `create` on the
     // swapped pair — so no `Rat.pow`-specific message is minted for it.
     const exports = await runRat(
       "// zero base, negative exponent\n" +
-      "export let boom(): Rat.Rat = Rat.pow(Rat.create(0, 1), Rat.create(-1, 1))\n",
+      "export let boom(): Rat.Rat = Rat.pow(Rat.create(0, 1), -1)\n",
     );
 
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
@@ -192,76 +208,24 @@ describe("the guards, and the order they are checked in", () => {
     });
   });
 
-  test("where both conditions hold the integrality guard is checked first", async () => {
-    // `pow(0/1, -1/2)`: fractional *and* a vanishing reciprocal. The guard is a
-    // predicate of the exponent alone, decided before the base is consulted, so
-    // the answer is `FractionalExponentError`. A guard placed after the
-    // inversion answers `DivideByZeroError` here.
-    const exports = await runRat(
-      "// both conditions\n" +
-      "export let boom(): Rat.Rat = Rat.pow(Rat.create(0, 1), Rat.create(-1, 2))\n",
-    );
-
-    expect(threw(exports["boom"] as () => unknown)).toMatchObject({
-      name: "FractionalExponentError",
-      message: "Rat.pow: exponent is not an integer",
-    });
-  });
-});
-
-describe("the exception's identity", () => {
-  test("a catch arm names it by `Pow`'s declaration, bare and qualified", async () => {
-    // The catch arm is the Hexagon-side guard: it certifies the (module, name)
-    // pair, so the sibling `NegativeExponentError` arm does not answer for it.
-    const exports = await runRat(
-      "// catch arms\n" +
-      "export fun bare(): String =\n" +
-      "    try\n" +
-      "        \"${Rat.pow(Rat.create(4, 1), Rat.create(1, 2))}\"\n" +
-      "    catch\n" +
-      "        FractionalExponentError(message) => message\n" +
-      "export fun qualified(): String =\n" +
-      "    try\n" +
-      "        \"${Rat.pow(Rat.create(9, 1), Rat.create(1, 2))}\"\n" +
-      "    catch\n" +
-      "        Pow.FractionalExponentError(message) => message\n" +
-      "export fun sibling(): String =\n" +
-      "    try\n" +
-      "        \"${Rat.pow(Rat.create(16, 1), Rat.create(1, 2))}\"\n" +
-      "    catch\n" +
-      "        NegativeExponentError(message) => \"wrong: ${message}\"\n" +
-      "        _ => \"not the sibling\"\n",
-    );
-
-    expect((exports["bare"] as () => string)()).toBe("Rat.pow: exponent is not an integer");
-    expect((exports["qualified"] as () => string)())
-      .toBe("Rat.pow: exponent is not an integer");
-    expect((exports["sibling"] as () => string)()).toBe("not the sibling");
-  });
-
-  test("the JavaScript guards certify it against `stdlib/Pow.hex`", async () => {
-    // `.is` and `isHexError` are the JS consumer's face of the same brand the
-    // arms above read. Both calls run over one module graph: `Pow.hex`'s
-    // emitted text is byte-identical across the two entries, so the `data:`
-    // cache hands back the same instance and `.is` is the declaration's own.
+  test("`Pow.hex` declares one exception now, and `Rat` throws none of it", async () => {
+    // `FractionalExponentError` is deleted, so the only brand `Pow.hex` still
+    // owns is `NegativeExponentError` — which `Rat` never throws, its algebra
+    // being total at both signs. The zero-base error is `Integral.hex`'s.
     const files = withRat(
       "// runtime guards\n" +
-      "export let boom(): Rat.Rat = Rat.pow(Rat.create(5, 1), Rat.create(1, 3))\n",
+      "export let boom(): Rat.Rat = Rat.pow(Rat.create(0, 1), -1)\n",
     );
     const main = await runProject(files);
     const pow = await runProject(files, { entry: "/Pow.hex" });
 
     const error = threw(main["boom"] as () => unknown);
-    const fractional = pow["FractionalExponentError"] as { is: (value: unknown) => boolean };
     const negative = pow["NegativeExponentError"] as { is: (value: unknown) => boolean };
     const isHexError = pow["isHexError"] as (value: unknown) => boolean;
 
     expect(error).toBeInstanceOf(Error);
-    expect(fractional.is(error)).toBe(true);
+    expect(pow["FractionalExponentError"]).toBeUndefined();
     expect(negative.is(error)).toBe(false);
     expect(isHexError(error)).toBe(true);
-    // A foreign `Error` wearing the name is unbranded, so the guard refuses it.
-    expect(fractional.is(Object.assign(new Error("x"), { name: "FractionalExponentError" })))
-      .toBe(false);
   });
 });

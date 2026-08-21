@@ -67,25 +67,26 @@ honor Frac<Rat> =
         else
             create(left.top * right.bottom, left.bottom * right.top)
 
-// `FractionalExponentError` is `Pow.hex`'s, in scope through the prelude,
-// beside the `NegativeExponentError` the integer types throw.
+// Nothing guards here. The exponent's integrality is the seat's *type* (#541),
+// so the only partiality left is the zero base a negative exponent inverts, and
+// that one belongs to `create`.
 honor Pow<Rat> =
-    pow(left, right) =
-        // The integrality guard is a predicate of the exponent alone and is
-        // decided before the base is consulted, so `pow(0/1, -1/2)` is the
-        // fractional error rather than the zero-base one.
-        if right.bottom != 1 then
-            throw(FractionalExponentError("Rat.pow: exponent is not an integer"))
-        else
-            // A negative exponent inverts the base first; `reciprocal` routes
-            // through `create`, so a zero base reaches `DivideByZeroError`
-            // there rather than minting a message of its own.
-            let inverted = right.top < 0
-            let base = if inverted then reciprocal(left) else left
-            let exponent = if inverted then -right.top else right.top
-            // A reduced pair stays reduced under powers and a canonical bottom
-            // is positive, so the invariant survives the raw constructor.
-            Rat({top = base.top ** exponent, bottom = base.bottom ** exponent})
+    (** `value` raised to the power `exponent`, exactly, at either sign. A
+        negative exponent inverts the base first, so `pow(2/3, -2)` is exactly
+        `9/4`; a zero base inverted that way reaches `DivideByZeroError` through
+        `create`, minting no message of its own. *)
+    pow(value, exponent) =
+        // `reciprocal` routes through `create`, which is where a zero base
+        // reports.
+        let inverted = exponent < 0
+        let base = if inverted then reciprocal(value) else value
+        let magnitude = if inverted then -exponent else exponent
+        // A reduced pair stays reduced under powers and a canonical bottom
+        // is positive, so the invariant survives the raw constructor.
+        Rat({
+            top = BigInt.pow(base.top, magnitude),
+            bottom = BigInt.pow(base.bottom, magnitude),
+        })
 
 // -- `toFloat`, and the exact integer arithmetic the single rounding needs. --
 //
@@ -93,18 +94,22 @@ honor Pow<Rat> =
 // that fails belongs to `Float`, not to any one door into it.
 //
 // The language has no shift operator, so every shift below is `2 ** k` at
-// `BigInt`, exact by `Pow<BigInt>`. Nothing here crosses into `Float` until the
-// final assembly, which is why the rounding happens once.
+// `BigInt`, exact by `Pow<BigInt>` — a `BigInt` base under an `Int` exponent,
+// which is the shape the member has (#541). Every exponent and scale here is an
+// `Int` counter for that reason: the magnitudes stay under about 1100, far
+// inside the safe range, and the only thing that ever needs to be a `BigInt` is
+// the value being shifted. Nothing crosses into `Float` until the final
+// assembly, which is why the rounding happens once.
 
 // The number of binary digits in a positive `value`: the unique `n` with
 // `2 ** (n - 1) <= value < 2 ** n`. A doubling search finds a bound and a
 // bisection closes on it, so the cost is logarithmic in the answer rather than
 // linear in it — the exponents here reach into the thousands.
-let bitLength(value: BigInt): BigInt =
-    var high: BigInt = 1
+let bitLength(value: BigInt): Int =
+    var high: Int = 1
     while (2 ** high) <= value
         high := high * 2
-    var low: BigInt = if high == 1 then 0 else high.quot(2)
+    var low: Int = if high == 1 then 0 else high.quot(2)
     while high - low > 1
         let middle = (low + high).quot(2)
         if (2 ** middle) <= value then
@@ -116,17 +121,17 @@ let bitLength(value: BigInt): BigInt =
 // The two halves of `numerator * 2 ** scale / denominator` kept as an exact
 // integer pair: a positive `scale` scales the top and a negative one the
 // bottom, so no shift is ever undone and no quotient is ever taken twice.
-let scaledTop(value: BigInt, scale: BigInt): BigInt =
+let scaledTop(value: BigInt, scale: Int): BigInt =
     if scale > 0 then value * (2 ** scale) else value
 
-let scaledBottom(value: BigInt, scale: BigInt): BigInt =
+let scaledBottom(value: BigInt, scale: Int): BigInt =
     if scale < 0 then value * (2 ** (-scale)) else value
 
 // The `scale` at which `floor(numerator * 2 ** scale / denominator)` holds
 // exactly 53 binary digits — the width of a double's significand. The two digit
 // counts place the quotient within a factor of two, so the first guess is right
 // or exactly one too high, and one comparison settles which.
-let alignedScale(numerator: BigInt, denominator: BigInt): BigInt =
+let alignedScale(numerator: BigInt, denominator: BigInt): Int =
     let guess = 53 - (bitLength(numerator) - bitLength(denominator))
     let raw = scaledTop(numerator, guess).quot(scaledBottom(denominator, guess))
     if raw >= (2 ** 53) then guess - 1 else guess
@@ -137,7 +142,7 @@ let alignedScale(numerator: BigInt, denominator: BigInt): BigInt =
 let roundedSignificand(
     numerator: BigInt,
     denominator: BigInt,
-    scale: BigInt
+    scale: Int
 ): BigInt =
     let dividend = scaledTop(numerator, scale)
     let divisor = scaledBottom(denominator, scale)
@@ -153,14 +158,14 @@ let roundedSignificand(
 
 // `2 ** exponent` as a `Float`, exactly: a power of two inside the range is
 // among the values `BigInt.toFloat` never rounds.
-let powerOfTwo(exponent: BigInt): Float = (2 ** exponent).toFloat()
+let powerOfTwo(exponent: Int): Float = (2n ** exponent).toFloat()
 
 // `significand * 2 ** -scale` as a `Float`, exactly. The significand holds at
 // most 53 bits, so it crosses exactly; the power is applied in two halves
 // because one whole factor would leave the range at either end — `2 ** 1074`
 // overflows and `2 ** -1074` is the smallest subnormal, whose product would
 // round a second time — while both halved intermediates stay normal.
-let assemble(significand: BigInt, scale: BigInt): Float =
+let assemble(significand: BigInt, scale: Int): Float =
     let value = significand.toFloat()
     if scale >= 0 then
         let half = scale.quot(2)

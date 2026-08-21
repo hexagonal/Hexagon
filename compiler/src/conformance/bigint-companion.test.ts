@@ -302,9 +302,9 @@ describe("negative exponents (Pow, delta 4)", () => {
    */
   test("`**` at BigInt throws NegativeExponentError with the same message", async () => {
     const exports = await runMain([
-      "export let fine: BigInt = 2n ** 10n",
-      "export let zero: BigInt = 7n ** 0n",
-      "export let boom(): BigInt = 2n ** -1n",
+      "export let fine: BigInt = 2n ** 10",
+      "export let zero: BigInt = 7n ** 0",
+      "export let boom(): BigInt = 2n ** -1",
       "",
     ].join("\n"));
 
@@ -320,9 +320,9 @@ describe("negative exponents (Pow, delta 4)", () => {
 
   test("`pow` under a written bound reaches the same guard", async () => {
     const exports = await runMain([
-      "export let raise<a: Pow>(base: a, exponent: a): a = pow(base, exponent)",
-      "export let big: BigInt = raise(3n, 4n)",
-      "export let boom(): BigInt = raise(3n, -4n)",
+      "export let raise<a: Pow>(base: a, exponent: Int): a = pow(base, exponent)",
+      "export let big: BigInt = raise(3n, 4)",
+      "export let boom(): BigInt = raise(3n, -4)",
       "",
     ].join("\n"));
 

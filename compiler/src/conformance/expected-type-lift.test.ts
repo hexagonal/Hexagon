@@ -144,8 +144,12 @@ describe("observable exactness at a wider-than-f64 home", () => {
   });
 });
 
-describe("the `Pow` home selection", () => {
+describe("the `Pow` home selection — the base seat alone (#541)", () => {
   test("`let x: Float = 2 ** negOne` is the native, total `**` — no guard", async () => {
+    // The written face moves the **base**: `Pow<Float>` is total, so a negative
+    // exponent is an ordinary float reciprocal power where operand-driven
+    // selection would have taken `Pow<Int>` and thrown. The exponent itself is
+    // an `Int` in both readings — the member's seat is concrete.
     const exports = await runProject([["/main.hex",
       "// Pow home\n" +
       "let negOne: Int = -1\n" +
@@ -154,12 +158,46 @@ describe("the `Pow` home selection", () => {
     expect(exports["x"]).toBe(0.5);
   });
 
+  test("the base-seat-only boundary: `let x: Float = a ** b` leaves `b` an `Int`", () => {
+    // §5.1's recursion reaches operand seats of a lifted operation — but the
+    // exponent seat is not one of them. It is the member's concrete `Int`
+    // parameter, so no conversion of `b` to `Float` is emitted or permitted,
+    // and the `b` in the emitted `**` is the `Int` binding itself.
+    const javascript = emitted("export let x: Float = a ** b\n");
+    expect(javascript).toContain("const x = a ** b;");
+    expect(javascript).not.toContain("Signed_Float.fromInt(b)");
+  });
+
+  test("the same boundary where a conversion would *show*: a `BigInt` home", () => {
+    // At `Float` the two conversions erase (§5.2), so that pin cannot tell a
+    // converted exponent from an unconverted one. `BigInt` can: an `Int`
+    // crossing into it emits `BigInt(…)`, so a base seat that converts and an
+    // exponent seat that does not are visibly different in one line.
+    expect(emitted("export let r: BigInt = a ** b\n"))
+      .toContain("__Pow_BigInt.pow(BigInt(a), b)");
+  });
+
+  test("an exponent tower's right spine runs at `Int`, whatever the base's home", async () => {
+    // `**` is right-associative, so `r ** b ** c` is `r ** (b ** c)`: the inner
+    // power sits in the outer's exponent seat, where the expectation is `Int`.
+    // The whole right spine is `Int` arithmetic over one typed base, which is
+    // what a tower of exponents means. `2 ** 3 ** 2` is 512, not 64.
+    const exports = await runProject(withRat(
+      "// exponent tower\n" +
+      "let two: Int = 2\n" +
+      "let three: Int = 3\n" +
+      "export let tower: Int = two ** three ** two\n" +
+      "export let atRat: String = \"${(two ** three ** two : Rat.Rat)}\"\n",
+    ));
+    expect(exports["tower"]).toBe(512);
+    expect(exports["atRat"]).toBe("512/1");
+  });
+
   test("`let r: Rat = a ** b` lifts to `Pow<Rat>` — the acceptance #523 inverted", () => {
     // Was the gated decline, on the strength of `Pow` having no `Rat`. `Rat`
     // honors `Pow` now, so the written face names the algebra here too: the
-    // power runs at `Rat`, exactly, and it is total *here* by construction —
-    // an injected operand is integer-valued, so the instance's integrality
-    // guard is passed before it is asked.
+    // power runs at `Rat`, exactly, and it is total *here* — the instance has
+    // no guard at all since the exponent's integrality became the seat's type.
     expect(ratVerdict("export let r: Rat.Rat = a ** b\n")).toEqual([]);
     // Acceptance alone cannot tell the lift from the decline it replaced —
     // both compile clean. The selection is what changed, so pin it: the power

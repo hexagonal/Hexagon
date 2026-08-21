@@ -293,25 +293,29 @@ describe("Primitive Types §7's `show`, warts included", () => {
 
 describe("`pow` and the guard that is not there", () => {
   /**
-   * Operators §6.3's `Float` row: a negative float exponent is an ordinary
-   * float operation, so `Pow<Float>` is the raw native with nothing above it —
-   * the guard `Int` and `BigInt` carry does not exist here and must not appear.
-   * The emission half matters as much as the answers: `**` at `Float` keeps
-   * inlining, because there is no guard for a slot call to be protecting.
+   * Operators §6.3's `Float` row: `Pow<Float>` is **total** — every `Int`
+   * exponent has a `Float` answer, negative ones included — so the guard `Nat`,
+   * `Int`, and `BigInt` carry does not exist here and must not appear. The
+   * emission half matters as much as the answers: `**` at `Float` is the one
+   * `pow` instance that still inlines, because there is no guard for a slot
+   * call to be protecting, and its member's `Int` exponent is the same
+   * JavaScript `number` the raw `**` wants.
+   *
+   * The fractional exponent moved out of the operator with #541 and into the
+   * `Float.pow` door; `pow-doors.test.ts` owns it.
    */
   test("a negative exponent is an ordinary answer, and `**` still inlines", async () => {
     const source = [
-      "export let cube: Float = 2.0 ** 3.0",
-      "export let reciprocal: Float = 2.0 ** -1.0",
-      "export let root: Float = 9.0 ** 0.5",
+      "let three: Int = 3",
+      "export let cube: Float = 2.0 ** three",
+      "export let reciprocal: Float = 2.0 ** -1",
       "",
     ].join("\n");
     const exports = await runMain(source);
 
     expect(exports["cube"]).toBe(8);
     expect(exports["reciprocal"]).toBe(0.5);
-    expect(exports["root"]).toBe(3);
-    expect(emitted(source)).toContain("const cube = 2.0 ** 3.0;");
+    expect(emitted(source)).toContain("const cube = 2.0 ** three;");
     expect(emitted(source)).not.toContain("NegativeExponentError");
   });
 });
