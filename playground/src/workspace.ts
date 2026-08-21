@@ -17,6 +17,8 @@
  * exception is `anchor`, which exists for diagnostics and is documented there.
  */
 
+import { Source, lex } from "../../compiler/src/index";
+
 import type { PlaygroundDiagnostic } from "./protocol";
 import { hostedModules, playgroundEquipment } from "./playground-equipment";
 import { parseWorkspaceSource } from "./workspace-source";
@@ -165,9 +167,11 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
   // compiler's prelude, and equipment the buffer never names would cost every
   // program an import line and an instance inventory it does not use.
   const spelled = spelledWords(source);
+  const aliased = aliasedModules(workspace.mainText);
   const equipmentPrefix = hosted
     .filter(({ companion }) =>
-      playgroundEquipment.includes(companion) && spelled.has(companion)
+      playgroundEquipment.includes(companion) && spelled.has(companion) &&
+      !aliased.has(companion)
     )
     .map(({ companion, path }) => {
       const specifier = JSON.stringify(`.${path.slice(0, -".hex".length)}`);
@@ -176,8 +180,11 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
       // the same alias answers the bare `Rat` face in an annotation — so the
       // named half this used to inject beside it, and the declared-type gate
       // that had to drop it where the buffer declared its own `Rat`, are both
-      // gone. The alias binds nothing, so a buffer's own `record Rat` simply
-      // wins with nothing to collide against.
+      // gone. In the type namespace the alias binds nothing, so a buffer's own
+      // `record Rat` — or its own `import { Rat }` — simply wins with nothing
+      // to collide against. The alias namespace is the one it does claim, and
+      // there a second alias of one name is that namespace's own collision
+      // rule (Modules §5.2), which is what `aliasedModules` steps out of.
       return `import * as ${companion} from ${specifier}`;
     }).join("\n");
   const mainPrefix = equipmentPrefix.length === 0 ? "" : `${equipmentPrefix}\n`;
@@ -229,5 +236,58 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
  */
 function spelledWords(source: string): ReadonlySet<string> {
   return new Set(source.match(/[\p{ID_Continue}$]+/gu) ?? []);
+}
+
+/**
+ * Every name the entry's own text binds as a module alias.
+ *
+ * This gate runs the other way round from `spelledWords`: a name found here
+ * *drops* an import rather than adding one. A miss leaves two `import * as Rat`
+ * lines in one file — the alias namespace's collision rule (Modules §5.2),
+ * reported at the line the user wrote, beneath the line no buffer shows.
+ *
+ * So it reads tokens rather than text, because a legal alias import is not a
+ * line: comments are trivia between its tokens (`import (* why *) * as Rat`),
+ * and the head may break across lines. What the buffer *shows* is not the shape
+ * the compiler reads, and a gate whose whole job is to agree with the compiler
+ * has to read what it reads. The lexer settles the near misses for free, each
+ * in the direction it wants: a commented-out `// import * as Rat` is trivia and
+ * binds nothing, and an import head spelled inside a string literal is part of
+ * that one token — neither suppresses anything.
+ *
+ * A buffer that does not lex at all — an unterminated string or block comment
+ * swallowing the rest of it — yields fewer heads rather than phantom ones, so
+ * the direction a mid-edit buffer fails in is the mild one, and that buffer
+ * carries a lex error of its own and compiles no further either way. The scan's
+ * diagnostics are dropped for that reason: every one of them is the compile's
+ * to report, against the same text.
+ *
+ * Keyed on the alias rather than on the module it names, because the collision
+ * is over the bound name: `import * as Rat from "./Helper"` claims `Rat` just
+ * as firmly, and the prefix has to stay out of its way. And it reads
+ * `/main.hex`'s masked text where `spelledWords` reads the whole buffer, which
+ * is the same fact told twice: a block's own file never carries the prefix, so
+ * a name spelled inside a block can still want one, and an alias bound inside
+ * one collides with nothing and must not take it away. That text carries the
+ * block imports `parseWorkspaceSource` synthesizes, so the scan reads those
+ * too — a block named for a companion has already taken that companion out of
+ * `hosted`, so the two never meet.
+ */
+function aliasedModules(mainText: string): ReadonlySet<string> {
+  const { tokens } = lex(new Source.File(Source.fileId(0), entryPath, mainText));
+  const aliases = new Set<string>();
+  for (const [index, token] of tokens.entries()) {
+    if (token.kind !== "Import") continue;
+    const star = tokens[index + 1];
+    const as = tokens[index + 2];
+    const alias = tokens[index + 3];
+    // `as` is contextual (an ordinary name to the lexer), and an alias is
+    // uppercase-start mandatorily — a lowercase one is the parser's error to
+    // report and binds no companion's name whatever it does with it.
+    if (star?.kind !== "Star") continue;
+    if (as?.kind !== "NonUpperName" || as.text !== "as") continue;
+    if (alias?.kind === "UpperName") aliases.add(alias.text);
+  }
+  return aliases;
 }
 
