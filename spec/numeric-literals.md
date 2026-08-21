@@ -104,7 +104,7 @@ The literal's payload `k` is validated at lex time: it must be an exact non-nega
 
 `1n` literals: elaborate directly to `BigIntLit(k)` with type `BigInt`. No type variable, no constraint. Payload is arbitrary precision (store as string or JS bigint in the AST).
 
-Decimal literals: elaborate directly to `FloatLit`, type `Float`. (Future work note: these *could* become `Frac`-polymorphic via a `fromFloat` method, but this is explicitly deferred — the `Rat` instance of `fromFloat` is exact binary conversion, which is not what a user writing `0.1` means, and resolving that tension is a design task, not an implementation task.)
+Decimal literals: elaborate directly to `FloatLit`, type `Float`. (Future work note: decimal-literal polymorphism is explicitly deferred — a design task, not an implementation task (#525). It cannot ride a `fromFloat` method: a `Rat` `fromFloat` exists in no spelling, ever (friendly-numerics tenet 7) — the exact binary conversion of the double nearest `0.1` is not what a user writing `0.1` means, and a `Float` entering `Rat` would receive manufactured exactness — so any future design must carry the literal's written digits, never the parsed double.)
 
 ### Interaction with the existing pipeline
 
@@ -341,7 +341,7 @@ A branch or item whose type is *structured* — `(1, 2)`, `[1, 2]` — can never
 
 **Haskell-style extensible defaulting** (multiple candidate types, `default` declarations). Rejected: single candidate (`Int`), closed defaultable-constraint list, no per-module configuration. See §4.
 
-**Polymorphic decimal literals via `Frac`/`fromFloat`.** Deferred, not rejected — but blocked on a real design question (exact-binary vs decimal-intended conversion for `Rat`), so v1 pins `1.5 : Float`.
+**Polymorphic decimal literals.** The polymorphism is deferred, not rejected (#525) — but the `fromFloat` route to it *is* rejected: a `Rat` `fromFloat` exists in no spelling, ever (friendly-numerics tenet 7 — exact binary conversion would mint exactness the double never had), so the open design question is how a literal's written digits reach an exact instance, not which conversion to bless. v1 pins `1.5 : Float`.
 
 ---
 
