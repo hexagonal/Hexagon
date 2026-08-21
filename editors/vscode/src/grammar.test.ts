@@ -852,6 +852,31 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
     }
   });
 
+  /**
+   * `widens` joins the guard on `union`'s terms and for `union`'s reason (#546).
+   *
+   * It is a contextual word too, so a bare one is not a declaration marker: an
+   * indented continuation may legitimately read `widens(x)`, and a guard that
+   * bailed there would end the enclosing bracket or comment at a line that never
+   * left it. The arm is therefore keyed on the follower, exactly as `union`'s is.
+   *
+   * It sits *before* the `union` arm, and the order carries no meaning — the two
+   * words are mutually exclusive, so no input can reach both — but the position
+   * is deliberate: the `union` assertion above anchors on that arm being last in
+   * its group, and an arm appended after it would move what that test measures
+   * without changing what it claims to measure.
+   */
+  it("admits `widens` to the guard only ahead of a module alias", async () => {
+    const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
+      .filter((end) => end.includes("(?=^\\S"));
+    expect(guards).toHaveLength(15);
+    for (const guard of guards) {
+      expect(guard, guard).toContain(
+        "|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union",
+      );
+    }
+  });
+
   it("bails on every hard keyword that can open a declaration", async () => {
     // The guard names the keywords rather than matching any word, so it has to be
     // checked against the grammar's own §4.1 inventories — a keyword added there and
@@ -871,6 +896,93 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
 
     expect(inventory.length).toBeGreaterThan(0);
     expect([...guardWords].sort()).toEqual([...inventory].sort());
+  });
+});
+
+/**
+ * The two contextual words #546 added (spec/lexer.md §4.2, Constraints §4.7).
+ *
+ * Both mean nothing outside their position and lex as ordinary names, so every
+ * case here can fail on its own: the declaration rows fail if the lookahead is
+ * dropped, and the term rows fail if either word is ever made reserved.
+ */
+describe("`widens` and `widened` are contextual (#546)", () => {
+  it("paints `widens` at a declaration head", async () => {
+    expect(await scope("widens Pow.pow(value: Float, exponent: Float): Float = p", "widens"))
+      .toBe("storage.type.hexagon");
+  });
+
+  it("paints the head's member path as the qualified reference it is", async () => {
+    // No head-only spelling: the alias is a namespace and the `.` an accessor,
+    // which is what `Float.pow` gets anywhere else in the language.
+    const pairs = await scopePairs("widens Pow.pow(value: Float, exponent: Float): Float = p");
+    expect(pairs.slice(0, 4)).toEqual([
+      ["widens", "storage.type.hexagon"],
+      ["Pow", "entity.name.namespace.hexagon"],
+      [".", "punctuation.accessor.hexagon"],
+      ["pow", "entity.name.function.hexagon"],
+    ]);
+  });
+
+  it("paints the comma list's head, and reads its earlier members as references", async () => {
+    // Recorded rather than admired: only the last listed member has the `(`
+    // after it, so the earlier ones take the scope `let f = Float.pow` gives the
+    // same spelling. Painting them otherwise would need a head-shaped region.
+    const pairs = await scopePairs("widens Pow.pow, Mul.pow(value: Box, exponent: Float): Box = v");
+    expect(pairs.slice(0, 8)).toEqual([
+      ["widens", "storage.type.hexagon"],
+      ["Pow", "entity.name.namespace.hexagon"],
+      [".", "punctuation.accessor.hexagon"],
+      ["pow", "variable.other.hexagon"],
+      [",", "punctuation.separator.comma.hexagon"],
+      ["Mul", "entity.name.namespace.hexagon"],
+      [".", "punctuation.accessor.hexagon"],
+      ["pow", "entity.name.function.hexagon"],
+    ]);
+  });
+
+  it("leaves `widens` an ordinary name everywhere else", async () => {
+    // Contextual status is observable, and this is where it is observed.
+    expect(await scope("let widens = 3", "widens"))
+      .toBe("variable.other.definition.hexagon");
+    expect(await scope("let r = widens(x)", "widens"))
+      .toBe("entity.name.function.hexagon");
+    expect(await scope("let r = {widens = 1}", "widens"))
+      .toBe("variable.other.hexagon");
+    // Both occurrences, because a parameter and its use are different slots and
+    // neither may be claimed by the head rule.
+    expect(
+      (await scopePairs("fun f(widens: Int): Int = widens"))
+        .filter(([text]) => text === "widens"),
+    ).toEqual([
+      ["widens", "variable.parameter.hexagon"],
+      ["widens", "variable.other.hexagon"],
+    ]);
+  });
+
+  it("paints `widened` as the whole right-hand side of a member line", async () => {
+    expect(await scopePairs("honor Pow<Float> =\n    pow = widened\n")).toEqual([
+      ["honor", "storage.type.hexagon"],
+      ["Pow", "entity.name.type.constraint.hexagon"],
+      ["<", "keyword.operator.comparison.hexagon"],
+      ["Float", "entity.name.type.hexagon"],
+      [">", "keyword.operator.comparison.hexagon"],
+      ["=", "keyword.operator.assignment.hexagon"],
+      ["pow", "entity.name.function.hexagon"],
+      ["=", "keyword.operator.assignment.hexagon"],
+      ["widened", "keyword.other.widened.hexagon"],
+    ]);
+  });
+
+  it("leaves `widened` an ordinary name everywhere else", async () => {
+    expect(await scope("let widened = 5", "widened"))
+      .toBe("variable.other.definition.hexagon");
+    // Hexagon assigns with `:=`, so an assignment never reaches the rule.
+    expect(await scope("fun f() =\n    x := widened\n", "widened"))
+      .toBe("variable.other.hexagon");
+    // The rule demands the word be the *whole* right-hand side.
+    expect(await scope("honor Pow<Box> =\n    pow = widened + 1\n", "widened"))
+      .toBe("variable.other.hexagon");
   });
 });
 
