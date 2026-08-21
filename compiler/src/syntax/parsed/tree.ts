@@ -119,6 +119,30 @@ export interface LetItem {
   readonly name: Name;
   readonly annotation?: TypeAnnotation;
   readonly value: Expr;
+  /**
+   * The members a `widens` declaration names at its head (Constraints §4.7,
+   * #546) — present exactly on a `widens` item, absent on every `let`.
+   *
+   * A `widens` declaration *is* a module-level term binding, so it takes the
+   * binding item's shape rather than one of its own; what marks it is this
+   * field and the name, which is **derived** from the last segment of the paths
+   * rather than written. `name` therefore has no leading spelling to point at
+   * and carries the member path's own span.
+   */
+  readonly widens?: readonly WidensTarget[];
+  readonly span: Source.Span;
+}
+
+/**
+ * One `Alias.member` path at a `widens` head (Constraints §4.7).
+ *
+ * The qualification is a **module alias** — the only kind there is (§2.2: no
+ * constraint-specific namespace exists) — which is what lets the reach doctrine
+ * self-enforce where no alias is in scope.
+ */
+export interface WidensTarget {
+  readonly module: Name;
+  readonly member: Name;
   readonly span: Source.Span;
 }
 
@@ -269,7 +293,16 @@ export interface HonorImpliedType {
 
 export interface HonorMember {
   readonly name: Name;
-  readonly value: LambdaExpr;
+  /**
+   * The member's body, absent exactly on an accounting line (`pow = widened`),
+   * whose "RHS" is the contextual keyword rather than an expression
+   * (Constraints §4.7). The member itself is then **derived** from the module's
+   * `widens` declaration — the resolver's post-pass supplies the lambda — so
+   * every later pass still reads one.
+   */
+  readonly value?: LambdaExpr;
+  /** The span of the `widened` keyword on an accounting line (§4.7). */
+  readonly widened?: Source.Span;
   readonly span: Source.Span;
 }
 

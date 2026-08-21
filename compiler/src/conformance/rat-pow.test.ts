@@ -160,16 +160,16 @@ describe("exact at either sign of the `Int` exponent (rat.md §9)", () => {
 });
 
 describe("the fractional exponent is refused by the seat's type, not by a guard", () => {
-  test("the operator spelling is a compile-time type error with the `Float` fixit", () => {
+  test("the operator spelling is a compile-time type error at the seat", () => {
     // `rat.md` §8: a non-integer exponent at `**` or `Rat.pow` is a type error
-    // at the `Int` exponent seat, never a runtime report. The fixit names the
-    // door the analytic power lives behind.
+    // at the `Int` exponent seat, never a runtime report. **No door is named**
+    // (#545): the fixit looks a `widens Pow.pow` up at the *value's* type, and
+    // `Rat` declares none — the analytic power belongs to the approximate
+    // world (`rat.md` §4), which is a different type, not a wider seat at this
+    // one. A `Float.pow(rat, 0.5)` suggestion would not even typecheck.
     expect(ratVerdict(
       "export let boom: Rat.Rat = Rat.create(2, 1) ** 0.5\n",
-    )).toEqual([
-      "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, " +
-        "use `Float.pow(value, exponent)`",
-    ]);
+    )).toEqual(["type mismatch: expected Int, found Float"]);
   });
 
   test("the named spelling `Rat.pow(r, r2)` is refused at the argument seat", () => {
@@ -186,10 +186,7 @@ describe("the fractional exponent is refused by the seat's type, not by a guard"
     // and now the refusal does not even reach the base.
     expect(ratVerdict(
       "export let boom: Rat.Rat = Rat.create(4, 1) ** 0.5\n",
-    )).toEqual([
-      "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, " +
-        "use `Float.pow(value, exponent)`",
-    ]);
+    )).toEqual(["type mismatch: expected Int, found Float"]);
   });
 });
 

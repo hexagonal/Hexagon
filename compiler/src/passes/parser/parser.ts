@@ -15,7 +15,7 @@ import { syntheticParameterName } from "../../support/synthetic.js";
 import type * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
 import * as Parsed from "../../syntax/parsed/index.js";
-import { DocBlocks } from "./doc-blocks.js";
+import { DocBlocks, widenedLineTakesNoDoc } from "./doc-blocks.js";
 
 type TokenKind = LaidOut.Token["kind"];
 
@@ -494,6 +494,22 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
+      // Admitted here only to be refused in the form's own words (Constraints
+      // §4.7: "no `export` modifier, and none admitted"), exactly as `honor` is
+      // just above. The generic "must be followed by a declaration" would be
+      // false precisely where the author believed a door was an export surface
+      // — which, before #546, it was.
+      if (this.#atWidensHead()) {
+        this.#errorAt(
+          exportToken.span,
+          "a `widens` declaration is qualifiable, not a bare export; `export` does not apply",
+        );
+        this.#synchronize(itemEnds);
+        return {
+          kind: "ErrorItem",
+          span: spanFrom(exportToken.span, this.#previous().span),
+        };
+      }
       if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Type") && !this.#atUnionHead() && !this.#at("Record") && !this.#at("Exception") && !this.#at("Constraint")) {
         this.#errorAt(
           exportToken.span,
@@ -558,6 +574,15 @@ class Parser {
         return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
       }
       return this.#parseUnion(false, undefined, false);
+    }
+    if (this.#atWidensHead()) {
+      if (!moduleItems) {
+        const start = this.#advance();
+        this.#errorAt(start.span, "`widens` declarations are made at module level");
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+      }
+      return this.#parseWidens();
     }
     if (this.#at("Record")) {
       if (!moduleItems) {
@@ -1150,6 +1175,31 @@ class Parser {
         this.#skipSeparators();
         continue;
       }
+      // The accounting line (`pow = widened`, Constraints §4.7): the one member
+      // RHS that is not a lambda. Recognition is total and needs no
+      // disambiguation — a *bare name* was never a legal member body (§4.1's
+      // lambda rule), so nothing else this could be was ever spellable, and
+      // `widened` stays an ordinary name everywhere but here.
+      if (
+        this.#at("Equal") && this.#peekContextual(1, "widened") &&
+        itemEnds.has(this.#peek(2).kind)
+      ) {
+        this.#advance();
+        const keyword = this.#advance();
+        const name = parsedName(memberToken);
+        const member = {
+          name,
+          widened: keyword.span,
+          span: spanFrom(name.span, keyword.span),
+        };
+        members.push(member);
+        // §4.7's "one operation, one doc": the derived member carries none of
+        // its own and this line takes none. Refused rather than attached — the
+        // author wrote documentation that would never be shown anywhere.
+        this.#docs.refuse(memberStart, widenedLineTakesNoDoc(name.text));
+        this.#skipSeparators();
+        continue;
+      }
       const { parameters, destructurings } = this.#parseParameters();
       this.#expect("Equal", "expected `=` in instance member");
       const body = this.#parseBodyExpression(new Set(["VSep", "VClose", "Eof"]));
@@ -1205,6 +1255,12 @@ class Parser {
     return token.kind === "NonUpperName" && token.text === text;
   }
 
+  /** `#atContextual` a fixed number of tokens ahead. */
+  #peekContextual(offset: number, text: string): boolean {
+    const token = this.#peek(offset);
+    return token.kind === "NonUpperName" && token.text === text;
+  }
+
   /**
    * Whether a union **declaration** starts here — the `union` contextual
    * keyword (#373), recognized by Products §3.3's mechanism.
@@ -1232,6 +1288,112 @@ class Parser {
     if (!this.#atContextual("union")) return false;
     const next = this.#peek(1).kind;
     return next === "UpperName" || next === "NonUpperName";
+  }
+
+  /**
+   * Whether a `widens` **declaration** starts here — the contextual keyword
+   * (Lexer §4.2, #546), recognized by `union`'s mechanism and for its reason.
+   *
+   * One token of lookahead is the whole test and it is exact: a `widens` head is
+   * always followed by an *uppercase* module alias, and Hexagon has no
+   * juxtaposition — a term `widens` is followed by `(`, an operator, a newline,
+   * or nothing, never by a name. So `widens` before an `UpperName` is a
+   * declaration and every other `widens` is an ordinary name, at module level
+   * and inside a block alike.
+   *
+   * Only `UpperName` counts, unlike `#atUnionHead`'s wider net: the path's first
+   * segment is a module alias, and a lowercase word there is far more likely to
+   * be a term named `widens` applied to nothing than a mis-cased declaration.
+   */
+  #atWidensHead(): boolean {
+    return this.#atContextual("widens") && this.#peek(1).kind === "UpperName";
+  }
+
+  /**
+   * `widens Alias.member[, Alias.member…](params): Result = body` — the
+   * declaration form of the generalisation law (Constraints §4.7, #546).
+   *
+   * The item it produces is a `Let`: a `widens` declaration *is* a module-level
+   * term binding, read top-down at its own line like the member definitions it
+   * stands among. Two things mark it out. Its name is **derived** from the
+   * members it lists rather than written — which is what makes the law's "under
+   * its own name" unviolable by construction — and `widens` carries the paths,
+   * which the resolver and checker read for the head resolution, the signature
+   * check, and the member derivation.
+   */
+  #parseWidens(): Parsed.Item {
+    const start = this.#advance();
+    const path = "a `widens` head names its members through their modules: " +
+      "`widens Module.member(…)`";
+    const targets: Parsed.WidensTarget[] = [];
+    for (;;) {
+      const moduleToken = this.#takeName("UpperName", path);
+      if (moduleToken === undefined) break;
+      if (this.#expect("Dot", path) === undefined) break;
+      const memberToken = this.#takeName("NonUpperName", path);
+      if (memberToken === undefined) break;
+      targets.push({
+        module: parsedName(moduleToken),
+        member: parsedName(memberToken),
+        span: spanFrom(moduleToken.span, memberToken.span),
+      });
+      if (!this.#at("Comma")) break;
+      this.#advance();
+    }
+    const first = targets[0];
+    if (first === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    // The listed spellings jointly derive the binding's name, so they have to
+    // agree (§4.7's list form). Reported once, at the first disagreement, and
+    // the head's own first spelling wins for everything downstream.
+    for (const target of targets) {
+      if (target.member.text === first.member.text) continue;
+      this.#errorAt(
+        target.member.span,
+        `a \`widens\` declaration binds one name, derived from the members it ` +
+          `lists; \`${first.member.text}\` and \`${target.member.text}\` disagree`,
+      );
+      break;
+    }
+    if (!this.#at("LeftParen")) {
+      this.#error("a `widens` declaration writes the door's full signature");
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    const parameterStartSpan = this.#current().span;
+    const { parameters, destructurings } = this.#parseParameters();
+    let returnAnnotation: Parsed.TypeAnnotation | undefined;
+    if (this.#at("Colon")) {
+      this.#advance();
+      returnAnnotation = this.#parseTypeAnnotation();
+    }
+    if (this.#expect("Equal", "expected `=` in `widens` declaration") === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
+    }
+    const body = this.#parseBodyExpression();
+    const value: Parsed.Expr = {
+      kind: "Lambda",
+      parameters,
+      ...(returnAnnotation === undefined ? {} : { returnAnnotation }),
+      ...this.#lambdaDestructurings(destructurings),
+      body,
+      span: spanFrom(parameterStartSpan, body.span),
+    };
+    return {
+      kind: "Let",
+      // The binding crosses the module boundary — `Float.pow` has to resolve in
+      // a consumer — while staying out of every bare scope: Constraints §4.6's
+      // visibility rule, which the resolver's interface applies by the `widens`
+      // field below rather than by this flag.
+      exported: true,
+      name: { ...first.member },
+      widens: targets,
+      value,
+      span: spanFrom(start.span, value.span),
+    };
   }
 
   #expectContextual(text: string, message: string): void {

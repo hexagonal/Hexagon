@@ -674,7 +674,12 @@ class Collector {
       case "Honor":
         this.#publishConstraint(item.constraint, "reference");
         for (const parameter of item.typeParameters) this.#parsedTypeParameter(parameter);
-        for (const member of item.members) this.#visitParsedExpr(member.value);
+        for (const member of item.members) {
+          // An accounting line (`pow = widened`) writes no body of its own; the
+          // member it stands for is derived from the module's `widens`
+          // declaration, whose occurrences the declaration itself publishes.
+          if (member.value !== undefined) this.#visitParsedExpr(member.value);
+        }
         return;
       case "Union":
       case "RecordDeclaration":

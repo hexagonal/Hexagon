@@ -70,23 +70,22 @@ export interface ModuleInterface {
    */
   readonly visibleConstraints: readonly Resolved.ConstraintItem[];
   /**
-   * The exported terms above that are **generalising exports** — a companion's
-   * own wider face of a constraint member it honors at its own type (Modules
-   * §5.3's generalisation law, Constraints §4.6's exemption, #541).
+   * The terms above bound by a **`widens` declaration** — a companion's own
+   * wider face of a constraint member it honors at its own type (Constraints
+   * §4.7, Modules §5.3's generalisation law; #541, form #546).
    *
-   * Such an export inherits the member's visibility rule: it is *qualifiable,
+   * Such a binding inherits the member's visibility rule: it is *qualifiable,
    * not a bare export*. It stays in `terms`, because `Float.pow` and the dot
    * call are exactly the spellings it owns; what it never does is enter a
    * consumer's bare scope or count as an exporter for §5.5's collision
    * arithmetic, so bare `pow` keeps its one exporter (`Pow.hex`'s member)
    * however many companions widen their `pow`.
    *
-   * The set is **name-keyed and signature-blind**: it is the spelling collision
-   * that decides visibility, and whether the export actually generalises is the
-   * checker's declaration-time question (a non-generalising one is the
-   * rebinding error, so its visibility never matters).
+   * Read off the **declaration form**, never off a spelling coincidence: since
+   * #546 the form declares exactly the properties the binding has, so no
+   * signature question and no name collision decides visibility.
    */
-  readonly generalisingExports: ReadonlySet<string>;
+  readonly widensBindings: ReadonlySet<string>;
 }
 
 export interface InstanceInterface {
@@ -681,20 +680,14 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       exceptions.set(item.binding.name, item);
     }
   }
-  // Modules §5.3's generalisation law, read off the spellings alone: an
-  // exported term whose name is a member of a constraint this module honors is
-  // that member's wider face, and so shares its visibility rule (#541).
-  const honoredNames = new Set<string>();
-  for (const item of module.items) {
-    if (item.kind !== "Honor") continue;
-    const declaration = visible.get(item.constraintIdentity);
-    const names = declaration === undefined
-      ? PRE_REGISTERED_CONSTRAINT_MEMBERS[item.constraint] ?? []
-      : declaration.members.map(({ binding }) => binding.name);
-    for (const name of names) honoredNames.add(name);
-  }
-  const generalisingExports = new Set(
-    [...terms.keys()].filter((name) => honoredNames.has(name)),
+  // Modules §5.3's generalisation law, read off the declaration form: a
+  // `widens` binding is a member's wider face and shares its visibility rule
+  // (Constraints §4.7, #546). Before the form existed this was a spelling
+  // coincidence the interface had to guess at.
+  const widensBindings = new Set(
+    module.items.flatMap((item) =>
+      item.kind === "Let" && item.widens !== undefined ? [item.binding.name] : []
+    ),
   );
   return {
     module,
@@ -708,7 +701,7 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
     constraints,
     constraintMembers,
     visibleConstraints: [...visible.values()],
-    generalisingExports,
+    widensBindings,
   };
 }
 
@@ -1325,8 +1318,8 @@ class Resolver {
     const moduleName = specifier.slice(specifier.lastIndexOf("/") + 1).replace(/\.js$/u, "");
     if (moduleName !== "") this.#preludeModuleAliases.set(moduleName, prelude);
     for (const [name, symbol] of prelude.terms) {
-      // A **generalising export** is qualifiable, not a bare export (Modules
-      // §5.3, #541): it inherits the visibility rule of the member it widens,
+      // A **`widens` binding** is qualifiable, not a bare export (Constraints
+      // §4.7, Modules §5.3): it inherits the visibility rule of the member it widens,
       // so it takes no bare-scope binding and counts for nothing in §5.5's
       // collision arithmetic — bare `pow` still has exactly one exporter,
       // `Pow.hex`'s member, however many companions widen their `pow`. Every
@@ -1334,7 +1327,7 @@ class Resolver {
       // own: `#preludeTermsByName` is the *dot-call* channel and nothing else
       // (`#noteCompanionCandidate`), and the last three are what let the
       // qualified spelling resolve and its import be synthesized.
-      if (!prelude.generalisingExports.has(name)) {
+      if (!prelude.widensBindings.has(name)) {
         this.#preludeScope.define(name, symbol.id);
         // The home a refused bare reference is rewritten to. `moduleName` is the
         // same string `#preludeModuleAliases` was keyed by just above, so the
@@ -1479,8 +1472,12 @@ class Resolver {
     this.#moduleScope = scope;
     this.#predeclareExternTerms(module.items, scope);
     this.#indexHonoredMemberLines(module.items);
-    const resolvedItems = this.#resolveItems(module.items, scope);
-    this.#claimHonoredMembers(resolvedItems, scope);
+    const walked = this.#resolveItems(module.items, scope);
+    this.#claimHonoredMembers(walked, scope);
+    // After the claim and before everything downstream: the members a `widens`
+    // declaration supplies are derived here, so member seats, emission, and the
+    // checker all meet a block whose manifest is complete (Constraints §4.7).
+    const resolvedItems = this.#supplyWidenedMembers(walked);
     // After resolution, never before: the synthesized import's local names have
     // to dodge every name the emitted module binds, and that set is only closed
     // once every declaration has been through `#declare` (PR #91 finding F1).
@@ -2168,6 +2165,21 @@ class Resolver {
                 });
                 return [];
               }
+              // The same rule one step out (Constraints §4.7): a `widens`
+              // binding inherits the member's visibility, so it is no more
+              // importable severally than the member is. The route it *does*
+              // own is the qualified one, so that is what the message names.
+              if (term !== undefined && term.widens === true) {
+                this.#diagnostics.add({
+                  severity: "error",
+                  message:
+                    `\`${name.imported.text}\` is a constraint member's wider ` +
+                    "face; it is qualifiable, not a bare export — reach it " +
+                    "through `import * as` and its qualified spelling",
+                  primary: name.span,
+                });
+                return [];
+              }
               if (term === undefined && union === undefined && record === undefined && alias === undefined && externType === undefined && constraint === undefined) {
                 this.#diagnostics.add({
                   severity: "error",
@@ -2528,6 +2540,24 @@ class Resolver {
             span: impliedType.span,
           })),
           members: item.members.map((member) => {
+            // An accounting line (`pow = widened`) supplies no body to resolve:
+            // the member is *derived* from the module's `widens` declaration,
+            // which may stand below this block, so `#supplyWidenedMembers`
+            // synthesizes the lambda once every item is resolved. The
+            // placeholder holds the line's name and span until then.
+            if (member.value === undefined) {
+              return {
+                name: member.name.text,
+                value: {
+                  kind: "Lambda" as const,
+                  parameters: [],
+                  body: { kind: "ErrorExpr" as const, span: member.span },
+                  span: member.span,
+                },
+                derived: true as const,
+                span: member.span,
+              };
+            }
             // Constraints §4.6: a member definition is a `let` header, not a
             // `fun`, so its own body may not call its own name. The stack is what
             // tells a reference which name that is; a constraint *declaration's*
@@ -2559,10 +2589,22 @@ class Resolver {
           : this.#lookupTerm(item.name.text, scope);
         const pendingHit = this.#reportPendingRebinding(item.name, existing, scope);
         if (!pendingHit && existing !== undefined) {
-          this.#reportRebinding(item.name, existing, item.exported);
+          // The *parsed* field, not the resolved head below: whether the repair
+          // can name a spelling is decided by the declaration form alone, and
+          // stays decided even when the head itself failed to resolve.
+          this.#reportRebinding(
+            item.name,
+            existing,
+            item.exported,
+            item.widens !== undefined,
+          );
         }
 
-        const binding = this.#declare(item.name, "let");
+        const widens = item.widens === undefined
+          ? undefined
+          : this.#resolveWidensHead(item.widens);
+
+        const binding = this.#declare(item.name, "let", widens !== undefined);
         this.#pending.push({ name: item.name, kind: "let" });
         const value = this.#resolveExpr(Parsed.unwrapBindingValue(item.value), scope);
         this.#pending.pop();
@@ -2585,6 +2627,7 @@ class Resolver {
           ...(item.annotation === undefined
             ? {}
             : { annotation: this.#resolveTypeAnnotation(item.annotation) }),
+          ...(widens === undefined ? {} : { widens }),
           value,
           span: item.span,
         };
@@ -4122,13 +4165,18 @@ class Resolver {
     return { kind: "ErrorType", span: annotation.span };
   }
 
-  #declare(name: Parsed.Name, kind: Resolved.SymbolKind): Resolved.Binding {
+  #declare(
+    name: Parsed.Name,
+    kind: Resolved.SymbolKind,
+    widens = false,
+  ): Resolved.Binding {
     const symbol = Resolved.symbolId(this.#nextSymbol++);
     this.#symbols.set(symbol, {
       id: symbol,
       name: name.text,
       kind,
       bindingSpan: name.span,
+      ...(widens ? { widens: true as const } : {}),
     });
     return { symbol, name: name.text, span: name.span };
   }
@@ -5051,14 +5099,18 @@ class Resolver {
    * - **The claim covers every member of the constraint**, not the ones the
    *   block writes: a defaulted member the instance inherits is bound just as
    *   much as an overridden one, and a `derives` clause is honoring too.
-   * - **An exported binding is the checker's question** (§4.6's generalising-
-   *   export exemption, #541). The exemption turns on *signatures* — the export
-   *   must properly generalise the member — which is not a question this pass
-   *   can ask, so every exported module-level binding of a member's spelling
-   *   passes here and the checker decides it. A non-generalising one is still
-   *   the rebinding error; it is reported there, with the law named. Private
-   *   bindings keep the whole refusal here, because the exemption is for
-   *   exports alone.
+   * - **An exported binding is refused in the checker, not here** (§4.6, #546).
+   *   The claim is unconditional and no export is exempt, so the verdict is
+   *   never in doubt; what the *message* needs is a signature, because an
+   *   export that would have passed the door check earns the mechanical rewrite
+   *   into the `widens` form (§4.7) — and signatures are not a question this
+   *   pass can ask. So every exported module-level binding of a member's
+   *   spelling passes here and `#refuseExportedMemberSpellings` refuses it
+   *   there. Private bindings keep the whole refusal here, having no rewrite to
+   *   be offered.
+   * - **A `widens` declaration is not an ordinary binding** and is not the
+   *   claim's business at all (§4.7): it is the spelling's one lawful bearer,
+   *   its name derived from the member it names rather than written.
    *
    * Run once, after every item is resolved, which is what makes the claim
    * order-free — a `let` before the block and a `let` after it are the same
@@ -5074,6 +5126,15 @@ class Resolver {
           : []
       ),
     );
+    // A `widens` binding wears the spelling lawfully (§4.7), and it is
+    // `exported` besides, so it is out of the claim twice over. Named
+    // explicitly all the same, because the two reasons are different and only
+    // one of them is about visibility.
+    for (const item of items) {
+      if (item.kind === "Let" && item.widens !== undefined) {
+        exportedNames.add(item.binding.name);
+      }
+    }
     for (const item of items) {
       if (item.kind !== "Honor") continue;
       const instance = `${item.constraint}<${annotationHeadName(item.subject)}>`;
@@ -5100,6 +5161,284 @@ class Resolver {
         });
       }
     }
+  }
+
+  /**
+   * Constraints §4.7's supply route, run once every item is resolved: the
+   * members a `widens` declaration supplies are **derived** here, and every
+   * refusal the pairing owes is reported here (#546).
+   *
+   * The derivation is the section's own sentence made mechanical — "the member
+   * **is** the declaration's restriction, the door precomposed with the very
+   * §5.1 conversions the signature check certified at each narrowed seat". The
+   * synthesized body is the door called at the member's own seats; the
+   * conversions are then the ordinary business of the seats that check that
+   * call, which is what makes "one body, restricted mechanically" true of the
+   * implementation and not only of the prose. Nothing about the pairing can be
+   * asked before this point: `honor` may precede or follow the declaration it
+   * accounts for (Declarations Preamble §7.2), so both halves have to be in
+   * hand at once.
+   */
+  #supplyWidenedMembers(
+    items: readonly Resolved.Item[],
+  ): readonly Resolved.Item[] {
+    const declarations = new Map<string, Resolved.LetItem>();
+    const key = (identity: string, member: string): string => `${identity} ${member}`;
+    let accounted = false;
+    for (const item of items) {
+      if (item.kind === "Honor") {
+        accounted ||= item.members.some(({ derived }) => derived === true);
+        continue;
+      }
+      if (item.kind !== "Let" || item.widens === undefined) continue;
+      for (const target of item.widens) {
+        declarations.set(key(target.constraintIdentity, target.member), item);
+      }
+    }
+    // The overwhelming majority of modules hold neither half of a lawful pair,
+    // and there is nothing this pass could say about one that holds neither.
+    if (declarations.size === 0 && !accounted) return items;
+    const honored = new Map<string, Resolved.HonorItem>();
+    for (const item of items) {
+      if (item.kind === "Honor") honored.set(item.constraintIdentity, item);
+    }
+    for (const item of items) {
+      if (item.kind !== "Let" || item.widens === undefined) continue;
+      this.#checkWidensHead(item, items, honored);
+    }
+    return items.map((item) => {
+      if (item.kind !== "Honor") return item;
+      // Asked of every block, accounting line or not: one with none still owes
+      // one wherever a `widens` declaration supplies one of its members, since
+      // absence keeps its exact current meanings only because the line is
+      // required (§4.7).
+      this.#reportMissingAccounting(item, declarations, key);
+      if (!item.members.some(({ derived }) => derived === true)) return item;
+      return {
+        ...item,
+        members: item.members.map((member) => {
+          if (member.derived !== true) return member;
+          const declaration = declarations.get(key(item.constraintIdentity, member.name));
+          if (declaration === undefined) {
+            this.#diagnostics.add({
+              severity: "error",
+              message:
+                `\`${member.name} = widened\` accounts for a \`widens ` +
+                `${item.constraint}.${member.name}\` declaration this module ` +
+                "does not contain",
+              primary: member.span,
+            });
+          }
+          // On a refusal the member still takes the shape the block promised —
+          // the right arity, an unresolvable body — so the one fault is
+          // reported once and no arity or missing-member cascade follows it.
+          return { ...member, value: this.#deriveMember(item, member, declaration) };
+        }),
+      };
+    });
+  }
+
+  /**
+   * The two head-level questions a `widens` declaration answers only once every
+   * item is in hand: is each named member honored here, and are *all* the
+   * same-spelled ones named (Constraints §4.7)?
+   *
+   * The all-or-none corner is a principle, not a convenience: a door widening
+   * one of two same-spelled members would leave the other standing as a rival
+   * binding of the same spelling — manufacturing exactly the rivalry the law
+   * exists to exclude — so door-one-of-two is not expressible.
+   */
+  #checkWidensHead(
+    item: Resolved.LetItem,
+    items: readonly Resolved.Item[],
+    honored: ReadonlyMap<string, Resolved.HonorItem>,
+  ): void {
+    const targets = item.widens ?? [];
+    for (const target of targets) {
+      if (honored.has(target.constraintIdentity)) continue;
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `\`${target.module}.${target.member}\` is not a member this module ` +
+          "honors at its own type",
+        primary: target.span,
+      });
+    }
+    // All-or-none has nothing to say about a head that did not resolve. A
+    // declaration whose every path was refused lists no members at all, so the
+    // loop below would find each honored one "not listed" and report the wrong
+    // fault — "list it" is not the repair for a module alias that does not
+    // exist. The unresolved head's own error leads instead, and the cascade
+    // dies with it.
+    if (targets.length === 0) return;
+    const listed = new Set(targets.map(({ constraintIdentity }) => constraintIdentity));
+    for (const honor of items) {
+      if (honor.kind !== "Honor") continue;
+      if (listed.has(honor.constraintIdentity)) continue;
+      if (!this.#honoredMemberNames(honor).includes(item.binding.name)) continue;
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `this module also honors \`${honor.constraint}\`, whose ` +
+          `\`${item.binding.name}\` this declaration does not list — list it, or ` +
+          "the binding cannot take this spelling",
+        primary: targets[0]?.span ?? item.span,
+        labels: [{ span: honor.span, message: "also honored here" }],
+      });
+      return;
+    }
+  }
+
+  /**
+   * The two ways a block and a `widens` declaration can fail to meet: a member
+   * this module widens that the block never accounts for, and a member the
+   * block *writes* beside the declaration — which is two implementations, the
+   * rival §4.6 exists to exclude (§4.7).
+   */
+  #reportMissingAccounting(
+    item: Resolved.HonorItem,
+    declarations: ReadonlyMap<string, Resolved.LetItem>,
+    key: (identity: string, member: string) => string,
+  ): void {
+    for (const name of this.#honoredMemberNames(item)) {
+      const declaration = declarations.get(key(item.constraintIdentity, name));
+      if (declaration === undefined) continue;
+      const written = item.members.find(
+        (member) => member.name === name && member.derived !== true,
+      );
+      if (written !== undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `\`${name}\` is supplied by this module's \`widens\` declaration ` +
+            `(line ${declaration.span.start.line + 1}); a member written beside ` +
+            "it would be a second implementation — account for it with " +
+            `\`${name} = widened\``,
+          primary: written.span,
+          labels: [{ span: declaration.span, message: "the operation's one body" }],
+        });
+        continue;
+      }
+      if (item.members.some((member) => member.name === name)) continue;
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `this instance does not account for \`${name}\`, which this module's ` +
+          `\`widens\` declaration supplies (line ${declaration.span.start.line + 1}) ` +
+          `— write \`${name} = widened\` in the block`,
+        primary: item.span,
+      });
+    }
+  }
+
+  /**
+   * One derived member: the door, called at the member's own seats.
+   *
+   * Nothing here decides a conversion. The call's arguments arrive with the
+   * *member's* parameter types and land in the *door's* seats, so Numeric
+   * Literals §5.1's exact conversions are inserted by the same seat check that
+   * inserts them anywhere else — the very ones the signature check certified.
+   * That is the whole of "derived, not written": the behavioural law holds
+   * because one body is restricted mechanically and agrees with itself.
+   */
+  #deriveMember(
+    item: Resolved.HonorItem,
+    member: Resolved.HonorMember,
+    declaration: Resolved.LetItem | undefined,
+  ): Resolved.LambdaExpr {
+    const constraint = this.#visibleConstraints.get(item.constraintIdentity) ??
+      this.#namedConstraint(item.constraint);
+    const required = constraint?.members.find(({ binding }) => binding.name === member.name);
+    const span = member.span;
+    const parameters = (required?.parameters ?? []).map((parameter, index) =>
+      this.#declare(
+        {
+          text: parameter.name === "" ? `argument${index}` : parameter.name,
+          startClass: "non-upper",
+          span,
+        },
+        "parameter",
+      )
+    );
+    if (declaration === undefined) {
+      return {
+        kind: "Lambda",
+        parameters,
+        body: { kind: "ErrorExpr", span },
+        span,
+      };
+    }
+    return {
+      kind: "Lambda",
+      parameters,
+      body: {
+        kind: "Call",
+        callee: {
+          kind: "Name",
+          symbol: declaration.binding.symbol,
+          text: declaration.binding.name,
+          span,
+        },
+        arguments: parameters.map((parameter) => ({
+          kind: "Name" as const,
+          symbol: parameter.symbol,
+          text: parameter.name,
+          span,
+        })),
+        span,
+      },
+      span,
+    };
+  }
+
+  /**
+   * A `widens` head's member paths, resolved (Constraints §4.7, #546).
+   *
+   * The qualification is **module-alias qualification, the only kind there is**
+   * (§2.2), and that is exactly what makes the reach doctrine self-enforce: the
+   * constraint's own declaring module cannot qualify through itself, and a
+   * named constraint import binds no alias, so at both boundaries the head has
+   * no spelling at all and the law is never consulted (§4.6, Modules §3.1).
+   *
+   * A path naming no member is refused here, in the ordinary
+   * unknown-qualified-name words. Whether the module *honors* the constraint at
+   * its own type cannot be asked yet — an `honor` block may stand below this
+   * line — so `#checkWidensDeclarations` asks it once every item is resolved.
+   */
+  #resolveWidensHead(
+    targets: readonly Parsed.WidensTarget[],
+  ): readonly Resolved.WidensTarget[] {
+    return targets.flatMap((target): Resolved.WidensTarget[] => {
+      const iface = this.#namedModule(target.module.text);
+      if (iface === undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `unknown module \`${target.module.text}\``,
+          primary: target.module.span,
+        });
+        return [];
+      }
+      const owner = [...iface.constraints.values()].find((declaration) =>
+        declaration.members.some(({ binding }) => binding.name === target.member.text)
+      );
+      if (owner === undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `\`${target.module.text}.${target.member.text}\` is not a constraint ` +
+            `member; a \`widens\` head names one`,
+          primary: target.span,
+        });
+        return [];
+      }
+      return [{
+        module: target.module.text,
+        constraint: owner.name,
+        constraintIdentity: owner.identity,
+        member: target.member.text,
+        span: target.span,
+      }];
+    });
   }
 
   /**
@@ -5183,47 +5522,86 @@ class Resolver {
   }
 
   /**
-   * Rule 1's refusal, plus the one collision that has a repair to teach.
+   * Rule 1's refusal, plus the collisions that have a repair to teach.
    *
-   * `exported` is read for that one case alone (Modules §3.1, #544): an
-   * **exported** module-level binding of the spelling of a member that
-   * **arrived with a named constraint import** is the would-be door — the shape
-   * §5.3's generalisation law would have licensed had the constraint come
-   * through a namespace import instead. The law is not consulted (the exemption
-   * amends Constraints §4.6's honor-claim and never unseats an ordinary
-   * binding), so the refusal stays the plain rebinding one; what it gains is the
-   * route out, and a prior-binding reference the reader can find — the import
-   * item's line in *this* module rather than the member's line in the imported
-   * file. A private binding of the same spelling has no door to build, and every
-   * other collision is an ordinary rebinding; both keep the plain form.
+   * `exported` is read for one of them (Modules §3.1, #544): an **exported**
+   * module-level binding of the spelling of a member that **arrived with a
+   * named constraint import** is the would-be door — the shape §5.3's
+   * generalisation law would have licensed had the constraint come through a
+   * namespace import instead. The law is not consulted (the carve amends
+   * Constraints §4.6's honor-claim and never unseats an ordinary binding), so
+   * the refusal stays the plain rebinding one; what it gains is the route out,
+   * and a prior-binding reference the reader can find — the import item's line
+   * in *this* module rather than the member's line in the imported file. A
+   * private binding of the same spelling has no door to build, and every other
+   * collision is an ordinary rebinding; both keep the plain form.
+   *
+   * `widens` is read for the rest (Constraints §4.7, #546), and what it changes
+   * is which name the repair can point at. **A `widens` declaration has no name
+   * to choose**: the binding's spelling is derived from the member it names, so
+   * "choose a different name" is advice the author cannot take, and every
+   * message this pass gives a `widens` head has to name a different repair —
+   * the other binding, the other declaration, or the import that must go.
    */
   #reportRebinding(
     name: Parsed.Name,
     existing: Resolved.SymbolId,
     exported = false,
+    widens = false,
   ): void {
     const arrival = exported ? this.#arrivedConstraintMembers.get(existing) : undefined;
     if (arrival !== undefined) {
+      // Both shapes reach the same standing verdict by the same route; they part
+      // on the tail, because only one of them has an export name to rename.
+      // §4.6's sentence for the declaration shape names what must go: the named
+      // import, with the namespace route as the door-builder's form.
+      const repair = widens
+        ? `a \`widens\` declaration cannot unseat an ordinary binding and has ` +
+          "no name of its own to choose, so the named import is what must go: " +
+          "reach the constraint through `import * as …` instead"
+        : `to widen \`${name.text}\` lawfully, import the module instead ` +
+          "(`import * as …`), or choose a different export name";
       this.#diagnostics.add({
         severity: "error",
         message:
           `\`${name.text}\` is already bound (line ${arrival.span.start.line + 1}); ` +
           `it arrived with \`${arrival.item}\`, and a named constraint import ` +
-          `brings its members — to widen \`${name.text}\` lawfully, import the ` +
-          "module instead (`import * as …`), or choose a different export name " +
-          "(Modules §5.3's generalisation law).",
+          `brings its members — ${repair} (Modules §5.3's generalisation law).`,
         primary: name.span,
         labels: [{ span: arrival.span, message: "previous binding" }],
       });
       return;
     }
     const previous = this.#symbol(existing);
+    const line = previous.bindingSpan.start.line + 1;
+    if (widens) {
+      // Two declarations of one member necessarily share the derived spelling,
+      // which is the rivalry §4.7 exists to exclude — one operation has one
+      // written body — and the only repair is that one of them goes. Against an
+      // *ordinary* prior binding the claim is untouched (§4.6's boundary): the
+      // declaration still cannot unseat it, and the binding is the end that can
+      // be renamed.
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `\`${name.text}\` is already bound (line ${line}); ` +
+          (previous.widens === true
+            ? "one operation has one written body, and a `widens` declaration's " +
+              "name is derived from the member it names — there is no other " +
+              "name for either to take, so one of the two declarations must go."
+            : "a `widens` declaration's name is derived from the member it " +
+              `names and cannot be chosen — rename the binding on line ${line}, ` +
+              "or drop this declaration."),
+        primary: name.span,
+        labels: [{ span: previous.bindingSpan, message: "previous binding" }],
+      });
+      return;
+    }
     this.#diagnostics.add({
       severity: "error",
       message:
-        `\`${name.text}\` is already bound (line ` +
-        `${previous.bindingSpan.start.line + 1}); Hexagon does not allow ` +
-        "rebinding — choose a different name.",
+        `\`${name.text}\` is already bound (line ${line}); Hexagon does not ` +
+        "allow rebinding — choose a different name.",
       primary: name.span,
       labels: [{ span: previous.bindingSpan, message: "previous binding" }],
     });

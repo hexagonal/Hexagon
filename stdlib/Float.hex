@@ -101,24 +101,16 @@ honor Frac<Float> =
         divisor answers an infinity, or `NaN` when the dividend is zero too. *)
     divide(left, right) = nativeDivide(left, right)
 
-// The two power faces of this module are one implementation — `nativePow`, the
-// raw IEEE `**` — under Modules §5.3's generalisation law (#541): the export
-// below is the door, the member is that door restricted to integer exponents,
-// and neither is a second definition of the other. The member's `Int` exponent
-// crosses into the door's `Float` seat by Numeric Literals §5.1's exact
-// conversion, which is the restriction spelled out.
-
 (** `value` raised to the power `exponent` — the analytic power, `exp(exponent *
     ln value)`. Total and honestly IEEE, `NaN` edges and all: `Float.pow(2.0,
-    0.5)` is the nearest float to the square root of two. The operator `**`
-    takes an `Int` exponent; this door is where a fractional one belongs. *)
-export let pow(value: Float, exponent: Float): Float = nativePow(value, exponent)
+    0.5)` is the nearest float to the square root of two, and every `Int`
+    exponent has an answer too, negative ones included, so the guard the integer
+    types carry does not exist here. The operator `**` takes an `Int` exponent;
+    this door is where a fractional one belongs. *)
+widens Pow.pow(value: Float, exponent: Float): Float = nativePow(value, exponent)
 
 honor Pow<Float> =
-    (** `value` raised to the power `exponent`. It never throws: every `Int`
-        exponent has a `Float` answer, negative ones included, so the guard the
-        integer types carry does not exist here. *)
-    pow(value, exponent) = nativePow(value, exponent)
+    pow = widened
 
 (** The Euclidean remainder of `left` divided by `right`: never negative,
     whatever the signs — which is what angle wrapping, phase accumulation, and

@@ -242,6 +242,16 @@ export interface Symbol {
   readonly name: string;
   readonly kind: SymbolKind;
   readonly bindingSpan: Source.Span;
+  /**
+   * Set on the binding a `widens` declaration introduces (Constraints §4.7,
+   * #546) — the one lawful bearer of an honored member's spelling.
+   *
+   * It rides the *symbol* rather than the item so the fact crosses a module
+   * boundary with the binding: an importer holds symbols, not items, and both
+   * the visibility rule (qualifiable, not a bare export) and Method Syntax
+   * §6.1's one-claimant rule have to hold on the far side too.
+   */
+  readonly widens?: true;
 }
 
 export interface Binding {
@@ -559,6 +569,31 @@ export interface LetItem {
   readonly binding: Binding;
   readonly annotation?: TypeAnnotation;
   readonly value: Expr;
+  /**
+   * The members this item widens (Constraints §4.7, #546), present exactly on a
+   * `widens` declaration. `exported` is true on one — the binding has to cross
+   * the module boundary for `Float.pow` to resolve — but it is *qualifiable, not
+   * a bare export*: the interface files it under `widensBindings`, so it enters
+   * no consumer's bare scope and counts for nothing in Modules §5.5's
+   * collision arithmetic.
+   */
+  readonly widens?: readonly WidensTarget[];
+  readonly span: Source.Span;
+}
+
+/**
+ * One member a `widens` declaration names, resolved (Constraints §4.7).
+ *
+ * `constraintIdentity` is what the honor blocks are matched against — a
+ * constraint is its declaration (§5.1.1), never its spelling — while
+ * `constraint` is the word a diagnostic prints.
+ */
+export interface WidensTarget {
+  /** The module alias the head wrote, which diagnostics quote back. */
+  readonly module: string;
+  readonly constraint: string;
+  readonly constraintIdentity: string;
+  readonly member: string;
   readonly span: Source.Span;
 }
 
@@ -1174,6 +1209,18 @@ export interface HonorImpliedType {
 export interface HonorMember {
   readonly name: string;
   readonly value: LambdaExpr;
+  /**
+   * Set where the block accounted for this member with `name = widened` and the
+   * resolver **derived** it from the module's `widens` declaration (Constraints
+   * §4.7): the value above is the door's restriction, synthesized — the door
+   * called at the member's own seats, with the signature check's certified
+   * §5.1 conversions left to the seats that check the call.
+   *
+   * Read by the checker for one thing only: a derived member's body names a
+   * binding that may stand *below* the honor block, so its check is deferred to
+   * the end of the module's items, where every scheme is seeded.
+   */
+  readonly derived?: true;
   readonly span: Source.Span;
 }
 

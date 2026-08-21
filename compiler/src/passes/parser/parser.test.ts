@@ -1572,6 +1572,63 @@ describe("parse", () => {
    * reserved; and the two diagnostics would fail if the predicate were narrowed
    * to `UpperName` alone or widened past the item grammar.
    */
+  /**
+   * `widens` is contextual on `union`'s mechanism (Lexer §4.2, Constraints
+   * §4.7, #546), and its head is a **list** — which gives the parser one
+   * verdict of its own to reach.
+   *
+   * The binding's name is derived from the members the head lists, so the
+   * listed spellings have to agree: they jointly determine one name, and two
+   * different words determine none. That is a syntactic fact, decidable here,
+   * and it is pinned here rather than over a whole compile because in a real
+   * project a disagreeing head is malformed in several ways at once — the
+   * second path names a member the first's derived name cannot serve — and the
+   * other diagnostics would bury the one this line owns.
+   */
+  describe("`widens` is contextual and its head is a list (#546)", () => {
+    const messages = (text: string): readonly string[] =>
+      parseSource(text).diagnostics.map(({ message }) => message);
+
+    const itemKinds = (text: string): readonly string[] =>
+      parseSource(text).items.map(({ kind }) => kind);
+
+    test("an agreeing list parses clean, as one binding item", () => {
+      const text = "widens Pow.pow, Mul.pow(value: Box, exponent: Float): Box =\n" +
+        "    value\n";
+      expect(messages(text)).toEqual([]);
+      // A term binding, not a declaration form of its own: the item *is* the
+      // binding it introduces.
+      expect(itemKinds(text)).toEqual(["Let"]);
+      expect(parseSource(text).items[0]).toMatchObject({
+        kind: "Let",
+        name: { text: "pow" },
+        widens: [
+          { module: { text: "Pow" }, member: { text: "pow" } },
+          { module: { text: "Mul" }, member: { text: "pow" } },
+        ],
+      });
+    });
+
+    test("a disagreeing list has no name to derive, and is refused", () => {
+      expect(messages(
+        "widens Pow.pow, Mul.raise(value: Box, exponent: Float): Box =\n" +
+        "    value\n",
+      )).toContain(
+        "a `widens` declaration binds one name, derived from the members it " +
+          "lists; `pow` and `raise` disagree",
+      );
+    });
+
+    test("the word is still an ordinary name everywhere else", () => {
+      // Contextual, not reserved: one token of lookahead is the whole test, and
+      // only an *uppercase* module alias can follow a head.
+      expect(messages("let widens: Int = 2\n")).toEqual([]);
+      expect(itemKinds("let widens: Int = 2\n")).toEqual(["Let"]);
+      expect(messages("widens(2)\n")).toEqual([]);
+      expect(itemKinds("widens(2)\n")).toEqual(["ExprItem"]);
+    });
+  });
+
   describe("`union` is contextual (#373)", () => {
     const messages = (text: string): readonly string[] =>
       parseSource(text).diagnostics.map(({ message }) => message);

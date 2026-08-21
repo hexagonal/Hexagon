@@ -293,6 +293,18 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   if (first?.kind === "Let" || first?.kind === "Fun" || first?.kind === "Var") {
     return true;
   }
+  // A `widens` declaration is a term binding too (Constraints §4.7, #546), and
+  // its head is recognized contextually here for `union`'s reason and by
+  // `union`'s test: the word is an ordinary `NonUpperName`, and only a
+  // declaration puts an *uppercase* module alias after it. A member binding
+  // spelled `widens(l, r)` has a `LeftParen` there and keeps opening its block
+  // through the parameter-list rule below.
+  if (
+    first?.kind === "NonUpperName" && first.text === "widens" &&
+    item[item[0]?.kind === "Export" ? 2 : 1]?.kind === "UpperName"
+  ) {
+    return true;
+  }
 
   return hasBindingParameterList(item);
 }

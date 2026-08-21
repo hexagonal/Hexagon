@@ -3,29 +3,29 @@ import { describe, expect, test } from "vitest";
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 
 /**
- * Conformance for **the generalisation law's reach** — #544; Modules §5.3's
- * reach sentence, Constraints §4.6's boundary paragraph, Modules §3.1's door
- * sentence.
+ * Conformance for **the generalisation law's reach** — #544, in the declaration
+ * form #546 gave it; Modules §5.3's reach sentence, Constraints §4.6's boundary
+ * paragraph and §4.7's form, Modules §3.1's door sentence.
  *
  * The law is **layer-blind**. The two power doors are its first instances, not
- * its extent: what decides where it is writable is the claim's own geography —
- * the exemption amends Constraints §4.6's honor-claim and nothing else, so it is
- * available in any honoring module where the member's spelling is not already an
- * *ordinary* binding. A constraint reached through a namespace import (§3.3)
- * therefore stands exactly as a prelude one does, because that form binds the
- * alias alone and leaves every member spelling free.
+ * its extent: what decides where a `widens` declaration is writable is the
+ * claim's own geography — the carve amends Constraints §4.6's honor-claim and
+ * nothing else, so it is available in any honoring module where the member's
+ * spelling is not already an *ordinary* binding. A constraint reached through a
+ * namespace import (§3.3) therefore stands exactly as a prelude one does,
+ * because that form binds the alias alone and leaves every member spelling free.
  *
  * This file pins that reading at a **user** constraint over a namespace import,
  * where nothing is prelude-gated and every verdict can be shown side by side:
- * the door compiles and all three faces run, a bare in-module use beside the
- * lawful pair resolves to the export at both argument shapes, and the two
- * carves — the declaring module and the named import — keep the prior refusals,
- * the law unconsulted.
+ * the declaration compiles and all three faces run, a bare in-module use beside
+ * the lawful pair resolves to the widens binding at both argument shapes, and
+ * the two carves — the declaring module and the named import — keep the prior
+ * refusals, the law unconsulted.
  *
  * The behavioural half of the law is what makes the route pins necessary rather
- * than fussy: the door and the member agree on the whole shared domain, by
- * construction here (one implementation, `core`), so no observed *value* can
- * tell which face answered. The emitted JavaScript can.
+ * than fussy: since #546 the door and the member agree on the whole shared
+ * domain *by construction* — one body, restricted mechanically — so no observed
+ * *value* can tell which face answered. The emitted JavaScript can.
  */
 
 /** The declaring module: a user constraint with one widenable seat. */
@@ -43,13 +43,13 @@ function scaleModule(tag: string): string {
 }
 
 /**
- * The honoring module, in the blessed idiom: one implementation under a private
- * in-module name taking the wide `Float` factor, the door as its thin face, and
- * the member as the same implementation restricted — the `Int` factor reaching
- * the `Float` seat through Numeric Literals §5.1's exact conversion.
+ * The honoring module in the current form: **one written body**, the `widens`
+ * declaration, with the member derived as its restriction — the `Int` factor
+ * reaching the `Float` seat through Numeric Literals §5.1's exact conversion,
+ * inserted by the seat rather than written anywhere.
  *
- * The door sits on **line 9** of every module this builds, which is the line the
- * refusals below name.
+ * The declaration sits on **line 7** of every module this builds, which is the
+ * line the refusals below name.
  */
 function matrixModule(
   tag: string,
@@ -62,20 +62,19 @@ function matrixModule(
     "",
     "export record Matrix = {n: Float}",
     "",
-    "// The one implementation. Both faces are this function.",
-    "let core(value: Matrix, factor: Float): Matrix = Matrix({n = value.n * factor})",
-    "",
+    "// The one body. The member is this, restricted.",
     door,
     "",
     "honor Scale.Scale<Matrix> =",
-    "    scale(value, factor) = core(value, factor)",
+    "    scale = widened",
     "",
     ...extra,
   ].join("\n");
 }
 
 /** The lawful door: same subject seat, same result, the factor properly wider. */
-const DOOR = "export let scale(value: Matrix, factor: Float): Matrix = core(value, factor)";
+const DOOR = "widens Scale.scale(value: Matrix, factor: Float): Matrix = " +
+  "Matrix({n = value.n * factor})";
 
 /** One module's emitted JavaScript, with the whole project asserted clean. */
 function emitted(
@@ -153,6 +152,74 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
   });
 });
 
+describe("`honor` may stand above the declaration it accounts for (§4.7)", () => {
+  /**
+   * The same module with the two halves swapped: the block first, its `widens`
+   * declaration below it. Legal by Declarations Preamble §7.2 — `honor` may
+   * precede any declaration it mentions — and the one place in a module where a
+   * body reads *downward*: the derived member names a binding written below its
+   * own block, which no ordinary member body may do.
+   *
+   * Pinned behaviourally rather than through a guard. No single line enforces
+   * it — what makes it hold is that derived members are checked at the end of
+   * the module's items, and that deferral is there for a different measured
+   * reason (a failed door must derive nothing). This is the pin that would
+   * notice if the property were lost while that reason was served some other
+   * way.
+   */
+  function blockFirst(tag: string): string {
+    return [
+      `// matrix ${tag}`,
+      "import * as Scale from \"./scale\"",
+      "",
+      "export record Matrix = {n: Float}",
+      "",
+      "honor Scale.Scale<Matrix> =",
+      "    scale = widened",
+      "",
+      DOOR,
+      "",
+    ].join("\n");
+  }
+
+  test("the block above its declaration compiles, and both faces answer", async () => {
+    const exports = await runProject([
+      ["/scale.hex", scaleModule("block first")],
+      ["/matrix.hex", [
+        blockFirst("block first"),
+        "let two: Int = 2",
+        "export let wider: Float = scale(Matrix({n = 4.0}), 0.5).n",
+        "export let restricted: Float = Scale.scaledTwice(Matrix({n = 4.0})).n",
+        "export let shared: Float = scale(Matrix({n = 4.0}), two).n",
+        "",
+      ].join("\n")],
+    ], { entry: "/matrix.hex" });
+
+    // The wider face, which only the declaration accepts; the member, reached
+    // polymorphically from the declaring side; and the shared domain, where the
+    // bare spelling is the declaration and both faces agree by construction.
+    expect(exports["wider"]).toBe(2);
+    expect(exports["restricted"]).toBe(16);
+    expect(exports["shared"]).toBe(8);
+  });
+
+  test("the derived member is still the declaration restricted, in this order too", () => {
+    // The order cannot be allowed to change *what* the member is, only when it
+    // is checked: the seat is emitted and the polymorphic route reads it.
+    const javascript = emitted([
+      ["/scale.hex", scaleModule("block first route")],
+      ["/matrix.hex", [
+        blockFirst("block first route"),
+        "export let restricted: Float = Scale.scaledTwice(Matrix({n = 4.0})).n",
+        "",
+      ].join("\n")],
+    ], "/matrix.hex");
+
+    expect(javascript).toContain("const __Scale_Matrix_scale = ");
+    expect(javascript).toContain("scale(value, factor)");
+  });
+});
+
 describe("a lawful pair's bare in-module use is the export (Constraints §4.6)", () => {
   const bare = [
     "let two: Int = 2",
@@ -193,29 +260,55 @@ describe("a lawful pair's bare in-module use is the export (Constraints §4.6)",
   });
 });
 
-describe("what the law refuses at the same reach (Constraints §4.6)", () => {
-  const refusal = "the `Scale.Scale<Matrix>` instance binds `scale`, which is " +
-    "already bound (line 9); an exported binding of a member's spelling is " +
-    "legal only when it properly generalises the member (Modules §5.3) — same " +
-    "subject seat, same result, at least one remaining seat properly wider — " +
-    "so widen it or choose a different name.";
-
+describe("what the law refuses at the same reach (Constraints §4.7)", () => {
   test("an identical signature generalises nothing", () => {
     expect(verdict(
       "identical",
-      "export let scale(value: Matrix, factor: Int): Matrix = " +
-        "core(value, Float.fromInt(factor))",
-    )).toEqual([refusal]);
+      "widens Scale.scale(value: Matrix, factor: Int): Matrix = " +
+        "Matrix({n = value.n * Float.fromInt(factor)})",
+    )).toEqual([
+      "this declaration does not widen `Scale.scale`: an identical signature " +
+        "generalises nothing",
+    ]);
   });
 
-  test("a narrowing export is refused too — the law widens, never the reverse", () => {
-    // The member takes an `Int` factor; this export takes only a `Nat`, so it
-    // does not accept every call the member accepts.
+  test("a narrowing declaration is refused too — the law widens, never the reverse", () => {
+    // The member takes an `Int` factor; this one takes only a `Nat`, so it does
+    // not accept every call the member accepts.
     expect(verdict(
       "narrowing",
-      "export let scale(value: Matrix, factor: Nat): Matrix = " +
-        "core(value, Float.fromNat(factor))",
-    )).toEqual([refusal]);
+      "widens Scale.scale(value: Matrix, factor: Nat): Matrix = " +
+        "Matrix({n = value.n * Float.fromNat(factor)})",
+    )).toEqual([
+      "this declaration does not widen `Scale.scale`: `Int` does not reach the " +
+        "seat `Nat` exactly",
+    ]);
+  });
+
+  test("an ordinary export of the spelling is refused, with the rewrite into the form", () => {
+    // The claim is unconditional since #546; what a would-have-widened export
+    // earns is the mechanical rewrite into the declaration.
+    expect(compileFiles([
+      ["/scale.hex", scaleModule("export rewrite")],
+      ["/matrix.hex", [
+        "// export rewrite",
+        "import * as Scale from \"./scale\"",
+        "",
+        "export record Matrix = {n: Float}",
+        "",
+        "export let scale(value: Matrix, factor: Float): Matrix = " +
+          "Matrix({n = value.n * factor})",
+        "",
+        "honor Scale.Scale<Matrix> =",
+        "    scale(value, factor) = Matrix({n = value.n * factor})",
+        "",
+      ].join("\n")],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "the `Scale.Scale<Matrix>` instance binds `scale`, which is already bound " +
+        "(line 6); a member's wider face is declared, not exported — write " +
+        "`widens Scale.scale(…)` and account for the member with " +
+        "`scale = widened`.",
+    ]);
   });
 });
 
@@ -231,12 +324,11 @@ describe("the two carves: where the law is never consulted (Modules §5.3)", () 
       "",
       "export record Matrix = {n: Float}",
       "",
-      "let core(value: Matrix, factor: Float): Matrix = Matrix({n = value.n * factor})",
-      "",
-      "export let scale(value: Matrix, factor: Float): Matrix = core(value, factor)",
+      "export let scale(value: Matrix, factor: Float): Matrix = " +
+        "Matrix({n = value.n * factor})",
       "",
       "honor Scale<Matrix> =",
-      "    scale(value, factor) = core(value, factor)",
+      "    scale(value, factor) = Matrix({n = value.n * factor})",
       "",
     ].join("\n")]]).diagnostics.map(({ message }) => message);
 
@@ -259,12 +351,11 @@ describe("the two carves: where the law is never consulted (Modules §5.3)", () 
         "",
         "export record Matrix = {n: Float}",
         "",
-        "let core(value: Matrix, factor: Float): Matrix = Matrix({n = value.n * factor})",
-        "",
-        "export let scale(value: Matrix, factor: Float): Matrix = core(value, factor)",
+        "export let scale(value: Matrix, factor: Float): Matrix = " +
+          "Matrix({n = value.n * factor})",
         "",
         "honor Scale<Matrix> =",
-        "    scale(value, factor) = core(value, factor)",
+        "    scale(value, factor) = Matrix({n = value.n * factor})",
         "",
       ].join("\n")],
     ]).diagnostics.map(({ message }) => message);
@@ -298,6 +389,42 @@ describe("the two carves: where the law is never consulted (Modules §5.3)", () 
         "`import { Scale as Sizing }`, and a named constraint import brings its " +
         "members — to widen `scale` lawfully, import the module instead " +
         "(`import * as …`), or choose a different export name (Modules §5.3's " +
+        "generalisation law).",
+    ]);
+  });
+
+  test("a coexisting namespace alias makes the head spellable, and changes nothing", () => {
+    // §4.6's third seat, in the shape it is actually about (#546): with an alias
+    // for the declaring module beside the named import, the `widens` head *can*
+    // be spelled — and the declaration is refused all the same, the
+    // ordinary-binding claim standing. What the message cannot say here is
+    // "choose a different export name": this is not an export and its name is
+    // derived, so the hint names what must go instead — the named import — with
+    // the namespace route as the door-builder's form.
+    const diagnostics = compileFiles([
+      ["/scale.hex", scaleModule("coexisting alias")],
+      ["/matrix.hex", [
+        "// coexisting alias",
+        "import * as Sizing from \"./scale\"",
+        "import { Scale } from \"./scale\"",
+        "",
+        "export record Matrix = {n: Float}",
+        "",
+        "widens Sizing.scale(value: Matrix, factor: Float): Matrix =",
+        "    Matrix({n = value.n * factor})",
+        "",
+        "honor Scale<Matrix> =",
+        "    scale = widened",
+        "",
+      ].join("\n")],
+    ]).diagnostics.map(({ message }) => message);
+
+    expect(diagnostics).toEqual([
+      "`scale` is already bound (line 3); it arrived with `import { Scale }`, " +
+        "and a named constraint import brings its members — a `widens` " +
+        "declaration cannot unseat an ordinary binding and has no name of its " +
+        "own to choose, so the named import is what must go: reach the " +
+        "constraint through `import * as …` instead (Modules §5.3's " +
         "generalisation law).",
     ]);
   });

@@ -57,31 +57,21 @@ honor Show<BigInt> =
     (** The decimal form of `value`, with no `n` suffix — `1n` shows as `1`. *)
     show(value) = nativeShow(value)
 
-// The two power faces of this module are one implementation under Modules
-// §5.3's generalisation law (#541): the guarded core below, exported as the
-// door and restricted to an `Int` exponent as `Pow<BigInt>`'s member. The
-// member's conversion is written out rather than left to the seat, because JS
-// `**` never mixes `bigint` and `number` — the exponent must *be* a `BigInt` by
-// the time the native sees it.
-let guardedPow(value: BigInt, exponent: BigInt): BigInt =
+(** `value` raised to the power `exponent`, exactly — the door for exponents
+    past `Int`'s range, whose useful domain the host defines: `0`, `1`, and `-1`
+    answer at any non-negative exponent, and elsewhere the same implementation
+    limits govern that govern all `BigInt` growth. Throws
+    `NegativeExponentError` when `exponent` is negative — a negative power of an
+    integer is not an integer — at this face and at `**` alike, the guard living
+    once in this one body. *)
+widens Pow.pow(value: BigInt, exponent: BigInt): BigInt =
     if exponent < 0 then
         throw(NegativeExponentError("an integer exponent cannot be negative"))
     else
         nativePow(value, exponent)
 
-(** `value` raised to the power `exponent`, exactly — the door for exponents
-    past `Int`'s range, whose useful domain the host defines: `0`, `1`, and `-1`
-    answer at any non-negative exponent, and elsewhere the same implementation
-    limits govern that govern all `BigInt` growth. Throws
-    `NegativeExponentError` when `exponent` is negative, exactly as `**` does. *)
-export let pow(value: BigInt, exponent: BigInt): BigInt =
-    guardedPow(value, exponent)
-
 honor Pow<BigInt> =
-    (** `value` raised to the power `exponent`, exactly. Throws
-        `NegativeExponentError` when `exponent` is negative: a negative power of
-        an integer is not an integer. *)
-    pow(value, exponent) = guardedPow(value, nativeFromInt(exponent))
+    pow = widened
 
 honor Hash<BigInt> =
     (** A hash of `value`. Equal `BigInt`s hash equally, which is what `Eq` above

@@ -819,6 +819,21 @@ function headBinderNames(subject: Resolved.TypeAnnotation): readonly string[] {
   ];
 }
 
+/**
+ * The module alias a `widens` head would qualify through, read off the spelling
+ * an `honor` head wrote (Constraints §4.7: the path is module-alias
+ * qualification, the only kind there is).
+ *
+ * A namespace-imported constraint is written `Alias.Name`, and the alias is the
+ * half the head wants. A bare spelling is a prelude constraint, whose declaring
+ * module is addressable under its own basename (Modules §6.4) — `Pow.hex`
+ * declares `Pow` — so the one word serves as both.
+ */
+function moduleAlias(constraint: string): string {
+  const dot = constraint.indexOf(".");
+  return dot === -1 ? constraint : constraint.slice(0, dot);
+}
+
 function constraintMemberCandidates(
   declaration: Resolved.ConstraintItem,
 ): readonly MemberCandidate[] {
@@ -1075,6 +1090,20 @@ class Checker {
    * plumbing question this fix deliberately does not open.
    */
   readonly #companionOperations = new Map<string, Map<string, Resolved.Symbol>>();
+
+  /**
+   * The honor-block members a `widens` declaration supplies, waiting for the end
+   * of the module's items (Constraints §4.7) — see the deferral's own note where
+   * they are filed.
+   */
+  #derivedMembers: { readonly key: string; readonly check: () => void }[] = [];
+
+  /**
+   * The (instance, member) pairs whose `widens` declaration failed §4.7's
+   * signature check — keyed exactly as `#derivedMembers` keys its entries, so a
+   * failed door derives nothing and reports once.
+   */
+  readonly #failedWidens = new Set<string>();
   readonly #operationSpellings = new Map<Resolved.SymbolId, string>();
   /**
    * The `fun` groups whose bodies are currently being checked, innermost last.
@@ -1922,6 +1951,17 @@ class Checker {
     }
     this.#indexCompanionOperations(module);
     this.#inferItems(module.items, 0, true);
+    // Constraints §4.7, in the order the two checks depend on. The signature
+    // check needs every scheme seeded, so it cannot run before the items; the
+    // **derived members** need its verdict, because a declaration that does not
+    // widen has no restriction to derive and a second report at the honor block
+    // would be the same fault said twice, in the wrong place — which is the
+    // dependency, load-bearing and measured, that this ordering exists for.
+    this.#checkWidensDeclarations(module.items);
+    for (const { key, check } of this.#derivedMembers) {
+      if (!this.#failedWidens.has(key)) check();
+    }
+    this.#derivedMembers = [];
     // The outermost deadline. Every region has finalised by now, so a goal still
     // pending here belongs to one that never generalises — a module-level
     // expression item, an honor block's member — and its receiver will never
@@ -1934,7 +1974,7 @@ class Checker {
     // that colour computable from the interface alone.
     this.#settleEffects();
     this.#checkPublicSignatures(module.items);
-    this.#checkGeneralisingExports(module.items);
+    this.#refuseExportedMemberSpellings(module.items);
 
     const symbols = module.symbols.map((symbol) => ({
       ...symbol,
@@ -2263,18 +2303,22 @@ class Checker {
       ? undefined
       : this.#companionOperations.get(companion)?.get(name);
     const claimed = this.#honoredMembers(actual).get(name) ?? [];
-    // Method Syntax §6.1's **one claimant** (#541): a companion export and that
-    // companion's own honored member related by the generalisation law are one
-    // operation wearing two widths, not two rival sources. Dropping the member
-    // from the claimant list is the whole of the carve — the call then takes
-    // the companion-operation rewrite below, which under Modules §5.3's
-    // resolution order is the operation's widest face. A pair the law does not
-    // relate counts two, and is refused exactly as before.
-    const members = claimed.filter(({ subjectFirst }) => subjectFirst).filter(
-      (member) =>
-        operation === undefined ||
-        !this.#generalises(operation.id, member, actual, callee.field.span),
-    );
+    // Method Syntax §6.1's **one claimant** (#541, form #546): a companion's
+    // `widens` binding and the members it supplies are one operation wearing
+    // two widths, not rival sources. Dropping those members from the claimant
+    // list is the whole of the carve — the call then takes the
+    // companion-operation rewrite below, which under Modules §5.3's resolution
+    // order is the operation's widest face.
+    //
+    // The declaration form is the whole test, and it is exact where a signature
+    // comparison was only close: a `widens` of this spelling must name *every*
+    // same-spelled member the module honors (§4.7's all-or-none corner), so
+    // each of them is this one body's restriction. Same-spelled members with no
+    // `widens` over them remain genuine rivals, count their full number, and
+    // are refused exactly as before.
+    const members = operation?.widens === true
+      ? []
+      : claimed.filter(({ subjectFirst }) => subjectFirst);
     if (members.length > 0) {
       const claimants = [
         ...(recordHasField ? [`a field \`${name}\``] : []),
@@ -3125,7 +3169,7 @@ class Checker {
             });
           }
         }
-        for (const member of item.members) {
+        const checkMember = (member: Resolved.HonorMember): void => {
           const firstDefinition = item.members.findIndex(
             ({ name }) => name === member.name,
           );
@@ -3136,7 +3180,7 @@ class Checker {
               primary: member.span,
             });
             this.#inferExpr(member.value, level + 1);
-            continue;
+            return;
           }
           const required = declaration.members.find(
             ({ binding }) => binding.name === member.name,
@@ -3148,7 +3192,7 @@ class Checker {
               primary: member.span,
             });
             this.#inferExpr(member.value, level + 1);
-            continue;
+            return;
           }
           const subjectTypes = new Map([[declaration.subject, instanceSubject]]);
           const expectedFunction: FunctionMono = {
@@ -3215,6 +3259,34 @@ class Checker {
           );
           this.#unify(expectedFunction.result, body, member.span);
           this.#expressionTypes.set(member.value, expectedFunction);
+        };
+        for (const member of item.members) {
+          // A **derived** member (Constraints §4.7) is the module's `widens`
+          // binding called at the member's own seats, and it waits for the end
+          // of the module's items.
+          //
+          // What the wait is *for*, measured rather than assumed: a declaration
+          // that fails §4.7's signature check has no restriction to derive, and
+          // checking its member anyway reports the same fault a second time, at
+          // the honor block, as a bare seat mismatch. The check runs after
+          // `#checkWidensDeclarations` so a failed door derives nothing. (Left
+          // in place, that cascade is visible on five refusal pins.)
+          //
+          // It also makes the pairing order-free — `honor` may stand above the
+          // declaration it accounts for (Declarations Preamble §7.2), and by
+          // the deadline every scheme this file seeds is seeded, so a derived
+          // body can name a binding written below its block. That property is
+          // pinned behaviourally in `gen-law-reach.test.ts`; it is not what
+          // forces the deferral, and the note says so rather than claiming a
+          // reason the code does not have.
+          if (member.derived === true) {
+            this.#derivedMembers.push({
+              key: `${item.constraintIdentity} ${member.name}`,
+              check: () => checkMember(member),
+            });
+            continue;
+          }
+          checkMember(member);
         }
         continue;
       }
@@ -5715,7 +5787,7 @@ class Checker {
       // (Operators §6.3): the instance subject is the **left** operand alone,
       // selected from it where no expectation lands and from the written face
       // where one does. One operand, so there is no widening race to run.
-      this.#checkExponent(expression.right, right);
+      this.#checkExponent(expression.right, right, home ?? left);
       let base = left;
       if (home !== undefined) {
         this.#unifyExpected(home, left, expression.left, expression.span, true);
@@ -5751,35 +5823,71 @@ class Checker {
   }
 
   /**
-   * `**`'s exponent seat, checked at `Int` *(#541, Operators §6.3)*.
+   * `**`'s exponent seat, checked at `Int` *(#541, Operators §6.3; the fixit
+   * generalised for #545)*.
    *
    * An ordinary written-`Int` seat: an established `Nat` widens into it through
    * §5.1's conversion, everything else unifies. What the seat adds is the
-   * **mandatory fixit**, branched on the exponent's own type — the two types a
-   * user reaching for the retired homogeneous `**` would write are the two with
-   * a door to be pointed at, and every other type takes the plain seat error
-   * with no door named.
+   * **mandatory fixit**, and since #546 it is a *lookup* rather than a table of
+   * two: `pow` at the base's companion, taken only when it is a `widens`
+   * binding (Constraints §4.7) whose exponent seat accepts what was offered.
+   * The two power doors are then instances of the general answer rather than
+   * its content, and a user type that widens its own `pow` is named on exactly
+   * the same terms. A base with no such door takes the plain seat error, with
+   * no door named — the claim would be false.
    */
-  #checkExponent(expression: Resolved.Expr, actual: Mono): void {
+  #checkExponent(expression: Resolved.Expr, actual: Mono, base: Mono): void {
     const seat = primitive("Int");
     if (this.#tryWidenNumeric(expression, actual, seat, expression.span)) return;
-    const found = this.#prune(actual);
-    const door = found.kind !== "Constructor"
+    // A door is named only where the seat itself cannot answer. An exponent
+    // that already reaches `Int` is not a mismatch at all — the widening above
+    // handles `Nat`, an `Int` is the seat — and a door accepting it too would
+    // otherwise be advertised over a call that is already right.
+    const door = this.#acceptsExactly(actual, seat)
       ? undefined
-      : found.name === "Float"
-        ? "for a fractional exponent at `Float`, use `Float.pow(value, exponent)`"
-        : found.name === "BigInt"
-          ? "for a `BigInt` exponent, use `BigInt.pow(value, exponent)`"
-          : undefined;
+      : this.#exponentDoor(actual, base);
     if (door === undefined) {
       this.#unify(seat, actual, expression.span);
       return;
     }
+    const found = this.#prune(actual);
+    // Two voices, because the offer names two different faults. `Float` is the
+    // one numeric type whose values are the *fractional* exponents `**` cannot
+    // take, so at that offer the door is what a fraction wants; at every other
+    // offer the exponent's own type is the whole story.
+    const offer = found.kind === "Constructor" && found.name === "Float"
+      ? `for a fractional exponent at \`${this.#display(base)}\``
+      : `for a \`${this.#display(found)}\` exponent`;
     this.#diagnostics.add({
       severity: "error",
-      message: `the exponent of \`**\` is an \`Int\`; ${door}`,
+      message:
+        `the exponent of \`**\` is an \`Int\`; ${offer}, use ` +
+        `\`${door}.pow(value, exponent)\``,
       primary: expression.span,
     });
+  }
+
+  /**
+   * The qualified home of a `widens Pow.pow` at `base` whose exponent seat
+   * accepts `offered`, or `undefined` if there is none (#545).
+   */
+  #exponentDoor(offered: Mono, base: Mono): string | undefined {
+    const companion = this.#companionKeyOfType(this.#prune(base));
+    const operation = companion === undefined
+      ? undefined
+      : this.#companionOperations.get(companion)?.get("pow");
+    if (operation?.widens !== true) return undefined;
+    const scheme = this.#schemes.get(operation.id);
+    if (scheme === undefined) return undefined;
+    const door = this.#prune(
+      this.#instantiate(scheme, 0, undefined, operation.bindingSpan),
+    );
+    if (door.kind !== "Function") return undefined;
+    const exponent = door.parameters[1];
+    if (exponent === undefined || !this.#acceptsExactly(offered, exponent)) {
+      return undefined;
+    }
+    return this.#display(this.#prune(base));
   }
 
   /**
@@ -9249,31 +9357,50 @@ class Checker {
   }
 
   /**
-   * Modules §5.3's **generalisation law**, checked where the export is declared
-   * *(#541; Constraints §4.6's exemption)*.
+   * Constraints §4.6's spelling claim at the one seat the resolver could not
+   * settle, and §4.7's signature check *(#541, form and unconditional claim
+   * #546)*.
    *
-   * A companion may export a term under the name of a constraint member it
-   * honors at its own type — `Float.pow` over `Pow<Float>`'s member — and the
-   * law is what makes that lawful rather than a drift hazard: the export must
-   * **properly generalise** the member. The signature half is this check; the
-   * behavioural half (they agree on the shared domain, the member is the
-   * export's restriction) is a stated law of the same standing as instance
-   * lawfulness, reviewed rather than machine-checked.
+   * Since #546 an ordinary binding of an honored member's spelling — exported
+   * or private — is the rebinding error **unconditionally**: no export is
+   * exempt, and the export grammar carries no exemption to read. The resolver
+   * still lets exported ones past its own claim so that exactly one seat
+   * reports them, and this is that seat, because one thing here still needs a
+   * signature: an export that *would* have passed the door check earns the
+   * mechanical rewrite into the form, and a signature is what decides that.
    *
-   * The resolver deliberately lets every *exported* binding of a member's
-   * spelling past §4.6's claim, because the exemption turns on signatures it
-   * cannot read. So this is the seat of both verdicts: a generalising export is
-   * legal and silent, and every other one draws the rebinding error the claim
-   * would have drawn, with the law named so the fix is the one the law wants.
+   * A `widens` declaration is not an ordinary binding and is skipped here; its
+   * own check is `#checkWidensDeclarations`.
    */
-  #checkGeneralisingExports(items: readonly Resolved.Item[]): void {
+  #refuseExportedMemberSpellings(items: readonly Resolved.Item[]): void {
     const exported = new Map<string, Resolved.Item & { binding: Resolved.Binding }>();
     for (const item of items) {
+      if (item.kind === "Let" && item.widens !== undefined) continue;
       if ((item.kind === "Let" || item.kind === "Fun") && item.exported) {
         exported.set(item.binding.name, item);
       }
     }
     if (exported.size === 0) return;
+    // §4.6's **boundary**, where the prior refusals stand and the law is never
+    // consulted: a spelling that is already an *ordinary binding* by another
+    // route. Both seats are exactly these — the constraint's own declaring
+    // module, where the spelling is the member's exported forwarder, and a
+    // named constraint import, which brings the members as ordinary bindings
+    // (Modules §3.1). The resolver has already refused the collision at the
+    // binding, with the repair each seat owns; a second verdict here would say
+    // the same thing twice and in the wrong words.
+    const ordinaryElsewhere = new Set<string>();
+    for (const item of items) {
+      if (item.kind === "ConstraintDeclaration") {
+        for (const member of item.members) ordinaryElsewhere.add(member.binding.name);
+      }
+      if (item.kind !== "Import" || item.form.kind !== "Named") continue;
+      for (const { declaration } of item.constraints) {
+        for (const member of declaration.members) {
+          ordinaryElsewhere.add(member.binding.name);
+        }
+      }
+    }
     for (const item of items) {
       if (item.kind !== "Honor") continue;
       const declaration = this.#constraintsByIdentity.get(item.constraintIdentity);
@@ -9282,40 +9409,34 @@ class Checker {
       const instance = `${item.constraint}<${this.#display(subject)}>`;
       // The member list, with the wired fallback the resolver's claim also
       // carries for a compile with no declaration in view. A member reached
-      // that way has no scheme to compare against, so it can never generalise
-      // and always refuses — which is the claim's own verdict, kept rather than
-      // quietly lost with the pass that used to give it.
+      // that way has no scheme to compare against, so it never earns the
+      // rewrite — it takes the plain refusal, which is the claim's own verdict.
       const candidates: readonly (MemberCandidate | { readonly member: string })[] =
         declaration === undefined
           ? (PRE_REGISTERED_CONSTRAINT_MEMBERS[item.constraint] ?? [])
             .map((member) => ({ member }))
           : constraintMemberCandidates(declaration);
       for (const candidate of candidates) {
+        if (ordinaryElsewhere.has(candidate.member)) continue;
         const door = exported.get(candidate.member);
         if (door === undefined) continue;
-        if (
-          "symbol" in candidate &&
-          this.#generalises(door.binding.symbol, candidate, subject, item.span)
-        ) {
-          continue;
-        }
         // The claim's own two forms, so the primary lands on the later of the
-        // two exactly as §4.6's refusal does — with the law named in place of
-        // the plain no-rebinding sentence, because for an *export* the repair
-        // is not only a rename.
+        // two exactly as §4.6's refusal does.
         const bound = door.binding.span;
-        const law = "an exported binding of a member's spelling is legal only " +
-          "when it properly generalises the member (Modules §5.3) — same " +
-          "subject seat, same result, at least one remaining seat properly " +
-          "wider — so widen it or choose a different name.";
+        const rewrite = "symbol" in candidate &&
+            this.#generalises(door.binding.symbol, candidate, subject, item.span)
+          ? "a member's wider face is declared, not exported — write " +
+            `\`widens ${moduleAlias(item.constraint)}.${candidate.member}(…)\` ` +
+            `and account for the member with \`${candidate.member} = widened\`.`
+          : "Hexagon does not allow rebinding — choose a different name.";
         const claimFirst = item.span.start.offset < bound.start.offset;
         this.#diagnostics.add({
           severity: "error",
           message: claimFirst
             ? `\`${candidate.member}\` is already bound: the \`${instance}\` ` +
-              `instance binds it as a member (line ${item.span.start.line + 1}); ${law}`
+              `instance binds it as a member (line ${item.span.start.line + 1}); ${rewrite}`
             : `the \`${instance}\` instance binds \`${candidate.member}\`, which ` +
-              `is already bound (line ${bound.start.line + 1}); ${law}`,
+              `is already bound (line ${bound.start.line + 1}); ${rewrite}`,
           primary: claimFirst ? bound : item.span,
           labels: claimFirst
             ? [{ span: item.span, message: "the member is bound here" }]
@@ -9326,15 +9447,118 @@ class Checker {
   }
 
   /**
-   * Whether one exported term properly generalises one constraint member at a
-   * given subject (#541) — the law's signature half, and the same predicate the
-   * dot call's one-claimant rule asks (Method Syntax §6.1).
+   * Constraints §4.7's signature check, at the declaration.
+   *
+   * The check runs **per listed member** — a list-form declaration has one body
+   * and as many restrictions as it names — and a failure is reported as a
+   * failed *door*, naming the seat, never as a name collision: the keyword has
+   * already declared which of the two the author meant.
+   */
+  #checkWidensDeclarations(items: readonly Resolved.Item[]): void {
+    const honored = new Map<string, Resolved.HonorItem>();
+    for (const item of items) {
+      if (item.kind === "Honor") honored.set(item.constraintIdentity, item);
+    }
+    for (const item of items) {
+      if (item.kind !== "Let" || item.widens === undefined) continue;
+      for (const target of item.widens) {
+        const honor = honored.get(target.constraintIdentity);
+        if (honor === undefined) continue;
+        const subject = this.#instanceSubjects.get(honor);
+        const declaration = this.#constraintsByIdentity.get(target.constraintIdentity);
+        const candidate = declaration === undefined
+          ? undefined
+          : constraintMemberCandidates(declaration)
+            .find(({ member }) => member === target.member);
+        if (subject === undefined || candidate === undefined) continue;
+        const failure = this.#widensFailure(
+          item.binding.symbol,
+          candidate,
+          subject,
+          item.span,
+        );
+        if (failure === undefined) continue;
+        this.#failedWidens.add(`${target.constraintIdentity} ${target.member}`);
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `this declaration does not widen \`${target.module}.${target.member}\`: ` +
+            failure,
+          primary: target.span,
+        });
+      }
+    }
+  }
+
+  /**
+   * Why a `widens` declaration fails to widen one member, or `undefined` if it
+   * widens it properly (Constraints §4.7's check, §4.6's statement of it).
    *
    * Same arity, same subject seat, same result; every remaining member
-   * parameter accepted at the export's corresponding seat exactly or through
-   * Numeric Literals §5.1's exact conversions; and **at least one seat properly
-   * wider**, because an identical signature generalises nothing and is exactly
-   * the delegation pattern §4.6 rules ill-formed.
+   * parameter accepted at the declaration's corresponding seat exactly or
+   * through Numeric Literals §5.1's exact conversions; and **at least one seat
+   * properly wider**, because an identical signature generalises nothing and is
+   * exactly the delegation pattern §4.6 rules ill-formed. The "at least one" is
+   * a floor, not a ceiling: several seats may widen at once.
+   */
+  #widensFailure(
+    door: Resolved.SymbolId,
+    candidate: MemberCandidate,
+    subject: Mono,
+    span: Source.Span,
+  ): string | undefined {
+    const doorScheme = this.#schemes.get(door);
+    const memberScheme = this.#schemes.get(candidate.symbol);
+    if (doorScheme === undefined || memberScheme === undefined) {
+      return "its signature could not be read";
+    }
+    // Both copies are fresh, so the pinning unification below binds only the
+    // copy's own variables and nothing this check can observe elsewhere.
+    const wider = this.#prune(this.#instantiate(doorScheme, 0, undefined, span));
+    const member = this.#prune(
+      this.#instantiate(memberScheme, 0, undefined, span, subject),
+    );
+    if (wider.kind !== "Function" || member.kind !== "Function") {
+      return "a door is a function of the member's seats";
+    }
+    if (wider.parameters.length !== member.parameters.length) {
+      const seats = member.parameters.length;
+      return `the member takes ${seats} parameter${seats === 1 ? "" : "s"}, ` +
+        `this declaration ${wider.parameters.length}`;
+    }
+    const [memberSubject, ...rest] = member.parameters;
+    const [doorSubject] = wider.parameters;
+    if (memberSubject === undefined || doorSubject === undefined) {
+      return "a door is a function of the member's seats";
+    }
+    if (!this.#sameSeat(memberSubject, doorSubject)) {
+      return `the subject seat is \`${this.#display(memberSubject)}\`, not ` +
+        `\`${this.#display(doorSubject)}\` — a door widens across seats at one ` +
+        "type, never across types";
+    }
+    if (!this.#sameSeat(member.result, wider.result)) {
+      return `the result is \`${this.#display(member.result)}\`, not ` +
+        `\`${this.#display(wider.result)}\` — the member is this ` +
+        "declaration's restriction, and a wider result could not restrict back";
+    }
+    let widened = false;
+    for (const [offset, from] of rest.entries()) {
+      const to = wider.parameters[offset + 1]!;
+      if (this.#sameSeat(from, to)) continue;
+      if (!this.#acceptsExactly(from, to)) {
+        return `\`${this.#display(from)}\` does not reach the seat ` +
+          `\`${this.#display(to)}\` exactly`;
+      }
+      widened = true;
+    }
+    if (!widened) return "an identical signature generalises nothing";
+    return undefined;
+  }
+
+  /**
+   * Whether one term properly generalises one constraint member at a given
+   * subject — the law's signature half (#541), asked now only where a *refused*
+   * binding might have earned the rewrite into the `widens` form (§4.7).
    */
   #generalises(
     door: Resolved.SymbolId,
@@ -9342,30 +9566,7 @@ class Checker {
     subject: Mono,
     span: Source.Span,
   ): boolean {
-    const doorScheme = this.#schemes.get(door);
-    const memberScheme = this.#schemes.get(candidate.symbol);
-    if (doorScheme === undefined || memberScheme === undefined) return false;
-    // Both copies are fresh, so the pinning unification below binds only the
-    // copy's own variables and nothing this check can observe elsewhere.
-    const wider = this.#prune(this.#instantiate(doorScheme, 0, undefined, span));
-    const member = this.#prune(
-      this.#instantiate(memberScheme, 0, undefined, span, subject),
-    );
-    if (wider.kind !== "Function" || member.kind !== "Function") return false;
-    if (wider.parameters.length !== member.parameters.length) return false;
-    const [memberSubject, ...rest] = member.parameters;
-    const [doorSubject] = wider.parameters;
-    if (memberSubject === undefined || doorSubject === undefined) return false;
-    if (!this.#sameSeat(memberSubject, doorSubject)) return false;
-    if (!this.#sameSeat(member.result, wider.result)) return false;
-    let widened = false;
-    for (const [offset, from] of rest.entries()) {
-      const to = wider.parameters[offset + 1]!;
-      if (this.#sameSeat(from, to)) continue;
-      if (!this.#acceptsExactly(from, to)) return false;
-      widened = true;
-    }
-    return widened;
+    return this.#widensFailure(door, candidate, subject, span) === undefined;
   }
 
   /**
