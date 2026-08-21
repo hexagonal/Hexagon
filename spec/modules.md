@@ -56,7 +56,7 @@ Aliasing a constraint renames the constraint name only: `import { Describe as D 
 
 ### 3.3 Namespace imports
 
-`import * as Geo from "./geometry"` binds the single name `Geo` as a **module alias** giving qualified access to every export: `Geo.area(...)`, and in type position `Geo.Point`, `xs: Vector(Geo.Shape)`. Constructors qualify the same way (`Geo.Circle(1.0)`), including in patterns (`match s` / `Geo.Circle(r) => ...`) (Unions §2). Constraints too: `Geo.Ord` in a binder (`<a: Geo.Ord>`), and a member through the alias as an ordinary term (`Geo.compare(a, b)`) — the left side is the module alias in every case, so §5.1's "types and constraints never take `.`" is untouched: it governs what may stand *left* of the dot. Module aliases are uppercase-start, mandatorily.
+`import * as Geo from "./geometry"` binds the single name `Geo` as a **module alias** giving qualified access to every export: `Geo.area(...)`, and in type position `Geo.Point`, `xs: Vector(Geo.Shape)`. Constructors qualify the same way (`Geo.Circle(1.0)`), including in patterns (`match s` / `Geo.Circle(r) => ...`) (Unions §2). Constraints too: `Geo.Ord` in a binder (`<a: Geo.Ord>`), and a member through the alias as an ordinary term (`Geo.compare(a, b)`) — the left side is the module alias in every case, so §5.1's "types and constraints never take `.`" is untouched: it governs what may stand *left* of the dot. Module aliases are uppercase-start, mandatorily. One reach extends the alias without adding a binding: where the aliased module exports a type spelled like the alias itself, bare type position may resolve through it — §5.1 rule 2's companion fallback, which answers only where the type namespace has nothing.
 
 **Module aliases are not values.** `let m = Geo` is an error: "modules are not values." No passing, no returning, no storing. This is what keeps the namespace story (§5) honest and forecloses first-class modules by construction.
 
@@ -174,9 +174,9 @@ Hexagon now has **four namespaces**: terms, types, constraints (Constraints §2.
 ### 5.1 Resolution by position
 
 1. **`Name.` — uppercase immediately followed by `.`** resolves in the module-alias namespace **first**. Types and constraints never take `.`, so no genuine ambiguity exists; the ordering is stated so the implementation is deterministic. If no module alias `Name` exists, the error says so, mentioning the type if one exists: "`Shape` is a type, not a module; import its home module with `import * as` for qualified access, or import the constructor/function you need." The `.` token remains the one from Operators §14 — field access and module path, resolved by what the left side names; a module alias on the left makes it a module path.
-2. **`Name` in type position** resolves in the type namespace only. **`Alias.Name` in type position** resolves `Name` in the *exported type namespace* of the aliased module. Constraint position (a binder's constraint list) is the analog: **`Name`** resolves in the constraint namespace only, **`Alias.Name`** in the aliased module's *exported constraint namespace* (§3.3).
+2. **`Name` in type position** resolves in the type namespace **first**. Where the type namespace has nothing for the spelling, and a module alias `Name` is visible whose module exports a type `Name`, the reference resolves to that exported type — **the companion fallback** *(#531; §5.3's idiom is what it exists for)*. The fallback answers only where resolution had already failed, and the alias still binds nothing in the type namespace: a same-spelled type declaration or type import wins outright everywhere, with no collision and no refusal, and every program that resolved without the fallback resolves identically under it. A visible alias whose module exports no type of the alias's own spelling answers nothing — `import * as P from "./point"` leaves bare `P` in type position an error naming the working repairs (`P.Point`; realias as `Point`; or `import { Point }`). **`Alias.Name` in type position** resolves `Name` in the *exported type namespace* of the aliased module. Constraint position (a binder's constraint list) is the analog **without the fallback** — deliberately: the companion idiom is nominal-type-shaped, and a constraint's own arrival idiom is the named import, which carries its members (§3.1) — so **`Name`** resolves in the constraint namespace only, **`Alias.Name`** in the aliased module's *exported constraint namespace* (§3.3).
 3. **`Name` in term position** (applied or bare) resolves in the term namespace only — constructors, constraint members, ordinary bindings.
-4. A module alias in any position other than the left of `.` is the "modules are not values" error (§3.3).
+4. A module alias in **term position** other than the left of `.` is the "modules are not values" error (§3.3). Type position is rule 2's to govern: the companion fallback where it answers, and the alias-not-a-type refusal with its named repairs where it does not.
 
 ### 5.2 Collisions
 
@@ -197,11 +197,11 @@ export fun getX(p: Point): Float = p.x
 
 -- consumer
 import * as Point from "./point"
-let p = Point.make(1.0, 2.0)      -- Point. = module; Point in types = the type
+let p = Point.make(1.0, 2.0)      -- Point. = module; Point in types = the type (§5.1 rule 2's companion fallback)
 fun norm(p: Point): Float = ...
 ```
 
-The prelude's `Int.div`, `Map.get`, `Vector.map` are this exact pattern — auto-imported companion modules, **one mechanism, not a special prelude device**.
+The prelude's `Int.div`, `Map.get`, `Vector.map` are this exact pattern — auto-imported companion modules, **one reading, not a special prelude device**. Two suppliers stand behind the one reading: a prelude companion's type name arrives by seeding (§5.5), a user companion's through §5.1 rule 2's companion fallback — and the consumer file cannot tell which *(#531: before the fallback existed, the example above did not compile, and this sentence said "one mechanism" — an overclaim at exactly the type level)*.
 
 **Companion dispatch makes this idiom load-bearing** (Method Syntax §4): a dot call `p.getX()` rewrites to the companion operation of the receiver's type, and `CompanionOf` targets **the nominal type's home module** — the declaration site, unconditionally — not the importer's alias or any import path. The idiom is therefore a resolution rule's substrate, not just a style.
 
