@@ -1000,6 +1000,16 @@ class Resolver {
   readonly #importedConstraints = new Map<string, Resolved.ConstraintItem>();
   /** Imported constraints by `Alias.Name`, for the §3.3 binder position. */
   readonly #qualifiedConstraints = new Map<string, Resolved.ConstraintItem>();
+  /**
+   * Constraints the **companion fallback** answers with, by the bare name they
+   * answer for (Modules §5.1 rule 2, #531).
+   *
+   * Kept apart from `#importedConstraints` on purpose: an entry here binds
+   * nothing, so it is consulted last everywhere and enters no collision set.
+   * `#registerCompanionConstraints` fills it only for names the constraint
+   * namespace left unclaimed.
+   */
+  readonly #companionConstraints = new Map<string, Resolved.ConstraintItem>();
   /** Every constraint declaration the import graph reaches, by identity. */
   readonly #visibleConstraints = new Map<string, Resolved.ConstraintItem>();
   /**
@@ -1078,14 +1088,20 @@ class Resolver {
     if (this.#declaredConstraintNames.has(name)) {
       return declaredConstraintIdentity(this.#fileId, name);
     }
+    // The companion fallback comes last of the readings and before the mint
+    // (§5.1 rule 2): it answers only for names every table above left unclaimed,
+    // and it answers with the *declaring* module's identity, exactly as an
+    // import does — the fallback resolves to that declaration, not to a rival.
     return this.#importedConstraints.get(name)?.identity ??
+      this.#companionConstraints.get(name)?.identity ??
       declaredConstraintIdentity(this.#fileId, name);
   }
 
   /** The declaration a constraint name denotes here, if this module can see it. */
   #namedConstraint(name: string): Resolved.ConstraintItem | undefined {
     return this.#qualifiedConstraints.get(name) ??
-      this.#importedConstraints.get(name);
+      this.#importedConstraints.get(name) ??
+      this.#companionConstraints.get(name);
   }
 
   /**
@@ -1664,6 +1680,54 @@ class Resolver {
         }
       }
       this.#importTypeBindings.set(item, { constraints, members, aliasBound });
+    }
+    this.#registerCompanionConstraints(items);
+  }
+
+  /**
+   * Modules §5.1 rule 2's **companion fallback**, constraint half — "every
+   * property above holding one namespace over".
+   *
+   * A bare `Name` in constraint position that the constraint namespace has
+   * nothing for resolves to the constraint `Name` exported by a visible module
+   * alias `Name`: a binder's list and an `honor` head alike, wherever the bare
+   * spelling is read. There is no compiler-owned constraint analogue of the
+   * boundary types to order against — the eleven pre-registered names are simply
+   * always present (Constraints §5.1.1), so the fallback never reaches them.
+   *
+   * Run **after** every import has predeclared, which is what makes "answers,
+   * never binds" mechanical rather than a promise: the bare name is registered
+   * only when nothing else in the constraint namespace has claimed it — not the
+   * module's own declaration, not a named import anywhere in the file, not
+   * pre-registration — so no collision check exists for it to fail and nothing
+   * downstream ever sees two meanings for the word.
+   *
+   * The fallback carries **no members**: the entry is the constraint's *name*
+   * and nothing else, exactly as the qualified `Alias.Name` entry beside it is.
+   * The named import stays the members-carrying idiom (§3.1).
+   */
+  #registerCompanionConstraints(items: readonly Parsed.Item[]): void {
+    for (const item of items) {
+      if (item.kind !== "Import" || item.form.kind !== "Namespace") continue;
+      const alias = item.form.alias.text;
+      const bound = this.#importTypeBindings.get(item);
+      // A duplicate `import * as` bound no alias, so it reaches nothing either.
+      if (bound === undefined || !bound.aliasBound) continue;
+      if (
+        isPreRegisteredConstraint(alias) ||
+        this.#declaredConstraintNames.has(alias) ||
+        this.#importedConstraints.has(alias) ||
+        this.#companionConstraints.has(alias)
+      ) {
+        continue;
+      }
+      const declaration = this.#imports.get(item.specifier)?.constraints.get(alias);
+      if (declaration === undefined) continue;
+      this.#companionConstraints.set(alias, declaration);
+      this.#importTypeBindings.set(item, {
+        ...bound,
+        constraints: [...bound.constraints, { local: alias, declaration }],
+      });
     }
   }
 
@@ -4049,6 +4113,22 @@ class Resolver {
       return { kind: "RecordDeclaration", record: declaredRecord, name, arguments: arguments_, span: annotation.span };
     }
     if (annotation.kind === "AppliedType") {
+      // Modules §5.1 rule 2: the compiler-owned boundary types stay **last** —
+      // after declarations *and* after the companion fallback, because the
+      // fallback resolves to a user's declaration reached through the user's own
+      // import, and §5.5 gives the compiler no claim that outranks one. This is
+      // the one place the fallback changes a program that already resolved: a
+      // module imported under a boundary spelling and exporting a same-spelled
+      // type now means the user's type. The other members of the intrinsic
+      // inventory below (`Vector`, `Set`, `Map`, `JsSet`, `JsMap`) are not
+      // boundary types and keep answering first — rule 2's carve names three
+      // spellings and conservativity is exact at every other.
+      if (name === "Array" || name === "Nullable" || (this.#runtime && name === "Node")) {
+        const companion = this.#companionType(
+          name, annotation, typeParameters, impliedContext, substitutions,
+        );
+        if (companion !== undefined) return companion;
+      }
       if (this.#runtime && name === "Node") {
         // `Node(a)` is spellable only inside a runtime module; elsewhere it falls
         // through to the unknown-generic-type path, keeping the intrinsic hidden.
@@ -4106,6 +4186,13 @@ class Resolver {
         if (name === "JsMap") return { kind: "JsMap", key, value, span: annotation.span };
         return { kind: "Map", key, value, span: annotation.span };
       }
+      // Nothing in the type namespace and no intrinsic answered: rule 2's
+      // companion fallback gets its turn before the refusal, exactly as it does
+      // for the nullary spelling below.
+      const companion = this.#companionType(
+        name, annotation, typeParameters, impliedContext, substitutions,
+      );
+      if (companion !== undefined) return companion;
       this.#diagnostics.add({
         severity: "error",
         message: `unknown generic type \`${name}\``,
@@ -4137,22 +4224,24 @@ class Resolver {
       });
       return { kind: "ErrorType", span: annotation.span };
     }
-    // Modules §5.1 rule 2 read in the direction a namespace import makes
-    // tempting: the alias binds nothing in the type namespace, so a bare `Rat`
-    // beside `import * as Rat` is unknown here however plainly it reads. The
-    // sibling message runs the other way ("`Shape` is a type, not a module").
+    // Modules §5.1 rule 2's **companion fallback**, the nullary spelling: the
+    // type namespace has nothing, so a visible module alias `Name` whose module
+    // exports a type `Name` answers here — §5.3's idiom is what it exists for.
+    // The alias still binds nothing, which is why this sits at the end of the
+    // chain rather than beside the tables: every declaration and every type
+    // import above has already had its turn and won outright where it could.
+    const companion = this.#companionType(
+      name, annotation, typeParameters, impliedContext, substitutions,
+    );
+    if (companion !== undefined) return companion;
+    // The fallback declined — the alias exports no type of its own spelling — so
+    // the refusal stands, naming the repairs the exported inventory actually
+    // offers (Modules §10's row).
     const aliased = this.#moduleAliases.get(name);
     if (aliased !== undefined) {
-      const specifier = this.#moduleAliasSpecifiers.get(name);
-      const exportsSameName = aliased.unions.has(name) || aliased.records.has(name) ||
-        aliased.aliases.has(name) || aliased.externTypes.has(name);
       this.#diagnostics.add({
         severity: "error",
-        message: exportsSameName && specifier !== undefined
-          ? `\`${name}\` is a module alias, not a type; write \`${name}.${name}\` for the type it ` +
-            `exports, or name it bare with \`import { ${name} } from ${JSON.stringify(specifier)}\``
-          : `\`${name}\` is a module alias, not a type; the types it exports are reached ` +
-            `through it, as \`${name}.Name\``,
+        message: this.#aliasIsNotATypeMessage(name, aliased),
         primary: annotation.span,
       });
       return { kind: "ErrorType", span: annotation.span };
@@ -4306,6 +4395,109 @@ class Resolver {
     return kind === "union"
       ? { kind: "Union", union: (declaration as Resolved.Union).id, name, arguments: arguments_, span }
       : { kind: "RecordDeclaration", record: (declaration as Resolved.RecordDeclaration).id, name, arguments: arguments_, span };
+  }
+
+  /**
+   * Modules §5.1 rule 2's **companion fallback**, type half.
+   *
+   * A bare `Name` in type position that the type namespace has nothing for
+   * resolves to the type `Name` exported by a visible module alias `Name` — the
+   * whole of §5.3's companion idiom in one reading, and the reason the blessed
+   * consumer example compiles at all (#531).
+   *
+   * It **answers, never binds**: nothing enters the type namespace, so a
+   * same-spelled declaration or type import wins outright with no collision and
+   * no diagnostic, and every call site here sits *after* the namespace's own
+   * tables. The answer is exactly what `Name.Name` would have resolved to —
+   * literally the qualified path's own machinery — which is what makes the
+   * arity report, the opacity rule, and emission identical for both spellings.
+   *
+   * `undefined` means "declined": the caller proceeds to whatever answered
+   * before the fallback existed (at the boundary spellings, the boundary
+   * intrinsic; elsewhere, the refusal).
+   */
+  #companionType(
+    name: string,
+    annotation: Parsed.TypeAnnotation & { readonly kind: "NamedType" | "AppliedType" },
+    typeParameters: Set<string>,
+    impliedContext: { readonly owner: string; readonly names: ReadonlySet<string> } | undefined,
+    substitutions: ReadonlyMap<string, Resolved.TypeAnnotation>,
+  ): Resolved.TypeAnnotation | undefined {
+    // An explicit `import * as` alias first, then the prelude companion of the
+    // same name (§6.4's qualified home) — `#namedModule`'s own order, and the
+    // §5.4 one. The prelude half is inert in practice: a prelude module's types
+    // are seeded into the type namespace, so they answer above this and the
+    // fallback never reaches them.
+    const aliased = this.#namedModule(name);
+    if (aliased === undefined) return undefined;
+    const union = aliased.unions.get(name);
+    const record = aliased.records.get(name);
+    const alias = aliased.aliases.get(name);
+    const externType = aliased.externTypes.get(name);
+    if (
+      union === undefined && record === undefined &&
+      alias === undefined && externType === undefined
+    ) {
+      return undefined;
+    }
+    // Arguments are resolved only once the fallback has committed: a declining
+    // fallback must leave no diagnostic behind, and the branch that answers
+    // instead will resolve them itself.
+    const arguments_ = annotation.kind === "AppliedType"
+      ? annotation.arguments.map((argument) =>
+        this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions)
+      )
+      : [];
+    if (union !== undefined) {
+      return this.#resolvedNominalType("union", union, name, arguments_, annotation.span);
+    }
+    if (record !== undefined) {
+      return this.#resolvedNominalType("record", record, name, arguments_, annotation.span);
+    }
+    if (alias !== undefined) {
+      return this.#instantiateResolvedAlias(alias, arguments_, annotation.span);
+    }
+    if (arguments_.length > 0) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `extern type \`${name}\` is monomorphic and takes no type arguments`,
+        primary: annotation.span,
+      });
+    }
+    return {
+      kind: "ExternType",
+      externType: externType!.externType,
+      name,
+      span: annotation.span,
+    };
+  }
+
+  /**
+   * Modules §10's row for an alias standing where a type belongs, once the
+   * companion fallback has declined it.
+   *
+   * The **exported inventory drives which repairs are named**. One exported
+   * type is the case the row is written for — the alias is one rename away from
+   * resolving, so all three working spellings are offered, realias included.
+   * With none, or with several (where "the type it exports" would be a false
+   * singular and no one realias is the answer), the general form stands.
+   */
+  #aliasIsNotATypeMessage(name: string, aliased: ModuleInterface): string {
+    const specifier = this.#moduleAliasSpecifiers.get(name);
+    const exported = [
+      ...aliased.unions.keys(),
+      ...aliased.records.keys(),
+      ...aliased.aliases.keys(),
+      ...aliased.externTypes.keys(),
+    ];
+    const only = exported.length === 1 ? exported[0]! : undefined;
+    if (only === undefined || specifier === undefined) {
+      return `\`${name}\` is a module alias, not a type; the types it exports are reached ` +
+        `through it, as \`${name}.Name\``;
+    }
+    return `\`${name}\` is a module alias, not a type; write \`${name}.${only}\` for the type it ` +
+      `exports, name it bare with \`import { ${only} } from ${JSON.stringify(specifier)}\`, ` +
+      `or realias as \`import * as ${only}\``;
   }
 
   #includeNominals(imported: ModuleInterface, qualifier?: string): void {

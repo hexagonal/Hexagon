@@ -42,44 +42,30 @@ describe("layOutWorkspace", () => {
     expect(bareMain?.source).toBe("log(\"hello\")\n");
   });
 
-  test("injects both halves of the companion idiom", () => {
+  test("injects the companion idiom's one line and nothing beside it", () => {
     const main = layOutWorkspace(equipped).files.find(
       ({ path }) => path === entryPath,
     );
 
-    // The alias alone leaves the type unnameable: a namespace import binds no
-    // type name (Modules §5.1), so the named half is what makes `: Rat` a face
-    // a buffer can write.
-    expect(main?.source).toContain('import { Rat } from "./stdlib/Rat"');
+    // Since Modules §5.1 rule 2's companion fallback (#531) the alias answers
+    // the bare `Rat` face too, so the named half this used to carry beside it
+    // is gone. One import line for one module, which is what §5.3's idiom says
+    // a consumer writes.
+    expect(main?.source).not.toContain("import { Rat }");
+    expect(main?.source.trimEnd().split("\n").filter((line) => line.startsWith("import")))
+      .toEqual(['import * as Rat from "./stdlib/Rat"']);
   });
 
-  test("drops the named half where the buffer declares that type itself", () => {
+  test("a buffer declaring its own `Rat` keeps the line, and it collides with nothing", () => {
     const own = layOutWorkspace(
       "record Rat = {top: Int, bottom: Int}\nlet half = Rat({top = 1, bottom = 2})\n",
     ).files.find(({ path }) => path === entryPath);
 
-    // The declaration and the import are the same namespace, so the named half
-    // would be an "already declared or imported" collision at a line the buffer
-    // does not show. The alias half is a different namespace and stays.
-    expect(own?.source).not.toContain("import { Rat }");
+    // The alias binds nothing in the type namespace, so the declaration wins
+    // outright and there is nothing to drop. The gate that used to drop the
+    // named half — and the whole declared-type scan behind it — went with it.
     expect(own?.source).toContain('import * as Rat from "./stdlib/Rat"');
-  });
-
-  test("reads a declaration head at identifier boundaries too", () => {
-    // Whether the named half was dropped; every buffer below names `Rat`, so a
-    // `true` is the guard's doing and not an absent prefix.
-    const dropped = (source: string): boolean =>
-      !(layOutWorkspace(source).files.find(({ path }) => path === entryPath)
-        ?.source.includes("import { Rat }") ?? false);
-
-    // Every declaration head, and over-approximated the *other* way from the
-    // mention gate: a spare drop costs an annotation a message naming both
-    // repairs, a missed one costs the buffer its own declaration.
-    expect(dropped("union Rat = Whole | Half\nlet r = Rat.create(1, 2)\n")).toBe(true);
-    expect(dropped("type Rat = Int\nlet r = Rat.create(1, 2)\n")).toBe(true);
-    expect(dropped("// record Rat, one day\nlet r = Rat.create(1, 2)\n")).toBe(true);
-    expect(dropped("record Ratio = {n: Int}\nlet r = Rat.create(1, 2)\n")).toBe(false);
-    expect(dropped("log(\"prerecord Rat\")\n")).toBe(false);
+    expect(own?.source).not.toContain("import { Rat }");
   });
 
   test("reads a mention at identifier boundaries, not as a substring", () => {

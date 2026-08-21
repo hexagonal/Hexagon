@@ -810,6 +810,12 @@ export interface ConstraintImport {
    * The name this module spells it by: the declared name, an `as` alias
    * (§3.2 — the constraint name only, never its members), or `Alias.Name` for
    * the namespace form (§3.3).
+   *
+   * One entry is not a binding: the namespace form also carries the **bare
+   * alias** where the aliased module exports a constraint of the alias's own
+   * spelling (§5.1 rule 2's companion fallback, #531). The resolver adds it only
+   * for a name the constraint namespace left unclaimed, so downstream it reads
+   * as an ordinary entry and can never contest one.
    */
   readonly local: string;
   /** The declaration itself; an importer sees the one the home module made. */

@@ -44,6 +44,21 @@ function diagnostics(
   return compileProject(files).diagnostics.map((diagnostic) => diagnostic.message);
 }
 
+/**
+ * The same, for a project one of whose modules holds the runtime grant
+ * (intrinsics §5.2) — the only place the hidden `Node` spelling answers, and so
+ * the only place its ordering against the companion fallback is observable.
+ */
+function grantedDiagnostics(
+  files: readonly (readonly [string, string])[],
+  runtimePaths: readonly string[],
+): readonly string[] {
+  return compileProject(
+    files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
+    { runtimePaths },
+  ).diagnostics.map((diagnostic) => diagnostic.message);
+}
+
 /** Resolver/checker diagnostics for a single module, with the privileged-runtime gate available. */
 function runtimeDiagnostics(
   source: string,
@@ -243,6 +258,105 @@ describe("the boundary intrinsics are a fallback in both directions", () => {
       "export record Array(a) = { item: a }\n" +
       "extern from \"host\"\n    fun sink(values: Array(Int)): Unit\n" +
       "export fun use(item: Int): Unit = sink!(Array({ item = item }))\n",
+    )).toEqual([]);
+  });
+});
+
+/**
+ * Modules §5.1 rule 2's ordering, at the three spellings where it is visible
+ * (#531). The boundary intrinsics were already behind declarations; they are now
+ * behind **the companion fallback** as well — §5.5's own sentence applied, since
+ * what the fallback resolves to is a user's declaration reached through the
+ * user's own import.
+ *
+ * This is the one place the fallback re-means a program that already compiled,
+ * and rule 2 says so in as many words. The tell of the old reading was the
+ * same-name-both-sides mismatch — `expected Array(Int), found Array(Int)` —
+ * defect 6's own signature, one namespace over.
+ */
+describe("the companion fallback outranks the boundary intrinsics", () => {
+  const ARR = ["/arr.hex", "export record Array(a) = { item: a }\n"] as const;
+  const NUL = ["/nul.hex", "export record Nullable(a) = { item: a }\n"] as const;
+
+  test("`Array` — a same-spelled export through a same-spelled alias wins", () => {
+    // The discriminator is the field: only the record has one. Under the old
+    // order the annotation was the intrinsic and this read was a mismatch.
+    expect(diagnostics(
+      'import * as Array from "./arr"\n' +
+      "export fun item(a: Array(Int)): Int = a.item\n",
+      [ARR],
+    )).toEqual([]);
+  });
+
+  test("`Array` — a constructed value meets the annotation, no same-name mismatch", () => {
+    expect(diagnostics(
+      'import * as Array from "./arr"\n' +
+      "export fun wrap(item: Int): Array(Int) = Array.Array({ item = item })\n",
+      [ARR],
+    )).toEqual([]);
+  });
+
+  test("`Array` — an alias with no matching export leaves the intrinsic in place", () => {
+    // The alias is visible and answers nothing, so resolution proceeds to what
+    // answered before the fallback existed. If it had not, the extern row would
+    // draw `unknown generic type \`Array\``.
+    expect(diagnostics(
+      'import * as Array from "./arr"\n' +
+      'extern from "host"\n    fun rows(): Array(Int)\n' +
+      "export let first: Array(Int) = rows!()\n" +
+      "export let n: Int = Array.count()\n",
+      [["/arr.hex", "export fun count(): Int = 1\n"]],
+    )).toEqual([]);
+  });
+
+  test("`Nullable` — the same pair", () => {
+    expect(diagnostics(
+      'import * as Nullable from "./nul"\n' +
+      "export fun item(a: Nullable(Int)): Int = a.item\n",
+      [NUL],
+    )).toEqual([]);
+    expect(diagnostics(
+      'import * as Nullable from "./nul"\n' +
+      'extern from "host"\n    fun maybe(): Nullable(Int)\n' +
+      "export let first: Nullable(Int) = maybe!()\n" +
+      "export let n: Int = Nullable.count()\n",
+      [["/nul.hex", "export fun count(): Int = 1\n"]],
+    )).toEqual([]);
+  });
+
+  test("`Node` — the same pair, inside the one module where the spelling answers", () => {
+    // Rule 2 carves the exception at `Node` only for a runtime-privileged
+    // module, and shipped runtime source holds no import lines: a project file
+    // at an injection path may, which is exactly this shape.
+    expect(grantedDiagnostics([
+      ["/mynode.hex", "export record Node(a) = { item: a }\n"],
+      ["/rt.hex",
+        'import * as Node from "./mynode"\n' +
+        "fun item(n: Node(Int)): Int = n.item\n" +
+        "export let answer: Int = item(Node.Node({ item = 1 }))\n"],
+    ], ["/rt.hex"])).toEqual([]);
+    expect(grantedDiagnostics([
+      ["/mynode.hex", "export fun count(): Int = 1\n"],
+      ["/rt.hex",
+        'import * as Node from "./mynode"\n' +
+        // The annotation is the whole assertion: with no `Node` type behind the
+        // alias the hidden intrinsic answers it, and without the intrinsic
+        // there would be no type at all ("unknown generic type `Node`"). The
+        // *term* spelling `Node.` is rule 1's, not rule 2's — an explicit alias
+        // takes it, which it always did.
+        "fun size(n: Node(Int)): Int = 1\n" +
+        "export let answer: Int = Node.count()\n"],
+    ], ["/rt.hex"])).toEqual([]);
+  });
+
+  test("the intrinsics that are not boundary types keep answering first", () => {
+    // Rule 2's carve names three spellings. `Vector`, `Set`, `Map`, and the two
+    // JS views are not among them, so conservativity there is exact: a
+    // same-spelled alias over a same-spelled export changes nothing.
+    expect(diagnostics(
+      'import * as Vector from "./myvec"\n' +
+      "export fun first(values: Vector(Int)): Int = values[0]\n",
+      [["/myvec.hex", "export record Vector(a) = { item: a }\n"]],
     )).toEqual([]);
   });
 });

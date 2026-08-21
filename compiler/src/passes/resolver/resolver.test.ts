@@ -703,12 +703,19 @@ describe("resolve", () => {
 });
 
 /**
- * What an unresolved bare type name says (#529).
+ * What an unresolved bare type name says (#529), as narrowed by #531.
  *
  * The message these replace listed a slice — "primitive, tuple, and declared
  * union types" — that stopped being the truth once records joined the
  * annotation position, and it was silent about the one case where the name is
  * visible and merely in the wrong namespace: a module alias.
+ *
+ * One branch of it has since stopped being a refusal at all. Where the alias
+ * exports a type of its **own spelling**, Modules §5.1 rule 2's companion
+ * fallback resolves it, so the message that named `Point.Point` and the named
+ * import as repairs now has nothing to repair. What survives is the alias whose
+ * module exports types under other spellings — and there the message gained the
+ * third repair the §10 row names, the realias.
  *
  * These run through `compileFiles` because the interesting branch needs a
  * second module to import from.
@@ -719,20 +726,16 @@ describe("unknown type names", () => {
     return compileFiles(files).diagnostics.map(({ message }) => message);
   }
 
-  test("a namespace alias over a same-named type names both working spellings", () => {
+  test("a namespace alias over a same-named type resolves instead of reporting", () => {
     expect(messages([
       ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"],
       ["/main.hex", 'import * as Point from "./point"\nexport let f(p: Point): Int = 1\n'],
-    ])).toEqual([
-      "`Point` is a module alias, not a type; write `Point.Point` for the type it exports, " +
-        'or name it bare with `import { Point } from "./point"`',
-    ]);
+    ])).toEqual([]);
   });
 
-  test("both spellings the message offers compile", () => {
-    // The repairs are the message's whole content, so they are asserted rather
-    // than described: a message naming a line that does not work is worse than
-    // the bare refusal it replaced.
+  test("the spellings that always worked still do", () => {
+    // The two the old message offered as repairs. They are no longer the only
+    // way to write the annotation, but the fallback took nothing away.
     const point = ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"] as const;
 
     expect(messages([
@@ -745,9 +748,55 @@ describe("unknown type names", () => {
     ])).toEqual([]);
   });
 
+  test("a renamed alias over one exported type names all three repairs", () => {
+    // The surviving refusal, and the §10 row verbatim: the alias is one rename
+    // away from resolving, so the realias is named beside the other two.
+    expect(messages([
+      ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"],
+      ["/main.hex", 'import * as P from "./point"\nexport let f(p: P): Int = 1\n'],
+    ])).toEqual([
+      "`P` is a module alias, not a type; write `P.Point` for the type it exports, " +
+        'name it bare with `import { Point } from "./point"`, ' +
+        "or realias as `import * as Point`",
+    ]);
+  });
+
+  test("all three repairs the message names compile", () => {
+    // The repairs are the message's whole content, so they are asserted rather
+    // than described: a message naming a line that does not work is worse than
+    // the bare refusal it replaced. The third is the one the fallback added.
+    const point = ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"] as const;
+
+    expect(messages([
+      point,
+      ["/main.hex", 'import * as P from "./point"\nexport let f(p: P.Point): Int = 1\n'],
+    ])).toEqual([]);
+    expect(messages([
+      point,
+      ["/main.hex", 'import { Point } from "./point"\nexport let f(p: Point): Int = 1\n'],
+    ])).toEqual([]);
+    expect(messages([
+      point,
+      ["/main.hex", 'import * as Point from "./point"\nexport let f(p: Point): Int = 1\n'],
+    ])).toEqual([]);
+  });
+
   test("an alias exporting no such type is told where its types are", () => {
     expect(messages([
       ["/lib.hex", "export let one: Int = 1\n"],
+      ["/main.hex", 'import * as Lib from "./lib"\nexport let f(x: Lib): Int = 1\n'],
+    ])).toEqual([
+      "`Lib` is a module alias, not a type; the types it exports are reached through it, " +
+        "as `Lib.Name`",
+    ]);
+  });
+
+  test("an alias over several types keeps the general form", () => {
+    // "The exported inventory drives which repairs are named": with two, "the
+    // type it exports" would be a false singular and no one realias is the
+    // answer, so the general form stands.
+    expect(messages([
+      ["/lib.hex", "export record One = {x: Int}\nexport record Two = {y: Int}\n"],
       ["/main.hex", 'import * as Lib from "./lib"\nexport let f(x: Lib): Int = 1\n'],
     ])).toEqual([
       "`Lib` is a module alias, not a type; the types it exports are reached through it, " +
