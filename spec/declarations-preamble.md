@@ -206,7 +206,7 @@ TS aliases are equally transparent, so semantics are preserved exactly, and the 
 
 ### 7.1 The declaration inventory and site rule
 
-Module level only: `record`, `union`, `type`, `constraint`, `honor`, `exception`. Any of these inside a function body or block is a hard error, one message family: "declarations live at module level" (generalizing Exceptions §2's rule; the exceptions-specific phrasing may remain as its instance). Block-local binders remain exactly `let` / `var` / `fun` (Statements §1).
+Module level only: `record`, `union`, `type`, `constraint`, `honor`, `exception`, `widens` (Constraints §4.7). Any of these inside a function body or block is a hard error, one message family: "declarations live at module level" (generalizing Exceptions §2's rule; the exceptions-specific phrasing may remain as its instance). Block-local binders remain exactly `let` / `var` / `fun` (Statements §1). Of the seven, `widens` alone binds a term: it is read top-down at its own line like the member definitions it stands among (§7.2; Constraints §4.6), not order-insensitively like the type-side six.
 
 ### 7.2 Order-insensitivity and mutual recursion
 
