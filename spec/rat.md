@@ -121,7 +121,7 @@ Rat.toFloat
 
 All binary operations are subject-first and therefore dot-callable.
 
-`Rat.toFloat` is the sanctioned exit from the exact world (friendly-numerics
+`Rat.toFloat` is the first sanctioned exit from the exact world (friendly-numerics
 tenet 7). Within range it answers the **correctly rounded nearest double** —
 one rounding, ties to even. Rounding error is what an approximation *is*; no
 exception attends it, and no apology. It throws `FloatRangeError` exactly where
