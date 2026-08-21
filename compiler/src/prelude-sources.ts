@@ -284,7 +284,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "// what seats this companion after `Float.hex` in the prelude order.\n"
     + "(** `value` as the nearest `Float` — correctly rounded, ties to even; past 2^53\n"
     + "    that double need not be the integer asked for, and no exception attends the\n"
-    + "    rounding. Throws `FloatRangeError` where the correctly rounded answer would\n"
+    + "    rounding. Throws `FloatRangeError` when the correctly rounded answer would\n"
     + "    be an infinity. *)\n"
     + "export let toFloat(value: BigInt): Float =\n"
     + "    let approx = toFloatUnchecked(value)\n"

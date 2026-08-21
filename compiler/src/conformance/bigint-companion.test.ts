@@ -428,6 +428,20 @@ describe("the conversions (Primitive Types §6)", () => {
       message: "BigInt.toFloat: value does not fit in Float",
     });
   });
+
+  test("`toFloat`'s guard reaches the TypeScript boundary as an `@throws` tag", () => {
+    // #562: the door's doc spells the manifest sentence the deriver recognizes
+    // (Doc Comments §6.1), so the exported face carries the tag a JSDoc reader
+    // expects — the one word "when" is what the derivation turns on.
+    const project = compileMain("export let f: Float = BigInt.toFloat(5n)\n");
+    expect(project.diagnostics).toEqual([]);
+    const declarations = project.modules
+      .find(({ source }) => source.path.endsWith("BigInt.hex"))!.declarations.text;
+
+    expect(declarations).toContain(
+      "@throws {FloatRangeError} when the correctly rounded answer would be an infinity\n",
+    );
+  });
 });
 
 describe("`Eq` and `Hash` at BigInt", () => {

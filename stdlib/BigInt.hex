@@ -160,7 +160,7 @@ export let toInt(value: BigInt): Option(Int) =
 // what seats this companion after `Float.hex` in the prelude order.
 (** `value` as the nearest `Float` — correctly rounded, ties to even; past 2^53
     that double need not be the integer asked for, and no exception attends the
-    rounding. Throws `FloatRangeError` where the correctly rounded answer would
+    rounding. Throws `FloatRangeError` when the correctly rounded answer would
     be an infinity. *)
 export let toFloat(value: BigInt): Float =
     let approx = toFloatUnchecked(value)
