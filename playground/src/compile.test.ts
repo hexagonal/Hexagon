@@ -558,6 +558,57 @@ describe("compileSource", () => {
     expect(response.javascript).not.toContain("import { Rat }");
   });
 
+  test("compiles a buffer that writes the equipment import itself", () => {
+    const response = compileSource(
+      20,
+      "import * as Rat from \"./stdlib/Rat\"\n" +
+        "let half = Rat.create(1, 2)\n" +
+        "log(\"${half}\")\n",
+    );
+
+    // #537: the equipment used to arrive on top of this and report the one
+    // collision the language has — two module aliases of one name — at the line
+    // the user wrote, under a line no buffer shows. It stands down instead, and
+    // the program compiles as the ordinary Hexagon file it already was.
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).toContain('from "./stdlib/Rat.js"');
+  });
+
+  test("compiles a buffer aliasing another module as an equipment name", () => {
+    const response = compileSource(
+      21,
+      "module Helper\n" +
+        "    export let twice(n: Int): Int = n * 2\n" +
+        "end module Helper\n" +
+        "import * as Rat from \"./Helper\"\n" +
+        "log(\"${Rat.twice(3)}\")\n",
+    );
+
+    // The name is what collides, not the module behind it, so the gate is
+    // keyed on the alias: `Rat` here is `/Helper.hex`, and it answers.
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).not.toContain("./stdlib/Rat.js");
+  });
+
+  test("compiles a buffer whose own import is the companion's named half", () => {
+    const response = compileSource(
+      22,
+      "import { Rat } from \"./stdlib/Rat\"\n" +
+        "let half: Rat = Rat.create(1, 2)\n" +
+        "log(\"${half}\")\n",
+    );
+
+    // #537's headline case, and the half the fix deliberately does not cover:
+    // the named import binds a type, the injected line binds an alias, and
+    // `Rat.create` needs the alias. Both faces are used above, and the two
+    // lines sit together with nothing between them to collide.
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).toContain('from "./stdlib/Rat.js"');
+  });
+
   test("lets a workspace Rat module occlude the fundamental companion", () => {
     const source =
       "module Rat\n" +

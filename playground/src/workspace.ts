@@ -165,9 +165,11 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
   // compiler's prelude, and equipment the buffer never names would cost every
   // program an import line and an instance inventory it does not use.
   const spelled = spelledWords(source);
+  const aliased = aliasedModules(workspace.mainText);
   const equipmentPrefix = hosted
     .filter(({ companion }) =>
-      playgroundEquipment.includes(companion) && spelled.has(companion)
+      playgroundEquipment.includes(companion) && spelled.has(companion) &&
+      !aliased.has(companion)
     )
     .map(({ companion, path }) => {
       const specifier = JSON.stringify(`.${path.slice(0, -".hex".length)}`);
@@ -176,8 +178,11 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
       // the same alias answers the bare `Rat` face in an annotation — so the
       // named half this used to inject beside it, and the declared-type gate
       // that had to drop it where the buffer declared its own `Rat`, are both
-      // gone. The alias binds nothing, so a buffer's own `record Rat` simply
-      // wins with nothing to collide against.
+      // gone. In the type namespace the alias binds nothing, so a buffer's own
+      // `record Rat` — or its own `import { Rat }` — simply wins with nothing
+      // to collide against. The alias namespace is the one it does claim, and
+      // there a second alias of a name is the language's single import
+      // collision (Modules §5.2), which is what `aliasedModules` steps out of.
       return `import * as ${companion} from ${specifier}`;
     }).join("\n");
   const mainPrefix = equipmentPrefix.length === 0 ? "" : `${equipmentPrefix}\n`;
@@ -229,5 +234,35 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
  */
 function spelledWords(source: string): ReadonlySet<string> {
   return new Set(source.match(/[\p{ID_Continue}$]+/gu) ?? []);
+}
+
+/**
+ * Every name the entry's own text already binds as a module alias.
+ *
+ * This gate runs the other way round from `spelledWords`: a name found here
+ * *drops* an import rather than adding one, so the harmless direction swaps
+ * with it. A missed alias leaves two `import * as Rat` lines in one file, which
+ * is the one collision the language has (Modules §5.2) and reports at the line
+ * the user wrote; a phantom one leaves the buffer's `Rat.create` with no module
+ * to reach. Both fail against text the buffer shows, so the scan is narrowed to
+ * the shape that can be nothing else — an import's head, opening a line. A
+ * commented-out `// import * as Rat` therefore binds nothing and suppresses
+ * nothing, which is the answer a buffer mid-edit wants; a line inside a string
+ * literal that opens with an import head is read as one, and that is the
+ * accepted edge.
+ *
+ * Keyed on the alias rather than on the module it names, because the collision
+ * is over the bound name: `import * as Rat from "./Helper"` claims `Rat` just
+ * as firmly, and the prefix has to stay out of its way. And it reads
+ * `/main.hex`'s masked text where `spelledWords` reads the whole buffer, which
+ * is the same fact told twice: a block's own file never carries the prefix, so
+ * a name spelled inside a block can still want one, and an alias bound inside
+ * one collides with nothing and must not take it away.
+ */
+function aliasedModules(mainText: string): ReadonlySet<string> {
+  const heads = mainText.matchAll(
+    /^[ \t]*import[ \t]*\*[ \t]*as[ \t]+([\p{ID_Start}$][\p{ID_Continue}$]*)/gmu,
+  );
+  return new Set([...heads].map(([, alias]) => alias!));
 }
 

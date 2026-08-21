@@ -68,6 +68,80 @@ describe("layOutWorkspace", () => {
     expect(own?.source).not.toContain("import { Rat }");
   });
 
+  test("keeps out of the way of a buffer that writes the import itself", () => {
+    const own = 'import * as Rat from "./stdlib/Rat"\n' +
+      "let half = Rat.create(1, 2)\n";
+    const main = layOutWorkspace(own).files.find(({ path }) => path === entryPath);
+
+    // Two aliases of one name is the language's single import collision
+    // (Modules §5.2), and it is reported at the second line — the user's own,
+    // beneath a first line no buffer shows. So the equipment stands down: the
+    // entry is the buffer, unprefixed, and the import it compiles against is
+    // the one the user can see.
+    expect(main?.source).toBe(own);
+    expect(prefixLength(own)).toBe(0);
+  });
+
+  test("suppresses on the alias the buffer binds, not the module it names", () => {
+    const source = "module Helper\n" +
+      "    export let twice(n: Int): Int = n * 2\n" +
+      "end module Helper\n" +
+      'import * as Rat from "./Helper"\n' +
+      "log(\"${Rat.twice(3)}\")\n";
+    const main = layOutWorkspace(source).files.find(({ path }) => path === entryPath);
+
+    // Nothing about `./stdlib/Rat` is what collides — the bound name is. A
+    // buffer aliasing anything at all as `Rat` has claimed it.
+    expect(main?.source).not.toContain("./stdlib/Rat");
+  });
+
+  test("keeps the line for a buffer whose own import is the named half", () => {
+    const named = 'import { Rat } from "./stdlib/Rat"\n' +
+      "let half: Rat = Rat.create(1, 2)\n";
+    const main = layOutWorkspace(named).files.find(({ path }) => path === entryPath);
+
+    // The named half binds a type, the injected line binds an alias, and the
+    // two namespaces do not meet: this shape compiles with both lines, and the
+    // alias is what `Rat.create` reaches. Suppressing here would take the
+    // qualified face away from a buffer that never asked.
+    //
+    // Read from the front, not with `toContain`: the buffer's own import line
+    // spells enough of the injected one to satisfy a substring search that the
+    // prefix had gone missing.
+    expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
+      .toBe(true);
+    expect(main?.source.endsWith(named)).toBe(true);
+  });
+
+  test("reads a commented-out import as the comment it is", () => {
+    const commented = '// import * as Rat from "./stdlib/Rat"\n' +
+      "let half = Rat.create(1, 2)\n";
+    const main = layOutWorkspace(commented).files.find(({ path }) => path === entryPath);
+
+    // The suppression scan reads import heads that open a line, so a line the
+    // user has commented out binds nothing and stands down for nothing — the
+    // shape a buffer mid-edit is in.
+    expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
+      .toBe(true);
+    expect(prefixLength(commented)).toBeGreaterThan(0);
+  });
+
+  test("leaves a module block's own alias to that block's file", () => {
+    const source = "module Helper\n" +
+      '    import * as Rat from "./stdlib/Rat"\n' +
+      "    export let one(): Int = 1\n" +
+      "end module Helper\n" +
+      "let half = Rat.create(1, 2)\n";
+    const main = layOutWorkspace(source).files.find(({ path }) => path === entryPath);
+
+    // A block's file never carries the prefix, so an alias inside one collides
+    // with nothing and must not disarm the entry's line — which is why the
+    // scan reads `/main.hex`'s masked text rather than the whole buffer, the
+    // opposite of the mention gate below.
+    expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
+      .toBe(true);
+  });
+
   test("reads a mention at identifier boundaries, not as a substring", () => {
     // `Ratio` is not `Rat`, and neither is the `Rat` inside it. Over-approximate
     // the other way — a comment counts — because a spare import is harmless and
