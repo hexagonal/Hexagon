@@ -23,10 +23,7 @@ extern from "hex:intrinsic"
     fun bigIntQuot as nativeQuot(left: BigInt, right: BigInt): BigInt
     fun bigIntRem as nativeRem(left: BigInt, right: BigInt): BigInt
     fun bigIntToIntUnchecked as toIntUnchecked(value: BigInt): Int
-
-    (** `value` as the nearest `Float`. Total and lossy: a magnitude past 2^53
-        rounds, and one past `Float`'s range becomes an infinity. *)
-    export fun bigIntToFloat as toFloat(value: BigInt): Float
+    fun bigIntToFloatUnchecked as toFloatUnchecked(value: BigInt): Float
 
 honor Num<BigInt> =
     (** The sum of `left` and `right`, exactly. *)
@@ -103,7 +100,12 @@ honor Integral<BigInt> =
         if right == 0 then
             throw(DivideByZeroError("BigInt.mod: divisor is zero"))
         else
-            let remainder = rem(left, right)
+            // `rem` and `mod` are spelled through their declaring module here
+            // and below: `Float.hex` exports plain functions of both names and
+            // seats before this file, so the bare spellings have two exporters
+            // and are refused (Modules §5.5). The qualified home is the
+            // refusal's own named repair, and it selects this very row.
+            let remainder = Integral.rem(left, right)
             if remainder < 0 then
                 remainder + (if right < 0 then -right else right)
             else
@@ -116,7 +118,7 @@ honor Integral<BigInt> =
         if right == 0 then
             throw(DivideByZeroError("BigInt.div: divisor is zero"))
         else
-            quot(left - mod(left, right), right)
+            quot(left - Integral.mod(left, right), right)
 
     (** The greatest common divisor of `left` and `right`, never negative.
         `gcd(value, 0)` is the magnitude of `value`, so `gcd(0, 0)` is zero; it
@@ -127,7 +129,7 @@ honor Integral<BigInt> =
         // Both operands are non-negative from here, so the loop's `rem` never
         // sees a zero divisor: a zero `smaller` is the exit condition.
         while smaller != 0
-            let next = rem(larger, smaller)
+            let next = Integral.rem(larger, smaller)
             larger := smaller
             smaller := next
         larger
@@ -152,3 +154,17 @@ export let toInt(value: BigInt): Option(Int) =
         None
     else
         Some(toIntUnchecked(value))
+
+// `FloatRangeError` is `Float.hex`'s, in scope through the prelude: the range
+// that fails belongs to `Float`, not to any one door into it. Throwing it is
+// what seats this companion after `Float.hex` in the prelude order.
+(** `value` as the nearest `Float` — correctly rounded, ties to even; past 2^53
+    that double need not be the integer asked for, and no exception attends the
+    rounding. Throws `FloatRangeError` where the correctly rounded answer would
+    be an infinity. *)
+export let toFloat(value: BigInt): Float =
+    let approx = toFloatUnchecked(value)
+    if Float.isFinite(approx) then
+        approx
+    else
+        throw(FloatRangeError("BigInt.toFloat: value does not fit in Float"))

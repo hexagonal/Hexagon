@@ -202,9 +202,11 @@ describe("compileSource", () => {
     // because `Rat.hex` normalizes through `Integral<BigInt>`'s members — so
     // the companion's dictionary and the constraint homes that declare what it
     // throws (`/Integral.hex`, `/Pow.hex`) are emitted with it. `/Float.hex`
-    // and `/Int.hex` behind it joined at #526: `Rat.toFloat` names `Float` and
-    // throws `Float.hex`'s `FloatRangeError`, and `Float.hex`'s composed
-    // `fromNat` reaches `Int.fromNat`. `/Debug.hex`
+    // and `/Int.hex` ahead of it joined at #526: `Rat.toFloat` names `Float`
+    // and throws `Float.hex`'s `FloatRangeError`, and `Float.hex`'s composed
+    // `fromNat` reaches `Int.fromNat`. Those two now precede `/BigInt.hex`,
+    // which #533 seated after `Float.hex` for a `FloatRangeError` of its own.
+    // `/Debug.hex`
     // joins wherever a source writes a line, which since #407 is every sample.
     // `/String.hex` rode in behind it while #419's widened `log<a: Show>` made
     // the site carry `Show<String>`, and left again at #440: a line written at
@@ -214,9 +216,9 @@ describe("compileSource", () => {
       "/Prelude.hex",
       "/Integral.hex",
       "/stdlib/Option.hex",
-      "/BigInt.hex",
       "/Int.hex",
       "/Float.hex",
+      "/BigInt.hex",
       "/Debug.hex",
       "/stdlib/Rat.hex",
       "/Mगणित.hex",

@@ -225,7 +225,7 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["bigIntQuot", 2],
   ["bigIntRem", 2],
   ["bigIntToIntUnchecked", 1],
-  ["bigIntToFloat", 1],
+  ["bigIntToFloatUnchecked", 1],
   ["intAdd", 2],
   ["intMultiply", 2],
   ["intFromNat", 1],

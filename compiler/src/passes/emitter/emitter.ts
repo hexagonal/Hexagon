@@ -6441,13 +6441,15 @@ class JavaScriptEmitter {
       case "bigIntHash":
         return `__a => ${this.#useHelper("stableHash")}(__a)`;
       // The conversions (Primitive Types §6). `fromNat`/`fromInt` are exact and
-      // total; `toIntUnchecked` is the unchecked core `toInt`'s range check
-      // sits above, and `toFloat` is the documented lossy one.
+      // total; the other two are unchecked cores whose range logic sits above
+      // them in source — `toInt`'s `Option` check, and `toFloat`'s overflow
+      // guard. `Number(bigint)` is correctly rounded, ties to even, so the
+      // rounding `toFloat` documents is the host's and needs nothing here.
       case "bigIntFromNat":
       case "bigIntFromInt":
         return "__a => BigInt(__a)";
       case "bigIntToIntUnchecked":
-      case "bigIntToFloat":
+      case "bigIntToFloatUnchecked":
         return "__a => Number(__a)";
       // `stdlib/Int.hex`'s and `stdlib/Nat.hex`'s natives (#344, the second
       // landing), in the same primop shape: a JavaScript operator or a one-call

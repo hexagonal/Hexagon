@@ -375,14 +375,23 @@ describe("the conversions (Primitive Types §6)", () => {
     expect(exports["dotted"]).toEqual({ tag: "Some", value: 5 });
   });
 
-  test("`toFloat` is total and documented-lossy", async () => {
+  /**
+   * **`toFloat` is the exact world's second sanctioned exit** (#533; Primitive
+   * Types §6, friendly-numerics tenet 7, `Rat.toFloat` being the first). In
+   * range it answers the correctly rounded nearest double and says nothing
+   * about the rounding — that is what an approximation *is* — and where the
+   * correctly rounded answer would be an infinity it throws `Float.hex`'s
+   * shared `FloatRangeError` rather than fabricating one.
+   */
+  test("`toFloat` rounds in range and says nothing about it", async () => {
     const exports = await runMain([
       "export let exact: Float = BigInt.toFloat(5n)",
       "export let negative: Float = BigInt.toFloat(-5n)",
       // Past 2^53 the nearest Float is not the integer asked for. The doc says
-      // so; this is the case it describes.
+      // so; this is the case it describes, and no exception attends it.
       "export let lossy: Float = BigInt.toFloat(9007199254740993n)",
       "export let dotted: Float = 5n.toFloat()",
+      "export let zero: Float = BigInt.toFloat(0n)",
       "",
     ].join("\n"));
 
@@ -390,6 +399,34 @@ describe("the conversions (Primitive Types §6)", () => {
     expect(exports["negative"]).toBe(-5);
     expect(exports["lossy"]).toBe(9007199254740992);
     expect(exports["dotted"]).toBe(5);
+    expect(exports["zero"]).toBe(0);
+  });
+
+  test("the last integer that fits crosses; the first that does not throws", async () => {
+    // `2^1024 - 2^971` is the largest finite double exactly. The next integer
+    // the guard has to judge is the midpoint `2^1024 - 2^970`: ties-to-even
+    // sends it to `2^1024`, which is not a double at all, so the correctly
+    // rounded answer is an infinity and the door refuses.
+    const exports = await runMain([
+      "// the boundary pair\n" +
+      "export let largest: Float = BigInt.toFloat(2n ** 1024 - 2n ** 971)",
+      "export let boom(): Float = BigInt.toFloat(2n ** 1024 - 2n ** 970)",
+      "export let negativeBoom(): Float = BigInt.toFloat(-(2n ** 1024 - 2n ** 970))",
+      "",
+    ].join("\n"));
+
+    expect(exports["largest"]).toBe(1.7976931348623157e308);
+    expect(threw(exports["boom"] as () => unknown)).toMatchObject({
+      name: "FloatRangeError",
+      message: "BigInt.toFloat: value does not fit in Float",
+      $hex: "Float",
+    });
+    // The same error and the same message from the other side: the message
+    // names the operation, not which end of the range failed.
+    expect(threw(exports["negativeBoom"] as () => unknown)).toMatchObject({
+      name: "FloatRangeError",
+      message: "BigInt.toFloat: value does not fit in Float",
+    });
   });
 });
 
