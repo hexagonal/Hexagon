@@ -131,6 +131,7 @@ export const hexagonFamilies: Readonly<Record<string, HexagonFamily>> = {
       "keyword.other.from.hexagon",
       "keyword.other.derives.hexagon",
       "keyword.other.when.hexagon",
+      "keyword.other.widened.hexagon",
       "keyword.other.with.hexagon",
       "keyword.other.ffi.hexagon",
       "keyword.operator.word.hexagon",
