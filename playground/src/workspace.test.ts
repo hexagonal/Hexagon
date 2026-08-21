@@ -73,7 +73,7 @@ describe("layOutWorkspace", () => {
       "let half = Rat.create(1, 2)\n";
     const main = layOutWorkspace(own).files.find(({ path }) => path === entryPath);
 
-    // Two aliases of one name is the language's single import collision
+    // Two aliases of one name is the alias namespace's collision rule
     // (Modules §5.2), and it is reported at the second line — the user's own,
     // beneath a first line no buffer shows. So the equipment stands down: the
     // entry is the buffer, unprefixed, and the import it compiles against is
@@ -113,17 +113,65 @@ describe("layOutWorkspace", () => {
     expect(main?.source.endsWith(named)).toBe(true);
   });
 
+  test("reads an alias import the buffer does not spell as one line", () => {
+    // A legal import head is not a line. Comments are trivia between its
+    // tokens, and it may break across lines — each of these binds `Rat` as
+    // firmly as the plain spelling, and each drew the collision back while the
+    // scan read text instead of tokens.
+    const suppressed = (source: string): boolean =>
+      layOutWorkspace(source).files.find(({ path }) => path === entryPath)
+        ?.source === source;
+
+    expect(suppressed(
+      'import (* the exact one *) * as Rat from "./stdlib/Rat"\n' +
+        "let half = Rat.create(1, 2)\n",
+    )).toBe(true);
+    expect(suppressed(
+      'import * as (* the exact one *) Rat from "./stdlib/Rat"\n' +
+        "let half = Rat.create(1, 2)\n",
+    )).toBe(true);
+    expect(suppressed(
+      "import\n    * as Rat from \"./stdlib/Rat\"\n" +
+        "let half = Rat.create(1, 2)\n",
+    )).toBe(true);
+  });
+
+  test("reads an import head inside a string as the string it is", () => {
+    const quoted = 'let advice = "write import * as Rat from ./stdlib/Rat"\n' +
+      "let half = Rat.create(1, 2)\n";
+    const main = layOutWorkspace(quoted).files.find(({ path }) => path === entryPath);
+
+    // One token, no head — the buffer's `Rat.create` still gets its module.
+    expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
+      .toBe(true);
+  });
+
   test("reads a commented-out import as the comment it is", () => {
     const commented = '// import * as Rat from "./stdlib/Rat"\n' +
       "let half = Rat.create(1, 2)\n";
     const main = layOutWorkspace(commented).files.find(({ path }) => path === entryPath);
 
-    // The suppression scan reads import heads that open a line, so a line the
-    // user has commented out binds nothing and stands down for nothing — the
-    // shape a buffer mid-edit is in.
+    // A comment is trivia and holds no tokens, so a line the user has commented
+    // out binds nothing and stands down for nothing — the shape a buffer
+    // mid-edit is in.
     expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
       .toBe(true);
     expect(prefixLength(commented)).toBeGreaterThan(0);
+  });
+
+  test("finds no alias at all in a buffer that does not lex", () => {
+    const midEdit = 'let advice = "unterminated\n' +
+      'import * as Rat from "./stdlib/Rat"\n' +
+      "let half = Rat.create(1, 2)\n";
+    const main = layOutWorkspace(midEdit).files.find(({ path }) => path === entryPath);
+
+    // The open string swallows the import head into a token of its own, so the
+    // scan finds fewer heads rather than phantom ones and the line goes in
+    // regardless — the direction a half-typed buffer should fail in. What the
+    // user sees is the lex error they are in the middle of fixing; the alias
+    // collision waits until there is an alias to collide with.
+    expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
+      .toBe(true);
   });
 
   test("leaves a module block's own alias to that block's file", () => {

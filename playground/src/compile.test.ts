@@ -566,13 +566,37 @@ describe("compileSource", () => {
         "log(\"${half}\")\n",
     );
 
-    // #537: the equipment used to arrive on top of this and report the one
-    // collision the language has — two module aliases of one name — at the line
-    // the user wrote, under a line no buffer shows. It stands down instead, and
-    // the program compiles as the ordinary Hexagon file it already was.
+    // #537: the equipment used to arrive on top of this and report the alias
+    // namespace's collision — two module aliases of one name — at the line the
+    // user wrote, under a line no buffer shows. It stands down instead, and the
+    // program compiles as the ordinary Hexagon file it already was.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.javascript).toContain('from "./stdlib/Rat.js"');
+  });
+
+  test("compiles the alias import in every shape the grammar allows it", () => {
+    // A comment is trivia between an import's tokens, and the head may break
+    // across lines: all three of these bind `Rat` exactly as the plain
+    // spelling does, and each drew the collision back when the equipment read
+    // the buffer's lines instead of its tokens.
+    const shapes = [
+      "import (* the exact one *) * as Rat from \"./stdlib/Rat\"\n",
+      "import * as (* the exact one *) Rat from \"./stdlib/Rat\"\n",
+      "import\n    * as Rat from \"./stdlib/Rat\"\n",
+    ];
+
+    for (const head of shapes) {
+      const response = compileSource(
+        23,
+        head + "let half = Rat.create(1, 2)\nlog(\"${half}\")\n",
+      );
+
+      expect(response).toMatchObject({
+        kind: "compile-success",
+        diagnostics: [],
+      });
+    }
   });
 
   test("compiles a buffer aliasing another module as an equipment name", () => {
