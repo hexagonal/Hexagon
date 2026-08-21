@@ -152,6 +152,74 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
   });
 });
 
+describe("`honor` may stand above the declaration it accounts for (§4.7)", () => {
+  /**
+   * The same module with the two halves swapped: the block first, its `widens`
+   * declaration below it. Legal by Declarations Preamble §7.2 — `honor` may
+   * precede any declaration it mentions — and the one place in a module where a
+   * body reads *downward*: the derived member names a binding written below its
+   * own block, which no ordinary member body may do.
+   *
+   * Pinned behaviourally rather than through a guard. No single line enforces
+   * it — what makes it hold is that derived members are checked at the end of
+   * the module's items, and that deferral is there for a different measured
+   * reason (a failed door must derive nothing). This is the pin that would
+   * notice if the property were lost while that reason was served some other
+   * way.
+   */
+  function blockFirst(tag: string): string {
+    return [
+      `// matrix ${tag}`,
+      "import * as Scale from \"./scale\"",
+      "",
+      "export record Matrix = {n: Float}",
+      "",
+      "honor Scale.Scale<Matrix> =",
+      "    scale = widened",
+      "",
+      DOOR,
+      "",
+    ].join("\n");
+  }
+
+  test("the block above its declaration compiles, and both faces answer", async () => {
+    const exports = await runProject([
+      ["/scale.hex", scaleModule("block first")],
+      ["/matrix.hex", [
+        blockFirst("block first"),
+        "let two: Int = 2",
+        "export let wider: Float = scale(Matrix({n = 4.0}), 0.5).n",
+        "export let restricted: Float = Scale.scaledTwice(Matrix({n = 4.0})).n",
+        "export let shared: Float = scale(Matrix({n = 4.0}), two).n",
+        "",
+      ].join("\n")],
+    ], { entry: "/matrix.hex" });
+
+    // The wider face, which only the declaration accepts; the member, reached
+    // polymorphically from the declaring side; and the shared domain, where the
+    // bare spelling is the declaration and both faces agree by construction.
+    expect(exports["wider"]).toBe(2);
+    expect(exports["restricted"]).toBe(16);
+    expect(exports["shared"]).toBe(8);
+  });
+
+  test("the derived member is still the declaration restricted, in this order too", () => {
+    // The order cannot be allowed to change *what* the member is, only when it
+    // is checked: the seat is emitted and the polymorphic route reads it.
+    const javascript = emitted([
+      ["/scale.hex", scaleModule("block first route")],
+      ["/matrix.hex", [
+        blockFirst("block first route"),
+        "export let restricted: Float = Scale.scaledTwice(Matrix({n = 4.0})).n",
+        "",
+      ].join("\n")],
+    ], "/matrix.hex");
+
+    expect(javascript).toContain("const __Scale_Matrix_scale = ");
+    expect(javascript).toContain("scale(value, factor)");
+  });
+});
+
 describe("a lawful pair's bare in-module use is the export (Constraints §4.6)", () => {
   const bare = [
     "let two: Int = 2",
@@ -321,6 +389,42 @@ describe("the two carves: where the law is never consulted (Modules §5.3)", () 
         "`import { Scale as Sizing }`, and a named constraint import brings its " +
         "members — to widen `scale` lawfully, import the module instead " +
         "(`import * as …`), or choose a different export name (Modules §5.3's " +
+        "generalisation law).",
+    ]);
+  });
+
+  test("a coexisting namespace alias makes the head spellable, and changes nothing", () => {
+    // §4.6's third seat, in the shape it is actually about (#546): with an alias
+    // for the declaring module beside the named import, the `widens` head *can*
+    // be spelled — and the declaration is refused all the same, the
+    // ordinary-binding claim standing. What the message cannot say here is
+    // "choose a different export name": this is not an export and its name is
+    // derived, so the hint names what must go instead — the named import — with
+    // the namespace route as the door-builder's form.
+    const diagnostics = compileFiles([
+      ["/scale.hex", scaleModule("coexisting alias")],
+      ["/matrix.hex", [
+        "// coexisting alias",
+        "import * as Sizing from \"./scale\"",
+        "import { Scale } from \"./scale\"",
+        "",
+        "export record Matrix = {n: Float}",
+        "",
+        "widens Sizing.scale(value: Matrix, factor: Float): Matrix =",
+        "    Matrix({n = value.n * factor})",
+        "",
+        "honor Scale<Matrix> =",
+        "    scale = widened",
+        "",
+      ].join("\n")],
+    ]).diagnostics.map(({ message }) => message);
+
+    expect(diagnostics).toEqual([
+      "`scale` is already bound (line 3); it arrived with `import { Scale }`, " +
+        "and a named constraint import brings its members — a `widens` " +
+        "declaration cannot unseat an ordinary binding and has no name of its " +
+        "own to choose, so the named import is what must go: reach the " +
+        "constraint through `import * as …` instead (Modules §5.3's " +
         "generalisation law).",
     ]);
   });

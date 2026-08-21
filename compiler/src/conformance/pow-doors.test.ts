@@ -463,6 +463,27 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
     ]);
   });
 
+  test("a wrong arity is refused as a failed door, counted in the reader's language", () => {
+    // Not a seat failure but a shape one, and the two directions read
+    // differently because the member's own arity is what the sentence counts.
+    expect(verdict("widens Pow.pow(value: Box): Box = value")).toEqual([
+      "this declaration does not widen `Pow.pow`: the member takes 2 " +
+        "parameters, this declaration 1",
+    ]);
+    expect(projectDiagnostics([
+      "export record Box = {value: Float}",
+      "",
+      "widens Show.show(value: Box, extra: Int): String = \"box\"",
+      "",
+      "honor Show<Box> =",
+      "    show = widened",
+      "",
+    ].join("\n"))).toEqual([
+      "this declaration does not widen `Show.show`: the member takes 1 " +
+        "parameter, this declaration 2",
+    ]);
+  });
+
   test("an ordinary export of the spelling is refused, with the rewrite into the form", () => {
     // §4.6's claim is unconditional since #546: no export is exempt. What a
     // would-have-widened export earns is the mechanical rewrite.
@@ -578,9 +599,13 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     ]);
   });
 
-  test("a second `widens` of one member is the ordinary rebinding refusal", () => {
+  test("a second `widens` of one member is refused as the rival it is", () => {
     // Two declarations of one member necessarily share the derived name, so the
-    // rivalry is refused by the binding rule that has always refused it.
+    // binding rule that has always refused a rebinding refuses this too — but
+    // the *repair* cannot be the standing one. A `widens` declaration has no
+    // name of its own to choose, so "choose a different name" would be advice
+    // neither declaration can take; one operation has one written body, and one
+    // of the two has to go.
     expect(projectDiagnostics([
       box,
       DOOR,
@@ -591,9 +616,31 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "    pow = widened",
       "",
     ].join("\n"))).toEqual([
-      "`pow` is already bound (line 8); Hexagon does not allow rebinding — " +
-        "choose a different name.",
+      "`pow` is already bound (line 8); one operation has one written body, " +
+        "and a `widens` declaration's name is derived from the member it names " +
+        "— there is no other name for either to take, so one of the two " +
+        "declarations must go.",
     ]);
+  });
+
+  test("a `widens` beside an ordinary binding names the end that can be renamed", () => {
+    // §4.6's boundary: the carve never unseats an ordinary binding, so the
+    // declaration loses — and the repair points at the binding, which is the
+    // only one of the two with a spelling its author chose.
+    expect(projectDiagnostics([
+      box,
+      "let pow: Int = 2",
+      "",
+      DOOR,
+      "",
+      "honor Pow<Box> =",
+      "    pow = widened",
+      "",
+    ].join("\n"))).toContain(
+      "`pow` is already bound (line 8); a `widens` declaration's name is " +
+        "derived from the member it names and cannot be chosen — rename the " +
+        "binding on line 8, or drop this declaration.",
+    );
   });
 
   test("a head naming a member this module does not honor is refused at the head", () => {
@@ -618,6 +665,53 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     ]);
   });
 
+  test("an unresolved head leads with its own fault, and starts no cascade", () => {
+    // All-or-none has nothing to say about a head that did not resolve: a
+    // declaration whose paths were all refused lists no members, so the corner
+    // check would find the honored `pow` "not listed" and answer "list it" —
+    // advice about a module alias that does not exist. The head's own error
+    // leads instead, and what follows it is true rather than a knock-on: this
+    // module really does not contain a `widens Pow.pow`.
+    expect(projectDiagnostics([
+      "export record Box = {value: Float}",
+      "",
+      "honor Num<Box> =",
+      "    add(left, right) = Box({value = left.value + right.value})",
+      "    multiply(left, right) = Box({value = left.value * right.value})",
+      "    fromNat(value) = Box({value = Float.fromNat(value)})",
+      "",
+      "widens Qow.pow(value: Box, exponent: Float): Box = value",
+      "",
+      "honor Pow<Box> =",
+      "    pow = widened",
+      "",
+    ].join("\n"))).toEqual([
+      "unknown module `Qow`",
+      "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
+        "does not contain",
+    ]);
+  });
+
+  test("the `= widened` line takes no doc comment, and says so", () => {
+    // §4.7's "one operation, one doc": the declaration documents the operation
+    // at its widest face and the derived member carries none of its own.
+    // Refused rather than silently attached — the author wrote documentation
+    // that nothing would ever show.
+    expect(projectDiagnostics([
+      box,
+      DOOR,
+      "",
+      "honor Pow<Box> =",
+      "    (** `value` raised to the power `exponent`. *)",
+      "    pow = widened",
+      "",
+    ].join("\n"))).toEqual([
+      "the `pow = widened` line takes no documentation — one operation, one " +
+        "doc: document it at its `widens` declaration, or make this an " +
+        "ordinary comment (`(* ... *)`).",
+    ]);
+  });
+
   test("a head through no module alias cannot be spelled at all", () => {
     // The reach doctrine self-enforcing: qualification is module aliases only,
     // so where no alias is in scope the head has no spelling (§4.6, §2.2).
@@ -627,6 +721,126 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "widens Nowhere.pow(value: Box, exponent: Float): Box = value",
       "",
     ].join("\n"))).toEqual(["unknown module `Nowhere`"]);
+  });
+});
+
+/**
+ * The corners the form owes that `Pow` cannot show, because `Pow` has exactly
+ * one member and it is required: a **defaulted** member reached by the supply
+ * route, and a member with **two** widenable seats. Both want a user constraint
+ * of their own, in its own module, reached the way the law says a door-builder
+ * reaches one — `import * as`, the module and not the constraint.
+ */
+describe("what the supply route serves, beyond one required member (§4.7)", () => {
+  /** A constraint whose second member is **defaulted** over the first. */
+  const scale = [
+    "// scale",
+    "export constraint Scale<a> =",
+    "    scale(value: a, factor: Int): a",
+    "    scaleBy(value: a, factor: Int): a = scale(value, factor)",
+    "",
+  ].join("\n");
+
+  /** A constraint with two non-subject seats, both widenable. */
+  const blend = [
+    "// blend",
+    "export constraint Blend<a> =",
+    "    blend(value: a, weight: Int, bias: Int): a",
+    "",
+    "// The polymorphic face, written on the declaring side: the member, never",
+    "// the door, so a run through here cannot be answered by the wider face.",
+    "export let twice<a: Blend>(value: a): a = blend(blend(value, 2, 1), 2, 1)",
+    "",
+  ].join("\n");
+
+  test("a defaulted member is supplied by the route, accounted for like any other", async () => {
+    // "This supply route serves required and defaulted members alike; for a
+    // defaulted member it stands as the override." The block writes the
+    // required member and accounts for the defaulted one.
+    const exports = await runProject([
+      ["/scale.hex", scale],
+      ["/matrix.hex", [
+        "// matrix, defaulted member widened",
+        "import * as Scale from \"./scale\"",
+        "",
+        "export record Matrix = {n: Float}",
+        "",
+        "widens Scale.scaleBy(value: Matrix, factor: Float): Matrix =",
+        "    Matrix({n = value.n * factor})",
+        "",
+        "honor Scale.Scale<Matrix> =",
+        "    scale(value, factor) = Matrix({n = value.n * Float.fromInt(factor)})",
+        "    scaleBy = widened",
+        "",
+        "let three: Int = 3",
+        "export let wider: Float = scaleBy(Matrix({n = 4.0}), 0.5).n",
+        "export let shared: Float = scaleBy(Matrix({n = 4.0}), three).n",
+        "",
+      ].join("\n")],
+    ], { entry: "/matrix.hex" });
+
+    // The wider face, which only the declaration accepts, and the shared
+    // domain, where the override answers as the door's restriction.
+    expect(exports["wider"]).toBe(2);
+    expect(exports["shared"]).toBe(12);
+  });
+
+  test("a defaulted member left unaccounted is refused, and draws no missing-member cascade", () => {
+    // The line is required whenever the supply route is used, defaulted members
+    // included — so absence keeps its exact prior meaning, and the *prior*
+    // meaning of a defaulted member's absence is "inherit the default", never
+    // the missing-member error. Exactly one diagnostic, and it is this one.
+    expect(compileFiles([
+      ["/scale.hex", scale],
+      ["/matrix.hex", [
+        "// matrix, defaulted member unaccounted",
+        "import * as Scale from \"./scale\"",
+        "",
+        "export record Matrix = {n: Float}",
+        "",
+        "widens Scale.scaleBy(value: Matrix, factor: Float): Matrix =",
+        "    Matrix({n = value.n * factor})",
+        "",
+        "honor Scale.Scale<Matrix> =",
+        "    scale(value, factor) = Matrix({n = value.n * Float.fromInt(factor)})",
+        "",
+      ].join("\n")],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "this instance does not account for `scaleBy`, which this module's " +
+        "`widens` declaration supplies (line 6) — write `scaleBy = widened` in " +
+        "the block",
+    ]);
+  });
+
+  test("several seats may widen at once — the floor is not a ceiling", async () => {
+    // "The 'at least one' is a floor, not a ceiling — its only work is
+    // excluding the identical signature; any number of seats may widen at
+    // once." Both remaining seats go `Int` to `Float` here, and the member is
+    // still the one body restricted at both of them.
+    const exports = await runProject([
+      ["/blend.hex", blend],
+      ["/matrix.hex", [
+        "// matrix, two seats widened",
+        "import * as Blend from \"./blend\"",
+        "",
+        "export record Matrix = {n: Float}",
+        "",
+        "widens Blend.blend(value: Matrix, weight: Float, bias: Float): Matrix =",
+        "    Matrix({n = value.n * weight + bias})",
+        "",
+        "honor Blend.Blend<Matrix> =",
+        "    blend = widened",
+        "",
+        "export let wider: Float = blend(Matrix({n = 4.0}), 0.5, 0.25).n",
+        "export let restricted: Float = Blend.twice(Matrix({n = 4.0})).n",
+        "",
+      ].join("\n")],
+    ], { entry: "/matrix.hex" });
+
+    expect(exports["wider"]).toBe(2.25);
+    // `blend(blend(4, 2, 1), 2, 1)` = `blend(9, 2, 1)` = 19, reached through
+    // the constraint from the declaring side — the derived member every step.
+    expect(exports["restricted"]).toBe(19);
   });
 });
 

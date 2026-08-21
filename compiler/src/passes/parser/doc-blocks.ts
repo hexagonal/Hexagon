@@ -36,6 +36,17 @@ const LEADING_ONLY =
   "documentation comments precede what they document — move this above the " +
   "declaration on its own line, or make it an ordinary comment (`(* ... *)`).";
 
+/**
+ * `spec/constraints.md` §4.7's "one operation, one doc": a member supplied by a
+ * `widens` declaration is that declaration's body restricted, so the operation
+ * is documented once, at its widest face. The accounting line reports that the
+ * supply happened elsewhere and has nothing of its own to say.
+ */
+export const WIDENED_LINE_TAKES_NO_DOC =
+  "the `pow = widened` line takes no documentation — one operation, one doc: " +
+  "document it at its `widens` declaration, or make this an ordinary comment " +
+  "(`(* ... *)`).";
+
 interface Block {
   readonly comments: readonly Source.Comment[];
   readonly span: Source.Span;
@@ -171,6 +182,21 @@ export class DocBlocks {
    */
   discard(codeTokenOffset: number): void {
     this.#claim(codeTokenOffset);
+  }
+
+  /**
+   * Claims the block and **refuses** it: this position documents nothing, and
+   * says so rather than swallowing the comment.
+   *
+   * The difference from `discard` is the whole point — that one is silent
+   * because a syntax error has already been reported, while here the code
+   * parsed fine and the only thing wrong is that a doc block was written where
+   * no documentation can live. Refusing beats attaching it invisibly.
+   */
+  refuse(codeTokenOffset: number, message: string): void {
+    const block = this.#claim(codeTokenOffset);
+    if (block === undefined) return;
+    this.#report(message, block.span);
   }
 
   /** Reports every unclaimed block (§5) and returns what attached (§4). */

@@ -1955,7 +1955,8 @@ class Checker {
     // check needs every scheme seeded, so it cannot run before the items; the
     // **derived members** need its verdict, because a declaration that does not
     // widen has no restriction to derive and a second report at the honor block
-    // would be the same fault said twice, in the wrong place.
+    // would be the same fault said twice, in the wrong place — which is the
+    // dependency, load-bearing and measured, that this ordering exists for.
     this.#checkWidensDeclarations(module.items);
     for (const { key, check } of this.#derivedMembers) {
       if (!this.#failedWidens.has(key)) check();
@@ -3261,13 +3262,23 @@ class Checker {
         };
         for (const member of item.members) {
           // A **derived** member (Constraints §4.7) is the module's `widens`
-          // binding called at the member's own seats, and `honor` may stand
-          // above the declaration it accounts for (Declarations Preamble §7.2).
-          // Every other reference in this file lands on a finished scheme
-          // because the walk follows the text; this one cannot, so it waits for
-          // the end of the module, where every scheme is seeded. The check it
-          // then runs is the ordinary member check, unchanged — which is what
-          // makes the §5.1 conversions the seats' own business.
+          // binding called at the member's own seats, and it waits for the end
+          // of the module's items.
+          //
+          // What the wait is *for*, measured rather than assumed: a declaration
+          // that fails §4.7's signature check has no restriction to derive, and
+          // checking its member anyway reports the same fault a second time, at
+          // the honor block, as a bare seat mismatch. The check runs after
+          // `#checkWidensDeclarations` so a failed door derives nothing. (Left
+          // in place, that cascade is visible on five refusal pins.)
+          //
+          // It also makes the pairing order-free — `honor` may stand above the
+          // declaration it accounts for (Declarations Preamble §7.2), and by
+          // the deadline every scheme this file seeds is seeded, so a derived
+          // body can name a binding written below its block. That property is
+          // pinned behaviourally in `gen-law-reach.test.ts`; it is not what
+          // forces the deferral, and the note says so rather than claiming a
+          // reason the code does not have.
           if (member.derived === true) {
             this.#derivedMembers.push({
               key: `${item.constraintIdentity} ${member.name}`,
@@ -9511,8 +9522,9 @@ class Checker {
       return "a door is a function of the member's seats";
     }
     if (wider.parameters.length !== member.parameters.length) {
-      return `the member takes ${member.parameters.length} parameters, this ` +
-        `declaration ${wider.parameters.length}`;
+      const seats = member.parameters.length;
+      return `the member takes ${seats} parameter${seats === 1 ? "" : "s"}, ` +
+        `this declaration ${wider.parameters.length}`;
     }
     const [memberSubject, ...rest] = member.parameters;
     const [doorSubject] = wider.parameters;

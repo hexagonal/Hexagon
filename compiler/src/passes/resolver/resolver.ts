@@ -2589,7 +2589,15 @@ class Resolver {
           : this.#lookupTerm(item.name.text, scope);
         const pendingHit = this.#reportPendingRebinding(item.name, existing, scope);
         if (!pendingHit && existing !== undefined) {
-          this.#reportRebinding(item.name, existing, item.exported);
+          // The *parsed* field, not the resolved head below: whether the repair
+          // can name a spelling is decided by the declaration form alone, and
+          // stays decided even when the head itself failed to resolve.
+          this.#reportRebinding(
+            item.name,
+            existing,
+            item.exported,
+            item.widens !== undefined,
+          );
         }
 
         const widens = item.widens === undefined
@@ -5256,6 +5264,13 @@ class Resolver {
         primary: target.span,
       });
     }
+    // All-or-none has nothing to say about a head that did not resolve. A
+    // declaration whose every path was refused lists no members at all, so the
+    // loop below would find each honored one "not listed" and report the wrong
+    // fault — "list it" is not the repair for a module alias that does not
+    // exist. The unresolved head's own error leads instead, and the cascade
+    // dies with it.
+    if (targets.length === 0) return;
     const listed = new Set(targets.map(({ constraintIdentity }) => constraintIdentity));
     for (const honor of items) {
       if (honor.kind !== "Honor") continue;
@@ -5507,47 +5522,86 @@ class Resolver {
   }
 
   /**
-   * Rule 1's refusal, plus the one collision that has a repair to teach.
+   * Rule 1's refusal, plus the collisions that have a repair to teach.
    *
-   * `exported` is read for that one case alone (Modules §3.1, #544): an
-   * **exported** module-level binding of the spelling of a member that
-   * **arrived with a named constraint import** is the would-be door — the shape
-   * §5.3's generalisation law would have licensed had the constraint come
-   * through a namespace import instead. The law is not consulted (the exemption
-   * amends Constraints §4.6's honor-claim and never unseats an ordinary
-   * binding), so the refusal stays the plain rebinding one; what it gains is the
-   * route out, and a prior-binding reference the reader can find — the import
-   * item's line in *this* module rather than the member's line in the imported
-   * file. A private binding of the same spelling has no door to build, and every
-   * other collision is an ordinary rebinding; both keep the plain form.
+   * `exported` is read for one of them (Modules §3.1, #544): an **exported**
+   * module-level binding of the spelling of a member that **arrived with a
+   * named constraint import** is the would-be door — the shape §5.3's
+   * generalisation law would have licensed had the constraint come through a
+   * namespace import instead. The law is not consulted (the carve amends
+   * Constraints §4.6's honor-claim and never unseats an ordinary binding), so
+   * the refusal stays the plain rebinding one; what it gains is the route out,
+   * and a prior-binding reference the reader can find — the import item's line
+   * in *this* module rather than the member's line in the imported file. A
+   * private binding of the same spelling has no door to build, and every other
+   * collision is an ordinary rebinding; both keep the plain form.
+   *
+   * `widens` is read for the rest (Constraints §4.7, #546), and what it changes
+   * is which name the repair can point at. **A `widens` declaration has no name
+   * to choose**: the binding's spelling is derived from the member it names, so
+   * "choose a different name" is advice the author cannot take, and every
+   * message this pass gives a `widens` head has to name a different repair —
+   * the other binding, the other declaration, or the import that must go.
    */
   #reportRebinding(
     name: Parsed.Name,
     existing: Resolved.SymbolId,
     exported = false,
+    widens = false,
   ): void {
     const arrival = exported ? this.#arrivedConstraintMembers.get(existing) : undefined;
     if (arrival !== undefined) {
+      // Both shapes reach the same standing verdict by the same route; they part
+      // on the tail, because only one of them has an export name to rename.
+      // §4.6's sentence for the declaration shape names what must go: the named
+      // import, with the namespace route as the door-builder's form.
+      const repair = widens
+        ? `a \`widens\` declaration cannot unseat an ordinary binding and has ` +
+          "no name of its own to choose, so the named import is what must go: " +
+          "reach the constraint through `import * as …` instead"
+        : `to widen \`${name.text}\` lawfully, import the module instead ` +
+          "(`import * as …`), or choose a different export name";
       this.#diagnostics.add({
         severity: "error",
         message:
           `\`${name.text}\` is already bound (line ${arrival.span.start.line + 1}); ` +
           `it arrived with \`${arrival.item}\`, and a named constraint import ` +
-          `brings its members — to widen \`${name.text}\` lawfully, import the ` +
-          "module instead (`import * as …`), or choose a different export name " +
-          "(Modules §5.3's generalisation law).",
+          `brings its members — ${repair} (Modules §5.3's generalisation law).`,
         primary: name.span,
         labels: [{ span: arrival.span, message: "previous binding" }],
       });
       return;
     }
     const previous = this.#symbol(existing);
+    const line = previous.bindingSpan.start.line + 1;
+    if (widens) {
+      // Two declarations of one member necessarily share the derived spelling,
+      // which is the rivalry §4.7 exists to exclude — one operation has one
+      // written body — and the only repair is that one of them goes. Against an
+      // *ordinary* prior binding the claim is untouched (§4.6's boundary): the
+      // declaration still cannot unseat it, and the binding is the end that can
+      // be renamed.
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `\`${name.text}\` is already bound (line ${line}); ` +
+          (previous.widens === true
+            ? "one operation has one written body, and a `widens` declaration's " +
+              "name is derived from the member it names — there is no other " +
+              "name for either to take, so one of the two declarations must go."
+            : "a `widens` declaration's name is derived from the member it " +
+              `names and cannot be chosen — rename the binding on line ${line}, ` +
+              "or drop this declaration."),
+        primary: name.span,
+        labels: [{ span: previous.bindingSpan, message: "previous binding" }],
+      });
+      return;
+    }
     this.#diagnostics.add({
       severity: "error",
       message:
-        `\`${name.text}\` is already bound (line ` +
-        `${previous.bindingSpan.start.line + 1}); Hexagon does not allow ` +
-        "rebinding — choose a different name.",
+        `\`${name.text}\` is already bound (line ${line}); Hexagon does not ` +
+        "allow rebinding — choose a different name.",
       primary: name.span,
       labels: [{ span: previous.bindingSpan, message: "previous binding" }],
     });
