@@ -1,11 +1,11 @@
-(** A lazy, immutable, possibly infinite sequence of `a`s. Constructing a
-    combinator computes nothing; each element is produced on demand by `next`,
-    and produced again on every later traversal unless the sequence is
-    `memoize`d. *)
 (** Raised when a sequence position is forced while it is already being
     forced (FFI Part 3 section 7.3-7.4). *)
 export exception ReentrancyError
 
+(** A lazy, immutable, possibly infinite sequence of `a`s. Constructing a
+    combinator computes nothing; each element is produced on demand by `next`,
+    and produced again on every later traversal unless the sequence is
+    `memoize`d. *)
 export opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
 
 extern from "hex:intrinsic"

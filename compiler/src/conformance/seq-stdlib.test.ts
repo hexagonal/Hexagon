@@ -34,11 +34,33 @@ import seqSource from "../../../stdlib/Seq.hex?raw";
  * path Modules §5.4 depends on, exercised against a real one.
  */
 
-function diagnostics(entry: string): readonly string[] {
+function compileSeq(entry: string): ReturnType<typeof compileProject> {
   return compileProject([
     new Source.File(Source.fileId(1), "/Seq.hex", seqSource),
     new Source.File(Source.fileId(0), "/main.hex", entry),
-  ]).diagnostics.map((diagnostic) => diagnostic.message);
+  ]);
+}
+
+function diagnostics(entry: string): readonly string[] {
+  return compileSeq(entry).diagnostics.map((diagnostic) => diagnostic.message);
+}
+
+/**
+ * The JSDoc block emitted directly above `declaration`, or `undefined` when the
+ * declaration carries none. Read backwards from the declaration's own line,
+ * which is the only reading that answers the question attachment asks — *this*
+ * declaration's documentation, not "the text appears somewhere in the file".
+ */
+function docAbove(emitted: string, declaration: string): string | undefined {
+  const lines = emitted.split("\n");
+  const at = lines.findIndex((line) => line.startsWith(declaration));
+  if (at < 0) throw new Error(`no emitted line begins \`${declaration}\``);
+  if (lines[at - 1]?.trim() !== "*/") return undefined;
+  const opener = lines.lastIndexOf("/**", at - 1);
+  return lines
+    .slice(opener + 1, at - 1)
+    .map((line) => line.replace(/^\s*\* ?/u, ""))
+    .join("\n");
 }
 
 const IMPORT = "import * as Seq from \"./Seq\"\n";
@@ -145,5 +167,35 @@ describe("the step-7 reverts are in the source, not merely intended", () => {
     // about what the source may not contain, and never needed a note saying so.
     expect(seqSource).not.toMatch(/^import /mu);
     expect(seqSource).not.toContain("implicitly in scope via the prelude");
+  });
+});
+
+describe("each doc block sits at the declaration it describes", () => {
+  test("the type doc rides the record, and `ReentrancyError` keeps only its own", () => {
+    // #561. Adjacent doc blocks concatenate and attach to the next code token
+    // (Doc Comments §3.2, §4.1), so the type doc written above the exception's
+    // doc documented the *exception* — and the record it describes emitted with
+    // no documentation at all. A blank line repairs nothing (§3.2: blank lines
+    // are invisible to attachment); only the order of the blocks does, which is
+    // why this reads the emitted seats rather than the source's line order.
+    //
+    // Both artifacts, because §7.1 gives documentation two of them and the
+    // misfire showed up in both.
+    const seq = compileSeq(IMPORT + "export let ok: Int = 1\n")
+      .modules.find(({ source }) => source.path === "/Seq.hex")!;
+
+    for (const [emitted, record, exception] of [
+      [seq.javascript.text, "const Seq = ", "const ReentrancyError = "],
+      [seq.declarations.text, "export type Seq<a> = ", "export type ReentrancyError = "],
+    ] as const) {
+      // `?? "(undocumented)"` so the failure names the defect rather than the
+      // shape of `undefined`: an unattached type doc leaves the record bare.
+      expect(docAbove(emitted, record) ?? "(undocumented)")
+        .toContain("A lazy, immutable, possibly infinite sequence");
+      expect(docAbove(emitted, exception)).toBe(
+        "Raised when a sequence position is forced while it is already being\n" +
+        "forced (FFI Part 3 section 7.3-7.4).",
+      );
+    }
   });
 });
