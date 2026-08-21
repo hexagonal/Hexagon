@@ -74,31 +74,34 @@ export interface PreludeModule {
  * `Option.hex` and the rest follow in the order their uses demand — `Seq.hex`
  * sits after `Option.hex` because a pull step returns an `Option`.
  *
- * `BigInt.hex` (#344) is the first **primitive companion** — a primitive's home
+ * `Int.hex` (#344) is the first **primitive companion** — a primitive's home
  * module, where its instances are ordinary `honor` blocks rather than compiler
- * rows (Constraints §5.3). It sits after every constraint declaration because it
- * honors eight of them, and after `Option.hex` because `toInt` answers with one;
- * nothing before it names a `BigInt`.
+ * rows (Constraints §5.3). It sits after every constraint declaration it honors
+ * and after `Option.hex`, because the checked family (`checkedAdd` and its two
+ * siblings) answers with an `Option(Int)`.
  *
- * `Int.hex` and `Nat.hex` are the second and third, and their seats follow the
- * same reading. `Int.hex` sits after every constraint declaration it honors and
- * after `Option.hex`, because the checked family (`checkedAdd` and its two
- * siblings) answers with an `Option(Int)`. `Nat.hex` sits after `Int.hex`:
- * `Nat.fromInt`'s sign check is `value < 0` at `Int`, so it consumes
- * `Ord<Int>` and `Num<Int>` evidence, which only `Int.hex` supplies now that
- * the wired rows are gone. Everything from `Seq.hex` onward sees both, which is
- * what lets `runtime/VectorTrie.hex`'s index arithmetic reach `Integral<Int>`.
+ * `Nat.hex` and `Float.hex` are the second and third, and their seats follow
+ * the same reading. `Nat.hex` sits after `Int.hex`: `Nat.fromInt`'s sign check
+ * is `value < 0` at `Int`, so it consumes `Ord<Int>` and `Num<Int>` evidence,
+ * which only `Int.hex` supplies now that the wired rows are gone. `Float.hex`
+ * sits after `Int.hex` too, because `Num<Float>`'s `fromNat` composes through
+ * `Int.fromNat`, which is `Num<Int>`'s member at its own companion. Everything
+ * from `Seq.hex` onward sees all three, which is what lets
+ * `runtime/VectorTrie.hex`'s index arithmetic reach `Integral<Int>`.
  *
- * `Float.hex` and `String.hex` are the fourth and fifth, and the last: with
- * them every primitive companion is source and no instance in the language is
- * compiler-wired. `Float.hex` sits after `Int.hex` because `Num<Float>`'s
- * `fromNat` composes through `Int.fromNat`, which is `Num<Int>`'s member at its
- * own companion.
+ * `BigInt.hex` is the fourth, and it needs the most of the five. It sits after
+ * every constraint declaration because it honors eight of them, after
+ * `Option.hex` because `toInt` answers with one, and after `Float.hex` because
+ * `toFloat`'s guard throws `Float.hex`'s `FloatRangeError` (#533) — the same
+ * sentence as everything else here, an exception being a use like any other.
+ * Nothing before it names a `BigInt`.
  *
- * `String.hex` is the one companion whose seat is *forced*, and it moved to
- * earn it (#353). Its instances need nothing later than `Ord.hex`, and it sat
- * beside `Float.hex` on that reading — a convenience the numerics' contiguity
- * paid for. Collections Part 5 §5.3 then gave it `fromSeq : Seq(String) ->
+ * `String.hex` is the fifth and the last: with it every primitive companion is
+ * source and no instance in the language is compiler-wired. It is also the one
+ * companion whose seat is *forced*, and it moved to earn it (#353). Its
+ * instances need nothing later than `Ord.hex`, and it sat among the numeric
+ * companions on that reading — a convenience their contiguity paid for.
+ * Collections Part 5 §5.3 then gave it `fromSeq : Seq(String) ->
  * String`, the conversion suite's construction half, and a signature naming
  * `Seq` cannot be written before `Seq.hex` seats. So `String.hex` follows
  * `Seq.hex` now. The swap costs nothing in the other direction: `Seq.hex`
@@ -156,10 +159,10 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Ord.hex",
   "Integral.hex",
   "Option.hex",
-  "BigInt.hex",
   "Int.hex",
   "Nat.hex",
   "Float.hex",
+  "BigInt.hex",
   "Seq.hex",
   "String.hex",
   "Iterable.hex",

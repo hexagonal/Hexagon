@@ -76,10 +76,14 @@ describe("the module", () => {
       "Ord.hex",
       "Integral.hex",
       "Option.hex",
-      "BigInt.hex",
       "Int.hex",
       "Nat.hex",
       "Float.hex",
+      // #533 moved `BigInt.hex` past `Float.hex`: `BigInt.toFloat`'s guard
+      // throws `Float.hex`'s `FloatRangeError`, and a module seats after what
+      // it uses. Nothing before it names a `BigInt`, so the move costs the
+      // three companions above it nothing.
+      "BigInt.hex",
       // #353 swapped `String.hex` past `Seq.hex`. Its instances need nothing
       // later than `Ord.hex` and its old seat here was a convenience, but
       // Collections Part 5 §5.3's `String.fromSeq : Seq(String) -> String`
