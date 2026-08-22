@@ -72,7 +72,7 @@ The language's own bones already half-agree:
   already bound; Hexagon does not allow rebinding``.
 - A member already resolves qualified through the declaring module's alias
   (resolver: constraint members are read after `terms` on qualified access).
-  Measured: `import * as Loud from "./loud"` then `Loud.volume(x)` in generic
+  Measured: `import module Loud from "./loud"` then `Loud.volume(x)` in generic
   code compiles and dispatches through evidence, today.
 - What members lack is exactly what this note proposes: export status.
 
@@ -141,7 +141,7 @@ Nothing more. The consequences do the rest:
    where both are visible takes Modules §5.5's existing law: refuse, name the
    qualified homes. No renaming, no priority order, no resolution order to
    specify. *(PR β measurement repair: the measured-legal program is
-   namespace-import-shaped — `import * as Loud` — and that is the shape the
+   namespace-import-shaped — `import module Loud` — and that is the shape the
    coexistence claim covers. Importing both constraints by* name *collides at
    the second import item, because a named constraint import carries its
    members and an arriving member name that meets another module-level term is

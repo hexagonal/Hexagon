@@ -23,7 +23,7 @@ Nothing mechanical changes. Constraints §2.2 (constructor-style collision rules
 
 ### A.2 What "qualified" means here — no new mechanism
 
-The qualified spelling is module qualification (Modules §5), nothing constraint-specific. The companion-module idiom extends naturally: declare `constraint Hashable` in `hashable.hex`, and consumers who hit a collision write `import * as Hashable from "./hashable"` and call `Hashable.hash(x)`. For the prelude, Modules §6.4 already guarantees the qualified homes exist. No per-constraint namespace, no `Constraint.member` resolution rule, no fourth-namespace change.
+The qualified spelling is module qualification (Modules §5), nothing constraint-specific. The companion-module idiom extends naturally: declare `constraint Hashable` in `hashable.hex`, and consumers who hit a collision write `import module Hashable from "./hashable"` and call `Hashable.hash(x)`. For the prelude, Modules §6.4 already guarantees the qualified homes exist. No per-constraint namespace, no `Constraint.member` resolution rule, no fourth-namespace change.
 
 ### A.3 What the guide says (and doesn't)
 
