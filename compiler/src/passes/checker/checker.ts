@@ -587,6 +587,91 @@ interface Scheme {
 const ERROR: ErrorMono = { kind: "Error" };
 
 /**
+ * One head shape a matrix column's domain admits — one entry of Pattern
+ * Matching §7's signature.
+ *
+ * `slots` are the types the head's sub-patterns are checked against, and they
+ * are **instantiated**: the `Some` head of an `Option(Bool)` column carries
+ * `Bool`, not the declaration's `a`. That is the whole of #594's second half —
+ * a slot that arrives shapeless can decompose nothing, so every judgment built
+ * on it stops one level too early.
+ *
+ * `print` is §7.3's renderer for this head, given its slots' own witnesses.
+ */
+interface CoverageHead {
+  /** Grouping identity: two heads are the same head exactly when these match. */
+  readonly key: string;
+  readonly slots: readonly Mono[];
+  readonly print: (slots: readonly string[]) => string;
+}
+
+/** A pattern split against its column: the head it tests, and its sub-patterns. */
+interface CoverageMatch {
+  readonly head: CoverageHead;
+  /** One per `head.slots`, widened to `_` where the pattern said nothing (§7.1). */
+  readonly subPatterns: readonly Resolved.Pattern[];
+}
+
+/** One column of Pattern Matching §7's matrix: what it admits, and how patterns split. */
+interface CoverageColumn {
+  /**
+   * The domain's complete signature, or `undefined` where it has none: the
+   * infinite domains (`Int`, `String`, `Float`), the open `Exn` sum, and the
+   * vector, whose length coverage Collections Part 3 §3 owns and this matrix
+   * therefore does not model. A column with no signature is covered by a
+   * wildcard and by nothing else, which is §7.1's "a catch-all is required"
+   * said in the matrix's own terms.
+   */
+  readonly signature?: readonly CoverageHead[];
+  /** `undefined` for a pattern that matches every value the column can hold. */
+  readonly split: (pattern: Resolved.Pattern) => CoverageMatch | undefined;
+}
+
+/** What one family of unreachable-arm reports says; §7.2 in two seats. */
+interface ReachabilityReports {
+  /** An arm behind one that already covers the whole domain. */
+  readonly everything: string;
+  /** An arm whose head constructor is already covered in full above. */
+  readonly constructor: (name: string) => string;
+  /** A duplicate literal. */
+  readonly literal: string;
+  /** Covered by the arms above jointly, with no single arm to name. */
+  readonly covered: string;
+  /** Where the whole-arm report points. */
+  readonly armSpan: (arm: Resolved.MatchArm) => Source.Span;
+}
+
+const MATCH_ARM_REPORTS: ReachabilityReports = {
+  everything: "this match arm is unreachable; an earlier pattern matches everything",
+  constructor: (name) => `this case is unreachable; \`${name}\` is already handled above`,
+  literal: "this literal case is unreachable; it is already handled above",
+  covered: "this case is unreachable; the patterns above already cover it",
+  armSpan: (arm) => arm.pattern.span,
+};
+
+const CATCH_ARM_REPORTS: ReachabilityReports = {
+  everything: "this catch arm is unreachable because an earlier arm catches everything",
+  constructor: (name) => `exception \`${name}\` is already caught above`,
+  literal: "this literal case is unreachable; it is already handled above",
+  covered: "this catch arm is unreachable; the arms above already cover it",
+  armSpan: (arm) => arm.span,
+};
+
+/**
+ * How many witnesses the matrix will produce before it stops looking.
+ *
+ * §7.3 asks for three and a count, so the cap only has to be far enough above
+ * three that the count is the real one for anything a person wrote. It is a
+ * budget rather than a nicety: the complete-signature branch of algorithm I
+ * fans out across a product of domains, and the early return is what keeps a
+ * wide non-exhaustive tuple from enumerating it.
+ */
+const COVERAGE_WITNESS_LIMIT = 100;
+
+/** How many witnesses a missing-cases report names before it counts the rest. */
+const COVERAGE_WITNESSES_SHOWN = 3;
+
+/**
  * The level given to the fresh stand-ins for an instance's own type parameters
  * (`#pinInstanceSubject`). Deliberately above every inference level: each one
  * either unifies with a variable from the requirement's type — and `#bind`
@@ -3596,6 +3681,11 @@ class Checker {
           this.#isValue(item.value),
           valueType,
         );
+        // §5.1's gate, once, over the whole pattern — `let` and the lambda
+        // parameter both arrive here (§6.3, §6.5), and both get §5.3's one
+        // sentence. Run after the walk, because the walk is what settles the
+        // types the matrix reads.
+        this.#checkBindingPattern(item.pattern, valueType);
         this.#patternSeatIsLambdaParameter = enclosingSeat;
         continue;
       }
@@ -4671,13 +4761,11 @@ class Checker {
           if (!requirement.reported) this.#iterations.set(expression, requirement);
         }
         this.#inferMatchPattern(expression.pattern, element, level);
-        if (!this.#isIrrefutablePattern(expression.pattern, element)) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: "this loop pattern can fail; bind an irrefutable pattern and use `match` inside the loop",
-            primary: expression.pattern.span,
-          });
-        }
+        // §5.3: one sentence across all three gated positions, and this is one
+        // of them. The loop's own wording is retired with the rest of the
+        // per-form family — the judgment was never per-position, and neither is
+        // the report.
+        this.#checkBindingPattern(expression.pattern, element);
         const body = this.#inferExpr(expression.body, level);
         this.#defaultDiscardedLiteral(body, expression.body.span);
         this.#unify(body, UNIT, expression.body.span, () =>
@@ -4689,61 +4777,7 @@ class Checker {
       case "Match": {
         const scrutinee = this.#inferExpr(expression.scrutinee, level);
         const result = this.#fresh(level, false);
-        let catchAll = false;
-        const coveredConstructors = new Set<Resolved.SymbolId>();
-        const constructorPatterns = new Map<
-          Resolved.SymbolId,
-          Resolved.ConstructorPattern[]
-        >();
-        const coveredLiterals = new Set<string>();
-        const coveredBooleans = new Set<boolean>();
         for (const arm of expression.arms) {
-          if (catchAll) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: "this match arm is unreachable; an earlier pattern matches everything",
-              primary: arm.pattern.span,
-            });
-          }
-          const guarded = arm.guard !== undefined;
-          let armCatchesAll = false;
-          const armConstructors: Resolved.ConstructorPattern[] = [];
-          for (const coveragePattern of coverageAlternatives(arm.pattern)) {
-            if (coveragePattern.kind === "Constructor") {
-              if (coveredConstructors.has(coveragePattern.symbol)) {
-                this.#diagnostics.add({
-                  severity: "error",
-                  message: `this case is unreachable; \`${coveragePattern.text}\` is already handled above`,
-                  primary: coveragePattern.span,
-                });
-              }
-              if (!guarded) armConstructors.push(coveragePattern);
-            } else if (
-              coveragePattern.kind === "Integer" ||
-              coveragePattern.kind === "String"
-            ) {
-              const key = renderLiteralPatternKey(coveragePattern);
-              if (coveredLiterals.has(key)) {
-                this.#diagnostics.add({
-                  severity: "error",
-                  message: "this literal case is unreachable; it is already handled above",
-                  primary: coveragePattern.span,
-                });
-              }
-              if (!guarded) coveredLiterals.add(key);
-            } else if (isStructurallyIrrefutablePattern(coveragePattern)) {
-              armCatchesAll = true;
-            }
-          }
-          for (const pattern of armConstructors) {
-            const patterns = constructorPatterns.get(pattern.symbol) ?? [];
-            patterns.push(pattern);
-            constructorPatterns.set(pattern.symbol, patterns);
-            if (this.#constructorPatternsAreExhaustive(patterns)) {
-              coveredConstructors.add(pattern.symbol);
-            }
-          }
-          if (!guarded && armCatchesAll) catchAll = true;
           this.#inferMatchPattern(arm.pattern, scrutinee, level);
           if (arm.guard !== undefined) {
             const guard = this.#inferExpr(arm.guard, level);
@@ -4762,46 +4796,35 @@ class Checker {
           this.#checkCatchArms(expression.catchArms, result, level, expected);
         }
         const actual = this.#prune(scrutinee);
-        if (actual.kind === "Union") {
-          this.#matchUnions.set(expression, actual.union);
-          if (!catchAll) {
-            const union = this.#unions.get(actual.union);
-            const missing = union?.constructors.filter(
-              ({ binding }) => !coveredConstructors.has(binding.symbol),
-            ) ?? [];
-            if (missing.length > 0) {
-              this.#diagnostics.add({
-                severity: "error",
-                message:
-                  "match is missing cases: " +
-                  missing.map(({ binding }) => `\`${binding.name}\``).join(", "),
-                primary: expression.span,
-              });
-            }
-          }
-        } else if (actual.kind === "NominalRecord") {
-          // #591. A nominal record is a one-constructor domain, so §7.1's
-          // finite-shape clause applies to it exactly as to a one-constructor
-          // union: one arm whose sub-pattern is exhaustive covers it, and the
-          // witness — the only one there can be — is the constructor's own
-          // name, which is §7.3's degenerate rendering.
+        // §7's judgments come off one matrix. Reachability runs for every domain
+        // this dispatch admits — they differ in what exhaustiveness demands of
+        // them, never in whether a dead arm is an error — and for none of the
+        // ones it refuses, where the arms describe a type the reader has already
+        // been told cannot be matched.
+        if (actual.kind !== "Variable" && actual.kind !== "Error") {
+          this.#checkArmReachability(expression.arms, actual, MATCH_ARM_REPORTS);
+        }
+        if (
+          actual.kind === "Union" || actual.kind === "NominalRecord" ||
+          actual.kind === "Tuple" || actual.kind === "Record" ||
+          (actual.kind === "Constructor" &&
+            (actual.name === "Int" || actual.name === "String" ||
+              actual.name === "Float"))
+        ) {
+          // One report for every closed and every infinite domain alike. The
+          // union's bare constructor listing, the nominal record's type name,
+          // and the structural "needs a catch-all" demand were three renderings
+          // of one judgment; §7.3 has one, and it is a witness pattern.
           //
-          // `coveredConstructors` was filled by the arm loop above through the
-          // same `#constructorPatternsAreExhaustive`, so an arm that covers here
-          // is precisely an arm that shadows a later one there: one judgment,
-          // never two that can disagree.
-          const constructor = this.#records.get(actual.record)?.constructor ??
-            this.#programRecord(actual.record)?.constructor;
-          if (
-            !catchAll && constructor !== undefined &&
-            !coveredConstructors.has(constructor.symbol)
-          ) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: `match is missing cases: \`${actual.name}\``,
-              primary: expression.span,
-            });
-          }
+          // The infinite domains (`Int`, `String`, `Float` — the last since
+          // #513) join through the same door: their columns carry no signature,
+          // so no set of literals ever completes them and the witness is `_`,
+          // which is §7.1's "a catch-all is required" said in witnesses.
+          //
+          // #147 deleted the `Bool` branch that stood here. `Bool` is a union,
+          // so it reaches this path like every other union.
+          if (actual.kind === "Union") this.#matchUnions.set(expression, actual.union);
+          this.#reportMissingCases(expression.arms, actual, expression.span);
         } else if (
           actual.kind === "Constructor" &&
           actual.name === "Exn"
@@ -4811,39 +4834,13 @@ class Checker {
             message: "match requires a closed type; exceptions are inspected with `try`/`catch`",
             primary: expression.scrutinee.span,
           });
-        // #147 deleted the `Bool` branch that stood here. `Bool` is a union, so
-        // it reaches the closed-constructor path above like every other union,
-        // and reports its missing case as `False`/`True` by that machinery.
-        } else if (
-          actual.kind === "Constructor" &&
-          (actual.name === "Int" || actual.name === "String" ||
-            actual.name === "Float")
-        ) {
-          // `Float` joins the two that were already here *(#513)*. §6.1 admits
-          // any type but its two permanent exclusions, and §2.5 bans the `Float`
-          // **literal pattern** alone — which the parser refuses with its own
-          // guard fixit, so nothing is loosened by admitting the scrutinee.
-          // Variables, `_`, `as`, and guards were always the legal arms here;
-          // §7.1 supplies exhaustiveness through the catch-all, guards
-          // contributing nothing as ever. A supplying seat can now hand `Float`
-          // to this dispatch — `let f: (Float) -> String = match …` — and the
-          // refusal that used to stand here answered no spec sentence.
-          if (!catchAll) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: `a match on \`${actual.name}\` needs a catch-all pattern`,
-              primary: expression.span,
-            });
-          }
-        } else if (actual.kind === "Tuple" || actual.kind === "Record") {
-          if (!catchAll) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: `match on \`${this.#display(actual)}\` needs a catch-all structural pattern`,
-              primary: expression.span,
-            });
-          }
         } else if (actual.kind === "Vector") {
+          // Collections Part 3 §3 owns the vector's length-based exhaustiveness
+          // and this seat defers to it whole: the matrix's vector column carries
+          // no signature, so the length judgment is the only one that speaks.
+          const catchAll = expression.arms.some((arm) =>
+            arm.guard === undefined && this.#coverageIrrefutable(arm.pattern, actual)
+          );
           const patterns = expression.arms.flatMap((arm) =>
             arm.guard === undefined
               ? coverageAlternatives(arm.pattern).filter(
@@ -5583,23 +5580,19 @@ class Checker {
           ),
         );
       }
-      if (!this.#isIrrefutablePattern(pattern, expected)) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: "this or-pattern does not cover every possible value and cannot be used in a binding position; use `match`" +
-            this.#matchFunctionFixit(),
-          primary: pattern.span,
-        });
-      }
       return;
     }
     if (pattern.kind === "Constructor") {
-      // A record constructor pattern passes the gate on sight (#591): Pattern
-      // Matching §5.1 rules `Point({x, y})` irrefutable at a nominal `Point`
-      // because "a record constructor is always sole constructor". What is left
-      // to check is the sub-pattern, and this walk is the check — every
-      // refutable form reports itself on the way down, so the recursion below
-      // is the whole gate for the inside of the pattern.
+      // #591: a record constructor pattern goes through its own slot — Products
+      // §5.1's `{closed row} -> Point`, read from the pattern side — before the
+      // union lookup that cannot answer for it.
+      //
+      // No arm of this walk decides refutability any more. The gate is §5.1's
+      // one algorithm, run once over the whole pattern by `#checkBindingPattern`
+      // at the seat; this walk's job is types and binders, and it therefore
+      // descends through *every* constructor rather than only the sole one — a
+      // refutable pattern still binds the names it writes, and reporting from
+      // here used to cost them.
       const slot = this.#recordConstructorSlot(pattern, expected, level);
       if (slot !== undefined) {
         pattern.arguments.forEach((argument, index) =>
@@ -5615,16 +5608,10 @@ class Checker {
       }
       const unionId = this.#constructorUnions.get(pattern.symbol);
       const union = unionId === undefined ? undefined : this.#unions.get(unionId);
-      if (union === undefined || union.constructors.length !== 1) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: "a constructor pattern is refutable and cannot be used in a binding position; use `match`" +
-            this.#matchFunctionFixit(),
-          primary: pattern.span,
-        });
-        return;
-      }
-      const constructor = union.constructors[0]!;
+      const constructor = union?.constructors.find(
+        ({ binding }) => binding.symbol === pattern.symbol,
+      );
+      if (constructor === undefined) return;
       const shape = this.#constructorShape(constructor.binding.symbol, level);
       const parameters = shape.parameters;
       this.#unify(
@@ -5655,16 +5642,12 @@ class Checker {
       );
       return;
     }
-    if (
-      pattern.kind === "Integer" ||
-      pattern.kind === "String"
-    ) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: "a literal pattern is refutable and cannot be used in a binding position; use `match`" +
-          this.#matchFunctionFixit(),
-        primary: pattern.span,
-      });
+    if (pattern.kind === "Integer") {
+      this.#unify(expected, primitive("Int"), pattern.span);
+      return;
+    }
+    if (pattern.kind === "String") {
+      this.#unify(expected, primitive("String"), pattern.span);
       return;
     }
 
@@ -5677,14 +5660,6 @@ class Checker {
       }
       if (pattern.rest?.pattern !== undefined) {
         this.#inferPattern(pattern.rest.pattern, vector, level, generalizable, evaluated);
-      }
-      if (pattern.rest === undefined || pattern.elements.length > 0) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: "this vector pattern can fail because of its length and cannot be used in `let`; use `match`" +
-          this.#matchFunctionFixit(),
-          primary: pattern.span,
-        });
       }
       return;
     }
@@ -5867,51 +5842,7 @@ class Checker {
     level: number,
     expected?: Mono,
   ): void {
-    let catchesAll = false;
-    const coveredConstructors = new Set<Resolved.SymbolId>();
-    const constructorPatterns = new Map<
-      Resolved.SymbolId,
-      Resolved.ConstructorPattern[]
-    >();
     for (const arm of arms) {
-      if (catchesAll) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: "this catch arm is unreachable because an earlier arm catches everything",
-          primary: arm.span,
-        });
-      }
-      const guarded = arm.guard !== undefined;
-      let armCatchesAll = false;
-      const armConstructors: Resolved.ConstructorPattern[] = [];
-      for (const coveragePattern of coverageAlternatives(arm.pattern)) {
-        if (coveragePattern.kind === "Constructor") {
-          if (coveredConstructors.has(coveragePattern.symbol)) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: `exception \`${coveragePattern.text}\` is already caught above`,
-              primary: coveragePattern.span,
-            });
-          }
-          if (!guarded && this.#exceptions.has(coveragePattern.symbol)) {
-            armConstructors.push(coveragePattern);
-          }
-        } else if (
-          coveragePattern.kind === "Binding" ||
-          coveragePattern.kind === "Wildcard"
-        ) {
-          armCatchesAll = true;
-        }
-      }
-      for (const pattern of armConstructors) {
-        const patterns = constructorPatterns.get(pattern.symbol) ?? [];
-        patterns.push(pattern);
-        constructorPatterns.set(pattern.symbol, patterns);
-        if (this.#constructorPatternsAreExhaustive(patterns)) {
-          coveredConstructors.add(pattern.symbol);
-        }
-      }
-      if (!guarded && armCatchesAll) catchesAll = true;
       this.#inferExceptionPattern(arm.pattern, level);
       if (arm.guard !== undefined) {
         const guard = this.#inferExpr(arm.guard, level);
@@ -5921,6 +5852,11 @@ class Checker {
       // forward the expectation exactly as data arms do (§4.3).
       this.#unify(result, this.#inferExpr(arm.body, level, expected), arm.body.span);
     }
+    // §5.3's set logic is §7.2's usefulness over the open `Exn` sum: the column
+    // has no signature, so no set of exception constructors ever completes it —
+    // which is the open model — while a repeated constructor, and anything
+    // behind a bare binder, is as dead here as anywhere.
+    this.#checkArmReachability(arms, primitive("Exn"), CATCH_ARM_REPORTS);
   }
 
   #inferExceptionPattern(pattern: Resolved.Pattern, level: number): void {
@@ -5978,151 +5914,644 @@ class Checker {
     );
   }
 
-  #isIrrefutablePattern(pattern: Resolved.Pattern, expected: Mono): boolean {
-    if (pattern.kind === "Wildcard" || pattern.kind === "Binding") return true;
-    if (pattern.kind === "As") {
-      return this.#isIrrefutablePattern(pattern.pattern, expected);
+  /**
+   * Pattern Matching §7's matrix, one column at a time: what the column's type
+   * admits, and how a pattern splits against it.
+   *
+   * `patterns` are the head patterns that column holds — needed by exactly one
+   * domain, the structural record, whose columns are built "over the union of
+   * mentioned fields, absent mentions widening to `_`" (§7.1). Every other
+   * domain answers from its type alone.
+   */
+  #coverageColumn(
+    type: Mono,
+    patterns: readonly Resolved.Pattern[],
+  ): CoverageColumn {
+    const actual = this.#prune(type);
+    switch (actual.kind) {
+      case "Union":
+        return this.#unionColumn(actual, patterns);
+      case "NominalRecord":
+        return this.#nominalRecordColumn(actual);
+      case "Tuple":
+        return this.#tupleColumn(actual);
+      case "Record":
+        return this.#structuralRecordColumn(actual, patterns);
+      case "Variable":
+      case "Error":
+        // Nothing is known about this domain, so nothing may be concluded from
+        // it: every pattern reads as a wildcard, and the column neither
+        // discriminates nor blocks. A column stays here only where inference
+        // never settled it — a rigid parameter, or a type an earlier report
+        // already spoke for — and in both cases the patterns that reached it
+        // are wildcards, because anything else would have concretized it.
+        // (This is the seat of #594's measurement 2 in reverse: the old
+        // fallback answered "refutable" for a constructor here, on a slot that
+        // was only shapeless because it was read off the declaration.)
+        return { split: () => undefined };
+      default:
+        return this.#openColumn();
     }
-    const actual = this.#prune(expected);
-    // Constructor slots are typed by the *declaration*, so a slot declared with
-    // the union's own parameter (`Some(value: a)`) arrives here as a bare
-    // variable, carrying no structure to compare a `Tuple`/`Record`/`Vector`
-    // pattern against. Decide those structurally instead of defaulting to
-    // refutable: the pattern has already been checked against the real scrutinee
-    // type by `#inferMatchPattern`, so if it typechecks at all, the slot has the
-    // shape the pattern destructures, and irrefutability turns only on whether
-    // every component pattern is itself irrefutable.
-    if (actual.kind === "Variable") return isStructurallyIrrefutablePattern(pattern);
-    if (pattern.kind === "Or") {
-      if (pattern.alternatives.some((alternative) =>
-        this.#isIrrefutablePattern(alternative, actual)
-      )) return true;
-      if (actual.kind === "Union") {
-        const union = this.#unions.get(actual.union);
-        return union?.constructors.every((constructor) =>
-          pattern.alternatives.some((alternative) => {
-            const unwrapped = unwrapAsPattern(alternative);
-            if (
-              unwrapped.kind !== "Constructor" ||
-              unwrapped.symbol !== constructor.binding.symbol
-            ) return false;
-            return unwrapped.arguments.every((argument, index) => {
-              const slot = constructor.slots[index];
-              return slot !== undefined && this.#isIrrefutablePattern(
-                argument,
-                this.#annotationType(slot.annotation),
-              );
-            });
-          })
-        ) ?? false;
-      }
-      return false;
-    }
-    if (pattern.kind === "Unit") {
-      // The arity-0 tuple pattern (#159): irrefutable exactly when the tuple
-      // rule below is, vacuously — spelled out because the surface node is its
-      // own kind, not because the answer differs.
-      return actual.kind === "Tuple" && actual.elements.length === 0;
-    }
-    if (pattern.kind === "Tuple") {
-      return actual.kind === "Tuple" &&
-        pattern.elements.length === actual.elements.length &&
-        pattern.elements.every((element, index) =>
-          this.#isIrrefutablePattern(element, actual.elements[index] ?? ERROR)
-        );
-    }
-    if (pattern.kind === "Record") {
-      if (actual.kind !== "Record") return false;
-      const fields = this.#normalizeRecord(actual).fields;
-      return pattern.fields.every((field) =>
-        this.#isIrrefutablePattern(
-          field.pattern,
-          fields.get(field.name) ?? ERROR,
-        )
-      );
-    }
-    if (pattern.kind === "Constructor" && actual.kind === "NominalRecord") {
-      // §5.1's own table row: `Point({x, y})` at a nominal `record Point` is
-      // irrefutable — "a record constructor is always sole constructor" — so
-      // the verdict turns entirely on the one sub-pattern, read against the
-      // instantiated row. That row comes from `#nominalRecordFields`, the same
-      // single reader `p.x`, `{p with …}` and `{...p}` use, so a field's type
-      // cannot mean one thing to an access and another to a pattern.
-      return this.#recordConstructors.get(pattern.symbol) === actual.record &&
-        pattern.arguments.length === 1 &&
-        this.#isIrrefutablePattern(
-          pattern.arguments[0]!,
-          { kind: "Record", fields: new Map(this.#nominalRecordFields(actual)) },
-        );
-    }
-    if (pattern.kind === "Constructor" && actual.kind === "Union") {
-      const union = this.#unions.get(actual.union);
-      if (union?.constructors.length !== 1) return false;
-      const constructor = union.constructors[0]!;
-      return constructor.binding.symbol === pattern.symbol &&
-        pattern.arguments.every((argument, index) => {
-          const slot = constructor.slots[index];
-          return slot !== undefined && this.#isIrrefutablePattern(
-            argument,
-            this.#annotationType(slot.annotation),
-          );
-        });
-    }
-    return false;
-  }
-
-  #constructorPatternsAreExhaustive(
-    patterns: readonly Resolved.ConstructorPattern[],
-  ): boolean {
-    const first = patterns[0];
-    if (first === undefined) return false;
-    const slots = this.#constructorPatternSlotTypes(first.symbol);
-    if (slots === undefined) return false;
-    if (patterns.some((pattern) =>
-      pattern.arguments.length === slots.length &&
-      pattern.arguments.every((argument, index) =>
-        this.#isIrrefutablePattern(argument, slots[index]!)
-      )
-    )) return true;
-    if (slots.length !== 1) return false;
-    const arguments_ = patterns.flatMap((pattern) => pattern.arguments.slice(0, 1));
-    if (arguments_.length !== patterns.length) return false;
-    return this.#isIrrefutablePattern(
-      { kind: "Or", alternatives: arguments_, span: first.span },
-      slots[0]!,
-    );
   }
 
   /**
-   * What a constructor pattern's sub-patterns are checked against, for the
-   * coverage judgments — one list per constructor, in slot order.
-   *
-   * Three constructor kinds answer, and the third is #591's: a union's slots and
-   * an exception's are declaration annotations, while a nominal record's single
-   * slot is its **field row** — Products §5.1's `Point : {closed row} -> Point`
-   * read from the pattern side. All three are the declaration's own types, left
-   * uninstantiated, exactly as the union path has always taken them: coverage
-   * asks about shapes, and a type parameter's occurrence answers `Variable`,
-   * which `#isIrrefutablePattern` already decides structurally.
+   * A column with no signature: the infinite domains, the open `Exn` sum, and
+   * the vector. Patterns here still split — a literal groups with its equal, an
+   * exception constructor with its own — so reachability is exact; what they
+   * never do is complete, which is §7.1's "a catch-all is required".
    */
-  #constructorPatternSlotTypes(
-    symbol: Resolved.SymbolId,
-  ): readonly Mono[] | undefined {
-    const record = this.#recordConstructors.get(symbol);
-    if (record !== undefined) {
-      this.#materializeReachedRecord(record);
-      return [{
-        kind: "Record",
-        fields: new Map(this.#recordFields.get(record) ?? []),
-      }];
-    }
-    const unionId = this.#constructorUnions.get(symbol);
-    const union = unionId === undefined ? undefined : this.#unions.get(unionId);
-    const constructor = union?.constructors.find(
-      ({ binding }) => binding.symbol === symbol,
+  #openColumn(): CoverageColumn {
+    return {
+      split: (pattern) => {
+        if (pattern.kind === "Wildcard" || pattern.kind === "Binding") {
+          return undefined;
+        }
+        if (pattern.kind === "Integer" || pattern.kind === "String") {
+          return {
+            head: { key: `literal:${renderLiteralPatternKey(pattern)}`, slots: [], print: () => "_" },
+            subPatterns: [],
+          };
+        }
+        if (pattern.kind === "Vector") {
+          // Collections Part 3 §3's rest form at length zero is the vector's
+          // one irrefutable shape; every other vector pattern turns on a length
+          // this matrix does not model, and that spec owns the verdict.
+          return pattern.rest !== undefined && pattern.elements.length === 0
+            ? undefined
+            : distinctHead(pattern);
+        }
+        if (pattern.kind === "Constructor" && this.#exceptions.has(pattern.symbol)) {
+          const shape = this.#constructorShape(pattern.symbol, 0);
+          const name = pattern.text;
+          const head: CoverageHead = {
+            key: constructorHeadKey(pattern.symbol),
+            slots: shape.parameters,
+            print: (witnesses) =>
+              witnesses.length === 0 ? name : `${name}(${witnesses.join(", ")})`,
+          };
+          return {
+            head,
+            subPatterns: this.#alignedSlots(pattern, head.slots.length),
+          };
+        }
+        return distinctHead(pattern);
+      },
+    };
+  }
+
+  /** A closed union's signature — Unions §4.3's constructor set, instantiated. */
+  #unionColumn(
+    type: UnionMono,
+    patterns: readonly Resolved.Pattern[],
+  ): CoverageColumn {
+    const union = this.#unions.get(type.union);
+    if (union === undefined) return this.#assumedColumn(patterns);
+    const heads = new Map<string, CoverageHead>(
+      union.constructors.map((constructor) => {
+        const head = this.#unionConstructorHead(type, constructor.binding);
+        return [head.key, head];
+      }),
     );
-    const slots = constructor?.slots ?? this.#exceptions.get(symbol)?.slots;
-    return slots?.map((slot) => this.#annotationType(slot.annotation));
+    return {
+      signature: [...heads.values()],
+      split: (pattern) => {
+        if (pattern.kind === "Wildcard" || pattern.kind === "Binding") {
+          return undefined;
+        }
+        if (pattern.kind !== "Constructor") return distinctHead(pattern);
+        const head = heads.get(constructorHeadKey(pattern.symbol));
+        if (head === undefined) return distinctHead(pattern);
+        return { head, subPatterns: this.#alignedSlots(pattern, head.slots.length) };
+      },
+    };
+  }
+
+  /**
+   * The column for a union whose declaration is not registered where this
+   * judgment runs — the constraint default body's pre-pass is the one seat that
+   * reaches it, and its patterns are not typed there either.
+   *
+   * The patterns are taken *as* the signature. That is the only answer that
+   * reports nothing a reader could act on: the column can still tell two
+   * constructors apart, so §7.2 keeps working, and it never names a case
+   * missing from a set it cannot enumerate — which is what the constructor
+   * listing this replaces did, by finding no constructors to subtract from.
+   */
+  #assumedColumn(patterns: readonly Resolved.Pattern[]): CoverageColumn {
+    const heads = new Map<string, CoverageHead>();
+    for (const pattern of patterns) {
+      if (pattern.kind !== "Constructor") continue;
+      const key = constructorHeadKey(pattern.symbol);
+      if (heads.has(key)) continue;
+      const name = pattern.text;
+      heads.set(key, {
+        key,
+        slots: pattern.arguments.map(() => ERROR),
+        print: (witnesses) =>
+          witnesses.length === 0 ? name : `${name}(${witnesses.join(", ")})`,
+      });
+    }
+    return {
+      signature: [...heads.values()],
+      split: (pattern) => {
+        if (pattern.kind !== "Constructor") return undefined;
+        const head = heads.get(constructorHeadKey(pattern.symbol));
+        return head === undefined
+          ? undefined
+          : { head, subPatterns: this.#alignedSlots(pattern, head.slots.length) };
+      },
+    };
+  }
+
+  /**
+   * One union constructor's head, with its slot types **instantiated at the
+   * column's arguments** — §4's "the scrutinee unifies with `C`'s union type at
+   * a fresh instantiation; sub-patterns check against the instantiated slot
+   * types", read by the coverage side rather than only the typing side.
+   *
+   * The instantiation is the one the typing side already performs
+   * (`#constructorShape`), and the substitution is read back off its own result
+   * type, so the shapes a sub-pattern is judged against cannot fork from the
+   * shapes it was checked against.
+   */
+  #unionConstructorHead(
+    type: UnionMono,
+    binding: Resolved.Binding,
+  ): CoverageHead {
+    const shape = this.#constructorShape(binding.symbol, 0);
+    const result = this.#prune(shape.result);
+    const replacements = new Map<number, Mono>();
+    if (result.kind === "Union") {
+      result.arguments.forEach((argument, index) => {
+        const parameter = this.#prune(argument);
+        if (parameter.kind === "Variable") {
+          replacements.set(parameter.id, type.arguments[index] ?? ERROR);
+        }
+      });
+    }
+    const slots = shape.parameters.map((parameter) =>
+      this.#replaceVariables(parameter, replacements)
+    );
+    // The **declared** name, not a local spelling: a witness names a case of the
+    // type, and the type's cases are named where they were declared.
+    const name = binding.name;
+    return {
+      key: constructorHeadKey(binding.symbol),
+      slots,
+      print: (witnesses) =>
+        witnesses.length === 0 ? name : `${name}(${witnesses.join(", ")})`,
+    };
+  }
+
+  /**
+   * A nominal record's one-constructor signature (#591): §7.1's finite-shape
+   * clause applies to it exactly as to a one-constructor union, and its slot is
+   * the **instantiated** field row — the same row `#nominalRecordFields` hands
+   * `p.x` and `{p with …}`.
+   *
+   * **Opacity keeps the row out of the witness** (Modules §4.2, the constraint
+   * #591's ruling attached to every diagnostic that could name a private
+   * field). Outside the home module the head decomposes nothing and prints at
+   * constructor granularity, and nothing is lost by that: the constructor is
+   * private there, so no pattern this module can write would have decomposed it
+   * either. A diagnostic never signposts a spelling the reader cannot write.
+   */
+  #nominalRecordColumn(type: NominalRecordMono): CoverageColumn {
+    const constructor = (this.#records.get(type.record) ??
+      this.#programRecord(type.record))?.constructor;
+    if (constructor === undefined) return this.#openColumn();
+    const slots: readonly Mono[] = this.#recordRepresentationVisible(type.record)
+      ? [{ kind: "Record", fields: new Map(this.#nominalRecordFields(type)) }]
+      : [];
+    const head: CoverageHead = {
+      key: constructorHeadKey(constructor.symbol),
+      slots,
+      print: (witnesses) => `${type.name}(${witnesses[0] ?? "_"})`,
+    };
+    return {
+      signature: [head],
+      split: (pattern) => {
+        if (pattern.kind === "Wildcard" || pattern.kind === "Binding") {
+          return undefined;
+        }
+        // A bare record pattern here has already drawn §2.4's redirect (or the
+        // opaque family's refusal). It reads as a wildcard so the one defect is
+        // reported once, rather than trailing a coverage report behind it.
+        if (pattern.kind === "Record") return undefined;
+        if (pattern.kind !== "Constructor" || pattern.symbol !== constructor.symbol) {
+          return distinctHead(pattern);
+        }
+        return { head, subPatterns: this.#alignedSlots(pattern, head.slots.length) };
+      },
+    };
+  }
+
+  /** The tuple's one shape (§5.1: "tuples have one shape"), `Unit` included. */
+  #tupleColumn(type: TupleMono): CoverageColumn {
+    const head: CoverageHead = {
+      key: "tuple",
+      slots: type.elements,
+      print: (witnesses) => `(${witnesses.join(", ")})`,
+    };
+    return {
+      signature: [head],
+      split: (pattern) => {
+        if (pattern.kind === "Wildcard" || pattern.kind === "Binding") {
+          return undefined;
+        }
+        // #159: `()` is the arity-0 tuple pattern, so it splits through this
+        // same head rather than a case of its own.
+        if (pattern.kind === "Unit") {
+          return type.elements.length === 0
+            ? { head, subPatterns: [] }
+            : distinctHead(pattern);
+        }
+        if (
+          pattern.kind !== "Tuple" ||
+          pattern.elements.length !== type.elements.length
+        ) return distinctHead(pattern);
+        return { head, subPatterns: pattern.elements };
+      },
+    };
+  }
+
+  /**
+   * A structural record's one shape, decomposed over the **mentioned** fields
+   * only (§7.1) — sound because record patterns are open, so a field no arm
+   * mentions cannot distinguish arms.
+   *
+   * The field order is the row's, not the mention order, so the column is the
+   * same matrix whichever arm happened to mention a field first.
+   */
+  #structuralRecordColumn(
+    type: RecordMono,
+    patterns: readonly Resolved.Pattern[],
+  ): CoverageColumn {
+    const row = this.#normalizeRecord(type).fields;
+    const mentioned = new Set(
+      patterns.flatMap((pattern) =>
+        pattern.kind === "Record" ? pattern.fields.map(({ name }) => name) : []
+      ),
+    );
+    const names = [...row.keys()].filter((name) => mentioned.has(name));
+    const head: CoverageHead = {
+      key: "record",
+      slots: names.map((name) => row.get(name) ?? ERROR),
+      // §7.3: "records with only the discriminating fields — never invent
+      // mentions". A field whose witness is `_` discriminates nothing, and a
+      // record that discriminates nothing is `_`.
+      print: (witnesses) => {
+        const shown = names.flatMap((name, index) => {
+          const witness = witnesses[index];
+          return witness === undefined || witness === "_" ? [] : [`${name} = ${witness}`];
+        });
+        return shown.length === 0 ? "_" : `{${shown.join(", ")}}`;
+      },
+    };
+    return {
+      signature: [head],
+      split: (pattern) => {
+        if (pattern.kind === "Wildcard" || pattern.kind === "Binding") {
+          return undefined;
+        }
+        if (pattern.kind !== "Record") return distinctHead(pattern);
+        const mentions = new Map(
+          pattern.fields.map((field) => [field.name, field.pattern]),
+        );
+        return {
+          head,
+          subPatterns: names.map((name) =>
+            mentions.get(name) ?? wildcardAt(pattern.span)
+          ),
+        };
+      },
+    };
+  }
+
+  /**
+   * A constructor pattern's sub-patterns, padded to the head's arity so an
+   * arity error — already reported where the pattern was typed — costs the
+   * matrix nothing.
+   */
+  #alignedSlots(
+    pattern: Resolved.ConstructorPattern,
+    arity: number,
+  ): readonly Resolved.Pattern[] {
+    return Array.from(
+      { length: arity },
+      (_, index) => pattern.arguments[index] ?? wildcardAt(pattern.span),
+    );
+  }
+
+  /** Maranget's S(c, P): the rows that can still match once `head` is known. */
+  #specializeMatrix(
+    column: CoverageColumn,
+    head: CoverageHead,
+    matrix: readonly (readonly Resolved.Pattern[])[],
+  ): readonly (readonly Resolved.Pattern[])[] {
+    const rows: (readonly Resolved.Pattern[])[] = [];
+    for (const row of matrix) {
+      const first = row[0];
+      if (first === undefined) continue;
+      for (const alternative of coverageAlternatives(first)) {
+        const split = column.split(alternative);
+        if (split === undefined) {
+          rows.push([
+            ...wildcardSlots(head.slots.length, alternative.span),
+            ...row.slice(1),
+          ]);
+        } else if (split.head.key === head.key) {
+          rows.push([...split.subPatterns, ...row.slice(1)]);
+        }
+      }
+    }
+    return rows;
+  }
+
+  /** Maranget's D(P): the rows that survive a head no row named. */
+  #defaultMatrix(
+    column: CoverageColumn,
+    matrix: readonly (readonly Resolved.Pattern[])[],
+  ): readonly (readonly Resolved.Pattern[])[] {
+    const rows: (readonly Resolved.Pattern[])[] = [];
+    for (const row of matrix) {
+      const first = row[0];
+      if (first === undefined) continue;
+      for (const alternative of coverageAlternatives(first)) {
+        if (column.split(alternative) === undefined) rows.push(row.slice(1));
+      }
+    }
+    return rows;
+  }
+
+  /** The head keys a matrix's first column names — Maranget's Σ. */
+  #columnHeads(
+    column: CoverageColumn,
+    matrix: readonly (readonly Resolved.Pattern[])[],
+  ): ReadonlySet<string> {
+    const present = new Set<string>();
+    for (const row of matrix) {
+      const first = row[0];
+      if (first === undefined) continue;
+      for (const alternative of coverageAlternatives(first)) {
+        const split = column.split(alternative);
+        if (split !== undefined) present.add(split.head.key);
+      }
+    }
+    return present;
+  }
+
+  /**
+   * Pattern Matching §7's algorithm **I**: the values `matrix` leaves uncovered
+   * over `types`, each rendered by §7.3 as one witness per column.
+   *
+   * This is the one algorithm the spec asks for, and every coverage judgment in
+   * this checker is a call to it or to `#coverageUseful` beside it:
+   * exhaustiveness is this over the unguarded arms, irrefutability is this over
+   * the single-row matrix (§5.1), and reachability is usefulness.
+   */
+  #coverageWitnesses(
+    types: readonly Mono[],
+    matrix: readonly (readonly Resolved.Pattern[])[],
+    limit: number,
+  ): readonly (readonly string[])[] {
+    if (limit <= 0) return [];
+    const first = types[0];
+    if (first === undefined) return matrix.length === 0 ? [[]] : [];
+    const rest = types.slice(1);
+    const column = this.#coverageColumn(first, coverageHeadPatterns(matrix));
+    const present = this.#columnHeads(column, matrix);
+    const signature = column.signature;
+    const witnesses: (readonly string[])[] = [];
+    if (signature !== undefined && signature.every(({ key }) => present.has(key))) {
+      // Every head is named, so nothing is missing *here*: the witnesses, if
+      // any, are under one of them.
+      for (const head of signature) {
+        for (
+          const witness of this.#coverageWitnesses(
+            [...head.slots, ...rest],
+            this.#specializeMatrix(column, head, matrix),
+            limit - witnesses.length,
+          )
+        ) {
+          witnesses.push([
+            head.print(witness.slice(0, head.slots.length)),
+            ...witness.slice(head.slots.length),
+          ]);
+          if (witnesses.length >= limit) return witnesses;
+        }
+      }
+      return witnesses;
+    }
+    const tails = this.#coverageWitnesses(
+      rest,
+      this.#defaultMatrix(column, matrix),
+      limit,
+    );
+    if (tails.length === 0) return [];
+    const missing = signature?.filter(({ key }) => !present.has(key)) ?? [];
+    // §7.3's "prefer the shallowest witness that is genuinely missing": where
+    // no row split this column at all, `_` says everything a named head would
+    // and says it one level up.
+    const heads = present.size === 0 || missing.length === 0
+      ? ["_"]
+      : missing.map((head) => head.print(head.slots.map(() => "_")));
+    for (const tail of tails) {
+      for (const head of heads) {
+        witnesses.push([head, ...tail]);
+        if (witnesses.length >= limit) return witnesses;
+      }
+    }
+    return witnesses;
+  }
+
+  /**
+   * Maranget's **U**: whether `row` matches a value no row of `matrix` does.
+   * §7.2's reachability is this over the unguarded arms above.
+   */
+  #coverageUseful(
+    types: readonly Mono[],
+    matrix: readonly (readonly Resolved.Pattern[])[],
+    row: readonly Resolved.Pattern[],
+  ): boolean {
+    const first = types[0];
+    if (first === undefined) return matrix.length === 0;
+    const head = row[0];
+    if (head === undefined) return matrix.length === 0;
+    const rest = types.slice(1);
+    const alternatives = coverageAlternatives(head);
+    const column = this.#coverageColumn(first, [
+      ...coverageHeadPatterns(matrix),
+      ...alternatives,
+    ]);
+    // An or-pattern is useful when any one of its alternatives is (§2.6: they
+    // are tried left to right, and each is a shape of its own).
+    return alternatives.some((alternative) => {
+      const split = column.split(alternative);
+      if (split !== undefined) {
+        return this.#coverageUseful(
+          [...split.head.slots, ...rest],
+          this.#specializeMatrix(column, split.head, matrix),
+          [...split.subPatterns, ...row.slice(1)],
+        );
+      }
+      const present = this.#columnHeads(column, matrix);
+      const signature = column.signature;
+      if (signature !== undefined && signature.every(({ key }) => present.has(key))) {
+        return signature.some((candidate) =>
+          this.#coverageUseful(
+            [...candidate.slots, ...rest],
+            this.#specializeMatrix(column, candidate, matrix),
+            [
+              ...wildcardSlots(candidate.slots.length, alternative.span),
+              ...row.slice(1),
+            ],
+          )
+        );
+      }
+      return this.#coverageUseful(
+        rest,
+        this.#defaultMatrix(column, matrix),
+        row.slice(1),
+      );
+    });
+  }
+
+  /**
+   * Pattern Matching §5.1's judgment, verbatim: "run the exhaustiveness
+   * algorithm on the single-row matrix `[p]` against `T`. Irrefutable ⇔
+   * exhaustive." There is no second, syntactic test — §10 rejects one by name,
+   * and #594 is what one costs.
+   */
+  #coverageIrrefutable(pattern: Resolved.Pattern, type: Mono): boolean {
+    return this.#coverageWitnesses([type], [[pattern]], 1).length === 0;
+  }
+
+  /**
+   * §5.3's one sentence for the three gated positions — `let`, `for..in`, and
+   * lambda parameters — with §7.3's witness in it.
+   */
+  #checkBindingPattern(pattern: Resolved.Pattern, type: Mono): void {
+    if (pattern.kind === "Wildcard" || pattern.kind === "Binding") return;
+    const witness = this.#coverageWitnesses([type], [[pattern]], 1)[0]?.[0];
+    if (witness === undefined) return;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `this pattern can fail: \`${witness}\`; use \`match\`` +
+        this.#matchFunctionFixit(),
+      primary: pattern.span,
+    });
+  }
+
+  /**
+   * §7.1's report, once per `match` that leaves values uncovered, with §7.3's
+   * witnesses: "up to a small cap (say 3) then '…and N more'".
+   *
+   * Guarded arms are absent from the matrix, which is §7.1's "guarded arms
+   * contribute nothing — including `when True`" as a construction rather than a
+   * rule applied afterwards.
+   */
+  #reportMissingCases(
+    arms: readonly Resolved.MatchArm[],
+    type: Mono,
+    span: Source.Span,
+  ): void {
+    const witnesses = this.#coverageWitnesses(
+      [type],
+      arms.flatMap((arm) => arm.guard === undefined ? [[arm.pattern]] : []),
+      COVERAGE_WITNESS_LIMIT,
+    ).flatMap((witness) => witness[0] === undefined ? [] : [witness[0]]);
+    if (witnesses.length === 0) return;
+    const shown = witnesses
+      .slice(0, COVERAGE_WITNESSES_SHOWN)
+      .map((witness) => `\`${witness}\``)
+      .join(", ");
+    const remaining = witnesses.length - COVERAGE_WITNESSES_SHOWN;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `match is missing cases: ${shown}` +
+        (remaining > 0 ? ` …and ${remaining} more` : ""),
+      primary: span,
+    });
+  }
+
+  /**
+   * §7.2's reachability, in both arm seats: an arm is unreachable when its
+   * pattern is useless against the **unguarded** arms above it (a guarded arm
+   * cannot subsume — its guard may fail), and an or-alternative is unreachable
+   * when it is useless against everything above it, its own arm's earlier
+   * alternatives included.
+   */
+  #checkArmReachability(
+    arms: readonly Resolved.MatchArm[],
+    type: Mono,
+    reports: ReachabilityReports,
+  ): void {
+    const covering: (readonly Resolved.Pattern[])[] = [];
+    let shadowed = false;
+    for (const arm of arms) {
+      const reached: (readonly Resolved.Pattern[])[] = [];
+      for (const alternative of coverageAlternatives(arm.pattern)) {
+        const above = [...covering, ...reached];
+        if (!this.#coverageUseful([type], above, [alternative])) {
+          this.#reportUnreachableArm(arm, alternative, shadowed, above, type, reports);
+        }
+        reached.push([alternative]);
+      }
+      if (arm.guard !== undefined) continue;
+      covering.push(...reached);
+      shadowed ||= this.#coverageIrrefutable(arm.pattern, type);
+    }
+  }
+
+  /**
+   * Which of §7.2's sentences an unreachable arm draws. The matrix knows the
+   * arm is dead; these three readings are what can honestly be said about *why*.
+   */
+  #reportUnreachableArm(
+    arm: Resolved.MatchArm,
+    alternative: Resolved.Pattern,
+    shadowed: boolean,
+    above: readonly (readonly Resolved.Pattern[])[],
+    type: Mono,
+    reports: ReachabilityReports,
+  ): void {
+    // An arm behind one that already covers the domain on its own reads as the
+    // arm-level defect it is; that report has stood since the flat forms and
+    // says the true thing about the shape above it.
+    if (shadowed) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: reports.everything,
+        primary: reports.armSpan(arm),
+      });
+      return;
+    }
+    // Otherwise, a constructor handled above *in full* has a shadower with a
+    // name, and §12 asks for the name. Where the arms above cover this one only
+    // jointly, or only at some of its slots, naming one of them would be false
+    // and the sentence below says what is true instead.
+    if (
+      alternative.kind === "Constructor" &&
+      !this.#coverageUseful([type], above, [{
+        ...alternative,
+        arguments: alternative.arguments.map(({ span }) => wildcardAt(span)),
+      }])
+    ) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: reports.constructor(alternative.text),
+        primary: alternative.span,
+      });
+      return;
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message: alternative.kind === "Integer" || alternative.kind === "String"
+        ? reports.literal
+        : reports.covered,
+      primary: alternative.span,
+    });
   }
 
   /**
@@ -12138,6 +12567,52 @@ function coverageAlternatives(
     : [unwrapped];
 }
 
+/** The head patterns of a matrix's first column, or-alternatives flattened. */
+function coverageHeadPatterns(
+  matrix: readonly (readonly Resolved.Pattern[])[],
+): readonly Resolved.Pattern[] {
+  return matrix.flatMap((row) =>
+    row[0] === undefined ? [] : coverageAlternatives(row[0])
+  );
+}
+
+/** A wildcard standing in where a pattern said nothing about a slot (§7.1). */
+function wildcardAt(span: Source.Span): Resolved.Pattern {
+  return { kind: "Wildcard", span };
+}
+
+/** `count` such stand-ins, for a head a wildcard row is specialized onto. */
+function wildcardSlots(count: number, span: Source.Span): readonly Resolved.Pattern[] {
+  return Array.from({ length: count }, () => wildcardAt(span));
+}
+
+/**
+ * The head key a constructor owns wherever it is written — the symbol, so a
+ * qualified or renamed spelling groups with the plain one.
+ */
+function constructorHeadKey(symbol: Resolved.SymbolId): string {
+  return `constructor:${symbol}`;
+}
+
+/**
+ * A head nothing else can share, for a pattern whose column cannot decompose
+ * it: a vector's length test, a constructor that failed to type against its
+ * column. Such a pattern covers nothing and completes no signature, which is
+ * exactly what it does at run time. The key is the span because a written
+ * pattern occupies its own, and two of them are never the same test.
+ */
+function distinctHead(pattern: Resolved.Pattern): CoverageMatch {
+  const { fileId, start, end } = pattern.span;
+  return {
+    head: {
+      key: `distinct:${fileId}:${start.offset}:${end.offset}`,
+      slots: [],
+      print: () => "_",
+    },
+    subPatterns: [],
+  };
+}
+
 const EXPORTED_SIGNATURE =
   "an exported signature is complete (Modules §4.1.1); replace `_` with the intended type";
 
@@ -12391,31 +12866,6 @@ function resolvedPatternBindings(
       );
     case "Constructor":
       return pattern.arguments.flatMap(resolvedPatternBindings);
-  }
-}
-
-function isStructurallyIrrefutablePattern(pattern: Resolved.Pattern): boolean {
-  switch (pattern.kind) {
-    case "Wildcard":
-    case "Binding":
-    case "Unit":
-      return true;
-    case "As":
-      return isStructurallyIrrefutablePattern(pattern.pattern);
-    case "Or":
-      return pattern.alternatives.some(isStructurallyIrrefutablePattern);
-    case "Tuple":
-      return pattern.elements.every(isStructurallyIrrefutablePattern);
-    case "Vector":
-      return pattern.rest !== undefined && pattern.elements.length === 0;
-    case "Record":
-      return pattern.fields.every((field) =>
-        isStructurallyIrrefutablePattern(field.pattern)
-      );
-    case "Integer":
-    case "String":
-    case "Constructor":
-      return false;
   }
 }
 

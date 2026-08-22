@@ -118,7 +118,7 @@ describe("a pattern spelled by the alias matches the declared tag", () => {
         "    match s\n" +
         "        Round(r) => r\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
-      "match is missing cases: `Square`",
+      "match is missing cases: `Square(_)`",
     ]);
   });
 });
