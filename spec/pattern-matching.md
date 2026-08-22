@@ -446,7 +446,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | `match` on `Exn` | "match requires a closed type; exceptions are inspected with `try`/`catch`" (§6.1) |
 | `catch` clause on a cannot-throw scrutinee | "this `catch` can never run: evaluating ⟨scrutinee⟩ cannot throw" (§7.2; Exceptions §5.4) |
 | `match` on constraint-bounded abstract type | "cannot match on a value of abstract type `c`; use the operations its constraints provide" (§6.1); when the scrutinee is a lambda parameter whose type is an undetermined inference variable, the rider instead: "the parameter's type is not determined here; give the parameter a type — bind the function with its own annotated `let`, or use it where its parameter type is known" (§6.1, #513) |
-| Bare record pattern on nominal-record scrutinee | "destructure it with `Point({x, y})`" (§2.4) |
+| Bare record pattern on nominal-record scrutinee | "destructure it with `Point({x, y})`" — the user's own pattern wrapped; outside an opaque record's home module, opacity intercepts: "cannot destructure opaque record `Point`; use an operation exported by its home module" (§2.4; Modules §4.2) |
 | `:` in a term-position record (pattern or literal), e.g. `{x: p}` | Products §6/§8 fixit: "record fields bind with `=`; `:` gives a field its type in record *types*"; uppercase-start RHS (`{x: Float}`) appends "if you meant a type, patterns destructure values; annotate outside the pattern" (§2.4, §16) |
 | Type name in constructor-pattern position (`{x = Float}`) | "`Float` is a type, not a constructor…" (§2.4) |
 | `((x, y)) => e` written meaning two params | "one parameter destructuring a tuple; remove the outer parentheses for two parameters" (§6.5) |
