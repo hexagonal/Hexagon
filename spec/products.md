@@ -255,7 +255,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | `{p with}` — no overrides | parse error; hint: "the no-override copy is `{...p}`" (§3.3) |
 | Spread merge — `{...a, ...b}` | parse error; fixit: "Hexagon has no record merge; `{...p}` copies, `{p with f = e}` updates" (§3.3, §9; the JS merge habit — the most common spread idiom after copy — permanent diagnostic) |
 | Closed-row annotation rejects wider record | mention *extra* fields; suggest `...` (§4) |
-| Missing field on access | name the known fields (§3.2) |
+| Missing field on access | name the known fields (§3.2; never an empty enumeration — Modules §4.2, #587) |
 | Nominal `Point` where `{x: Float, ...}` expected | type error; suggest `{...p}` (§5.3) |
 | Bare `()` in type position | redirect, per the Rewrite Rule: "the empty tuple's type is written `Unit`; `()` in type syntax is only the zero-parameter domain `() -> T`" (§2.7, #159; the `() -> T` form itself stays legal — Functions §5.3) |
 | `x => { print(x) }` | record-literal/block confusion — owned by Lexer & Layout spec; cross-referenced here because records cause it |
