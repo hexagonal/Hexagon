@@ -368,7 +368,7 @@ The first parameter is mandatory and remains the explicit Hexagon subject. Hexag
 A direct call:
 
 ```hexagon
-import * as SearchParams from "./search-params"
+import module SearchParams from "./search-params"
 
 SearchParams.get(params, "name")
 ```

@@ -59,7 +59,7 @@ There is nothing method-typed about the binding; subject-first ordering means pi
 A direct call:
 
 ```hexagon
-import * as SearchParams from "./search-params"
+import module SearchParams from "./search-params"
 
 SearchParams.get(params, "name")
 ```
@@ -297,7 +297,7 @@ Exported members are re-exported from the compiled facade like any exported exte
 
 An extern class block groups declarations; it does **not** create a namespace. Hexagon has no in-file submodules (Modules §2), and this part does not add one. Every member — `create`, `canParse`, `toString`, `hostname` — is an ordinary module-level binding of the binding module, exactly like a standalone extern declaration.
 
-The `Url.member(...)` spelling in this part's examples is therefore the ordinary companion idiom: the binding module is dedicated to the class, and consumers namespace-import it under the type's name (`import * as Url from "./url"`) — Modules §6's opaque-type pattern, unchanged. **One class per binding module is the intended idiom**, not a rule.
+The `Url.member(...)` spelling in this part's examples is therefore the ordinary companion idiom: the binding module is dedicated to the class, and consumers namespace-import it under the type's name (`import module Url from "./url"`) — Modules §6's opaque-type pattern, unchanged. **One class per binding module is the intended idiom**, not a rule.
 
 Consequence: two extern classes declared in one module whose members share a name (`toString` on both) collide under ordinary module-level collision rules, and the fix is the ordinary one — alias one of them (`method toString as urlToString(...)`) or split the classes into their own modules. The diagnostic names both rewrites.
 
