@@ -155,7 +155,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
       "        Crate({tag = \"a\"}) => 1.0\n",
-    )).toEqual(["match is missing cases: `Crate`"]);
+    )).toEqual(["match is missing cases: `Crate(_)`"]);
   });
 
   test("a refutable arm followed by a covering one is exhaustive, and both run", async () => {
@@ -186,7 +186,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "    match c\n" +
       "        Crate({n}) => n\n" +
       "        Crate({n}) => n\n",
-    )).toEqual(["this case is unreachable; `Crate` is already handled above"]);
+    )).toEqual(["this match arm is unreachable; an earlier pattern matches everything"]);
   });
 
   test("a catch-all still covers, and still shadows", () => {
@@ -206,12 +206,15 @@ describe("a `match` on a nominal-record scrutinee", () => {
   });
 
   test("a guarded arm contributes nothing to coverage (§7.1)", () => {
+    // With no unguarded arm at all, nothing has split the domain, and §7.3's
+    // "prefer the shallowest witness that is genuinely missing" answers `_`
+    // rather than naming the sole constructor: every value is uncovered.
     expect(projectDiagnostics(
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
       "        Crate({n}) when n > 0.0 => n\n",
-    )).toEqual(["match is missing cases: `Crate`"]);
+    )).toEqual(["match is missing cases: `_`"]);
   });
 
   test("the pattern nests inside a union arm", async () => {
@@ -227,16 +230,13 @@ describe("a `match` on a nominal-record scrutinee", () => {
     expect([exports.some, exports.none]).toEqual([4.0, 0.0]);
   });
 
-  test("nested under a union slot, coverage is the unions' own pre-existing narrowness", () => {
-    // Not a #591 behaviour, and pinned here only so review can see that #591
-    // introduced no asymmetry. A constructor pattern under a *union slot* is
-    // judged against the slot's declared annotation, which for `Some(a)` is a
-    // bare type variable carrying no shape — so `#isIrrefutablePattern` falls
-    // back to the syntactic test, which rejects every constructor pattern.
-    // `UserId(n)` under `Some` has always read the same way, and reads it
-    // identically today. Widening that judgment is **#594**, which takes this
-    // refutability parity and the record-field-space exhaustiveness narrowness
-    // together, as the one mechanism they are; it is not smuggled in here.
+  test("nested under a union slot, a sole-constructor sub-pattern covers (§7.1)", () => {
+    // **#594**, both halves at once. The slot of `Some(a)` used to be read off
+    // the *declaration*, where it is a bare type variable carrying no shape, so
+    // a constructor sub-pattern under it decomposed nothing and the arm never
+    // covered `Some`. The matrix reads the **instantiated** slot — `Wrapped`
+    // here — where a sole constructor is exactly what §5.1 says it is, and the
+    // two spellings of a newtype answer alike.
     const nested = (arm: string, declaration: string) => projectDiagnostics(
       declaration +
       "export fun size(o: Option(Wrapped)): Int =\n" +
@@ -245,9 +245,9 @@ describe("a `match` on a nominal-record scrutinee", () => {
       "        None => 0\n",
     );
     expect(nested("Some(Wrapped(n)) => n", "export union Wrapped = Wrapped(Int)\n"))
-      .toEqual(["match is missing cases: `Some`"]);
+      .toEqual([]);
     expect(nested("Some(Wrapped({n})) => n", "export record Wrapped = {n: Int}\n"))
-      .toEqual(["match is missing cases: `Some`"]);
+      .toEqual([]);
   });
 
   test("`as` binds the whole nominal value beside the destructured fields", async () => {
@@ -310,14 +310,14 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
       "    let Crate({tag = \"a\"}) = c\n" +
       "    1.0\n",
     )).toEqual([
-      "a literal pattern is refutable and cannot be used in a binding position; use `match`",
+      "this pattern can fail: `Crate(_)`; use `match`",
     ]);
     expect(projectDiagnostics(
       CRATE +
       "let size: (Crate) -> Float = Crate({tag = \"a\"}) => 1.0\n" +
       "export let v: Float = size(Crate({n = 1.0, tag = \"a\"}))\n",
     )).toEqual([
-      "a literal pattern is refutable and cannot be used in a binding position; use `match` — " +
+      "this pattern can fail: `Crate(_)`; use `match` — " +
         "for a match function, write `match` with arms",
     ]);
     expect(projectDiagnostics(
@@ -328,7 +328,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
       "        sum := sum + 1.0\n" +
       "    sum\n",
     )).toEqual([
-      "this loop pattern can fail; bind an irrefutable pattern and use `match` inside the loop",
+      "this pattern can fail: `Crate(_)`; use `match`",
     ]);
   });
 
@@ -476,7 +476,8 @@ describe("arity is one, positional (§2.2)", () => {
       "    match c\n" +
       "        Crate => 1.0\n",
     )).toEqual([
-      "match is missing cases: `Crate`",
+      // One report, not two: the matrix widens the missing sub-pattern to `_`,
+      // so the arity defect is not also charged as a coverage gap (#594).
       "constructor pattern `Crate` expects 1 arguments, got 0",
     ]);
   });
