@@ -367,10 +367,24 @@ function moduleLevelBindings(
  * spelling — the reserved prefix belongs to generated names, and this is a
  * source name moving aside — so the suffixes run from `_1` bare: `Point_1`.
  *
- * Alias against alias cannot arise (two same-spelled aliases are a source
- * error), so the probe's remaining duty is to land on nothing else, which is
- * what the avoid set holds: every other module-level binding, every alias, and
- * every spelling already handed out here.
+ * A **contestant** is a name the emitted file really binds. `moduleLevelBindings`
+ * is deliberately an over-approximation of that (see its own note), and the one
+ * place the two part company for a spelling an alias could carry is a *type-only*
+ * named import, which `#emitImport` drops from the `import { }` line: an imported
+ * `type` alias, an imported opaque record's type, an imported union's type name.
+ * Nothing binds those in JavaScript, so nothing of them can collide, and an alias
+ * that moved for one would be a rename against a name that is not there. They are
+ * subtracted here rather than in `moduleLevelBindings`, whose other caller wants
+ * the over-count. The line's two other filters cannot reach an alias's spelling:
+ * a constraint member's name is a term's and an alias is uppercase-start, and the
+ * pinned `Bool` constructors are the prelude's own.
+ *
+ * Alias against alias cannot arise *as a collision* (two same-spelled aliases are
+ * a source error), but an alias can still be standing on the spelling this probe
+ * is about to mint — `import * as Point` beside `import * as Point_1` — so the
+ * avoid set holds every other module-level binding, every alias, and every
+ * spelling already handed out here. Landing on the second alias would rebuild
+ * #569's own failure one alias over.
  */
 function namespaceAliasPlan(module: Core.Module): ReadonlyMap<string, string> {
   const aliases = module.items.flatMap((item) =>
@@ -378,12 +392,23 @@ function namespaceAliasPlan(module: Core.Module): ReadonlyMap<string, string> {
       ? [item.form.alias]
       : []
   );
-  const contested = new Set(moduleLevelBindings(module, false));
+  // Counted rather than collected, so subtracting a type-only import's local
+  // leaves a spelling some *other* binding also carries still contesting on that
+  // binding's account.
+  const contested = new Map<string, number>();
+  for (const name of moduleLevelBindings(module, false)) {
+    contested.set(name, (contested.get(name) ?? 0) + 1);
+  }
+  for (const local of typeOnlyImportLocals(module)) {
+    const remaining = (contested.get(local) ?? 0) - 1;
+    if (remaining > 0) contested.set(local, remaining);
+    else contested.delete(local);
+  }
   // The empty map is the whole no-collision case: every lookup misses and every
   // spelling is the source's own, so a module without this collision emits the
   // text it emitted before the plan existed.
   if (!aliases.some((alias) => contested.has(alias))) return new Map();
-  const taken = new Set([...contested, ...aliases]);
+  const taken = new Set([...contested.keys(), ...aliases]);
   const plan = new Map<string, string>();
   for (const alias of aliases) {
     if (!contested.has(alias)) continue;
@@ -394,6 +419,20 @@ function namespaceAliasPlan(module: Core.Module): ReadonlyMap<string, string> {
     plan.set(alias, local);
   }
   return plan;
+}
+
+/**
+ * The named-import locals the emitted `import { }` line leaves unbound: the
+ * type-only ones, which cross the boundary in the `.d.ts` and nowhere else. See
+ * `namespaceAliasPlan`, the only caller and the reason this is separate from
+ * `moduleLevelBindings`.
+ */
+function typeOnlyImportLocals(module: Core.Module): readonly string[] {
+  return module.items.flatMap((item) =>
+    item.kind === "Import" && !item.synthesized && item.form.kind === "Named"
+      ? item.form.names.flatMap(({ local, typeOnly }) => typeOnly === true ? [local] : [])
+      : []
+  );
 }
 
 
