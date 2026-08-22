@@ -272,7 +272,7 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     const files = [
       ["/Rat.hex", RAT],
       ["/main.hex",
-        'import * as Rat from "./Rat"\n' +
+        'import module Rat from "./Rat"\n' +
         "export let third: String = Rat.show(Rat.fromInt(3))\n"],
     ] as const;
     const text = emittedFrom(files, "/main.hex");

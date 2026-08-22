@@ -252,7 +252,7 @@ describe("qualifiable, not bare: the one-exporter guarantee (Modules §5.3)", ()
 
     expect(diagnostics).toEqual([
       "`pow` is a constraint member's wider face; it is qualifiable, not a bare " +
-        "export — reach it through `import * as` and its qualified spelling",
+        "export — reach it through `import module` and its qualified spelling",
     ]);
   });
 });
@@ -304,7 +304,7 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
       ].join("\n")],
       ["/quiet.hex", [
         "// quiet",
-        "import * as Gauge from \"./gauge\"",
+        "import module Gauge from \"./gauge\"",
         "",
         "export constraint Quiet<a> =",
         "    describe(value: a): String",
@@ -315,8 +315,8 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
       ].join("\n")],
       ["/main.hex", [
         "// rivals",
-        "import * as Gauge from \"./gauge\"",
-        "import * as Quiet from \"./quiet\"",
+        "import module Gauge from \"./gauge\"",
+        "import module Quiet from \"./quiet\"",
         "",
         "export let r: String = Gauge.Gauge({reading = 1}).describe(2)",
         "",
@@ -566,7 +566,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       ].join("\n")],
       ["/matrix.hex", [
         "// matrix",
-        "import * as Scale from \"./scale\"",
+        "import module Scale from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -723,7 +723,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       ].join("\n")],
       ["/matrix.hex", [
         "// matrix",
-        "import * as Scale from \"./scale\"",
+        "import module Scale from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -759,7 +759,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
  * one member and it is required: a **defaulted** member reached by the supply
  * route, and a member with **two** widenable seats. Both want a user constraint
  * of their own, in its own module, reached the way the law says a door-builder
- * reaches one — `import * as`, the module and not the constraint.
+ * reaches one — `import module`, the module and not the constraint.
  */
 describe("what the supply route serves, beyond one required member (§4.7)", () => {
   /** A constraint whose second member is **defaulted** over the first. */
@@ -791,7 +791,7 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
       ["/scale.hex", scale],
       ["/matrix.hex", [
         "// matrix, defaulted member widened",
-        "import * as Scale from \"./scale\"",
+        "import module Scale from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -824,7 +824,7 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
       ["/scale.hex", scale],
       ["/matrix.hex", [
         "// matrix, defaulted member unaccounted",
-        "import * as Scale from \"./scale\"",
+        "import module Scale from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -851,7 +851,7 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
       ["/blend.hex", blend],
       ["/matrix.hex", [
         "// matrix, two seats widened",
-        "import * as Blend from \"./blend\"",
+        "import module Blend from \"./blend\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -890,7 +890,7 @@ describe("several same-spelled members: widen all of them or none (§4.7)", () =
   function boxModule(...tail: readonly string[]): string {
     return [
       "// box",
-      "import * as Mul from \"./mul\"",
+      "import module Mul from \"./mul\"",
       "",
       "export record Box = {value: Float}",
       "",

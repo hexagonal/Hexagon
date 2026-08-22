@@ -1694,6 +1694,145 @@ describe("parse", () => {
       );
     });
   });
+
+  /**
+   * Modules §3.3 and Lexer §4.2's new row: the namespace head is
+   * `import module Geo from "./geometry"`, and `*` has left the import grammar
+   * entirely.
+   *
+   * The context is one position wide — between `import` and the alias — and it
+   * is total there because nothing else could ever stand in it: before #565 an
+   * `import` admitted only `{`, `*`, or a string, so no name after `import` was
+   * ever a legal program. That is why recognition is unconditional rather than
+   * gated on an uppercase name ahead, and why the degenerate `import module
+   * module` reaches the alias seat and dies of the seat's own start-class rule
+   * instead of a special case written for the spelling.
+   */
+  describe("`module` is contextual in the import head (#565)", () => {
+    const messages = (text: string): readonly string[] =>
+      parseSource(text).diagnostics.map(({ message }) => message);
+
+    const itemKinds = (text: string): readonly string[] =>
+      parseSource(text).items.map(({ kind }) => kind);
+
+    test("the head binds an alias, and nothing else changed about the form", () => {
+      const module = parseSource('import module Geo from "./geometry"\n');
+      expect(module.diagnostics).toEqual([]);
+      expect(module.items).toMatchObject([{
+        kind: "Import",
+        specifier: "./geometry",
+        form: { kind: "Namespace", alias: { text: "Geo", startClass: "upper" } },
+      }]);
+    });
+
+    /**
+     * A legal head is not a line — comments are trivia between its tokens and it
+     * may break across them. The old spelling held both properties and the new
+     * one inherits them, because the change is which tokens the head is made of,
+     * not how the parser walks them. The Playground's alias scan (#537) reads the
+     * same token stream and depends on exactly this.
+     */
+    test("the head is tokens, not a line", () => {
+      expect(messages('import (* why *) module Geo from "./geometry"\n')).toEqual([]);
+      expect(messages('import\n    module Geo from "./geometry"\n')).toEqual([]);
+    });
+
+    test("the word still binds, names a field, and names a parameter", () => {
+      expect(messages("let module = 3")).toEqual([]);
+      expect(itemKinds("let module = 3")).toEqual(["Let"]);
+      expect(messages("let r = { module = 1 }")).toEqual([]);
+      expect(messages("let f(module: Int): Int = module")).toEqual([]);
+      expect(messages("var module = 1")).toEqual([]);
+      expect(messages("module(2)")).toEqual([]);
+    });
+
+    /**
+     * §2's refusal is untouched: the context is the import head and reaches no
+     * declaration seat, so a header line is read as the two ordinary items it
+     * lexes as, exactly as before, and no import diagnostic is spoken over it.
+     */
+    test("`module Geometry` at a declaration seat is no import head", () => {
+      expect(messages("module Geometry\n")).toEqual([
+        "expected a newline or `;` between block items",
+      ]);
+    });
+
+    /**
+     * The degenerate spelling. `module` in the alias seat is a non-uppercase-start
+     * name and the seat refuses it as it refuses any other — the message is the
+     * alias seat's own, not a rule about this word. The refusal is followed by
+     * the same recovery cascade any rejected alias has drawn since before #565
+     * (`import * as module from "./x"` reached these four messages by this exact
+     * path), so the first message is what is pinned.
+     */
+    test("`import module module` dies in the alias seat, by start class", () => {
+      expect(messages('import module module from "./x"\n')[0]).toBe(
+        "module aliases must be uppercase-start names",
+      );
+    });
+
+    /**
+     * JavaScript's default-import muscle memory. It draws the start-class refusal
+     * because `from` is a non-uppercase-start name standing in the alias seat —
+     * which is what §3.3 says it gets. A targeted redirect naming the missing
+     * alias is a recorded diagnostics candidate, deliberately not invented here.
+     */
+    test("`import module from` draws the same start-class refusal, alone", () => {
+      expect(messages('import module from "./x"\n')).toEqual([
+        "module aliases must be uppercase-start names",
+      ]);
+    });
+
+    test("a name where the head belongs names the three heads that exist", () => {
+      expect(messages('import geo from "./x"\n')[0]).toBe(
+        "expected `{`, `module`, or a module string after `import`",
+      );
+    });
+
+    /**
+     * The Rewrite Rule applied to JavaScript's own head (§3.3, §10). The message
+     * carries the spec's exemplar and the fix-it carries the user's line: the two
+     * tokens `* as` become the one word `module`, leaving alias and path as
+     * written. Parsing continues into the alias seat, so one pasted JavaScript
+     * import costs one diagnostic rather than a cascade.
+     */
+    test("JavaScript's `import * as` head is refused with its rewrite", () => {
+      const module = parseSource('import * as Geo from "./geometry"\n');
+      expect(module.diagnostics.map(({ message }) => message)).toEqual([
+        'namespace imports are spelled `import module Geo from "./geometry"`',
+      ]);
+      const [fix] = module.diagnostics[0]?.fixes ?? [];
+      expect(fix?.message).toBe("write `import module`");
+      expect(fix?.edits.map(({ span, replacement }) => [
+        module.diagnostics[0]!.primary.fileId === span.fileId,
+        span.start.offset,
+        span.end.offset,
+        replacement,
+      ])).toEqual([[true, 7, 11, "module"]]);
+      // The edit is over `* as` exactly, so applying it yields the head the
+      // message names — the alias and the path are never retyped.
+      const text = 'import * as Geo from "./geometry"\n';
+      expect(
+        text.slice(0, 7) + "module" + text.slice(11),
+      ).toBe('import module Geo from "./geometry"\n');
+      expect(module.items).toMatchObject([{
+        kind: "Import",
+        form: { kind: "Namespace", alias: { text: "Geo" } },
+      }]);
+    });
+
+    /**
+     * With no `as` there is no two-token span to rewrite, so the redirect stands
+     * on its message — the restraint the lexer's JavaScript-block-comment
+     * redirect shows when it finds no closing delimiter.
+     */
+    test("a `*` head with no `as` keeps the message and offers no edit", () => {
+      const module = parseSource('import * Geo from "./geometry"\n');
+      expect(module.diagnostics.map(({ message, fixes }) => [message, fixes])).toEqual([
+        ['namespace imports are spelled `import module Geo from "./geometry"`', undefined],
+      ]);
+    });
+  });
 });
 
 function parseSource(text: string): Parsed.Module {

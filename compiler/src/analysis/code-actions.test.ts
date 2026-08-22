@@ -82,6 +82,25 @@ describe("code actions: the diagnostic's own fixes", () => {
     expect(actionsOn(session, "/main.hex", several, "console")).toEqual([]);
   });
 
+  /**
+   * The namespace head's rewrite (#565), reaching an editor by the same route
+   * the comment redirect above does: the parser hangs the repair on the
+   * diagnostic and this layer offers it. Pinned here because the language server
+   * embeds this session, so what is offered here is what a paste of JavaScript's
+   * import line offers in the editor.
+   */
+  test("JavaScript's namespace head offers the `import module` rewrite", () => {
+    const source = 'import * as Geo from "./geometry"\nlet n: Int = 1\n';
+    const { session } = sessionOf({ "/main.hex": source, "/geometry.hex": "" });
+    const action = sole(actionsOn(session, "/main.hex", source, "*"));
+    expect(action.title).toBe("write `import module`");
+    // The alias and the path are the user's own text and are never retyped.
+    expect(applied(source, action)).toBe(
+      'import module Geo from "./geometry"\nlet n: Int = 1\n',
+    );
+    expect(action.disabled).toBeUndefined();
+  });
+
   test("nothing is offered away from the diagnostic", () => {
     const source = ["/* a note */", "let value: Int = 1", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
@@ -254,7 +273,7 @@ describe("code actions: infer return type", () => {
   test("qualifies a type reached only through a namespace import", () => {
     const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
     const source = [
-      'import * as Palette from "./helper"',
+      'import module Palette from "./helper"',
       "",
       "export fun pick() = Palette.Red",
       "",
@@ -270,8 +289,8 @@ describe("code actions: infer return type", () => {
     // runs would not, so the first is kept.
     const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
     const source = [
-      'import * as Palette from "./helper"',
-      'import * as Shades from "./helper"',
+      'import module Palette from "./helper"',
+      'import module Shades from "./helper"',
       "",
       "export fun pick() = Palette.Red",
       "",
@@ -1041,7 +1060,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
 
   test("an imported declaration's head is not this file's to edit", () => {
     const box = "export opaque record Box(a) = { get: () -> a }\n";
-    const main = 'import * as B from "./box.hex"\nexport let n: Int = 1\n';
+    const main = 'import module B from "./box.hex"\nexport let n: Int = 1\n';
     const { session } = sessionOf({ "/box.hex": box, "/main.hex": main });
     expect(session.codeActions("/main.hex", { start: 0, end: main.length })).toEqual([]);
   });

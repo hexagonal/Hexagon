@@ -124,7 +124,7 @@ export function parseWorkspaceSource(source: string): WorkspaceSource {
   }
 
   const imports = modules.map(({ name }) =>
-    `import * as ${name} from ${JSON.stringify(`./${name}`)}`
+    `import module ${name} from ${JSON.stringify(`./${name}`)}`
   );
   const prefix = imports.length === 0 ? "" : `${imports.join("\n")}\n`;
   return {

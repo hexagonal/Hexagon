@@ -78,7 +78,7 @@ describe("a plain exported record carries its fields across the import", () => {
       ["/geo.hex", MAGNET],
       [
         "/main.hex",
-        'import * as Geo from "./geo"\n' +
+        'import module Geo from "./geo"\n' +
           "export let north: Geo.Magnet = Geo.Magnet({poles = 2})\n" +
           "export fun poleCount(m: Geo.Magnet): Int = m.poles\n" +
           "export fun retune(m: Geo.Magnet): Geo.Magnet = {m with poles = 3}\n",
@@ -138,7 +138,7 @@ describe("opacity is unchanged — the control on §4.2", () => {
       ["/vault.hex", VAULT],
       [
         "/main.hex",
-        'import * as Vault from "./vault"\n' +
+        'import module Vault from "./vault"\n' +
           "export fun bump(t: Vault.Token): Vault.Token = {t with value = 1}\n",
       ],
     ]);

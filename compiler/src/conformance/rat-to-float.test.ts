@@ -50,7 +50,7 @@ const RAT = (() => {
 
 function withRat(source: string): readonly (readonly [string, string])[] {
   return [
-    ["/main.hex", `import * as Rat from "./Rat"\n${source}`],
+    ["/main.hex", `import module Rat from "./Rat"\n${source}`],
     ["/Rat.hex", RAT],
   ];
 }

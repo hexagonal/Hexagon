@@ -311,7 +311,7 @@ describe("collectOccurrences", () => {
 
   test("a namespace import publishes nothing, having no names of its own", () => {
     const helper = "export let two: Int = 2\n";
-    const main = ['import * as H from "./helper"', "", "let four: Int = H.two + H.two", ""].join("\n");
+    const main = ['import module H from "./helper"', "", "let four: Int = H.two + H.two", ""].join("\n");
     const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
     const own = occurrences.get("/main.hex")!;
     // The resolver expands `* as H` into one entry per reachable member, each

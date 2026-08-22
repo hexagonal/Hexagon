@@ -685,7 +685,7 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import * as Geo from \"./geo\"",
+        "import module Geo from \"./geo\"",
         "",
         "record Triangle = {side: Int}",
         "",
@@ -714,7 +714,7 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import * as Atlas from \"./atlas\"",
+        "import module Atlas from \"./atlas\"",
         "",
         "export fun draw<a: Atlas.Hidden>(subject: a): String = \"x\"",
         "",
@@ -735,7 +735,7 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import * as Geo from \"./geo\"",
+        "import module Geo from \"./geo\"",
         "",
         "export fun sized<a: Geo.Area>(subject: a): Int = Geo.area(subject)",
         "export fun run(): Int = sized(Geo.Square({side = 7}))",
@@ -1226,8 +1226,8 @@ describe("internal names that contest one spelling (#430)", () => {
         "",
       ].join("\n")],
       ["/organ.hex", [
-        "import * as Loud from \"./loudly\"",
-        "import * as Soft from \"./softly\"",
+        "import module Loud from \"./loudly\"",
+        "import module Soft from \"./softly\"",
         "",
         "export record Pipe = {bore: Int}",
         "",

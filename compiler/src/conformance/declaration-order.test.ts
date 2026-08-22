@@ -163,7 +163,7 @@ describe("a dot call reads top-down too (Method Syntax §4.4)", () => {
     // so where `twice` sits in its home file is not the importer's business.
     const main = await runProject([
       ["/main.hex",
-        "import * as Boxes from \"./boxes\"\n" +
+        "import module Boxes from \"./boxes\"\n" +
         "export let out: Int = Boxes.Box({value = 3}).twice()\n",
       ],
       ["/boxes.hex",
@@ -587,14 +587,14 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
     test("`Geo.Point` in an annotation is free above the item", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
         "export fun across(p: Geo.Point): Int = p.x\n" +
-        "import * as Geo from \"./geometry\"\n",
+        "import module Geo from \"./geometry\"\n",
       ]])).toEqual([]);
     });
 
     test("...but `Geo.area(p)` is a term the line binds, and reads top-down", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
         "export fun size(p: Geo.Point): Int = Geo.area(p)\n" +
-        "import * as Geo from \"./geometry\"\n",
+        "import module Geo from \"./geometry\"\n",
       ]])).toEqual([MOVE_IMPORT("Geo.area")]);
     });
 
@@ -604,13 +604,13 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         "    match s\n" +
         "        Geo.Circle(r) => r\n" +
         "        _ => 0\n" +
-        "import * as Geo from \"./geometry\"\n",
+        "import module Geo from \"./geometry\"\n",
       ]])[0]).toBe(MOVE_IMPORT("Geo.Circle"));
     });
 
     test("...and both controls below the item run", async () => {
       const exports = await runProject([GEOMETRY, ["/main.hex",
-        "import * as Geo from \"./geometry\"\n" +
+        "import module Geo from \"./geometry\"\n" +
         "export fun size(p: Geo.Point): Int = Geo.area(p)\n" +
         "export fun radius(s: Geo.Shape): Int =\n" +
         "    match s\n" +
@@ -648,14 +648,14 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
     test("a field the exporter never offers reports what moving the import would", () => {
       const above = diagnostics([GEOMETRY, ["/main.hex",
         "export let early: Int = Geo.zork(1)\n" +
-        "import * as Geo from \"./geometry\"\n",
+        "import module Geo from \"./geometry\"\n",
       ]]);
 
       expect(above).toEqual([NOT_EXPORTED("Geo", "zork")]);
       // The proposed repair, carried out: an identical report is the proof that
       // the declared-later wording would have sent the reader nowhere.
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "import * as Geo from \"./geometry\"\n" +
+        "import module Geo from \"./geometry\"\n" +
         "export let early: Int = Geo.zork(1)\n",
       ]])).toEqual(above);
     });
@@ -666,7 +666,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         "    match s\n" +
         "        Geo.Zork(r) => r\n" +
         "        _ => 0\n" +
-        "import * as Geo from \"./geometry\"\n",
+        "import module Geo from \"./geometry\"\n",
       ]]);
 
       // The whole list, cascades included: a repair that leaves the diagnostics
@@ -677,7 +677,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         "this match arm is unreachable; an earlier pattern matches everything",
       ]);
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "import * as Geo from \"./geometry\"\n" +
+        "import module Geo from \"./geometry\"\n" +
         "export fun radius(s: Geo.Shape): Int =\n" +
         "    match s\n" +
         "        Geo.Zork(r) => r\n" +
@@ -690,7 +690,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       // ordinary terms, so the line binds `Geo.step` and moving it is the repair.
       expect(diagnostics([GEOMETRY, ["/main.hex",
         "export let early: Int = Geo.step(1)\n" +
-        "import * as Geo from \"./geometry\"\n",
+        "import module Geo from \"./geometry\"\n",
       ]])).toEqual([MOVE_IMPORT("Geo.step")]);
     });
 
@@ -712,7 +712,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       expect(diagnostics([SIZED, BOXED, ["/main.hex",
         "import { Sized } from \"./sized\"\n" +
         "export let early: Int = B.size(B.Box({n = 7}))\n" +
-        "import * as B from \"./boxed\"\n",
+        "import module B from \"./boxed\"\n",
       ]])).toEqual([MOVE_IMPORT("B.size"), MOVE_IMPORT("B.Box")]);
     });
 
@@ -728,7 +728,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
           "    size(b) = b.n + 30\n"],
         ["/main.hex",
           "import { Sized } from \"./sized\"\n" +
-          "import * as B from \"./boxed\"\n" +
+          "import module B from \"./boxed\"\n" +
           "export let boxed: Int = B.size(B.Box({n = 4}))\n"],
       ]);
 
@@ -747,7 +747,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         ["/Vector.hex", PRELUDE_SOURCES["Vector.hex"]!],
         ["/main.hex",
           "export let n: Int = Vector.toSeq([1, 2]).length()\n" +
-          "import * as Vector from \"./Vector\"\n"],
+          "import module Vector from \"./Vector\"\n"],
       ])).toEqual([MOVE_IMPORT("Vector.toSeq")]);
     });
 
@@ -763,11 +763,11 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       for (const alias of ["Int", "Debug"]) {
         const above = diagnostics([seated(alias), ["/main.hex",
           `export let n: Int = ${alias}.toSeq(1)\n` +
-          `import * as ${alias} from "./${alias}"\n`]]);
+          `import module ${alias} from "./${alias}"\n`]]);
 
         expect(above).toEqual([NOT_EXPORTED(alias, "toSeq")]);
         expect(diagnostics([seated(alias), ["/main.hex",
-          `import * as ${alias} from "./${alias}"\n` +
+          `import module ${alias} from "./${alias}"\n` +
           `export let n: Int = ${alias}.toSeq(1)\n`]])).toEqual(above);
       }
 
@@ -775,7 +775,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       // row to seat there fails here rather than in somebody's error message.
       for (const alias of PROVIDED_ROW_ALIASES) {
         const use = `export let n: Int = ${alias}.toSeq(subject).length()\n`;
-        const item = `import * as ${alias} from "./${alias}"\n`;
+        const item = `import module ${alias} from "./${alias}"\n`;
 
         expect(diagnostics([seated(alias), ["/main.hex", use + item]]))
           .toContain(MOVE_IMPORT(`${alias}.toSeq`));
@@ -798,11 +798,11 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
 
       expect(diagnostics([BROKEN, ["/main.hex",
         "export let early: Int = Lib.zork(1)\n" +
-        "import * as Lib from \"./broken\"\n",
+        "import module Lib from \"./broken\"\n",
       ]])).toEqual(["unknown name `nope`", NOT_EXPORTED("Lib", "zork")]);
       expect(diagnostics([BROKEN, ["/main.hex",
         "export let early: Int = Lib.ok(1)\n" +
-        "import * as Lib from \"./broken\"\n",
+        "import module Lib from \"./broken\"\n",
       ]])).toEqual(["unknown name `nope`", MOVE_IMPORT("Lib.ok")]);
     });
 
@@ -812,7 +812,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       // enter. The item's own report is the one that names the repair.
       expect(diagnostics([["/main.hex",
         "export let early: Int = Nope.zork(1)\n" +
-        "import * as Nope from \"./nowhere\"\n",
+        "import module Nope from \"./nowhere\"\n",
       ]])).toEqual([
         "unknown name `Nope`",
         "cannot resolve module `./nowhere` from `/main.hex`",
@@ -823,7 +823,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         "    match s\n" +
         "        Nope.Zork(x) => x\n" +
         "        _ => 0\n" +
-        "import * as Nope from \"./nowhere\"\n",
+        "import module Nope from \"./nowhere\"\n",
       ]])[0]).toBe("unknown module alias `Nope`");
     });
   });

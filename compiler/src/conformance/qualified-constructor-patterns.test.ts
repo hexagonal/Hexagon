@@ -15,7 +15,7 @@ import { compileFiles, compileMain, projectDiagnostics, runMain, runProject } fr
  * part of that grant, not a nicety beside it.
  *
  * Two qualifiers answer, exactly as in value position (`#namedModule`): an
- * explicit `import * as` alias, and the declaring prelude module's own name
+ * explicit `import module` alias, and the declaring prelude module's own name
  * (§6.4's guaranteed qualified home) — `Prelude.Less`, `Option.Some(v)`,
  * `Bool.True`.
  *
@@ -129,7 +129,7 @@ describe("a module alias qualifies an imported union's constructors in patterns"
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import * as Lib from \"./lib\"\n" +
+        "import module Lib from \"./lib\"\n" +
         "export fun measure(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r\n" +
@@ -139,7 +139,7 @@ describe("a module alias qualifies an imported union's constructors in patterns"
     const exports = await runProject([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import * as Lib from \"./lib\"\n" +
+        "import module Lib from \"./lib\"\n" +
         "export fun size(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r * 2.0\n" +
@@ -157,7 +157,7 @@ describe("a module alias qualifies an imported union's constructors in patterns"
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import * as Lib from \"./lib\"\n" +
+        "import module Lib from \"./lib\"\n" +
         "export fun only(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r\n"],
@@ -242,7 +242,7 @@ describe("catch arms take the same form, and now reach as far", () => {
     compileFiles([
       ["/lib.hex", "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import * as Lib from \"./lib\"\n" +
+        "import module Lib from \"./lib\"\n" +
         "import { Boom } from \"./lib\"\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
@@ -301,7 +301,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
-        "import * as Lib from \"./lib\"\n" +
+        "import module Lib from \"./lib\"\n" +
         "export fun f(p: Lib.Point): Int =\n" +
         "    match p\n" +
         "        Lib.Point(a, b) => a\n"],
@@ -328,7 +328,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import * as Lib from \"./lib\"\n" +
+        "import module Lib from \"./lib\"\n" +
         "export fun f(s: Lib.Shape): Int =\n" +
         "    match s\n" +
         "        Lib.Shape(r) => 1\n" +
@@ -337,7 +337,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import * as Lib from \"./lib\"\n" +
+        "import module Lib from \"./lib\"\n" +
         "export let s: Int = Lib.Shape\n"],
     ]).diagnostics.map(({ message: text }) => text)).toContain(message);
   });

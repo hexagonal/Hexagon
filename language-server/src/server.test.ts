@@ -1127,8 +1127,8 @@ describe("the companion fallback reaches the editor", () => {
   ].join("\n");
 
   const CONSUMER = [
-    'import * as Point from "./point"',
-    'import * as Render from "./render"',
+    'import module Point from "./point"',
+    'import module Render from "./render"',
     "",
     "export let norm(p: Point): Float = Point.getX(p)",
     "",
