@@ -186,6 +186,12 @@ describe("the import surface", () => {
   });
 });
 
+/**
+ * The shapes below are read at a *refutable* position, where the length test is
+ * the point. The `let` seat — where the gate leaves only `[...rest]` and `[...]`,
+ * so there is no test to emit — is pinned in `vector-let-patterns.test.ts`
+ * (#603), together with the routes that reach it.
+ */
 describe("§3.6 pattern emission", () => {
   /**
    * The pinned shape, read against the trie's 0-based internals. `size === n`

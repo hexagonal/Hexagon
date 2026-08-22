@@ -2541,6 +2541,46 @@ class JavaScriptEmitter {
         return lines;
       }
       if (item.pattern.kind === "Unit") return [`${prefix}${value};`];
+      // Collections Part 3 §3.6's shape, at the `let` seat — which is also the
+      // parameter-destructure seat, since a pattern parameter is lowered to a
+      // fresh binder plus this item (Statements §5.2).
+      //
+      // A vector pattern has no JS destructuring form: a `Vector` is a trie, not
+      // an array, and its slots are `__trieGet` calls. `#emitPattern` therefore
+      // answers one with the empty string, which on this route means "binds
+      // nothing" — so every binder underneath it was silently dropped and the
+      // module ran with the names unbound. Anything carrying a vector anywhere
+      // leaves the destructuring route entirely and takes the plan machinery the
+      // loop head and the match arms already use.
+      //
+      // Whole rather than hybridised: a plan reads each slot off a *path* into
+      // the subject (`p[1]`, `r.items`), so the record and tuple shells above a
+      // vector leaf cost nothing to express there, and the output stays one flat
+      // run of `const`s instead of a destructuring followed by a second pass.
+      // Patterns with no vector in them keep the destructuring rendering, which
+      // is the shape this file's emission tests pin.
+      //
+      // The plan's length tests are dropped rather than emitted. Pattern
+      // Matching §5.3's gate has already refused every refutable pattern at this
+      // position — §3.4 leaves exactly `[...rest]` and `[...]` — so a test here
+      // could only be true, and emitting it would wrap the whole binding group
+      // in a dead `if` whose binders would then have to escape it.
+      if (containsVectorPattern(item.pattern)) {
+        // No binder at all is the anonymous rest, `let [...] = xs`: §3.6 emits
+        // no slice for it, and the value still has to be evaluated.
+        if (patternBindings(item.pattern).length === 0) return [`${prefix}${value};`];
+        // §3.6's shape names the subject once per slot read and once per
+        // `__trieSize`, so a value that is not already a bare reference is bound
+        // first rather than re-evaluated per slot.
+        const subject = isSafeIdentifier(value)
+          ? value
+          : this.#generatedNames.fresh("subject");
+        const plan = this.#emitPatternPlan(withoutUnboundVectors(item.pattern), subject);
+        return [
+          ...(subject === value ? [] : [`${prefix}const ${subject} = ${value};`]),
+          ...plan.bindings.map((binding) => `${prefix}${binding}`),
+        ];
+      }
       if (item.pattern.kind === "As") {
         const name = this.#identifier(
           item.pattern.binding.symbol,
@@ -10185,6 +10225,89 @@ function patternBindings(pattern: Core.Pattern): Core.Binding[] {
       return pattern.fields.flatMap((field) => patternBindings(field.pattern));
     case "Constructor":
       return pattern.arguments.flatMap(patternBindings);
+  }
+}
+
+/**
+ * The same pattern with every vector sub-pattern that binds nothing replaced by
+ * a wildcard.
+ *
+ * Only the `let` seat asks, and only because it drops the plan's tests: a
+ * binding-less vector contributes a `__trieSize` length test and nothing else,
+ * so planning it would put `size` on the module's runtime import list for an
+ * operation the emitted code never calls. `[...]` and `_` accept every value
+ * alike (Collections Part 3 §3.4), and any *other* binding-less vector pattern
+ * has already been refused by Pattern Matching §5.3's gate, so the substitution
+ * changes no accepted program's meaning.
+ */
+function withoutUnboundVectors(pattern: Core.Pattern): Core.Pattern {
+  if (pattern.kind === "Vector" && patternBindings(pattern).length === 0) {
+    return { kind: "Wildcard", span: pattern.span };
+  }
+  switch (pattern.kind) {
+    case "As":
+      return { ...pattern, pattern: withoutUnboundVectors(pattern.pattern) };
+    case "Tuple":
+      return { ...pattern, elements: pattern.elements.map(withoutUnboundVectors) };
+    case "Vector":
+      return {
+        ...pattern,
+        elements: pattern.elements.map(withoutUnboundVectors),
+        ...(pattern.rest?.pattern === undefined
+          ? {}
+          : { rest: { ...pattern.rest, pattern: withoutUnboundVectors(pattern.rest.pattern) } }),
+      };
+    case "Record":
+      return {
+        ...pattern,
+        fields: pattern.fields.map((field) => ({
+          ...field,
+          pattern: withoutUnboundVectors(field.pattern),
+        })),
+      };
+    case "Constructor":
+      return { ...pattern, arguments: pattern.arguments.map(withoutUnboundVectors) };
+    case "Or":
+      return { ...pattern, alternatives: pattern.alternatives.map(withoutUnboundVectors) };
+    case "Binding":
+    case "Wildcard":
+    case "Unit":
+    case "Integer":
+    case "String":
+      return pattern;
+  }
+}
+
+/**
+ * Whether a vector pattern occurs anywhere inside this one (Collections Part 3
+ * §3.1's full nesting).
+ *
+ * The `let` seat asks it of the *whole* pattern rather than slot by slot,
+ * because a JS destructuring is one expression: a single vector leaf anywhere
+ * under it has no form to take there, so the whole pattern moves to the plan
+ * (§3.6). The recursion mirrors `patternBindings`, since the two answer about
+ * the same tree.
+ */
+function containsVectorPattern(pattern: Core.Pattern): boolean {
+  switch (pattern.kind) {
+    case "Vector":
+      return true;
+    case "Binding":
+    case "Wildcard":
+    case "Unit":
+    case "Integer":
+    case "String":
+      return false;
+    case "As":
+      return containsVectorPattern(pattern.pattern);
+    case "Or":
+      return pattern.alternatives.some(containsVectorPattern);
+    case "Tuple":
+      return pattern.elements.some(containsVectorPattern);
+    case "Record":
+      return pattern.fields.some((field) => containsVectorPattern(field.pattern));
+    case "Constructor":
+      return pattern.arguments.some(containsVectorPattern);
   }
 }
 

@@ -553,7 +553,16 @@ class Parser {
         // binding path gets the plain reserved-name message the spec requires
         // (Lexer §10). The constructors themselves are `UpperName`s, already
         // listed.
-        ["LeftParen", "LeftBrace", "UpperName", "Wildcard"]
+        //
+        // `LeftBracket` opens the vector pattern (Collections Part 3 §3.1).
+        // `let` is one of Pattern Matching §1's five positions, and the vector
+        // pattern is "one form in the single pattern grammar … subject to every
+        // existing rule" (Collections Part 3 §3) — so the opener list carries it
+        // like `(` and `{`. §3.4 spells out both verdicts this reaches:
+        // `let [...all] = xs` is legal, `let [x, ...rest] = xs` draws §5.3's
+        // gate. There is no vector *expression* an ordinary `let` binder could
+        // want here: a binder is a name or a pattern, never `[`.
+        ["LeftParen", "LeftBrace", "LeftBracket", "UpperName", "Wildcard"]
           .includes(this.#peek(1).kind)
       ) {
         return this.#parsePatternBinding();

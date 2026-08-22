@@ -316,6 +316,52 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  /**
+   * `let` is one of Pattern Matching §1's five positions, and the vector pattern
+   * is an ordinary form of the one grammar (Collections Part 3 §3), so `[` opens
+   * a pattern binding exactly as `(` and `{` do. Before #603 it did not, and both
+   * of Collections Part 3 §3.4's worked examples — the legal one included — died
+   * at "`let` requires a non-uppercase-start name" before any judgment could be
+   * drawn. Refutability is the checker's question, not the parser's, so both
+   * parse here.
+   */
+  test("parses vector patterns as let binders", () => {
+    const module = parseSource(
+      "let [...all] = xs\nlet [x, ...rest] = xs\nlet [...] = xs",
+    );
+
+    expect(module.items).toMatchObject([
+      {
+        kind: "LetPattern",
+        pattern: {
+          kind: "Vector",
+          elements: [],
+          rest: { pattern: { kind: "Binding", name: { text: "all" } } },
+        },
+      },
+      {
+        kind: "LetPattern",
+        pattern: {
+          kind: "Vector",
+          elements: [{ kind: "Binding", name: { text: "x" } }],
+          rest: { pattern: { kind: "Binding", name: { text: "rest" } } },
+        },
+      },
+      {
+        kind: "LetPattern",
+        pattern: { kind: "Vector", elements: [], rest: { index: 0 } },
+      },
+    ]);
+    // The anonymous rest carries no sub-pattern: it binds nothing (§3.1).
+    const anonymous = module.items[2];
+    expect(
+      anonymous?.kind === "LetPattern" && anonymous.pattern.kind === "Vector"
+        ? anonymous.pattern.rest?.pattern
+        : "not a vector let pattern",
+    ).toBeUndefined();
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("parses nullary unions and match expressions", () => {
     const module = parseSource(
       "union Suit =\n" +
