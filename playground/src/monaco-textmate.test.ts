@@ -333,6 +333,19 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     expect(await tokenOf("let r = {with = 3}", "with")).toBe(term);
   });
 
+  test("the namespace-import head paints its own word (#565)", async () => {
+    // The one Playground-shaped hazard in #565's grammar rider: `module` is a
+    // header word to the injection below and the import head's word to the
+    // shared grammar, and the two must not reach for each other's line. Here the
+    // word is mid-line, where no header can begin.
+    expect(await tokenOf('import module Geo from "./geometry"', "module")).toBe(
+      "keyword.other.module.hexagon",
+    );
+    expect(await tokenOf('import module Geo from "./geometry"', "import")).toBe(
+      "keyword.control.import.hexagon",
+    );
+  });
+
   test("the §8.2 and §10 error rows are painted as errors", async () => {
     expect(await tokenOf("let a = x && y", "&&")).toBe("invalid.illegal.operator.hexagon");
     expect(await tokenOf("let a = x || y", "||")).toBe("invalid.illegal.operator.hexagon");
@@ -387,6 +400,20 @@ describe("the Playground-only module notation (injection)", () => {
   test("`module` is an ordinary name when the line is not a header", async () => {
     expect(await tokenOf("let module = 1", "module")).toBe(binder);
     expect(await tokenOf("let x = module", "module")).toBe(term);
+  });
+
+  test("the header and the import head keep out of each other's way (#565)", async () => {
+    // Both words are `module` and both are painted, by different grammars. The
+    // injection's rules are `L:`, so they run first — but they demand the word at
+    // column zero and the whole rest of the line as one name, and an import head
+    // is neither. The shared grammar's rule demands an `import` before the word,
+    // which a header line does not have.
+    const source = ['import module Geo from "./geometry"', "module Numbers"].join("\n");
+    expect(await allTokensFor(source, "module")).toEqual([
+      "keyword.other.module.hexagon",
+      control,
+    ]);
+    expect(await allTokensFor(source, "Numbers")).toEqual([namespace]);
   });
 
   test("recognizes every header the host recognizes, valid name or not", async () => {
