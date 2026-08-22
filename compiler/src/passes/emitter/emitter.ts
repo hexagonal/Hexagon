@@ -301,7 +301,16 @@ function memberSeatKey(specifier: string, seat: string): string {
  * names are out of scope by construction — Lexer §3.2's reserved prefix is on
  * every one of them and can be on no member's source spelling.
  */
-function moduleLevelBindings(module: Core.Module): readonly string[] {
+function moduleLevelBindings(
+  module: Core.Module,
+  /**
+   * Whether a namespace import's alias counts. It binds like any other name and
+   * every caller but one wants it counted; the exception is the caller that
+   * *plans* those aliases' spellings (#569), which needs the set they are
+   * contested by — this set without them.
+   */
+  namespaceAliases = true,
+): readonly string[] {
   const identifier = (binding: Core.Binding | Core.Constructor): string =>
     isSafeIdentifier(binding.name) ? binding.name : `__binding${Number(binding.symbol)}`;
   return module.items.flatMap((item): readonly string[] => {
@@ -333,12 +342,97 @@ function moduleLevelBindings(module: Core.Module): readonly string[] {
       case "Import":
         if (item.synthesized || item.form.kind === "Effect") return [];
         return item.form.kind === "Namespace"
-          ? [item.form.alias]
+          ? (namespaceAliases ? [item.form.alias] : [])
           : item.form.names.map(({ local }) => local);
       default:
         return [];
     }
   });
+}
+
+/**
+ * The local each namespace import's `import * as` line binds, entered only for
+ * an alias one of the module's own bindings contests (#569).
+ *
+ * Modules §5.2 makes `import * as Point from "./point"` beside a declared
+ * `Point` legal and load-bearing — it is the companion idiom — and the checker
+ * reports nothing, so the two Hexagon namespaces must reach JavaScript as two
+ * bindings. §11.2 already says whose problem that is: "emitted-name collisions
+ * are the emitter's ordinary renaming problem".
+ *
+ * The **alias** is what moves. The declaration may be exported and its spelling
+ * is then the module's public face, while an alias is importer-internal: it
+ * reaches the output on its own `import` line and in the qualified uses this
+ * map rewrites, and nowhere else. Lexer §3.2's probe read at a source-level
+ * spelling — the reserved prefix belongs to generated names, and this is a
+ * source name moving aside — so the suffixes run from `_1` bare: `Point_1`.
+ *
+ * A **contestant** is a name the emitted file really binds. `moduleLevelBindings`
+ * is deliberately an over-approximation of that (see its own note), and the one
+ * place the two part company for a spelling an alias could carry is a *type-only*
+ * named import, which `#emitImport` drops from the `import { }` line: an imported
+ * `type` alias, an imported opaque record's type, an imported union's type name.
+ * Nothing binds those in JavaScript, so nothing of them can collide, and an alias
+ * that moved for one would be a rename against a name that is not there. They are
+ * subtracted here rather than in `moduleLevelBindings`, whose other caller wants
+ * the over-count. The line's two other filters cannot reach an alias's spelling:
+ * a constraint member's name is a term's and an alias is uppercase-start, and the
+ * pinned `Bool` constructors are the prelude's own.
+ *
+ * Alias against alias cannot arise *as a collision* (two same-spelled aliases are
+ * a source error), but an alias can still be standing on the spelling this probe
+ * is about to mint — `import * as Point` beside `import * as Point_1` — so the
+ * avoid set holds every other module-level binding, every alias, and every
+ * spelling already handed out here. Landing on the second alias would rebuild
+ * #569's own failure one alias over.
+ */
+function namespaceAliasPlan(module: Core.Module): ReadonlyMap<string, string> {
+  const aliases = module.items.flatMap((item) =>
+    item.kind === "Import" && !item.synthesized && item.form.kind === "Namespace"
+      ? [item.form.alias]
+      : []
+  );
+  // Counted rather than collected, so subtracting a type-only import's local
+  // leaves a spelling some *other* binding also carries still contesting on that
+  // binding's account.
+  const contested = new Map<string, number>();
+  for (const name of moduleLevelBindings(module, false)) {
+    contested.set(name, (contested.get(name) ?? 0) + 1);
+  }
+  for (const local of typeOnlyImportLocals(module)) {
+    const remaining = (contested.get(local) ?? 0) - 1;
+    if (remaining > 0) contested.set(local, remaining);
+    else contested.delete(local);
+  }
+  // The empty map is the whole no-collision case: every lookup misses and every
+  // spelling is the source's own, so a module without this collision emits the
+  // text it emitted before the plan existed.
+  if (!aliases.some((alias) => contested.has(alias))) return new Map();
+  const taken = new Set([...contested.keys(), ...aliases]);
+  const plan = new Map<string, string>();
+  for (const alias of aliases) {
+    if (!contested.has(alias)) continue;
+    let suffix = 1;
+    let local = `${alias}_${suffix}`;
+    while (taken.has(local)) local = `${alias}_${++suffix}`;
+    taken.add(local);
+    plan.set(alias, local);
+  }
+  return plan;
+}
+
+/**
+ * The named-import locals the emitted `import { }` line leaves unbound: the
+ * type-only ones, which cross the boundary in the `.d.ts` and nowhere else. See
+ * `namespaceAliasPlan`, the only caller and the reason this is separate from
+ * `moduleLevelBindings`.
+ */
+function typeOnlyImportLocals(module: Core.Module): readonly string[] {
+  return module.items.flatMap((item) =>
+    item.kind === "Import" && !item.synthesized && item.form.kind === "Named"
+      ? item.form.names.flatMap(({ local, typeOnly }) => typeOnly === true ? [local] : [])
+      : []
+  );
 }
 
 
@@ -1368,6 +1462,12 @@ class JavaScriptEmitter {
   readonly #namespaceConstrainedLocals = new Map<Resolved.SymbolId, string>();
   /** Internal-export locals an emitted `import` line already bound. */
   readonly #boundConstrainedImports = new Set<string>();
+  /**
+   * The emitted local of every namespace alias this module's own bindings
+   * contest, by its source spelling; see `namespaceAliasPlan`. Empty for a
+   * module with no such collision, which is every module the corpus ships.
+   */
+  readonly #namespaceAliases: ReadonlyMap<string, string>;
   readonly #generatedNames: GeneratedNames;
   /** Local each imported symbol is bound under, by the module's own imports. */
   readonly #importLocals = new Map<Resolved.SymbolId, string>();
@@ -1608,6 +1708,7 @@ class JavaScriptEmitter {
       }
     }
     this.#memberSeatLocals = options.memberSeatLocals ?? new Map();
+    this.#namespaceAliases = namespaceAliasPlan(module);
     for (const name of moduleLevelBindings(module)) this.#moduleBindings.add(name);
     // The seat inventory, from the three channels an instance reaches a module
     // by. This module's own is seated first and never overwritten: an entry
@@ -1972,7 +2073,7 @@ class JavaScriptEmitter {
         // editions join that line rather than opening a third.
         const bindings = [...constrained, ...this.#specializationBindings(item)];
         return [
-          `${prefix}import * as ${item.form.alias} from ${specifier};`,
+          `${prefix}import * as ${this.#namespaceLocal(item.form.alias)} from ${specifier};`,
           ...(bindings.length === 0
             ? []
             : [`${prefix}import { ${bindings.join(", ")} } from ${specifier};`]),
@@ -2857,7 +2958,7 @@ class JavaScriptEmitter {
             ? imported
             : this.#emitConstrainedValue(expression, imported, evidenceNames, bindingRhs);
         }
-        if (expression.text.includes(".")) return expression.text;
+        if (expression.text.includes(".")) return this.#qualifiedSpelling(expression.text);
         // An imported symbol is spelled by the local its import binds, which is
         // not always the name the reference carries: the synthesized prelude
         // import may bind a term under a distinguished local to clear a
@@ -5842,6 +5943,25 @@ class JavaScriptEmitter {
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
     return isSafeIdentifier(sourceName) ? sourceName : `__binding${Number(symbol)}`;
+  }
+
+  /** The local a namespace alias is bound under here; see `namespaceAliasPlan`. */
+  #namespaceLocal(alias: string): string {
+    return this.#namespaceAliases.get(alias) ?? alias;
+  }
+
+  /**
+   * A qualified spelling as the emitted file reads it (#569): `Alias.member`
+   * under whatever local the alias's `import * as` line actually bound.
+   *
+   * The head is a module alias or a fixed prelude companion's name (§5.3), and
+   * only the former can have moved — a companion is seeded rather than
+   * imported, so it binds no local of this module's to contest.
+   */
+  #qualifiedSpelling(text: string): string {
+    const head = text.slice(0, text.indexOf("."));
+    const local = this.#namespaceAliases.get(head);
+    return local === undefined ? text : `${local}${text.slice(head.length)}`;
   }
 
   /**

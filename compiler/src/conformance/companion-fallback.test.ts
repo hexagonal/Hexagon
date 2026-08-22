@@ -157,10 +157,11 @@ describe("occlusion: the fallback answers only where the namespace is empty", ()
     // Both meanings stay live in the one module — `Point.` the module, `Point`
     // in types this module's record — and the resolved shape says so: `mine`
     // reads a field `./point`'s opaque `Point` does not have, and `far` calls
-    // through the alias. (Only the *checker's* verdict is asserted: the emitted
-    // module for this shape collides on the shared identifier — `import * as
-    // Point` beside `const Point` — a pre-existing emission defect with nothing
-    // to do with the fallback, filed as #569.)
+    // through the alias. (Only the *checker's* verdict is asserted here. What
+    // the shape *emits* was its own defect — `import * as Point` beside `const
+    // Point`, one JavaScript binding for two Hexagon namespaces — with nothing
+    // to do with the fallback; it was filed as #569 and is pinned, program for
+    // program, by `namespace-alias-collision.test.ts`.)
     expect(messages([
       POINT,
       ["/main.hex",
