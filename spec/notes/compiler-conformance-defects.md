@@ -2125,12 +2125,13 @@ than settling a style question.
   complete at the checker, because the emitter's misjudgments are reachable
   on programs the checker now rightly accepts. The interface-channel
   alternative was declined, and the classification that decides this family
-  is recorded on the issue: a fact resolution itself consumes rides the
-  module interface (`visibleConstraints`); a fact needed only as far as
-  *nameability* is already carried by the interface's export maps
+  is recorded on the issue: a fact resolution itself consumes can **only**
+  ride the module interface (`visibleConstraints`); a fact needed only as
+  far as *nameability* is already carried by the interface's export maps
   (`visibleExceptions` — one hop, the width `catch`'s open world can name);
   a fact needed as far as *reachability*, post-resolution, belongs to the
-  program table (records since #587; unions now).
+  program table (records since #587; unions now). Nothing migrates in
+  either direction — each existing mechanism matches its law.
   The repair reached further than the filing asked: `programNominals`
   accumulates declarations `export`ed or not, so a **private** union carried
   abroad materializes too, and `#assumedColumn` is now unreachable on any
@@ -2156,9 +2157,10 @@ than settling a style question.
   about the emission half — entry 10's lesson); the reached module's JS
   declares no constructor it did not import; a reached opaque union takes a
   lone `_` clean; a private union carried abroad gets the exporter's escape
-  report and nothing else; the `representationVisible: false` stamp is
-  pinned in both directions through a transparent alias that routes the
-  union into an exported signature unnamed. Nine of the eleven fail at the
+  report and nothing else — the stamp's escape-preserving direction — and
+  its no-false-escape direction is pinned through a transparent alias that
+  routes a public union into an exported signature unnamed, which would be
+  refused under a `true` stamp. Nine of the eleven fail at the
   pre-fix base; the two that pass are the partial-import parity guard and
   the reached *untagged* runtime guard, untagged being the emitter's correct
   default. Suites at the fix: compiler 3278 + 1 expected fail (from 3267),
