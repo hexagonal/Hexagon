@@ -129,6 +129,7 @@ export const hexagonFamilies: Readonly<Record<string, HexagonFamily>> = {
       "storage.modifier.variance.hexagon",
       "keyword.other.as.hexagon",
       "keyword.other.from.hexagon",
+      "keyword.other.module.hexagon",
       "keyword.other.derives.hexagon",
       "keyword.other.when.hexagon",
       "keyword.other.widened.hexagon",
