@@ -129,7 +129,7 @@ r.x                          -- field access
 
 `r.x` requires the checker to know `r`'s type has field `x`:
 
-- Concrete (closed row, or nominal per §5): checked against the known fields; missing field is a compile error naming the record's known fields.
+- Concrete (closed row, or nominal per §5): checked against the known fields; missing field is a compile error naming the record's known fields. For a nominal record the fields are known wherever the type reaches — visibility is the home declaration's alone (transparent everywhere, or `opaque` there; Modules §4.2) — and the accessing module's imports never enter the judgment.
 - Unknown (`r` is a fresh tyvar, e.g. an unannotated parameter): access **constrains** `r`'s type to a record containing `x`, with a fresh hidden tail — this is where row polymorphism does its silent work. `fun getX(r) = r.x` infers the row-polymorphic type with no annotation (§4).
 - The **fused dot-call form** `r.name(args…)` defers through Method Syntax's DotCall goal and *means* field access whenever the receiver is not head-known-nominal — the row fallback is that form's defined meaning, so **Tier-0 row inference results are unchanged** by dot calls (Method Syntax §3.5). Bare `r.name` is field access always, by grammar.
 
