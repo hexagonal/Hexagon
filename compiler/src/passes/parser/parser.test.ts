@@ -365,6 +365,22 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
+  /**
+   * The seat where #595 was read: the lexer's keyword table inherited
+   * `Object.prototype`, so `toString` never reached the binder as a name and
+   * `let` reported a name it had been given correctly. The repair is the
+   * lexer's; this is the message that must never come back.
+   */
+  test("a binder spelled like an `Object.prototype` member is an ordinary name", () => {
+    const module = parseSource("export let toString: Int = 3\nlet valueOf = toString");
+
+    expect(module.items).toMatchObject([
+      { kind: "Let", exported: true, name: { text: "toString" } },
+      { kind: "Let", exported: false, name: { text: "valueOf" } },
+    ]);
+    expect(module.diagnostics).toEqual([]);
+  });
+
   test("freely interleaves access, calls, and indexing", () => {
     const module = parseSource("users.at(1).profile.names[2]");
 
