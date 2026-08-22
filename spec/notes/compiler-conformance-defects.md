@@ -2069,3 +2069,108 @@ than settling a style question.
   unruled behavior; the wider inventory — the unchecked module-scope
   references, the catch refusal, and the #598 false-unreachable regression —
   established by probe during this arc. Repaired in PR #604.
+
+## 2026-08-23 — a transitively-reached union was unregistered in the importing checker (#605)
+
+- **Classification:** compiler defect against specification; no design change.
+  Pre-existing, and found by the #604 review's adversarial pass — against the
+  #599 arc's own claim that no clean program reached the assumed column, an
+  overclaim generalized from probing the one route that was in fact closed
+  (`#checkPublicSignatures` refuses a *private* type escaping through an
+  exported binding). The #599 entry above records the correction to that
+  claim; this entry is the repair it pointed to.
+- **Authority:** Modules §4.2, the transparent-representation law (#587):
+  outside `opaque`, "the declaration is the **sole authority** on
+  representation visibility", open wherever the type reaches — "an imported
+  signature carries it, and its home module is in the graph by reachability
+  of the type … no import is ever the difference between a representation
+  open and shut." For a union, the representation that travels is the
+  constructor set — Unions §4.3's signature, which Pattern Matching §7.1
+  judges exhaustiveness against exactly, §7.2 judges reachability against,
+  and §5.1 forbids approximating.
+- **Defect origin:** registration abroad was keyed on the *import*, not the
+  type's reach. The resolver copies a union's declaration into an importer's
+  `module.unions` only when the type name arrives by name — a named import
+  binding the type, a namespace import, or the prelude layer — while a
+  function's scheme carries the union's `UnionId` inside it regardless, so
+  the type traveled without its declaration, and in the reached module the
+  checker's registration loop never saw it: `#unions`, `#unionParameters`,
+  `#constructorUnions`, and the constructors' schemes all stayed empty for
+  it. Four symptom classes followed, on diagnostic-free programs (A exports
+  `union Flag = On | Off`; B exports `make(): Flag`; C imports only `make`):
+  the coverage matrix fell back to `#assumedColumn`, whose
+  patterns-as-signature answer refuses a lone live `_` as unreachable and
+  accepts a match missing `Off` in silence; constructor-pattern *typing* was
+  vacuous — the pattern arm missed `#constructorUnions`, returned having
+  unified nothing, and a `Flag` pattern against a `String` scrutinee
+  compiled clean; and the emitter, whose constructor table and tagged-ness
+  judgment are fed from the same import-keyed listing, compiled the
+  silently-accepted match to a `switch` whose default arm throws
+  `RangeError` on the missing constructor, and misread a reached *tagged*
+  union as untagged — testing the scrutinee value against a tag-string case
+  label no `{tag: …}` object ever equals, so every such constructor silently
+  took the wrong arm. The resolver had answered correctly all along; only
+  the declaration failed to travel.
+- **Correction:** the ruled repair (2026-08-23, recorded on #605) extends
+  #587's mechanism from records to unions: the checker lazily materializes a
+  reached union's home declaration from the program-wide nominal table
+  `compileProject` accumulates dependency-first, at the seats that miss —
+  the coverage column, the two constructor-pattern typing arms, and the
+  derivation-components seat — registering a copy stamped
+  `representationVisible: false` exactly as an imported copy is, which is
+  what keeps `#checkPublicSignatures`' locality reading honest. The
+  materialized declarations are carried on the typed module, so the
+  elaborator passes them through and the emitter's constructor table and
+  tagged-ness judgments answer from the home declaration; the repair is not
+  complete at the checker, because the emitter's misjudgments are reachable
+  on programs the checker now rightly accepts. The interface-channel
+  alternative was declined, and the classification that decides this family
+  is recorded on the issue: a fact resolution itself consumes rides the
+  module interface (`visibleConstraints`); a fact needed only as far as
+  *nameability* is already carried by the interface's export maps
+  (`visibleExceptions` — one hop, the width `catch`'s open world can name);
+  a fact needed as far as *reachability*, post-resolution, belongs to the
+  program table (records since #587; unions now).
+  The repair reached further than the filing asked: `programNominals`
+  accumulates declarations `export`ed or not, so a **private** union carried
+  abroad materializes too, and `#assumedColumn` is now unreachable on any
+  compilation with a program table — verified by instrumentation, not
+  argued: with the column throwing on entry, the compiler, language-server,
+  and playground suites all pass. Its remaining client is a bare `check`
+  handed no table, which is a single module that can match no union it did
+  not declare.
+  Witnesses print at bare-name parity with the import case — "match is
+  missing cases: `Off`" even where `Off` is not in the module's scope,
+  exactly what a partial constructor import already gets today; whether such
+  a diagnostic should also say where the name is declared is one
+  message-design question across both routes, filed as #607. Opacity cannot
+  leak into a witness by this repair: a witness deeper than `_` requires
+  refutable arms, refutable arms require nameable constructors, and an
+  opaque union's constructors are unnameable abroad.
+- **Executable conformance:**
+  `conformance/transitive-union-reachability.test.ts` — eleven rows: the
+  lone live `_` compiles clean; the missing-constructor witness appears, and
+  with its payload shape (`Circle(_)`); the wrong-union pattern against a
+  `String` scrutinee is refused; a reached tagged union **executes**
+  correctly through the `.tag` switch (the diagnostic channel says nothing
+  about the emission half — entry 10's lesson); the reached module's JS
+  declares no constructor it did not import; a reached opaque union takes a
+  lone `_` clean; a private union carried abroad gets the exporter's escape
+  report and nothing else; the `representationVisible: false` stamp is
+  pinned in both directions through a transparent alias that routes the
+  union into an exported signature unnamed. Nine of the eleven fail at the
+  pre-fix base; the two that pass are the partial-import parity guard and
+  the reached *untagged* runtime guard, untagged being the emitter's correct
+  default. Suites at the fix: compiler 3278 + 1 expected fail (from 3267),
+  language-server 121, playground 228 — the language-server is fixed through
+  its own `compileProject` path, established rather than assumed. The review
+  re-derived the failure split and the instrumentation independently, and
+  its probes past the suite filed two pre-existing byproducts: a derived
+  `Hash` collapsing to a constant over a *reached* nominal component — a
+  residue the record half has carried since #587 (#609) — and a
+  `()`-fixit parity gap on the same import-keyed table (#610).
+- **Credit:** filed by the #604 review's adversarial instrumentation, which
+  built the three-file reproduction the arc's own probe had generalized
+  past; the wider inventory — the vacuous pattern typing and both emitter
+  misjudgments — established by probe when this arc opened. Repaired in
+  PR #608.
