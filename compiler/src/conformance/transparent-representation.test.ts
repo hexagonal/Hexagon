@@ -323,14 +323,17 @@ describe("the nominal wall still stands in front of a bare record pattern (#587)
     // §4.2 says so in the same breath as the reach: "a nominal record's pattern
     // eliminator is the constructor pattern". Opening the representation is not
     // opening the pattern.
-    // The inference variable's number is an allocation order, not a claim; it
-    // is normalized so the pin is on the wall and not on the counter.
+    //
+    // *(The refusal was the raw unification mismatch until #591 built the
+    // eliminator; now that there is a spelling to send the reader to, §2.4's
+    // redirect is what fires. The wall is the same wall — the diagnostic just
+    // stopped being the unifier's own report of it.)*
     expect(messages([...CRATE, ["/main.hex",
       'import { make } from "./mid"\n' +
       "export fun reading(): Float =\n" +
       "    let {n} = make(1.5)\n" +
-      "    n\n"]]).map((message) => message.replaceAll(/\?\d+/gu, "?_"))).toEqual([
-      "type mismatch: expected Crate, found {n: ?_, ...}",
+      "    n\n"]])).toEqual([
+      "`Crate` is a nominal record; destructure it with `Crate({n})`",
     ]);
   });
 });
