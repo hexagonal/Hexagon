@@ -605,22 +605,31 @@ interface CoverageHead {
   readonly print: (slots: readonly string[]) => string;
 }
 
-/** A pattern split against its column: the head it tests, and its sub-patterns. */
+/** A pattern split against its column: the heads it tests, and its sub-patterns. */
 interface CoverageMatch {
-  readonly head: CoverageHead;
-  /** One per `head.slots`, widened to `_` where the pattern said nothing (§7.1). */
-  readonly subPatterns: readonly Resolved.Pattern[];
+  /**
+   * Every head this pattern tests. One for all but the vector column, where a
+   * single pattern names a whole family of lengths at once (Collections Part 3
+   * §3.3: "a pattern with k fixed slots and a rest covers all lengths ≥ k").
+   */
+  readonly heads: readonly CoverageHead[];
+  /**
+   * The sub-patterns this pattern presents at one of `heads` — one per that
+   * head's slots, widened to `_` where the pattern said nothing (§7.1). It is a
+   * function of the head because the vector's rest form says different things
+   * at different lengths: `[...init, x]` puts `x` at the last slot, wherever
+   * the last slot happens to be.
+   */
+  readonly subPatterns: (head: CoverageHead) => readonly Resolved.Pattern[];
 }
 
 /** One column of Pattern Matching §7's matrix: what it admits, and how patterns split. */
 interface CoverageColumn {
   /**
    * The domain's complete signature, or `undefined` where it has none: the
-   * infinite domains (`Int`, `String`, `Float`), the open `Exn` sum, and the
-   * vector, whose length coverage Collections Part 3 §3 owns and this matrix
-   * therefore does not model. A column with no signature is covered by a
-   * wildcard and by nothing else, which is §7.1's "a catch-all is required"
-   * said in the matrix's own terms.
+   * infinite domains (`Int`, `String`, `Float`) and the open `Exn` sum. A
+   * column with no signature is covered by a wildcard and by nothing else,
+   * which is §7.1's "a catch-all is required" said in the matrix's own terms.
    */
   readonly signature?: readonly CoverageHead[];
   /** `undefined` for a pattern that matches every value the column can hold. */
@@ -4815,6 +4824,7 @@ class Checker {
         if (
           actual.kind === "Union" || actual.kind === "NominalRecord" ||
           actual.kind === "Tuple" || actual.kind === "Record" ||
+          actual.kind === "Vector" ||
           (actual.kind === "Constructor" &&
             (actual.name === "Int" || actual.name === "String" ||
               actual.name === "Float"))
@@ -4829,6 +4839,13 @@ class Checker {
           // so no set of literals ever completes them and the witness is `_`,
           // which is §7.1's "a catch-all is required" said in witnesses.
           //
+          // The vector joins it too (#600). Its lengths *are* a signature
+          // (Collections Part 3 §3.3, `#vectorColumn`), so the length-only
+          // judgment that used to sit in a branch of its own — which never
+          // looked at an element sub-pattern, and blessed `[True, ...rest]` +
+          // `[]` over `Vector(Bool)` as exhaustive — is gone, and the witness
+          // here is a whole vector value rather than a bare length.
+          //
           // #147 deleted the `Bool` branch that stood here. `Bool` is a union,
           // so it reaches this path like every other union.
           if (actual.kind === "Union") this.#matchUnions.set(expression, actual.union);
@@ -4842,37 +4859,6 @@ class Checker {
             message: "match requires a closed type; exceptions are inspected with `try`/`catch`",
             primary: expression.scrutinee.span,
           });
-        } else if (actual.kind === "Vector") {
-          // Collections Part 3 §3 owns the vector's length-based exhaustiveness
-          // and this seat defers to it whole: the matrix's vector column carries
-          // no signature, so the length judgment is the only one that speaks.
-          const catchAll = expression.arms.some((arm) =>
-            arm.guard === undefined && this.#coverageIrrefutable(arm.pattern, actual)
-          );
-          const patterns = expression.arms.flatMap((arm) =>
-            arm.guard === undefined
-              ? coverageAlternatives(arm.pattern).filter(
-                  (pattern): pattern is Resolved.VectorPattern => pattern.kind === "Vector",
-                )
-              : []
-          );
-          const restMinimum = Math.min(
-            ...patterns.filter(({ rest }) => rest !== undefined).map(({ elements }) => elements.length),
-          );
-          const fixedLengths = new Set(
-            patterns.filter(({ rest }) => rest === undefined).map(({ elements }) => elements.length),
-          );
-          const exhaustive = Number.isFinite(restMinimum) &&
-            Array.from({ length: restMinimum }, (_, length) => length).every((length) =>
-              fixedLengths.has(length)
-            );
-          if (!catchAll && !exhaustive) {
-            this.#diagnostics.add({
-              severity: "error",
-              message: "match is missing a vector length case",
-              primary: expression.span,
-            });
-          }
         } else {
           type = this.#unsupported(
             expression.scrutinee.span,
@@ -5926,10 +5912,11 @@ class Checker {
    * Pattern Matching §7's matrix, one column at a time: what the column's type
    * admits, and how a pattern splits against it.
    *
-   * `patterns` are the head patterns that column holds — needed by exactly one
-   * domain, the structural record, whose columns are built "over the union of
-   * mentioned fields, absent mentions widening to `_`" (§7.1). Every other
-   * domain answers from its type alone.
+   * `patterns` are the head patterns that column holds — needed by two domains:
+   * the structural record, whose columns are built "over the union of mentioned
+   * fields, absent mentions widening to `_`" (§7.1), and the vector, whose
+   * length signature reaches exactly as far as its patterns can tell lengths
+   * apart. Every other domain answers from its type alone.
    */
   #coverageColumn(
     type: Mono,
@@ -5945,6 +5932,8 @@ class Checker {
         return this.#tupleColumn(actual);
       case "Record":
         return this.#structuralRecordColumn(actual, patterns);
+      case "Vector":
+        return this.#vectorColumn(actual, patterns);
       case "Variable":
       case "Error":
         // Nothing is known about this domain, so nothing may be concluded from
@@ -5963,10 +5952,10 @@ class Checker {
   }
 
   /**
-   * A column with no signature: the infinite domains, the open `Exn` sum, and
-   * the vector. Patterns here still split — a literal groups with its equal, an
-   * exception constructor with its own — so reachability is exact; what they
-   * never do is complete, which is §7.1's "a catch-all is required".
+   * A column with no signature: the infinite domains and the open `Exn` sum.
+   * Patterns here still split — a literal groups with its equal, an exception
+   * constructor with its own — so reachability is exact; what they never do is
+   * complete, which is §7.1's "a catch-all is required".
    */
   #openColumn(): CoverageColumn {
     return {
@@ -5975,18 +5964,10 @@ class Checker {
           return undefined;
         }
         if (pattern.kind === "Integer" || pattern.kind === "String") {
-          return {
-            head: { key: `literal:${renderLiteralPatternKey(pattern)}`, slots: [], print: () => "_" },
-            subPatterns: [],
-          };
-        }
-        if (pattern.kind === "Vector") {
-          // Collections Part 3 §3's rest form at length zero is the vector's
-          // one irrefutable shape; every other vector pattern turns on a length
-          // this matrix does not model, and that spec owns the verdict.
-          return pattern.rest !== undefined && pattern.elements.length === 0
-            ? undefined
-            : distinctHead(pattern);
+          return oneHead(
+            { key: `literal:${renderLiteralPatternKey(pattern)}`, slots: [], print: () => "_" },
+            [],
+          );
         }
         if (pattern.kind === "Constructor" && this.#exceptions.has(pattern.symbol)) {
           const shape = this.#constructorShape(pattern.symbol, 0);
@@ -5997,10 +5978,7 @@ class Checker {
             print: (witnesses) =>
               witnesses.length === 0 ? name : `${name}(${witnesses.join(", ")})`,
           };
-          return {
-            head,
-            subPatterns: this.#alignedSlots(pattern, head.slots.length),
-          };
+          return oneHead(head, this.#alignedSlots(pattern, head.slots.length));
         }
         return distinctHead(pattern);
       },
@@ -6029,7 +6007,7 @@ class Checker {
         if (pattern.kind !== "Constructor") return distinctHead(pattern);
         const head = heads.get(constructorHeadKey(pattern.symbol));
         if (head === undefined) return distinctHead(pattern);
-        return { head, subPatterns: this.#alignedSlots(pattern, head.slots.length) };
+        return oneHead(head, this.#alignedSlots(pattern, head.slots.length));
       },
     };
   }
@@ -6066,7 +6044,7 @@ class Checker {
         const head = heads.get(constructorHeadKey(pattern.symbol));
         return head === undefined
           ? undefined
-          : { head, subPatterns: this.#alignedSlots(pattern, head.slots.length) };
+          : oneHead(head, this.#alignedSlots(pattern, head.slots.length));
       },
     };
   }
@@ -6149,7 +6127,7 @@ class Checker {
         if (pattern.kind !== "Constructor" || pattern.symbol !== constructor.symbol) {
           return distinctHead(pattern);
         }
-        return { head, subPatterns: this.#alignedSlots(pattern, head.slots.length) };
+        return oneHead(head, this.#alignedSlots(pattern, head.slots.length));
       },
     };
   }
@@ -6171,14 +6149,14 @@ class Checker {
         // same head rather than a case of its own.
         if (pattern.kind === "Unit") {
           return type.elements.length === 0
-            ? { head, subPatterns: [] }
+            ? oneHead(head, [])
             : distinctHead(pattern);
         }
         if (
           pattern.kind !== "Tuple" ||
           pattern.elements.length !== type.elements.length
         ) return distinctHead(pattern);
-        return { head, subPatterns: pattern.elements };
+        return oneHead(head, pattern.elements);
       },
     };
   }
@@ -6226,11 +6204,122 @@ class Checker {
         const mentions = new Map(
           pattern.fields.map((field) => [field.name, field.pattern]),
         );
-        return {
+        return oneHead(
           head,
-          subPatterns: names.map((name) =>
-            mentions.get(name) ?? wildcardAt(pattern.span)
+          names.map((name) => mentions.get(name) ?? wildcardAt(pattern.span)),
+        );
+      },
+    };
+  }
+
+  /**
+   * The vector's signature: **its lengths** (Collections Part 3 §3.3, the Rust
+   * slice-pattern treatment), "integrated into the one Pattern Matching §7
+   * algorithm — no second machinery".
+   *
+   * Lengths are unbounded, so the signature cannot be one head per length. It
+   * is one head per length the column's own patterns can tell apart, and one
+   * variadic head for everything past that: the heads are the fixed lengths
+   * `0 … bound - 1` and a last head standing for every length `≥ bound`.
+   *
+   * `bound` is `max(widest + 1, maxFront + maxBack)`. `widest` is the largest
+   * slot count any vector pattern here carries, so every fixed-length pattern
+   * gets a head of its own and none of them reaches the variadic one.
+   * `maxFront` and `maxBack` are the largest front region and the largest back
+   * region the rest patterns here carry, and the two maxima are taken
+   * **independently**: a front-heavy arm and a back-heavy arm are different
+   * patterns, each keeping its own reach, and their two regions stop
+   * overlapping only at `maxFront + maxBack`. (This is rustc's `max_slice` for
+   * slice patterns — the treatment §3.3 names.) One arm's own front and back
+   * sum to at most `widest`, which is why the ends have to be measured across
+   * the column rather than per pattern: `[_, True, ...rest]` and
+   * `[...rest, False, _]` carry two slots each, so `widest + 1` is 3 — but
+   * between them they pin three positions, and at length 3 they would be read
+   * as pinning the same middle one.
+   *
+   * That last head is sound because no pattern in this column distinguishes two
+   * lengths at or above `bound`. At any length `n ≥ bound` every arm's front
+   * region ends by `maxFront` and its back region starts at `n - maxBack`, so
+   * the window `[maxFront, n - maxBack)` is constrained by no arm at all — and
+   * `bound ≥ maxFront + maxBack` is exactly what makes that window non-empty.
+   * Delete elements from it in an uncovered value of length `n > bound` and the
+   * length-`bound` value that remains is uncovered too: each front slot keeps
+   * its index, each back slot keeps its distance from the end, and the
+   * fixed-length arms are all shorter than `bound`, so they match neither
+   * length. So the head is decided by specializing at `bound` itself, and §7.3
+   * prints it at that same shortest length — which is why the witness for
+   * fixed-length-only arms is a length (`[_, _, _]` in §3.3's own example)
+   * rather than a shape with an ellipsis in it.
+   *
+   * The signature is complete, so a vector `match` now demands a catch-all only
+   * when it really misses one, and the arms below `[...rest]` are dead by the
+   * same §7.2 usefulness every other domain answers to.
+   */
+  #vectorColumn(
+    type: VectorMono,
+    patterns: readonly Resolved.Pattern[],
+  ): CoverageColumn {
+    let widest = 0;
+    let maxFront = 0;
+    let maxBack = 0;
+    for (const pattern of patterns) {
+      if (pattern.kind !== "Vector") continue;
+      widest = Math.max(widest, pattern.elements.length);
+      const rest = pattern.rest;
+      if (rest === undefined) continue;
+      // §3.1: `rest.index` is the count of slots written before the rest, and
+      // the slots written after it count from the end.
+      maxFront = Math.max(maxFront, rest.index);
+      maxBack = Math.max(maxBack, pattern.elements.length - rest.index);
+    }
+    const bound = Math.max(widest + 1, maxFront + maxBack);
+    const lengthHead = (length: number, key: string): CoverageHead => ({
+      key,
+      slots: Array.from({ length }, () => type.element),
+      print: (witnesses) => `[${witnesses.join(", ")}]`,
+    });
+    const fixed = new Map<number, CoverageHead>(
+      Array.from({ length: bound }, (_, length) => [
+        length,
+        lengthHead(length, `vector:${length}`),
+      ]),
+    );
+    const variadic = lengthHead(bound, `vector:${bound}+`);
+    const signature = [...fixed.values(), variadic];
+    return {
+      signature,
+      split: (pattern) => {
+        if (pattern.kind === "Wildcard" || pattern.kind === "Binding") {
+          return undefined;
+        }
+        if (pattern.kind !== "Vector") return distinctHead(pattern);
+        const rest = pattern.rest;
+        if (rest === undefined) {
+          // A fixed pattern is exactly its length, and that length is below
+          // `bound` by construction, so it never reaches the variadic head.
+          const head = fixed.get(pattern.elements.length);
+          return head === undefined
+            ? distinctHead(pattern)
+            : oneHead(head, vectorSlots(pattern, pattern.elements.length));
+        }
+        // §3.1: a rest is a binder or anonymous, and either way it says nothing
+        // about the middle it covers. A rest that binds a *shape* is outside
+        // the form this column models, and takes the head that covers nothing
+        // rather than a length claim this matrix cannot check.
+        const restShape = rest.pattern === undefined
+          ? undefined
+          : unwrapAsPattern(rest.pattern).kind;
+        if (
+          restShape !== undefined && restShape !== "Binding" &&
+          restShape !== "Wildcard"
+        ) {
+          return distinctHead(pattern);
+        }
+        return {
+          heads: signature.filter(
+            ({ slots }) => slots.length >= pattern.elements.length,
           ),
+          subPatterns: (head) => vectorSlots(pattern, head.slots.length),
         };
       },
     };
@@ -6268,8 +6357,8 @@ class Checker {
             ...wildcardSlots(head.slots.length, alternative.span),
             ...row.slice(1),
           ]);
-        } else if (split.head.key === head.key) {
-          rows.push([...split.subPatterns, ...row.slice(1)]);
+        } else if (split.heads.some(({ key }) => key === head.key)) {
+          rows.push([...split.subPatterns(head), ...row.slice(1)]);
         }
       }
     }
@@ -6303,7 +6392,9 @@ class Checker {
       if (first === undefined) continue;
       for (const alternative of coverageAlternatives(first)) {
         const split = column.split(alternative);
-        if (split !== undefined) present.add(split.head.key);
+        if (split !== undefined) {
+          for (const { key } of split.heads) present.add(key);
+        }
       }
     }
     return present;
@@ -6397,10 +6488,15 @@ class Checker {
     return alternatives.some((alternative) => {
       const split = column.split(alternative);
       if (split !== undefined) {
-        return this.#coverageUseful(
-          [...split.head.slots, ...rest],
-          this.#specializeMatrix(column, split.head, matrix),
-          [...split.subPatterns, ...row.slice(1)],
+        // A pattern naming several heads at once (the vector's rest form) is
+        // useful when it is useful at any one of them — the same reading an
+        // or-pattern gets, for the same reason: they are alternative shapes.
+        return split.heads.some((head) =>
+          this.#coverageUseful(
+            [...head.slots, ...rest],
+            this.#specializeMatrix(column, head, matrix),
+            [...split.subPatterns(head), ...row.slice(1)],
+          )
         );
       }
       const present = this.#columnHeads(column, matrix);
@@ -12604,21 +12700,53 @@ function constructorHeadKey(symbol: Resolved.SymbolId): string {
 
 /**
  * A head nothing else can share, for a pattern whose column cannot decompose
- * it: a vector's length test, a constructor that failed to type against its
- * column. Such a pattern covers nothing and completes no signature, which is
- * exactly what it does at run time. The key is the span because a written
- * pattern occupies its own, and two of them are never the same test.
+ * it: a constructor that failed to type against its column, a rest that binds
+ * a shape rather than a name. Such a pattern covers nothing and completes no
+ * signature, which is the safe reading in both directions — it can neither
+ * complete an exhaustiveness claim nor kill an arm below it. The key is the
+ * span because a written pattern occupies its own, and two of them are never
+ * the same test.
  */
 function distinctHead(pattern: Resolved.Pattern): CoverageMatch {
   const { fileId, start, end } = pattern.span;
-  return {
-    head: {
-      key: `distinct:${fileId}:${start.offset}:${end.offset}`,
-      slots: [],
-      print: () => "_",
-    },
-    subPatterns: [],
-  };
+  return oneHead({
+    key: `distinct:${fileId}:${start.offset}:${end.offset}`,
+    slots: [],
+    print: () => "_",
+  }, []);
+}
+
+/** A pattern that tests exactly one head — every domain but the vector. */
+function oneHead(
+  head: CoverageHead,
+  subPatterns: readonly Resolved.Pattern[],
+): CoverageMatch {
+  return { heads: [head], subPatterns: () => subPatterns };
+}
+
+/**
+ * A vector pattern's sub-patterns at one length — Collections Part 3 §3.3's
+ * specialization, and §3.1's "slots after the rest count from the end".
+ *
+ * The written slots sit at both ends: `rest.index` of them at the front, the
+ * remainder flush against the back, and wildcards across the middle the rest
+ * covers. At the pattern's own length (a fixed pattern, no rest) the two ends
+ * meet and this is the elements in order.
+ */
+function vectorSlots(
+  pattern: Resolved.VectorPattern,
+  length: number,
+): readonly Resolved.Pattern[] {
+  const front = pattern.rest?.index ?? pattern.elements.length;
+  const back = pattern.elements.length - front;
+  return Array.from({ length }, (_, index) => {
+    if (index < front) return pattern.elements[index] ?? wildcardAt(pattern.span);
+    if (index >= length - back) {
+      return pattern.elements[front + index - (length - back)] ??
+        wildcardAt(pattern.span);
+    }
+    return wildcardAt(pattern.span);
+  });
 }
 
 const EXPORTED_SIGNATURE =

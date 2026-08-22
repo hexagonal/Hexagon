@@ -415,8 +415,83 @@ describe("§5.1's gate is the single-row matrix, and §5.3 is its one sentence",
   });
 });
 
-describe("the domains the matrix defers on", () => {
-  test("the vector keeps Collections Part 3 §3's length judgment", () => {
+/**
+ * Collections Part 3 §3.3, joined to the matrix at #600: "vector patterns
+ * partition by length (the Rust slice-pattern treatment), integrated into the
+ * one Pattern Matching §7 algorithm — no second machinery".
+ *
+ * The machinery it replaces partitioned by length and stopped there: it read
+ * every arm's slot count, never its element sub-patterns, and so blessed
+ * `[True, ...rest]` + `[]` over `Vector(Bool)` as exhaustive — a match `[False]`
+ * falls straight through at run time. Lengths are now one column's signature,
+ * and elements decompose under it like every other slot.
+ */
+describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () => {
+  test("element sub-patterns decide too, so a partial length is not covered (#600)", () => {
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      "        [True, ...rest] => 1\n" +
+      "        [] => 2\n",
+    )).toEqual(["match is missing cases: `[False]`, `[False, _]`"]);
+
+    // Two witnesses because the arms miss two of the column's heads: length 1,
+    // and the variadic head standing for every length ≥ 2, printed at its own
+    // shortest length. Both are values the arms really miss.
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      "        [] => 0\n" +
+      "        [True] => 1\n" +
+      "        [_, _, ...rest] => 2\n",
+    )).toEqual(["match is missing cases: `[False]`"]);
+
+    // The elements alone can complete the lengths above zero.
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      "        [] => 0\n" +
+      "        [True, ...] => 1\n" +
+      "        [False, ...] => 2\n",
+    )).toEqual([]);
+  });
+
+  test("decomposition nests: a union inside a length decomposes as itself", () => {
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Option(Bool))): Int =\n" +
+      "    match v\n" +
+      "        [] => 0\n" +
+      "        [Some(True), ...] => 1\n" +
+      "        [Some(False), ...] => 2\n" +
+      "        [None, ...] => 3\n",
+    )).toEqual([]);
+
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Option(Bool))): Int =\n" +
+      "    match v\n" +
+      "        [] => 0\n" +
+      "        [Some(True), ...] => 1\n" +
+      "        [None, ...] => 3\n",
+    )).toEqual(["match is missing cases: `[Some(False)]`, `[Some(False), _]`"]);
+  });
+
+  test("a missed length is still reported as a length", () => {
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Int)): Int =\n" +
+      "    match v\n" +
+      "        [] => 0\n" +
+      "        [_] => 1\n",
+    )).toEqual(["match is missing cases: `[_, _]`"]);
+
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Int)): Int =\n" +
+      "    match v\n" +
+      "        [_] => 1\n",
+    )).toEqual(["match is missing cases: `[]`, `[_, _]`"]);
+  });
+
+  /** §3.3's own examples, none of which moves. */
+  test("a rest covers every length at or above its slot count", () => {
     expect(projectDiagnostics(
       "export fun size(v: Vector(Int)): Int =\n" +
       "    match v\n" +
@@ -427,12 +502,222 @@ describe("the domains the matrix defers on", () => {
     expect(projectDiagnostics(
       "export fun size(v: Vector(Int)): Int =\n" +
       "    match v\n" +
-      "        [_] => 1\n",
-    )).toEqual(["match is missing a vector length case"]);
+      "        [] => 0\n" +
+      "        [x] => x\n" +
+      "        [x, y, ...rest] => x + y\n",
+    )).toEqual([]);
 
-    // The rest form at length zero is the vector's one irrefutable shape, so
-    // it passes the gate; a fixed-length pattern does not, and draws §5.3's
-    // sentence with the witness the signature-less domain can offer.
+    expect(projectDiagnostics(
+      "export fun size(v: Vector(Int)): Int =\n" +
+      "    match v\n" +
+      "        [...rest] => 1\n",
+    )).toEqual([]);
+
+    expect(projectDiagnostics(
+      "export fun size(v: Vector(Int)): Int =\n" +
+      "    match v\n" +
+      "        [...] => 1\n",
+    )).toEqual([]);
+  });
+
+  /** §3.1: "slots after the rest count from the end". */
+  test("a rest at either end, or in the middle, aligns its slots", () => {
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Int)): Int =\n" +
+      "    match v\n" +
+      "        [] => 0\n" +
+      "        [...init, x] => x\n",
+    )).toEqual([]);
+
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Int)): Int =\n" +
+      "    match v\n" +
+      "        [] => 0\n" +
+      "        [x] => x\n" +
+      "        [a, ..., z] => a + z\n",
+    )).toEqual([]);
+
+    // A front slot and a back slot constrain different ends, so the two arms
+    // meet only at length 1: `[False, …, True]` is uncovered above it, and the
+    // witness says so at the shortest length that shows it.
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      "        [] => 0\n" +
+      "        [True, ...rest] => 1\n" +
+      "        [...init, False] => 2\n",
+    )).toEqual(["match is missing cases: `[False, True]`"]);
+  });
+
+  /**
+   * The two ends are measured across the column, not per pattern. A rest
+   * pattern's front and back regions stop overlapping only at
+   * `maxFront + maxBack`, and those maxima can belong to *different* arms: the
+   * arms below carry two slots each, so a bound of `widest + 1 = 3` would read
+   * the front-heavy arm's second slot and the back-heavy arm's second-from-last
+   * slot as the same position, and every length above 3 would be decided by a
+   * coincidence that holds only at 3. `bound = max(widest + 1, maxFront +
+   * maxBack) = 4` is where the two ends are genuinely apart, and it is the
+   * length the witnesses below are printed at.
+   */
+  test("the variadic bound counts both ends independently", async () => {
+    const ENDS =
+      "        [] => 0\n" +
+      "        [_] => 1\n" +
+      "        [_, _] => 2\n" +
+      "        [_, True, ...rest] => 3\n" +
+      "        [...rest, False, _] => 4\n";
+
+    // At length 3 the two rest arms constrain the *same* position (1 and
+    // n - 2 coincide) and `True`/`False` cover it between them. At length 4
+    // they separate, and everything with `False` there and `True` two from the
+    // end escapes both.
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      ENDS,
+    )).toEqual(["match is missing cases: `[_, False, True, _]`"]);
+
+    // And the witness is a real escapee, not a bound artefact: with a sentinel
+    // arm below, an instance of it reaches the sentinel.
+    const escapes = await runMain(
+      "fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      ENDS +
+      "        _ => -1\n" +
+      "export let w: Int = f([True, False, True, True])\n",
+    );
+    expect(escapes.w).toEqual(-1);
+
+    // The dual, and the direction that must never regress: completing those
+    // arms with a catch-all leaves the catch-all *live*, because its first
+    // witness is a length-4 value. A variadic head read at 3 calls it dead and
+    // turns a correct program into a hard error.
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      ENDS +
+      "        _ => 5\n",
+    )).toEqual([]);
+
+    const completed = await runMain(
+      "fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      ENDS +
+      "        _ => 5\n" +
+      "export let w: Int = f([False, False, True, True])\n",
+    );
+    expect(completed.w).toEqual(5);
+  });
+
+  test("both ends covered in that regime is exhaustive, at every length", async () => {
+    // `maxFront = 2` and `maxBack = 2` against `widest = 2`, so `bound = 4`
+    // again — but here the second-from-last position is covered by `False` and
+    // `True` both, so every length from 2 up is covered without a catch-all.
+    // The last arm's first witness is a length-4 value too: at length 3 its
+    // constrained position is the one the front-heavy arm already claims, so a
+    // column that stopped at 3 would call it dead.
+    const COVERING =
+      "        [] => 0\n" +
+      "        [_] => 1\n" +
+      "        [_, _] => 2\n" +
+      "        [_, True, ...rest] => 3\n" +
+      "        [...rest, False, _] => 4\n" +
+      "        [...rest, True, _] => 5\n";
+
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      COVERING,
+    )).toEqual([]);
+
+    // The acceptance runs, at `bound - 1` through `bound + 2`, over both values
+    // of each position any arm here looks at — position 1 for the front-heavy
+    // arm, position `n - 2` for the back-heavy ones. Nothing falls through to
+    // the emitter's unreachable-pattern throw, and each length answers with the
+    // arm the lengths and the elements together pick.
+    const exports = await runMain(
+      "fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      COVERING +
+      "export let threeFront: Int = f([False, True, False])\n" +
+      "export let threeBack: Int = f([False, False, False])\n" +
+      "export let fourFront: Int = f([False, True, False, False])\n" +
+      "export let fourBackFalse: Int = f([False, False, False, False])\n" +
+      "export let fourBackTrue: Int = f([False, False, True, False])\n" +
+      "export let fiveFront: Int = f([False, True, False, False, False])\n" +
+      "export let fiveBackFalse: Int = f([False, False, False, False, False])\n" +
+      "export let fiveBackTrue: Int = f([False, False, False, True, False])\n" +
+      "export let sixFront: Int = f([False, True, False, False, False, False])\n" +
+      "export let sixBackFalse: Int = f([False, False, False, False, False, False])\n" +
+      "export let sixBackTrue: Int = f([False, False, False, False, True, False])\n",
+    );
+    expect([exports.threeFront, exports.threeBack]).toEqual([3, 4]);
+    expect([exports.fourFront, exports.fourBackFalse, exports.fourBackTrue])
+      .toEqual([3, 4, 5]);
+    expect([exports.fiveFront, exports.fiveBackFalse, exports.fiveBackTrue])
+      .toEqual([3, 4, 5]);
+    expect([exports.sixFront, exports.sixBackFalse, exports.sixBackTrue])
+      .toEqual([3, 4, 5]);
+  });
+
+  test("reachability over the lengths is exact (§7.2)", () => {
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Int)): Int =\n" +
+      "    match v\n" +
+      "        [] => 0\n" +
+      "        [_, ...rest] => 1\n" +
+      "        [_, _] => 2\n",
+    )).toEqual(["this case is unreachable; the patterns above already cover it"]);
+
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Int)): Int =\n" +
+      "    match v\n" +
+      "        [...rest] => 1\n" +
+      "        [] => 2\n",
+    )).toEqual(["this match arm is unreachable; an earlier pattern matches everything"]);
+
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      "        [_] => 1\n" +
+      "        [True] => 2\n" +
+      "        _ => 0\n",
+    )).toEqual(["this case is unreachable; the patterns above already cover it"]);
+  });
+
+  test("guarded arms contribute nothing here either (§7.1)", () => {
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Int)): Int =\n" +
+      "    match v\n" +
+      "        [] => 0\n" +
+      "        [x, ...rest] when x > 0 => 1\n",
+    )).toEqual(["match is missing cases: `[_]`"]);
+  });
+
+  test("a vector column inside another column decomposes the same way", () => {
+    expect(projectDiagnostics(
+      "export union Wrap = W(Vector(Bool))\n" +
+      "export fun f(w: Wrap): Int =\n" +
+      "    match w\n" +
+      "        W([]) => 0\n" +
+      "        W([True, ...]) => 1\n",
+    )).toEqual(["match is missing cases: `W([False])`, `W([False, _])`"]);
+
+    expect(projectDiagnostics(
+      "export fun f(p: (Vector(Bool), Bool)): Int =\n" +
+      "    match p\n" +
+      "        ([], _) => 0\n" +
+      "        ([True, ...], _) => 1\n",
+    )).toEqual(["match is missing cases: `([False], _)`, `([False, _], _)`"]);
+  });
+
+  /**
+   * §3.4: irrefutable iff it matches every length — exactly `[...rest]` and
+   * `[...]`. The gate's witness is now the length the pattern misses, which is
+   * §3.4's own `[]`, rather than the `_` a signature-less domain could offer.
+   */
+  test("§3.4's gate names the length the pattern can fail on", () => {
     expect(projectDiagnostics(
       "export fun first(vs: Vector(Vector(Int))): Int =\n" +
       "    var total = 0\n" +
@@ -447,9 +732,23 @@ describe("the domains the matrix defers on", () => {
       "    for [a] in vs\n" +
       "        total := total + a\n" +
       "    total\n",
-    )).toEqual(["this pattern can fail: `_`; use `match`"]);
-  });
+    )).toEqual(["this pattern can fail: `[]`; use `match`"]);
 
+    expect(projectDiagnostics(
+      "let head: (Vector(Int)) -> Int = [x, ...rest] => x\n" +
+      "export let v: Int = head([1])\n",
+    )).toEqual([
+      "this pattern can fail: `[]`; use `match` — for a match function, write `match` with arms",
+    ]);
+
+    expect(projectDiagnostics(
+      "let all: (Vector(Int)) -> Int = [...xs] => Vector.length(xs)\n" +
+      "export let v: Int = all([1])\n",
+    )).toEqual([]);
+  });
+});
+
+describe("the domains the matrix defers on", () => {
   test("`Exn` stays open: catch arms demand nothing, but dead ones still error", () => {
     expect(projectDiagnostics(
       "exception Boom(line: Int)\n" +
