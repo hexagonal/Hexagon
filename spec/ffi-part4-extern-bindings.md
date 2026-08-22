@@ -268,7 +268,7 @@ import { parse } from "tiny-json";
 export { parse };
 ```
 
-(Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §6: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import * as TinyJson from "./tiny-json"` — the extern block never forces its consumers to know it is an extern block.
+(Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §6: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import module TinyJson from "./tiny-json"` — the extern block never forces its consumers to know it is an extern block.
 
 Exported extern bindings are ordinary Hexagon exports thereafter: importable, aliasable, namespace-qualifiable. The `.d.ts` details of the re-exported face are Part 7's.
 

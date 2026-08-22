@@ -489,7 +489,9 @@ than settling a style question.
 - **Reproduction (on `main`, no Phase 3 machinery).** `injectPrelude` prefers a
   project's own file at a prelude basename over the embedded fallback — the
   documented path for compiling the stdlib itself. Supply `/Prelude.hex`,
-  `/Option.hex`, and a `/Result.hex` carrying an **explicit** import line:
+  `/Option.hex`, and a `/Result.hex` carrying an **explicit** import line *(era spelling throughout this
+  recipe — it reproduces on the compiler of its record; #565 respelled the head
+  `import module`, Modules §3.3)*:
 
   ```
   import * as O from "./Option"
@@ -647,7 +649,7 @@ than settling a style question.
   the explicit-alias map. The layering is the point and the first attempt got it
   wrong: registering members in the *same* map as `import * as` aliases made an
   explicit `import * as Seq from "./SeqCore"` collide with the prelude member and
-  reddened 23 tests. §5.4 settles it — explicit imports are module-level
+  reddened 23 tests. *(Era spelling; #565.)* §5.4 settles it — explicit imports are module-level
   bindings, prelude entries are the outer layer — so the members live in a
   fallback map and an explicit alias of the same name simply wins.
 - **Executable conformance:** `compiler/src/conformance/prelude-qualified.test.ts`
@@ -662,7 +664,7 @@ than settling a style question.
 - **Correction to the correction (PR #90 finding F1, Fable).** The first fix
   resolved the name and stopped there, and the defect lives one level below
   resolution. A prelude member has **no namespace object to dot into** — unlike
-  an explicit `import * as`, nothing declares one — so the qualified reference
+  an explicit `import * as`, nothing declares one *(era spelling; #565)* — so the qualified reference
   emitted as literal dotted text with no import synthesized:
 
   ```js

@@ -209,7 +209,7 @@ honor Iterable<Bag(a)> =
 
 ```
 -- consumer.hex
-import * as Bag from "./bag"
+import module Bag from "./bag"
 
 let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))
 var total = 0

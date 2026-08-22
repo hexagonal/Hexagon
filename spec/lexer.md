@@ -247,6 +247,7 @@ listed positions:
 | `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` and `opaque`, always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
 | `widens` | the widens-declaration introducer at declaration head — module top level, never after `export`, always followed by a qualified member path (Constraints §4.7; #546). Same disambiguation as `union`: no juxtaposition exists, so `widens` followed by a name is no term |
 | `widened` | the complete RHS of a member line in an `honor` block — `pow = widened` (Constraints §4.7; #546). The position is otherwise always an error (member RHSs must be lambdas), so recognition is total; elsewhere `widened` is an ordinary name |
+| `module` | the namespace-import head: exactly between `import` and the alias (Modules §3.3; #565). No name can legally stand there, so recognition is total; elsewhere `module` is an ordinary name — `let module = 3` binds. The alias seat demands uppercase-start, so `import module module` is refused by start class, not ambiguity |
 
 Contextual status is observable: `let when = True` is legal, while the same spelling
 after an arm pattern introduces its guard. Likewise `{with = 3}` is a field and `{with}`
@@ -259,13 +260,13 @@ position; the lexer does not emit contextual-keyword token kinds.
 
 ### 4.3 Words that are not keywords
 
-`throw`, `ignore`, `range`, `rangeDown`, `show`, `module`, `main`, `async`, `await`,
+`throw`, `ignore`, `range`, `rangeDown`, `show`, `main`, `async`, `await`,
 `break`, `continue`, and `yield` are ordinary non-uppercase-start names. Some are prelude
 functions, some name rejected or deferred forms, and some have no meaning at all.
 Library membership never turns a name into a keyword.
 
 `module Geometry`, `export default` outside `extern`, `break`, and similar near misses
-may receive targeted parser diagnostics without acquiring lexical privilege.
+may receive targeted parser diagnostics without acquiring lexical privilege. (`module`, since #565, additionally holds a §4.2 context of its own — the import head; outside that one position it remains an ordinary name, and the header near-miss diagnostic works exactly as before.)
 
 ## 5. Numeric literals
 
