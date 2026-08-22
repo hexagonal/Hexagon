@@ -312,8 +312,50 @@ export interface Module {
    * one. Metadata, like `docs`: nothing between here and emission reads it.
    */
   readonly typeHoles: readonly TypeHole[];
+  /**
+   * The companion operations this module's dot calls reached in a module it
+   * never textually imported (Method Syntax §8.2, #585). Empty for almost every
+   * module.
+   *
+   * §4.2's operation set is import-insensitive, so a dot call can resolve to a
+   * declaration no import here binds a name for — and then "the emitter adds
+   * whatever dependency the resolved declaration's lowering requires". This is
+   * the checker telling it which, because the checker is the pass that resolved
+   * the call and the only one that knows where the operation lives.
+   */
+  readonly companionImports: readonly CompanionImport[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
+}
+
+/**
+ * One companion operation a dot call reached with no import to name it by, and
+ * everything emission needs to write that import (Method Syntax §8.2, #585).
+ *
+ * Everything here is the *exporting* module's, carried rather than looked up:
+ * an operation that no import brought is an operation whose module is in no
+ * table on this side either.
+ */
+export interface CompanionImport {
+  readonly symbol: Resolved.SymbolId;
+  /** The name the home module declared it under — its source spelling. */
+  readonly imported: string;
+  /** The specifier this module reaches the home module by (Modules §11). */
+  readonly specifier: string;
+  /**
+   * Whether the operation is a constrained binding, whose exported face is the
+   * trailing-evidence one under an internal spelling (FFI Part 7 §7). Read from
+   * the exporter's published scheme; an importer's usual source for this is the
+   * symbol table, which by construction does not hold this symbol.
+   */
+  readonly constrained: boolean;
+  /**
+   * The home module's internal export spellings, exactly as an `Import` item
+   * carries them (`Resolved.ImportItem.internalNames`) and read by the same
+   * rule, so a written import and a synthesized one cannot disagree about what
+   * the exporter published.
+   */
+  readonly internalNames: Resolved.InternalNameInputs;
 }
 
 /**

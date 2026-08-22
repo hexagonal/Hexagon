@@ -11,8 +11,12 @@ import type * as Emitted from "./emission/index.js";
 import { lex } from "./passes/lexer/lexer.js";
 import { applyLayout } from "./passes/layout/layout.js";
 import { parse } from "./passes/parser/parser.js";
-import { moduleInterface, resolve } from "./passes/resolver/resolver.js";
-import { check } from "./passes/checker/checker.js";
+import { internalNameInputs, moduleInterface, resolve } from "./passes/resolver/resolver.js";
+import {
+  check,
+  homeCompanionOperations,
+  type ProgramOperation,
+} from "./passes/checker/checker.js";
 import { elaborate } from "./passes/elaborator/elaborator.js";
 import {
   emitDeclarations,
@@ -203,6 +207,18 @@ export function compileProject(
     unions: [],
     records: [],
   };
+  // Method Syntax §4.2's companion operation set for every nominal the program
+  // has declared, dependencies first, each contributed by the type's own home
+  // module (#585, `homeCompanionOperations`). The section's "the set is
+  // import-insensitive… by construction" is this table: a checker reads a
+  // receiver's operations from here, so no import of the *call site's* can add
+  // one or take one away. Ordering carries the completeness claim — a type
+  // nameable in a module had its home module compiled before it, because
+  // imports are acyclic and a type reference can only follow one — which is what
+  // makes the transitive case work: a nominal reached through a re-export or
+  // through an imported function's result arrives with its whole set, having
+  // never been imported here at all.
+  const programOperations = new Map<string, Map<string, ProgramOperation>>();
   let symbolBase = 0;
   let unionBase = 0;
   let recordBase = 0;
@@ -326,9 +342,33 @@ export function compileProject(
         externTypeBase,
       );
     }
-    const typed = check(resolved, { importedSchemes, programNominals });
+    const typed = check(resolved, { importedSchemes, programNominals, programOperations });
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
+    // The schemes are this module's published ones, taken beside the symbols
+    // rather than left for a consumer to look up: the operations that need the
+    // table most are the ones no consumer imported, so no consumer holds their
+    // schemes either.
+    const publishedSchemes = new Map(typed.symbols.map(({ id, scheme }) => [id, scheme]));
+    const ownOperations = homeCompanionOperations(resolved);
+    // Computed once, and only where there is something to name: §8.2's added
+    // import is written from the exporter's own spellings, and this is the
+    // enumeration every written import already travels with.
+    const ownInternalNames = ownOperations.size === 0
+      ? { members: [], terms: [] }
+      : internalNameInputs(moduleInterface(resolved));
+    for (const [subject, operations] of ownOperations) {
+      let seats = programOperations.get(subject);
+      if (seats === undefined) {
+        seats = new Map();
+        programOperations.set(subject, seats);
+      }
+      for (const [name, symbol] of operations) {
+        const scheme = publishedSchemes.get(symbol.id);
+        if (scheme === undefined) continue;
+        seats.set(name, { symbol, scheme, path, internalNames: ownInternalNames });
+      }
+    }
     // The source travels with the tree so the post-elaboration judgments can
     // quote what was written (Exceptions §5.4's cannot-throw message).
     const core = elaborate(typed, source);
@@ -418,6 +458,13 @@ export function compileProject(
         // in this file mentions: an instance travels a re-export chain, but its
         // seats are only ever reached at the module that declared it.
         ...(module?.javascript.memberSeatImports ?? []),
+        // The companion operations a dot call reached with no import to name
+        // them by (#585, Method Syntax §8.2). A seventh channel on the same
+        // footing as the sixth, and it can be a module's only edge to the
+        // operation's home: §4.2's set is import-insensitive, so a type that
+        // arrived through a re-export or a function's result carries its whole
+        // companion, whose module nothing in this file mentions.
+        ...(module?.javascript.companionOperationImports ?? []),
         // The `.d.ts` channel (#227, FFI Part 7 §2.4) is an edge on the same
         // footing, and the only one with no JavaScript counterpart: a face
         // naming `Option` while touching no `Option` term imports the type and

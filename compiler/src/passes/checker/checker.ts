@@ -26,7 +26,7 @@ import {
   preRegisteredConstraintIdentity,
 } from "../../constraints.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
-import { relativeFilePath } from "../../support/paths.js";
+import { relativeFilePath, relativeSpecifier } from "../../support/paths.js";
 import type * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
@@ -42,6 +42,17 @@ export interface CheckOptions {
    * falls back to that view, which is complete for a single-module program.
    */
   readonly programNominals?: VarianceDeclarations;
+  /**
+   * Every nominal's companion operation set as its **home module** declared it,
+   * for the modules the program has compiled so far (#585, `homeCompanionOperations`).
+   *
+   * Method Syntax §4.2's set is import-insensitive by construction, and this is
+   * the construction: the checker reads a receiver's operations from here rather
+   * than from its own symbol table, which holds only what this module's imports
+   * happened to carry. Absent — a lone `check` in a test — the module's own view
+   * stands, which is complete for a single-module program.
+   */
+  readonly programOperations?: ProgramOperations;
 }
 
 export function check(
@@ -733,6 +744,116 @@ function companionKeyOfAnnotation(
 }
 
 /**
+ * §4.2's companion operation set for the nominals **this** module declares,
+ * read off its own exported declarations and nothing else (#585).
+ *
+ * This is `CompanionOf` said in code (Method Syntax §4.1, Modules §7.2): a
+ * nominal's operations are its *home module's* exported subject-first
+ * declarations, decided once where the type is declared. Read from anywhere
+ * else the answer would be a function of what the reader happened to import,
+ * and §4.2 forbids exactly that — "no import adds or removes a dot-callable
+ * operation", "the set is import-insensitive… by construction". The construction
+ * is this function: nothing here can see an importer.
+ *
+ * Exported so `compileProject` can accumulate the program's sets
+ * dependency-first, the way it already accumulates `programNominals`. A type
+ * nameable at a call site had its home module compiled first — imports are
+ * acyclic and a type reference can only follow one — so the accumulated table is
+ * complete for every receiver a module can write, including the transitive ones:
+ * a nominal reached through a re-export or an imported function's result, whose
+ * home module this call site never named in any form.
+ *
+ * **Nominal keys only.** A built-in head (`Vector`, `Map`, `Set`) and a
+ * primitive have no declaration to be at home in, so `home` below holds no key
+ * for them and their operations stay with the alias channel that has always
+ * answered for them (`BUILTIN_COMPANIONS`, `PRIMITIVE_COMPANIONS` — see
+ * `#indexCompanionOperations`). That channel is already import-insensitive in
+ * the way that matters: the alias *is* the companion.
+ *
+ * The subject comes from the written annotation rather than from a scheme, for
+ * the order-independence `#indexCompanionOperations` explains: §4.2's `T`-headed
+ * test "is a syntactic test, not a unification question".
+ */
+export function homeCompanionOperations(
+  module: Resolved.Module,
+): ReadonlyMap<string, ReadonlyMap<string, Resolved.Symbol>> {
+  const symbols = new Map(module.symbols.map((symbol) => [symbol.id, symbol]));
+  // Only the nominals declared *here*. `module.records` carries imported copies
+  // too, and admitting an operation onto one of those is precisely the orphan
+  // the home-module filter exists to refuse (§1's "one companion, no search").
+  const home = new Set<string>();
+  for (const record of module.records) {
+    if (Number(record.span.fileId) === Number(module.fileId)) {
+      home.add(recordCompanionKey(record.id));
+    }
+  }
+  for (const union of module.unions) {
+    if (Number(union.span.fileId) === Number(module.fileId)) {
+      home.add(unionCompanionKey(union.id));
+    }
+  }
+  const found = new Map<string, Map<string, Resolved.Symbol>>();
+  const admit = (
+    binding: Resolved.Binding,
+    annotation: Resolved.TypeAnnotation | undefined,
+  ): void => {
+    const subject = companionKeyOfAnnotation(annotation);
+    if (subject === undefined || !home.has(subject)) return;
+    const symbol = symbols.get(binding.symbol);
+    // Symbol kind, not declaration shape — the same test `admit` runs in the
+    // checker, and for the same reason: an intrinsic `extern fun` binds as kind
+    // `fun` so that it lands here (#134), while an ordinary foreign `extern`
+    // binds as kind `extern` and stays out (#266).
+    if (symbol === undefined || (symbol.kind !== "fun" && symbol.kind !== "let")) return;
+    let operations = found.get(subject);
+    if (operations === undefined) {
+      operations = new Map();
+      found.set(subject, operations);
+    }
+    operations.set(symbol.name, symbol);
+  };
+  for (const item of module.items) {
+    if (item.kind === "ExternBlock") {
+      for (const declaration of item.declarations) {
+        if (declaration.kind !== "ExternFun" || !declaration.exported) continue;
+        admit(declaration.binding, declaration.parameters[0]?.annotation);
+      }
+      continue;
+    }
+    if (item.kind !== "Fun" && item.kind !== "Let") continue;
+    if (!item.exported) continue;
+    admit(item.binding, firstParameterAnnotation(item));
+  }
+  return found;
+}
+
+/**
+ * One companion operation as the program table carries it: the home module's
+ * symbol, and the scheme that module published for it.
+ *
+ * The scheme travels because the symbol table does not reach far enough. A
+ * consumer holds the schemes of what its own imports carried, and the whole
+ * point of #585's transitive case is an operation no import here carried — so
+ * `importedSchemes` can be silent about exactly the entries this table exists to
+ * add.
+ */
+export interface ProgramOperation {
+  readonly symbol: Resolved.Symbol;
+  readonly scheme: Typed.Scheme;
+  /**
+   * The home module's project-normalized path, and the internal export
+   * spellings it published — what §8.2's added import is written from when a
+   * call site reaches this operation with no import of its own
+   * (`Typed.CompanionImport`).
+   */
+  readonly path: string;
+  readonly internalNames: Resolved.InternalNameInputs;
+}
+
+/** Every nominal's companion operation set, by companion key then by name. */
+export type ProgramOperations = ReadonlyMap<string, ReadonlyMap<string, ProgramOperation>>;
+
+/**
  * The first parameter's annotation of a module-level function declaration.
  *
  * Two spellings reach here. A header form (`fun map(s: Seq(a), …)`, and the
@@ -1309,6 +1430,19 @@ class Checker {
   readonly #diagnostics: Diagnostics.Bag;
   readonly #importedSchemes: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
   readonly #programNominals: VarianceDeclarations;
+  readonly #programOperations: ProgramOperations;
+  /**
+   * The companion operations this module's dot calls reached with no import to
+   * name them by (Method Syntax §8.2), by symbol — the input to
+   * `Typed.Module.companionImports`.
+   *
+   * Recorded at the resolved call rather than swept from the index afterwards:
+   * an entry is an `import` line in the emitted file, and the index holds every
+   * operation of every nominal the program declares.
+   */
+  readonly #companionImports = new Map<Resolved.SymbolId, Typed.CompanionImport>();
+  /** Where each operation in the program table came from, by symbol. */
+  readonly #operationHomes = new Map<Resolved.SymbolId, ProgramOperation>();
   /** This module's file id, held for constraint identity; set by `check`. */
   #fileId = 0;
   /**
@@ -1335,6 +1469,7 @@ class Checker {
     this.#diagnostics = diagnostics;
     this.#importedSchemes = options.importedSchemes ?? new Map();
     this.#programNominals = options.programNominals ?? { unions: [], records: [] };
+    this.#programOperations = options.programOperations ?? new Map();
   }
 
   check(module: Resolved.Module): Typed.Module {
@@ -2022,6 +2157,7 @@ class Checker {
       comments: module.comments,
       docs: module.docs,
       typeHoles: this.#materializeTypeHoles(),
+      companionImports: [...this.#companionImports.values()],
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
@@ -2052,9 +2188,53 @@ class Checker {
    * not unification, and no candidate reaches this path without having crossed
    * an export boundary, which is where `#checkPublicSignatures` has already
    * demanded an annotation.
+   *
+   * **The nominal half is not this module's to decide (#585).** A nominal's
+   * operations come from `#programOperations`, built by the *home* module from
+   * its own exported declarations, because a set read off this module's symbol
+   * table is a set built from whatever its imports happened to carry — and §4.2
+   * says in as many words that no import adds or removes a dot-callable
+   * operation. Reading it here made `Box({…}).double()` compile under `import
+   * module B` and fail under `import { Box }`, with a message claiming the
+   * companion exports no such operation while it plainly did.
+   *
+   * Two of this module's own views join it. `homeCompanionOperations(module)` is
+   * what *this* file declares, which the program table cannot hold yet: it is
+   * accumulated dependency-first and this module has not been compiled. The
+   * symbol loop is the **built-in and primitive** channel, where membership is an
+   * alias's export list rather than a home file because no declaration exists
+   * for a home module to have indexed. That loop's nominal arm is now a subset of
+   * the program table's answer and is kept for the lone `check` — one module,
+   * no project — which is still a supported way to compile.
    */
   #indexCompanionOperations(module: Resolved.Module): void {
-    const symbols = new Map(module.symbols.map((symbol) => [symbol.id, symbol]));
+    for (const [subject, operations] of this.#programOperations) {
+      for (const [name, operation] of operations) {
+        const { symbol, scheme } = operation;
+        // The scheme travels with the operation and is seeded here, once, if
+        // nothing already holds one: a transitively reached operation is exactly
+        // the one `importedSchemes` never saw, and a candidate with no scheme
+        // reads downstream as a self-reference (`#dispatchCompanionOperation`).
+        if (!this.#schemes.has(symbol.id)) {
+          this.#schemes.set(symbol.id, this.#importScheme(scheme));
+        }
+        this.#operationHomes.set(symbol.id, operation);
+        let found = this.#companionOperations.get(subject);
+        if (found === undefined) {
+          found = new Map();
+          this.#companionOperations.set(subject, found);
+        }
+        found.set(name, symbol);
+      }
+    }
+    for (const [subject, operations] of homeCompanionOperations(module)) {
+      let found = this.#companionOperations.get(subject);
+      if (found === undefined) {
+        found = new Map();
+        this.#companionOperations.set(subject, found);
+      }
+      for (const [name, symbol] of operations) found.set(name, symbol);
+    }
     const home = new Map<string, number>();
     for (const record of module.records) {
       home.set(recordCompanionKey(record.id), Number(record.span.fileId));
@@ -2100,25 +2280,6 @@ class Checker {
       }
       operations.set(symbol.name, symbol);
     };
-
-    for (const item of module.items) {
-      if (item.kind === "ExternBlock") {
-        for (const declaration of item.declarations) {
-          if (declaration.kind !== "ExternFun" || !declaration.exported) continue;
-          admit(
-            symbols.get(declaration.binding.symbol),
-            companionKeyOfAnnotation(declaration.parameters[0]?.annotation),
-          );
-        }
-        continue;
-      }
-      if (item.kind !== "Fun" && item.kind !== "Let") continue;
-      if (!item.exported) continue;
-      admit(
-        symbols.get(item.binding.symbol),
-        companionKeyOfAnnotation(firstParameterAnnotation(item)),
-      );
-    }
 
     for (const symbol of module.symbols) {
       // Everything this file declared has already been offered above, under the
@@ -2430,6 +2591,7 @@ class Checker {
       expression.span,
     );
     this.#registerCall(expression, dotEffect, calleeLabel(expression));
+    this.#recordCompanionImport(operation);
     this.#dotCalls.set(expression, {
       symbol: operation.id,
       name: operation.name,
@@ -2438,6 +2600,38 @@ class Checker {
       receiver: callee.receiver,
     });
     return result;
+  }
+
+  /**
+   * Method Syntax §8.2, from the side that knows: a dot call resolved to an
+   * operation this module has no name for, so emission owes the file an import
+   * of it (#585).
+   *
+   * The two ways a module *does* have a name are both checked. `#operationSpellings`
+   * holds every symbol an import item binds, namespace forms included — the dot
+   * emits the local spelling, `B.double`, and there is nothing to add. A symbol
+   * bound in this file is the home module's own dot call, spelled bare.
+   *
+   * Everything left is §4.2's import-insensitivity being paid for. The record is
+   * the *home module's*: its path, its published constrainedness, and the
+   * internal spellings it named its exports by — none of which this module could
+   * reconstruct, precisely because it never imported it.
+   */
+  #recordCompanionImport(operation: Resolved.Symbol): void {
+    if (this.#operationSpellings.has(operation.id)) return;
+    if (Number(operation.bindingSpan.fileId) === this.#fileId) return;
+    if (this.#companionImports.has(operation.id)) return;
+    const home = this.#operationHomes.get(operation.id);
+    // No home on record is the lone-`check` compilation, which has no module
+    // graph and so no second file to import from either.
+    if (home === undefined || this.#modulePath === undefined) return;
+    this.#companionImports.set(operation.id, {
+      symbol: operation.id,
+      imported: operation.name,
+      specifier: relativeSpecifier(this.#modulePath, home.path),
+      constrained: home.scheme.constraints.length > 0,
+      internalNames: home.internalNames,
+    });
   }
 
   /**
