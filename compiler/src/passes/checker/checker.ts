@@ -1177,6 +1177,13 @@ class Checker {
   readonly #externTypes = new Map<Resolved.ExternTypeId, Resolved.ExternTypeDeclaration>();
   readonly #recordParameters = new Map<Resolved.RecordId, ReadonlyMap<string, Variable>>();
   readonly #recordFields = new Map<Resolved.RecordId, ReadonlyMap<string, Mono>>();
+  /**
+   * `#programNominals.records` by identity, built on the first question asked of
+   * it (#587); see `#programRecord`. Undefined until then, because most modules
+   * never reach a record they did not import and would pay for a table they
+   * never read.
+   */
+  #programRecordIndex?: ReadonlyMap<Resolved.RecordId, Resolved.RecordDeclaration>;
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
   readonly #aliasParameters = new WeakMap<Resolved.TypeAliasItem, ReadonlyMap<string, Variable>>();
   readonly #exceptions = new Map<Resolved.SymbolId, Resolved.ExceptionItem>();
@@ -5223,7 +5230,11 @@ class Checker {
           type = field === undefined
             ? this.#unsupported(
                 expression.field.span,
-                `\`${receiver.name}\` has fields ${[...fields.keys()].map((name) => `\`${name}\``).join(", ")}, not \`${expression.field.text}\``,
+                missingFieldMessage(
+                  receiver.name,
+                  [...fields.keys()],
+                  expression.field.text,
+                ),
               )
             : field;
           if (field !== undefined) this.#recordAccesses.set(expression, expression.field.text);
@@ -5237,12 +5248,13 @@ class Checker {
             break;
           }
           if (receiver.tail === undefined) {
-            const known = [...receiver.fields.keys()];
             type = this.#unsupported(
               expression.field.span,
-              known.length === 0
-                ? `the empty record has no field \`${expression.field.text}\``
-                : `record has fields ${known.map((name) => `\`${name}\``).join(", ")}, not \`${expression.field.text}\``,
+              missingFieldMessage(
+                undefined,
+                [...receiver.fields.keys()],
+                expression.field.text,
+              ),
             );
             break;
           }
@@ -9429,6 +9441,12 @@ class Checker {
   }
 
   #nominalRecordFields(record: NominalRecordMono): ReadonlyMap<string, Mono> {
+    // Modules §4.2: the representation travels with the type (#587). Everything
+    // below reads two tables this module fills from `module.records` — which is
+    // what its *imports* carried — so a type reached only through an imported
+    // signature had no row at all here, and the fields the spec says are open
+    // read as none.
+    this.#materializeReachedRecord(record.record);
     const parameters = [...(this.#recordParameters.get(record.record)?.values() ?? [])];
     const replacements = new Map(
       parameters.map((parameter, index) => [parameter.id, record.arguments[index] ?? ERROR]),
@@ -9475,6 +9493,81 @@ class Checker {
   }
 
   /**
+   * The declaration a nominal record identity names, wherever in the **program**
+   * it was written (#587).
+   *
+   * `#records` holds what this module's own text put there: its declarations
+   * and the copies its imports carried. A type reaches further than that — an
+   * imported signature carries it, and its home module is in the graph by
+   * reachability — and Modules §4.2 says the representation reaches exactly as
+   * far, so the judgment needs a table that does too. `#programNominals` is
+   * already that table, accumulated dependency-first by `compileProject`
+   * (`VarianceTable` reads it for §6.4's uniformity, for the same reason and
+   * over the same shortfall); indexed here because a field access is a hot path
+   * where the variance table's one-shot scan is not.
+   *
+   * **First copy wins, and it is the home module's.** Every module that imports
+   * a record contributes its own `representationVisible: false` copy of the
+   * declaration to the listing, and the accumulation is dependency-first, so
+   * the declaring module's copy is the one already in the map when an
+   * importer's arrives. The field rows agree either way — an imported copy is a
+   * spread of the original — but `declaringPath` and the locality flag do not.
+   */
+  #programRecord(record: Resolved.RecordId): Resolved.RecordDeclaration | undefined {
+    if (this.#programRecordIndex === undefined) {
+      const index = new Map<Resolved.RecordId, Resolved.RecordDeclaration>();
+      for (const declaration of this.#programNominals.records) {
+        if (!index.has(declaration.id)) index.set(declaration.id, declaration);
+      }
+      this.#programRecordIndex = index;
+    }
+    return this.#programRecordIndex.get(record);
+  }
+
+  /**
+   * Elaborates the field row of a record this module reached without importing
+   * it, once, from the home module's declaration (Modules §4.2, #587).
+   *
+   * The rows this module builds eagerly come from `module.records`, and that
+   * listing is the *importer's*: a nominal that arrives as an imported
+   * function's result type — `make(1.5)` where nothing here names `Crate` — is
+   * absent from it, so `#recordFields` held no entry and the fields the spec
+   * calls open read as none. That is the whole of #587's first half: the
+   * diagnostic enumerated an empty list because the list was empty.
+   *
+   * A no-op for everything already known, which is every record this module
+   * declared or imported — so an importing module and a non-importing one now
+   * elaborate the same row from the same declaration, which is §4.2's
+   * import-insensitivity said operationally. Written to the same two maps the
+   * eager pass writes, and in the same order (parameters before fields, since
+   * the fields' annotations are read against them), so nothing downstream can
+   * tell which pass filled them.
+   *
+   * Diagnostics are *not* suppressed, deliberately. A `->?` in a field of an
+   * imported record is already re-read in every importing module, and the rule
+   * being implemented here is that importing changes nothing: silencing the
+   * reached case would put back, in the diagnostic channel, exactly the
+   * import-sensitivity the ruling removes.
+   */
+  #materializeReachedRecord(record: Resolved.RecordId): void {
+    if (this.#recordFields.has(record)) return;
+    const declaration = this.#programRecord(record);
+    if (declaration === undefined) return;
+    const typeParameters = new Map(
+      declaration.parameters.map((name) => [name, this.#fresh(0, false)] as const),
+    );
+    this.#recordParameters.set(record, typeParameters);
+    this.#recordFields.set(
+      record,
+      this.#inPosition("record", () =>
+        new Map(declaration.fields.map((field) => [
+          field.name,
+          this.#annotationType(field.annotation, 0, new Map(), typeParameters),
+        ]))),
+    );
+  }
+
+  /**
    * Whether this module may see a record's fields — Modules §4.1/§4.2.
    *
    * The stored `representationVisible` flag answers a narrower question: the
@@ -9484,13 +9577,27 @@ class Checker {
    * patterns, and update across the import (§4.1). So the home module always
    * sees, and everyone else sees exactly when the declaration is not opaque.
    *
+   * A record in neither of this module's roles — neither declared here nor
+   * imported here, reached only through some signature's type — is answered
+   * from the program's own copy of the declaration, and `opaque` is read off it
+   * directly (#587). The stored flag must **not** be consulted there: the copy
+   * the program table holds is the home module's, where it is `true` by
+   * definition, and honouring it would open every opaque record to precisely
+   * the modules that never imported it. Absent even from the program table
+   * there is no declaration to hide anything, and `true` is the lone-`check`
+   * answer it has always been.
+   *
    * `#checkPublicSignatures` still reads the raw flag, deliberately: there it
    * is the locality signal that keeps an imported type out of the
    * private-in-public check (§4.3).
    */
   #recordRepresentationVisible(record: Resolved.RecordId): boolean {
     const declaration = this.#records.get(record);
-    return declaration === undefined || declaration.representationVisible || !declaration.opaque;
+    if (declaration !== undefined) {
+      return declaration.representationVisible || !declaration.opaque;
+    }
+    const home = this.#programRecord(record);
+    return home === undefined || !home.opaque;
   }
 
   /** Whether the hidden `Node` intrinsic appears directly in a (signature) type. */
@@ -12130,6 +12237,39 @@ function find<T extends { readonly id: Id }, Id>(
     if (declaration.id === id) return declaration;
   }
   return undefined;
+}
+
+/**
+ * Products §3.2's missing-field sentence — "name the known fields" — and the
+ * one shape it is not allowed to take (Modules §4.2, #587).
+ *
+ * "An empty field enumeration is malformed output, never a compiler sentence",
+ * and the way to keep it out is not a check before the join but a renderer with
+ * no path to it: the enumerating clause is written **once**, inside the arm
+ * that has already destructured a first name out of the list, so a caller
+ * holding nothing cannot reach it. The empty arm is a sentence of its own,
+ * because a record with no fields at all is a legal declaration (`record Empty
+ * = {}`) and its reader still deserves a reason.
+ *
+ * `subject` is the nominal's name, or absent for a structural row — the two
+ * callers are the two arms of `Access`, and they differ only in whether the
+ * record has a name to be called by.
+ */
+function missingFieldMessage(
+  subject: string | undefined,
+  known: readonly string[],
+  field: string,
+): string {
+  const [first, ...rest] = known;
+  if (first === undefined) {
+    return subject === undefined
+      ? `the empty record has no field \`${field}\``
+      : `\`${subject}\` has no fields, so it has no field \`${field}\``;
+  }
+  const enumeration = [first, ...rest].map((name) => `\`${name}\``).join(", ");
+  return subject === undefined
+    ? `record has fields ${enumeration}, not \`${field}\``
+    : `\`${subject}\` has fields ${enumeration}, not \`${field}\``;
 }
 
 function inferredTypeVariableName(index: number): string {
