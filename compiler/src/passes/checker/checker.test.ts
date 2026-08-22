@@ -183,8 +183,10 @@ describe("check", () => {
         '    Flagged(True) => "yes"\n' +
         '    Empty => "empty"',
     );
+    // §7.3's witness, not the bare constructor name the listing used to print
+    // (#594): `Flagged` carries a slot, so the shallowest missing shape names it.
     expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
-      "match is missing cases: `Flagged`",
+      "match is missing cases: `Flagged(False)`",
     );
 
     const unreachable = checkSource(
@@ -218,8 +220,10 @@ describe("check", () => {
     });
 
     const incomplete = checkSource("let True | True = False");
+    // §5.3's one sentence for every gated position (#594): the or-pattern's own
+    // wording is retired with the rest of the per-form family.
     expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
-      "this or-pattern does not cover every possible value and cannot be used in a binding position; use `match`",
+      "this pattern can fail: `False`; use `match`",
     );
   });
 
@@ -274,7 +278,7 @@ describe("check", () => {
         "let Some(value) = Some(42)",
     );
     expect(refutable.diagnostics.map(({ message }) => message)).toContain(
-      "a constructor pattern is refutable and cannot be used in a binding position; use `match`",
+      "this pattern can fail: `None`; use `match`",
     );
   });
 
@@ -301,8 +305,7 @@ describe("check", () => {
     // The gate is unchanged by #505; at a lambda parameter the refusal now names
     // the construct that does what this writer meant (Pattern Matching §6.7).
     expect(refutable.diagnostics.map(({ message }) => message)).toContain(
-      "a constructor pattern is refutable and cannot be used in a binding position; " +
-        "use `match` — for a match function, write `match` with arms",
+      "this pattern can fail: `None`; use `match` — for a match function, write `match` with arms",
     );
   });
 
@@ -356,11 +359,24 @@ describe("check", () => {
 
     expect(module.diagnostics).toEqual([]);
 
+    // #594: the tuple is a finite-shape domain, so its arms are checked exactly
+    // rather than made to write a catch-all. Four exact arms cover `(Bool, Bool)`;
+    // here the second component is `Int`, so the witness names the missing half
+    // and leaves the infinite half `_`.
+    const exact = checkSource(
+      'fun corners(pair: (Bool, Bool)): Int = match pair\n' +
+        "    (True, True) => 0\n" +
+        "    (True, False) => 1\n" +
+        "    (False, True) => 2\n" +
+        "    (False, False) => 3",
+    );
+    expect(exact.diagnostics).toEqual([]);
+
     const incomplete = checkSource(
       'fun tupleLabel(pair: (Bool, Int)): String = match pair\n    (True, _) => "active"',
     );
     expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
-      "match on `(Bool, Int)` needs a catch-all structural pattern",
+      "match is missing cases: `(False, _)`",
     );
   });
 
@@ -394,8 +410,11 @@ describe("check", () => {
     const incomplete = checkSource(
       'fun count(n: Int): String = match n\n    0 => "none"',
     );
+    // The infinite domains report through §7.3's one sentence too (#594): no set
+    // of literals completes them, so the witness is `_` — which is exactly what
+    // "a catch-all is required" means.
     expect(incomplete.diagnostics.map(({ message }) => message)).toContain(
-      "a match on `Int` needs a catch-all pattern",
+      "match is missing cases: `_`",
     );
   });
 
@@ -1633,7 +1652,7 @@ describe("check", () => {
         "        ()",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
-      "this loop pattern can fail; bind an irrefutable pattern and use `match` inside the loop",
+      "this pattern can fail: `_`; use `match`",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
       "type `Int` has no `Iterable` instance",

@@ -153,14 +153,17 @@ describe("exhaustiveness still rejects what it should", () => {
 
   test("a refutable tuple element does not make the arm covering", () => {
     // `Some((1, rest))` matches only when the first component is 1, so `Some`
-    // remains uncovered.
+    // remains uncovered — and the witness (#594) shows where: the `Int`
+    // component has no finite signature, so it renders `_`.
     const messages = diagnostics(
       "let pair: Option((Int, Int)) = Some((1, 2))\n" +
       "export let total: Int = match pair\n" +
       "    None => 0\n" +
       "    Some((1, right)) => right\n",
     );
-    expect(messages.some((message) => message.includes("missing cases: `Some`"))).toBe(true);
+    expect(messages.some((message) =>
+      message.includes("missing cases: `Some((_, _))`")
+    )).toBe(true);
   });
 
   test("the arity check is untouched", () => {

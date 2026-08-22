@@ -165,7 +165,7 @@ describe("paren-free single parameters", () => {
     const messages = diagnostics(
       "union Maybe = Some(value: Int) | None\nlet f = Some(v) => v\n",
     );
-    expect(messages.some((m) => m.includes("refutable"))).toBe(true);
+    expect(messages.some((m) => m.includes("this pattern can fail: `None`"))).toBe(true);
   });
 
   // The arrow is the whole signal, so what merely starts like a pattern is untouched.
@@ -242,7 +242,7 @@ describe("the depth rule and the irrefutability gate", () => {
     const messages = diagnostics(
       "union Shade =\n    | Light\n    | Dark\nlet f(Light) = 1\nexport let out: Int = f(Light)\n",
     );
-    expect(messages.some((m) => m.includes("refutable"))).toBe(true);
+    expect(messages.some((m) => m.includes("this pattern can fail: `Dark`"))).toBe(true);
   });
 
   test("a plain name parameter is unchanged", async () => {

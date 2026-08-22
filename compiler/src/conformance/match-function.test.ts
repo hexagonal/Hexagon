@@ -228,8 +228,7 @@ describe("callback position — the form's reason to exist", () => {
         "let unwrap = Just(n) => n\n" +
         "export let g: Int = 1\n",
     )).toEqual([
-      "a constructor pattern is refutable and cannot be used in a binding position; " +
-        "use `match` — for a match function, write `match` with arms",
+      "this pattern can fail: `Nothing`; use `match` — for a match function, write `match` with arms",
     ]);
   });
 
@@ -242,7 +241,7 @@ describe("callback position — the form's reason to exist", () => {
         "let Just(n) = value\n" +
         "export let g: Int = 1\n",
     )).toEqual([
-      "a constructor pattern is refutable and cannot be used in a binding position; use `match`",
+      "this pattern can fail: `Nothing`; use `match`",
     ]);
   });
 });

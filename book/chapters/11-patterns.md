@@ -180,8 +180,10 @@ the remaining values.
 ## Exhaustiveness protects future changes
 
 A `match` must cover every possible value. For a union, the compiler knows every
-constructor. For tuples and records, it combines the shapes of their components. When
-something is missing, the error gives an example pattern:
+constructor. For tuples and records, it combines the shapes of their components — so
+four arms exhaust a `(Bool, Bool)`, and a record's fields are checked field by field,
+with no catch-all required. When something is missing, the error gives an example
+pattern:
 
 ```text
 match is missing cases: (None, _)
@@ -191,8 +193,9 @@ This is stronger than a warning. A value cannot fall silently through a match at
 runtime.
 
 Reachability is checked just as firmly. An arm after `_` is unreachable. A case already
-fully covered by an earlier unguarded arm cannot be handled again. Guarded arms do not
-hide later arms with the same pattern because their guards may fail.
+fully covered by an earlier unguarded arm cannot be handled again — including a trailing
+`_` behind arms that between them cover the whole type. Guarded arms do not hide later
+arms with the same pattern because their guards may fail.
 
 This makes union evolution visible: adding a constructor points directly to matches
 that need a decision about the new case.
@@ -214,7 +217,7 @@ let {guest, seats} = reservation
 `Some(value)` is refutable for `Option(a)` because the value might be `None`:
 
 ```hexagon
-let Some(value) = possibleValue // error: this pattern can fail; use match
+let Some(value) = possibleValue // error: this pattern can fail: `None`; use `match`
 ```
 
 A constructor pattern for a single-constructor nominal record is irrefutable:
@@ -242,7 +245,7 @@ The rule above leaves a gap that callbacks fall into constantly. Mapping over a
 the natural spelling is refused:
 
 ```hexagon
-Vector.map(options, Some(value) => value)   // error: this pattern can fail
+Vector.map(options, Some(value) => value)   // error: this pattern can fail: `None`
 ```
 
 A parameter must be irrefutable, and `Some(value)` is not. The honest expansion is a
@@ -284,8 +287,7 @@ second arm to fall through to; a match function has as many as you write, and th
 compiler holds you to covering the type. The refusal above even says so:
 
 ```text
-a constructor pattern is refutable and cannot be used in a binding position;
-use `match` — for a match function, write `match` with arms
+this pattern can fail: `None`; use `match` — for a match function, write `match` with arms
 ```
 
 Because it is a lambda, it satisfies the rule that a `fun` binding's right-hand side must

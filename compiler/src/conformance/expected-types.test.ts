@@ -539,7 +539,7 @@ describe("Pattern Matching §6.1's refusal, reduced and re-worded", () => {
     expect(projectDiagnostics(
       "let f: (Float) -> String = match\n" +
         "    n when n < 0.5 => \"small\"\n",
-    )).toEqual(["a match on `Float` needs a catch-all pattern"]);
+    )).toEqual(["match is missing cases: `_`"]);
 
     // And §2.5's ban stands: `Int` and `String` are the literal-pattern types,
     // so an integer literal against a `Float` scrutinee is the ordinary
