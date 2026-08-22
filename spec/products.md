@@ -129,7 +129,7 @@ r.x                          -- field access
 
 `r.x` requires the checker to know `r`'s type has field `x`:
 
-- Concrete (closed row, or nominal per §5): checked against the known fields; missing field is a compile error naming the record's known fields.
+- Concrete (closed row, or nominal per §5): checked against the known fields; missing field is a compile error naming the record's known fields. For a nominal record the fields are known wherever the type reaches — visibility is the home declaration's alone (transparent everywhere, or `opaque` there; Modules §4.2) — and the accessing module's imports never enter the judgment.
 - Unknown (`r` is a fresh tyvar, e.g. an unannotated parameter): access **constrains** `r`'s type to a record containing `x`, with a fresh hidden tail — this is where row polymorphism does its silent work. `fun getX(r) = r.x` infers the row-polymorphic type with no annotation (§4).
 - The **fused dot-call form** `r.name(args…)` defers through Method Syntax's DotCall goal and *means* field access whenever the receiver is not head-known-nominal — the row fallback is that form's defined meaning, so **Tier-0 row inference results are unchanged** by dot calls (Method Syntax §3.5). Bare `r.name` is field access always, by grammar.
 
@@ -255,7 +255,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | `{p with}` — no overrides | parse error; hint: "the no-override copy is `{...p}`" (§3.3) |
 | Spread merge — `{...a, ...b}` | parse error; fixit: "Hexagon has no record merge; `{...p}` copies, `{p with f = e}` updates" (§3.3, §9; the JS merge habit — the most common spread idiom after copy — permanent diagnostic) |
 | Closed-row annotation rejects wider record | mention *extra* fields; suggest `...` (§4) |
-| Missing field on access | name the known fields (§3.2) |
+| Missing field on access | name the known fields (§3.2; never an empty enumeration — Modules §4.2, #587) |
 | Nominal `Point` where `{x: Float, ...}` expected | type error; suggest `{...p}` (§5.3) |
 | Bare `()` in type position | redirect, per the Rewrite Rule: "the empty tuple's type is written `Unit`; `()` in type syntax is only the zero-parameter domain `() -> T`" (§2.7, #159; the `() -> T` form itself stays legal — Functions §5.3) |
 | `x => { print(x) }` | record-literal/block confusion — owned by Lexer & Layout spec; cross-referenced here because records cause it |
