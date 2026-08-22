@@ -3360,11 +3360,12 @@ class Resolver {
       return undefined;
     }
     // The same kind test the bare arm makes, so one spelling cannot match what
-    // the other refuses. A record's constructor is `record-constructor`, which
-    // no pattern reaches by either spelling — nominal record patterns are #84
-    // item 1, still open (the defect log's constructor-tuple entry carries the
-    // record).
-    if (symbol.kind !== "constructor") {
+    // the other refuses. `record-constructor` joins it at #591: Pattern
+    // Matching §2.2 grants the constructor pattern to nominal `record`
+    // constructors as well as union ones, and Modules §4.2 makes that
+    // eliminator name-carried — so it qualifies through a module alias by
+    // §3.3's ordinary door, exactly as a union constructor does.
+    if (symbol.kind !== "constructor" && symbol.kind !== "record-constructor") {
       this.#diagnostics.add({
         severity: "error",
         message: `\`${qualifier.text}.${name.text}\` is not a constructor`,
@@ -3488,8 +3489,19 @@ class Resolver {
       // own constructor; above it the prelude is invisible and
       // `#findLaterDeclaration` supplies §7.2's declared-later error in its
       // pattern wording — the shape a user-written union already draws there.
+      //
+      // Both constructor kinds answer here (#591). A nominal record's
+      // eliminator is its constructor pattern (Pattern Matching §2.2, Modules
+      // §4.2), and it is *name-carried*: the name has to be in scope by
+      // ordinary lexical scoping or import, which is exactly what this lookup
+      // asks and nothing more — the representation's own reach (§4.2, #587)
+      // never puts a name here.
       const symbol = this.#lookupTerm(pattern.name.text, scope);
-      if (symbol === undefined || this.#symbol(symbol).kind !== "constructor") {
+      const kind = symbol === undefined ? undefined : this.#symbol(symbol).kind;
+      if (
+        symbol === undefined ||
+        (kind !== "constructor" && kind !== "record-constructor")
+      ) {
         const later = symbol === undefined
           ? this.#findLaterDeclaration(pattern.name.text)
           : undefined;

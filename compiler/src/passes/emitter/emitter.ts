@@ -2718,6 +2718,13 @@ class JavaScriptEmitter {
         return fields.length === 0 ? "" : `{ ${fields.join(", ")} }`;
       }
       case "Constructor": {
+        // Erased, as in `#emitPatternPlan`: the value is the record, so the
+        // binding form is whatever the one sub-pattern binds, applied directly
+        // (#591). `let Crate({n}) = c` is `const { n } = c`.
+        if (this.#recordConstructors.has(pattern.symbol)) {
+          const inner = pattern.arguments[0];
+          return inner === undefined ? "" : this.#emitPattern(inner);
+        }
         const fields = pattern.arguments.flatMap((argument, index) => {
           const field = this.#constructors.get(pattern.symbol)?.constructor
             .slots[index]?.field ?? `item${index + 1}`;
@@ -4416,6 +4423,18 @@ class JavaScriptEmitter {
           ),
         );
       case "Constructor": {
+        // The nominal record's constructor pattern erases with its constructor
+        // (#591). Products §5.1/§5.4: `Point` is the identity on the record it
+        // is handed, so the runtime value *is* the record and there is no
+        // wrapper to unwrap — no tag to test, no payload field to read. The one
+        // sub-pattern therefore plans against the very same value, which is the
+        // pattern-side mirror of the direct application's erasure.
+        if (this.#recordConstructors.has(pattern.symbol)) {
+          const inner = pattern.arguments[0];
+          return inner === undefined
+            ? { tests: [], bindings: [] }
+            : this.#emitPatternPlan(inner, value, exceptionPatterns);
+        }
         const exception = exceptionPatterns
           ? this.#exceptions.get(pattern.symbol)
           : undefined;

@@ -293,11 +293,23 @@ describe("what a qualified constructor pattern refuses", () => {
     )).toContain("module `Option` does not export `Blah`");
   });
 
-  test("a term that is not a constructor is refused, as the bare spelling is", () => {
-    // A record's constructor is not reachable from a pattern by *either*
-    // spelling; the qualified arm makes the same kind test the bare one makes,
-    // so neither spelling matches what the other refuses. The wordings differ
-    // because the qualified form knows which module it asked.
+  test("a record's constructor answers by both spellings, and refuses by both alike", () => {
+    // This *was* the file's "not a constructor" pin: a record's constructor was
+    // the one term the kind test rejected, and it rejected it under both
+    // spellings. #591 built the eliminator the spec had always named (Pattern
+    // Matching §2.2, Modules §4.2), and both kind tests admit
+    // `record-constructor` now — so the specimen changed sides, and the
+    // invariant it was here to demonstrate is what survives: **one pattern, two
+    // spellings.** Same symbol, so the same arity report, worded identically,
+    // with only the qualifier differing at the use site.
+    //
+    // The refusal itself is not re-pinned here because it no longer has a
+    // source-reachable specimen: the case rule keeps every other term kind
+    // lowercase-start (`let` rejects an uppercase name; an `extern` demands an
+    // alias for one), and the parser only builds a constructor pattern —
+    // qualified or bare — from an uppercase-start name. The branch is kept in
+    // the resolver as the closed door it is.
+    const arity = "constructor pattern `Point` expects 1 arguments, got 2";
     expect(compileFiles([
       ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
@@ -305,9 +317,7 @@ describe("what a qualified constructor pattern refuses", () => {
         "export fun f(p: Lib.Point): Int =\n" +
         "    match p\n" +
         "        Lib.Point(a, b) => a\n"],
-    ]).diagnostics.map(({ message }) => message)).toContain(
-      "`Lib.Point` is not a constructor",
-    );
+    ]).diagnostics.map(({ message }) => message)).toContain(arity);
     expect(compileFiles([
       ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
@@ -315,9 +325,15 @@ describe("what a qualified constructor pattern refuses", () => {
         "export fun f(p: Point): Int =\n" +
         "    match p\n" +
         "        Point(a, b) => a\n"],
-    ]).diagnostics.map(({ message }) => message)).toContain(
-      "unknown constructor `Point`",
-    );
+    ]).diagnostics.map(({ message }) => message)).toContain(arity);
+    expect(compileFiles([
+      ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
+      ["/main.hex",
+        "import module Lib from \"./lib\"\n" +
+        "export fun f(p: Lib.Point): Int =\n" +
+        "    match p\n" +
+        "        Lib.Point({x}) => x\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([]);
   });
 
   test("a type name behind the alias reads as it does in value position", () => {

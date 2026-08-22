@@ -1184,7 +1184,13 @@ class Checker {
    * never read.
    */
   #programRecordIndex?: ReadonlyMap<Resolved.RecordId, Resolved.RecordDeclaration>;
-  readonly #recordConstructors = new Set<Resolved.SymbolId>();
+  /**
+   * Each nominal record's constructor symbol, to the record it constructs. A
+   * set until #591; the identity is what the constructor **pattern** needs, to
+   * ask the declaration for the row its one sub-pattern checks against and to
+   * recognise the pattern as the record's sole constructor.
+   */
+  readonly #recordConstructors = new Map<Resolved.SymbolId, Resolved.RecordId>();
   readonly #aliasParameters = new WeakMap<Resolved.TypeAliasItem, ReadonlyMap<string, Variable>>();
   readonly #exceptions = new Map<Resolved.SymbolId, Resolved.ExceptionItem>();
   /**
@@ -2062,7 +2068,7 @@ class Checker {
     }
     for (const record of module.records) {
       this.#records.set(record.id, record);
-      this.#recordConstructors.add(record.constructor.symbol);
+      this.#recordConstructors.set(record.constructor.symbol, record.id);
       const typeParameters = new Map(
         record.parameters.map((name) => [name, this.#fresh(0, false)] as const),
       );
@@ -4773,6 +4779,29 @@ class Checker {
               });
             }
           }
+        } else if (actual.kind === "NominalRecord") {
+          // #591. A nominal record is a one-constructor domain, so §7.1's
+          // finite-shape clause applies to it exactly as to a one-constructor
+          // union: one arm whose sub-pattern is exhaustive covers it, and the
+          // witness — the only one there can be — is the constructor's own
+          // name, which is §7.3's degenerate rendering.
+          //
+          // `coveredConstructors` was filled by the arm loop above through the
+          // same `#constructorPatternsAreExhaustive`, so an arm that covers here
+          // is precisely an arm that shadows a later one there: one judgment,
+          // never two that can disagree.
+          const constructor = this.#records.get(actual.record)?.constructor ??
+            this.#programRecord(actual.record)?.constructor;
+          if (
+            !catchAll && constructor !== undefined &&
+            !coveredConstructors.has(constructor.symbol)
+          ) {
+            this.#diagnostics.add({
+              severity: "error",
+              message: `match is missing cases: \`${actual.name}\``,
+              primary: expression.span,
+            });
+          }
         } else if (
           actual.kind === "Constructor" &&
           actual.name === "Exn"
@@ -5410,6 +5439,91 @@ class Checker {
       : "use the operations its constraints provide");
   }
 
+  /**
+   * The nominal record's pattern eliminator (#591): Pattern Matching §2.2's
+   * "constructor patterns apply to … **nominal `record` constructors**:
+   * `Point(pat)` is legal and destructures through the nominal wall, where
+   * `pat` matches the underlying record value".
+   *
+   * One reader for every pattern position, because the typing is one judgment:
+   * §4's `C(p…)` clause — "the scrutinee unifies with `C`'s union (or nominal
+   * record) type at a fresh instantiation; sub-patterns check against the
+   * instantiated slot types". A record constructor's scheme is already
+   * `{closed row} -> Point` (Products §5.1), so the instantiation the term
+   * position uses answers the pattern position too, and the row a sub-pattern
+   * sees cannot fork from the row `Point({x, y})` would construct.
+   *
+   * Arity is 1, positional (§2.2), and a miss draws the unions' own sentence —
+   * the same error family, from the same spelling.
+   *
+   * Returns the type the single sub-pattern checks against, or `undefined` if
+   * this symbol is not a record constructor at all.
+   */
+  #recordConstructorSlot(
+    pattern: Resolved.ConstructorPattern,
+    expected: Mono,
+    level: number,
+  ): Mono | undefined {
+    if (!this.#recordConstructors.has(pattern.symbol)) return undefined;
+    const shape = this.#constructorShape(pattern.symbol, level);
+    this.#unify(expected, shape.result, pattern.span);
+    if (pattern.arguments.length !== shape.parameters.length) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `constructor pattern \`${pattern.text}\` expects ${shape.parameters.length} arguments, got ${pattern.arguments.length}`,
+        primary: pattern.span,
+      });
+    }
+    return shape.parameters[0] ?? ERROR;
+  }
+
+  /**
+   * Pattern Matching §2.4's redirect, for a bare record pattern whose scrutinee
+   * is a nominal record: "the unifier never unfolds nominal names — go through
+   * the constructor pattern". Without it the user gets a type mismatch between
+   * the nominal name and a row, which says nothing about the one spelling that
+   * works.
+   *
+   * The suggested spelling wraps the fields **this pattern mentions**, so the
+   * fixit is the user's own pattern moved inside the constructor: `{x, y}`
+   * against a `Point` reads back as `Point({x, y})`, which is §2.4's sentence
+   * verbatim.
+   *
+   * **Opacity intercepts the redirect** (§2.4, ruled after #591's first round).
+   * Outside an opaque record's home module the constructor is private, so the
+   * redirect would signpost a spelling the reader cannot write — and would name
+   * the record's fields while doing it, which is the field privacy §4.2 calls
+   * load-bearing. The opaque family's own refusal stands there instead, in the
+   * shape its two siblings already have (the field access and the update), and
+   * it leaks neither field names nor a constructor. Opacity is read through
+   * `#recordRepresentationVisible`, which is exactly the reader those siblings
+   * ask — off the program's copy of the declaration where this module never
+   * imported it (#587/#589) — so a type that reached here without its name
+   * answers the same as one that was imported. Inside the home module `opaque`
+   * changes nothing (§4.2) and the redirect is what fires.
+   */
+  #reportNominalRecordPattern(
+    pattern: Resolved.RecordPattern,
+    record: NominalRecordMono,
+  ): void {
+    if (!this.#recordRepresentationVisible(record.record)) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `cannot destructure opaque record \`${record.name}\`; ` +
+          "use an operation exported by its home module",
+        primary: pattern.span,
+      });
+      return;
+    }
+    const fields = pattern.fields.map(({ name }) => name);
+    this.#diagnostics.add({
+      severity: "error",
+      message: `\`${record.name}\` is a nominal record; destructure it with ` +
+        `\`${record.name}({${fields.join(", ")}})\``,
+      primary: pattern.span,
+    });
+  }
+
   #inferPattern(
     pattern: Resolved.Pattern,
     expected: Mono,
@@ -5480,6 +5594,25 @@ class Checker {
       return;
     }
     if (pattern.kind === "Constructor") {
+      // A record constructor pattern passes the gate on sight (#591): Pattern
+      // Matching §5.1 rules `Point({x, y})` irrefutable at a nominal `Point`
+      // because "a record constructor is always sole constructor". What is left
+      // to check is the sub-pattern, and this walk is the check — every
+      // refutable form reports itself on the way down, so the recursion below
+      // is the whole gate for the inside of the pattern.
+      const slot = this.#recordConstructorSlot(pattern, expected, level);
+      if (slot !== undefined) {
+        pattern.arguments.forEach((argument, index) =>
+          this.#inferPattern(
+            argument,
+            index === 0 ? slot : ERROR,
+            level,
+            generalizable,
+            evaluated,
+          )
+        );
+        return;
+      }
       const unionId = this.#constructorUnions.get(pattern.symbol);
       const union = unionId === undefined ? undefined : this.#unions.get(unionId);
       if (union === undefined || union.constructors.length !== 1) {
@@ -5557,6 +5690,17 @@ class Checker {
     }
 
     if (pattern.kind === "Record") {
+      const scrutinee = this.#prune(expected);
+      if (scrutinee.kind === "NominalRecord") {
+        // §2.4: the redirect, not the row-versus-name mismatch the unification
+        // below would have produced. Sub-patterns still walk, at `ERROR`, so
+        // their binders exist and nothing downstream reports a second time.
+        this.#reportNominalRecordPattern(pattern, scrutinee);
+        for (const fieldPattern of pattern.fields) {
+          this.#inferPattern(fieldPattern.pattern, ERROR, level, generalizable, evaluated);
+        }
+        return;
+      }
       const fields = new Map<string, Mono>();
       for (const fieldPattern of pattern.fields) {
         const field = this.#fresh(level + 1, false);
@@ -5652,6 +5796,15 @@ class Checker {
       return;
     }
     if (pattern.kind === "Record") {
+      const scrutinee = this.#prune(expected);
+      if (scrutinee.kind === "NominalRecord") {
+        // §2.4's redirect in arm position; see `#inferPattern`'s twin.
+        this.#reportNominalRecordPattern(pattern, scrutinee);
+        for (const field of pattern.fields) {
+          this.#inferMatchPattern(field.pattern, ERROR, level);
+        }
+        return;
+      }
       const fields = new Map(
         pattern.fields.map((field) => [field.name, this.#fresh(level, false)]),
       );
@@ -5667,6 +5820,16 @@ class Checker {
           level,
         );
       }
+      return;
+    }
+
+    // The nominal record's constructor pattern (#591), before the union
+    // lookup that cannot answer for it.
+    const slot = this.#recordConstructorSlot(pattern, expected, level);
+    if (slot !== undefined) {
+      pattern.arguments.forEach((argument, index) =>
+        this.#inferMatchPattern(argument, index === 0 ? slot : ERROR, level)
+      );
       return;
     }
 
@@ -5878,6 +6041,20 @@ class Checker {
         )
       );
     }
+    if (pattern.kind === "Constructor" && actual.kind === "NominalRecord") {
+      // §5.1's own table row: `Point({x, y})` at a nominal `record Point` is
+      // irrefutable — "a record constructor is always sole constructor" — so
+      // the verdict turns entirely on the one sub-pattern, read against the
+      // instantiated row. That row comes from `#nominalRecordFields`, the same
+      // single reader `p.x`, `{p with …}` and `{...p}` use, so a field's type
+      // cannot mean one thing to an access and another to a pattern.
+      return this.#recordConstructors.get(pattern.symbol) === actual.record &&
+        pattern.arguments.length === 1 &&
+        this.#isIrrefutablePattern(
+          pattern.arguments[0]!,
+          { kind: "Record", fields: new Map(this.#nominalRecordFields(actual)) },
+        );
+    }
     if (pattern.kind === "Constructor" && actual.kind === "Union") {
       const union = this.#unions.get(actual.union);
       if (union?.constructors.length !== 1) return false;
@@ -5899,20 +6076,12 @@ class Checker {
   ): boolean {
     const first = patterns[0];
     if (first === undefined) return false;
-    const unionId = this.#constructorUnions.get(first.symbol);
-    const union = unionId === undefined ? undefined : this.#unions.get(unionId);
-    const constructor = union?.constructors.find(
-      ({ binding }) => binding.symbol === first.symbol,
-    );
-    const slots = constructor?.slots ?? this.#exceptions.get(first.symbol)?.slots;
+    const slots = this.#constructorPatternSlotTypes(first.symbol);
     if (slots === undefined) return false;
     if (patterns.some((pattern) =>
       pattern.arguments.length === slots.length &&
       pattern.arguments.every((argument, index) =>
-        this.#isIrrefutablePattern(
-          argument,
-          this.#annotationType(slots[index]!.annotation),
-        )
+        this.#isIrrefutablePattern(argument, slots[index]!)
       )
     )) return true;
     if (slots.length !== 1) return false;
@@ -5920,8 +6089,40 @@ class Checker {
     if (arguments_.length !== patterns.length) return false;
     return this.#isIrrefutablePattern(
       { kind: "Or", alternatives: arguments_, span: first.span },
-      this.#annotationType(slots[0]!.annotation),
+      slots[0]!,
     );
+  }
+
+  /**
+   * What a constructor pattern's sub-patterns are checked against, for the
+   * coverage judgments — one list per constructor, in slot order.
+   *
+   * Three constructor kinds answer, and the third is #591's: a union's slots and
+   * an exception's are declaration annotations, while a nominal record's single
+   * slot is its **field row** — Products §5.1's `Point : {closed row} -> Point`
+   * read from the pattern side. All three are the declaration's own types, left
+   * uninstantiated, exactly as the union path has always taken them: coverage
+   * asks about shapes, and a type parameter's occurrence answers `Variable`,
+   * which `#isIrrefutablePattern` already decides structurally.
+   */
+  #constructorPatternSlotTypes(
+    symbol: Resolved.SymbolId,
+  ): readonly Mono[] | undefined {
+    const record = this.#recordConstructors.get(symbol);
+    if (record !== undefined) {
+      this.#materializeReachedRecord(record);
+      return [{
+        kind: "Record",
+        fields: new Map(this.#recordFields.get(record) ?? []),
+      }];
+    }
+    const unionId = this.#constructorUnions.get(symbol);
+    const union = unionId === undefined ? undefined : this.#unions.get(unionId);
+    const constructor = union?.constructors.find(
+      ({ binding }) => binding.symbol === symbol,
+    );
+    const slots = constructor?.slots ?? this.#exceptions.get(symbol)?.slots;
+    return slots?.map((slot) => this.#annotationType(slot.annotation));
   }
 
   /**
