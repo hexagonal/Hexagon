@@ -74,6 +74,52 @@ describe("lex", () => {
     expect(kinds(lexSource("record type").tokens)).toEqual(["Record", "Type", "Eof"]);
   });
 
+  /**
+   * The keyword table was an object literal, so it answered for words it was
+   * never given (#595): `Object.prototype`'s members came back defined and the
+   * name so spelled was handed whatever the prototype held instead of lexing
+   * as a name, which surfaced downstream as `let` refusing its own binder. The
+   * table is a `Map` now, and this pins what a `Map` is here for.
+   */
+  test("`Object.prototype`'s member names are ordinary names, not keyword hits", () => {
+    for (const name of [
+      "toString",
+      "valueOf",
+      "constructor",
+      "hasOwnProperty",
+      "isPrototypeOf",
+      "propertyIsEnumerable",
+      "toLocaleString",
+    ]) {
+      const result = lexSource(`let ${name} = 1`);
+      expect(kinds(result.tokens)).toEqual([
+        "Let",
+        "NonUpperName",
+        "Equal",
+        "Integer",
+        "Eof",
+      ]);
+      expect(nameTexts(result.tokens)).toEqual([name]);
+      expect(result.diagnostics).toEqual([]);
+    }
+
+    // The `__proto__` family is refused, but by §3.2's reserved `__` prefix and
+    // in the parser, exactly as `__temp` is below. The lexer emits an ordinary
+    // name for each, and the prototype has no say in that either.
+    for (const name of [
+      "__proto__",
+      "__defineGetter__",
+      "__defineSetter__",
+      "__lookupGetter__",
+      "__lookupSetter__",
+    ]) {
+      const result = lexSource(name);
+      expect(kinds(result.tokens)).toEqual(["NonUpperName", "Eof"]);
+      expect(nameTexts(result.tokens)).toEqual([name]);
+      expect(result.diagnostics).toEqual([]);
+    }
+  });
+
   test("uses JavaScript-compatible Unicode identifiers and classifies only uppercase starts specially", () => {
     const result = lexSource(
       "let 用户 = 1\nlet $税率 = 2\nlet _折扣 = 3\nrecord T用户 = {名字: String}\nlet é = 4",

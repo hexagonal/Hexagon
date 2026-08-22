@@ -20,37 +20,42 @@ import {
 
 const MAX_SAFE_INTEGER_DECIMAL = 9_007_199_254_740_991n;
 
-const keywords: Readonly<Record<string, Lexed.KeywordKind>> = {
-  and: "And",
-  catch: "Catch",
-  constraint: "Constraint",
-  derive: "Derive",
-  else: "Else",
-  exception: "Exception",
-  export: "Export",
-  extern: "Extern",
-  false: "False",
-  finally: "Finally",
-  for: "For",
-  fun: "Fun",
-  honor: "Honor",
-  iff: "Iff",
-  if: "If",
-  implies: "Implies",
-  import: "Import",
-  in: "In",
-  let: "Let",
-  match: "Match",
-  not: "Not",
-  or: "Or",
-  record: "Record",
-  then: "Then",
-  true: "True",
-  try: "Try",
-  type: "Type",
-  var: "Var",
-  while: "While",
-};
+// §4.1's hard-keyword table is a `Map`, not an object literal, because an
+// object literal answers for names it was never given: `toString`, `valueOf`,
+// `constructor` and the rest of `Object.prototype` come back defined, and the
+// identifier so spelled would be lexed as whatever the prototype happens to
+// hold. The table answers for the words written below and for nothing else.
+const keywords: ReadonlyMap<string, Lexed.KeywordKind> = new Map([
+  ["and", "And"],
+  ["catch", "Catch"],
+  ["constraint", "Constraint"],
+  ["derive", "Derive"],
+  ["else", "Else"],
+  ["exception", "Exception"],
+  ["export", "Export"],
+  ["extern", "Extern"],
+  ["false", "False"],
+  ["finally", "Finally"],
+  ["for", "For"],
+  ["fun", "Fun"],
+  ["honor", "Honor"],
+  ["iff", "Iff"],
+  ["if", "If"],
+  ["implies", "Implies"],
+  ["import", "Import"],
+  ["in", "In"],
+  ["let", "Let"],
+  ["match", "Match"],
+  ["not", "Not"],
+  ["or", "Or"],
+  ["record", "Record"],
+  ["then", "Then"],
+  ["true", "True"],
+  ["try", "Try"],
+  ["type", "Type"],
+  ["var", "Var"],
+  ["while", "While"],
+]);
 
 const punctuation: readonly (readonly [string, Lexed.PunctuationKind])[] = [
   ["...", "Spread"],
@@ -527,7 +532,7 @@ class Scanner {
     // is a fact about where the name sits, not about how it is spelled.
 
     if (!matches(uppercase, first) && !matches(titlecase, first)) {
-      const keyword = keywords[text];
+      const keyword = keywords.get(text);
       return keyword === undefined
         ? { kind: "NonUpperName", text, span: this.#source.span(start, this.#offset) }
         : { kind: keyword, span: this.#source.span(start, this.#offset) };
