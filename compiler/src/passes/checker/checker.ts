@@ -1206,6 +1206,22 @@ class Checker {
   readonly #unions = new Map<Resolved.UnionId, Resolved.Union>();
   readonly #constructorUnions = new Map<Resolved.SymbolId, Resolved.UnionId>();
   readonly #unionParameters = new Map<Resolved.UnionId, ReadonlyMap<string, Variable>>();
+  /**
+   * `#programNominals.unions` by identity, and by constructor symbol, built on
+   * the first question asked of either (#605); see `#programUnion`. Undefined
+   * until then, for the reason `#programRecordIndex` is.
+   */
+  #programUnionIndex?: ReadonlyMap<Resolved.UnionId, Resolved.Union>;
+  #programConstructorIndex?: ReadonlyMap<Resolved.SymbolId, Resolved.UnionId>;
+  /**
+   * Every union `#materializeReachedUnion` registered, in the order it did.
+   *
+   * The typed module's union list is what the elaborator forwards and the
+   * emitter's constructor table and tagging judgment are built from, so a union
+   * the checker reached without importing has to leave by that door too, or the
+   * accepted program is emitted as if its constructors were untagged strings.
+   */
+  readonly #reachedUnions = new Set<Resolved.UnionId>();
   readonly #records = new Map<Resolved.RecordId, Resolved.RecordDeclaration>();
   /**
    * The prelude `Seq` record's identity (Loops §6.6). `Seq(a)` is a declared
@@ -2241,7 +2257,19 @@ class Checker {
       fileId: module.fileId,
       items: module.items.map((item) => this.#materializeItem(item)),
       symbols,
-      unions: module.unions.map((union) => this.#materializeUnion(union)),
+      // The reached ones ride out beside the listed ones, and after them: the
+      // emitter builds its constructor table and its tagged/untagged judgment
+      // from this list, so a union registered lazily during the walk above would
+      // otherwise be emitted as if it had no representation at all (#605).
+      // Appended rather than merged, because two consumers still pick the
+      // prelude's `Bool` out of the list by *name*, and first found must stay
+      // the one the eager listing put there.
+      unions: [
+        ...module.unions.map((union) => this.#materializeUnion(union)),
+        ...[...this.#reachedUnions].map((union) =>
+          this.#materializeUnion(this.#unions.get(union)!)
+        ),
+      ],
       records: module.records.map((record) => this.#materializeRecord(record)),
       preludeRecords: module.preludeRecords,
       preludeUnions: module.preludeUnions,
@@ -3885,6 +3913,10 @@ class Checker {
           declaration?.span ?? fallbackSpan,
       }));
     }
+    // Same standing as the record arm's `#nominalRecordFields` call above: a
+    // derived body's components are the declaration's, and a union reached only
+    // through an imported signature has no row here until it is asked for.
+    this.#materializeReachedUnion(subject.union);
     const parameters = [...(this.#unionParameters.get(subject.union)?.values() ?? [])];
     const replacements = new Map(
       parameters.map((parameter, index) => [parameter.id, subject.arguments[index] ?? ERROR]),
@@ -5626,7 +5658,9 @@ class Checker {
         );
         return;
       }
-      const unionId = this.#constructorUnions.get(pattern.symbol);
+      const unionId = this.#constructorUnions.get(pattern.symbol) ??
+        this.#programConstructorUnion(pattern.symbol);
+      if (unionId !== undefined) this.#materializeReachedUnion(unionId);
       const union = unionId === undefined ? undefined : this.#unions.get(unionId);
       const constructor = union?.constructors.find(
         ({ binding }) => binding.symbol === pattern.symbol,
@@ -5828,7 +5862,13 @@ class Checker {
       return;
     }
 
-    const unionId = this.#constructorUnions.get(pattern.symbol);
+    // The union may have reached this module through nothing but an imported
+    // signature, and a pattern is the seat where the expectation cannot be asked
+    // instead: a constructor arm against a `String` scrutinee has no union type
+    // to prune, which is how #605's vacuous accept passed. The symbol answers.
+    const unionId = this.#constructorUnions.get(pattern.symbol) ??
+      this.#programConstructorUnion(pattern.symbol);
+    if (unionId !== undefined) this.#materializeReachedUnion(unionId);
     const union = unionId === undefined ? undefined : this.#unions.get(unionId);
     if (union === undefined) return;
     const constructor = union.constructors.find(
@@ -6016,6 +6056,7 @@ class Checker {
     type: UnionMono,
     patterns: readonly Resolved.Pattern[],
   ): CoverageColumn {
+    this.#materializeReachedUnion(type.union);
     const union = this.#unions.get(type.union);
     if (union === undefined) return this.#assumedColumn(patterns);
     const heads = new Map<string, CoverageHead>(
@@ -6039,26 +6080,26 @@ class Checker {
   }
 
   /**
-   * The column for a union whose declaration this checker never registered.
+   * The column for a union whose declaration is nowhere the checker can read it.
    *
-   * Two routes reach it, and they are not alike. A **private** type carried
-   * abroad is refused at the exporter — `#checkPublicSignatures` reports the
-   * escape before any arm of it is judged here — so that one arrives only on a
-   * program already being refused, and this column's job there is to add nothing
-   * to the report. A **public** union reaching a module that never imports its
-   * type name arrives on a program with no other diagnostic at all: registration
-   * abroad is keyed on the import, so a union reached only through an imported
-   * function's result type is absent from `module.unions` and lands here (#605).
+   * Both routes that used to arrive here are closed. A union reached only
+   * through an imported function's result type is registered from the program
+   * table before this is asked (#605, `#materializeReachedUnion`), and a
+   * **private** type carried abroad takes that same route: the accumulation is
+   * of every declaration a module resolved, `export` or not, so the escape
+   * `#checkPublicSignatures` reports at the exporter is now the whole report and
+   * the importer's match is judged against the real constructor set.
    *
-   * On that second route the judgments below are wrong in both directions, and
-   * the shape of the answer is why. The patterns are taken *as* the signature,
-   * which is what lets the column tell two constructors apart so §7.2 keeps
-   * working, and what stops it naming a case missing from a set it cannot
-   * enumerate. The same assumption is what makes a genuinely non-exhaustive
-   * match pass in silence, and a live trailing `_` read as dead: a signature
-   * complete by construction has nothing left for a wildcard to cover. This is
-   * the seat that silence and that false refusal live in, until #605 registers
-   * the union and the real column answers instead.
+   * What is left is a compilation with no program table to read — a lone
+   * `check`, which has no module graph and therefore no union it did not
+   * declare. The answer below is the one that adds nothing to a program the
+   * checker cannot judge: the patterns are taken *as* the signature, which lets
+   * the column tell two constructors apart so §7.2 keeps working, and stops it
+   * naming a case missing from a set it cannot enumerate. Its price is the one
+   * #605 recorded — a signature complete by construction leaves a trailing `_`
+   * nothing to cover, and a genuinely non-exhaustive match nothing to miss — so
+   * this must stay the answer of last resort and never a fallback a real
+   * compilation reaches.
    */
   #assumedColumn(patterns: readonly Resolved.Pattern[]): CoverageColumn {
     const heads = new Map<string, CoverageHead>();
@@ -10293,6 +10334,107 @@ class Checker {
       this.#programRecordIndex = index;
     }
     return this.#programRecordIndex.get(record);
+  }
+
+  /**
+   * The declaration a union identity names, wherever in the **program** it was
+   * written — `#programRecord`'s twin, over the other half of `#programNominals`
+   * (#605).
+   *
+   * First copy wins here for the same reason and by the same construction: the
+   * accumulation is dependency-first, so the declaring module's copy is already
+   * in the map when an importer's spread arrives, and it is the one whose
+   * `representationVisible` and `declaringPath` say where the union lives.
+   *
+   * The by-constructor index is built beside it because a **pattern** asks the
+   * question the other way round. `On => 1` names a constructor symbol and may
+   * carry no union-typed expectation at all — the scrutinee can be a `String`,
+   * which is exactly how the vacuous accept of #605's third symptom class
+   * happened — so the symbol has to be able to find its own union.
+   */
+  #programUnion(union: Resolved.UnionId): Resolved.Union | undefined {
+    this.#indexProgramUnions();
+    return this.#programUnionIndex?.get(union);
+  }
+
+  #programConstructorUnion(constructor: Resolved.SymbolId): Resolved.UnionId | undefined {
+    this.#indexProgramUnions();
+    return this.#programConstructorIndex?.get(constructor);
+  }
+
+  #indexProgramUnions(): void {
+    if (this.#programUnionIndex !== undefined) return;
+    const unions = new Map<Resolved.UnionId, Resolved.Union>();
+    const constructors = new Map<Resolved.SymbolId, Resolved.UnionId>();
+    for (const declaration of this.#programNominals.unions) {
+      if (unions.has(declaration.id)) continue;
+      unions.set(declaration.id, declaration);
+      for (const constructor of declaration.constructors) {
+        constructors.set(constructor.binding.symbol, declaration.id);
+      }
+    }
+    this.#programUnionIndex = unions;
+    this.#programConstructorIndex = constructors;
+  }
+
+  /**
+   * Registers a union this module reached without importing it, once, from the
+   * home module's declaration (Modules §4.2, #605) — `#materializeReachedRecord`
+   * over unions, and the same design.
+   *
+   * `module.unions` is the *importer's* listing: it holds this module's own
+   * declarations and the copies its imports named, so a union arriving as an
+   * imported function's result — `match make()` where nothing here writes `Flag`
+   * — was in none of the four tables the eager pass fills. The judgments that
+   * read them did not abstain: the coverage column took the arms as the
+   * signature, a constructor pattern unified nothing, and the emitter read the
+   * absence as an untagged representation.
+   *
+   * A no-op for everything already known, and written to the same four tables
+   * the eager registration writes, in the same order — parameters before the
+   * slot annotations read against them — so nothing downstream can tell which
+   * pass filled them. A constructor imported severally already has a scheme from
+   * `importedSchemes`; overwriting it is what the eager pass does for an
+   * imported *copy* of a union, so the two routes still agree about the shape.
+   *
+   * **Stamped `representationVisible: false`, never the home copy's flag.** The
+   * flag is not opacity — the resolver sets it on every imported copy regardless
+   * — it is the locality signal `#checkPublicSignatures` reads to keep a type
+   * that lives elsewhere out of §4.3's private-in-public check. A reached union
+   * lives elsewhere by definition, and carrying the home module's `true` here
+   * would refuse a perfectly public union as an escaping private type in every
+   * module that happened to reach it.
+   */
+  #materializeReachedUnion(union: Resolved.UnionId): void {
+    if (this.#unions.has(union)) return;
+    const home = this.#programUnion(union);
+    if (home === undefined) return;
+    const declaration: Resolved.Union = { ...home, representationVisible: false };
+    this.#unions.set(union, declaration);
+    this.#reachedUnions.add(union);
+    const typeParameters = new Map(
+      declaration.parameters.map((name) => [name, this.#fresh(0, false)] as const),
+    );
+    this.#unionParameters.set(union, typeParameters);
+    const type: UnionMono = {
+      kind: "Union",
+      union,
+      name: declaration.name,
+      arguments: [...typeParameters.values()],
+    };
+    for (const constructor of declaration.constructors) {
+      this.#constructorUnions.set(constructor.binding.symbol, union);
+      const slotParameters = this.#inPosition("union", () =>
+        constructor.slots.map((slot) =>
+          this.#annotationType(slot.annotation, 0, new Map(), typeParameters)
+        ));
+      this.#schemes.set(constructor.binding.symbol, {
+        variables: [...typeParameters.values()],
+        type: slotParameters.length === 0
+          ? type
+          : { kind: "Function", parameters: slotParameters, result: type },
+      });
+    }
   }
 
   /**
