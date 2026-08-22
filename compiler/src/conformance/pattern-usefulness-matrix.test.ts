@@ -810,6 +810,128 @@ describe("the witness printer keeps a record's private fields at home (Modules �
   });
 });
 
+/**
+ * A constraint default body is a body like any other (#599).
+ *
+ * It used to be typed by a pre-pass that ran before the checker had registered
+ * the module's unions, records, and exceptions, and before any module binding
+ * had a scheme — so §7's judgments had no signature to judge against, a `catch`
+ * arm had no exception table to read, and a call to a binding declared above
+ * the constraint met `ERROR`, which unifies with anything. Constraints §2 says
+ * what is in scope there — "the constraint subject, its base constraint
+ * operations, module-scope names, and all members of the same constraint" — and
+ * the body is now checked at the declaration's own seat, where all of it is.
+ *
+ * Every row below states the same demand: what the body gets is what the same
+ * code gets at the top level, verbatim, message for message.
+ */
+describe("a constraint's default body is checked like any other body (#599)", () => {
+  const FLAG = "union Flag = On | Off\n";
+  const PICK = "constraint Pick<a> =\n" +
+    "    pick(value: a): a\n";
+
+  test("a non-exhaustive match reports the missing case (§7.1, §7.3)", () => {
+    expect(projectDiagnostics(
+      FLAG + PICK +
+      "    rank(flag: Flag): Int =\n" +
+      "        match flag\n" +
+      "            On => 1\n",
+    )).toEqual(["match is missing cases: `Off`"]);
+  });
+
+  test("an arm from the wrong union is refused as it is at the top level", () => {
+    const inDefault = projectDiagnostics(
+      FLAG + "union Other = Thing\n" + PICK +
+      "    rank(flag: Flag): Int =\n" +
+      "        match flag\n" +
+      "            Thing => 1\n",
+    );
+    const atTopLevel = projectDiagnostics(
+      FLAG + "union Other = Thing\n" +
+      "fun rank(flag: Flag): Int =\n" +
+      "    match flag\n" +
+      "        Thing => 1\n",
+    );
+    expect(inDefault).toEqual([
+      "match is missing cases: `On`, `Off`",
+      "type mismatch: expected Flag, found Other",
+    ]);
+    expect(inDefault).toEqual(atTopLevel);
+  });
+
+  test("a live trailing `_` is live", () => {
+    // The regression the assumed column caused (#598): taking the written heads
+    // *as* the signature made `On` complete on its own, so the wildcard that
+    // covers `Off` read as dead.
+    expect(projectDiagnostics(
+      FLAG + PICK +
+      "    rank(flag: Flag): Int =\n" +
+      "        match flag\n" +
+      "            On => 1\n" +
+      "            _ => 2\n",
+    )).toEqual([]);
+  });
+
+  test("a repeated constructor is a dead arm (§7.2)", () => {
+    expect(projectDiagnostics(
+      FLAG + PICK +
+      "    rank(flag: Flag): Int =\n" +
+      "        match flag\n" +
+      "            On => 1\n" +
+      "            On => 2\n" +
+      "            Off => 3\n",
+    )).toEqual(["this case is unreachable; `On` is already handled above"]);
+  });
+
+  test("a call to a binding above the constraint is typed against its scheme", () => {
+    expect(projectDiagnostics(
+      "fun helper(n: Int): Int = n\n" + PICK +
+      "    rank(): Int = helper(True)\n",
+    )).toEqual(["type mismatch: expected Int, found Bool"]);
+  });
+
+  test("a binding below the constraint is still the resolver's refusal", () => {
+    // The top-down law is unchanged, and is exactly why the seat can be this
+    // late: the names a default body may reach are the ones already seeded.
+    expect(projectDiagnostics(
+      PICK +
+      "    rank(): Int = helper(1)\n" +
+      "fun helper(n: Int): Int = n\n",
+    )).toEqual([
+      "`helper` is declared later in this block; declarations are read top-down — " +
+      "move its declaration above this use",
+    ]);
+  });
+
+  test("a `catch` arm reads the module's exception table", () => {
+    expect(projectDiagnostics(
+      "exception Boom(message: String)\n" +
+      "fun blow(): Int = throw(Boom(\"no\"))\n" + PICK +
+      "    rank(): Int =\n" +
+      "        try\n" +
+      "            blow()\n" +
+      "        catch\n" +
+      "            Boom(_) => 0\n",
+    )).toEqual([]);
+  });
+
+  test("the prelude's unions are visible too", () => {
+    expect(projectDiagnostics(
+      PICK +
+      "    rank(flag: Bool): Int =\n" +
+      "        match flag\n" +
+      "            True => 1\n",
+    )).toEqual(["match is missing cases: `False`"]);
+
+    expect(projectDiagnostics(
+      PICK +
+      "    rank(held: Option(Int)): Int =\n" +
+      "        match held\n" +
+      "            Some(n) => n\n",
+    )).toEqual(["match is missing cases: `None`"]);
+  });
+});
+
 function runProjectDiagnostics(
   files: readonly (readonly [string, string])[],
 ): readonly string[] {
