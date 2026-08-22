@@ -549,6 +549,118 @@ describe("the vector's lengths are a signature (Collections Part 3 §3.3)", () =
     )).toEqual(["match is missing cases: `[False, True]`"]);
   });
 
+  /**
+   * The two ends are measured across the column, not per pattern. A rest
+   * pattern's front and back regions stop overlapping only at
+   * `maxFront + maxBack`, and those maxima can belong to *different* arms: the
+   * arms below carry two slots each, so a bound of `widest + 1 = 3` would read
+   * the front-heavy arm's second slot and the back-heavy arm's second-from-last
+   * slot as the same position, and every length above 3 would be decided by a
+   * coincidence that holds only at 3. `bound = max(widest + 1, maxFront +
+   * maxBack) = 4` is where the two ends are genuinely apart, and it is the
+   * length the witnesses below are printed at.
+   */
+  test("the variadic bound counts both ends independently", async () => {
+    const ENDS =
+      "        [] => 0\n" +
+      "        [_] => 1\n" +
+      "        [_, _] => 2\n" +
+      "        [_, True, ...rest] => 3\n" +
+      "        [...rest, False, _] => 4\n";
+
+    // At length 3 the two rest arms constrain the *same* position (1 and
+    // n - 2 coincide) and `True`/`False` cover it between them. At length 4
+    // they separate, and everything with `False` there and `True` two from the
+    // end escapes both.
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      ENDS,
+    )).toEqual(["match is missing cases: `[_, False, True, _]`"]);
+
+    // And the witness is a real escapee, not a bound artefact: with a sentinel
+    // arm below, an instance of it reaches the sentinel.
+    const escapes = await runMain(
+      "fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      ENDS +
+      "        _ => -1\n" +
+      "export let w: Int = f([True, False, True, True])\n",
+    );
+    expect(escapes.w).toEqual(-1);
+
+    // The dual, and the direction that must never regress: completing those
+    // arms with a catch-all leaves the catch-all *live*, because its first
+    // witness is a length-4 value. A variadic head read at 3 calls it dead and
+    // turns a correct program into a hard error.
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      ENDS +
+      "        _ => 5\n",
+    )).toEqual([]);
+
+    const completed = await runMain(
+      "fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      ENDS +
+      "        _ => 5\n" +
+      "export let w: Int = f([False, False, True, True])\n",
+    );
+    expect(completed.w).toEqual(5);
+  });
+
+  test("both ends covered in that regime is exhaustive, at every length", async () => {
+    // `maxFront = 2` and `maxBack = 2` against `widest = 2`, so `bound = 4`
+    // again — but here the second-from-last position is covered by `False` and
+    // `True` both, so every length from 2 up is covered without a catch-all.
+    // The last arm's first witness is a length-4 value too: at length 3 its
+    // constrained position is the one the front-heavy arm already claims, so a
+    // column that stopped at 3 would call it dead.
+    const COVERING =
+      "        [] => 0\n" +
+      "        [_] => 1\n" +
+      "        [_, _] => 2\n" +
+      "        [_, True, ...rest] => 3\n" +
+      "        [...rest, False, _] => 4\n" +
+      "        [...rest, True, _] => 5\n";
+
+    expect(projectDiagnostics(
+      "export fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      COVERING,
+    )).toEqual([]);
+
+    // The acceptance runs, at `bound - 1` through `bound + 2`, over both values
+    // of each position any arm here looks at — position 1 for the front-heavy
+    // arm, position `n - 2` for the back-heavy ones. Nothing falls through to
+    // the emitter's unreachable-pattern throw, and each length answers with the
+    // arm the lengths and the elements together pick.
+    const exports = await runMain(
+      "fun f(v: Vector(Bool)): Int =\n" +
+      "    match v\n" +
+      COVERING +
+      "export let threeFront: Int = f([False, True, False])\n" +
+      "export let threeBack: Int = f([False, False, False])\n" +
+      "export let fourFront: Int = f([False, True, False, False])\n" +
+      "export let fourBackFalse: Int = f([False, False, False, False])\n" +
+      "export let fourBackTrue: Int = f([False, False, True, False])\n" +
+      "export let fiveFront: Int = f([False, True, False, False, False])\n" +
+      "export let fiveBackFalse: Int = f([False, False, False, False, False])\n" +
+      "export let fiveBackTrue: Int = f([False, False, False, True, False])\n" +
+      "export let sixFront: Int = f([False, True, False, False, False, False])\n" +
+      "export let sixBackFalse: Int = f([False, False, False, False, False, False])\n" +
+      "export let sixBackTrue: Int = f([False, False, False, False, True, False])\n",
+    );
+    expect([exports.threeFront, exports.threeBack]).toEqual([3, 4]);
+    expect([exports.fourFront, exports.fourBackFalse, exports.fourBackTrue])
+      .toEqual([3, 4, 5]);
+    expect([exports.fiveFront, exports.fiveBackFalse, exports.fiveBackTrue])
+      .toEqual([3, 4, 5]);
+    expect([exports.sixFront, exports.sixBackFalse, exports.sixBackTrue])
+      .toEqual([3, 4, 5]);
+  });
+
   test("reachability over the lengths is exact (§7.2)", () => {
     expect(projectDiagnostics(
       "export fun f(v: Vector(Int)): Int =\n" +

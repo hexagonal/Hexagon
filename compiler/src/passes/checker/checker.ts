@@ -6219,19 +6219,37 @@ class Checker {
    *
    * Lengths are unbounded, so the signature cannot be one head per length. It
    * is one head per length the column's own patterns can tell apart, and one
-   * variadic head for everything past that: with `bound` one above the largest
-   * slot count any vector pattern here carries, the heads are the fixed lengths
+   * variadic head for everything past that: the heads are the fixed lengths
    * `0 … bound - 1` and a last head standing for every length `≥ bound`.
    *
+   * `bound` is `max(widest + 1, maxFront + maxBack)`. `widest` is the largest
+   * slot count any vector pattern here carries, so every fixed-length pattern
+   * gets a head of its own and none of them reaches the variadic one.
+   * `maxFront` and `maxBack` are the largest front region and the largest back
+   * region the rest patterns here carry, and the two maxima are taken
+   * **independently**: a front-heavy arm and a back-heavy arm are different
+   * patterns, each keeping its own reach, and their two regions stop
+   * overlapping only at `maxFront + maxBack`. (This is rustc's `max_slice` for
+   * slice patterns — the treatment §3.3 names.) One arm's own front and back
+   * sum to at most `widest`, which is why the ends have to be measured across
+   * the column rather than per pattern: `[_, True, ...rest]` and
+   * `[...rest, False, _]` carry two slots each, so `widest + 1` is 3 — but
+   * between them they pin three positions, and at length 3 they would be read
+   * as pinning the same middle one.
+   *
    * That last head is sound because no pattern in this column distinguishes two
-   * lengths at or above `bound`. Every rest pattern constrains a front and a
-   * back that together are shorter than `bound`, so at any length `≥ bound` the
-   * middle it covers is non-empty and unconstrained: delete middle elements
-   * from an uncovered value of length `n > bound` and the length-`bound` value
-   * that remains is uncovered too. So the head is decided by specializing at
-   * `bound` itself, and §7.3 prints it at that same shortest length — which is
-   * why the witness for fixed-length-only arms is a length (`[_, _, _]` in
-   * §3.3's own example) rather than a shape with an ellipsis in it.
+   * lengths at or above `bound`. At any length `n ≥ bound` every arm's front
+   * region ends by `maxFront` and its back region starts at `n - maxBack`, so
+   * the window `[maxFront, n - maxBack)` is constrained by no arm at all — and
+   * `bound ≥ maxFront + maxBack` is exactly what makes that window non-empty.
+   * Delete elements from it in an uncovered value of length `n > bound` and the
+   * length-`bound` value that remains is uncovered too: each front slot keeps
+   * its index, each back slot keeps its distance from the end, and the
+   * fixed-length arms are all shorter than `bound`, so they match neither
+   * length. So the head is decided by specializing at `bound` itself, and §7.3
+   * prints it at that same shortest length — which is why the witness for
+   * fixed-length-only arms is a length (`[_, _, _]` in §3.3's own example)
+   * rather than a shape with an ellipsis in it.
    *
    * The signature is complete, so a vector `match` now demands a catch-all only
    * when it really misses one, and the arms below `[...rest]` are dead by the
@@ -6242,11 +6260,19 @@ class Checker {
     patterns: readonly Resolved.Pattern[],
   ): CoverageColumn {
     let widest = 0;
+    let maxFront = 0;
+    let maxBack = 0;
     for (const pattern of patterns) {
       if (pattern.kind !== "Vector") continue;
       widest = Math.max(widest, pattern.elements.length);
+      const rest = pattern.rest;
+      if (rest === undefined) continue;
+      // §3.1: `rest.index` is the count of slots written before the rest, and
+      // the slots written after it count from the end.
+      maxFront = Math.max(maxFront, rest.index);
+      maxBack = Math.max(maxBack, pattern.elements.length - rest.index);
     }
-    const bound = widest + 1;
+    const bound = Math.max(widest + 1, maxFront + maxBack);
     const lengthHead = (length: number, key: string): CoverageHead => ({
       key,
       slots: Array.from({ length }, () => type.element),
