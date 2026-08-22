@@ -229,6 +229,80 @@ describe("a contestant that binds nothing in JavaScript is no contestant", () =>
         "export { four };\n",
     );
   });
+
+  test("the type-only import cancels itself, never another binding's claim", async () => {
+    // The subtraction is per *occurrence*, not by name. Here the spelling is
+    // claimed twice — once by the type-only import, which binds nothing, and
+    // once by this module's own union constructor, which binds a `const` — so
+    // removing the type-only claim must leave the constructor's standing and
+    // the alias must still move.
+    //
+    // Delete by name instead and this program emits `import * as Lib` beside
+    // `const Lib = …` and never loads: #569's own failure, restored by the
+    // simplification the reader reaches for first. Hence the load, and hence
+    // the load running before the text is read.
+    //
+    // A union constructor is one of the three partners the checker allows in
+    // this position; an exception of the spelling and a value import of it are
+    // the others. The shapes a reader would try first are refused outright —
+    // a type-only `Lib` beside a *declared* `record Lib`, or two type-only
+    // imports of `Lib`, are both "type `Lib` is already declared or imported".
+    const files = [LIB, ["/types.hex", "export type Lib = Int\n"], [
+      "/main.hex",
+      'import * as Lib from "./lib"\n' +
+        'import { Lib } from "./types"\n' +
+        "export union Colour =\n    | Lib(n: Int)\n    | Other\n" +
+        "export fun level(c: Colour): Int =\n" +
+        "    match c\n" +
+        "        Lib(n) => n\n" +
+        "        Other => 0\n" +
+        "export let four: Int = Lib.twice(2)\n" +
+        "export let five: Int = level(Lib(5))\n",
+    ]] as const;
+    const main = await runProject(files);
+    // Both meanings answer: the alias through its qualified call, the
+    // constructor through the one the module built and matched.
+    expect(main.four).toBe(4);
+    expect(main.five).toBe(5);
+    const emitted = javascript(files);
+    expect(emitted).toContain('import * as Lib_1 from "./lib.js";');
+    expect(emitted).toContain('const Lib = n => ({ tag: "Lib", n });');
+    expect(emitted).toContain("const four = Lib_1.twice(2);");
+  });
+
+  test("a type-only import renamed onto the alias spelling leaves it alone", () => {
+    // The local is what the emitted line would have bound, so the local is what
+    // is subtracted — reading the *imported* name here would look right and
+    // cancel nothing, putting finding 1's defect back in the `as` shape. This
+    // is the only case that tells the two fields apart.
+    expect(javascript([LIB, ["/types.hex", "export type Thing = Int\n"], [
+      "/main.hex",
+      'import * as Lib from "./lib"\n' +
+        'import { Thing as Lib } from "./types"\n' +
+        "export let four: Lib = Lib.twice(2)\n",
+    ]])).toBe(
+      'import * as Lib from "./lib.js";\n' +
+        "const four = Lib.twice(2);\n" +
+        "export { four };\n",
+    );
+  });
+
+  test("the control: a value renamed onto the alias spelling still moves it", () => {
+    expect(javascript([LIB, ["/types.hex", "export record Other = {n: Int}\n"], [
+      "/main.hex",
+      'import * as Lib from "./lib"\n' +
+        'import { Other as Lib } from "./types"\n' +
+        "export let boxed: Int = (Lib({n = 3})).n\n" +
+        "export let four: Int = Lib.twice(2)\n",
+    ]])).toBe(
+      'import * as Lib_1 from "./lib.js";\n' +
+        'import { Other as Lib } from "./types.js";\n' +
+        "const boxed = { n: 3 }.n;\n" +
+        "const four = Lib_1.twice(2);\n" +
+        "export { boxed };\n" +
+        "export { four };\n",
+    );
+  });
 });
 
 describe("the suffix probes past what the module already binds", () => {
