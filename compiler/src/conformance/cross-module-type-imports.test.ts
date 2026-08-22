@@ -276,7 +276,7 @@ describe("the generated local is probed, and only it moves", () => {
   test("a namespace alias spelling a prelude type's name forces `Option1`", async () => {
     const compiled = project([
       ["/lib.hex", "export let one: Int = 1\n"],
-      ["/main.hex", 'import * as Option from "./lib"\nexport let o: Option(Int) = None\n'],
+      ["/main.hex", 'import module Option from "./lib"\nexport let o: Option(Int) = None\n'],
     ]);
     const text = emitted(compiled, "/main.hex").declarations.text;
 

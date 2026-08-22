@@ -1373,7 +1373,7 @@ class Checker {
     for (const externType of module.externTypes) {
       this.#externTypes.set(externType.externType, externType);
     }
-    // Every import form, not just `import * as`: a companion dot call emits the
+    // Every import form, not just `import module`: a companion dot call emits the
     // *local* spelling, and a named import — including the synthesized prelude
     // one — may bind a symbol under a dodging local (`__prelude_map`) to
     // clear a module-level binding of the same name. Reading only namespace
@@ -7341,7 +7341,7 @@ class Checker {
     return `${refusal}; \`${constraint}\` is a module alias — write \`${constraint}.${only}\` ` +
       `for the constraint it exports, name it bare with ` +
       `\`import { ${only} } from ${JSON.stringify(alias.specifier)}\`, ` +
-      `or realias as \`import * as ${only}\``;
+      `or realias as \`import module ${only}\``;
   }
 
   /** Whether a constraint *named* here declares implied type members. */

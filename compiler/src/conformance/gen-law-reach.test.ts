@@ -58,7 +58,7 @@ function matrixModule(
 ): string {
   return [
     `// matrix ${tag}`,
-    "import * as Scale from \"./scale\"",
+    "import module Scale from \"./scale\"",
     "",
     "export record Matrix = {n: Float}",
     "",
@@ -111,8 +111,8 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
       ["/matrix.hex", matrixModule("three faces", DOOR)],
       ["/main.hex", [
         "// consumer, three faces",
-        "import * as Matrix from \"./matrix\"",
-        "import * as Scale from \"./scale\"",
+        "import module Matrix from \"./matrix\"",
+        "import module Scale from \"./scale\"",
         "",
         "let m: Matrix.Matrix = Matrix.Matrix({n = 4.0})",
         "export let qualified: Float = Matrix.scale(m, 2.5).n",
@@ -137,8 +137,8 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
       ["/matrix.hex", matrixModule("routes", DOOR)],
       ["/main.hex", [
         "// consumer, routes",
-        "import * as Matrix from \"./matrix\"",
-        "import * as Scale from \"./scale\"",
+        "import module Matrix from \"./matrix\"",
+        "import module Scale from \"./scale\"",
         "",
         "let m: Matrix.Matrix = Matrix.Matrix({n = 4.0})",
         "export let dotted: Float = m.scale(2.5).n",
@@ -170,7 +170,7 @@ describe("`honor` may stand above the declaration it accounts for (§4.7)", () =
   function blockFirst(tag: string): string {
     return [
       `// matrix ${tag}`,
-      "import * as Scale from \"./scale\"",
+      "import module Scale from \"./scale\"",
       "",
       "export record Matrix = {n: Float}",
       "",
@@ -292,7 +292,7 @@ describe("what the law refuses at the same reach (Constraints §4.7)", () => {
       ["/scale.hex", scaleModule("export rewrite")],
       ["/matrix.hex", [
         "// export rewrite",
-        "import * as Scale from \"./scale\"",
+        "import module Scale from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -363,7 +363,7 @@ describe("the two carves: where the law is never consulted (Modules §5.3)", () 
     expect(diagnostics).toEqual([
       "`scale` is already bound (line 2); it arrived with `import { Scale }`, " +
         "and a named constraint import brings its members — to widen `scale` " +
-        "lawfully, import the module instead (`import * as …`), or choose a " +
+        "lawfully, import the module instead (`import module …`), or choose a " +
         "different export name (Modules §5.3's generalisation law).",
     ]);
   });
@@ -388,7 +388,7 @@ describe("the two carves: where the law is never consulted (Modules §5.3)", () 
       "`scale` is already bound (line 2); it arrived with " +
         "`import { Scale as Sizing }`, and a named constraint import brings its " +
         "members — to widen `scale` lawfully, import the module instead " +
-        "(`import * as …`), or choose a different export name (Modules §5.3's " +
+        "(`import module …`), or choose a different export name (Modules §5.3's " +
         "generalisation law).",
     ]);
   });
@@ -405,7 +405,7 @@ describe("the two carves: where the law is never consulted (Modules §5.3)", () 
       ["/scale.hex", scaleModule("coexisting alias")],
       ["/matrix.hex", [
         "// coexisting alias",
-        "import * as Sizing from \"./scale\"",
+        "import module Sizing from \"./scale\"",
         "import { Scale } from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
@@ -424,7 +424,7 @@ describe("the two carves: where the law is never consulted (Modules §5.3)", () 
         "and a named constraint import brings its members — a `widens` " +
         "declaration cannot unseat an ordinary binding and has no name of its " +
         "own to choose, so the named import is what must go: reach the " +
-        "constraint through `import * as …` instead (Modules §5.3's " +
+        "constraint through `import module …` instead (Modules §5.3's " +
         "generalisation law).",
     ]);
   });

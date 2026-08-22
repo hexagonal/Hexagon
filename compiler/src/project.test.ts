@@ -21,7 +21,7 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
       Source.fileId(2),
       "/app/main.hex",
       'import { Point, make as makePoint } from "./geometry"\n' +
-        'import * as Geo from "./geometry"\n' +
+        'import module Geo from "./geometry"\n' +
         'import "./telemetry"\n' +
         "export let point: Point = makePoint(3)\n" +
         "export let answer: Int = point.coordinate()",
@@ -67,7 +67,7 @@ test("re-exports extern bindings and opaque types through Hexagon modules", () =
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import * as Json from "./tiny-json"\n' +
+      'import module Json from "./tiny-json"\n' +
         "export let document: Json.JsonValue = Json.parse!(\"{}\")",
     ),
   ]);
@@ -107,7 +107,7 @@ test("makes an imported module's coherent instances available to operators", () 
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import * as Box from "./box"\n' +
+      'import module Box from "./box"\n' +
         "export let answer: Box.Box = Box.create(20) + Box.create(22)",
     ),
   ]);
@@ -142,14 +142,14 @@ test("propagates coherent instances through the complete import graph", () => {
     new Source.File(
       Source.fileId(1),
       "/facade.hex",
-      'import * as Box from "./box"\n' +
+      'import module Box from "./box"\n' +
         "export type Box = Box.Box\n" +
         "export let makeAnswer(): Box.Box = Box.create(20)",
     ),
     new Source.File(
       Source.fileId(2),
       "/main.hex",
-      'import * as Facade from "./facade"\n' +
+      'import module Facade from "./facade"\n' +
         "export let answer: Facade.Box = Facade.makeAnswer() + Facade.makeAnswer()",
     ),
   ]);
@@ -185,18 +185,18 @@ test("deduplicates one coherent instance reached through a diamond import", () =
     new Source.File(
       Source.fileId(1),
       "/left.hex",
-      'import * as Box from "./box"\nexport let left(): Box.Box = Box.create(20)',
+      'import module Box from "./box"\nexport let left(): Box.Box = Box.create(20)',
     ),
     new Source.File(
       Source.fileId(2),
       "/right.hex",
-      'import * as Box from "./box"\nexport let right(): Box.Box = Box.create(22)',
+      'import module Box from "./box"\nexport let right(): Box.Box = Box.create(22)',
     ),
     new Source.File(
       Source.fileId(3),
       "/main.hex",
-      'import * as Left from "./left"\n' +
-        'import * as Right from "./right"\n' +
+      'import module Left from "./left"\n' +
+        'import module Right from "./right"\n' +
         'import { Box } from "./box"\n' +
         "export let answer: Box = Left.left() + Right.right()",
     ),
@@ -247,7 +247,7 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
     new Source.File(
       Source.fileId(2),
       "/namespace.hex",
-      'import * as Math from "./math"\nlog("${Math.plus(20, 22)}")',
+      'import module Math from "./math"\nlog("${Math.plus(20, 22)}")',
     ),
   ]);
 
@@ -298,7 +298,7 @@ test("compiles Unicode module paths and cultural M namespace aliases", () => {
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import * as Mगणित from "./गणित"\n' +
+      'import module Mगणित from "./गणित"\n' +
         "export let उत्तर: Int = Mगणित.जोड़(20, 22)",
     ),
   ]);
@@ -323,7 +323,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import * as Vault from "./vault"\n' +
+      'import module Vault from "./vault"\n' +
         "export let pair: Vault.Pair(Int) = (1, 2)\n" +
         "let token = Vault.issue(7)\n" +
         "export let answer: Int = Vault.reveal(token)",
@@ -341,7 +341,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
     new Source.File(
       Source.fileId(2),
       "/bad.hex",
-      'import * as Vault from "./vault"\n' +
+      'import module Vault from "./vault"\n' +
         "let token = Vault.issue(7)\n" +
         "let leaked = token.value",
     ),

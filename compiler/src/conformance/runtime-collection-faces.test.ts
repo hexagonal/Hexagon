@@ -157,7 +157,7 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
 
   test("the import leads the file, ahead of the module's own imports", () => {
     const compiled = project({
-      "/src/main.hex": "import * as Other from \"./other\"\n" +
+      "/src/main.hex": "import module Other from \"./other\"\n" +
         "export let rows: Vector(Int) = Other.rows\n",
       "/src/other.hex": "export let rows: Vector(Int) = [1]\n",
     });
@@ -175,7 +175,7 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   // module's declared names.
   test("a source namespace import aliased `Hex` pushes the generated alias to `Hex1`", () => {
     const compiled = project({
-      "/src/main.hex": "import * as Hex from \"./other\"\n" +
+      "/src/main.hex": "import module Hex from \"./other\"\n" +
         "export let rows: Vector(Int) = Hex.rows\n",
       "/src/other.hex": "export let rows: Vector(Int) = [1]\n",
     });

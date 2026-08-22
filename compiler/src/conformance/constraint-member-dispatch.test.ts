@@ -337,7 +337,7 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
     const exports = await runProject([
       ["/Rat.hex", stdlib("Rat.hex")],
       ["/main.hex", [
-        'import * as Rat from "./Rat"',
+        'import module Rat from "./Rat"',
         "",
         "export let total: String = \"${Rat.add(Rat.fromInt(1), Rat.fromInt(2))}\"",
         "export let scaled: String = \"${Rat.multiply(Rat.fromInt(3), Rat.fromInt(4))}\"",
@@ -419,7 +419,7 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import * as Shapes from "./shapes"',
+        'import module Shapes from "./shapes"',
         "",
         "export let drawn: String = Shapes.show(Shapes.Disc({radius = 1}))",
         "",
@@ -472,8 +472,8 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import * as Loud from "./loud"',
-        'import * as Soft from "./soft"',
+        'import module Loud from "./loud"',
+        'import module Soft from "./soft"',
         "",
         "export record Gauge = {needle: Int}",
         "",
@@ -505,8 +505,8 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import * as Near from "./near"',
-        'import * as Far from "./far"',
+        'import module Near from "./near"',
+        'import module Far from "./far"',
         "",
         "export let span<a: (Near.Near, Far.Far)>(value: a): Int = value.reach()",
         "",
@@ -532,7 +532,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import * as Quiet from "./quiet"',
+        'import module Quiet from "./quiet"',
         "",
         "constraint Brash<a> =",
         "    level(value: a): Int",

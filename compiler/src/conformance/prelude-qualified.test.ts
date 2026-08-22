@@ -83,7 +83,7 @@ async function run(files: readonly (readonly [string, string])[]): Promise<Recor
  * half that has to work.
  *
  * A prelude member is addressable as a **fallback** layer: an explicit
- * `import * as` of the same name is a module-level binding and wins (§5.4).
+ * `import module` of the same name is a module-level binding and wins (§5.4).
  */
 
 function diagnostics(source: string): readonly string[] {
@@ -148,14 +148,14 @@ describe("qualified access is what makes occlusion survivable (§5.4 + §6.4)", 
 });
 
 describe("an explicit alias is a module-level binding and wins", () => {
-  test("`import * as Option` of a different module shadows the prelude member", () => {
+  test("`import module Option` of a different module shadows the prelude member", () => {
     // §5.4: explicit imports enter the same layer as local bindings. The prelude
     // member is only a fallback, so this must resolve to the imported module —
     // and must not collide, which is what a same-layer registration would cause.
     expect(withModule(
       "/mine.hex",
       "export let greet(name: String): String = name\n",
-      "import * as Option from \"./mine\"\n" +
+      "import module Option from \"./mine\"\n" +
       "export let a: String = Option.greet(\"x\")\n",
     )).toEqual([]);
   });
@@ -164,7 +164,7 @@ describe("an explicit alias is a module-level binding and wins", () => {
     expect(withModule(
       "/mine.hex",
       "export let greet(name: String): String = name\n",
-      "import * as Option from \"./mine\"\n" +
+      "import module Option from \"./mine\"\n" +
       "export let a: Option(Int) = Some(1)\n" +
       "export let b: String = Option.greet(\"x\")\n",
     )).toEqual([]);
@@ -173,7 +173,7 @@ describe("an explicit alias is a module-level binding and wins", () => {
 
 describe("the qualified spelling runs (PR #90 finding F1)", () => {
   // Resolving the name is half the job. A prelude member has no namespace object
-  // to dot into — unlike an explicit `import * as`, nothing declares one — so the
+  // to dot into — unlike an explicit `import module`, nothing declares one — so the
   // first fix emitted a bare `Option.Some(1)` with no import at all: a clean
   // compile and a `ReferenceError` on load. These assertions are on *values*
   // produced by executing the emitted module, which is the only level at which

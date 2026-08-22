@@ -729,7 +729,7 @@ describe("unknown type names", () => {
   test("a namespace alias over a same-named type resolves instead of reporting", () => {
     expect(messages([
       ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"],
-      ["/main.hex", 'import * as Point from "./point"\nexport let f(p: Point): Int = 1\n'],
+      ["/main.hex", 'import module Point from "./point"\nexport let f(p: Point): Int = 1\n'],
     ])).toEqual([]);
   });
 
@@ -740,7 +740,7 @@ describe("unknown type names", () => {
 
     expect(messages([
       point,
-      ["/main.hex", 'import * as Point from "./point"\nexport let f(p: Point.Point): Int = 1\n'],
+      ["/main.hex", 'import module Point from "./point"\nexport let f(p: Point.Point): Int = 1\n'],
     ])).toEqual([]);
     expect(messages([
       point,
@@ -753,11 +753,11 @@ describe("unknown type names", () => {
     // away from resolving, so the realias is named beside the other two.
     expect(messages([
       ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"],
-      ["/main.hex", 'import * as P from "./point"\nexport let f(p: P): Int = 1\n'],
+      ["/main.hex", 'import module P from "./point"\nexport let f(p: P): Int = 1\n'],
     ])).toEqual([
       "`P` is a module alias, not a type; write `P.Point` for the type it exports, " +
         'name it bare with `import { Point } from "./point"`, ' +
-        "or realias as `import * as Point`",
+        "or realias as `import module Point`",
     ]);
   });
 
@@ -769,7 +769,7 @@ describe("unknown type names", () => {
 
     expect(messages([
       point,
-      ["/main.hex", 'import * as P from "./point"\nexport let f(p: P.Point): Int = 1\n'],
+      ["/main.hex", 'import module P from "./point"\nexport let f(p: P.Point): Int = 1\n'],
     ])).toEqual([]);
     expect(messages([
       point,
@@ -777,14 +777,14 @@ describe("unknown type names", () => {
     ])).toEqual([]);
     expect(messages([
       point,
-      ["/main.hex", 'import * as Point from "./point"\nexport let f(p: Point): Int = 1\n'],
+      ["/main.hex", 'import module Point from "./point"\nexport let f(p: Point): Int = 1\n'],
     ])).toEqual([]);
   });
 
   test("an alias exporting no such type is told where its types are", () => {
     expect(messages([
       ["/lib.hex", "export let one: Int = 1\n"],
-      ["/main.hex", 'import * as Lib from "./lib"\nexport let f(x: Lib): Int = 1\n'],
+      ["/main.hex", 'import module Lib from "./lib"\nexport let f(x: Lib): Int = 1\n'],
     ])).toEqual([
       "`Lib` is a module alias, not a type; the types it exports are reached through it, " +
         "as `Lib.Name`",
@@ -797,7 +797,7 @@ describe("unknown type names", () => {
     // answer, so the general form stands.
     expect(messages([
       ["/lib.hex", "export record One = {x: Int}\nexport record Two = {y: Int}\n"],
-      ["/main.hex", 'import * as Lib from "./lib"\nexport let f(x: Lib): Int = 1\n'],
+      ["/main.hex", 'import module Lib from "./lib"\nexport let f(x: Lib): Int = 1\n'],
     ])).toEqual([
       "`Lib` is a module alias, not a type; the types it exports are reached through it, " +
         "as `Lib.Name`",

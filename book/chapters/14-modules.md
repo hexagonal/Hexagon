@@ -87,7 +87,7 @@ import { area as rectangleArea } from "./rectangle"
 For sustained qualified use, bind a module alias:
 
 ```hexagon
-import * as Geo from "./geometry"
+import module Geo from "./geometry"
 
 let point = Geo.Point({x = 3.0, y = 4.0})
 let distance = Geo.distanceFromOrigin(point)
@@ -144,7 +144,7 @@ A consumer may import the type and give the module the same name:
 
 ```hexagon
 import { Point } from "./point"
-import * as Point from "./point"
+import module Point from "./point"
 
 let start: Point = Point({x = 1.0, y = 2.0})
 let moved = Point.translate(start, 3.0, 4.0)

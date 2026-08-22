@@ -51,7 +51,7 @@ log("${Mगणित.जोड़(20, 22)}")
 ```
 
 The block becomes a real virtual `Mगणित.hex` file and the remaining source receives
-the equivalent of `import * as Mगणित from "./Mगणित"`. Block contents deliberately
+the equivalent of `import module Mगणित from "./Mगणित"`. Block contents deliberately
 stay at column one: adding or removing the wrapper never requires reindentation. The
 closing name must exactly repeat the opener, blocks cannot nest, and names must be
 unique uppercase-start identifiers. Diagnostics retain their positions in the

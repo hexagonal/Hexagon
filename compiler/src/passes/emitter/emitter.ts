@@ -351,10 +351,13 @@ function moduleLevelBindings(
 }
 
 /**
- * The local each namespace import's `import * as` line binds, entered only for
- * an alias one of the module's own bindings contests (#569).
+ * The local each namespace import's emitted `import * as` line binds, entered
+ * only for an alias one of the module's own bindings contests (#569).
  *
- * Modules §5.2 makes `import * as Point from "./point"` beside a declared
+ * The `* as` head is JavaScript's and survives only in emission (§11.2, #565);
+ * the source line this plan renames the local of is `import module Point`.
+ *
+ * Modules §5.2 makes `import module Point from "./point"` beside a declared
  * `Point` legal and load-bearing — it is the companion idiom — and the checker
  * reports nothing, so the two Hexagon namespaces must reach JavaScript as two
  * bindings. §11.2 already says whose problem that is: "emitted-name collisions
@@ -6010,7 +6013,7 @@ class JavaScriptEmitter {
    * resolver bound — the same discipline #263 applied to companion candidates.
    *
    * The names are deduplicated per specifier because a module may reach one
-   * constraint by two routes (a named import beside an `import * as`), and two
+   * constraint by two routes (a named import beside an `import module`), and two
    * `import` statements binding the same identifier is a `SyntaxError` at load,
    * after a clean compile.
    */
@@ -6199,7 +6202,7 @@ class JavaScriptEmitter {
    * The local a namespace import binds one internal constrained export under.
    *
    * Minted rather than taken from the exporter, because the exported spelling is
-   * a function of the member's *name*: `import * as Loud` and `import * as Soft`
+   * a function of the member's *name*: `import module Loud` and `import module Soft`
    * over two modules that each declare `volume` both bring `__volume` home, and
    * binding both is `SyntaxError: Identifier has already been declared` at load,
    * after a clean compile. The exported names stay as they are — moving one to

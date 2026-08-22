@@ -85,7 +85,7 @@ describe("harness honesty (poison test)", () => {
     const poison =
       "export let plus(left: Int, right: Int): Int = \"not an Int\"\n";
     const entry =
-      'import * as Poison from "./Poison"\n' +
+      'import module Poison from "./Poison"\n' +
       "export let ok: Int = 1\n";
     const diagnostics = diagnose(entry, [["/Poison.hex", poison]]);
     expect(diagnostics).not.toEqual([]);
@@ -95,7 +95,7 @@ describe("harness honesty (poison test)", () => {
     const poison =
       "export let plus(left: Int, right: Int): Int = \"not an Int\"\n";
     const entry =
-      'import * as Poison from "./Poison"\n' +
+      'import module Poison from "./Poison"\n' +
       "export let ok: Int = 1\n";
     await expect(run(entry, [["/Poison.hex", poison]])).rejects.toThrow();
   });
@@ -103,7 +103,7 @@ describe("harness honesty (poison test)", () => {
   test("the same harness passes a project whose non-entry module is sound", async () => {
     const sound = "export let plus(left: Int, right: Int): Int = left + right\n";
     const entry =
-      'import * as Sound from "./Sound"\n' +
+      'import module Sound from "./Sound"\n' +
       "export let three: Int = Sound.plus(1, 2)\n";
     const m = await run(entry, [["/Sound.hex", sound]]);
     expect(m.three).toBe(3);

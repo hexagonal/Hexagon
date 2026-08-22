@@ -37,7 +37,7 @@ describe("layOutWorkspace", () => {
     );
 
     expect(equippedMain?.source).toContain(
-      'import * as Rat from "./stdlib/Rat"',
+      'import module Rat from "./stdlib/Rat"',
     );
     expect(bareMain?.source).toBe("log(\"hello\")\n");
   });
@@ -53,7 +53,7 @@ describe("layOutWorkspace", () => {
     // a consumer writes.
     expect(main?.source).not.toContain("import { Rat }");
     expect(main?.source.trimEnd().split("\n").filter((line) => line.startsWith("import")))
-      .toEqual(['import * as Rat from "./stdlib/Rat"']);
+      .toEqual(['import module Rat from "./stdlib/Rat"']);
   });
 
   test("a buffer declaring its own `Rat` keeps the line, and it collides with nothing", () => {
@@ -64,12 +64,12 @@ describe("layOutWorkspace", () => {
     // The alias binds nothing in the type namespace, so the declaration wins
     // outright and there is nothing to drop. The gate that used to drop the
     // named half — and the whole declared-type scan behind it — went with it.
-    expect(own?.source).toContain('import * as Rat from "./stdlib/Rat"');
+    expect(own?.source).toContain('import module Rat from "./stdlib/Rat"');
     expect(own?.source).not.toContain("import { Rat }");
   });
 
   test("keeps out of the way of a buffer that writes the import itself", () => {
-    const own = 'import * as Rat from "./stdlib/Rat"\n' +
+    const own = 'import module Rat from "./stdlib/Rat"\n' +
       "let half = Rat.create(1, 2)\n";
     const main = layOutWorkspace(own).files.find(({ path }) => path === entryPath);
 
@@ -86,7 +86,7 @@ describe("layOutWorkspace", () => {
     const source = "module Helper\n" +
       "    export let twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      'import * as Rat from "./Helper"\n' +
+      'import module Rat from "./Helper"\n' +
       "log(\"${Rat.twice(3)}\")\n";
     const main = layOutWorkspace(source).files.find(({ path }) => path === entryPath);
 
@@ -108,7 +108,7 @@ describe("layOutWorkspace", () => {
     // Read from the front, not with `toContain`: the buffer's own import line
     // spells enough of the injected one to satisfy a substring search that the
     // prefix had gone missing.
-    expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
+    expect(main?.source.startsWith('import module Rat from "./stdlib/Rat"\n'))
       .toBe(true);
     expect(main?.source.endsWith(named)).toBe(true);
   });
@@ -123,45 +123,45 @@ describe("layOutWorkspace", () => {
         ?.source === source;
 
     expect(suppressed(
-      'import (* the exact one *) * as Rat from "./stdlib/Rat"\n' +
+      'import (* the exact one *) module Rat from "./stdlib/Rat"\n' +
         "let half = Rat.create(1, 2)\n",
     )).toBe(true);
     expect(suppressed(
-      'import * as (* the exact one *) Rat from "./stdlib/Rat"\n' +
+      'import module (* the exact one *) Rat from "./stdlib/Rat"\n' +
         "let half = Rat.create(1, 2)\n",
     )).toBe(true);
     expect(suppressed(
-      "import\n    * as Rat from \"./stdlib/Rat\"\n" +
+      "import\n    module Rat from \"./stdlib/Rat\"\n" +
         "let half = Rat.create(1, 2)\n",
     )).toBe(true);
   });
 
   test("reads an import head inside a string as the string it is", () => {
-    const quoted = 'let advice = "write import * as Rat from ./stdlib/Rat"\n' +
+    const quoted = 'let advice = "write import module Rat from ./stdlib/Rat"\n' +
       "let half = Rat.create(1, 2)\n";
     const main = layOutWorkspace(quoted).files.find(({ path }) => path === entryPath);
 
     // One token, no head — the buffer's `Rat.create` still gets its module.
-    expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
+    expect(main?.source.startsWith('import module Rat from "./stdlib/Rat"\n'))
       .toBe(true);
   });
 
   test("reads a commented-out import as the comment it is", () => {
-    const commented = '// import * as Rat from "./stdlib/Rat"\n' +
+    const commented = '// import module Rat from "./stdlib/Rat"\n' +
       "let half = Rat.create(1, 2)\n";
     const main = layOutWorkspace(commented).files.find(({ path }) => path === entryPath);
 
     // A comment is trivia and holds no tokens, so a line the user has commented
     // out binds nothing and stands down for nothing — the shape a buffer
     // mid-edit is in.
-    expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
+    expect(main?.source.startsWith('import module Rat from "./stdlib/Rat"\n'))
       .toBe(true);
     expect(prefixLength(commented)).toBeGreaterThan(0);
   });
 
   test("finds no alias at all in a buffer that does not lex", () => {
     const midEdit = 'let advice = "unterminated\n' +
-      'import * as Rat from "./stdlib/Rat"\n' +
+      'import module Rat from "./stdlib/Rat"\n' +
       "let half = Rat.create(1, 2)\n";
     const main = layOutWorkspace(midEdit).files.find(({ path }) => path === entryPath);
 
@@ -170,13 +170,13 @@ describe("layOutWorkspace", () => {
     // regardless — the direction a half-typed buffer should fail in. What the
     // user sees is the lex error they are in the middle of fixing; the alias
     // collision waits until there is an alias to collide with.
-    expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
+    expect(main?.source.startsWith('import module Rat from "./stdlib/Rat"\n'))
       .toBe(true);
   });
 
   test("leaves a module block's own alias to that block's file", () => {
     const source = "module Helper\n" +
-      '    import * as Rat from "./stdlib/Rat"\n' +
+      '    import module Rat from "./stdlib/Rat"\n' +
       "    export let one(): Int = 1\n" +
       "end module Helper\n" +
       "let half = Rat.create(1, 2)\n";
@@ -186,8 +186,44 @@ describe("layOutWorkspace", () => {
     // with nothing and must not disarm the entry's line — which is why the
     // scan reads `/main.hex`'s masked text rather than the whole buffer, the
     // opposite of the mention gate below.
-    expect(main?.source.startsWith('import * as Rat from "./stdlib/Rat"\n'))
+    expect(main?.source.startsWith('import module Rat from "./stdlib/Rat"\n'))
       .toBe(true);
+  });
+
+  /**
+   * The Playground's `module X` / `end module X` headers and the language's
+   * `import module X` head now spell the same word, and #565's contextual rule
+   * is what keeps them from meeting: the language reads `module` only in the one
+   * position after `import`, and a header never stands there.
+   *
+   * Two directions, both pinned here because the two forms are the Playground's
+   * alone to hold apart. A header does not read as an import head — it is masked
+   * out of `/main.hex` before the alias scan sees the text at all, and it binds
+   * no alias even when its own name is a companion's. And an import head is not
+   * read as a header — `parseWorkspaceSource` finds block headers by their own
+   * line shape, so the injected line and a user's own are ordinary text to it.
+   */
+  test("a `module` block header is no import head, and vice versa", () => {
+    const withBlock = "module Helper\n" +
+      "    export fun twice(n: Int): Int = n * 2\n" +
+      "end module Helper\n" +
+      "let half = Rat.create(1, 2)\n";
+    const { files } = layOutWorkspace(withBlock);
+    const main = files.find(({ path }) => path === entryPath);
+
+    // The header bound nothing, so the mention of `Rat` still earns its line,
+    // and the block's own synthesized import stands beside it — the same head,
+    // written by the Playground rather than the user.
+    expect(main?.source.split("\n").filter((line) => line.startsWith("import")))
+      .toEqual([
+        'import module Rat from "./stdlib/Rat"',
+        'import module Helper from "./Helper"',
+      ]);
+    // And the block is still a file of its own, masked out of the entry: the
+    // header's `module` never reached the language's grammar.
+    expect(files.find(({ path }) => path === "/Helper.hex")?.source)
+      .toBe("    export fun twice(n: Int): Int = n * 2\n");
+    expect(main?.source).not.toContain("end module Helper");
   });
 
   test("reads a mention at identifier boundaries, not as a substring", () => {

@@ -264,7 +264,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
   test("a namespace import of a prelude module carries none either", () => {
     const javascript = emitted([[
       "/a.hex",
-      'import * as Option from "./Option"\n' +
+      'import module Option from "./Option"\n' +
       "export fun mk(x: Int): Option(Int) = Option.Some(x)\n",
     ]], "/a.hex");
     expect(javascript).not.toContain("__");

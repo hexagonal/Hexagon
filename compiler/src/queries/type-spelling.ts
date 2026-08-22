@@ -45,7 +45,7 @@ export function unspellable(result: SpellingResult): result is Unspellable {
  * A nominal type carries the name its *declaration* gave it, which is not always
  * a name the module reading it can write: `import {Colour as Shade}` leaves the
  * declared name `Colour` bound to nothing here, and a type reached only through
- * `import * as Palette` is spelled `Palette.Colour` (Modules §3.3). Writing the
+ * `import module Palette` is spelled `Palette.Colour` (Modules §3.3). Writing the
  * declared name in either case produces text that does not compile, so the
  * spelling has to come from what this module actually bound.
  */

@@ -32,7 +32,7 @@ export const hostedModules: readonly HostedModule[] = [
  * (`Ordering`/`Option`/`Result`, supplied implicitly by the compiler), and it
  * covers only what the prelude does not reach.
  *
- * One line goes in, the companion idiom's own: `import * as X`. The alias is
+ * One line goes in, the companion idiom's own: `import module X`. The alias is
  * the module (`Rat.create`), and since Modules §5.1 rule 2's companion fallback
  * (#531) it also answers the bare type name a written face needs
  * (`let exact(f: Int): Rat = …`) — the named half the injection used to carry

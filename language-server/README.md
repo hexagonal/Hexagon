@@ -543,7 +543,7 @@ less than it looks.
   inside. While a `(*` is still unclosed its comment runs to the end of the file,
   and completion is silent for the rest of it; that is the same shape as the
   highlighting bail-out in #162 and #174.
-- **A module alias cannot be renamed.** `import * as H` binds `H` in a namespace
+- **A module alias cannot be renamed.** `import module H` binds `H` in a namespace
   the occurrence index does not model, so a request on it answers "nothing to
   rename here" rather than refusing.
 - **Rename re-analyses the whole project to verify one request** — one

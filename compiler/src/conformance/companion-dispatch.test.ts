@@ -160,10 +160,10 @@ describe("a built-in receiver reaches the module addressable under its name", ()
 
   /**
    * The other half of the same rule: the prelude member is not privileged here,
-   * *addressability under the name* is. A project's own `import * as Vector`
+   * *addressability under the name* is. A project's own `import module Vector`
    * makes that module addressable too, and its exported subject-first operations
    * become `Vector`'s alongside the prelude's — which is what keeps the
-   * Playground's `import * as Vector from "/stdlib/Vector.hex"` working, and
+   * Playground's `import module Vector from "/stdlib/Vector.hex"` working, and
    * what a project replacing the companion depends on.
    */
   test("a module addressable as `Vector` supplies the built-in's operations", async () => {
@@ -171,7 +171,7 @@ describe("a built-in receiver reaches the module addressable under its name", ()
       ["/vec.hex", "export fun doubled(values: Vector(Int)): Vector(Int) = values\n"],
       [
         "/main.hex",
-        'import * as Vector from "./vec"\n' +
+        'import module Vector from "./vec"\n' +
         "export let out: Vector(Int) = [1, 2].doubled()\n",
       ],
     ] as const;
@@ -191,7 +191,7 @@ describe("a built-in receiver reaches the module addressable under its name", ()
       ["/vec.hex", "export fun doubled(values: Vector(Int)): Vector(Int) = values\n"],
       [
         "/main.hex",
-        'import * as Bag from "./vec"\n' +
+        'import module Bag from "./vec"\n' +
         "export let out: Vector(Int) = [1, 2].doubled()\n",
       ],
     ]);
