@@ -6041,19 +6041,24 @@ class Checker {
   /**
    * The column for a union whose declaration this checker never registered.
    *
-   * On a clean program there is no such union: every route that could carry one
-   * here is closed elsewhere — a private union reaching another module is
-   * refused by `#checkPublicSignatures` before any arm of its is judged. So this
-   * is recovery only, reached when the program already carries a diagnostic, and
-   * its job is to add nothing to that report.
+   * Two routes reach it, and they are not alike. A **private** type carried
+   * abroad is refused at the exporter — `#checkPublicSignatures` reports the
+   * escape before any arm of it is judged here — so that one arrives only on a
+   * program already being refused, and this column's job there is to add nothing
+   * to the report. A **public** union reaching a module that never imports its
+   * type name arrives on a program with no other diagnostic at all: registration
+   * abroad is keyed on the import, so a union reached only through an imported
+   * function's result type is absent from `module.unions` and lands here (#605).
    *
-   * The patterns are taken *as* the signature, which is the answer that says
-   * nothing a reader could act on: the column can still tell two constructors
-   * apart, so §7.2 keeps working, and it never names a case missing from a set
-   * it cannot enumerate. What it cannot do is judge a trailing `_`: an assumed
-   * signature is complete by construction, so a live wildcard reads as dead.
-   * That is the price of answering at all here, and it is only ever paid on a
-   * program that is already being refused.
+   * On that second route the judgments below are wrong in both directions, and
+   * the shape of the answer is why. The patterns are taken *as* the signature,
+   * which is what lets the column tell two constructors apart so §7.2 keeps
+   * working, and what stops it naming a case missing from a set it cannot
+   * enumerate. The same assumption is what makes a genuinely non-exhaustive
+   * match pass in silence, and a live trailing `_` read as dead: a signature
+   * complete by construction has nothing left for a wildcard to cover. This is
+   * the seat that silence and that false refusal live in, until #605 registers
+   * the union and the real column answers instead.
    */
   #assumedColumn(patterns: readonly Resolved.Pattern[]): CoverageColumn {
     const heads = new Map<string, CoverageHead>();
