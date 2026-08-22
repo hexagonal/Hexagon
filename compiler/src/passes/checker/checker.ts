@@ -4796,11 +4796,19 @@ class Checker {
           this.#checkCatchArms(expression.catchArms, result, level, expected);
         }
         const actual = this.#prune(scrutinee);
-        // §7's judgments come off one matrix. Reachability runs for every domain
-        // this dispatch admits — they differ in what exhaustiveness demands of
-        // them, never in whether a dead arm is an error — and for none of the
-        // ones it refuses, where the arms describe a type the reader has already
-        // been told cannot be matched.
+        // §7's judgments come off one matrix. Reachability runs wherever the
+        // arms were walked — every domain the dispatch admits below, and the
+        // ones it refuses as well: a dead arm is a dead arm whatever the scrutinee
+        // turned out to be, so a `match` on `Exn` or on a function type reports
+        // its refusal *and* its unreachable arms, exactly as it did before this
+        // seat was rewritten.
+        //
+        // The one exclusion is a scrutinee whose type is an unresolved variable
+        // or an error, and it is a property of the matrix rather than a policy
+        // about refusals: such a column knows nothing, so every pattern there
+        // reads as a wildcard (`#coverageColumn`) and every arm after the first
+        // would be reported dead. Suppressing the judgment is the only way not
+        // to invent one.
         if (actual.kind !== "Variable" && actual.kind !== "Error") {
           this.#checkArmReachability(expression.arms, actual, MATCH_ARM_REPORTS);
         }
