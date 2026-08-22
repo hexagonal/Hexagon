@@ -23,6 +23,12 @@ import { compileFiles, runProject } from "../support/test-project.js";
  *   that already resolved.
  * - It **carries no members.** The named import remains the members-carrying
  *   idiom (§3.1); the constraint half brings the name and nothing else.
+ *
+ * The *other* spelling of a constraint an alias reaches — the qualified
+ * `honor D.Describe<Box>`, admitted by Constraints §4.1 (#567) — is pinned by
+ * `qualified-honor-head.test.ts`, which is also where the two spellings meet:
+ * that they name one declaration is what keeps this fallback and that head from
+ * being two instances of the same constraint.
  */
 
 /** Every message the project reported, in order. */
