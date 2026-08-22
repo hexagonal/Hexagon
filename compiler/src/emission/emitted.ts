@@ -63,6 +63,19 @@ export interface JavaScript extends Output {
    */
   readonly memberSeatImports: readonly string[];
   /**
+   * Specifiers of the modules this file calls a **companion operation** in that
+   * no `Import` item here names (Method Syntax §8.2, #585) — the operations
+   * §4.2's import-insensitivity puts within a dot call's reach whether or not
+   * the call site imported their home module.
+   *
+   * The third channel that can name a module the tree does not mention, beside
+   * `memberSeatImports` and the runtime modules, and for the plainest reason of
+   * the three: a type reached through a re-export or an imported function's
+   * result brings its whole companion with it, and the emitted call has to
+   * import the operation from a file this one never spelled.
+   */
+  readonly companionOperationImports: readonly string[];
+  /**
    * The specifiers of the runtime modules this file imports operations from, in
    * source form — empty when it imports none, which is every file that touches
    * neither a `Vector(a)` nor a `Map(k, v)`.

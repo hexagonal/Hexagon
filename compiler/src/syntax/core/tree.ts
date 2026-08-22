@@ -144,6 +144,15 @@ export interface Module {
    * it, and none may branch on it.
    */
   readonly docs: readonly Documentation[];
+  /**
+   * Companion operations reached with no import to name them by (Method Syntax
+   * §8.2, #585); see `Typed.Module.companionImports`. Emission reads it as an
+   * *obligation* rather than a candidate set, unlike the prelude channels above:
+   * the checker records an entry only where a dot call resolved to it, so an
+   * entry is a name the rendered body will reach and an import the emitted file
+   * must carry or fail at load.
+   */
+  readonly companionImports: readonly Typed.CompanionImport[];
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }

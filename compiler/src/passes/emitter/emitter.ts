@@ -1617,6 +1617,19 @@ class JavaScriptEmitter {
   /** This pass's answer to §8's seat-binding rule, or empty on the discovery pass. */
   readonly #memberSeatLocals: ReadonlyMap<string, string>;
   /**
+   * Method Syntax §8.2's added imports (#585): a companion operation a dot call
+   * here reached in a module this file never imported, by symbol, and the local
+   * it is bound under once something references it.
+   *
+   * Claimed at the reference rather than up front, so an entry the rendering
+   * never reaches costs neither an `import` line nor a name — the same discipline
+   * `#usedMemberSeats` follows, and for the same reason: these locals sit in the
+   * one namespace every other minted name probes past.
+   */
+  readonly #companionImportLocals = new Map<Resolved.SymbolId, string>();
+  /** What the checker recorded for those operations, by symbol. */
+  readonly #companionImports: ReadonlyMap<Resolved.SymbolId, Typed.CompanionImport>;
+  /**
    * Every name this module binds at **module level** in the emitted JavaScript,
    * as far as its items settle it (#444).
    *
@@ -1711,6 +1724,9 @@ class JavaScriptEmitter {
       }
     }
     this.#memberSeatLocals = options.memberSeatLocals ?? new Map();
+    this.#companionImports = new Map(
+      module.companionImports.map((companion) => [companion.symbol, companion]),
+    );
     this.#namespaceAliases = namespaceAliasPlan(module);
     for (const name of moduleLevelBindings(module)) this.#moduleBindings.add(name);
     // The seat inventory, from the three channels an instance reaches a module
@@ -1921,6 +1937,8 @@ class JavaScriptEmitter {
     body.push(...specializationImports.flatMap(({ line }) => line === undefined ? [] : [line]));
     const memberSeatImports = this.#memberSeatImports();
     body.push(...memberSeatImports.map(({ line }) => line));
+    const companionOperationImports = this.#companionOperationImports();
+    body.push(...companionOperationImports.map(({ line }) => line));
     const runtimeImports = this.#runtimeImports();
     body.push(...runtimeImports.map(({ line }) => line));
     body.push(...this.#constraintMemberImports());
@@ -2000,6 +2018,9 @@ class JavaScriptEmitter {
       ],
       memberSeatImports: [
         ...new Set(memberSeatImports.map(({ specifier }) => specifier)),
+      ],
+      companionOperationImports: [
+        ...new Set(companionOperationImports.map(({ specifier }) => specifier)),
       ],
       runtimeImports: runtimeImports.map(({ specifier }) => specifier),
       diagnostics: this.#diagnostics.toArray(),
@@ -2953,6 +2974,15 @@ class JavaScriptEmitter {
         // never needs a binding, a local, or an import to be named by.
         const pinned = this.#pinnedBoolLiteral(expression.symbol);
         if (pinned !== undefined) return pinned;
+        // §8.2's added import, ahead of the ordinary import rules: this symbol
+        // is in no import item and in no local scope, so every spelling rule
+        // below would answer with a name nothing binds (#585).
+        const companion = this.#companionImportLocal(expression.symbol);
+        if (companion !== undefined) {
+          return (expression.evidence?.length ?? 0) === 0
+            ? companion
+            : this.#emitConstrainedValue(expression, companion, evidenceNames, bindingRhs);
+        }
         if (this.#constrainedImports.has(expression.symbol)) {
           const imported = this.#constrainedImports.get(expression.symbol)!;
           // An imported constrained binding has the same trailing-evidence ABI
@@ -3803,6 +3833,66 @@ class JavaScriptEmitter {
             .map(([source, { local }]) => source === local ? source : `${source} as ${local}`)
             .join(", ")
         } } from ${JSON.stringify(emittedModuleSpecifier(specifier))};`,
+        specifier,
+      }));
+  }
+
+  /**
+   * The local this module calls one §8.2 companion operation by, claimed on
+   * first reference, or `undefined` where the symbol is not one (#585).
+   *
+   * The **source spelling when nothing here holds it** (`claimPublic`), because
+   * that is the name the source wrote after the dot and the emitted call should
+   * read as the source does; the reserved probe otherwise, since a module's own
+   * binding owns its public name and the added import is what moves aside.
+   * §8.2 calls exactly this "the emitter's ordinary renaming problem".
+   */
+  #companionImportLocal(symbol: Resolved.SymbolId): string | undefined {
+    const existing = this.#companionImportLocals.get(symbol);
+    if (existing !== undefined) return existing;
+    const companion = this.#companionImports.get(symbol);
+    if (companion === undefined) return undefined;
+    const local = this.#generatedNames.claimPublic(companion.imported);
+    this.#companionImportLocals.set(symbol, local);
+    return local;
+  }
+
+  /**
+   * `import` lines for the companion operations §4.2's import-insensitivity put
+   * within reach of this module's dot calls but no import of its own names
+   * (Method Syntax §8.2, #585), and the module edges they create.
+   *
+   * A line of its own, always, and for `#memberSeatImports`'s reason: the home
+   * module need have no import item here at all — that *is* the case this
+   * channel exists for — so the specifier is reported to `project.ts` rather
+   * than inferred from the tree, or the emitted file imports one that was never
+   * written. A **constrained** operation is imported under the exporter's
+   * internal spelling, which is the face that takes trailing evidence (FFI Part
+   * 7 §7); an unconstrained one is imported under its own name. Sorted, so the
+   * emitted text is a function of what the module calls rather than of where.
+   */
+  #companionOperationImports(): readonly {
+    readonly line: string;
+    readonly specifier: string;
+  }[] {
+    const bySpecifier = new Map<string, string[]>();
+    for (const [symbol, local] of this.#companionImportLocals) {
+      const companion = this.#companionImports.get(symbol);
+      if (companion === undefined) continue;
+      const source = companion.constrained
+        ? internalNamePlan(companion.internalNames).get(companion.imported) ??
+          `__${companion.imported}`
+        : companion.imported;
+      const names = bySpecifier.get(companion.specifier) ?? [];
+      names.push(source === local ? source : `${source} as ${local}`);
+      bySpecifier.set(companion.specifier, names);
+    }
+    return [...bySpecifier]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([specifier, names]) => ({
+        line: `import { ${names.sort((left, right) => left.localeCompare(right)).join(", ")} } from ${
+          JSON.stringify(emittedModuleSpecifier(specifier))
+        };`,
         specifier,
       }));
   }

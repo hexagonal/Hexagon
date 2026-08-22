@@ -717,8 +717,14 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
  * that map also holds constructors and exception names — which mint no internal
  * spelling and, being uppercase-start, can contest none either. Counting them
  * on one side only is the way the two sides would drift.
+ *
+ * Exported for the one import the resolver does not write: Method Syntax §8.2's
+ * added companion import (#585), which emission mints for a dot call that
+ * reached a module no import item here names. It has to read the exporter's
+ * spellings by the same rule as every written import, and that rule is this
+ * function rather than a description of it.
  */
-function internalNameInputs(
+export function internalNameInputs(
   imported: ModuleInterface | undefined,
 ): Resolved.InternalNameInputs {
   if (imported === undefined) return { members: [], terms: [] };
