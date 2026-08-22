@@ -79,7 +79,7 @@ The foreign counterpart is `extern import "telemetry/register"` (FFI Part 4 §8)
 | Declaration | Exports |
 |---|---|
 | `export let x = ...` / `export fun f(...) = ...` | the term |
-| `export record Point = {...}` | `Point` the type **and** `Point` the constructor (fields come with the constructor: construction, `p.x`, patterns, update) |
+| `export record Point = {...}` | `Point` the type **and** `Point` the constructor (the name-carried surface: construction, constructor patterns). Field access, update, and the bare copy are type-directed — they travel with the type, not the import (§4.2) |
 | `export union Shape = Circle(...) \| ...` | `Shape` the type **and** every constructor |
 | `export type UserName = String` | the alias name |
 | `export constraint Ord<a: Eq> = ...` | the constraint name **and** its members |
@@ -137,6 +137,8 @@ export opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)
 - Inside the home module, `opaque` changes nothing: full construction, matching, field access. The home module exports smart constructors and accessors as ordinary functions — this is the intended idiom, and the companion-module pattern (§5.3) is its natural shape.
 - Derived instances are unaffected: `export opaque record Point derives (Eq, Show) = ...` works — derivation happens in the home module, where nothing is hidden, and the resulting instances are global like all instances (§7). This is deliberate: opacity hides *structure*, not *capabilities*.
 - `opaque` is legal **only on `record` and `union`**, and only together with `export` (`opaque` without `export` is "everything is already private; remove `opaque`"). On `type`: error — aliases are transparent by definition; "make it a `record` or single-constructor `union`" (the Declarations Preamble §4 redirect family). On `let`/`fun`/`constraint`/`exception`: parse error.
+
+**Transparent representations travel with the type** *(#587)*. The complement of the rule above, and it takes no syntax: outside `opaque`, the declaration is the **sole authority** on representation visibility, and a record's fields are open **wherever the type reaches**. Type-directed access — `p.x`, `{p with x = e}`, the bare copy `{...p}` — asks only what the receiver's type is, and a type reaches modules that never spelled its name: an imported signature carries it, and its home module is in the graph by reachability of the type — the same sentence Method Syntax §4.2 states for the dot's operation set, one law with two clients. Whether the accessing module imported the declaration, in any form or at all, changes nothing: imports carry *names* (§3) — the constructor among them, so construction and constructor patterns want the name in scope like any name — but no import is ever the difference between a representation open and shut. A nominal record's pattern eliminator is the constructor pattern, name-carried like construction (Pattern Matching §2.4); in a module without the name, the destructure spelling is `let {n} = {...v}` through the crossing (Products §5.3). The open-or-shut difference is written in one place by one author: `opaque`, on the declaration. Consequently there is no consumer-side or intermediary re-abstraction — no module can pass along another's type with the fields closed, and re-exports, the one vehicle such a facade could ride, stay deferred (§12.2) — and no per-signature or per-occurrence form exists; a representation has one answer, written once: transparent everywhere, or closed everywhere outside its home. Diagnostics inherit the rule: a missing-field error names the record's known fields wherever it fires (Products §3.2) — an empty field enumeration is malformed output, never a compiler sentence — and the only "representation not visible here" refusal is the opaque one above, which names the home module.
 
 Lineage: Roc's opaque types and Haskell's export-`Point`-without-`Point(..)` idiom; the modifier spelling keeps the common case JS-shaped where an export list (Haskell/Elm) would abandon it (§9.3).
 
@@ -474,6 +476,15 @@ sort(configs)                                -- OK
 import module Geo from "./geometry"
 Geo.area(2.0)
 -- emits: import { area } from "./geometry.js";  area(2.0);
+
+-- (l) Transparent representation reaches through an un-imported home (§4.2)
+-- crate.hex: export record Crate = {n: Float}
+-- mid.hex:   import { Crate } from "./crate"
+--            export fun make(value: Float): Crate = Crate({n = value})
+import { make } from "./mid"                 -- Crate never imported here, in any form
+make(1.5).n                                  -- OK: fields travel with the type
+make(1.5).m                                  -- ERROR: Crate has fields n, not m
+                                             --   (known fields named — never empty)
 ```
 
 ---
@@ -489,6 +500,7 @@ Geo.area(2.0)
 | `export` = declaration prefix exporting everything introduced; no default exports; no re-exports (v1) | §4.1 |
 | Exported terms require complete annotations; constrained functions explicitly list maximal constraints and omit entailed bases; private module-level function guidance remains style | §4.1.1 |
 | `export opaque` on `record`/`union`: type name only; fields/constructors/matching private outside home; derives unaffected; home module unaffected | §4.2 |
+| Transparent representation visibility travels with the type (sole-authority rule): field access, update, and the bare copy are import-insensitive; imports carry names (constructor and its pattern included); no intermediary or per-signature re-abstraction | §4.2 |
 | Private-in-public: hard error for nominal types; transparent aliases exempt (expansion used) | §4.3 |
 | Fourth namespace (module aliases); position-based resolution; `Name.` checks modules first | §5.1 |
 | Collisions: duplicate module aliases error; alias-vs-type/constructor legal (companion idiom blessed); named-import same-namespace collisions error; Elm-strict restriction = v2 candidate | §5.2, §12.3 |
