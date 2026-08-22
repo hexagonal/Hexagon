@@ -16,7 +16,9 @@ import { compileFiles, projectDiagnostics, runProject } from "../support/test-pr
  * above it. That is exactly the "use-changes-methods spookiness" the sentence
  * says the design does not have.
  *
- * Two faces were measured, and both are pinned below in files of their own:
+ * Two faces were measured, and each is pinned below over a fixture of its own —
+ * the ordinary one wide of every constraint mechanism, so that the plainest
+ * exhibit does not depend on the most intricate:
  *
  * - the **ordinary operation** — no constraint, no `widens`, one `export fun`
  *   whose first parameter is the record — refused with a message asserting that
