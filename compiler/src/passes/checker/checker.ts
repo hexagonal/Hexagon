@@ -1906,23 +1906,13 @@ class Checker {
       }
     }
     this.#checkBaseConstraintGraph();
-    for (const item of module.items) {
-      if (item.kind !== "ConstraintDeclaration") continue;
-      for (const member of item.members) {
-        if (member.defaultValue === undefined) continue;
-        const expected = this.#prune(this.#scheme(member.binding.symbol).type);
-        if (expected.kind !== "Function") continue;
-        member.defaultValue.parameters.forEach((parameter, index) => {
-          this.#schemes.set(parameter.symbol, {
-            variables: [],
-            type: expected.parameters[index] ?? ERROR,
-          });
-        });
-        const body = this.#inferExpr(member.defaultValue.body, 1);
-        this.#unify(expected.result, body, member.defaultValue.span);
-        this.#expressionTypes.set(member.defaultValue, expected);
-      }
-    }
+    // The default *bodies* are not checked here. The schemes above are what
+    // earlier items need in order to name a member; the bodies need every
+    // registration this method performs below — unions, records, exceptions,
+    // companion operations — and the schemes of the module bindings §2 puts in
+    // their scope, which only `#inferItems` seeds. So they are checked at the
+    // declaration's own seat in `#inferItems`, in source order.
+
     // Exceptions §1 delegates a catch arm to Unions §4.2's flat constructor
     // patterns, and Modules §3.3's qualified form is one of them — so the table
     // a catch arm is read against has to be every exception constructor *in
@@ -3363,7 +3353,43 @@ class Checker {
         continue;
       }
       if (item.kind === "Import" || item.kind === "ExternBlock" || item.kind === "ExternImport") continue;
-      if (item.kind === "ConstraintDeclaration") continue;
+      if (item.kind === "ConstraintDeclaration") {
+        // Constraints §2: "A default body is checked once in the constraint's
+        // generic context against its declared return type. The constraint
+        // subject, its base constraint operations, module-scope names, and all
+        // members of the same constraint are in scope." The member schemes —
+        // subject rigid, parameters seeded from the declared face — were built
+        // when the declaration was registered; the *module-scope names* are the
+        // ones seeded above this seat, which is exactly the set the resolver's
+        // top-down law admits (a `fun` written below the constraint is refused
+        // by name before this runs).
+        for (const member of item.members) {
+          const defaultValue = member.defaultValue;
+          if (defaultValue === undefined) continue;
+          const expected = this.#prune(this.#scheme(member.binding.symbol).type);
+          if (expected.kind !== "Function") continue;
+          defaultValue.parameters.forEach((parameter, index) => {
+            this.#schemes.set(parameter.symbol, {
+              variables: [],
+              type: expected.parameters[index] ?? ERROR,
+            });
+          });
+          // No `#openSignature` frame: a member declares its face in slots, not
+          // as a written arrow, so there is no inlet to mint and a `->?` in the
+          // body has nothing to link to — Effects §4.4's inlet-less signature,
+          // which is the clause `"signature"` names. The module level around
+          // this seat is `"no-signature"`, and that is the enclosing item's
+          // answer, not this body's: a default body stands under a declared
+          // signature exactly as a `fun` body does.
+          const body = this.#inPosition(
+            "signature",
+            () => this.#inferExpr(defaultValue.body, level + 1),
+          );
+          this.#unify(expected.result, body, defaultValue.span);
+          this.#expressionTypes.set(defaultValue, expected);
+        }
+        continue;
+      }
       if (item.kind === "Honor") {
         // By identity: this instance answers one declaration, which may be an
         // imported one this module reaches under an alias or through a module
@@ -6013,15 +6039,26 @@ class Checker {
   }
 
   /**
-   * The column for a union whose declaration is not registered where this
-   * judgment runs — the constraint default body's pre-pass is the one seat that
-   * reaches it, and its patterns are not typed there either.
+   * The column for a union whose declaration this checker never registered.
    *
-   * The patterns are taken *as* the signature. That is the only answer that
-   * reports nothing a reader could act on: the column can still tell two
-   * constructors apart, so §7.2 keeps working, and it never names a case
-   * missing from a set it cannot enumerate — which is what the constructor
-   * listing this replaces did, by finding no constructors to subtract from.
+   * Two routes reach it, and they are not alike. A **private** type carried
+   * abroad is refused at the exporter — `#checkPublicSignatures` reports the
+   * escape before any arm of it is judged here — so that one arrives only on a
+   * program already being refused, and this column's job there is to add nothing
+   * to the report. A **public** union reaching a module that never imports its
+   * type name arrives on a program with no other diagnostic at all: registration
+   * abroad is keyed on the import, so a union reached only through an imported
+   * function's result type is absent from `module.unions` and lands here (#605).
+   *
+   * On that second route the judgments below are wrong in both directions, and
+   * the shape of the answer is why. The patterns are taken *as* the signature,
+   * which is what lets the column tell two constructors apart so §7.2 keeps
+   * working, and what stops it naming a case missing from a set it cannot
+   * enumerate. The same assumption is what makes a genuinely non-exhaustive
+   * match pass in silence, and a live trailing `_` read as dead: a signature
+   * complete by construction has nothing left for a wildcard to cover. This is
+   * the seat that silence and that false refusal live in, until #605 registers
+   * the union and the real column answers instead.
    */
   #assumedColumn(patterns: readonly Resolved.Pattern[]): CoverageColumn {
     const heads = new Map<string, CoverageHead>();
