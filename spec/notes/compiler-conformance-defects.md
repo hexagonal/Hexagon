@@ -177,6 +177,11 @@ unification (deleting `SeqCore` and all four workarounds in that change), then
   scrutinee type: if a tuple pattern typechecks there, the slot *is* a tuple, and
   irrefutability then turns only on whether each component pattern is
   irrefutable. Uniform across `Tuple`, `Record`, and `Vector` patterns.
+  *(Superseded 2026-08 by #594/PR #598: `#isIrrefutablePattern` and
+  `isStructurallyIrrefutablePattern` are retired; all three judgments now derive
+  from the Pattern Matching §7 usefulness matrix, with constructor slot types
+  instantiated at the column — the structural workaround this entry describes is
+  no longer in the tree. The conformance tests below still pin the behavior.)*
 - **Executable conformance:** `compiler/src/conformance/constructor-tuple-patterns.test.ts`
   — `Option`, `Result`, and a user union carrying tuples; a doubly-nested tuple;
   a structural record payload; a runtime check that both components bind; plus

@@ -366,7 +366,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 
 ### 7.2 Reachability
 
-- An arm is unreachable if its pattern is useless relative to the *unguarded* arms above it (guarded arms above cannot subsume — their guards may fail). Hard error, naming the shadowing arm, as before.
+- An arm is unreachable if its pattern is useless relative to the *unguarded* arms above it (guarded arms above cannot subsume — their guards may fail). Hard error, naming the shadowing arm, as before. When no single arm subsumes — the arm is dead only against several arms jointly, as in `W(True)` / `W(False)` / `_` — the report names none of them, because naming one would be false: "this case is unreachable; the patterns above already cover it".
 - Two arms with the same pattern and different guards are both reachable (the checker cannot prove a guard total): legal.
 - A guarded arm whose pattern is already fully covered by an earlier **unguarded** arm is unreachable — `when True` does not launder it.
 - Anything after a catch-all arm is unreachable. In `catch`, the Exceptions §5.3 logic transfers with or-patterns folded in: a second `JsError(_)` arm, or anything after `_`, is unreachable; domestic arms after a `JsError` arm are fine.
@@ -436,7 +436,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 | `catch` clause on a match function | "a match function's parameter is already a value; there is nothing here for `catch` to observe — to guard the arm bodies, write a lambda whose body is `try match x …` with `catch` aligned to the `try`" (§6.7; Exceptions §9) |
 | Sole-constructor pattern flips refutable after a union gains a constructor | same family, naming the new constructor (§5.2) |
 | Non-exhaustive `match` | "match is missing cases: ⟨witnesses⟩" via §7.3 renderer — add the missing arm(s) or a `_` catch-all |
-| Unreachable arm (incl. guarded-arm subtleties) | hard error naming the shadowing arm (§7.2); remove the arm or reorder it above its shadower |
+| Unreachable arm (incl. guarded-arm subtleties) | hard error naming the shadowing arm (§7.2); remove the arm or reorder it above its shadower; when several arms jointly cover it, no arm is named: "this case is unreachable; the patterns above already cover it" |
 | Or-pattern binding mismatch | "`x` is bound on the left of `\|` but not the right — bind it in both alternatives; if unused, remove the binding from both" (§2.6) |
 | Duplicate binder in one pattern (incl. `as`, nested) | "`w` is bound twice in this pattern; rename one occurrence"; for an unused subpattern binder suggest `_`, and for an unused `as` binder suggest removing the `as` clause (§2.1) |
 | `let`-pattern name already in scope | Statements §5.1/§9.3's "already bound" error with the pattern-aware fixits (§6.3 here) |

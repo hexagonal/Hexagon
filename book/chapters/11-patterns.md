@@ -186,7 +186,7 @@ with no catch-all required. When something is missing, the error gives an exampl
 pattern:
 
 ```text
-match is missing cases: (None, _)
+match is missing cases: `(None, _)`
 ```
 
 This is stronger than a warning. A value cannot fall silently through a match at
