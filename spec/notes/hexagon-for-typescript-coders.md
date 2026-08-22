@@ -481,10 +481,10 @@ Things to notice:
 Delete the `Point` arm and Hexagon says:
 
 ```
-error: match is missing cases: Point
+error: match is missing cases: `Point`
 ```
 
-Not a lint warning, not an opt-in `never` trick you have to remember — a hard compile error, always. Add a fourth constructor to `Shape` next year, and every `match` in the codebase that doesn't handle it fails to compile, with the missing constructor named. This is the refactoring superpower that TS's exhaustiveness-by-convention approximates; Hexagon just guarantees it. (Unreachable arms are errors too — a dead `case` is always a bug or a leftover.)
+Not a lint warning, not an opt-in `never` trick you have to remember — a hard compile error, always. The missing case is rendered as a *pattern you could paste in*: delete the `Rect` arm instead and the message reads ``match is missing cases: `Rect(_, _)` ``. Add a fourth constructor to `Shape` next year, and every `match` in the codebase that doesn't handle it fails to compile, with the missing case spelled out. This is the refactoring superpower that TS's exhaustiveness-by-convention approximates; Hexagon just guarantees it. (Unreachable arms are errors too — a dead `case` is always a bug or a leftover.)
 
 There's also no way *around* `match`: you cannot dot into a union value (`s.radius` on a `Shape` is a compile error saying "union values are inspected with `match`"). The type system never has to trust that you checked the tag, because checking the tag is the only door.
 
