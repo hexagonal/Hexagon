@@ -234,8 +234,9 @@ describe("a `match` on a nominal-record scrutinee", () => {
     // bare type variable carrying no shape — so `#isIrrefutablePattern` falls
     // back to the syntactic test, which rejects every constructor pattern.
     // `UserId(n)` under `Some` has always read the same way, and reads it
-    // identically today. Widening that judgment is a separate change to the
-    // union machinery; it is filed rather than smuggled in here.
+    // identically today. Widening that judgment is **#594**, which takes this
+    // refutability parity and the record-field-space exhaustiveness narrowness
+    // together, as the one mechanism they are; it is not smuggled in here.
     const nested = (arm: string, declaration: string) => projectDiagnostics(
       declaration +
       "export fun size(o: Option(Wrapped)): Int =\n" +
@@ -370,16 +371,13 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     ]);
   });
 
-  test("the redirect is the wall's sentence, and the wall stands everywhere", () => {
-    // Outside an *opaque* record's home the redirect still fires, naming a
-    // constructor that is private there — the reader meets `unknown
-    // constructor` on the next attempt. §2.4's sentence is a fact about the
-    // nominal wall and is true in both places, so it is said in both places
-    // rather than forked; the opaque half of the story is told where opacity is
-    // enforced, at the name. Flagged for James alongside this change: whether
-    // this seat should instead draw a §4.2-family "not visible here" refusal is
-    // a wording decision, and inventing one was out of scope here.
-    expect(compileFiles([
+  test("opacity intercepts the redirect outside the home module (§2.4)", () => {
+    // The redirect signposts the constructor, and outside an opaque record's
+    // home that constructor is private — so the opaque family's own refusal
+    // stands in its place, in the shape its two siblings already have. Nothing
+    // is leaked on the way: the sentence carries no field name and no
+    // constructor spelling, which is the field privacy §4.2 calls load-bearing.
+    const messages = compileFiles([
       ["/geo.hex",
         "export opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
@@ -388,8 +386,67 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
         "export fun size(c: Crate): Float =\n" +
         "    let {n} = c\n" +
         "    n\n"],
+    ]).diagnostics.map(({ message }) => message);
+    expect(messages).toEqual([
+      "cannot destructure opaque record `Crate`; use an operation exported by its home module",
+    ]);
+    expect(messages.join("\n")).not.toContain("`n`");
+    expect(messages.join("\n")).not.toContain("Crate({");
+  });
+
+  test("the interception reads opacity where the field access reads it", () => {
+    // Off the *program's* copy of the declaration, not the importer's flag
+    // (#587/#589) — so a type that reached this module through an imported
+    // signature, its name never spelled here, answers exactly as an imported
+    // one does. The transparent twin below is the control: same reach, same
+    // seat, and the redirect is what fires there.
+    const reached = (opacity: string) => compileFiles([
+      ["/geo.hex",
+        `export ${opacity}record Crate = {n: Float}\n` +
+        "export fun make(): Crate = Crate({n = 1.0})\n"],
+      ["/mid.hex",
+        'import { Crate, make } from "./geo"\n' +
+        "export fun forged(): Crate = make()\n"],
+      ["/main.hex",
+        'import { forged } from "./mid"\n' +
+        "export fun size(): Float =\n" +
+        "    let {n} = forged()\n" +
+        "    n\n"],
+    ]).diagnostics.map(({ message }) => message);
+    expect(reached("opaque ")).toEqual([
+      "cannot destructure opaque record `Crate`; use an operation exported by its home module",
+    ]);
+    expect(reached("")).toEqual([
+      "`Crate` is a nominal record; destructure it with `Crate({n})`",
+    ]);
+  });
+
+  test("inside the home module `opaque` changes nothing, and the redirect stands", () => {
+    // §4.2's own sentence. The home module sees everything, so the seat has a
+    // spelling to send the reader to and sends them to it.
+    expect(compileFiles([
+      ["/geo.hex",
+        "export opaque record Crate = {n: Float}\n" +
+        "export fun size(c: Crate): Float =\n" +
+        "    let {n} = c\n" +
+        "    n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "`Crate` is a nominal record; destructure it with `Crate({n})`",
+    ]);
+  });
+
+  test("a `match` arm outside the home module is intercepted too", () => {
+    expect(compileFiles([
+      ["/geo.hex",
+        "export opaque record Crate = {n: Float}\n" +
+        "export fun make(): Crate = Crate({n = 1.0})\n"],
+      ["/main.hex",
+        'import { Crate, make } from "./geo"\n' +
+        "export fun size(c: Crate): Float =\n" +
+        "    match c\n" +
+        "        {n} => n\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "cannot destructure opaque record `Crate`; use an operation exported by its home module",
     ]);
   });
 

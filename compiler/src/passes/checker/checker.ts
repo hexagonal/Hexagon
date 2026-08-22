@@ -5488,11 +5488,33 @@ class Checker {
    * fixit is the user's own pattern moved inside the constructor: `{x, y}`
    * against a `Point` reads back as `Point({x, y})`, which is §2.4's sentence
    * verbatim.
+   *
+   * **Opacity intercepts the redirect** (§2.4, ruled after #591's first round).
+   * Outside an opaque record's home module the constructor is private, so the
+   * redirect would signpost a spelling the reader cannot write — and would name
+   * the record's fields while doing it, which is the field privacy §4.2 calls
+   * load-bearing. The opaque family's own refusal stands there instead, in the
+   * shape its two siblings already have (the field access and the update), and
+   * it leaks neither field names nor a constructor. Opacity is read through
+   * `#recordRepresentationVisible`, which is exactly the reader those siblings
+   * ask — off the program's copy of the declaration where this module never
+   * imported it (#587/#589) — so a type that reached here without its name
+   * answers the same as one that was imported. Inside the home module `opaque`
+   * changes nothing (§4.2) and the redirect is what fires.
    */
   #reportNominalRecordPattern(
     pattern: Resolved.RecordPattern,
     record: NominalRecordMono,
   ): void {
+    if (!this.#recordRepresentationVisible(record.record)) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `cannot destructure opaque record \`${record.name}\`; ` +
+          "use an operation exported by its home module",
+        primary: pattern.span,
+      });
+      return;
+    }
     const fields = pattern.fields.map(({ name }) => name);
     this.#diagnostics.add({
       severity: "error",
