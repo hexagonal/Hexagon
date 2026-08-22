@@ -1993,3 +1993,79 @@ than settling a style question.
 - **Executable conformance:** `conformance/exception-boundary.test.ts` pins the
   root-relative rendering under a `/src` root and the canonical separator rule,
   so a repair for #494 changes a test that exists rather than one that does not.
+
+## 2026-08-23 — constraint default bodies were checked before the module existed (#599)
+
+- **Classification:** compiler defect against specification; no design change.
+  One component is a regression from #598's matrix (the false unreachable
+  report below); the silences predate it and were recorded as residue by the
+  #594 arc.
+- **Authority:** Constraints §2 — "A default body is checked once in the
+  constraint's generic context against its declared return type. The constraint
+  subject, its base constraint operations, module-scope names, and all members
+  of the same constraint are in scope." Pattern Matching §7 mandates the
+  usefulness judgments for every `match`, and §5.1 forbids a second
+  approximation beside them.
+- **Defect origin:** the checker ran default member bodies in a pre-pass placed
+  before the module existed around them: before `#unions`, `#records`, and
+  `#exceptions` were registered, before companion operations were indexed, and
+  before `#inferItems` seeded any module binding's scheme. Every consequence
+  follows from that one position, in both directions at once.
+  Unchecked: a match on any union — the module's own or the prelude's — found
+  no declaration to judge against, so a non-exhaustive body and an arm naming a
+  constructor of the *wrong union* both compiled clean; a reference to a
+  module-scope binding found no scheme, took `#scheme`'s `ERROR` fallback, and
+  unified with anything, so `helper(True)` against `helper(n: Int)` compiled
+  clean. The default body is real code that honors inherit, so unchecked user
+  code shipped — the unsound direction.
+  Falsely refused: a `catch` arm's constructor was "not an exception
+  constructor" (`#exceptions` filled after the pre-pass), and — the #598
+  component — `#assumedColumn` took the written heads as a complete signature,
+  so the ordinary `On => 1` / `_ => 2` body refused its live catch-all as
+  unreachable while the same match at top level was clean.
+  The resolver had answered correctly all along: names resolved top-down, and a
+  `fun` declared below the constraint was already refused by name. Only the
+  checker read the resolved body against an empty world.
+- **Correction:** the pre-pass is gone; a default body is checked where its
+  declaration sits, at the `ConstraintDeclaration` arm of `#inferItems`, in
+  source order. By that seat the registration loops have all run and every
+  binding above the constraint has its scheme — exactly the set the top-down
+  law admits — so the match judgments, exception membership, and module-scope
+  typing all engage with no machinery of their own. The generic context is
+  unchanged: the member scheme's rigid subject, seeded parameter schemes, and
+  the declared return type are read exactly as the pre-pass read them. One
+  carried position: the pre-pass ran with the annotation position at
+  `"signature"` where `#inferItems` sets `"no-signature"` for module items, and
+  the difference picks Effects §4.4's *because* clause for a `->?` nested
+  inside a non-function annotation — so the body's inference is wrapped in
+  `#inPosition("signature", …)`, which keeps that report the one the same
+  annotation gets inside a `fun` body.
+  `#assumedColumn` remains, its comment rewritten twice in this arc: the
+  pre-pass claim died with the pre-pass, and the first replacement — that no
+  clean program can reach the column, because `#checkPublicSignatures` refuses
+  a *private* type escaping through an exported binding — was itself the
+  one-probed-route generalization, caught in review. A **public** union reached
+  transitively through an imported function's type never registers in the
+  importing checker, so the column has a clean-program client after all, and
+  its misjudgments there — a live `_` refused as unreachable, a non-exhaustive
+  match silently accepted — are the pre-existing registration hole filed as
+  #605, which this correction repairs nothing of.
+- **Executable conformance:**
+  `conformance/pattern-usefulness-matrix.test.ts`, "a constraint's default
+  body is checked like any other body (#599)" — eight rows: the non-exhaustive
+  body reports its missing case with §7.3's witness; the wrong-union arm is
+  refused as at top level; a live trailing `_` is live (the regression's pin);
+  a repeated constructor is a dead arm; a call to a binding above the
+  constraint is typed against its scheme; a binding below stays the resolver's
+  refusal; a `catch` arm reads the module's exception table; the prelude's
+  unions are visible. Corpus sweep: zero edits — the corpus holds three
+  constraint-default sites carrying two distinct bodies (`Eq.notEquals` in
+  `stdlib/Eq.hex` and in the book's `Eq` block, whose redeclaration is refused
+  at registration before any body is checked, and the book's `Area.describeArea`),
+  all already conformant, as were the never-checked `pickHeld` arms in
+  `checker.test.ts` — so the conformance rows are the flips' only witnesses.
+- **Credit:** filed by the #594 arc out of PR #598's repair, which reproduced
+  the silence deliberately (its assumed-column seat) rather than change an
+  unruled behavior; the wider inventory — the unchecked module-scope
+  references, the catch refusal, and the #598 false-unreachable regression —
+  established by probe during this arc. Repaired in PR #604.
