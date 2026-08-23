@@ -422,11 +422,11 @@ fun f(q: Point): Float = q.x                 -- type: imported; fields visible (
 
 -- (c) Opaque is a black box outside home
 -- point.hex: opaque record Point = {x: Float, y: Float}
+--            export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
 -- (the pre-#590 pair is refused with the required rewrite:)
 -- export opaque record Point = ...           -- ERROR: opaque already exports the
 --                                            --   type name; write opaque record
 --                                            --   Point = ...
---            export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
 import module Point from "./point"
 let p = Point.make(1.0, 2.0)                 -- OK
 p.x                                          -- ERROR: Point is opaque outside ./point
