@@ -18,7 +18,7 @@ and execution without looking for a special `main` function.
 2. Private-by-default declarations and named exports.
 3. Named, aliased, namespace, and effect imports.
 4. Module aliases and the companion-module idiom.
-5. `export opaque` for records and unions.
+5. `opaque` for records and unions.
 6. Public-signature visibility and instance globality.
 7. Acyclic loading, top-level effects, and selected roots.
 8. Direct ESM emission.

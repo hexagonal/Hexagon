@@ -1,7 +1,7 @@
 # Hexagon Spec: Decisions — Generalization Relaxed, and Declared Variance
 
 **Status:** Decided (ruling on issue #205, 2026-08-01). Fable's spec ruling under the ML-dialect doctrine (`decisions-ml-dialect-bool-2026-07.md` §1), commissioned by James in-session 2026-08-01 ("ML nature, here we come"). Provenance: `notes/value-restriction-and-variance.md` (Opus's analysis, James's framing), adopted where cited and corrected where the in-session review found it wrong (§1.2). Authoritative until consolidated into the host specs, per README authority rule 3 — this document is added to rule 3's closure-document list in this same PR; the standing is conferred there, not claimed here.
-**Scope:** Step 1 — the syntactic-value list gains references and record literals (§2); the reframed rationale — the value restriction is Hexagon's monomorphism restriction (§3); Step 2 — the relaxed value restriction, with the unconstrained clause (§4); the variance analysis and the **compiler-side claim table** for constructors without declaration sites (§5); variance and `export opaque`: declared claims, bare-means-invariant, the over-claim error (§6); the intrinsic parametricity obligation (§7); tooling surfaces (§8); rejected alternatives (§9); the edit-notes ledger (§10); implementation notes for `hexc` (§11); the decisions log (§12); the implementation-question rulings, added 2026-08-01 under #207 (§13).
+**Scope:** Step 1 — the syntactic-value list gains references and record literals (§2); the reframed rationale — the value restriction is Hexagon's monomorphism restriction (§3); Step 2 — the relaxed value restriction, with the unconstrained clause (§4); the variance analysis and the **compiler-side claim table** for constructors without declaration sites (§5); variance and `opaque`: declared claims, bare-means-invariant, the over-claim error (§6); the intrinsic parametricity obligation (§7); tooling surfaces (§8); rejected alternatives (§9); the edit-notes ledger (§10); implementation notes for `hexc` (§11); the decisions log (§12); the implementation-question rulings, added 2026-08-01 under #207 (§13).
 **Not in scope:** Higher-kinded types, monomorphic recursion (Functions §7.4), the no-currying and rank-1 decisions — all verified untouched (§4.6). The hover-conflation and diagnostic-misattribution defects (#206 — independent compiler/LSP work; §8.3 records why this ruling raises their stakes), and the invalid-`.d.ts` defect for polymorphic non-function bindings (#132 — pre-existing, stakes likewise raised; §11.2). FFI Part 4 §12.4's deferral of generic foreign externs — the *coupling* is recorded (§3, §4.2, §10), the deferral itself is unchanged.
 **Companions:** Functions §4.1–§4.2.1, §7, §8 (host of Step 1 and Step 2's operative rules); Modules §4.2 (host of the variance-claim semantics — new §4.2.1 there); Declarations Preamble §2.1 (host of the sigil grammar); Statements & Mutability §6.2/§6.4; Constraints §6; Numeric Literals §3/§4/§5; `intrinsics.md` §3.3/§3.4/§4.2/§9 (the non-declared types, the trust argument, the self-declaration schedule that retires table rows); FFI Part 1 §3.1, Part 2, Part 10 (the borrowed-view classification, §5.3), Part 4 §12.4; `runtime/VectorTrie.hex` (the `Vector(+a)` derivation); Loops §6.4 (`memoize`).
 
@@ -15,7 +15,7 @@
 >
 > **Step 2 (the relaxed value restriction).** A `let` RHS that is not a syntactic value still generalizes **exactly those type variables that are unconstrained and covariant-only** in the binding's inferred type, per variable, levels admitting as always (§4). The unconstrained clause is Hexagon's own addition to Garrigue's rule, and it is load-bearing (§4.3).
 >
-> **Variance.** Transparent types get inferred variance — the definition is public, the computation leaks nothing (§5). Parameterized `export opaque` types take **declared claims**: `+a` covariant, `-a` contravariant, **bare `a` invariant — the empty claim, and legal** (§6). Claims are verified against the representation in the home module; an unsupportable claim is a hard error at the declaration naming a witness occurrence. Nothing crosses an opaque boundary that the author did not write.
+> **Variance.** Transparent types get inferred variance — the definition is public, the computation leaks nothing (§5). Parameterized `opaque` types take **declared claims**: `+a` covariant, `-a` contravariant, **bare `a` invariant — the empty claim, and legal** (§6). Claims are verified against the representation in the home module; an unsupportable claim is a hard error at the declaration naming a witness occurrence. Nothing crosses an opaque boundary that the author did not write.
 >
 > **Intrinsics.** Generic intrinsics take a parametricity obligation making their declared schemes' variance semantically true (§7) — the third leg of Step 2's soundness.
 
@@ -173,7 +173,7 @@ The only source of `−` is function-argument position, because Statements §6.4
 | constructor | variance |
 |---|---|
 | transparent `record` / `union` / `type` alias | **inferred** from the definition — it is public; the computation leaks nothing a reader could not derive |
-| parameterized `export opaque` with a declaration site (`Seq`, and every user type) | the **declared claim** (§6) — used uniformly by every module, the home module included (`Seq` transitionally excepted — see the claim table below) |
+| parameterized `opaque` with a declaration site (`Seq`, and every user type) | the **declared claim** (§6) — used uniformly by every module, the home module included (`Seq` transitionally excepted — see the claim table below) |
 | extern types | v1: monomorphic (FFI Part 4 §12.4) — no parameters, no question. Forward rule, recorded now: if parameterized extern types are ever admitted, they are opaque by construction and take declared claims, bare meaning invariant |
 | **compiler-known parameterized types the compiler implements and owns outright** (`Vector` — no declaration of the *name* exists; `Vector.hex` is a companion over the compiler's representation core — and `Node`, the hidden fixed-32 slot intrinsic under it, `runtime/VectorTrie.hex`; `intrinsics.md` §3.3, #223) | a row in the **compiler-side claim table** (below) |
 | **compiler-known parameterized types that are borrowed foreign views** (`Array`, `Nullable` and `NullableCase` — FFI Part 2; `JsMap`, `JsSet` — FFI Part 10) | **invariant in v1.** For `Array`/`JsMap`/`JsSet`: their stability is a boundary contract (FFI Part 1 §3.1, Part 2 §6.2, Part 10 §2), not a language guarantee, and a variance claim may not rest on a contract. For `Nullable`/`NullableCase`, representation-direct and holding nothing mutable: no declaration site and no ruling yet — invariant is the conservative default, not a mutability verdict. A claim for any of them needs its own ruling |
@@ -205,16 +205,16 @@ Field `pull` at `+` → function *result* keeps `+` → `Option` covariant (tran
 
 ---
 
-## 6. Variance and `export opaque`: declared claims
+## 6. Variance and `opaque`: declared claims
 
 ### 6.1 Grammar (host: Declarations Preamble §2.1)
 
-A type parameter may carry a **variance sigil** — `+a` (covariant claim) or `-a` (contravariant claim) — **only when the declaration is `export opaque`**:
+A type parameter may carry a **variance sigil** — `+a` (covariant claim) or `-a` (contravariant claim) — **only when the declaration is `opaque`**:
 
 ```hexagon
-export opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
-export opaque record Sink(-a) = { accept: a -> Unit }
-export opaque record Registry(k, +v) = ...      -- claims are per-parameter
+opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
+opaque record Sink(-a) = { accept: a -> Unit }
+opaque record Registry(k, +v) = ...      -- claims are per-parameter
 ```
 
 - On a transparent `record`/`union`, or on `type`: parse error — "variance is inferred for transparent types; remove the `+`" (Rewrite Rule form; the sigil buys nothing the public definition doesn't already say — §9.6).
@@ -356,7 +356,7 @@ Declare claims on the parameterized opaque exports that **have declaration sites
 | Soundness legs: parametricity, monomorphic foreign externs, intrinsic parametricity | §4.2, §7 |
 | Variance: four-point lattice, sign multiplication, fixpoint; `−` only from argument position among Hexagon-owned constructors (borrowed foreign views carved out as invariant) | §5 |
 | Transparent types infer; opaque types declare; claims used uniformly, home module included | §5.3, §6.4 |
-| Sigils `+a`/`-a` legal only on parameterized `export opaque`; bare = invariant = the empty claim (the `derives` doctrine); not mandatory, not defaulted | §6.1–§6.2, §9.2–§9.3 |
+| Sigils `+a`/`-a` legal only on parameterized `opaque`; bare = invariant = the empty claim (the `derives` doctrine); not mandatory, not defaulted | §6.1–§6.2, §9.2–§9.3 |
 | Over-claim: declaration-site hard error naming a witness occurrence; under-claim: legal, LSP code action, no warning tier | §6.3, §8.2 |
 | What crosses an opaque boundary must be declared, not inferred | §6.2 |
 | Compiler-owned parameterized types without declaration sites: compiler-side claim table in two grades — verified rows checked against visible representations per §6.3, trusted rows on §7's obligation alone (`Node(+a)`, reopener #223; `Vector(+a)` verified since the emitter-wiring milestone and `Map(+k, +v)` at `["co", "co"]` since the Map milestone (#370) and `Set(+a)` at `["co"]` since the Set milestone (#373), each derivation the live check) — plus the dated transitional `Seq(+a)` exception; borrowed foreign views invariant in v1; a written sigil supersedes a row; post-sweep, one claim source per constructor is a build-time invariant | §5.3 |

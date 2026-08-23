@@ -1,7 +1,7 @@
 # Hexagon FFI Part 7: Hexagon Exports and TypeScript Declarations
 
 **Status:** Decided (July 2026), revised in place after external review (Sol) before landing; §2.2 and §12.1 amended 2026-08-02 — a polymorphic non-function declaration faces as its `never` instantiation, generalizing §12.1 beyond nullary constructors — see correction record §14.1; §2.1 amended and §2.4 added 2026-08-04 — cross-module Hexagon types in faces take type-only named imports (#227) — see correction record §14.2; §6 and §11 amended — exported exceptions ship boundary guards (`.is`, `isHexError`), the one hard error this part owns (#478). Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §7, plus the export-surface pieces earlier parts assigned here: the exact opaque-brand `.d.ts` form (Part 4 §12.3), stable export wrappers' emission rules (Parts 3/6), and the discharge of Modules §11.4's deferred opaque-representation question. The draft's three clarifications were confirmed in §12: generic nullary constants use the `never` instantiation; export forces stable constructor materialization; and all four opaque-faced families use one non-exported-`unique symbol` brand mechanism. Inherits: generated opaque brands for exported extern types, never re-exported foreign typings; raw identity for representation-direct functions; stable module-level wrappers where adapted signatures or receiver conventions require them, with fresh per-value adapters remaining distinct from those named callable wrappers (Part 6 §1); exported Hexagon `Unit` functions genuinely returning `undefined` (Part 6 §3.2); the `Error & {$hex: "<module>"; ...}` exception face (Exceptions §7.5, brand value per #488); constrained exports referenced but governed by Parts 8–9.
-**Scope:** ESM export correspondence; the generated `.d.ts` (structure, the `Hex` namespace import, lowercase Hexagon-originated generic binders, cross-module type imports); records; unions, exported constructors, and the all-nullary representation cliff; opaque branded values — the uniform brand for `export opaque` types, extern types, and extern class types; exceptions, including the nullary function-shape difference; direct exports versus stable wrappers; edit notes discharging flags in Modules, Unions, and Exceptions.
+**Scope:** ESM export correspondence; the generated `.d.ts` (structure, the `Hex` namespace import, lowercase Hexagon-originated generic binders, cross-module type imports); records; unions, exported constructors, and the all-nullary representation cliff; opaque branded values — the uniform brand for `opaque` types, extern types, and extern class types; exceptions, including the nullary function-shape difference; direct exports versus stable wrappers; edit notes discharging flags in Modules, Unions, and Exceptions.
 **Not in scope:** the specialization and generic-edition machinery for constrained exports (Part 8, `ffi-zero-cost-fundamental-exports.md`) and dictionary types, handles, and factories (Part 9, `ffi-part9-exported-dictionaries.md`); extern declaration syntax (Parts 4–5); calling convention (Part 6); `JsMap`/`JsSet` and `JsValue` faces (finalized by Parts 10–11).
 **Companions:** Modules §4/§11 (export semantics; ESM emission; the §11.4 deferral); Unions §6 (representations, the cliff, constructor emission, `.d.ts`); Products §5.4 (record constructor erasure); Exceptions §7 (branded representation, `.d.ts`, construction sites); Part 1 §4/§8 (master table; `Hex` namespace); Part 3 §9.1 (exported `Seq` replayability); Part 6 §1/§3 (wrapper list; `Unit`); Part 8 §3.4/§6 (zero-entry-point exception; Algorithm N collisions).
 
@@ -184,10 +184,10 @@ Hexagon callers are protected by recompilation and `match`; JavaScript consumers
 
 ## 5. Opaque branded values: the uniform brand
 
-`export opaque record` and `export opaque union` export **the type only**: raw fields and constructors are absent from JavaScript exports and `.d.ts`, while explicitly exported smart constructors and accessors cross as ordinary functions. The TypeScript face hides the representation behind a private `unique symbol` brand:
+`opaque record` and `opaque union` export **the type only**: raw fields and constructors are absent from JavaScript exports and `.d.ts`, while explicitly exported smart constructors and accessors cross as ordinary functions. The TypeScript face hides the representation behind a private `unique symbol` brand:
 
 ```hexagon
-export opaque record UserId = {value: Int}
+opaque record UserId = {value: Int}
 export fun parse(text: String): Option(UserId) = ...
 ```
 
@@ -198,7 +198,7 @@ export type UserId = {readonly [userIdBrand]: never};
 export declare function parse(text: string): Option<UserId>;
 ```
 
-**This brand form is uniform across everything Hexagon exports opaquely** — `export opaque record`, `export opaque union`, exported extern `type`, and exported extern class types (Part 4 §12.3; Part 5 §6.1). One mechanism, one reading: "a nominal Hexagon-governed value; obtain and use it through the exported functions."
+**This brand form is uniform across everything Hexagon exports opaquely** — `opaque record`, `opaque union`, exported extern `type`, and exported extern class types (Part 4 §12.3; Part 5 §6.1). One mechanism, one reading: "a nominal Hexagon-governed value; obtain and use it through the exported functions."
 
 Rules fixed here:
 
@@ -318,7 +318,7 @@ export union Shape = Circle(radius: Float) | Point
 export union Color = Red | Green | Blue    -- export const Red = "Red"; ...
 
 -- (e) Opaque: brand only; smart constructor crosses (§5)
-export opaque record UserId = {value: Int}
+opaque record UserId = {value: Int}
 export fun parse(text: String): Option(UserId) = ...
 -- .d.ts: declare const userIdBrand: unique symbol; export type UserId = ...
 

@@ -231,7 +231,7 @@ listed positions:
 | `as` | import/foreign aliases and the pattern `p as name` |
 | `derives` | a `record`, `union`, or foreign-enum header before `=` |
 | `from` | an `import` clause or `extern from` declaration |
-| `opaque` | immediately after `export` on `record` or `union` |
+| `opaque` | the visibility head on a `record` or `union` declaration at module top level, in `export`'s own slot (Modules §4, #590) — the `union` precedent: head-position-only, never reserved, elsewhere an ordinary name (`let opaque = 3` binds). Recognition includes the refused seat immediately after `export`, where the parser issues Modules §4.2's required rewrite |
 | `when` | between an arm pattern and `=>` |
 | `with` | between a record-update head and its overrides (Products §3.3) |
 | `enum` | a foreign enum declaration inside `extern from` |
@@ -244,7 +244,7 @@ listed positions:
 | `default` | foreign default-import position; syntax completed by the FFI spec |
 | `pure` | the trusted purity claim on an extern `fun` declaration (FFI Part 4 §4.5, #355) |
 | `conduit` | the declared-conduit claim on an extern `fun` declaration, in `pure`'s own slot (FFI Part 4 §4.5, #409) |
-| `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` and `opaque`, always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
+| `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` or `opaque` (one visibility head, Modules §4, #590), always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
 | `widens` | the widens-declaration introducer at declaration head — module top level, never after `export`, always followed by a qualified member path (Constraints §4.7; #546). Same disambiguation as `union`: no juxtaposition exists, so `widens` followed by a name is no term |
 | `widened` | the complete RHS of a member line in an `honor` block — `pow = widened` (Constraints §4.7; #546). The position is otherwise always an error (member RHSs must be lambdas), so recognition is total; elsewhere `widened` is an ordinary name |
 | `module` | the namespace-import head: exactly between `import` and the alias (Modules §3.3; #565). No name can legally stand there, so recognition is total; elsewhere `module` is an ordinary name — `let module = 3` binds. The alias seat demands uppercase-start, so `import module module` is refused by start class, not ambiguity |

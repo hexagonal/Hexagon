@@ -26,7 +26,7 @@
 ## 2. The type and the protocol
 
 ```
-export opaque record Stream(+a) = { next: () ->! Option(a) }
+opaque record Stream(+a) = { next: () ->! Option(a) }
 
 export let next(source: Stream(a)): Option(a) = (source.next)!()
 ```

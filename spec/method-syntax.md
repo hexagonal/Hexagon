@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026), corrected in place after the second Sol review — see **correction record §16.1** (goal ownership) — and **amended August 2026 for constraint-member dispatch** (#304/#335, the members-as-values ruling) — see **reversal record §16.2**. A **hanging-questions** section (§12) remains; nothing there blocks implementation of §1–§11.
 **Scope:** The dot-call form `e.name(args…)`; its semantics as companion-module dispatch **and, since the #335 steal, constraint-member dispatch** (honored members on head-known receivers; bound members on declared type variables); the deferred *DotCall* goal and its resolution lifecycle (opportunistic triggers, the receiver-region deadline and pinning rule, fixpoint, the defaulting step, the row fallback); the definition of a type's companion operation set; coverage (eligible and ineligible receiver types); field/method collision rules; interaction with row polymorphism, tuples' `itemN`, opaque types, and transparent aliases; emission; LSP completion obligation; the **Deferred-Goals Doctrine** (hosted here pending consolidation into the Declarations Preamble); diagnostics; rejected alternatives; edit notes.
 **Not in scope:** the pipe (`|>` — Operators §8, unchanged); the bare and qualified constraint-member call forms themselves (Constraints §2.2 owns the call-style doctrine; this spec owns only the dot spelling's reach); the stdlib inventory of companion operations (stdlib listing; this spec fixes the *rule* that determines which exports are dot-callable); `.d.ts` (nothing method-shaped exists to represent, §8.3); bound-method values (rejected, §11.6).
-**Companions:** Products spec (§3.2 field access, §4 row tiers, §5 nominal records — the fallback preserves all of it), Modules spec (§5.3 companion idiom, §7.2 home module — the dispatch target; §4.2 `export opaque`), FFI Part 5 (§9 — extern nominal types and receiver-member linkage), Constraints spec (§2.2 member namespacing and call style; §4.6 member bindings in the honoring module — the dot's exemptions and the own-name refusal), Operators spec (§10 postfix forms — the dot-call is level 1), Loops spec (§7 — the compiler-known Iterable table, precedent for deadline-resolved machinery), Functions spec (§8 generalisation — the deadline), Sol-review closure (§E Rewrite Rule — cited throughout), Decisions Batch — Sol Review 2 (this spec's origin session).
+**Companions:** Products spec (§3.2 field access, §4 row tiers, §5 nominal records — the fallback preserves all of it), Modules spec (§5.3 companion idiom, §7.2 home module — the dispatch target; §4.2 `opaque`), FFI Part 5 (§9 — extern nominal types and receiver-member linkage), Constraints spec (§2.2 member namespacing and call style; §4.6 member bindings in the honoring module — the dot's exemptions and the own-name refusal), Operators spec (§10 postfix forms — the dot-call is level 1), Loops spec (§7 — the compiler-known Iterable table, precedent for deadline-resolved machinery), Functions spec (§8 generalisation — the deadline), Sol-review closure (§E Rewrite Rule — cited throughout), Decisions Batch — Sol Review 2 (this spec's origin session).
 
 Written for a future implementation session against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, whole-program compilation from an entry point, layout pass, readable-JS emission with `.d.ts`.
 
@@ -157,7 +157,7 @@ Under the receiver-level deadline (§3.1), the asymmetry is **cross-region only*
 
 | Receiver head | Companion |
 |---|---|
-| User nominal type (`record`/`union`, incl. `export opaque`) | The type's **home module** — the file containing its declaration (Modules §7.2). Not the importer's alias, not any import path: the declaration site, unconditionally. Diagnostics and hovers *spell* it using the companion idiom (`Box.size`), which Modules §5.3 blesses. |
+| User nominal type (`record`/`union`, incl. `opaque`) | The type's **home module** — the file containing its declaration (Modules §7.2). Not the importer's alias, not any import path: the declaration site, unconditionally. Diagnostics and hovers *spell* it using the companion idiom (`Box.size`), which Modules §5.3 blesses. |
 | Extern nominal type (`extern type` or `extern class`) | Its **binding module** — the file containing the extern declaration, hence its foreign type home. Exported subject-first receiver members form its companion operation set under §4.2 exactly like Hexagon-defined operations (FFI Part 5 §9). |
 | `Int`, `Nat`, `BigInt`, `Float`, `String` | The fixed prelude companion of the same name (Modules §5.3: `Int.div` etc. — "one reading, not a special prelude device"). *(`Nat`/`BigInt` rows added with #304/#335; `Unit` left this row with #344 — the empty tuple takes the tuple story, §3.4.)* All five companions exist as source (#344 — `Float.hex` and `String.hex` completed the fixed migration order) and are the ordinary nominal case in every respect; Modules §5.3's transitional machinery retired with the last landing, and §6.4's qualified-home guarantee held throughout the migration. |
 | Prelude nominal types (`Vector`, `Map`, `Set`, `Option`, `Result`, `Bool`, `Range`, `Seq`, `Ordering`, …) | Their prelude companion modules — the same rule as user nominals, since prelude types are declared in prelude modules; listed separately only to record that built-ins are *not* special-cased. The authoritative inventory is the stdlib listing's. |
@@ -191,7 +191,7 @@ identity(x: a): a                            -- excluded: bare type variable, no
 ### 4.3 Transparent aliases and `opaque`
 
 - **A transparent alias inherits the expansion's companion.** `type Name = String` gives `Name`-typed values `String`'s operations, because a `Name` value *is* a `String` (aliases are transparent everywhere — Modules §6.2). An alias never introduces a companion identity of its own; a module declaring `type Name = String` contributes nothing dot-callable to `Name`. *(Clarification: Sol.)*
-- **`export opaque` types are the pattern working at its best**: outside the home module the fields are invisible (Modules §4.2), so no field/companion collision is even possible there, and every dot call is companion dispatch against the exported surface. Inside the home module fields are visible and the collision rule (§6) applies as usual.
+- **`opaque` types are the pattern working at its best**: outside the home module the fields are invisible (Modules §4.2), so no field/companion collision is even possible there, and every dot call is companion dispatch against the exported surface. Inside the home module fields are visible and the collision rule (§6) applies as usual.
 
 ### 4.4 Declaration order within the home module
 
@@ -214,7 +214,7 @@ Diagnostics: an operation that exists in the companion but sits below the call s
 
 **Eligible receivers (companion dispatch can fire):**
 
-- nominal records — including `export opaque`;
+- nominal records — including `opaque`;
 - nominal unions — no field access exists on union values, so no collision surface; the cleanest receivers the feature has (`option.getOrElse(default)`, `result.map(f)` — still static companion calls, not object methods);
 - extern nominal types and extern class types — their binding module is the companion, and their opaque values expose no Hexagon fields (FFI Part 5 §9);
 - prelude nominal collection and utility types (`Vector`, `Map`, `Set`, `Option`, `Result`, `Range`, `Seq`, …);
@@ -508,7 +508,7 @@ let n: Name = "hex"
 n.length()                         -- OK : Int   (String's companion; `Name` adds none)
 
 -- (m) Opaque outside home: pure companion surface
--- point.hex: export opaque record Point = {x: Float, y: Float}
+-- point.hex: opaque record Point = {x: Float, y: Float}
 --            export fun getX(p: Point): Float = p.x
 p.getX()                           -- OK : Float  (outside home; field x invisible,
                                    --   no collision possible)

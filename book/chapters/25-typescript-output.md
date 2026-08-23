@@ -227,7 +227,7 @@ An opaque export must not reveal in TypeScript what Hexagon hid from other Hexag
 modules:
 
 ```hexagon
-export opaque record UserId = {value: Int}
+opaque record UserId = {value: Int}
 
 export let fromInt(value: Int): UserId = UserId({value})
 export let value(userId: UserId): Int = userId.value

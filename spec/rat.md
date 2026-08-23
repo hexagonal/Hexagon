@@ -23,7 +23,7 @@ requested visibly through `Rat.create(1, 2)` or an operation returning `Rat`.
 The stdlib declaration has this semantic shape:
 
 ```hexagon
-export opaque record Rat derives Eq = {
+opaque record Rat derives Eq = {
     top: BigInt,
     bottom: BigInt,
 }
