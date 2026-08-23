@@ -10,7 +10,7 @@ import type * as Typed from "../syntax/typed/index.js";
  * Conformance for Step 2 of the #205 ruling (closure doc
  * `spec/decisions-ml-dialect-generalization-2026-08.md` §4–§6, §11.1): the
  * relaxed value restriction, the variance analysis, and declared variance on
- * `export opaque`.
+ * `opaque`.
  *
  * Step 1's items (i)–(vi) live in `value-list.test.ts`.
  */
@@ -260,11 +260,11 @@ describe("§4.1 the relaxed rule, per variable", () => {
   });
 });
 
-describe("§6 declared variance on `export opaque`", () => {
+describe("§6 declared variance on `opaque`", () => {
   test("§6.1 a covariant claim on an opaque record is legal and believed", () => {
     expect(
       projectDiagnostics(
-        "export opaque record Box(+a) = { get: () -> a }\n" +
+        "opaque record Box(+a) = { get: () -> a }\n" +
           "exception Empty\n" +
           "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
           "let b = makeBox()\n" +
@@ -277,7 +277,7 @@ describe("§6 declared variance on `export opaque`", () => {
   test("§6.1 a contravariant claim is legal on a consumer", () => {
     expect(
       projectDiagnostics(
-        "export opaque record Sink(-a) = { accept: a -> Unit }\n",
+        "opaque record Sink(-a) = { accept: a -> Unit }\n",
       ),
     ).toEqual([]);
   });
@@ -287,7 +287,7 @@ describe("§6 declared variance on `export opaque`", () => {
     // and this is what it costs — the client's binding is pinned by its first
     // use, exactly as `Map`'s is.
     const messages = projectDiagnostics(
-      "export opaque record Box(a) = { get: () -> a }\n" +
+      "opaque record Box(a) = { get: () -> a }\n" +
         "exception Empty\n" +
         "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
         "let b = makeBox()\n" +
@@ -299,7 +299,7 @@ describe("§6 declared variance on `export opaque`", () => {
 
   test("§6.3 an over-claim is a hard error naming a witness occurrence", () => {
     const messages = projectDiagnostics(
-      "export opaque record Sink(+a) = { accept: a -> Unit }\n",
+      "opaque record Sink(+a) = { accept: a -> Unit }\n",
     );
     expect(messages).toContain(
       "`a` cannot be declared covariant in `Sink`: field `accept` uses `a` in argument " +
@@ -309,14 +309,14 @@ describe("§6 declared variance on `export opaque`", () => {
 
   test("§6.3 the witness is a real span, not garnish", () => {
     const compiled = compileFiles([
-      ["/main.hex", "export opaque record Sink(+a) = { accept: a -> Unit }\n"],
+      ["/main.hex", "opaque record Sink(+a) = { accept: a -> Unit }\n"],
     ]);
     const diagnostic = compiled.diagnostics.find(({ message }) =>
       message.includes("cannot be declared covariant")
     )!;
     expect(diagnostic.labels?.length).toBe(1);
     const label = diagnostic.labels![0]!;
-    const text = "export opaque record Sink(+a) = { accept: a -> Unit }\n";
+    const text = "opaque record Sink(+a) = { accept: a -> Unit }\n";
     expect(text.slice(label.span.start.offset, label.span.end.offset)).toBe("a");
     // The label points at the offending occurrence, not at the declaration head.
     expect(label.span.start.offset).toBeGreaterThan(text.indexOf("accept"));
@@ -324,7 +324,7 @@ describe("§6 declared variance on `export opaque`", () => {
 
   test("§6.3 an over-claimed contravariance reports too", () => {
     const messages = projectDiagnostics(
-      "export opaque record Box(-a) = { get: () -> a }\n",
+      "opaque record Box(-a) = { get: () -> a }\n",
     );
     expect(messages.some((message) =>
       message.includes("`a` cannot be declared contravariant in `Box`") &&
@@ -337,7 +337,7 @@ describe("§6 declared variance on `export opaque`", () => {
     // file has exactly one, so `find` and `findLast` were indistinguishable.
     // With two, the choice is visible — and it should be the first, because
     // that is the one the author's eye reaches first in their own declaration.
-    const text = "export opaque record Sink(+a) = { first: a -> Unit, second: a -> Unit }\n";
+    const text = "opaque record Sink(+a) = { first: a -> Unit, second: a -> Unit }\n";
     const compiled = compileFiles([["/main.hex", text]]);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "`a` cannot be declared covariant in `Sink`: field `first` uses `a` in " +
@@ -351,7 +351,7 @@ describe("§6 declared variance on `export opaque`", () => {
 
   test("§6.3 a union's constructor slot is a witness too", () => {
     const messages = projectDiagnostics(
-      "export opaque union Handler(+a) = OnEach(step: a -> Unit)\n",
+      "opaque union Handler(+a) = OnEach(step: a -> Unit)\n",
     );
     expect(messages.some((message) =>
       message.includes("constructor slot `OnEach.step`")
@@ -360,10 +360,10 @@ describe("§6 declared variance on `export opaque`", () => {
 
   test("§6.3 an unused parameter admits any claim", () => {
     expect(
-      projectDiagnostics("export opaque record Tag(+a) = { name: String }\n"),
+      projectDiagnostics("opaque record Tag(+a) = { name: String }\n"),
     ).toEqual([]);
     expect(
-      projectDiagnostics("export opaque record Tag(-a) = { name: String }\n"),
+      projectDiagnostics("opaque record Tag(-a) = { name: String }\n"),
     ).toEqual([]);
   });
 
@@ -375,7 +375,7 @@ describe("§6 declared variance on `export opaque`", () => {
     // more — recorded because it looked like the SCC test and is not.
     expect(
       projectDiagnostics(
-        "export opaque record Chain(+a) = { pull: () -> Option((a, Chain(a))) }\n",
+        "opaque record Chain(+a) = { pull: () -> Option((a, Chain(a))) }\n",
       ),
     ).toEqual([]);
 
@@ -387,17 +387,17 @@ describe("§6 declared variance on `export opaque`", () => {
     // the `-a` is refused. Both were verified to fail with `#slotVariance`'s
     // in-SCC branch removed.
     expect(
-      projectDiagnostics("export opaque record Odd(+a) = { f: (Odd(a)) -> Unit }\n"),
+      projectDiagnostics("opaque record Odd(+a) = { f: (Odd(a)) -> Unit }\n"),
     ).toEqual([]);
     expect(
-      projectDiagnostics("export opaque record Neg(-a) = { f: (Neg(a)) -> Unit }\n"),
+      projectDiagnostics("opaque record Neg(-a) = { f: (Neg(a)) -> Unit }\n"),
     ).toEqual([]);
   });
 
   test("§6.4 the claim governs in the home module too", () => {
     // No private view: an under-claiming author sees exactly what a client sees.
     const messages = projectDiagnostics(
-      "export opaque record Box(a) = { get: () -> a }\n" +
+      "opaque record Box(a) = { get: () -> a }\n" +
         "exception Empty\n" +
         "fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
         "let b = makeBox()\n" +
@@ -415,7 +415,7 @@ describe("§6 declared variance on `export opaque`", () => {
   // over-claim error and the parse errors, neither of which reads a *believed*
   // claim.
   const UNION_BOX = (sigil: string) =>
-    `export opaque union Box(${sigil}a) = Empty | Full(item: a)\n` +
+    `opaque union Box(${sigil}a) = Empty | Full(item: a)\n` +
     "export fun makeBox<a>(): Box(a) = Empty\n";
   const USE_BOX = "let b = makeBox()\n" +
     "export let n: Box(Int) = b\n" +
@@ -449,7 +449,7 @@ describe("§6 declared variance on `export opaque`", () => {
   test("§6.4 a claim travels with an imported declaration", () => {
     const compiled = compileFiles([
       ["/box.hex",
-        "export opaque record Box(+a) = { get: () -> a }\n" +
+        "opaque record Box(+a) = { get: () -> a }\n" +
         "exception Empty\n" +
         "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n"],
       ["/main.hex",
@@ -495,7 +495,7 @@ describe("§6 declared variance on `export opaque`", () => {
 });
 
 /** A covariant opaque type, three modules away from where it is generalized. */
-const BOX = "export opaque record Box(+a) = { get: () -> a }\n" +
+const BOX = "opaque record Box(+a) = { get: () -> a }\n" +
   "exception Empty\n" +
   "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n";
 
@@ -541,8 +541,8 @@ describe("§6.1 the sigil grammar", () => {
     // applied — `Pair(+Int, String)` was told to write `Pair(Int)`.
     const message = "remove the `+` — variance is declared on the type's declaration, " +
       "never written at a use site";
-    const declarations = "export opaque record Box(+a) = { get: () -> a }\n" +
-      "export opaque record Pair(+a, +b) = { first: () -> a, second: () -> b }\n" +
+    const declarations = "opaque record Box(+a) = { get: () -> a }\n" +
+      "opaque record Pair(+a, +b) = { first: () -> a, second: () -> b }\n" +
       "exception Empty\n";
     for (const annotation of [
       "Box(+Int)",
@@ -560,7 +560,7 @@ describe("§6.1 the sigil grammar", () => {
   test("§5.4 an annotation naming an opaque type carries no sigil and needs none", () => {
     expect(
       projectDiagnostics(
-        "export opaque record Box(+a) = { get: () -> a }\n" +
+        "opaque record Box(+a) = { get: () -> a }\n" +
           "exception Empty\n" +
           "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
           "let b: Box(a) = makeBox()\n" +
@@ -610,13 +610,13 @@ describe("§5.3 the compiler-side claim table", () => {
     // `Node` is absent deliberately: it is not nameable in a type annotation
     // (`unknown generic type \`Node\``), which is what makes its row's warrant
     // `intrinsics.md` §4.2 rather than anything a user could write.
-    expect(projectDiagnostics("export opaque record W(+a) = { v: Vector(a) }\n")).toEqual([]);
+    expect(projectDiagnostics("opaque record W(+a) = { v: Vector(a) }\n")).toEqual([]);
     // `Map` moved sides at #370 and `Set` at #373: their rows are verified
     // (`co, co` and `co`) now, so both belong with `Vector` above rather than in
     // the invariant list below, which is down to the two borrowed foreign views.
-    expect(projectDiagnostics("export opaque record W(+a) = { v: Map(String, a) }\n")).toEqual([]);
-    expect(projectDiagnostics("export opaque record W(+a) = { v: Map(a, String) }\n")).toEqual([]);
-    expect(projectDiagnostics("export opaque record W(+a) = { v: Set(a) }\n")).toEqual([]);
+    expect(projectDiagnostics("opaque record W(+a) = { v: Map(String, a) }\n")).toEqual([]);
+    expect(projectDiagnostics("opaque record W(+a) = { v: Map(a, String) }\n")).toEqual([]);
+    expect(projectDiagnostics("opaque record W(+a) = { v: Set(a) }\n")).toEqual([]);
     for (
       const field of [
         "Array(a)",
@@ -626,7 +626,7 @@ describe("§5.3 the compiler-side claim table", () => {
         "JsMap(a, String)",
       ]
     ) {
-      expect(projectDiagnostics(`export opaque record W(+a) = { v: ${field} }\n`)).toContain(
+      expect(projectDiagnostics(`opaque record W(+a) = { v: ${field} }\n`)).toContain(
         "`a` cannot be declared covariant in `W`: field `v` uses `a` in an " +
           "invariant position. Remove the `+`, or change the field",
       );

@@ -4,7 +4,7 @@ import { compileProject, Source } from "../index";
 import seqSource from "../../../stdlib/Seq.hex?raw";
 
 /**
- * `stdlib/Seq.hex` as written — the de-intrinsified `Seq`: `export opaque record
+ * `stdlib/Seq.hex` as written — the de-intrinsified `Seq`: `opaque record
  * Seq(a)` plus the §6.2 protocol and the combinator core, per Loops §6.6.
  *
  * It is a prelude member now (plan Phase 4 step 8), and the behavioural
@@ -158,7 +158,7 @@ describe("the step-7 reverts are in the source, not merely intended", () => {
     // The `+` arrived with the #205 stdlib sweep (closure doc §11.4): `Seq` is
     // covariant in `a`, the ruling's transitional compiler-side row is retired,
     // and the claim now lives where every consumer reads it — in the source.
-    expect(seqSource).toContain("export opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }");
+    expect(seqSource).toContain("opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }");
   });
 
   test("no `import` lines — prelude source names earlier prelude members implicitly", () => {

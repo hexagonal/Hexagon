@@ -782,7 +782,7 @@ describe("the domains the matrix defers on", () => {
 });
 
 describe("the witness printer keeps a record's private fields at home (Modules ยง4.2)", () => {
-  const GEO = "export opaque record Crate = {n: Bool}\n" +
+  const GEO = "opaque record Crate = {n: Bool}\n" +
     "export fun make(b: Bool): Option(Crate) = Some(Crate({n = b}))\n";
 
   test("outside the home module the witness never names a field", () => {
@@ -802,7 +802,7 @@ describe("the witness printer keeps a record's private fields at home (Modules ย
 
   test("inside the home module `opaque` changes nothing, and the row prints", () => {
     expect(projectDiagnostics(
-      "export opaque record Crate = {n: Bool}\n" +
+      "opaque record Crate = {n: Bool}\n" +
       "export fun pick(c: Crate): Int =\n" +
       "    match c\n" +
       "        Crate({n = True}) => 1\n",

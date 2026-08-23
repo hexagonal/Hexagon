@@ -229,7 +229,7 @@ describe("the `Pow` home selection — the base seat alone (#541)", () => {
     // ungated elaboration — the power runs at `Int` and the finished value
     // injects, exactly as §5.1 always read.
     const nominal = "// gated decline\n" +
-      "export opaque record Boxed = { inner: Int }\n" +
+      "opaque record Boxed = { inner: Int }\n" +
       "honor Num<Boxed> =\n" +
       "    add(left, right) = Boxed({inner = left.inner + right.inner})\n" +
       "    multiply(left, right) = Boxed({inner = left.inner * right.inner})\n" +

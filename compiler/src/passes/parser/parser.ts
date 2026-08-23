@@ -51,6 +51,20 @@ const infix = new Map<TokenKind, Infix>([
 
 const itemEnds = new Set<TokenKind>(["VSep", "Semicolon", "VClose", "Eof"]);
 
+/**
+ * The declaration keywords a filled visibility slot may stand before (Modules
+ * §4). `union` is absent because it is contextual and costs a second token of
+ * lookahead — `#atUnionHead` owns that test.
+ */
+const opensVisibleDeclaration = new Set<TokenKind>([
+  "Let",
+  "Fun",
+  "Type",
+  "Record",
+  "Exception",
+  "Constraint",
+]);
+
 /** A pattern parameter's binder, paired with the pattern it destructures. */
 type Destructuring = Parsed.ParameterDestructuring;
 
@@ -477,8 +491,11 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
-      const opaque = this.#atContextual("opaque");
-      if (opaque) this.#advance();
+      // Admitted only to be refused (#590). The head has one visibility slot
+      // with three values (Modules §4), so `export opaque` writes two of them
+      // into it; the word is read here so the refusal below can carry the
+      // author's own line rather than let it fall out of the item grammar.
+      const opaqueToken = this.#atContextual("opaque") ? this.#advance() : undefined;
       // `honor` is admitted here only to be refused with Modules §4.1's own
       // wording. Left out of the list, it would fall to the generic "must be
       // followed by a declaration" — which is false, and unhelpful precisely
@@ -521,17 +538,28 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
-      if (opaque && !this.#atUnionHead() && !this.#at("Record")) {
-        this.#errorAt(exportToken.span, "`opaque` applies to `record` and `union` declarations");
+      const opaque = opaqueToken !== undefined && this.#atOpaqueSubject();
+      if (opaqueToken !== undefined) {
+        if (opaque) this.#refuseExportOpaque(exportToken, opaqueToken);
+        else this.#refuseOpaqueSubject(opaqueToken.span);
       }
-      if (this.#at("Constraint")) return this.#parseConstraint(true, exportToken.span);
-      if (this.#at("Type")) return this.#parseTypeAlias(true, exportToken.span);
-      if (this.#atUnionHead()) return this.#parseUnion(true, exportToken.span, opaque);
-      if (this.#at("Record")) return this.#parseRecordDeclaration(true, exportToken.span, opaque);
-      if (this.#at("Exception")) return this.#parseException(true, exportToken.span);
-      return this.#at("Let")
-        ? this.#parseBinding("Let", true, exportToken.span)
-        : this.#parseBinding("Fun", true, exportToken.span);
+      return this.#parseVisibleDeclaration(exportToken.span, opaque);
+    }
+    // The `opaque` head (Modules §4.2, #590): one word filling the visibility
+    // slot by itself, recognized by `union`'s contextual mechanism.
+    if (this.#atOpaqueHead()) {
+      const opaqueToken = this.#advance();
+      if (!moduleItems) {
+        this.#errorAt(opaqueToken.span, "`opaque` is only allowed at module top level");
+        this.#synchronize(itemEnds);
+        return {
+          kind: "ErrorItem",
+          span: spanFrom(opaqueToken.span, this.#previous().span),
+        };
+      }
+      const opaque = this.#atOpaqueSubject();
+      if (!opaque) this.#refuseOpaqueSubject(opaqueToken.span);
+      return this.#parseVisibleDeclaration(opaqueToken.span, opaque);
     }
     if (this.#at("Type")) {
       if (!moduleItems) {
@@ -613,6 +641,86 @@ class Parser {
     }
     const expression = this.#parseExpression();
     return { kind: "ExprItem", expression, span: expression.span };
+  }
+
+  /**
+   * The declaration standing under a filled visibility slot, read once for both
+   * spellings that fill one (Modules §4, #590).
+   *
+   * `export` and `opaque` are two values of the same slot, not a keyword and a
+   * modifier, so the declaration below them is the same grammar either way and
+   * is parsed in one place. Only what the head *claims* differs, and that is
+   * already settled by the time this is called: `exported` is true for both —
+   * `opaque` crosses the type name (§4.2) — and `opaque` says whether the
+   * representation stays home.
+   *
+   * The caller has checked that a declaration is actually here; the trailing
+   * `Fun` is the last of the seven and needs no test of its own.
+   */
+  #parseVisibleDeclaration(itemStart: Source.Span, opaque: boolean): Parsed.Item {
+    if (this.#at("Constraint")) return this.#parseConstraint(true, itemStart);
+    if (this.#at("Type")) return this.#parseTypeAlias(true, itemStart);
+    if (this.#atUnionHead()) return this.#parseUnion(true, itemStart, opaque);
+    if (this.#at("Record")) return this.#parseRecordDeclaration(true, itemStart, opaque);
+    if (this.#at("Exception")) return this.#parseException(true, itemStart);
+    return this.#at("Let")
+      ? this.#parseBinding("Let", true, itemStart)
+      : this.#parseBinding("Fun", true, itemStart);
+  }
+
+  /** Whether a lawful subject for `opaque` — a `record` or a `union` — is here. */
+  #atOpaqueSubject(): boolean {
+    return this.#atUnionHead() || this.#at("Record");
+  }
+
+  /**
+   * `export opaque`, the pre-#590 spelling, refused under the Rewrite Rule
+   * (Modules §4.2, §10; Declarations Preamble §1.1).
+   *
+   * Opacity of a private thing is vacuous, so `opaque` already claims the
+   * crossing and the second word could never assert anything the first did not.
+   * The rewrite is therefore mechanical and required, and it is the `import * as`
+   * division of labour again: the message shows the spec's exemplar — chosen by
+   * the introducer the author actually wrote, so a union head is told to write a
+   * union — while the fix-it edits the author's own two words down to one,
+   * leaving name, parameters and body exactly as typed.
+   *
+   * Reporting does not stop the parse. The declaration below is read as the
+   * `opaque` head it was meant to be, so one stale spelling costs one diagnostic
+   * and the module still resolves — which is also what keeps a whole file of the
+   * old spelling from cascading during a migration.
+   */
+  #refuseExportOpaque(exportToken: LaidOut.Token, opaqueToken: LaidOut.Token): void {
+    const span = spanFrom(exportToken.span, opaqueToken.span);
+    const exemplar = this.#at("Record")
+      ? "opaque record Point = …"
+      : "opaque union Handle = …";
+    this.#diagnostics.add({
+      severity: "error",
+      message: `\`opaque\` already exports the type name; write \`${exemplar}\``,
+      primary: span,
+      fixes: [{ message: "write `opaque`", edits: [{ span, replacement: "opaque" }] }],
+    });
+  }
+
+  /**
+   * `opaque` on something that is not a `record` or a `union` (Modules §4.2,
+   * §10). The caret is on the word that does not apply, not on the head it was
+   * written beside, so the same sentence serves the `opaque` head and the
+   * refused `export opaque` pair alike.
+   *
+   * `type` gets its own redirect rather than the general refusal: an alias is
+   * transparent by definition, so the author wanting a hidden representation
+   * needs a different *declaration*, and naming which one is the Declarations
+   * Preamble §4 redirect family's whole job.
+   */
+  #refuseOpaqueSubject(span: Source.Span): void {
+    this.#errorAt(
+      span,
+      this.#at("Type")
+        ? "aliases are transparent; make it a `record` or single-constructor `union`"
+        : "`opaque` applies to `record` and `union` declarations",
+    );
   }
 
   #parseImport(): Parsed.ImportItem {
@@ -1372,6 +1480,34 @@ class Parser {
   }
 
   /**
+   * Whether an `opaque` **declaration head** starts here — the contextual
+   * keyword (Lexer §4.2, #590), recognized by `union`'s mechanism.
+   *
+   * `opaque` used to be read in one seat only, immediately after `export`, where
+   * nothing else could stand. #590 gave it the head's visibility slot on its own,
+   * so it now needs the same one-token test `union` and `widens` use, and for the
+   * same reason: Hexagon has no juxtaposition, so a term named `opaque` is
+   * followed by `(`, an operator, a newline, or nothing — never by a declaration
+   * keyword. `let opaque = 3` binds, and `opaque` stays spellable everywhere a
+   * name may stand.
+   *
+   * **Recognition covers the refused seats too**, deliberately. `type`, `let`,
+   * `fun`, `constraint` and `exception` are not lawful subjects (§4.2), but a
+   * head that fails to recognize them cannot redirect them: `opaque type Name =
+   * String` would fall out of the item grammar and be answered by whatever the
+   * expression parser made of two adjacent words. Admitting them here is what
+   * lets §10's redirect rows fire at the word the author wrote.
+   */
+  #atOpaqueHead(): boolean {
+    if (!this.#atContextual("opaque")) return false;
+    if (this.#peekContextual(1, "union")) {
+      const name = this.#peek(2).kind;
+      return name === "UpperName" || name === "NonUpperName";
+    }
+    return opensVisibleDeclaration.has(this.#peek(1).kind);
+  }
+
+  /**
    * `widens Alias.member[, Alias.member…](params): Result = body` — the
    * declaration form of the generalisation law (Constraints §4.7, #546).
    *
@@ -1636,7 +1772,7 @@ class Parser {
 
   /**
    * A variance sigil at a type-parameter position (Declarations Preamble §2.1).
-   * `+a` and `-a` are legal only on a parameterized `export opaque` record or
+   * `+a` and `-a` are legal only on a parameterized `opaque` record or
    * union: what crosses an opaque boundary must be declared, and there is
    * nothing to declare where the definition is public (closure doc §6.1, §9.6).
    *
@@ -1649,9 +1785,11 @@ class Parser {
    * would, with the parameter list's ordinary messages. There is no doubled
    * sigil in the grammar to report better.
    *
-   * The gate is `opaque`, not `exported && opaque`, and the two coincide: bare
-   * `opaque` is not a form — the keyword only ever follows `export` — so every
-   * caller that can pass `true` here has already seen `export opaque`.
+   * The gate is `opaque`, and after #590 that is the whole of it: the word fills
+   * the head's visibility slot by itself, so `opaque` *is* the crossing and there
+   * is no second flag to consult. (Before #590 the gate read the same, because
+   * the keyword only ever followed `export`; Preamble §2.1 now says plainly what
+   * the code always tested — "only on an `opaque` declaration".)
    */
   #takeVarianceSigil(
     opaque: boolean,
@@ -1661,7 +1799,7 @@ class Parser {
     const token = this.#advance();
     if (opaque) return { claim, span: token.span };
     // Declarations Preamble §2.1's normative text, verbatim. A second exit —
-    // "or declare this type `export opaque`" — reads helpful and is not: it
+    // "or declare this type `opaque`" — reads helpful and is not: it
     // invites an author to change what a type *is* to satisfy a sigil they had
     // no reason to write, and the Preamble already named the rewrite.
     this.#errorAt(
@@ -4125,7 +4263,7 @@ function externDeclarationKeyword(token: LaidOut.Token): string {
  */
 function intrinsicFormError(form: string): string {
   return `the intrinsic boundary provides operations only; declare \`fun\` here, ` +
-    `and declare types as ordinary (\`export opaque\`) declarations in this module ` +
+    `and declare types as ordinary (\`opaque\`) declarations in this module ` +
     `(\`${form}\` is not admitted)`;
 }
 

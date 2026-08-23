@@ -120,7 +120,7 @@ describe("the constructor pattern destructures a nominal record in its home modu
   test("`opaque` changes nothing inside the home module (§4.2)", () => {
     expect(compileFiles([
       ["/geo.hex",
-        "export opaque record Crate = {n: Float}\n" +
+        "opaque record Crate = {n: Float}\n" +
         "export fun size(c: Crate): Float =\n" +
         "    let Crate({n}) = c\n" +
         "    n\n"],
@@ -379,7 +379,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     // constructor spelling, which is the field privacy §4.2 calls load-bearing.
     const messages = compileFiles([
       ["/geo.hex",
-        "export opaque record Crate = {n: Float}\n" +
+        "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
         'import { Crate, make } from "./geo"\n' +
@@ -400,9 +400,9 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     // signature, its name never spelled here, answers exactly as an imported
     // one does. The transparent twin below is the control: same reach, same
     // seat, and the redirect is what fires there.
-    const reached = (opacity: string) => compileFiles([
+    const reached = (head: string) => compileFiles([
       ["/geo.hex",
-        `export ${opacity}record Crate = {n: Float}\n` +
+        `${head} record Crate = {n: Float}\n` +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/mid.hex",
         'import { Crate, make } from "./geo"\n' +
@@ -413,10 +413,10 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
         "    let {n} = forged()\n" +
         "    n\n"],
     ]).diagnostics.map(({ message }) => message);
-    expect(reached("opaque ")).toEqual([
+    expect(reached("opaque")).toEqual([
       "cannot destructure opaque record `Crate`; use an operation exported by its home module",
     ]);
-    expect(reached("")).toEqual([
+    expect(reached("export")).toEqual([
       "`Crate` is a nominal record; destructure it with `Crate({n})`",
     ]);
   });
@@ -426,7 +426,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     // spelling to send the reader to and sends them to it.
     expect(compileFiles([
       ["/geo.hex",
-        "export opaque record Crate = {n: Float}\n" +
+        "opaque record Crate = {n: Float}\n" +
         "export fun size(c: Crate): Float =\n" +
         "    let {n} = c\n" +
         "    n\n"],
@@ -438,7 +438,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
   test("a `match` arm outside the home module is intercepted too", () => {
     expect(compileFiles([
       ["/geo.hex",
-        "export opaque record Crate = {n: Float}\n" +
+        "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
         'import { Crate, make } from "./geo"\n' +
@@ -560,7 +560,7 @@ describe("outside the home module the name carries it, and only the name", () =>
   test("an opaque record refuses outside its home, at the name (§4.2)", () => {
     expect(compileFiles([
       ["/geo.hex",
-        "export opaque record Crate = {n: Float}\n" +
+        "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
         'import { Crate, make } from "./geo"\n' +

@@ -67,7 +67,7 @@ describe("code actions", () => {
 
   test("files the variance offer as a refactor, since it repairs nothing", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "export opaque record Box(a) = { get: () -> a }\nlog(\"${1}\")\n";
+    const source = "opaque record Box(a) = { get: () -> a }\nlog(\"${1}\")\n";
     const caret = source.indexOf("(a)") + 1;
 
     const [action, ...rest] = analysis.codeActions(source, {
@@ -82,7 +82,7 @@ describe("code actions", () => {
     expect(action?.kind).toBe("refactor");
     expect(action?.title).toContain("Declare `Box(+a)`");
     expect(applied(source, action?.edits ?? [])).toContain(
-      "export opaque record Box(+a) =",
+      "opaque record Box(+a) =",
     );
   });
 
@@ -105,7 +105,7 @@ describe("code actions", () => {
   test("answers a selection that ends exactly where its module block does", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "module Helper\n" +
-      "    export opaque record Box(a) = { get: () -> a }\n" +
+      "    opaque record Box(a) = { get: () -> a }\n" +
       "end module Helper\n" +
       "log(\"${1}\")\n";
 
@@ -198,7 +198,7 @@ describe("hoverSpans", () => {
     "        name: String,",
     "        tag: String,",
     "    }",
-    "    export opaque record Box(a) = { get: () -> a }",
+    "    opaque record Box(a) = { get: () -> a }",
     "end module Shapes",
     "let one = 1",
     "log(\"${one}\")",
@@ -241,7 +241,7 @@ describe("hoverSpans", () => {
 
     for (const [what, offset] of [
       ["a documented record name", at(source, "P")],
-      ["an export opaque type parameter", at(source, "a) = { get")],
+      ["an opaque type parameter", at(source, "a) = { get")],
     ] as const) {
       expect(analysis.hover(source, offset), what).toBeDefined();
       expect(covers(spans, offset), what).toBe(true);

@@ -101,6 +101,28 @@ describe("code actions: the diagnostic's own fixes", () => {
     expect(action.disabled).toBeUndefined();
   });
 
+  /**
+   * The visibility slot's rewrite (#590), riding the same route. Required, not
+   * advisory: `export opaque` is the pre-#590 spelling of the `opaque` head, and
+   * the edit that migrates it is mechanical, so the editor performs it. The
+   * declaration's name, parameters and body are the author's own text and are
+   * never retyped — only the two head words become one.
+   */
+  test("`export opaque` offers the bare-head rewrite", () => {
+    const source = "export opaque record Point = {x: Float, y: Float}\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const action = sole(actionsOn(session, "/main.hex", source, "opaque"));
+    expect(action.title).toBe("write `opaque`");
+    expect(applied(source, action)).toBe(
+      "opaque record Point = {x: Float, y: Float}\n",
+    );
+    expect(action.disabled).toBeUndefined();
+
+    // And the rewritten text is what the refusal asked for: clean.
+    session.setFile("/main.hex", applied(source, action));
+    expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
+  });
+
   test("nothing is offered away from the diagnostic", () => {
     const source = ["/* a note */", "let value: Int = 1", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
@@ -975,7 +997,7 @@ describe("code actions: infer return type", () => {
 describe("code actions: the variance an opaque type could declare (#205)", () => {
   test("offers the claim the representation supports", () => {
     const source = [
-      "export opaque record Box(a) = { get: () -> a }",
+      "opaque record Box(a) = { get: () -> a }",
       "",
     ].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
@@ -987,11 +1009,11 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
     // Hexagon has no warning tier, and nothing reports it.
     expect(action.diagnostic).toBeUndefined();
     expect(action.kind).toBe("refactor");
-    expect(applied(source, action)).toContain("export opaque record Box(+a) =");
+    expect(applied(source, action)).toContain("opaque record Box(+a) =");
   });
 
   test("applying it leaves the file clean, and the claim verified", () => {
-    const source = "export opaque record Box(a) = { get: () -> a }\n";
+    const source = "opaque record Box(a) = { get: () -> a }\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "a) = {"));
     session.setFile("/main.hex", applied(source, action));
@@ -1001,7 +1023,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
   });
 
   test("a contravariant representation offers the contravariant claim", () => {
-    const source = "export opaque record Sink(a) = { accept: a -> Unit }\n";
+    const source = "opaque record Sink(a) = { accept: a -> Unit }\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "a) = {"));
     expect(action.title).toContain("Declare `Sink(-a)`");
@@ -1013,10 +1035,10 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
     // is a parse error there, so offering it would be offering an error.
     for (
       const source of [
-        "export opaque record Cell(a) = { get: () -> a, put: a -> Unit }\n",
+        "opaque record Cell(a) = { get: () -> a, put: a -> Unit }\n",
         "record Box(a) = { get: () -> a }\n",
         "export record Box(a) = { get: () -> a }\n",
-        "export opaque record Tag(a) = { name: String }\n",
+        "opaque record Tag(a) = { name: String }\n",
       ]
     ) {
       const { session } = sessionOf({ "/main.hex": source });
@@ -1030,7 +1052,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
     // at the declaration — while a request anywhere in the file answered with
     // every under-claim in it. A client asks about the line under the cursor.
     const source = [
-      "export opaque record Box(a) = { get: () -> a }",
+      "opaque record Box(a) = { get: () -> a }",
       "",
       "export fun size(): Int = 0",
       "",
@@ -1045,10 +1067,10 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
   test("a claim already made is not offered again, right or wrong", () => {
     for (
       const source of [
-        "export opaque record Box(+a) = { get: () -> a }\n",
+        "opaque record Box(+a) = { get: () -> a }\n",
         // Over-claimed: an error, and §6.3's report is the answer to it — not a
         // refactor offering the same claim a second time.
-        "export opaque record Sink(+a) = { accept: a -> Unit }\n",
+        "opaque record Sink(+a) = { accept: a -> Unit }\n",
       ]
     ) {
       const { session } = sessionOf({ "/main.hex": source });
@@ -1059,7 +1081,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
   });
 
   test("an imported declaration's head is not this file's to edit", () => {
-    const box = "export opaque record Box(a) = { get: () -> a }\n";
+    const box = "opaque record Box(a) = { get: () -> a }\n";
     const main = 'import module B from "./box.hex"\nexport let n: Int = 1\n';
     const { session } = sessionOf({ "/box.hex": box, "/main.hex": main });
     expect(session.codeActions("/main.hex", { start: 0, end: main.length })).toEqual([]);

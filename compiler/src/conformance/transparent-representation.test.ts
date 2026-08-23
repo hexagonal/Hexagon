@@ -285,7 +285,7 @@ describe("opacity is the one carve, and it is unaffected (#587)", () => {
   // fix in its own right and not merely a control.
   const SEALED = [
     ["/vaulted.hex",
-      "export opaque record Ingot = {grams: Float}\n" +
+      "opaque record Ingot = {grams: Float}\n" +
       "export fun cast(value: Float): Ingot = Ingot({grams = value})\n" +
       "export fun weigh(value: Ingot): Float = value.grams\n"],
     ["/foundry.hex",

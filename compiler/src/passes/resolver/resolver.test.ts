@@ -728,7 +728,7 @@ describe("unknown type names", () => {
 
   test("a namespace alias over a same-named type resolves instead of reporting", () => {
     expect(messages([
-      ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"],
+      ["/point.hex", "opaque record Point = {x: Float, y: Float}\n"],
       ["/main.hex", 'import module Point from "./point"\nexport let f(p: Point): Int = 1\n'],
     ])).toEqual([]);
   });
@@ -736,7 +736,7 @@ describe("unknown type names", () => {
   test("the spellings that always worked still do", () => {
     // The two the old message offered as repairs. They are no longer the only
     // way to write the annotation, but the fallback took nothing away.
-    const point = ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"] as const;
+    const point = ["/point.hex", "opaque record Point = {x: Float, y: Float}\n"] as const;
 
     expect(messages([
       point,
@@ -752,7 +752,7 @@ describe("unknown type names", () => {
     // The surviving refusal, and the §10 row verbatim: the alias is one rename
     // away from resolving, so the realias is named beside the other two.
     expect(messages([
-      ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"],
+      ["/point.hex", "opaque record Point = {x: Float, y: Float}\n"],
       ["/main.hex", 'import module P from "./point"\nexport let f(p: P): Int = 1\n'],
     ])).toEqual([
       "`P` is a module alias, not a type; write `P.Point` for the type it exports, " +
@@ -765,7 +765,7 @@ describe("unknown type names", () => {
     // The repairs are the message's whole content, so they are asserted rather
     // than described: a message naming a line that does not work is worse than
     // the bare refusal it replaced. The third is the one the fallback added.
-    const point = ["/point.hex", "export opaque record Point = {x: Float, y: Float}\n"] as const;
+    const point = ["/point.hex", "opaque record Point = {x: Float, y: Float}\n"] as const;
 
     expect(messages([
       point,

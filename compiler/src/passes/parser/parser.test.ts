@@ -127,8 +127,8 @@ describe("parse", () => {
   test("parses aliases, qualified types, and opaque nominal exports", () => {
     const module = parseSource(
       "export type Pair(a) = (a, a)\n" +
-        "export opaque record Token = {value: Int}\n" +
-        "export opaque union Handle = File(Int) | Socket(Int)\n" +
+        "opaque record Token = {value: Int}\n" +
+        "opaque union Handle = File(Int) | Socket(Int)\n" +
         "let value: Api.Pair(Int) = (1, 2)",
     );
 
@@ -1703,8 +1703,8 @@ describe("parse", () => {
       expect(messages("union Colour = Red | Green")).toEqual([]);
       expect(itemKinds("export union Colour = Red | Green")).toEqual(["Union"]);
       expect(messages("export union Colour = Red | Green")).toEqual([]);
-      expect(itemKinds("export opaque union Box(a) = Wrap(v: a)")).toEqual(["Union"]);
-      expect(messages("export opaque union Box(a) = Wrap(v: a)")).toEqual([]);
+      expect(itemKinds("opaque union Box(a) = Wrap(v: a)")).toEqual(["Union"]);
+      expect(messages("opaque union Box(a) = Wrap(v: a)")).toEqual([]);
     });
 
     /**
@@ -1753,6 +1753,89 @@ describe("parse", () => {
     test("a declaration below module level keeps its own diagnostic", () => {
       expect(messages("fun f(): Int =\n    union Bad = A\n    1\n")).toContain(
         "`union` is only allowed at module top level",
+      );
+    });
+  });
+
+  /**
+   * `opaque` fills the head's visibility slot on its own since #590 (Modules §4,
+   * Lexer §4.2), so the word left `export`'s shadow and joined `union` and
+   * `widens` on Products §3.3's mechanism: one token of lookahead, keyword only
+   * where a declaration follows, an ordinary name everywhere else.
+   *
+   * The lookahead is **wider** than either sibling's, on purpose. `union` and
+   * `widens` recognize only their lawful shape; `opaque` recognizes its refused
+   * subjects too, because a head that stopped at `record`/`union` could not
+   * redirect them — `opaque type Name = String` would fall out of the item
+   * grammar and be answered by whatever the expression parser made of two
+   * adjacent words. Each row below fails on its own: the first if the head were
+   * never recognized, the redirects if the lookahead were narrowed, and the term
+   * rows if the word were reserved or the lookahead widened past a declaration.
+   */
+  describe("`opaque` is contextual and fills the head's slot (#590)", () => {
+    const messages = (text: string): readonly string[] =>
+      parseSource(text).diagnostics.map(({ message }) => message);
+
+    const itemKinds = (text: string): readonly string[] =>
+      parseSource(text).items.map(({ kind }) => kind);
+
+    test("the bare head declares, and carries both flags", () => {
+      const module = parseSource(
+        "opaque record Token = {value: Int}\n" +
+          "opaque union Handle = File(Int) | Socket(Int)\n",
+      );
+      expect(module.diagnostics).toEqual([]);
+      // Exactly what `export opaque` produced before #590: the type name
+      // crosses, the representation stays home.
+      expect(module.items).toMatchObject([
+        { kind: "RecordDeclaration", exported: true, opaque: true },
+        { kind: "Union", exported: true, opaque: true },
+      ]);
+    });
+
+    test("the pair is refused, in the introducer the author wrote", () => {
+      expect(messages("export opaque record Token = {value: Int}\n")).toEqual([
+        "`opaque` already exports the type name; write `opaque record Point = …`",
+      ]);
+      expect(messages("export opaque union Handle = File(Int)\n")).toEqual([
+        "`opaque` already exports the type name; write `opaque union Handle = …`",
+      ]);
+      // Refused, then read anyway: the migration reports once per line.
+      expect(itemKinds("export opaque record Token = {value: Int}\n"))
+        .toEqual(["RecordDeclaration"]);
+      expect(parseSource("export opaque union Handle = File(Int)\n").items)
+        .toMatchObject([{ kind: "Union", exported: true, opaque: true }]);
+    });
+
+    test("the redirected subjects are recognized, so they can be redirected", () => {
+      expect(messages("opaque type Name = String\n")).toEqual([
+        "aliases are transparent; make it a `record` or single-constructor `union`",
+      ]);
+      for (const text of [
+        "opaque let width: Int = 3\n",
+        "opaque fun width(): Int = 3\n",
+        "opaque exception Torn(reason: String)\n",
+        "opaque constraint Hidden<a> =\n    peek(subject: a): Int\n",
+      ]) {
+        expect(messages(text)).toEqual([
+          "`opaque` applies to `record` and `union` declarations",
+        ]);
+      }
+    });
+
+    test("the word binds, names a field, and names a parameter", () => {
+      expect(messages("let opaque = 3")).toEqual([]);
+      expect(itemKinds("let opaque = 3")).toEqual(["Let"]);
+      expect(messages("let r = { opaque = 1 }")).toEqual([]);
+      expect(messages("let f(opaque: Int): Int = opaque")).toEqual([]);
+      expect(messages("var opaque = 1")).toEqual([]);
+      expect(messages("opaque(2)\n")).toEqual([]);
+      expect(itemKinds("opaque(2)\n")).toEqual(["ExprItem"]);
+    });
+
+    test("a head below module level keeps its own diagnostic", () => {
+      expect(messages("fun f(): Int =\n    opaque record Bad = {n: Int}\n    1\n")).toContain(
+        "`opaque` is only allowed at module top level",
       );
     });
   });

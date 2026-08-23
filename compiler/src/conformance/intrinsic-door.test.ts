@@ -220,7 +220,7 @@ describe("what the block admits (§3.3)", () => {
   }
 
   const REFUSAL = "the intrinsic boundary provides operations only; declare `fun` here, " +
-    "and declare types as ordinary (`export opaque`) declarations in this module";
+    "and declare types as ordinary (`opaque`) declarations in this module";
 
   test("`let` is refused, and the rewrite points at an ordinary declaration", () => {
     const [message] = privileged(

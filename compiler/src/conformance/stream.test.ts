@@ -12,7 +12,7 @@
  * teaching point.
  *
  * The one specimen that cannot be written from outside is a pure lambda at the
- * `next` field: the record is `export opaque`, so its constructor is the home
+ * `next` field: the record is `opaque`, so its constructor is the home
  * module's alone. That test seats a modified `Stream.hex` as the prelude
  * member, on the same footing `effects.test.ts` puts `Seq.hex`'s `fold` on.
  */
