@@ -167,9 +167,10 @@ first, `start.translate(3.0, 4.0)` resolves to the companion operation.
 Sometimes callers should know that a type exists without being able to depend on its
 fields or alternatives. `opaque` publishes the nominal type while keeping its
 representation inside its home module. It stands where `export` would stand — the two
-words are the two settings of one switch, and a declaration head carries exactly one of
-them. There is no `export opaque`: hiding the representation of a type nobody else can
-see would assert nothing, so the one word already says both *exported* and *hidden*.
+words fill one slot, and a declaration head carries at most one of them; a head with
+neither stays private, as always. There is no `export opaque`: hiding the
+representation of a type nobody else can see would assert nothing, so the one word
+already says both *exported* and *hidden*.
 
 ```hexagon
 opaque record UserId = {value: Int}
@@ -403,7 +404,7 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 - imports may be named, aliased, namespace-qualified, or effect-only;
 - module aliases are namespaces, not first-class values;
 - companion modules give subject-first operations a predictable qualified home;
-- `opaque` hides a record's fields or a union's constructors outside its home;
+- `opaque` exports the type name alone, hiding a record's fields or a union's constructors outside its home;
 - a parameterized opaque type declares what it promises with `+a` or `-a`, checked
   against its representation; a bare parameter claims nothing;
 - exported terms have complete signatures with explicit maximal constraints;

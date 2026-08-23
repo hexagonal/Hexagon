@@ -368,7 +368,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | Exported function with missing parameter/result annotations | "exported function `f` requires a complete signature; add …" |
 | Exported function with inferred but unwritten constraints | "exported function `f` must declare every constraint in its signature; write `<a: C>`" |
 | Exported function restating an entailed base constraint | "exported function `f` must omit base constraint `Base` from `a`; `C` already provides it" |
-| `export opaque` | parse error, Rewrite Rule: "`opaque` already exports the type name; write `opaque record Point = …`" — the rewrite is required, not advisory (§4.2, #590) |
+| `export opaque` | parse error, Rewrite Rule: "`opaque` already exports the type name; write `opaque record Point = …`" — the rewrite is required, not advisory, and echoes the user's own declaration (`opaque union Handle = …` at a union head) (§4.2, #590) |
 | `opaque` on `type` | "aliases are transparent; make it a `record` or single-constructor `union`" |
 | `opaque` on `let`/`fun`/`constraint`/`exception` | parse error: "`opaque` applies to `record` and `union` declarations" |
 | Opaque field access / construction / match outside home module | "`Point` is opaque outside `./point`; use its exported functions" |
@@ -422,6 +422,10 @@ fun f(q: Point): Float = q.x                 -- type: imported; fields visible (
 
 -- (c) Opaque is a black box outside home
 -- point.hex: opaque record Point = {x: Float, y: Float}
+-- (the pre-#590 pair is refused with the required rewrite:)
+-- export opaque record Point = ...           -- ERROR: opaque already exports the
+--                                            --   type name; write opaque record
+--                                            --   Point = ...
 --            export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
 import module Point from "./point"
 let p = Point.make(1.0, 2.0)                 -- OK

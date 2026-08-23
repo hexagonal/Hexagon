@@ -231,7 +231,7 @@ listed positions:
 | `as` | import/foreign aliases and the pattern `p as name` |
 | `derives` | a `record`, `union`, or foreign-enum header before `=` |
 | `from` | an `import` clause or `extern from` declaration |
-| `opaque` | the visibility head on a `record` or `union` declaration at module top level, in `export`'s own slot (Modules §4, #590) — the `union` precedent: head-position-only, never reserved, elsewhere an ordinary name (`let opaque = 3` binds). Recognition includes the refused seat immediately after `export`, where the parser issues Modules §4.2's required rewrite |
+| `opaque` | the visibility head on a `record` or `union` declaration at module top level, in `export`'s own slot (Modules §4, #590) — the `union` precedent: head-position-only, never reserved, elsewhere an ordinary name (`let opaque = 3` binds). Recognition includes the refused seats: immediately after `export` (Modules §4.2's required rewrite), and a declaration head whose follower is `type`, `let`, `fun`, `constraint`, or `exception` (the Modules §10 redirects — no term can juxtapose the two spellings, so the seat is no expression) |
 | `when` | between an arm pattern and `=>` |
 | `with` | between a record-update head and its overrides (Products §3.3) |
 | `enum` | a foreign enum declaration inside `extern from` |
