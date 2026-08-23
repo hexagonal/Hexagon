@@ -687,7 +687,7 @@ late pedagogy pass, not a commitment to the current order.
   structural crossing `Point({...})` in and `{...point}` out.
 - A spread with overrides preserves nominal identity; a spread alone crosses to the
   closed structural record.
-- Do not introduce `export opaque` here. Opacity belongs to the modules chapter and
+- Do not introduce `opaque` here. Opacity belongs to the modules chapter and
   should cover records and unions together, including the TypeScript-only branded
   boundary face.
 
@@ -775,7 +775,7 @@ late pedagogy pass, not a commitment to the current order.
   Relative paths omit `.hex`.
 - Module aliases are uppercase namespaces, never values. The same spelling may name a
   type/constructor and its companion module because positions select namespaces.
-- `export opaque` is limited to nominal records and unions. It exports only the type,
+- `opaque` is limited to nominal records and unions. It exports only the type,
   hiding record fields/constructor or union constructors outside the home module.
 - A parameterized opaque type declares variance with `+a` / `-a`, verified against its
   representation at the declaration; a bare parameter claims nothing and behaves as

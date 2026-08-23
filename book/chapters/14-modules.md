@@ -165,11 +165,15 @@ first, `start.translate(3.0, 4.0)` resolves to the companion operation.
 ## Opaque exports hide representation
 
 Sometimes callers should know that a type exists without being able to depend on its
-fields or alternatives. `export opaque` publishes the nominal type while keeping its
-representation inside its home module.
+fields or alternatives. `opaque` publishes the nominal type while keeping its
+representation inside its home module. It stands where `export` would stand — the two
+words fill one slot, and a declaration head carries at most one of them; a head with
+neither stays private, as always. There is no `export opaque`: hiding the
+representation of a type nobody else can see would assert nothing, so the one word
+already says both *exported* and *hidden*.
 
 ```hexagon
-export opaque record UserId = {value: Int}
+opaque record UserId = {value: Int}
 
 export let fromInt(value: Int): UserId = UserId({value})
 export let value(userId: UserId): Int = userId.value
@@ -187,7 +191,7 @@ For example, a smart constructor may reject negative identifiers before creating
 Opaque unions hide all their constructors in the same way:
 
 ```hexagon
-export opaque union Handle =
+opaque union Handle =
     FileHandle(descriptor: Int)
     | NetworkHandle(socket: Int)
 ```
@@ -205,7 +209,7 @@ Hiding the representation hides something callers were relying on without knowin
 Consider a sequence type whose parameter appears only in what it hands out:
 
 ```hexagon
-export opaque record Box(a) = {open: () -> Option(a)}
+opaque record Box(a) = {open: () -> Option(a)}
 
 export let emptyBox(): Box(a) = Box({open = () => None})
 ```
@@ -224,7 +228,7 @@ outside world is told, a `Box` might be holding an `a` already.
 Write a `+` on the parameter and the promise crosses the boundary:
 
 ```hexagon
-export opaque record Box(+a) = {open: () -> Option(a)}
+opaque record Box(+a) = {open: () -> Option(a)}
 ```
 
 Now `empty` above is reusable at any element type, in every module. `+a` says *this
@@ -243,7 +247,7 @@ see through.
 The compiler checks the claim against the representation, at the declaration:
 
 ```hexagon
-export opaque record Sink(+a) = {accept: a -> Unit}   // error
+opaque record Sink(+a) = {accept: a -> Unit}   // error
 ```
 
 > `a` cannot be declared covariant in `Sink`: field `accept` uses `a` in argument
@@ -400,7 +404,7 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 - imports may be named, aliased, namespace-qualified, or effect-only;
 - module aliases are namespaces, not first-class values;
 - companion modules give subject-first operations a predictable qualified home;
-- `export opaque` hides a record's fields or a union's constructors outside its home;
+- `opaque` exports the type name alone, hiding a record's fields or a union's constructors outside its home;
 - a parameterized opaque type declares what it promises with `+a` or `-a`, checked
   against its representation; a bare parameter claims nothing;
 - exported terms have complete signatures with explicit maximal constraints;

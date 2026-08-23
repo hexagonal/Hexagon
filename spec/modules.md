@@ -1,7 +1,7 @@
 # Hexagon Spec: Modules
 
 **Status:** Decided (July 2026) — with a **hanging-questions** section (§12); nothing there blocks implementation of §1–§11.
-**Scope:** Module identity (one module per file, no module header), the `import` declaration (named, aliased, namespace forms), the `export` modifier and `export opaque`, privacy defaults, the module-alias namespace and position-based resolution, prelude occlusion, import-collision rules, the acyclic-import rule and load order, top-level effects, instance globality, the orphan rule's operational definition of "home module," instance discoverability (§7.6), the private-in-public rule, generalisation at module level (restated), and ESM/`.d.ts` emission — including the opaque brand face (§11.4, per FFI Part 7 §5).
+**Scope:** Module identity (one module per file, no module header), the `import` declaration (named, aliased, namespace forms), the head's visibility slot (`export`, `opaque`, or absent — #590), privacy defaults, the module-alias namespace and position-based resolution, prelude occlusion, import-collision rules, the acyclic-import rule and load order, top-level effects, instance globality, the orphan rule's operational definition of "home module," instance discoverability (§7.6), the private-in-public rule, generalisation at module level (restated), and ESM/`.d.ts` emission — including the opaque brand face (§11.4, per FFI Part 7 §5).
 **Not in scope:** package/bare-specifier resolution (§12.1), re-exports (§12.2), CLI root-selection and project-configuration syntax (compiler architecture; §8.3 fixes the language-level absence of a special entry point), and the prelude's inventory (stdlib listing — one constraint pre-registered here, §6.4).
 **Companions:** Constraints spec (§5.1 duplicate reporting point; §5.3 orphan rule; §9.3 structural instances), Statements/Blocks/Mutability spec (§5.2/§10.2 prelude collisions; §6 `var` confinement), Declarations Preamble (§7 declaration inventory; Rewrite Rule §1.1), Unions §2 (constructor qualification), Functions §8 (module-level generalisation), Operators §14 (`.` as module-path separator), Method Syntax §4/§8 (companion dispatch and emitted companion imports), Lexer & Layout (module top level as a block), and FFI Parts 4/7 (extern bindings and export surface).
 
@@ -70,7 +70,9 @@ The foreign counterpart is `extern import "telemetry/register"` (FFI Part 4 §8)
 
 ---
 
-## 4. `export` and `export opaque`
+## 4. `export` and `opaque`
+
+A module-level declaration head has **one visibility slot, with three values** *(#590)*: **absent** — everything the declaration introduces stays private; **`export`** — everything it introduces crosses (§4.1); **`opaque`** — the type name alone crosses (§4.2). The three are mutually exclusive spellings of one home-declared property, which is the syntax following the semantics §4.2 already states: the declaration is the sole authority on representation visibility, and `opaque` is that property's one written word. In particular the pair `export opaque` is refused with a required rewrite (§4.2, §10): opacity of a private thing is vacuous, so `opaque` alone already claims the crossing — the second word could never assert anything the first did not.
 
 ### 4.1 `export`
 
@@ -123,32 +125,32 @@ demands). Tooling renders the inferred face (Effects §10's display
 obligation); the face itself is checked against the body in both directions
 (Effects §4.2).
 
-### 4.2 `export opaque`
+### 4.2 `opaque`
 
 ```
-export opaque record Point = {x: Float, y: Float}
-export opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)
+opaque record Point = {x: Float, y: Float}
+opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)
 ```
 
-`export opaque` exports the **type name only**. Everything the body introduces stays private to the home module:
+`opaque` exports the **type name only**. Everything the body introduces stays private to the home module:
 
 - **Records:** the constructor is private (no construction outside), and — load-bearing — **fields are private too**: no `p.x`, no pattern destructuring, no `{p with x = e}` update outside the home module. An opaque record without field privacy would be fake abstraction; outside its home module an opaque record is a black box.
 - **Unions:** all constructors private — no construction, no pattern matching outside. Exhaustiveness checking is unaffected (it is checked against the declaration, and matching is impossible outside anyway).
 - Inside the home module, `opaque` changes nothing: full construction, matching, field access. The home module exports smart constructors and accessors as ordinary functions — this is the intended idiom, and the companion-module pattern (§5.3) is its natural shape.
-- Derived instances are unaffected: `export opaque record Point derives (Eq, Show) = ...` works — derivation happens in the home module, where nothing is hidden, and the resulting instances are global like all instances (§7). This is deliberate: opacity hides *structure*, not *capabilities*.
-- `opaque` is legal **only on `record` and `union`**, and only together with `export` (`opaque` without `export` is "everything is already private; remove `opaque`"). On `type`: error — aliases are transparent by definition; "make it a `record` or single-constructor `union`" (the Declarations Preamble §4 redirect family). On `let`/`fun`/`constraint`/`exception`: parse error.
+- Derived instances are unaffected: `opaque record Point derives (Eq, Show) = ...` works — derivation happens in the home module, where nothing is hidden, and the resulting instances are global like all instances (§7). This is deliberate: opacity hides *structure*, not *capabilities*.
+- `opaque` is legal **only on `record` and `union`**, and it fills the head's visibility slot by itself *(#590)*. `export opaque` — the pre-#590 spelling — is a parse error under the Rewrite Rule (Declarations Preamble §1.1): "`opaque` already exports the type name; write `opaque record Point = …`" — the rewrite is mechanical and required, the `widens` respell pattern (Constraints §4.7's refused-export fixit). On `type`: error — aliases are transparent by definition; "make it a `record` or single-constructor `union`" (the Declarations Preamble §4 redirect family). On `let`/`fun`/`constraint`/`exception`: parse error.
 
 **Transparent representations travel with the type** *(#587)*. The complement of the rule above, and it takes no syntax: outside `opaque`, the declaration is the **sole authority** on representation visibility, and a record's fields are open **wherever the type reaches**. Type-directed access — `p.x`, `{p with x = e}`, the bare copy `{...p}` — asks only what the receiver's type is, and a type reaches modules that never spelled its name: an imported signature carries it, and its home module is in the graph by reachability of the type — the same sentence Method Syntax §4.2 states for the dot's operation set, one law with two clients. Whether the accessing module imported the declaration, in any form or at all, changes nothing: imports carry *names* (§3) — the constructor among them, so construction and constructor patterns want the name in scope like any name — but no import is ever the difference between a representation open and shut. A nominal record's pattern eliminator is the constructor pattern, name-carried like construction (Pattern Matching §2.4); in a module without the name, the destructure spelling is `let {n} = {...v}` through the crossing (Products §5.3). The open-or-shut difference is written in one place by one author: `opaque`, on the declaration. Consequently there is no consumer-side or intermediary re-abstraction — no module can pass along another's type with the fields closed, and re-exports, the one vehicle such a facade could ride, stay deferred (§12.2) — and no per-signature or per-occurrence form exists; a representation has one answer, written once: transparent everywhere, or closed everywhere outside its home. Diagnostics inherit the rule: a missing-field error names the record's known fields wherever it fires (Products §3.2) — an empty field enumeration is malformed output, never a compiler sentence — and the only "representation not visible here" refusal is the opaque one above, which sends the reader to the home module.
 
-Lineage: Roc's opaque types and Haskell's export-`Point`-without-`Point(..)` idiom; the modifier spelling keeps the common case JS-shaped where an export list (Haskell/Elm) would abandon it (§9.3).
+Lineage: Roc's opaque types and Haskell's export-`Point`-without-`Point(..)` idiom; the head-keyword spelling keeps the common case JS-shaped where an export list (Haskell/Elm) would abandon it (§9.3). One cost is taken with eyes open *(#590)*: a module's exported interface reads off **two** left-margin keywords — the declarations beginning `export` plus those beginning `opaque` — where before #590 every unconditional export began `export`. The dropped word was redundant-but-always-true, unlike `widens`' dropped `export` (which would sometimes have been false, visibility being derived there — Constraints §4.7); the legibility price was judged worth the one-slot grammar, and the precedent both forms now share is the same sentence: the form claims exactly the properties the thing has.
 
 #### 4.2.1 Variance claims on parameterized opaque types *(added 2026-08-01, #205 — closure doc `decisions-ml-dialect-generalization-2026-08.md` §6)*
 
-A type parameter of an `export opaque` declaration may carry a **variance sigil**: `+a` (covariant claim) or `-a` (contravariant claim). Grammar and its two parse errors are the Declarations Preamble's (§2.1 there); this section owns the semantics.
+A type parameter of an `opaque` declaration may carry a **variance sigil**: `+a` (covariant claim) or `-a` (contravariant claim). Grammar and its two parse errors are the Declarations Preamble's (§2.1 there); this section owns the semantics.
 
 ```hexagon
-export opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
-export opaque record Registry(k, +v) = ...      -- claims are per-parameter
+opaque record Seq(+a) = { pull: () -> Option((a, Seq(a))) }
+opaque record Registry(k, +v) = ...      -- claims are per-parameter
 ```
 
 - **Bare means invariant — the empty claim, and legal.** Outside the home module an unmarked parameter is treated as invariant. This is this section's own doctrine applied to the next capability: opacity hides *structure*, not *capabilities* — and every capability that crosses (`derives`, arity, now variance) crosses because the author **wrote** it. The governing principle, owned by the closure doc §6.2: **what crosses an opaque boundary must be declared, not inferred.** Inferred variance would let a private representation edit silently change *client modules'* generalization behavior — fake abstraction by another door.
@@ -161,7 +163,7 @@ export opaque record Registry(k, +v) = ...      -- claims are per-parameter
 
 An exported term whose type mentions a **private nominal type** is a hard error at the export:
 
-> exported `parse` mentions the private type `Token`; export `Token` (possibly as `export opaque`)
+> exported `parse` mentions the private type `Token`; export `Token` (possibly as `opaque`)
 
 Rust's private-in-public rule, same rationale: the caller could neither name nor use the type, so the export is unusable as written, and the fix is one keyword. The error names every offending type once. Details:
 
@@ -195,7 +197,7 @@ The intended pattern for opaque types: the home module exports the opaque type p
 
 ```
 -- point.hex
-export opaque record Point = {x: Float, y: Float}
+opaque record Point = {x: Float, y: Float}
 export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
 export fun getX(p: Point): Float = p.x
 
@@ -330,7 +332,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 
 1. **ML module calculus** (functors, signatures, first-class modules — OCaml/SML): Hexagon's parameterization needs are met by type parameters and constraints; readable-JS has no good functor target; the intended user has never missed them; and "modules are fences, not forges" is the simpler story that HM-plus-constraints affords. Doubly foreclosed by "module aliases are not values" (§3.3).
 2. **`module` header / in-file modules** (F#, Haskell): ceremony plus a name-vs-path drift hazard under one-module-per-file; declined with reasons at §2.
-3. **Export lists** (Haskell, Elm): maximum control, but a second export mechanism that abandons the JS shape; `export opaque` covers the one abstraction need the list was wanted for.
+3. **Export lists** (Haskell, Elm): maximum control, but a second export mechanism that abandons the JS shape; `opaque` covers the one abstraction need the list was wanted for.
 4. **`Shape(..)` import sugar** (Haskell): not JS-shaped; namespace import covers the want; individual constructor imports are honest about what enters scope.
 5. **Default exports** (JS): the one JS feature declined — a second export kind with naming anarchy at import sites and interop pain, widely regretted in the JS ecosystem itself; named exports are the single story.
 6. **Single-namespace modules** (Elm): breaks the already-shipped prelude idiom (`Int`/`Int.div`, `Map`/`Map.get`) and the companion-module pattern user libraries will want; renames like `Ints` are ceremony Camp-1 languages prove unnecessary. The narrow Elm-strict *constructor*/alias restriction alone remains a v2 candidate (§5.2).
@@ -366,11 +368,11 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | Exported function with missing parameter/result annotations | "exported function `f` requires a complete signature; add …" |
 | Exported function with inferred but unwritten constraints | "exported function `f` must declare every constraint in its signature; write `<a: C>`" |
 | Exported function restating an entailed base constraint | "exported function `f` must omit base constraint `Base` from `a`; `C` already provides it" |
-| `opaque` without `export` | "everything is already private; remove `opaque`" |
+| `export opaque` | parse error, Rewrite Rule: "`opaque` already exports the type name; write `opaque record Point = …`" — the rewrite is required, not advisory, and echoes the user's own declaration (`opaque union Handle = …` at a union head) (§4.2, #590) |
 | `opaque` on `type` | "aliases are transparent; make it a `record` or single-constructor `union`" |
 | `opaque` on `let`/`fun`/`constraint`/`exception` | parse error: "`opaque` applies to `record` and `union` declarations" |
 | Opaque field access / construction / match outside home module | "`Point` is opaque outside `./point`; use its exported functions" |
-| Private nominal type in exported signature | "exported `parse` mentions the private type `Token`; export `Token` (possibly as `export opaque`)" (§4.3) |
+| Private nominal type in exported signature | "exported `parse` mentions the private type `Token`; export `Token` (possibly as `opaque`)" (§4.3) |
 | Cross-module duplicate instance | "duplicate instance of `Ord<String>`: `./a.hex` (line N) and `./b.hex` (line M)" (§7.3) |
 | Workspace instance outside the current graph (LSP) | existing Constraints §8 error + hint: "its instance is in `./x`; add `import \"./x\"`" (§7.6) |
 | Bare package specifier in Hexagon `import` | "package imports are not yet supported" (§12.1); foreign `extern from` bare specifiers are legal (FFI Part 4 §2.1) |
@@ -419,8 +421,12 @@ let p = Point({x = 1.0, y = 2.0})              -- constructor: imported
 fun f(q: Point): Float = q.x                 -- type: imported; fields visible (not opaque)
 
 -- (c) Opaque is a black box outside home
--- point.hex: export opaque record Point = {x: Float, y: Float}
+-- point.hex: opaque record Point = {x: Float, y: Float}
 --            export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
+-- (the pre-#590 pair is refused with the required rewrite:)
+-- export opaque record Point = ...           -- ERROR: opaque already exports the
+--                                            --   type name; write opaque record
+--                                            --   Point = ...
 import module Point from "./point"
 let p = Point.make(1.0, 2.0)                 -- OK
 p.x                                          -- ERROR: Point is opaque outside ./point
@@ -457,7 +463,7 @@ import { area } from "./rect"                -- ERROR: area already imported; al
 union Token = Word(s: String) | Gap          -- private
 export fun parse(s: String): Vector(Token) = ...
 -- ERROR: exported parse mentions the private type Token; export Token
--- (possibly as export opaque)
+-- (possibly as opaque)
 
 -- (i) Instance globality + effect import (legal but normally redundant in v1,
 --     §7.6; Config's home is one of the only legal instance homes)
@@ -499,7 +505,7 @@ make(1.5).m                                  -- ERROR: Crate has fields n, not m
 | Module aliases: uppercase, not values; qualified access in term, type, and pattern position | §3.3 |
 | `export` = declaration prefix exporting everything introduced; no default exports; no re-exports (v1) | §4.1 |
 | Exported terms require complete annotations; constrained functions explicitly list maximal constraints and omit entailed bases; private module-level function guidance remains style | §4.1.1 |
-| `export opaque` on `record`/`union`: type name only; fields/constructors/matching private outside home; derives unaffected; home module unaffected | §4.2 |
+| One head visibility slot, three values — absent / `export` / `opaque`; `export opaque` refused with the required rewrite (#590). `opaque` on `record`/`union`: type name only; fields/constructors/matching private outside home; derives unaffected; home module unaffected | §4, §4.2 |
 | Transparent representation visibility travels with the type (sole-authority rule): field access, update, and the bare copy are import-insensitive; imports carry names (constructor and its pattern included); no intermediary or per-signature re-abstraction | §4.2 |
 | Private-in-public: hard error for nominal types; transparent aliases exempt (expansion used) | §4.3 |
 | Fourth namespace (module aliases); position-based resolution; `Name.` checks modules first | §5.1 |

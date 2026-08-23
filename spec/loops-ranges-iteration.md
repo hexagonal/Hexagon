@@ -161,7 +161,7 @@ User nominal types may join the table with lawful `honor Iterable<T>` instances 
 
 `Seq(a)` is a **concrete stdlib type** in v1: an immutable, lazy sequence of `a`s, possibly infinite. It is the F# `seq<'T>` role (the one common-currency sequence abstraction everything can convert into) realized with OCaml `Seq`'s pure representation instead of .NET's mutable enumerator.
 
-*(Decided 2026-07-26.)* `Seq(a)` is a **declared type, not a compiler intrinsic**: an `export opaque record` in the prelude module `stdlib/Seq.hex` (representation in §6.6), which also holds `next` and the combinator companions — one module, per Method Syntax's home rule. As a declaration in the prelude layer it obeys the standard occlusion rule (Modules §5.4) like any other prelude name; the compiler has no private resolution claim on the name `Seq`. Compiler knowledge of `Seq` — the `for..in` desugaring (§6.5) and the producer types on other collections (`Map.keys`, `Set.toSeq`, `Vector.toSeq`, …) — refers to this declaration.
+*(Decided 2026-07-26.)* `Seq(a)` is a **declared type, not a compiler intrinsic**: an `opaque record` in the prelude module `stdlib/Seq.hex` (representation in §6.6), which also holds `next` and the combinator companions — one module, per Method Syntax's home rule. As a declaration in the prelude layer it obeys the standard occlusion rule (Modules §5.4) like any other prelude name; the compiler has no private resolution claim on the name `Seq`. Compiler knowledge of `Seq` — the `for..in` desugaring (§6.5) and the producer types on other collections (`Map.keys`, `Set.toSeq`, `Vector.toSeq`, …) — refers to this declaration.
 
 ### 6.2 The functional cursor
 
@@ -198,7 +198,7 @@ Boundary crossing — what a foreign iterable becomes in Hexagon, and what an ex
 ### 6.6 The representation (decided 2026-07-26)
 
 ```
-export opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }
+opaque record Seq(a) = { pull: () -> Option((a, Seq(a))) }
 
 export let next(source: Seq(a)): Option((a, Seq(a))) = (source.pull)()
 ```

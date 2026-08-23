@@ -233,7 +233,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 - `Point({x = 1.0, y = 2.0})` **applied directly erases**: emits `{x: 1.0, y: 2.0}`.
 - The constructor is first-class (`map(rows, Point)` is legal); when *referenced* rather than applied, the emitter materialises an identity function — `const Point = r => r;` — emitted on demand (or once per declaration, implementer's choice). **Export is a mandatory demand site**: `export record Point` emits one stable named ESM constructor for JavaScript consumers (FFI Part 7 §3). Direct applications still erase, including internal applications of an exported constructor.
 - `{...p}` emits `{...p}` (a real shallow copy — honest).
-- `.d.ts`: for an **ordinary exported record**, `type Point = { x: number; y: number };` — structural, because the TS boundary is structural regardless; nominality is a Hexagon-side compile-time discipline only, and the spec says so out loud rather than pretending otherwise. An **`export opaque record`** instead uses FFI Part 7 §5's brand-only face (one non-exported `unique symbol`; no fields exposed) — opacity, unlike ordinary nominality, *does* cross the boundary.
+- `.d.ts`: for an **ordinary exported record**, `type Point = { x: number; y: number };` — structural, because the TS boundary is structural regardless; nominality is a Hexagon-side compile-time discipline only, and the spec says so out loud rather than pretending otherwise. An **`opaque record`** instead uses FFI Part 7 §5's brand-only face (one non-exported `unique symbol`; no fields exposed) — opacity, unlike ordinary nominality, *does* cross the boundary.
 
 ---
 
@@ -282,7 +282,7 @@ What does **not** work, by design: passing `p` directly where `{x: Float, ...}` 
 | `record` = opaque nominal + constructor fn + elaboration rules + nothing at runtime | §5.1, §5.4 |
 | Unifier never unfolds nominal names; crossings are explicit terms (`{...p}` / constructor) | §5.1, §5.3 |
 | Implicit checking-mode coercion: considered, deferred to v2-with-evidence | §5.3 |
-| `.d.ts` structural for ordinary exports; `export opaque record` = FFI Part 7 §5 brand-only face | §5.4 |
+| `.d.ts` structural for ordinary exports; `opaque record` = FFI Part 7 §5 brand-only face | §5.4 |
 | Structural Eq/Ord/Show/Hash: automatic, compiler-derived, **user-closed** (semantics §2.5/§3.4; `Hash` → Collections Part 2); nominal records derive only by explicit `derive`/`derives` (Constraints §4.5) | §2.5, §3.4, §5.2 |
 | Tier-0 row inference unchanged by dot calls; fused `r.name(args…)` = field access unless head-known nominal | §3.2 |
 | §2.6's rationale re-grounded post-#147 (2026-07-29): tuples-as-arrays carried by natural-unboxed-product merit, zero-cost at the boundary; TS-author phrasing demoted to outcome; decision unchanged | §2.6 |

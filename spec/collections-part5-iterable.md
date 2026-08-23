@@ -193,7 +193,7 @@ The whole tax is one small instance. Anything more (combinators, instances like 
 
 ```
 -- bag.hex — a multiset: an opaque record over Map(a, Int) counts
-export opaque record Bag(a) = {counts: Map(a, Int)}
+opaque record Bag(a) = {counts: Map(a, Int)}
 
 export fun fromSeq<a: Hash>(items: Seq(a)): Bag(a) = ...
 export fun add<a: Hash>(bag: Bag(a), x: a): Bag(a) = ...
@@ -230,7 +230,7 @@ What the example fixes, normatively:
 
 - **Constraint placement is honest:** `fromSeq`/`add`/`count` need `<a: Hash>` (they consult the backing `Map`'s keys); `size` and the `Iterable` instance — `toSeq` included — need **nothing**: iteration never hashes. A user whose element type lacks `Hash` can still iterate a `Bag` handed to them; they simply cannot build one.
 - **The instance lives in the type's home module** (`bag.hex`) — the ordinary orphan-legal choice, and the one §3.3's diagnostic points at.
-- **Opacity and instances compose:** `Bag` is `export opaque`; consumers cannot see `counts`, but `for x in bag` works, because the instance was declared where nothing is hidden.
+- **Opacity and instances compose:** `Bag` is `opaque`; consumers cannot see `counts`, but `for x in bag` works, because the instance was declared where nothing is hidden.
 - **The order contract is inherited and must be stated:** `Bag.toSeq`'s cross-element order is its backing `Map`'s iteration order — deterministic for a value within one execution, unspecified, unstable across runs (Part 4 §7.1). A user collection's docs inherit the obligation to say so; this one just did.
 
 ---
