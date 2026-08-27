@@ -219,21 +219,37 @@ describe("what the block admits (§3.3)", () => {
     ]);
   }
 
+  // §11's row, verbatim to its closing parenthesis. The head exemplar sits at
+  // the sentence's tail since #590's respell rider — a one-word `(opaque)`
+  // mid-sentence read as a gloss on "ordinary" instead of as the spelling to
+  // write.
   const REFUSAL = "the intrinsic boundary provides operations only; declare `fun` here, " +
-    "and declare types as ordinary (`opaque`) declarations in this module";
+    "and declare types as ordinary declarations in this module (typically `opaque record`)";
+
+  /**
+   * The whole message: §11's static row plus the one datum the row cannot carry
+   * — which form was written — appended as an aside (the row's own edit note
+   * records the arrangement, so the two reconcile from the spec alone).
+   *
+   * Composed and asserted **whole**, rather than the row and the form name
+   * checked separately: two containments leave the punctuation between them
+   * free, and the relationship being claimed — row, then one clause — is
+   * precisely what a doubled parenthesis would break while passing both.
+   */
+  const refusalOf = (form: string): string => `${REFUSAL} — \`${form}\` is not admitted`;
 
   test("`let` is refused, and the rewrite points at an ordinary declaration", () => {
     const [message] = privileged(
       'extern from "hex:intrinsic"\n' +
       "    export let seqMemoize: Int\n",
     );
-    expect(message).toContain(REFUSAL);
-    expect(message).toContain("`let`");
+    expect(message).toBe(refusalOf("let"));
   });
 
   /**
-   * Compiler-owned *types* in particular do not enter here — the four collection
-   * companions declare ordinary records, and the deliberate non-declared boundary
+   * Compiler-owned *types* in particular do not enter here — the collection
+   * companions declare their types as ordinary declarations in Hexagon source
+   * rather than through this door, and the deliberate non-declared boundary
    * types stay fallbacks under Modules §5.5.
    */
   test("`type` is refused", () => {
@@ -241,8 +257,7 @@ describe("what the block admits (§3.3)", () => {
       'extern from "hex:intrinsic"\n' +
       "    export type seqNode as SeqNode\n",
     );
-    expect(message).toContain(REFUSAL);
-    expect(message).toContain("`type`");
+    expect(message).toBe(refusalOf("type"));
   });
 
   /**
@@ -256,9 +271,7 @@ describe("what the block admits (§3.3)", () => {
       'extern from "hex:intrinsic"\n' +
       "    export default fun memoized<a>(source: Seq(a)): Seq(a)\n",
     );
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toContain(REFUSAL);
-    expect(messages[0]).toContain("`default`");
+    expect(messages).toEqual([refusalOf("default")]);
   });
 });
 

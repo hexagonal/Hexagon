@@ -184,10 +184,14 @@ describe("`export opaque` is refused with the required rewrite (§4.2, §10)", (
 describe("`opaque` on a subject it does not apply to (§10)", () => {
   test("`type` gets the alias redirect", () => {
     const alias = "aliases are transparent; make it a `record` or single-constructor `union`";
-    expect(projectDiagnostics("opaque type Name = String\n")).toContain(alias);
-    // The pair reaches the same sentence: the subject is what is wrong, and the
-    // rewrite the pair would otherwise be offered leads nowhere here.
-    expect(projectDiagnostics("export opaque type Name = String\n")).toContain(alias);
+    expect(projectDiagnostics("opaque type Name = String\n")).toEqual([alias]);
+    // The pair reaches the same sentence, and **only** it: §10's `export opaque`
+    // row presupposes a lawful subject, so a crossed head over an unlawful one
+    // draws the subject's redirect and never the pair rewrite — the rewrite's
+    // output would still be ill-formed, and the subject is the deeper fault.
+    // Equality, not containment: "never" is the claim, and a containment
+    // assertion cannot fail on an extra sentence.
+    expect(projectDiagnostics("export opaque type Name = String\n")).toEqual([alias]);
   });
 
   test("`let`, `fun`, `constraint` and `exception` get the general redirect", () => {

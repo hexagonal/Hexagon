@@ -559,15 +559,19 @@ class Parser {
       }
       const opaque = this.#atOpaqueSubject();
       if (!opaque) this.#refuseOpaqueSubject(opaqueToken.span);
-      // A refused slot value recovers to the slot's **neutral** value, not to
-      // its other written one: the word did not apply, so nothing was claimed,
-      // and the only fix — dropping `opaque` — leaves a private declaration.
+      // **A refused word claims nothing** (Modules §4.2), so a refused slot
+      // recovers to the slot's neutral value rather than to its other written
+      // one. The argument rests on the refusal alone and not on what the repair
+      // would produce, which differs by seat and is sometimes an export: the
+      // `type` redirect asks for a `record` or single-constructor `union`, and
+      // `opaque record` crosses.
+      //
       // Recovering as exported would invent a crossing the author never wrote,
       // and the invention is not inert: the phantom export draws the
-      // signature-completeness errors an export owes, whose advice is false the
-      // moment the real repair is applied, and resolves from an importing
-      // module. The `export` head above keeps the default, because there the
-      // crossing *is* written and only `opaque` is refused.
+      // signature-completeness errors an export owes — advice about a promise
+      // that was never made — and resolves from an importing module. The
+      // `export` head above keeps the default, because there the crossing *is*
+      // written and only `opaque` is refused.
       return this.#parseVisibleDeclaration(opaqueToken.span, opaque, opaque);
     }
     if (this.#at("Type")) {
@@ -4289,11 +4293,18 @@ function externDeclarationKeyword(token: LaidOut.Token): string {
  * only; compiler-owned *types* in particular do not enter here (§3.3), which is
  * why the rewrite points at an ordinary declaration in the same module rather
  * than at a different extern spelling.
+ *
+ * The row's sentence carries the head exemplar at its **tail** since #590's
+ * respell rider: `export opaque` had reduced to the one word `opaque`, and a
+ * one-word parenthetical mid-sentence read as a gloss on "ordinary" rather than
+ * as the spelling to write. The clause naming the offending form — which the row
+ * itself does not carry — trails the whole sentence as an aside, so the two do
+ * not become adjacent parentheses.
  */
 function intrinsicFormError(form: string): string {
   return `the intrinsic boundary provides operations only; declare \`fun\` here, ` +
-    `and declare types as ordinary (\`opaque\`) declarations in this module ` +
-    `(\`${form}\` is not admitted)`;
+    `and declare types as ordinary declarations in this module ` +
+    `(typically \`opaque record\`) — \`${form}\` is not admitted`;
 }
 
 function lowerInitial(name: string): string {
