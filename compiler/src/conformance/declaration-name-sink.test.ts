@@ -566,6 +566,60 @@ describe("what the sink is not asked", () => {
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
+  test("a pinned alias contests nothing — being qualified is not being answered", async () => {
+    // The universe counts an alias where some occurrence is **answered at rung
+    // 3** through it, not merely where one is qualified through it. §2.3's pins
+    // settle before the sink is consulted, so `S.Seq(Int)` reaches no rung and
+    // `S` reaches no line — and a minted local spelled `S` must therefore stay
+    // `S`, against an alias the file does not contain.
+    const compiled = project([
+      ["/s.hex", "export record S = {n: Int}\n"],
+      [
+        "/mid.hex",
+        'import { S } from "./s"\nexport type W = S\nexport fun one(): W = S({n = 1})\n',
+      ],
+      [
+        "/main.hex",
+        'import module S from "./Seq"\nimport { one, W } from "./mid"\n' +
+          "export fun pass(x: S.Seq(Int), w: W): W = w\n",
+      ],
+    ]);
+
+    expect(declarations(compiled)).toBe(
+      'import type { S } from "./s.js";\n' +
+        "export declare function pass(x: Iterable<number>, w: S): S;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("an alias rung 2 took over contests nothing either", async () => {
+    // Rung 2 outranks rung 3, so the named import's local is spelled at the
+    // qualified seat too and the alias's line is not owed. The identity decides
+    // it, which is why the identity travels with the occurrence.
+    const compiled = project([
+      ["/lib.hex", "export record Point = {x: Float, y: Float}\n"],
+      ["/lib2.hex", "export record Lib = {n: Int}\n"],
+      [
+        "/mid.hex",
+        'import { Lib } from "./lib2"\nexport type W = Lib\nexport fun one(): W = Lib({n = 1})\n',
+      ],
+      [
+        "/main.hex",
+        'import module Lib from "./lib"\nimport { Point } from "./lib"\n' +
+          'import { one, W } from "./mid"\n' +
+          "export fun mk(p: Lib.Point): Lib.Point = p\nexport let w: W = one()\n",
+      ],
+    ]);
+
+    expect(declarations(compiled)).toBe(
+      'import type { Lib } from "./lib2.js";\n' +
+        'import type { Point } from "./lib.js";\n' +
+        "export declare function mk(p: Point): Point;\n" +
+        "export declare const w: Lib;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
   test("a prelude identity the source qualified is rung 3's, not rung 4's", async () => {
     const compiled = project([[
       "/main.hex",

@@ -1630,19 +1630,49 @@ function importNameIdentity(name: Resolved.ImportName): string | undefined {
 
 /**
  * The namespace aliases a `.d.ts` for this module can carry — the ones some
- * occurrence qualifies through (`Core.Module.qualifiedModuleAliases`) — in
- * source order.
+ * occurrence is **answered at rung 3** through — in source order.
  *
- * An alias no occurrence qualifies through reaches no face and so owes no line,
- * and it is the one member of the collision universe that is therefore not
- * counted: counting it would move a minted local aside for a name the reader
- * cannot find.
+ * An alias no answer is spelled through reaches no face and so owes no line, and
+ * it is the one member of the collision universe that is therefore not counted:
+ * counting it would move a minted local aside for a name the reader cannot find.
+ *
+ * Being qualified is necessary and not sufficient, because three things take an
+ * occurrence over before rung 3 is reached, and each is decided by identity:
+ *
+ * - **§2.3's pins settle before the sink is consulted at all**, so a qualified
+ *   `S.Seq(Int)` faces as `Iterable<number>` and a qualified `B.Bool` as
+ *   `boolean`. Neither imports anything, so neither alias reaches the file.
+ * - **Rung 1** — this module's own declaration is spelled bare at every seat.
+ * - **Rung 2** — a source-written named import's local is spelled at every seat
+ *   too, qualified ones included, which is the ruling's order.
+ *
+ * Every one of those is settled from the typed tree, so this stays a
+ * pre-rendering quantity and the probe still runs once and early. What is left
+ * over-approximate is the one axis the whole universe is over-approximate on:
+ * an occurrence in an unexported signature, or inside a body, counts although it
+ * reaches no face.
  */
-function qualifyingAliases(module: Core.Module): readonly string[] {
-  const qualified = new Set(module.qualifiedModuleAliases);
+function qualifyingAliases(
+  module: Core.Module,
+  prelude: PreludeIds,
+  own: ReadonlyMap<string, string>,
+  imported: ReadonlyMap<string, string>,
+): readonly string[] {
+  const answered = new Set<string>();
+  for (const occurrence of module.qualifiedTypeOccurrences) {
+    if (occurrence.union !== undefined && occurrence.union === prelude.bool) continue;
+    if (occurrence.record !== undefined && occurrence.record === prelude.seq) continue;
+    const key = occurrence.union !== undefined
+      ? nominalHomeKey("union", Number(occurrence.union))
+      : occurrence.record !== undefined
+      ? nominalHomeKey("record", Number(occurrence.record))
+      : nominalHomeKey("externType", Number(occurrence.externType));
+    if (own.has(key) || imported.has(key)) continue;
+    answered.add(occurrence.alias);
+  }
   return module.items.flatMap((item) =>
     item.kind === "Import" && !item.synthesized && item.form.kind === "Namespace" &&
-      qualified.has(item.form.alias)
+      answered.has(item.form.alias)
       ? [item.form.alias]
       : []
   );
@@ -7619,8 +7649,11 @@ class DeclarationEmitter {
     // of the module, so `reference` can return finished text and nothing has to
     // be patched in afterwards. The one input that would otherwise need the
     // rendering — whether an alias reaches the file — is answered from the typed
-    // tree instead (`Core.Module.qualifiedModuleAliases`).
-    const aliases = qualifyingAliases(module);
+    // tree instead (`Core.Module.qualifiedTypeOccurrences`).
+    const own = declaredNominals(module);
+    const imported = importedNominals(module);
+    const prelude = preludeIds(module);
+    const aliases = qualifyingAliases(module, prelude, own, imported);
     const aliasLocals = declarationAliasPlan(aliases, declarationTopLevelNames(module, []));
     const universe = declarationTopLevelNames(
       module,
@@ -7640,12 +7673,12 @@ class DeclarationEmitter {
     // is opaque, so no term shares a type's name).
     const taken = new Set([...universe, runtime.alias]);
     this.#faces = {
-      prelude: preludeIds(module),
+      prelude,
       runtime,
       nominals: new NominalFaces({
         fileId: module.fileId,
-        own: declaredNominals(module),
-        imported: importedNominals(module),
+        own,
+        imported,
         aliasLocals: new Map(aliases.map((alias) => [alias, aliasLocals.get(alias) ?? alias])),
         prelude: new PreludeTypeFaces(module.preludeTypeImports, taken),
         homes: options.nominalHomes,

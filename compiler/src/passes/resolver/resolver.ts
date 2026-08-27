@@ -1040,8 +1040,10 @@ class Resolver {
    * identity arithmetic and this one has to be the branded id it is compared to.
    */
   #moduleFileId = 0 as unknown as Source.FileId;
-  /** See `Resolved.Module.qualifiedModuleAliases`. */
-  readonly #qualifiedModuleAliases: string[] = [];
+  /** See `Resolved.Module.qualifiedTypeOccurrences`. */
+  readonly #qualifiedTypeOccurrences: Resolved.QualifiedTypeOccurrence[] = [];
+  /** `alias|kind:id` of each occurrence already recorded, for deduplication. */
+  readonly #qualifiedTypeOccurrenceKeys = new Set<string>();
   #lambdaDepth = 0;
   /** Written-hole identities; see `Resolved.HoleTypeAnnotation.id`. */
   #nextHole = 0;
@@ -1555,7 +1557,7 @@ class Resolver {
       // source-written import took an entry over (§2.4), and the import items
       // are only all resolved by now.
       preludeTypeImports: this.#preludeTypeImports.map((entry) => ({ ...entry })),
-      qualifiedModuleAliases: [...this.#qualifiedModuleAliases],
+      qualifiedTypeOccurrences: [...this.#qualifiedTypeOccurrences],
       visibleConstraints: [...this.#visibleConstraints.values()],
       visibleExceptions: [...this.#visibleExceptions.values()],
       externTypes: this.#externTypes,
@@ -4058,14 +4060,23 @@ class Resolver {
       // Only a **source-written** `import module` qualifies: `#namedModule` also
       // answers for a prelude companion (§6.4's qualified home), which carries no
       // import line at all and whose identity reaches rung 4 instead.
-      const qualifier = this.#qualifierOf(annotation.qualifier.text, name);
+      const alias_ = annotation.qualifier.text;
+      const qualify = (
+        identity: Resolved.QualifiedTypeOccurrence,
+      ): Resolved.TypeQualifier | undefined => this.#qualifierOf(alias_, name, identity);
       const union = imported.unions.get(name);
       if (union !== undefined) {
-        return this.#resolvedNominalType("union", union, name, arguments_, annotation.span, qualifier);
+        return this.#resolvedNominalType(
+          "union", union, name, arguments_, annotation.span,
+          qualify({ alias: alias_, union: union.id }),
+        );
       }
       const record = imported.records.get(name);
       if (record !== undefined) {
-        return this.#resolvedNominalType("record", record, name, arguments_, annotation.span, qualifier);
+        return this.#resolvedNominalType(
+          "record", record, name, arguments_, annotation.span,
+          qualify({ alias: alias_, record: record.id }),
+        );
       }
       const alias = imported.aliases.get(name);
       // A type alias has no identity of its own — a face carries its expansion
@@ -4082,6 +4093,7 @@ class Resolver {
             primary: annotation.span,
           });
         }
+        const qualifier = qualify({ alias: alias_, externType: externType.externType });
         return {
           kind: "ExternType",
           externType: externType.externType,
@@ -4470,14 +4482,26 @@ class Resolver {
    * FFI Part 7 §2.4 rung 3's record of one qualified occurrence, or `undefined`
    * where the qualifier is not a source-written namespace import's.
    *
-   * The alias joins `Module.qualifiedModuleAliases` here, which is what keeps
-   * the declaration file's collision universe a pre-rendering quantity: the
-   * question the universe asks is whether *some* occurrence qualifies through
-   * the alias, and that is settled the moment the occurrence resolves.
+   * The occurrence joins `Module.qualifiedTypeOccurrences` here — alias *and*
+   * identity — which is what keeps the declaration file's collision universe a
+   * pre-rendering quantity. The universe's question is which aliases some
+   * occurrence is answered at rung 3 through, and every take-over that can
+   * decide it against this seat (§2.3's pins, rung 1, rung 2) is keyed on the
+   * identity, so both halves have to travel.
    */
-  #qualifierOf(alias: string, member: string): Resolved.TypeQualifier | undefined {
+  #qualifierOf(
+    alias: string,
+    member: string,
+    identity: Resolved.QualifiedTypeOccurrence,
+  ): Resolved.TypeQualifier | undefined {
     if (!this.#moduleAliases.has(alias)) return undefined;
-    if (!this.#qualifiedModuleAliases.includes(alias)) this.#qualifiedModuleAliases.push(alias);
+    const key = `${alias}|${
+      identity.union ?? identity.record ?? identity.externType
+    }|${identity.union !== undefined ? "u" : identity.record !== undefined ? "r" : "x"}`;
+    if (!this.#qualifiedTypeOccurrenceKeys.has(key)) {
+      this.#qualifiedTypeOccurrenceKeys.add(key);
+      this.#qualifiedTypeOccurrences.push(identity);
+    }
     return { module: this.#moduleFileId, alias, member };
   }
 

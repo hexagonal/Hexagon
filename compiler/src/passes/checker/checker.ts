@@ -2289,7 +2289,7 @@ class Checker {
       preludeUnions: module.preludeUnions,
       preludeInstances: module.preludeInstances,
       preludeTypeImports: module.preludeTypeImports,
-      qualifiedModuleAliases: module.qualifiedModuleAliases,
+      qualifiedTypeOccurrences: module.qualifiedTypeOccurrences,
       visibleExceptions: module.visibleExceptions.map((declaration) =>
         this.#materializeException(declaration)
       ),
