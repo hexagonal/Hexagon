@@ -198,20 +198,6 @@ export interface TypeQualifier {
   readonly member: string;
 }
 
-/**
- * One namespace-qualified type occurrence, for `Module.qualifiedTypeOccurrences`.
- *
- * Exactly one of the three identity fields is set. A qualified *type alias* has
- * no entry: it has no identity, because a face carries its expansion and never
- * its name, and the expansion's own nominals carry whatever their writer wrote.
- */
-export interface QualifiedTypeOccurrence {
-  readonly alias: string;
-  readonly union?: UnionId;
-  readonly record?: RecordId;
-  readonly externType?: ExternTypeId;
-}
-
 export interface UnionTypeAnnotation {
   readonly kind: "Union";
   readonly union: UnionId;
@@ -454,43 +440,6 @@ export interface Module {
    * members before it, and `Bool.hex`'s is empty.
    */
   readonly preludeTypeImports: readonly PreludeTypeImport[];
-  /**
-   * Every **namespace-qualified type occurrence this module wrote** — the alias
-   * and the identity it named — in source order and deduplicated (FFI Part 7
-   * §2.4).
-   *
-   * The input to the one member of the declaration file's collision universe
-   * that is **not over-claimed**. Every other top-level identifier is counted
-   * whether or not it reaches the file, because re-deciding that in the probe
-   * would be a second copy of emission's conditions; an alias is different
-   * because its line is carried *only* where an answer is spelled through it,
-   * and an alias absent from the file contests nothing. Counting a gated alias
-   * would push a minted local aside for a name the reader cannot find — the
-   * companion-fallback module, whose alias line no face owes, would render its
-   * own bare face as `Shape1` against a `Shape` the file does not contain.
-   *
-   * The **identity** rides along because "some occurrence is qualified" is not
-   * the test: the test is that some occurrence is **answered at rung 3**, and
-   * three things take an occurrence over before that rung is reached. §2.3's
-   * pins settle before the sink is consulted at all, so a qualified `S.Seq(Int)`
-   * faces as `Iterable<number>` and owes `S` nothing; and rungs 1 and 2 outrank
-   * rung 3, so an identity this module declares or names through a named import
-   * is spelled that way at every seat, qualified ones included. Each is decided
-   * by identity, which is why the identity has to be here and not the alias
-   * alone.
-   *
-   * Recorded here rather than derived during rendering so the universe stays a
-   * **pre-rendering** quantity: every take-over above is settled before a single
-   * spelling is chosen, which is what lets the runtime alias and every minted
-   * local be probed once and early.
-   *
-   * A superset on the one axis every other member is a superset on — an
-   * occurrence in an unexported binding's signature, or inside a function body,
-   * is counted although it reaches no face. That errs the way over-claiming
-   * always errs here: the cost is a moved compiler-chosen spelling, never a
-   * `.d.ts` that fails to compile.
-   */
-  readonly qualifiedTypeOccurrences: readonly QualifiedTypeOccurrence[];
   /**
    * Every constraint declaration this module can see — its own and everything
    * its import graph reaches — deduplicated by identity. A wider set than the

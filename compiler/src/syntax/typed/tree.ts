@@ -305,11 +305,6 @@ export interface Module {
   /** Prelude-visible nominal types (#227, FFI Part 7 §2.4); see `Resolved.Module`. */
   readonly preludeTypeImports: readonly Resolved.PreludeTypeImport[];
   /**
-   * Every namespace-qualified type occurrence this module wrote (FFI Part 7
-   * §2.4); see `Resolved.Module.qualifiedTypeOccurrences`.
-   */
-  readonly qualifiedTypeOccurrences: readonly Resolved.QualifiedTypeOccurrence[];
-  /**
    * Exception declarations in scope here that this module did not write (#469);
    * see `Resolved.Module.visibleExceptions`. Carried past the checker because
    * emission needs it too: a catch arm's tag test is the `$hex`/`name` one only

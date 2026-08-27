@@ -40,7 +40,6 @@ export function elaborate(module: Typed.Module, source?: Source.File): Core.Modu
     preludeUnions: module.preludeUnions,
     preludeInstances: module.preludeInstances,
     preludeTypeImports: module.preludeTypeImports,
-    qualifiedTypeOccurrences: module.qualifiedTypeOccurrences,
     visibleExceptions: module.visibleExceptions,
     externTypes: module.externTypes,
     comments: module.comments,

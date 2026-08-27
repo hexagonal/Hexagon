@@ -2289,7 +2289,6 @@ class Checker {
       preludeUnions: module.preludeUnions,
       preludeInstances: module.preludeInstances,
       preludeTypeImports: module.preludeTypeImports,
-      qualifiedTypeOccurrences: module.qualifiedTypeOccurrences,
       visibleExceptions: module.visibleExceptions.map((declaration) =>
         this.#materializeException(declaration)
       ),
@@ -7687,6 +7686,27 @@ class Checker {
             : parameter
         ),
         result: this.#carryWrittenQualifiers(source.result, target.result),
+      };
+    }
+    // A **structural record** carries nominals in its fields like any other
+    // container, and it is the seat this graft exists for one step over:
+    // `let r: {p: Lib.Point}` published `{ p: Point }` beside an `f(v:
+    // {p: Lib.Point})` publishing `Lib.Point` — one file, two spellings of one
+    // identity, and a minted line no answer owed. Matched by field *name*, the
+    // row being unordered; a field the written type does not mention is left
+    // exactly as inference produced it.
+    if (source.kind === "Record" && target.kind === "Record") {
+      return {
+        ...target,
+        fields: new Map(
+          [...target.fields].map(([name, field]) => {
+            const written = source.fields.get(name);
+            return [
+              name,
+              written === undefined ? field : this.#carryWrittenQualifiers(written, field),
+            ] as const;
+          }),
+        ),
       };
     }
     if (source.kind === "Tuple" && target.kind === "Tuple") {

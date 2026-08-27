@@ -190,6 +190,33 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
+  test("a structural record's fields keep their written qualifiers", async () => {
+    const compiled = project([
+      [
+        "/lib.hex",
+        "export record Point = {x: Float, y: Float}\n" +
+          "export let origin: Point = Point({x = 0.0, y = 0.0})\n",
+      ],
+      [
+        "/main.hex",
+        'import module Lib from "./lib"\n' +
+          "export let r: {p: Lib.Point} = {p = Lib.origin}\n" +
+          "export fun f(v: {p: Lib.Point}): Int = 0\n",
+      ],
+    ]);
+
+    // The annotated-`let` seat one step over: a row carries nominals in its
+    // fields like any other container, and without the field walk one file
+    // spelled one identity two ways — `{ p: Point }` beside `{ p: Lib.Point }` —
+    // and owed a minted line for the half that lost its qualifier.
+    expect(declarations(compiled)).toBe(
+      'import type * as Lib from "./lib.js";\n' +
+        "export declare const r: { p: Lib.Point };\n" +
+        "export declare function f(v: { p: Lib.Point }): number;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
   test("a derived declaration inherits its scheme's qualifiers", async () => {
     // A record's constructor arrow, a union's constructor arrow and an
     // exception's payload are all *derived* from a written signature rather than
@@ -488,6 +515,66 @@ describe("where the alias is contested, the alias yields", () => {
   });
 });
 
+describe("the opaque brands are in every universe the file probes", () => {
+  // The brands are emitted — `declare const <Name>Brand: unique symbol` (§5) —
+  // and they used to be excluded from the collision universe on the ground that
+  // no compiler-chosen spelling could end in `Brand`. Rung 5 killed that ground:
+  // its candidate is a *foreign type's own name*, which can end in anything.
+  test("a minted local does not land on a brand", async () => {
+    const compiled = project([
+      ["/lib.hex", "export record PointBrand = {n: Int}\n"],
+      [
+        "/mid.hex",
+        'import { PointBrand } from "./lib"\nexport type W = PointBrand\n' +
+          "export fun one(): W = PointBrand({n = 1})\n",
+      ],
+      [
+        "/main.hex",
+        'import { one, W } from "./mid"\nopaque record Point = {x: Int}\n' +
+          "export fun mk(): Point = Point({x = 1})\nexport let w: W = one()\n",
+      ],
+    ]);
+
+    // Two probes over two sets is the hazard, and it bit here on a program with
+    // no Hexagon diagnostic at all: TS2440 plus TS2395 twice. The brand is
+    // settled first — it is derived from a declaration, so it is as much a
+    // property of the module — and the minted local moves around it.
+    expect(declarations(compiled)).toBe(
+      'import type { PointBrand as PointBrand1 } from "./lib.js";\n' +
+        "declare const PointBrand: unique symbol;\n" +
+        "export type Point = { readonly [PointBrand]: never };\n" +
+        "export declare function mk(): Point;\n" +
+        "export declare const w: PointBrand1;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("a namespace alias spelled like a brand yields to it", async () => {
+    const compiled = project([
+      ["/lib.hex", "export record Row = {n: Int}\n"],
+      [
+        "/main.hex",
+        'import module PointBrand from "./lib"\nopaque record Point = {x: Int}\n' +
+          "export fun mk(): Point = Point({x = 1})\n" +
+          "export fun row(r: PointBrand.Row): Int = r.n\n",
+      ],
+    ]);
+
+    // The other direction of the same omission: a brand is a contestant of the
+    // alias-yield plan too, and the alias is the one that steps aside — it is
+    // internal to the file, and the brand is what an exported face is written
+    // in terms of.
+    expect(declarations(compiled)).toBe(
+      'import type * as PointBrand_1 from "./lib.js";\n' +
+        "declare const PointBrand: unique symbol;\n" +
+        "export type Point = { readonly [PointBrand]: never };\n" +
+        "export declare function mk(): Point;\n" +
+        "export declare function row(r: PointBrand_1.Row): number;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+});
+
 describe("placement, and one probe for both minting rungs", () => {
   test("the runtime import, then rung 4's lines, then rung 5's, then the module's own", async () => {
     const compiled = project([
@@ -620,6 +707,51 @@ describe("what the sink is not asked", () => {
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
+  test("an unexported signature's qualifier reaches no face, so it counts for nothing", async () => {
+    const compiled = project([
+      ["/shape.hex", "export record Shape = {s: Int}\nexport let unit: Int = 1\n"],
+      [
+        "/main.hex",
+        'import module Shape from "./shape"\n' +
+          "let hidden(s: Shape.Shape): Int = s.s\n" +
+          "export fun width(s: Shape): Int = hidden(s) + Shape.unit\n",
+      ],
+    ]);
+
+    // The alias counts exactly where the file carries its line, and an
+    // unexported binding's signature publishes nothing — so the qualified dot
+    // above spells nothing in the `.d.ts`, the alias's line is not written, and
+    // the minted local for the exported bare face keeps `Shape`. Counting the
+    // written dot would render `Shape1` against a `Shape` the file does not
+    // contain.
+    expect(declarations(compiled)).toBe(
+      'import type { Shape } from "./shape.js";\n' +
+        "export declare function width(s: Shape): number;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("a qualifier written inside a body reaches no face either", async () => {
+    const compiled = project([
+      ["/shape.hex", "export record Shape = {s: Int}\nexport let unit: Int = 1\n"],
+      [
+        "/main.hex",
+        'import module Shape from "./shape"\n' +
+          "export fun width(s: Shape): Int =\n" +
+          "    let inner: Shape.Shape = s\n" +
+          "    inner.s + Shape.unit\n",
+      ],
+    ]);
+
+    // The same rule one seat further in: a type written inside a body is not a
+    // face, however it is spelled.
+    expect(declarations(compiled)).toBe(
+      'import type { Shape } from "./shape.js";\n' +
+        "export declare function width(s: Shape): number;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
   test("a prelude identity the source qualified is rung 3's, not rung 4's", async () => {
     const compiled = project([[
       "/main.hex",
@@ -664,6 +796,36 @@ describe("a module whose whole `.d.ts` was one dead line", () => {
       'import { Point } from "./lib.js";',
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+});
+
+describe("rung 5 mints only what its home module exports", () => {
+  test("a private nominal in an exported face gets no import (#621's fence)", async () => {
+    const compiled = project([
+      [
+        "/lib.hex",
+        "record Hidden = {n: Int}\nexport record Box = {h: Hidden}\nexport type Exposed = Hidden\n",
+      ],
+      [
+        "/main.hex",
+        'import { Box, Exposed } from "./lib"\nexport fun peek(b: Box): Exposed = b.h\n',
+      ],
+    ]);
+
+    // The checker's boundary rule is per *binding*, so a record field carries a
+    // module-private nominal into an exported face with no diagnostic — §2.4
+    // fences that to #621, and it reaches a *consumer* through the alias whose
+    // expansion the face carries. Rung 5 must decline rather than mint: the home
+    // module does not export the name, so `import type { Hidden }` would bind
+    // nothing, which is a worse failure than the TS2304 the fence already owns.
+    expect(declarations(compiled)).toBe(
+      'import type { Box } from "./lib.js";\n' +
+        "export declare function peek(b: Box): Hidden;\n",
+    );
+    expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual([]);
+    // The fenced failure, unchanged and named so a repair of #621 has to move it.
+    expect((await typeScriptErrors(declarationSet(compiled))).join("\n"))
+      .toContain("main.d.ts(2,39): error TS2304: Cannot find name 'Hidden'.");
   });
 });
 
