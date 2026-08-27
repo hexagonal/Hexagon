@@ -1029,6 +1029,69 @@ describe("the written signature is the face's spelling, at every published seat"
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
+  test("an extern type follows the same rule, at both seats", async () => {
+    const host: readonly [string, string] = [
+      "/host.hex",
+      'extern from "./host.js"\n    export type Handle\n    export fun make(): Handle\n',
+    ];
+    const aliases = 'import module Handle from "./host"\nimport module B from "./host"\n';
+
+    // The family's sixth row. An extern type is a nominal like the other two and
+    // takes the same seat, so the rule has to hold on its arm as well: the
+    // exported seats below are written bare — reached by Modules §5.1 rule 2's
+    // companion fallback, the alias being spelled `Handle` — while the bodies
+    // reach for `B.Handle`. A fill would publish the body's qualifier and carry
+    // `B`'s line; a replace publishes bare and mints.
+    const returned = project([
+      host,
+      [
+        "/main.hex",
+        aliases + "export fun h(): Handle =\n    let inner: B.Handle = B.make!()\n    inner\n",
+      ],
+    ]);
+    expect(declarations(returned)).toBe(
+      'import type { Handle } from "./host.js";\n' +
+        "/** Hexagon: `() ->! Handle.Handle` */\n" +
+        "export declare function h(): Handle;\n",
+    );
+
+    const bound = project([
+      host,
+      [
+        "/main.hex",
+        aliases + "let helper(): B.Handle = B.make!()\nexport let h: Handle = helper!()\n",
+      ],
+    ]);
+    expect(declarations(bound)).toBe(
+      'import type { Handle } from "./host.js";\n' + "export declare const h: Handle;\n",
+    );
+
+    // The `Hexagon:` doc line above says `Handle.Handle` and the TypeScript face
+    // says `Handle`. That is not a disagreement to fix: §2.4's Scope puts the
+    // generated Hexagon-side face documentation outside this section — it is a
+    // second renderer, spelling Hexagon types for a Hexagon reader — and pinning
+    // the divergence here is what keeps it from being repaired by accident.
+    expect(await typeScriptErrors(declarationSet(returned))).toEqual([]);
+    expect(await typeScriptErrors(declarationSet(bound))).toEqual([]);
+  });
+
+  test("an extern type's written qualifier survives, the control", async () => {
+    const compiled = project([
+      [
+        "/host.hex",
+        'extern from "./host.js"\n    export type Handle\n    export fun make(): Handle\n',
+      ],
+      ["/main.hex", 'import module A from "./host"\nexport fun h(): A.Handle = A.make!()\n'],
+    ]);
+
+    expect(declarations(compiled)).toBe(
+      'import type * as A from "./host.js";\n' +
+        "/** Hexagon: `() ->! A.Handle` */\n" +
+        "export declare function h(): A.Handle;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
   test("a written qualified seat keeps its qualifier, helper or no helper", async () => {
     const compiled = project([
       ...ROWS,

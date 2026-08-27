@@ -1735,13 +1735,22 @@ function renderedFaceTypes(
         // here for the reason the whole function exists: a face this file does
         // not publish spells nothing in it.
         //
-        // The lambda test is **unreachable behind the editions test**, in `emit`
-        // as much as here: `planItem` returns no editions for a `Let` whose value
-        // is not a lambda, so the first condition already excludes every input
-        // the second would. It is kept because this function's contract is to
-        // read arm for arm against `emit`, and a mirror that quietly drops a
-        // condition is a mirror a reader can no longer check — but no test pins
-        // it, and none can.
+        // The lambda test is **unreachable, for two separate reasons**, in
+        // `emit` as much as here — and both are worth naming, because a change
+        // that retires one leaves the other standing:
+        //
+        // - For a `Let` it is short-circuited: `planItem` returns no editions
+        //   for one whose value is not a lambda, so the editions test above
+        //   already excludes every input this one would.
+        // - For a `Fun` it is **statically vacuous**: `Core.FunItem.value` is
+        //   typed `LambdaExpr`, so there is no non-lambda to exclude. Widen that
+        //   field to `Expr` and this test becomes load-bearing at once, with
+        //   nothing but this note to say so.
+        //
+        // It is kept because this function's contract is to read arm for arm
+        // against `emit`, and a mirror that quietly drops a condition is a
+        // mirror a reader can no longer check — but no test pins it, and while
+        // both reasons hold, none can.
         if (item.binding.scheme.constraints.length > 0) {
           const editions = specializations.filter(
             ({ sourceSymbol }) => sourceSymbol === item.binding.symbol,
