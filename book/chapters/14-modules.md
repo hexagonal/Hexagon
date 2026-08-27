@@ -306,8 +306,9 @@ record Token = {text: String}
 export record Cursor = {at: Int, token: Token} // error, at the field
 ```
 
-The compiler points at the mention itself — here the `token` field — and the remedy
-is the same pair: export `Token`, perhaps opaquely, or keep `Cursor` private.
+The compiler points at the mention itself — here the `token` field — and a second
+marker on `Token`'s own declaration shows where the missing `export` would go. The
+remedy is the same pair: export `Token`, perhaps opaquely, or keep `Cursor` private.
 
 A private type alias is different. Since an alias is only another name for its
 expansion, the public signature may expose the underlying type instead of leaking the
