@@ -11079,11 +11079,19 @@ class Checker {
     );
     // Each private nominal the walk finds, by name, against the span of the
     // declaration keeping it private — where §4.3's secondary label points, which
-    // is also exactly where the one-keyword fix goes. The span is `undefined`
-    // only where no declaration is in reach: the extern arm flags an identity
-    // *absent* from the table as well as one the table calls private, and only
-    // the second has a span to name. A private type is by construction declared
-    // in this module, so the label rides every diagnostic a program can draw.
+    // is also exactly where the one-keyword fix goes.
+    //
+    // The span is `undefined` in exactly one shape, and the diagnostic then
+    // ships without its label: the **extern** arm flags any identity absent from
+    // this module's own `#externTypes`, having no locality component of its own,
+    // so a consumer reaching another module's private extern type through that
+    // module's exported alias refuses here with no declaration in reach — and
+    // the right answer is to withhold the label rather than point across files
+    // (§4.2.1: the label is in the file the reader is looking at). A record or
+    // union always has a span, because that branch fires only on a declaration
+    // the table holds. The gap, and whether the consumer-side refusal should
+    // exist at all, is #629's; §4.3's every-diagnostic-carries-a-label sentence
+    // holds for every other route.
     type Mentions = Map<string, Source.Span | undefined>;
     const visit = (type: Mono, found: Mentions = new Map()): ReadonlyMap<string, Source.Span | undefined> => {
       const actual = this.#prune(type);

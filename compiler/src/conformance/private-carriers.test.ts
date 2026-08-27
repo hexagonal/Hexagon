@@ -215,6 +215,40 @@ describe("the seat is the offending mention's, and the label the declaration's",
     const drawn = lone(source);
     expect(at(source, drawn.labels![0]!.span)).toBe("type Hidden");
   });
+
+  test("the one shape with no declaration in reach ships without the label (#629)", () => {
+    // The extern arm of the walk has no locality component — it flags any
+    // identity absent from the module's own extern-type table, unlike records
+    // and unions, whose `representationVisible` is stamped false on every
+    // imported copy. So a *consumer* reaching another module's private extern
+    // type through that module's exported alias refuses here, with no
+    // declaration span in reach and therefore no label: pointing across files
+    // would break §4.2.1's convention that the label is in the file the reader
+    // is looking at, so withholding it is the right answer to the wrong
+    // question. The refusal is pre-existing (the same report is drawn on the
+    // exported-binding route) and misaddressed — its remedy, "export the type",
+    // is one `main` cannot perform. #629 owns both halves; a repair there has to
+    // move this test.
+    const compiled = project({
+      "/src/lib.hex": 'extern from "./lib.js"\n    type Hidden\n' +
+        "export type Exposed = Hidden\n",
+      "/src/main.hex": 'import { Exposed } from "./lib"\n' +
+        "export record Wrap = {h: Exposed}\n",
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      // `lib`'s own alias is a carrier too, so the home diagnosis exists and
+      // carries its label; the consumer's is a second report of that defect.
+      "exported type alias `Exposed` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the alias private",
+      "exported record `Wrap` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the record private",
+    ]);
+    const [home, consumer] = compiled.diagnostics;
+    expect(home!.labels?.map(({ message }) => message)).toEqual([
+      "`Hidden` is declared private here",
+    ]);
+    expect(consumer!.labels ?? []).toEqual([]);
+  });
 });
 
 describe("a private alias launders nothing, and is never the fault", () => {
