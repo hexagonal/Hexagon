@@ -527,7 +527,7 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
-      if (!this.#at("Let") && !this.#at("Fun") && !this.#at("Type") && !this.#atUnionHead() && !this.#at("Record") && !this.#at("Exception") && !this.#at("Constraint")) {
+      if (!opensVisibleDeclaration.has(this.#current().kind) && !this.#atUnionHead()) {
         this.#errorAt(
           exportToken.span,
           "`export` must be followed by a declaration",
@@ -559,7 +559,16 @@ class Parser {
       }
       const opaque = this.#atOpaqueSubject();
       if (!opaque) this.#refuseOpaqueSubject(opaqueToken.span);
-      return this.#parseVisibleDeclaration(opaqueToken.span, opaque);
+      // A refused slot value recovers to the slot's **neutral** value, not to
+      // its other written one: the word did not apply, so nothing was claimed,
+      // and the only fix — dropping `opaque` — leaves a private declaration.
+      // Recovering as exported would invent a crossing the author never wrote,
+      // and the invention is not inert: the phantom export draws the
+      // signature-completeness errors an export owes, whose advice is false the
+      // moment the real repair is applied, and resolves from an importing
+      // module. The `export` head above keeps the default, because there the
+      // crossing *is* written and only `opaque` is refused.
+      return this.#parseVisibleDeclaration(opaqueToken.span, opaque, opaque);
     }
     if (this.#at("Type")) {
       if (!moduleItems) {
@@ -649,23 +658,31 @@ class Parser {
    *
    * `export` and `opaque` are two values of the same slot, not a keyword and a
    * modifier, so the declaration below them is the same grammar either way and
-   * is parsed in one place. Only what the head *claims* differs, and that is
-   * already settled by the time this is called: `exported` is true for both —
-   * `opaque` crosses the type name (§4.2) — and `opaque` says whether the
-   * representation stays home.
+   * is parsed in one place. Only what the head *claims* differs, and both claims
+   * are settled by the time this is called: whether the thing crosses, and
+   * whether its representation stays home.
+   *
+   * `exported` defaults to true because that is what both *written* heads claim
+   * — `opaque` crosses the type name (§4.2), which is the whole of #590 — and it
+   * is a parameter rather than a constant because a **refused** head claims
+   * neither, and recovery must not put a word in the author's mouth.
    *
    * The caller has checked that a declaration is actually here; the trailing
    * `Fun` is the last of the seven and needs no test of its own.
    */
-  #parseVisibleDeclaration(itemStart: Source.Span, opaque: boolean): Parsed.Item {
-    if (this.#at("Constraint")) return this.#parseConstraint(true, itemStart);
-    if (this.#at("Type")) return this.#parseTypeAlias(true, itemStart);
-    if (this.#atUnionHead()) return this.#parseUnion(true, itemStart, opaque);
-    if (this.#at("Record")) return this.#parseRecordDeclaration(true, itemStart, opaque);
-    if (this.#at("Exception")) return this.#parseException(true, itemStart);
+  #parseVisibleDeclaration(
+    itemStart: Source.Span,
+    opaque: boolean,
+    exported = true,
+  ): Parsed.Item {
+    if (this.#at("Constraint")) return this.#parseConstraint(exported, itemStart);
+    if (this.#at("Type")) return this.#parseTypeAlias(exported, itemStart);
+    if (this.#atUnionHead()) return this.#parseUnion(exported, itemStart, opaque);
+    if (this.#at("Record")) return this.#parseRecordDeclaration(exported, itemStart, opaque);
+    if (this.#at("Exception")) return this.#parseException(exported, itemStart);
     return this.#at("Let")
-      ? this.#parseBinding("Let", true, itemStart)
-      : this.#parseBinding("Fun", true, itemStart);
+      ? this.#parseBinding("Let", exported, itemStart)
+      : this.#parseBinding("Fun", exported, itemStart);
   }
 
   /** Whether a lawful subject for `opaque` — a `record` or a `union` — is here. */
@@ -682,8 +699,17 @@ class Parser {
    * The rewrite is therefore mechanical and required, and it is the `import * as`
    * division of labour again: the message shows the spec's exemplar — chosen by
    * the introducer the author actually wrote, so a union head is told to write a
-   * union — while the fix-it edits the author's own two words down to one,
+   * union — while the fix-it edits the author's own two head words down to one,
    * leaving name, parameters and body exactly as typed.
+   *
+   * The edit spans the pair *and the gap between them*, which is what `* as`
+   * does and is why the two spellings read alike. The gap is whitespace in every
+   * line anyone writes, but it is not whitespace by construction: a comment may
+   * stand there — `export (* why *) opaque record` — and applying the fix would
+   * take it with the word. Narrowing to two edits would keep it, at the cost of
+   * spending trivia spans this pass does not otherwise carry, on an input no
+   * corpus has produced. Recorded rather than repaired, so the trade is visible
+   * if one ever does.
    *
    * Reporting does not stop the parse. The declaration below is read as the
    * `opaque` head it was meant to be, so one stale spelling costs one diagnostic
@@ -1485,18 +1511,21 @@ class Parser {
    *
    * `opaque` used to be read in one seat only, immediately after `export`, where
    * nothing else could stand. #590 gave it the head's visibility slot on its own,
-   * so it now needs the same one-token test `union` and `widens` use, and for the
-   * same reason: Hexagon has no juxtaposition, so a term named `opaque` is
-   * followed by `(`, an operator, a newline, or nothing — never by a declaration
-   * keyword. `let opaque = 3` binds, and `opaque` stays spellable everywhere a
-   * name may stand.
+   * so it now needs a lookahead test, and it rests on `union`'s and `widens`'
+   * argument: Hexagon has no juxtaposition, so a term named `opaque` is followed
+   * by `(`, an operator, a newline, or nothing — never by a declaration keyword.
+   * `let opaque = 3` binds, and `opaque` stays spellable everywhere a name may
+   * stand.
    *
-   * **Recognition covers the refused seats too**, deliberately. `type`, `let`,
-   * `fun`, `constraint` and `exception` are not lawful subjects (§4.2), but a
-   * head that fails to recognize them cannot redirect them: `opaque type Name =
-   * String` would fall out of the item grammar and be answered by whatever the
-   * expression parser made of two adjacent words. Admitting them here is what
-   * lets §10's redirect rows fire at the word the author wrote.
+   * The **net is wider than either sibling's**, in two ways. It reaches a second
+   * token where the follower is `union`, since that word is itself contextual and
+   * carries its own head test. And it covers the *refused* subjects — `type`,
+   * `let`, `fun`, `constraint`, `exception` — which are not lawful (§4.2) but
+   * must still be recognized, because a head that stopped at `record`/`union`
+   * could not redirect them: `opaque type Name = String` would fall out of the
+   * item grammar and be answered by whatever the expression parser made of two
+   * adjacent words. Admitting them here is what lets §10's redirect rows fire at
+   * the word the author wrote.
    */
   #atOpaqueHead(): boolean {
     if (!this.#atContextual("opaque")) return false;

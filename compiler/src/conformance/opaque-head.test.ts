@@ -166,11 +166,18 @@ describe("`export opaque` is refused with the required rewrite (§4.2, §10)", (
   });
 
   test("the refusal carries a fix-it that writes the bare head", () => {
-    const [diagnostic] = compileFiles([
-      ["/main.hex", "export opaque record Point = {x: Float, y: Float}\n"],
-    ]).diagnostics;
+    // Asserted by *applying* it: an edit count proves nothing about an edit,
+    // and the claim being made is that the repair produces the spelling the
+    // message asked for and touches nothing else on the line.
+    const source = "export opaque record Point = {x: Float, y: Float}\n";
+    const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
     expect(diagnostic?.fixes).toMatchObject([{ message: "write `opaque`" }]);
-    expect(diagnostic?.fixes?.[0]?.edits).toHaveLength(1);
+    const edits = diagnostic?.fixes?.[0]?.edits ?? [];
+    expect(edits).toHaveLength(1);
+    const { span, replacement } = edits[0]!;
+    expect(
+      source.slice(0, span.start.offset) + replacement + source.slice(span.end.offset),
+    ).toBe("opaque record Point = {x: Float, y: Float}\n");
   });
 });
 
@@ -191,6 +198,42 @@ describe("`opaque` on a subject it does not apply to (§10)", () => {
       "opaque constraint Hidden<a> =\n    peek(subject: a): Int\n",
     )).toContain(applies);
     expect(projectDiagnostics("opaque exception Torn(reason: String)\n")).toContain(applies);
+  });
+
+  /**
+   * What recovery may and may not assume, and the two heads part company here.
+   *
+   * A refused word claims nothing, so the bare head recovers to the slot's
+   * **neutral** value — private — which is exactly what the only available fix
+   * produces. Recovering as exported would invent a crossing the author never
+   * wrote, and the invention is not inert: an export owes a complete signature,
+   * so the phantom draws a second diagnostic whose advice is *false* once the
+   * real repair is applied, and the name resolves from an importing module.
+   *
+   * The pair is the control. There `export` is written and only `opaque` is
+   * refused, so the crossing stands and the signature error below it is the
+   * author's own to answer — which is why an equality assertion is the right
+   * one on both sides: the count is the claim.
+   */
+  test("a redirected subject is not exported by the word that was refused", () => {
+    const applies = "`opaque` applies to `record` and `union` declarations";
+    expect(projectDiagnostics("opaque let width = 3\n")).toEqual([applies]);
+    expect(projectDiagnostics("opaque fun width(n: Int) = n * 2\n")).toEqual([applies]);
+    expect(projectDiagnostics("export opaque let width = 3\n")).toEqual([
+      applies,
+      "exported value `width` requires a type annotation",
+    ]);
+  });
+
+  test("the phantom export is not reachable from another module", () => {
+    expect(messages([
+      ["/hidden.hex", "opaque let width = 3\n"],
+      ["/main.hex", 'import { width } from "./hidden"\nexport let n: Int = width\n'],
+    ])).toEqual([
+      "`opaque` applies to `record` and `union` declarations",
+      "module `./hidden` does not export `width`",
+      "unknown name `width`",
+    ]);
   });
 
   /**
