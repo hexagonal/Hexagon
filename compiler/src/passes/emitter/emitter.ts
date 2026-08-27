@@ -1555,6 +1555,38 @@ interface DeclarationFaces {
   readonly nominals: NominalFaces;
 }
 
+/**
+ * The brands this module's `.d.ts` really declares, out of the map's entries.
+ *
+ * `opaqueBrandNames` mints one for **every** extern type in an extern block,
+ * because the preview declares them all; `emit` writes the `declare const` only
+ * for an exported one. Feeding the map's whole range into the collision universe
+ * therefore claimed a name the declaration file does not contain — the same
+ * over-claim the gated-alias rule exists to prevent, one condition over — and a
+ * namespace alias spelled `HandleBrand` moved to `HandleBrand_1` for a brand
+ * nothing declared. The conditions here are `emit`'s own, arm for arm.
+ *
+ * `opaque` on a union or a record implies export, so those two arms cannot
+ * differ today; they test it anyway, because a rule read off a coincidence is
+ * one the next change to `opaque` silently breaks.
+ */
+function emittedBrandNames(
+  module: Core.Module,
+  brands: ReadonlyMap<string, string>,
+): readonly string[] {
+  return module.items.flatMap((item) => {
+    if ((item.kind === "Union" || item.kind === "RecordDeclaration") && item.opaque) {
+      return item.exported ? [brands.get(item.name)!] : [];
+    }
+    if (item.kind !== "ExternBlock") return [];
+    return item.declarations.flatMap((declaration) =>
+      declaration.kind === "ExternType" && declaration.exported
+        ? [brands.get(declaration.localName)!]
+        : []
+    );
+  });
+}
+
 /** The inert sink the preview holds; see `DeclarationFaces.nominals`. */
 function bareNominalFaces(fileId: Source.FileId): NominalFaces {
   return new NominalFaces({
@@ -1645,14 +1677,20 @@ function importNameIdentity(name: Resolved.ImportName): string | undefined {
  * opaque exported type contributes nothing — its face is §5's brand, and its
  * fields and payloads are not published.
  *
- * It is a copy of `emit`'s conditions, which §2.4 warns against in general and
- * requires here: the alias set has to be **exact**, and it is the one quantity
- * where an over-approximation costs more than a moved spelling. Kept arm for arm
- * beside `emit`'s so the two can be read against each other, and err *inclusive*
- * where they might drift — a type left out makes rung 3 decline a face it owns,
- * while one left in only moves a compiler-chosen local.
+ * What this must not become is a second, drifting copy of the conditions under
+ * which a face is rendered — §2.4 says so — and where the two could disagree it
+ * **errs narrow**. The asymmetry runs the opposite way to every other probe in
+ * this file: a face this walk misses costs a qualified *spelling* and nothing
+ * else, rung 5 minting a face that stays bound, correct and findable, while one
+ * it invents moves a minted local aside for a name the file does not contain —
+ * the failure the whole criterion exists to prevent. Every arm below is pinned
+ * by a conformance test that fails if it drifts either way, because a
+ * hand-maintained copy is exactly where the next drift lands.
  */
-function renderedFaceTypes(module: Core.Module): readonly Typed.Type[] {
+function renderedFaceTypes(
+  module: Core.Module,
+  specializations: readonly FundamentalSpecialization[],
+): readonly Typed.Type[] {
   const types: Typed.Type[] = [];
   for (const item of module.items) {
     switch (item.kind) {
@@ -1688,12 +1726,34 @@ function renderedFaceTypes(module: Core.Module): readonly Typed.Type[] {
         for (const slot of item.slots) types.push(slot.type);
         continue;
       case "Let":
-      case "Fun":
-        // A constrained export renders one face per specialization, and each is
-        // a *substitution* of this scheme — every nominal in one is this
-        // scheme's, so the scheme covers them all.
-        if (item.exported) types.push(item.binding.scheme.type);
+      case "Fun": {
+        if (!item.exported) continue;
+        // A constrained export renders one face per **fundamental
+        // specialization**, and `emit` writes none where the plan produced none
+        // — a constraint of the user's own admits no editions (Part 8 §3.2) — or
+        // where the value is not a lambda. Both conditions are `emit`'s, mirrored
+        // here for the reason the whole function exists: a face this file does
+        // not publish spells nothing in it.
+        //
+        // The lambda test is **unreachable behind the editions test**, in `emit`
+        // as much as here: `planItem` returns no editions for a `Let` whose value
+        // is not a lambda, so the first condition already excludes every input
+        // the second would. It is kept because this function's contract is to
+        // read arm for arm against `emit`, and a mirror that quietly drops a
+        // condition is a mirror a reader can no longer check — but no test pins
+        // it, and none can.
+        if (item.binding.scheme.constraints.length > 0) {
+          const editions = specializations.filter(
+            ({ sourceSymbol }) => sourceSymbol === item.binding.symbol,
+          );
+          if (editions.length === 0 || item.value.kind !== "Lambda") continue;
+        }
+        // The scheme, not the editions: each edition is a *substitution* of it,
+        // and substitution replaces variables, so every qualified nominal in an
+        // edition is one of this scheme's and no edition adds one.
+        types.push(item.binding.scheme.type);
         continue;
+      }
       default:
         continue;
     }
@@ -1797,9 +1857,12 @@ function qualifyingAliases(
   prelude: PreludeIds,
   own: ReadonlyMap<string, string>,
   imported: ReadonlyMap<string, string>,
+  specializations: readonly FundamentalSpecialization[],
 ): readonly string[] {
   const occurrences: FaceQualifier[] = [];
-  for (const type of renderedFaceTypes(module)) faceQualifiers(type, occurrences);
+  for (const type of renderedFaceTypes(module, specializations)) {
+    faceQualifiers(type, occurrences);
+  }
   const pinned = new Set([
     ...(prelude.bool === undefined ? [] : [nominalHomeKey("union", Number(prelude.bool))]),
     ...(prelude.seq === undefined ? [] : [nominalHomeKey("record", Number(prelude.seq))]),
@@ -7788,6 +7851,11 @@ class DeclarationEmitter {
   constructor(module: Core.Module, options: DeclarationEmissionOptions) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
+    // Hoisted above the alias set because that set has to know which constrained
+    // exports render a face at all, and this is what decides it. A pure function
+    // of the module, so it settles here as readily as at the end.
+    const plan = planFundamentalSpecializations(module);
+    this.#specializations = plan.specializations;
     // Every spelling below is settled **before** a single face is rendered, and
     // that is what §2.4's rung order rests on: the probe's universe is a property
     // of the module, so `reference` can return finished text and nothing has to
@@ -7797,7 +7865,7 @@ class DeclarationEmitter {
     const own = declaredNominals(module);
     const imported = importedNominals(module);
     const prelude = preludeIds(module);
-    const aliases = qualifyingAliases(module, prelude, own, imported);
+    const aliases = qualifyingAliases(module, prelude, own, imported, plan.specializations);
     // **The brands are settled first and then contest everything after them.**
     // A brand is derived from a declared name, so it is as much a property of
     // the module as the declaration is — but it is emitted, `declare const
@@ -7807,7 +7875,7 @@ class DeclarationEmitter {
     // candidate is a *foreign type's own name*, which can end in anything. A
     // foreign `PointBrand` minted beside an `opaque record Point` collided
     // silently — TS2440 and two TS2395s on a program with no Hexagon diagnostic.
-    const brands = [...this.#opaqueBrands.values()];
+    const brands = emittedBrandNames(module, this.#opaqueBrands);
     const aliasLocals = declarationAliasPlan(
       aliases,
       new Set([...declarationTopLevelNames(module, []), ...brands]),
@@ -7847,8 +7915,6 @@ class DeclarationEmitter {
     this.#runtimeSpecifier = options.runtimeSpecifier ?? DEFAULT_RUNTIME_SPECIFIER;
     this.#docs = new DocIndex(module.docs);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
-    const plan = planFundamentalSpecializations(module);
-    this.#specializations = plan.specializations;
     addSpecializationCollisionDiagnostics(this.#diagnostics, module, plan.collisions);
   }
 

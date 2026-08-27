@@ -276,6 +276,44 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
+  test("a travelling qualifier does not count the importer's alias either", async () => {
+    // The sibling of the test above, one seat over: the *universe* has its own
+    // writing-module test, and it is what keeps a qualifier `/mid.hex` wrote
+    // from spending the name `Lib` in `/main.hex`. Main binds `Lib` for a term
+    // only, so its line is not carried, so a minted local spelled `Lib` must
+    // keep that spelling.
+    const compiled = project([
+      ["/lib.hex", "export record Point = {x: Int}\n"],
+      ["/lib2.hex", "export record Lib = {n: Int}\n"],
+      ["/other.hex", "export let one: Int = 1\n"],
+      [
+        "/mid.hex",
+        'import module Lib from "./lib"\nexport type Carried = Lib.Point\n' +
+          "export fun pass(p: Carried): Carried = p\n",
+      ],
+      [
+        "/mid2.hex",
+        'import { Lib } from "./lib2"\nexport type W = Lib\nexport fun two(): W = Lib({n = 1})\n',
+      ],
+      [
+        "/main.hex",
+        'import module Lib from "./other"\nimport { pass, Carried } from "./mid"\n' +
+          'import { two, W } from "./mid2"\n' +
+          "export fun here(p: Carried): Carried = pass(p)\n" +
+          "export let w: W = two()\nexport let n: Int = Lib.one\n",
+      ],
+    ]);
+
+    expect(declarations(compiled)).toBe(
+      'import type { Point } from "./lib.js";\n' +
+        'import type { Lib } from "./lib2.js";\n' +
+        "export declare function here(p: Point): Point;\n" +
+        "export declare const w: Lib;\n" +
+        "export declare const n: number;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
   test("two aliases onto one module each spell their own seats", async () => {
     // Neither alias is *the* alias for the identity, which is why the rung reads
     // the occurrence: keyed on the identity, one of them would spell both seats.
@@ -545,6 +583,29 @@ describe("the opaque brands are in every universe the file probes", () => {
         "export type Point = { readonly [PointBrand]: never };\n" +
         "export declare function mk(): Point;\n" +
         "export declare const w: PointBrand1;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("an unexported extern type's brand contests nothing", async () => {
+    const compiled = project([
+      ["/lib.hex", "export record Row = {n: Int}\n"],
+      [
+        "/main.hex",
+        'import module HandleBrand from "./lib"\nextern from "./host.js"\n' +
+          "    type Handle\n" +
+          "export fun row(r: HandleBrand.Row): Int = r.n\n",
+      ],
+    ]);
+
+    // `opaqueBrandNames` mints a brand for *every* extern type, the preview
+    // declaring them all; `emit` writes the `declare const` only for an exported
+    // one. Feeding the map's whole range to the universe claimed a name the file
+    // does not contain and moved the alias to `HandleBrand_1` for it — the same
+    // over-claim the gated-alias rule prevents, one condition over.
+    expect(declarations(compiled)).toBe(
+      'import type * as HandleBrand from "./lib.js";\n' +
+        "export declare function row(r: HandleBrand.Row): number;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -826,6 +887,340 @@ describe("rung 5 mints only what its home module exports", () => {
     // The fenced failure, unchanged and named so a repair of #621 has to move it.
     expect((await typeScriptErrors(declarationSet(compiled))).join("\n"))
       .toContain("main.d.ts(2,39): error TS2304: Cannot find name 'Hidden'.");
+  });
+});
+
+describe("rung 5 declines a private nominal on every arm of the guard", () => {
+  // The record arm is pinned above. Each of the three arms of `nominalHomes`'
+  // `exported` condition is its own line of code, and a private nominal reaches
+  // a *consumer's* face the same way on each: a record field carries it past the
+  // checker's per-binding boundary rule (#621's fence), and a type alias carries
+  // it across the module boundary. Minting there would import a name the home
+  // module does not export.
+  const CONSUMER = [
+    "/main.hex",
+    'import { Exposed } from "./lib"\nexport record Wrap = {h: Exposed}\n',
+  ] as const;
+  const FACE = "export type Wrap = { h: Hidden };\n" +
+    "export declare const Wrap: (record: { h: Hidden }) => Wrap;\n";
+
+  test("a private union", async () => {
+    const compiled = project([
+      [
+        "/lib.hex",
+        "union Hidden = A | B\nexport record Box = {h: Hidden}\nexport type Exposed = Hidden\n",
+      ],
+      CONSUMER,
+    ]);
+
+    expect(declarations(compiled)).toBe(FACE);
+    expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual([]);
+    expect((await typeScriptErrors(declarationSet(compiled))).join("\n"))
+      .toContain("main.d.ts(1,25): error TS2304: Cannot find name 'Hidden'.");
+  });
+
+  test("a private extern type", async () => {
+    const compiled = project([
+      [
+        "/lib.hex",
+        'extern from "./host.js"\n    type Hidden\n' +
+          "export record Box = {h: Hidden}\nexport type Exposed = Hidden\n",
+      ],
+      CONSUMER,
+    ]);
+
+    expect(declarations(compiled)).toBe(FACE);
+    expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual([]);
+  });
+});
+
+describe("the written signature is the face's spelling, at every published seat", () => {
+  // FFI Part 7 §14.3: a qualifier names a *binding*, so no pass that rewrites
+  // types preserves one, and at two seats the published node is the value's
+  // rather than the annotation's — an annotated `let`, which unifies two
+  // concrete nominal nodes and keeps neither's, and a function's **return**,
+  // which keeps its body's. At both the written qualifier **wins outright**: it
+  // replaces what the inferred node carries, because an inferred one is a body's
+  // or a private helper's internal spelling choice and publishing it would show
+  // the author a spelling written at a seat they cannot see.
+  //
+  // `/a.hex` and `/b.hex` export a record of the same name on purpose: the two
+  // spellings then name two different types, so a face that took the wrong one
+  // would still compile and only the text can tell.
+  const ROWS: readonly (readonly [string, string])[] = [
+    ["/a.hex", "export record Row = {n: Int}\nexport let mk: Row = Row({n = 1})\n"],
+    ["/b.hex", "export record Row = {s: Int}\nexport let mk: Row = Row({s = 2})\n"],
+  ];
+  const ONE = ["/row.hex", "export record Row = {n: Int}\nexport let mk: Row = Row({n = 1})\n"] as const;
+
+  test("a function's return annotation outranks its body", async () => {
+    const compiled = project([
+      ...ROWS,
+      [
+        "/main.hex",
+        'import module A from "./a"\nimport module B from "./b"\n' +
+          "export fun f(): A.Row =\n    let inner: B.Row = B.mk\n    A.mk\n",
+      ],
+    ]);
+
+    // `B`'s line is not carried at all: nothing this file publishes is spelled
+    // through it, the body being a seat the reader of the `.d.ts` cannot see.
+    expect(declarations(compiled)).toBe(
+      'import type * as A from "./a.js";\n' + "export declare function f(): A.Row;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("an annotated `let`'s annotation outranks its value", async () => {
+    const compiled = project([
+      ...ROWS,
+      [
+        "/main.hex",
+        'import module A from "./a"\nimport module B from "./b"\n' +
+          "let helper(): B.Row = B.mk\n" +
+          "export let r: A.Row = A.mk\nexport let unused: Int = helper().s\n",
+      ],
+    ]);
+
+    expect(declarations(compiled)).toBe(
+      'import type * as A from "./a.js";\n' +
+        "export declare const r: A.Row;\n" +
+        "export declare const unused: number;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("a bare written return wins **as bare** — replace, not fill", async () => {
+    const compiled = project([
+      ONE,
+      [
+        "/main.hex",
+        'import module Row from "./row"\n' +
+          "export fun f(): Row =\n    let inner: Row.Row = Row.mk\n    inner\n",
+      ],
+    ]);
+
+    // The row that makes replace-not-fill load-bearing. The seat is written bare
+    // — Modules §5.1 rule 2's companion fallback puts the member's own name in
+    // scope — and the *absence* of a qualifier is the author's spelling as much
+    // as a present one is. A fill would publish the body's `Row.Row`; a replace
+    // publishes bare `Row` and mints its import, and the alias's line is not
+    // owed by anything.
+    expect(declarations(compiled)).toBe(
+      'import type { Row } from "./row.js";\n' + "export declare function f(): Row;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("a private helper's spelling does not reach the face", async () => {
+    const compiled = project([
+      ONE,
+      [
+        "/main.hex",
+        'import module Row from "./row"\n' +
+          "let helper(r: Row.Row): Row.Row = r\nexport let h: (Row) -> Row = helper\n",
+      ],
+    ]);
+
+    expect(declarations(compiled)).toBe(
+      'import type { Row } from "./row.js";\n' +
+        "export declare const h: (arg0: Row) => Row;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("a written qualified seat keeps its qualifier, helper or no helper", async () => {
+    const compiled = project([
+      ...ROWS,
+      [
+        "/main.hex",
+        'import module A from "./a"\nimport module B from "./b"\n' +
+          "let helper(r: B.Row): B.Row = r\nexport let h: (B.Row) -> B.Row = helper\n" +
+          "export fun p(r: A.Row): Int = r.n\n",
+      ],
+    ]);
+
+    // The control for the four above: replacing is not erasing. A parameter list
+    // keeps its annotations by construction, and a written qualified seat
+    // publishes what it wrote.
+    expect(declarations(compiled)).toBe(
+      'import type * as A from "./a.js";\n' +
+        'import type * as B from "./b.js";\n' +
+        "export declare const h: (arg0: B.Row) => B.Row;\n" +
+        "export declare function p(r: A.Row): number;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+});
+
+describe("the face walk counts every arm `emit` renders, and no other", () => {
+  // `renderedFaceTypes` is a hand-maintained copy of `emit`'s conditions, which
+  // §2.4 warns against in general and requires here. Every arm is pinned, and
+  // pinned in the direction that matters: a face the walk *invents* moves a
+  // minted local aside for a name the file does not contain, which is the
+  // failure the criterion exists to prevent, while one it misses only costs a
+  // qualified spelling.
+  //
+  // The "must not count" specimens all mint a local spelled like the alias, so
+  // an invented face shows up as `S1` against an `S` the file does not carry.
+  const LIB = ["/lib.hex", "export record Point = {x: Int}\n"] as const;
+  const MINT: readonly (readonly [string, string])[] = [
+    ["/s.hex", "export record S = {n: Int}\n"],
+    [
+      "/mid.hex",
+      'import { S } from "./s"\nexport type W = S\nexport fun one(): W = S({n = 1})\n',
+    ],
+  ];
+  const HEAD = 'import module S from "./lib"\nimport { one, W } from "./mid"\n';
+  const TAIL = 'import type { S } from "./s.js";\n';
+
+  test("a constrained export with no fundamental editions renders no face", async () => {
+    const compiled = project([
+      LIB,
+      ...MINT,
+      [
+        "/main.hex",
+        "constraint Render<a> =\n    render(value: a): String\n" +
+          'honor Render<Int> =\n    render(value) = "i"\n' +
+          HEAD +
+          "export let describe<a: Render>(p: S.Point, value: a): String = render(value)\n" +
+          "export let w: W = one()\n",
+      ],
+    ]);
+
+    // A constraint of the user's own admits no editions (Part 8 §3.2), so `emit`
+    // writes nothing for `describe` — and its qualified parameter therefore
+    // spells nothing in the file. Testing `item.exported` alone counted it.
+    expect(declarations(compiled)).toBe(TAIL + "export declare const w: S;\n");
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("a constrained exported `let` whose value is not a lambda renders none either", async () => {
+    const compiled = project([
+      LIB,
+      ...MINT,
+      [
+        "/main.hex",
+        HEAD +
+          "let helper<a: Show>(p: S.Point, value: a): String = show(value)\n" +
+          "export let describe<a: Show>: (S.Point, a) -> String = helper\n" +
+          "export let w: W = one()\n",
+      ],
+    ]);
+
+    expect(declarations(compiled)).toBe(TAIL + "export declare const w: S;\n");
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("the control: a constrained export that does render editions counts", async () => {
+    const compiled = project([
+      LIB,
+      [
+        "/main.hex",
+        'import module S from "./lib"\n' +
+          "export let describe<a: Show>(p: S.Point, value: a): String = show(value)\n",
+      ],
+    ]);
+    const text = declarations(compiled);
+
+    expect(text).toContain('import type * as S from "./lib.js";');
+    expect(text).toContain("export declare function describeInt(p: S.Point, value: number): string;");
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("an opaque record's fields render no face", async () => {
+    const compiled = project([
+      LIB,
+      ...MINT,
+      ["/main.hex", HEAD + "opaque record Box = {p: S.Point}\nexport let w: W = one()\n"],
+    ]);
+
+    // §5's brand is the face; the representation is not published.
+    expect(declarations(compiled)).toBe(
+      TAIL +
+        "declare const BoxBrand: unique symbol;\n" +
+        "export type Box = { readonly [BoxBrand]: never };\n" +
+        "export declare const w: S;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("an opaque union's payloads render no face", async () => {
+    const compiled = project([
+      LIB,
+      ...MINT,
+      ["/main.hex", HEAD + "opaque union Held = Wrap(p: S.Point)\nexport let w: W = one()\n"],
+    ]);
+
+    expect(declarations(compiled)).toBe(
+      TAIL +
+        "declare const HeldBrand: unique symbol;\n" +
+        "export type Held = { readonly [HeldBrand]: never };\n" +
+        "export declare const w: S;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("a **private** union's payloads do render one, and count", async () => {
+    const compiled = project([
+      LIB,
+      [
+        "/main.hex",
+        'import module Lib from "./lib"\nunion Holder = Held(p: Lib.Point)\n' +
+          "export let n: Int = 1\n",
+      ],
+    ]);
+
+    // The one arm with no `exported` test: a private union's shape reaches the
+    // file though its name does not leave the module, because an exported
+    // signature may name it. Missing it would leave the payload unqualified and
+    // rung 5 minting a second line for a type the alias already reaches.
+    expect(declarations(compiled)).toBe(
+      'import type * as Lib from "./lib.js";\n' +
+        'type Holder = { tag: "Held"; p: Lib.Point };\n' +
+        "export declare const n: number;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("an exception's payloads count", async () => {
+    const compiled = project([
+      LIB,
+      ["/main.hex", 'import module Lib from "./lib"\nexport exception Bad(p: Lib.Point)\n'],
+    ]);
+    const text = declarations(compiled);
+
+    expect(text).toContain('import type * as Lib from "./lib.js";');
+    expect(text).toContain("export declare function Bad(p: Lib.Point): Bad;");
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("an exported extern row counts", async () => {
+    const compiled = project([
+      LIB,
+      [
+        "/main.hex",
+        'import module Lib from "./lib"\nextern from "./host.js"\n' +
+          "    export fun take(p: Lib.Point): Int\n",
+      ],
+    ]);
+    const text = declarations(compiled);
+
+    expect(text).toContain('import type * as Lib from "./lib.js";');
+    expect(text).toContain("export declare function take(p: Lib.Point): number;");
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("an exported type alias counts", async () => {
+    const compiled = project([
+      LIB,
+      ["/main.hex", 'import module Lib from "./lib"\nexport type Alias = Lib.Point\n'],
+    ]);
+
+    expect(declarations(compiled)).toBe(
+      'import type * as Lib from "./lib.js";\n' + "export type Alias = Lib.Point;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 });
 
