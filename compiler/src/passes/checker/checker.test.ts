@@ -153,18 +153,33 @@ describe("check", () => {
   });
 
   test("rejects recursive aliases, unused parameters, and private public types", () => {
-    const module = checkSource(
-      "type Loop = Loop\n" +
-        "type Unused(a) = Int\n" +
-        "record Secret = {value: Int}\n" +
-        "export fun reveal(secret: Secret): Int = secret.value",
-    );
+    const source = "type Loop = Loop\n" +
+      "type Unused(a) = Int\n" +
+      "record Secret = {value: Int}\n" +
+      "export fun reveal(secret: Secret): Int = secret.value";
+    const module = checkSource(source);
     const messages = module.diagnostics.map(({ message }) => message);
     expect(messages.some((message) => message.startsWith("recursive type alias cycle:"))).toBe(true);
     expect(messages).toContain("type parameter `a` is not used by alias `Unused`");
     expect(messages).toContain(
       "exported binding `reveal` exposes private type `Secret`; export the type, perhaps opaquely, or keep the binding private",
     );
+    // Every member of §4.3's family labels the private type's declaration — the
+    // binding's included (#621), which is where the one-keyword fix goes, so the
+    // fix is a lookup rather than a search.
+    const exposure = module.diagnostics.find(({ message }) =>
+      message.startsWith("exported binding `reveal` exposes")
+    );
+    expect(exposure?.labels?.map(({ message }) => message)).toEqual([
+      "`Secret` is declared private here",
+    ]);
+    const label = exposure!.labels![0]!.span;
+    expect(source.slice(label.start.offset, label.end.offset)).toBe(
+      "record Secret = {value: Int}",
+    );
+    // The primary stays at the binding, whose signature is one seat already.
+    expect(source.slice(exposure!.primary.start.offset, exposure!.primary.end.offset))
+      .toBe("reveal");
   });
 
   test("tracks refutable constructor payloads before marking a case covered", () => {

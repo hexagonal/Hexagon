@@ -31,6 +31,22 @@ function project(files: readonly (readonly [string, string])[]) {
   return compiled;
 }
 
+/**
+ * One compiled project whose diagnostics are asserted **exactly**, for the
+ * programs the boundary rule refuses (#621): emission still runs over them, and
+ * the sink's guards are what these tests are about.
+ */
+function refused(
+  files: readonly (readonly [string, string])[],
+  messages: readonly string[],
+) {
+  const compiled = compileProject(
+    files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
+  );
+  expect(compiled.diagnostics.map(({ message }) => message)).toEqual(messages);
+  return compiled;
+}
+
 /** Every emitted module's declarations, plus `hex.d.ts` where one was emitted. */
 function declarationSet(
   compiled: ReturnType<typeof project>,
@@ -861,30 +877,42 @@ describe("a module whose whole `.d.ts` was one dead line", () => {
 });
 
 describe("rung 5 mints only what its home module exports", () => {
-  test("a private nominal in an exported face gets no import (#621's fence)", async () => {
-    const compiled = project([
+  test("a private nominal in an exported face is refused at its carrier (#621)", async () => {
+    // §2.4's satisfiability sentence was fenced to the exported-*binding* route
+    // while the checker's boundary rule read only bindings: a record field and a
+    // type alias each carried a module-private nominal into the public face with
+    // no diagnostic at all, and it reached a *consumer* through the alias whose
+    // expansion the face carries. The fence is gone (FFI Part 7 §14.4) — the
+    // rule reads every exported carrier, so the program below is refused at
+    // both, and no rung is ever asked for an identity its home withholds.
+    const compiled = refused(
       [
-        "/lib.hex",
-        "record Hidden = {n: Int}\nexport record Box = {h: Hidden}\nexport type Exposed = Hidden\n",
+        [
+          "/lib.hex",
+          "record Hidden = {n: Int}\nexport record Box = {h: Hidden}\nexport type Exposed = Hidden\n",
+        ],
+        [
+          "/main.hex",
+          'import { Box, Exposed } from "./lib"\nexport fun peek(b: Box): Exposed = b.h\n',
+        ],
       ],
       [
-        "/main.hex",
-        'import { Box, Exposed } from "./lib"\nexport fun peek(b: Box): Exposed = b.h\n',
+        "exported record `Box` exposes private type `Hidden`; " +
+          "export the type, perhaps opaquely, or keep the record private",
+        "exported type alias `Exposed` exposes private type `Hidden`; " +
+          "export the type, perhaps opaquely, or keep the alias private",
       ],
-    ]);
+    );
 
-    // The checker's boundary rule is per *binding*, so a record field carries a
-    // module-private nominal into an exported face with no diagnostic — §2.4
-    // fences that to #621, and it reaches a *consumer* through the alias whose
-    // expansion the face carries. Rung 5 must decline rather than mint: the home
-    // module does not export the name, so `import type { Hidden }` would bind
-    // nothing, which is a worse failure than the TS2304 the fence already owns.
+    // The guard itself stays exercised, because the emitter still runs over a
+    // refused program: rung 5 must decline rather than mint, since the home
+    // module does not export the name and `import type { Hidden }` would bind
+    // nothing — a worse failure than the unbound name the refusal already owns.
     expect(declarations(compiled)).toBe(
       'import type { Box } from "./lib.js";\n' +
         "export declare function peek(b: Box): Hidden;\n",
     );
     expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual([]);
-    // The fenced failure, unchanged and named so a repair of #621 has to move it.
     expect((await typeScriptErrors(declarationSet(compiled))).join("\n"))
       .toContain("main.d.ts(2,39): error TS2304: Cannot find name 'Hidden'.");
   });
@@ -892,26 +920,34 @@ describe("rung 5 mints only what its home module exports", () => {
 
 describe("rung 5 declines a private nominal on every arm of the guard", () => {
   // The record arm is pinned above. Each of the three arms of `nominalHomes`'
-  // `exported` condition is its own line of code, and a private nominal reaches
-  // a *consumer's* face the same way on each: a record field carries it past the
-  // checker's per-binding boundary rule (#621's fence), and a type alias carries
-  // it across the module boundary. Minting there would import a name the home
-  // module does not export.
+  // `exported` condition is its own line of code, and the guard answers for a
+  // face the emitter builds over a program the checker refused — which every
+  // program here now is (#621). Minting would import a name the home module does
+  // not export.
   const CONSUMER = [
     "/main.hex",
     'import { Exposed } from "./lib"\nexport record Wrap = {h: Exposed}\n',
   ] as const;
   const FACE = "export type Wrap = { h: Hidden };\n" +
     "export declare const Wrap: (record: { h: Hidden }) => Wrap;\n";
+  const LIB_REFUSALS = [
+    "exported record `Box` exposes private type `Hidden`; " +
+      "export the type, perhaps opaquely, or keep the record private",
+    "exported type alias `Exposed` exposes private type `Hidden`; " +
+      "export the type, perhaps opaquely, or keep the alias private",
+  ];
 
   test("a private union", async () => {
-    const compiled = project([
+    const compiled = refused(
       [
-        "/lib.hex",
-        "union Hidden = A | B\nexport record Box = {h: Hidden}\nexport type Exposed = Hidden\n",
+        [
+          "/lib.hex",
+          "union Hidden = A | B\nexport record Box = {h: Hidden}\nexport type Exposed = Hidden\n",
+        ],
+        CONSUMER,
       ],
-      CONSUMER,
-    ]);
+      LIB_REFUSALS,
+    );
 
     expect(declarations(compiled)).toBe(FACE);
     expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual([]);
@@ -919,15 +955,30 @@ describe("rung 5 declines a private nominal on every arm of the guard", () => {
       .toContain("main.d.ts(1,25): error TS2304: Cannot find name 'Hidden'.");
   });
 
-  test("a private extern type", async () => {
-    const compiled = project([
+  test("a private extern type", () => {
+    // The consumer draws a *third* refusal here and not in the union arm above,
+    // and the asymmetry is the walk's own: `representationVisible` is stamped
+    // false on an imported record or union, so a type that lives elsewhere is out
+    // of the check there, while the extern arm reads the table's `exported` flag
+    // — and an extern type its home keeps private is not exported anywhere. The
+    // signals are §14.4's, quoted as they stand; the same second report is
+    // already reachable through an exported *binding* whose signature names the
+    // alias, and predates every carrier added here.
+    const compiled = refused(
       [
-        "/lib.hex",
-        'extern from "./host.js"\n    type Hidden\n' +
-          "export record Box = {h: Hidden}\nexport type Exposed = Hidden\n",
+        [
+          "/lib.hex",
+          'extern from "./host.js"\n    type Hidden\n' +
+            "export record Box = {h: Hidden}\nexport type Exposed = Hidden\n",
+        ],
+        CONSUMER,
       ],
-      CONSUMER,
-    ]);
+      [
+        ...LIB_REFUSALS,
+        "exported record `Wrap` exposes private type `Hidden`; " +
+          "export the type, perhaps opaquely, or keep the record private",
+      ],
+    );
 
     expect(declarations(compiled)).toBe(FACE);
     expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual([]);
@@ -1224,7 +1275,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
-  test("a **private** union's payloads do render one, and count", async () => {
+  test("a **private** union's payloads render no face, and do not count", async () => {
     const compiled = project([
       LIB,
       [
@@ -1234,15 +1285,14 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
       ],
     ]);
 
-    // The one arm with no `exported` test: a private union's shape reaches the
-    // file though its name does not leave the module, because an exported
-    // signature may name it. Missing it would leave the payload unqualified and
-    // rung 5 minting a second line for a type the alias already reaches.
-    expect(declarations(compiled)).toBe(
-      'import type * as Lib from "./lib.js";\n' +
-        'type Holder = { tag: "Held"; p: Lib.Point };\n' +
-        "export declare const n: number;\n",
-    );
+    // This was the one arm with no `exported` test — the union arm pushed its
+    // row for every union, so a private union's whole representation was
+    // published in the shipped file, and its payloads counted for the alias
+    // line. #621 gives the arm the gate every other arm has (Modules §11.4: a
+    // private type gets no line of any kind), so the face is not rendered, the
+    // alias it would have qualified through is not written, and the module's
+    // one export is the whole file.
+    expect(declarations(compiled)).toBe("export declare const n: number;\n");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
