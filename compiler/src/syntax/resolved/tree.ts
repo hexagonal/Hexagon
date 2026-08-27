@@ -165,11 +165,46 @@ export interface RecordTypeField {
   readonly span: Source.Span;
 }
 
+/**
+ * The **namespace-import alias one occurrence was written through** (Modules
+ * §3.3), for FFI Part 7 §2.4 rung 3.
+ *
+ * Rung 3 is the one rung keyed on the occurrence rather than on the identity,
+ * because an identity does not determine a qualifier: the companion fallback
+ * (Modules §5.1 rule 2) lets one type be named qualified at one seat and bare at
+ * another, and two aliases onto one module are both legal, so neither is *the*
+ * alias. Re-deriving one from the import items by identity is exactly what the
+ * rule refuses, so the qualifier has to ride the occurrence.
+ *
+ * `module` is what makes the qualifier **readable only in the module that wrote
+ * it**. A qualifier is a spelling, and a spelling that travelled would be
+ * meaningless at best: a type alias's expansion crosses a module boundary
+ * carrying its *writer's* qualifiers (FFI Part 7 §1), and an importer binding
+ * the same alias spelling to a different module would then publish a face naming
+ * a real type that is the wrong one, with nothing to report it. The declaration
+ * emitter compares this against its own `fileId` and ignores every other.
+ *
+ * Set only for a **source-written** namespace import of the rendering module —
+ * never for a prelude companion (§6.4's qualified home, which carries no import
+ * line and reaches rung 4 instead), and never for the companion fallback, whose
+ * occurrence the source wrote *bare*.
+ */
+export interface TypeQualifier {
+  /** The module that wrote the qualifier; only that module may read it. */
+  readonly module: Source.FileId;
+  /** The alias as the source spelled it; emission may move it (§2.4). */
+  readonly alias: string;
+  /** The type's own name in its home module — what follows the dot. */
+  readonly member: string;
+}
+
 export interface UnionTypeAnnotation {
   readonly kind: "Union";
   readonly union: UnionId;
   readonly name: string;
   readonly arguments: readonly TypeAnnotation[];
+  /** See `TypeQualifier`. */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
@@ -222,6 +257,8 @@ export interface RecordDeclarationTypeAnnotation {
   readonly record: RecordId;
   readonly name: string;
   readonly arguments: readonly TypeAnnotation[];
+  /** See `TypeQualifier`. */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
@@ -229,6 +266,8 @@ export interface ExternTypeAnnotation {
   readonly kind: "ExternType";
   readonly externType: ExternTypeId;
   readonly name: string;
+  /** See `TypeQualifier`. */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
@@ -840,6 +879,22 @@ export interface ImportName {
    * half silently cost the `.d.ts` its `import type` row (#227).
    */
   readonly typeBinding?: boolean;
+  /**
+   * The **identity** the type half binds, where it binds a nominal one — exactly
+   * one of the three is set, and all three are absent where `typeBinding` is
+   * unset or the name binds a *type alias* (which has no identity, because a
+   * face carries an alias's expansion and never its name; FFI Part 7 §1).
+   *
+   * FFI Part 7 §2.4 rung 2 answers by **identity**, so the declaration emitter
+   * can spell a face with the local this import bound — honouring `as` — instead
+   * of with the type's declared name. Before this the named-import channel
+   * carried no identity at all, so there was nothing to look the local up by and
+   * a renamed import emitted `import type { Shape as S }` beside a face spelling
+   * `Shape` (#617).
+   */
+  readonly union?: UnionId;
+  readonly record?: RecordId;
+  readonly externType?: ExternTypeId;
   /**
    * The name is a **member of an imported constraint** rather than a name the
    * source listed (Modules §3.1: importing a constraint imports its members).

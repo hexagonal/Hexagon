@@ -275,8 +275,12 @@ describe("the generated local is probed, and only it moves", () => {
 
   test("a namespace alias spelling a prelude type's name forces `Option1`", async () => {
     const compiled = project([
-      ["/lib.hex", "export let one: Int = 1\n"],
-      ["/main.hex", 'import module Option from "./lib"\nexport let o: Option(Int) = None\n'],
+      ["/lib.hex", "export record Row = {n: Int}\nexport let one: Int = 1\n"],
+      [
+        "/main.hex",
+        'import module Option from "./lib"\n' +
+          "export let o: Option(Int) = None\nexport let r(x: Option.Row): Int = 1\n",
+      ],
     ]);
     const text = emitted(compiled, "/main.hex").declarations.text;
 
@@ -285,9 +289,32 @@ describe("the generated local is probed, and only it moves", () => {
     // (Modules §5.4) without touching the type, so `Option(Int)` still names the
     // prelude union while the identifier `Option` is spoken for. The user's
     // alias keeps its spelling; only the generated one moves (Part 1 §10).
+    //
+    // The alias is spoken for **because a face qualifies through it**: that is
+    // what puts its line in the file. Without the `Option.Row` seat below the
+    // line is not written and the alias contests nothing — the case beneath.
     expect(text).toContain('import type { Option as Option1 } from "./Option.js";');
     expect(text).toContain('import type * as Option from "./lib.js";');
     expect(text).toContain("export declare const o: Option1<number>;");
+    expect(text).toContain("export declare const r: (x: Option.Row) => number;");
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("a gated alias moves nothing — the probe counts what the file carries", async () => {
+    const compiled = project([
+      ["/lib.hex", "export let one: Int = 1\n"],
+      ["/main.hex", 'import module Option from "./lib"\nexport let o: Option(Int) = None\n'],
+    ]);
+    const text = emitted(compiled, "/main.hex").declarations.text;
+
+    // The alias serves terms only, so no face qualifies through it, so its line
+    // is not written and the identifier is free. Counting it anyway would move
+    // a minted local aside for a name the reader cannot find — the failure the
+    // rung order exists to avoid.
+    expect(text).toBe(
+      'import type { Option } from "./Option.js";\n' +
+        "export declare const o: Option<number>;\n",
+    );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 });

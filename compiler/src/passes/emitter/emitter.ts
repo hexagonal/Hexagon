@@ -7,6 +7,7 @@ import * as Diagnostics from "../../support/diagnostics.js";
 import { INTRINSIC_INVENTORY, isIntrinsicScheme } from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_BASENAMES } from "../../prelude.js";
 import { type Documentation, throwsManifests } from "../../support/documentation.js";
+import { relativeSpecifier } from "../../support/paths.js";
 import type * as Source from "../../support/source.js";
 import { isSyntheticParameterName } from "../../support/synthetic.js";
 import type * as Core from "../../syntax/core/index.js";
@@ -452,6 +453,46 @@ export interface DeclarationEmissionOptions {
    * the shape a single-file program has.
    */
   readonly runtimeSpecifier?: string;
+  /**
+   * Every nominal type the program declares and exports, by identity: its own
+   * name, and the path of the module that declares it (FFI Part 7 §2.4 rung 5).
+   *
+   * Rung 5 mints `import type { Name as Local }` for an identity no rung above
+   * can name — the shape a type alias's expansion reaches, since an importer
+   * that binds only the alias binds nothing the expansion mentions (#618) — and
+   * a home module is the one thing this module's own tree cannot supply.
+   *
+   * Program-wide and shared, keyed by `nominalHomeKey`, with `modulePath` doing
+   * the per-module part: the specifier is relativized here rather than a copy of
+   * the table being built for every module.
+   *
+   * Only `compileProject` has the table; emitting one module alone leaves both
+   * absent, and rung 5 then declines and the face falls back to the declared
+   * name — today's behaviour, which is what a lone `emitDeclarations` had.
+   */
+  readonly nominalHomes?: ReadonlyMap<string, NominalHome>;
+  /** This module's own path, for relativizing `nominalHomes`. */
+  readonly modulePath?: string;
+}
+
+/** One entry of `DeclarationEmissionOptions.nominalHomes`. */
+export interface NominalHome {
+  /** The type's own name in its home module — what a minted line imports. */
+  readonly name: string;
+  /** The declaring module's path, as `compileProject` normalizes it. */
+  readonly path: string;
+}
+
+/**
+ * `nominalHomes`' key. Exported because the table is built one pass away from
+ * where it is read, and a second spelling of the key would be wrong only for the
+ * identities the two disagreed about.
+ */
+export function nominalHomeKey(
+  kind: "union" | "record" | "externType",
+  id: number,
+): string {
+  return `${kind}:${id}`;
 }
 
 /** What a module at the source common root spells; see `runtimeSpecifier`. */
@@ -1213,25 +1254,30 @@ class RuntimeFaces {
  */
 class PreludeTypeFaces {
   readonly #entries: readonly Resolved.PreludeTypeImport[];
+  /**
+   * The probe's collision universe, **shared** with the sink that owns this one
+   * (`NominalFaces`): rung 4's locals and rung 5's are minted into one file and
+   * must not land on each other, so both probes add to the same set.
+   */
   readonly #taken: Set<string>;
   /** The local each *referenced* entry renders as, by its index in the inventory. */
   readonly #locals = new Map<number, string>();
 
-  constructor(entries: readonly Resolved.PreludeTypeImport[], taken: Iterable<string>) {
+  constructor(entries: readonly Resolved.PreludeTypeImport[], taken: Set<string>) {
     this.#entries = entries;
-    this.#taken = new Set(taken);
+    this.#taken = taken;
   }
 
-  referenceUnion(id: Resolved.UnionId): string | undefined {
-    return this.#reference((entry) => entry.union === id);
-  }
-
-  referenceRecord(id: Resolved.RecordId): string | undefined {
-    return this.#reference((entry) => entry.record === id);
-  }
-
-  referenceExternType(id: Resolved.ExternTypeId): string | undefined {
-    return this.#reference((entry) => entry.externType === id);
+  /** Rung 4, by identity — `undefined` where the inventory has no such entry. */
+  reference(identity: NominalIdentity): string | undefined {
+    switch (identity.kind) {
+      case "union":
+        return this.#reference((entry) => entry.union === identity.id);
+      case "record":
+        return this.#reference((entry) => entry.record === identity.id);
+      case "externType":
+        return this.#reference((entry) => entry.externType === identity.id);
+    }
   }
 
   /**
@@ -1239,8 +1285,16 @@ class PreludeTypeFaces {
    * is the normative prelude order, not first-use order, so the emitted text
    * does not depend on where in the module a face happens to sit.
    *
-   * An entry a source-written import already binds owes nothing: channel 1 took
-   * over its emission, and a second line would be a duplicate identifier.
+   * The `explicitLocal` skip is **vestigial in the ordinary case and kept for
+   * one skewed one**. Rung 2 outranks rung 4 now and marks its own line owed, so
+   * an entry a source import genuinely bound is never referenced here at all.
+   * What is left is the shape where the resolver set `explicitLocal` — a
+   * take-over it performs whenever the name binds a type — for a name a
+   * collision then refused to bind, so rung 2 declines while the field stands.
+   * There this sink answers with a local the file may not bind, and the skip is
+   * the safer of two broken outputs: writing the line instead would bind that
+   * local to a second declaration, and it was refused for colliding with a
+   * first. Pre-existing #227 residue either way, and #621's neighbourhood.
    *
    * Each line's source specifier rides along because these are the only record
    * of the edge: reachability must emit the module a face imports from, and no
@@ -1291,20 +1345,601 @@ class PreludeTypeFaces {
   }
 }
 
+/** One nominal identity, as the sink below is asked for it. */
+type NominalIdentity =
+  | { readonly kind: "union"; readonly id: Resolved.UnionId }
+  | { readonly kind: "record"; readonly id: Resolved.RecordId }
+  | { readonly kind: "externType"; readonly id: Resolved.ExternTypeId };
+
+function identityKey(identity: NominalIdentity): string {
+  return nominalHomeKey(identity.kind, Number(identity.id));
+}
+
+/**
+ * **How this declaration file spells every nominal its faces mention** — FFI
+ * Part 7 §2.4's one sink, five rungs in order.
+ *
+ * What a face carries is an identity and never a spelling, and how an identity
+ * is spelled is a property of neither the type nor quite the module: one record
+ * is `Point` where it is declared, `LibPoint` where an import renamed it, and
+ * `Lib.Point` at a seat the source qualified. The emitter used to name every
+ * nominal by its *declared* name with no record of what this file binds, which
+ * is one defect wearing four faces (#574, #268, #617, #618).
+ *
+ * The rungs, in order:
+ *
+ * 1. **This module declares the identity** — the bare name. A declaration
+ *    occludes (Modules §5.4), and a module's own type is its own to spell.
+ * 2. **A source-written named import binds it** — that import's local, `as` and
+ *    all, whatever else the same name binds (#617).
+ * 3. **The occurrence is qualified through a namespace alias** — `Alias.Name`,
+ *    the spelling the source wrote *at that seat* (#268). The one rung keyed on
+ *    the occurrence, and answered only for a qualifier **this module itself
+ *    wrote**: a spelling that travelled on a type alias's expansion would name a
+ *    real type that is the wrong one, silently.
+ * 4. **The prelude's type inventory** (#227), unchanged, probed local and all.
+ * 5. **Nothing above answers** — the file mints its own import from the
+ *    identity's home module (#618), under the same probe.
+ *
+ * **The file's imports are exactly what these answers owe.** Rung 1 owes
+ * nothing; rungs 2 through 5 each owe the line their answer is spelled through,
+ * and a line no answer owes is not written — which is what dissolves the two
+ * collision shapes #574 filed, with no renaming at all. That is
+ * candidates-then-filter, the architecture the prelude inventory and the
+ * synthesized term import already follow: resolution decides availability,
+ * emission decides what is imported, and neither is inferred from the other.
+ */
+class NominalFaces {
+  readonly #fileId: Source.FileId;
+  /** Rung 1: every nominal this module declares, exported or not, by identity. */
+  readonly #own: ReadonlyMap<string, string>;
+  /** Rung 2: the local a source-written named import binds each identity under. */
+  readonly #imported: ReadonlyMap<string, string>;
+  /** Rung 3: each qualifying alias's *emitted* spelling, after any yield. */
+  readonly #aliasLocals: ReadonlyMap<string, string>;
+  /** Rung 4. */
+  readonly #prelude: PreludeTypeFaces;
+  /** Rung 5's table and this module's path; both absent outside `compileProject`. */
+  readonly #homes: ReadonlyMap<string, NominalHome> | undefined;
+  readonly #path: string | undefined;
+  /** The probe's universe, shared with rung 4's sink. */
+  readonly #taken: Set<string>;
+
+  /** What each rung's answers have actually owed, closed when rendering ends. */
+  readonly #usedImports = new Set<string>();
+  readonly #usedAliases = new Set<string>();
+  readonly #minted = new Map<
+    string,
+    { readonly local: string; readonly name: string; readonly specifier: string }
+  >();
+
+  constructor(options: {
+    readonly fileId: Source.FileId;
+    readonly own: ReadonlyMap<string, string>;
+    readonly imported: ReadonlyMap<string, string>;
+    readonly aliasLocals: ReadonlyMap<string, string>;
+    readonly prelude: PreludeTypeFaces;
+    readonly homes: ReadonlyMap<string, NominalHome> | undefined;
+    readonly path: string | undefined;
+    readonly taken: Set<string>;
+  }) {
+    this.#fileId = options.fileId;
+    this.#own = options.own;
+    this.#imported = options.imported;
+    this.#aliasLocals = options.aliasLocals;
+    this.#prelude = options.prelude;
+    this.#homes = options.homes;
+    this.#path = options.path;
+    this.#taken = options.taken;
+  }
+
+  /**
+   * The finished spelling for one occurrence, and the record that its rung's
+   * line is owed.
+   *
+   * `declared` is the type's own name, and it is the answer only in the shapes
+   * §2.4 fences to #621: a nominal its owner keeps private, carried into an
+   * exported face by a record field, a union payload, an exception payload or a
+   * type alias with no diagnostic. There rung 1 answers with a name the file
+   * does not bind, or no rung answers at all — the pre-existing behaviour, kept
+   * rather than repaired here, because repairing it is the checker's boundary
+   * rule and not this sink's.
+   */
+  reference(
+    identity: NominalIdentity,
+    qualifier: Typed.TypeQualifier | undefined,
+    declared: string,
+  ): string {
+    const key = identityKey(identity);
+    const own = this.#own.get(key);
+    if (own !== undefined) return own;
+    const local = this.#imported.get(key);
+    if (local !== undefined) {
+      this.#usedImports.add(key);
+      return local;
+    }
+    // Rung 3 reads the occurrence, and only where **this** module wrote the
+    // qualifier: a qualifier arriving on a type from another module is not an
+    // occurrence here however it is spelled, and that a module of its own binds
+    // an alias of the same spelling makes no difference — that is exactly the
+    // case where reading the spelling would publish another module's type under
+    // this one's name.
+    if (qualifier !== undefined && qualifier.module === this.#fileId) {
+      const alias = this.#aliasLocals.get(qualifier.alias);
+      if (alias !== undefined) {
+        this.#usedAliases.add(qualifier.alias);
+        return `${alias}.${qualifier.member}`;
+      }
+    }
+    return this.#prelude.reference(identity) ?? this.#mint(key, declared);
+  }
+
+  /** Whether a rendered face answered through this source alias (§2.4). */
+  usedAlias(alias: string): boolean {
+    return this.#usedAliases.has(alias);
+  }
+
+  /** This alias's emitted spelling — its own, or the one it yielded to. */
+  aliasLocal(alias: string): string {
+    return this.#aliasLocals.get(alias) ?? alias;
+  }
+
+  /** Whether a rendered face answered through this named import's identity. */
+  usedImport(key: string): boolean {
+    return this.#usedImports.has(key);
+  }
+
+  /** Rung 4's lines; see `PreludeTypeFaces.lines`. */
+  preludeLines(): readonly { readonly line: string; readonly specifier: string }[] {
+    return this.#prelude.lines();
+  }
+
+  /**
+   * Rung 5's lines, **ordered by home specifier and then by imported name**.
+   *
+   * Rung 5 has no inventory to follow and must not fall back on first reference,
+   * for the reason the inventory rule exists: emitted text may not depend on
+   * where in the module a face happens to sit.
+   */
+  mintedLines(): readonly { readonly line: string; readonly specifier: string }[] {
+    return [...this.#minted.values()]
+      .sort((left, right) =>
+        left.specifier === right.specifier
+          ? (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+          : (left.specifier < right.specifier ? -1 : 1)
+      )
+      .map(({ local, name, specifier }) => ({
+        line: `import type { ${local === name ? name : `${name} as ${local}`} } from ` +
+          `${JSON.stringify(emittedModuleSpecifier(specifier))};`,
+        specifier,
+      }));
+  }
+
+  #mint(key: string, declared: string): string {
+    const settled = this.#minted.get(key);
+    if (settled !== undefined) return settled.local;
+    const home = this.#homes?.get(key);
+    if (home === undefined || this.#path === undefined) return declared;
+    const local = this.#probe(home.name);
+    this.#taken.add(local);
+    this.#minted.set(key, {
+      local,
+      name: home.name,
+      specifier: relativeSpecifier(this.#path, home.path),
+    });
+    return local;
+  }
+
+  /** The type's own name, then `Option1`, `Option2`, … — §2.1's probe exactly. */
+  #probe(name: string): string {
+    if (!this.#taken.has(name)) return name;
+    for (let suffix = 1; ; suffix += 1) {
+      const candidate = `${name}${suffix}`;
+      if (!this.#taken.has(candidate)) return candidate;
+    }
+  }
+}
+
 /**
  * What a declaration or preview emitter needs in order to render a type: the
- * prelude identities that pin two faces, the runtime-face sink, and the
- * prelude-type sink.
+ * prelude identities that pin two faces, the runtime-face sink, and §2.4's sink.
  */
 interface DeclarationFaces {
   readonly prelude: PreludeIds;
   readonly runtime: RuntimeFaces;
   /**
-   * §2.4's cross-module type imports. The preview is out of scope and keeps bare
-   * names — it is one pane of text with nothing to import from — so it holds an
-   * empty sink, which matches nothing and emits nothing.
+   * §2.4's five rungs. The preview is out of scope and keeps bare names — it is
+   * one pane of text with nothing to import from — so it holds an inert sink,
+   * whose every rung declines and whose answer is the declared name.
    */
-  readonly preludeTypes: PreludeTypeFaces;
+  readonly nominals: NominalFaces;
+}
+
+/**
+ * The brands this module's `.d.ts` really declares, out of the map's entries.
+ *
+ * `opaqueBrandNames` mints one for **every** extern type in an extern block,
+ * because the preview declares them all; `emit` writes the `declare const` only
+ * for an exported one. Feeding the map's whole range into the collision universe
+ * therefore claimed a name the declaration file does not contain — the same
+ * over-claim the gated-alias rule exists to prevent, one condition over — and a
+ * namespace alias spelled `HandleBrand` moved to `HandleBrand_1` for a brand
+ * nothing declared. The conditions here are `emit`'s own, arm for arm.
+ *
+ * `opaque` on a union or a record implies export, so those two arms cannot
+ * differ today; they test it anyway, because a rule read off a coincidence is
+ * one the next change to `opaque` silently breaks.
+ */
+function emittedBrandNames(
+  module: Core.Module,
+  brands: ReadonlyMap<string, string>,
+): readonly string[] {
+  return module.items.flatMap((item) => {
+    if ((item.kind === "Union" || item.kind === "RecordDeclaration") && item.opaque) {
+      return item.exported ? [brands.get(item.name)!] : [];
+    }
+    if (item.kind !== "ExternBlock") return [];
+    return item.declarations.flatMap((declaration) =>
+      declaration.kind === "ExternType" && declaration.exported
+        ? [brands.get(declaration.localName)!]
+        : []
+    );
+  });
+}
+
+/** The inert sink the preview holds; see `DeclarationFaces.nominals`. */
+function bareNominalFaces(fileId: Source.FileId): NominalFaces {
+  return new NominalFaces({
+    fileId,
+    own: new Map(),
+    imported: new Map(),
+    aliasLocals: new Map(),
+    prelude: new PreludeTypeFaces([], new Set()),
+    homes: undefined,
+    path: undefined,
+    taken: new Set(),
+  });
+}
+
+/**
+ * Rung 1's table: every nominal identity **this module declares**, by its
+ * declared name.
+ *
+ * Exported and unexported alike. §2.4 fences the unexported case to #621 — the
+ * checker's boundary rule is per *binding*, so a record field or a union payload
+ * can still carry a private nominal into an exported face — and the fence's own
+ * description is that rung 1 answers there with a name the file does not bind.
+ * Leaving those identities out would not repair that; it would only change which
+ * unbound name is printed.
+ */
+function declaredNominals(module: Core.Module): ReadonlyMap<string, string> {
+  const declared = new Map<string, string>();
+  for (const item of module.items) {
+    if (item.kind === "Union") {
+      declared.set(nominalHomeKey("union", Number(item.union)), item.name);
+    } else if (item.kind === "RecordDeclaration") {
+      declared.set(nominalHomeKey("record", Number(item.record)), item.name);
+    } else if (item.kind === "ExternBlock") {
+      for (const declaration of item.declarations) {
+        if (declaration.kind !== "ExternType") continue;
+        declared.set(
+          nominalHomeKey("externType", Number(declaration.externType)),
+          declaration.localName,
+        );
+      }
+    }
+  }
+  return declared;
+}
+
+/**
+ * Rung 2's table: the local each source-written **named** import binds an
+ * identity under.
+ *
+ * By identity, so a rename is honoured — `import { Shape as S }` and a face
+ * saying `S`, which is the half of one channel that disagreed with the other
+ * (#617) — and so the term half of a name that binds both cannot cost the
+ * `.d.ts` its type half. A name binding only a *type alias* carries no identity
+ * and reaches no entry: faces hold an alias's expansion, never its name.
+ */
+function importedNominals(module: Core.Module): ReadonlyMap<string, string> {
+  const bound = new Map<string, string>();
+  for (const item of module.items) {
+    if (item.kind !== "Import" || item.synthesized || item.form.kind !== "Named") continue;
+    for (const name of item.form.names) {
+      const key = importNameIdentity(name);
+      if (key !== undefined && !bound.has(key)) bound.set(key, name.local);
+    }
+  }
+  return bound;
+}
+
+/**
+ * The identity key one named-import name binds, or `undefined` where it binds
+ * none — a term, a constraint, or a type *alias*, which has no identity because
+ * a face carries its expansion and never its name.
+ */
+function importNameIdentity(name: Resolved.ImportName): string | undefined {
+  if (name.union !== undefined) return nominalHomeKey("union", Number(name.union));
+  if (name.record !== undefined) return nominalHomeKey("record", Number(name.record));
+  if (name.externType !== undefined) {
+    return nominalHomeKey("externType", Number(name.externType));
+  }
+  return undefined;
+}
+
+/**
+ * **Every type this module's `.d.ts` renders a face from**, in item order.
+ *
+ * The set `emit` walks, read for its types rather than for its text: exported
+ * declarations, plus a union of any visibility, whose shape reaches the file
+ * whether or not it is exported because an exported signature may name it. An
+ * opaque exported type contributes nothing — its face is §5's brand, and its
+ * fields and payloads are not published.
+ *
+ * What this must not become is a second, drifting copy of the conditions under
+ * which a face is rendered — §2.4 says so — and where the two could disagree it
+ * **errs narrow**. The asymmetry runs the opposite way to every other probe in
+ * this file: a face this walk misses costs a qualified *spelling* and nothing
+ * else, rung 5 minting a face that stays bound, correct and findable, while one
+ * it invents moves a minted local aside for a name the file does not contain —
+ * the failure the whole criterion exists to prevent. Every arm below is pinned
+ * by a conformance test that fails if it drifts either way, because a
+ * hand-maintained copy is exactly where the next drift lands.
+ */
+function renderedFaceTypes(
+  module: Core.Module,
+  specializations: readonly FundamentalSpecialization[],
+): readonly Typed.Type[] {
+  const types: Typed.Type[] = [];
+  for (const item of module.items) {
+    switch (item.kind) {
+      case "ExternBlock":
+        for (const declaration of item.declarations) {
+          if (!declaration.exported) continue;
+          if (declaration.kind === "ExternFun") {
+            // #370: a constrained row publishes no face at all.
+            if (declaration.binding.scheme.constraints.length > 0) continue;
+            types.push(declaration.binding.scheme.type);
+          } else if (declaration.kind !== "ExternType") {
+            types.push(declaration.type);
+          }
+        }
+        continue;
+      case "TypeAlias":
+        if (item.exported) types.push(item.type);
+        continue;
+      case "Union":
+        // No `exported` test, deliberately: a private union still renders its
+        // shape (`type Holder = …`), because an exported signature may name it.
+        if (item.opaque && item.exported) continue;
+        for (const constructor of item.constructors) {
+          for (const slot of constructor.slots) types.push(slot.type);
+        }
+        continue;
+      case "RecordDeclaration":
+        if (!item.exported || item.opaque) continue;
+        for (const field of item.fields) types.push(field.type);
+        continue;
+      case "Exception":
+        if (!item.exported) continue;
+        for (const slot of item.slots) types.push(slot.type);
+        continue;
+      case "Let":
+      case "Fun": {
+        if (!item.exported) continue;
+        // A constrained export renders one face per **fundamental
+        // specialization**, and `emit` writes none where the plan produced none
+        // — a constraint of the user's own admits no editions (Part 8 §3.2) — or
+        // where the value is not a lambda. Both conditions are `emit`'s, mirrored
+        // here for the reason the whole function exists: a face this file does
+        // not publish spells nothing in it.
+        //
+        // The lambda test is **unreachable, for two separate reasons**, in
+        // `emit` as much as here — and both are worth naming, because a change
+        // that retires one leaves the other standing:
+        //
+        // - For a `Let` it is short-circuited: `planItem` returns no editions
+        //   for one whose value is not a lambda, so the editions test above
+        //   already excludes every input this one would.
+        // - For a `Fun` it is **statically vacuous**: `Core.FunItem.value` is
+        //   typed `LambdaExpr`, so there is no non-lambda to exclude. Widen that
+        //   field to `Expr` and this test becomes load-bearing at once, with
+        //   nothing but this note to say so.
+        //
+        // It is kept because this function's contract is to read arm for arm
+        // against `emit`, and a mirror that quietly drops a condition is a
+        // mirror a reader can no longer check — but no test pins it, and while
+        // both reasons hold, none can.
+        if (item.binding.scheme.constraints.length > 0) {
+          const editions = specializations.filter(
+            ({ sourceSymbol }) => sourceSymbol === item.binding.symbol,
+          );
+          if (editions.length === 0 || item.value.kind !== "Lambda") continue;
+        }
+        // The scheme, not the editions: each edition is a *substitution* of it,
+        // and substitution replaces variables, so every qualified nominal in an
+        // edition is one of this scheme's and no edition adds one.
+        types.push(item.binding.scheme.type);
+        continue;
+      }
+      default:
+        continue;
+    }
+  }
+  return types;
+}
+
+/** One namespace-qualified nominal a rendered face carries. */
+interface FaceQualifier {
+  readonly qualifier: Typed.TypeQualifier;
+  readonly key: string;
+}
+
+/** Every qualified nominal in one rendered face, with the identity it named. */
+function faceQualifiers(type: Typed.Type, into: FaceQualifier[]): void {
+  switch (type.kind) {
+    case "Union":
+      if (type.qualifier !== undefined) {
+        into.push({ qualifier: type.qualifier, key: nominalHomeKey("union", Number(type.union)) });
+      }
+      for (const argument of type.arguments) faceQualifiers(argument, into);
+      return;
+    case "NominalRecord":
+      if (type.qualifier !== undefined) {
+        into.push({
+          qualifier: type.qualifier,
+          key: nominalHomeKey("record", Number(type.record)),
+        });
+      }
+      for (const argument of type.arguments) faceQualifiers(argument, into);
+      return;
+    case "ExternType":
+      if (type.qualifier !== undefined) {
+        into.push({
+          qualifier: type.qualifier,
+          key: nominalHomeKey("externType", Number(type.externType)),
+        });
+      }
+      return;
+    case "Vector":
+    case "Set":
+    case "Array":
+    case "JsSet":
+    case "Node":
+      faceQualifiers(type.element, into);
+      return;
+    case "Nullable":
+      faceQualifiers(type.value, into);
+      return;
+    case "Map":
+    case "JsMap":
+      faceQualifiers(type.key, into);
+      faceQualifiers(type.value, into);
+      return;
+    case "Tuple":
+      for (const element of type.elements) faceQualifiers(element, into);
+      return;
+    case "Record":
+      for (const field of type.fields) faceQualifiers(field.type, into);
+      return;
+    case "Function":
+      for (const parameter of type.parameters) faceQualifiers(parameter, into);
+      faceQualifiers(type.result, into);
+      return;
+    // `Primitive`, `Range`, `Variable` and `Error` are leaves with no nominal
+    // inside them and nothing to qualify.
+    default:
+      return;
+  }
+}
+
+/**
+ * The namespace aliases a `.d.ts` for this module carries — the ones some
+ * **rendered face** is answered at rung 3 through, which is exactly where the
+ * file carries the alias's line (FFI Part 7 §2.4).
+ *
+ * The one member of the collision universe that is not over-claimed at all. An
+ * alias absent from the emitted text contests nothing in it, and counting an
+ * absent one would move a minted local aside for a name the reader cannot find,
+ * which is the failure this rung order exists to avoid.
+ *
+ * A written dot is not enough, and three things keep one from counting — named
+ * here as the instances they are, the rule itself being the emitted line, so a
+ * rung or a pin added later cannot leave the list stale:
+ *
+ * - **§2.3's pins**, applied ahead of the sink, so a qualified `S.Seq(Int)`
+ *   faces as `Iterable<number>` and a qualified `B.Bool` as `boolean`.
+ * - **An earlier rung** — rung 2's local outranks rung 3 at a qualified seat as
+ *   much as at a bare one, and rung 1's declaration likewise.
+ * - **An occurrence that reaches no rendered face** — a qualifier in an
+ *   unexported binding's signature, or in a type written inside a body, spells
+ *   nothing this file publishes. That is what `renderedFaceTypes` is for.
+ *
+ * None of it is a rendering question: the faces are known from the module's
+ * items, and collecting the qualifiers they carry is a walk that produces no
+ * text — so the universe is complete before any spelling is chosen and the probe
+ * still runs once and early.
+ */
+function qualifyingAliases(
+  module: Core.Module,
+  prelude: PreludeIds,
+  own: ReadonlyMap<string, string>,
+  imported: ReadonlyMap<string, string>,
+  specializations: readonly FundamentalSpecialization[],
+): readonly string[] {
+  const occurrences: FaceQualifier[] = [];
+  for (const type of renderedFaceTypes(module, specializations)) {
+    faceQualifiers(type, occurrences);
+  }
+  const pinned = new Set([
+    ...(prelude.bool === undefined ? [] : [nominalHomeKey("union", Number(prelude.bool))]),
+    ...(prelude.seq === undefined ? [] : [nominalHomeKey("record", Number(prelude.seq))]),
+  ]);
+  const answered = new Set<string>();
+  for (const { qualifier, key } of occurrences) {
+    // A qualifier is a reference to a *binding*, so it means nothing outside the
+    // scope that holds it: only the writing module may read one back.
+    if (qualifier.module !== module.fileId) continue;
+    if (pinned.has(key) || own.has(key) || imported.has(key)) continue;
+    answered.add(qualifier.alias);
+  }
+  return module.items.flatMap((item) =>
+    item.kind === "Import" && !item.synthesized && item.form.kind === "Namespace" &&
+      answered.has(item.form.alias)
+      ? [item.form.alias]
+      : []
+  );
+}
+
+/**
+ * **Where the alias is contested, the alias yields the bare spelling to the
+ * declaration** (FFI Part 7 §2.4; Modules §11.2).
+ *
+ * Modules §5.2 makes `import module Point from "./point"` beside a declared
+ * `Point` legal — it is the companion idiom, not an accident — so rung 3's
+ * `Point.Point` can meet a top-level `Point` this same file emits. The
+ * declaration is, or may become, the module's public face; the alias is internal
+ * to the file, reaching it on its own import line and in the qualified faces
+ * that line serves, and nowhere else.
+ *
+ * A yielding alias is **a source name stepping aside, not a spelling the
+ * compiler minted**, so it takes the collision-only suffix its emitted-JavaScript
+ * counterpart takes — `Point_1`, counting from `_1` — rather than the minted
+ * local's probe, whose subject is names the compiler made up.
+ *
+ * The declaration file decides this **independently of the emitted JavaScript**,
+ * and the two may differ. They must: the `.js` binds terms and the `.d.ts` binds
+ * types and `declare const`s, so an alias forced to move in one can sit
+ * uncontested in the other. Neither choice is observable — an alias is exported
+ * from neither file.
+ *
+ * The empty map is the whole no-collision case, and it is the common one: every
+ * lookup misses, every alias keeps its own spelling, and a module without this
+ * collision emits the text it emitted before the plan existed.
+ *
+ * `contestants` is `declarationTopLevelNames` with the aliases themselves left
+ * out — an alias does not contest itself, and two aliases cannot share a
+ * spelling — so it is the same superset every probe here works against. Where it
+ * over-claims, an alias moves that need not have; the cost of that is a spelling
+ * exported from neither file, which is why the safe direction is this one.
+ */
+function declarationAliasPlan(
+  aliases: readonly string[],
+  contestants: ReadonlySet<string>,
+): ReadonlyMap<string, string> {
+  if (!aliases.some((alias) => contestants.has(alias))) return new Map();
+  const taken = new Set([...contestants, ...aliases]);
+  const plan = new Map<string, string>();
+  for (const alias of aliases) {
+    if (!contestants.has(alias)) continue;
+    let suffix = 1;
+    let local = `${alias}_${suffix}`;
+    while (taken.has(local)) local = `${alias}_${++suffix}`;
+    taken.add(local);
+    plan.set(alias, local);
+  }
+  return plan;
 }
 
 /**
@@ -1317,6 +1952,15 @@ interface DeclarationFaces {
  * for a source-level namespace import, so a module importing under the alias
  * `Hex` forces `Hex1`. That collision predates this ruling.
  *
+ * **`namespaceAliases` is the one part the caller supplies**, because it is the
+ * one member of this universe that is not over-claimed (§2.4). An alias reaches
+ * the `.d.ts` only where some occurrence qualifies through it, and one that does
+ * not contests nothing there; forcing `Hex1` for an alias absent from the file
+ * is exactly the failure the amended obligation 2 spells out. The declaration
+ * emitter passes the qualifying aliases under their *emitted* spellings; the
+ * preview, which writes every alias line unconditionally and is out of §2.4's
+ * scope, passes them all.
+ *
  * The set is deliberately a superset of the *source-derived* names a file can
  * emit. Whether a declaration reaches the file depends on its being exported
  * and on its kind, and re-deciding that here would be a second copy of `emit`'s
@@ -1324,31 +1968,44 @@ interface DeclarationFaces {
  * generated alias, which no user name depends on; under-claiming emits a
  * `.d.ts` that does not compile.
  *
- * The names the emitter *generates* are left out, and that is the one place
- * this is not a superset: `XBrand` brand constants and `__bindingN` locals
- * really do reach the file. Both are omitted, but on two different grounds now
- * that a brand is a face rather than a hygiene name (FFI Part 7 §5; #425):
+ * The names the emitter *generates* are left out, and that is the one place this
+ * is not a superset. The **brands** are put back by the caller — `DeclarationEmitter`
+ * adds them to every universe it builds — because they cannot be excluded on a
+ * spelling argument any more: they really do reach the file as `declare const
+ * <Name>Brand: unique symbol` (FFI Part 7 §5), and §2.4 rung 5's minted local is
+ * a *foreign type's own name*, which can end in `Brand` like anything else. The
+ * old ground for leaving them out — that no compiler-chosen spelling could
+ * collide with one — died with that rung.
  *
- * - A **brand** always ends `Brand`, or `Brand` and digits where its own probe
- *   had to move it, so it cannot spell `Hex` or `HexN`. Its guarantee is the
- *   suffix, not a prefix — brands sit deliberately outside Lexer §3.2's
- *   reserved `__`, and a scheme that ever drops the `Brand` tail has to revisit
- *   this.
- * - A **`__bindingN` local** is under that reserved prefix, which no `Hex`
- *   spelling can be.
+ * Two classes stay out, each on a prefix or suffix argument that still holds
+ * against every spelling this file can mint:
  *
- * Specialization editions are omitted on a weaker ground — they are
- * `${sourceName}${FundamentalType}`, hence always suffixed `Nat`/`Int`/`Float`/
- * `BigInt`/`Bool`/`String`/`Unit`, and no such name is `Hex` or `HexN` either.
- * A generated-name scheme that ever drops those shapes has to revisit this.
+ * - A **`__bindingN` local** is under Lexer §3.2's reserved prefix, which no
+ *   `Hex` spelling and no Hexagon type name can be.
+ * - A **specialization edition** is `${sourceName}${FundamentalType}`, hence
+ *   always suffixed `Nat`/`Int`/`Float`/`BigInt`/`Bool`/`String`/`Unit`. A
+ *   generated-name scheme that ever drops that shape has to revisit this — and
+ *   the brands are the standing example of a scheme whose shape argument did
+ *   lapse, so the revisit is not hypothetical.
+ *
+ * **The module's own items, never `module.symbols`.** That list also carries the
+ * prelude's terms and every symbol a *namespace* alias reaches, and neither is a
+ * top-level identifier of this file — a namespace member is spelled through its
+ * alias and nowhere else. Counting them is not over-approximation but error in
+ * the direction the rung order cannot absorb: a record's constructor shares its
+ * type's name, so every companion an alias reaches would push a minted local to
+ * `Name1` against a `Name` the file does not contain. The names the switch adds
+ * are exactly what `emit` can write at top level.
  */
-function declarationTopLevelNames(module: Core.Module): ReadonlySet<string> {
-  const names = new Set<string>();
+function declarationTopLevelNames(
+  module: Core.Module,
+  namespaceAliases: readonly string[] = allNamespaceAliases(module),
+): ReadonlySet<string> {
+  const names = new Set<string>(namespaceAliases);
   for (const item of module.items) {
     switch (item.kind) {
       case "Import":
-        if (item.form.kind === "Namespace") names.add(item.form.alias);
-        else if (item.form.kind === "Named") {
+        if (item.form.kind === "Named") {
           for (const name of item.form.names) names.add(name.local);
         }
         continue;
@@ -1366,16 +2023,23 @@ function declarationTopLevelNames(module: Core.Module): ReadonlySet<string> {
       case "Exception":
         names.add(item.binding.name);
         continue;
+      case "Let":
+      case "Fun":
+      case "Var":
+        names.add(item.binding.name);
+        continue;
       default:
         continue;
     }
   }
-  // `Let`/`Fun` names — and, redundantly, the constructor and exception names
-  // the switch already added, since `module.symbols` carries those too. The
-  // redundancy is kept: it is free, and a reader checking the switch against
-  // `emit` should not have to also know which kinds `symbols` covers.
-  for (const symbol of module.symbols) names.add(symbol.name);
   return names;
+}
+
+/** Every namespace alias the source wrote, gated or not; see the caller above. */
+function allNamespaceAliases(module: Core.Module): readonly string[] {
+  return module.items.flatMap((item) =>
+    item.kind === "Import" && item.form.kind === "Namespace" ? [item.form.alias] : []
+  );
 }
 
 /**
@@ -1383,8 +2047,8 @@ function declarationTopLevelNames(module: Core.Module): ReadonlySet<string> {
  * (FFI Part 1 §10, Part 12 §11.1). Only the generated import is renamed; a user
  * name always keeps its spelling.
  */
-function runtimeFacesAlias(module: Core.Module): string {
-  const taken = declarationTopLevelNames(module);
+function runtimeFacesAlias(module: Core.Module, universe?: ReadonlySet<string>): string {
+  const taken = universe ?? declarationTopLevelNames(module);
   if (!taken.has("Hex")) return "Hex";
   for (let suffix = 1; ; suffix += 1) {
     const candidate = `Hex${suffix}`;
@@ -7196,55 +7860,84 @@ class DeclarationEmitter {
   constructor(module: Core.Module, options: DeclarationEmissionOptions) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
-    const runtime = new RuntimeFaces(runtimeFacesAlias(module));
-    this.#faces = {
-      prelude: preludeIds(module),
-      runtime,
-      // The settled runtime alias joins the probe's universe: it is a top-level
-      // identifier of this file that `declarationTopLevelNames` deliberately
-      // does not carry, being generated rather than source-derived.
-      //
-      // That universe is a documented *superset* of what the file emits, and it
-      // is one here too — it carries every prelude term name, so a prelude
-      // record whose constructor shares its type's name would take `Name1`
-      // against no real collision. Cosmetic, and it errs the safe way: the cost
-      // of over-claiming is a moved generated spelling, the cost of
-      // under-claiming is a `.d.ts` that does not compile. No prelude type is
-      // affected today (`Seq` is opaque, so no term shares a type's name).
-      preludeTypes: new PreludeTypeFaces(
-        module.preludeTypeImports,
-        [...declarationTopLevelNames(module), runtime.alias],
+    // Hoisted above the alias set because that set has to know which constrained
+    // exports render a face at all, and this is what decides it. A pure function
+    // of the module, so it settles here as readily as at the end.
+    const plan = planFundamentalSpecializations(module);
+    this.#specializations = plan.specializations;
+    // Every spelling below is settled **before** a single face is rendered, and
+    // that is what §2.4's rung order rests on: the probe's universe is a property
+    // of the module, so `reference` can return finished text and nothing has to
+    // be patched in afterwards. The one input that would otherwise need the
+    // rendering — whether an alias reaches the file — is answered by walking the
+    // types the file will render, a walk that produces no text (`qualifyingAliases`).
+    const own = declaredNominals(module);
+    const imported = importedNominals(module);
+    const prelude = preludeIds(module);
+    const aliases = qualifyingAliases(module, prelude, own, imported, plan.specializations);
+    // **The brands are settled first and then contest everything after them.**
+    // A brand is derived from a declared name, so it is as much a property of
+    // the module as the declaration is — but it is emitted, `declare const
+    // <Name>Brand: unique symbol`, and it therefore belongs in every universe
+    // below. It did not have to before: the exclusion rested on no
+    // compiler-chosen spelling being able to end in `Brand`, and rung 5's
+    // candidate is a *foreign type's own name*, which can end in anything. A
+    // foreign `PointBrand` minted beside an `opaque record Point` collided
+    // silently — TS2440 and two TS2395s on a program with no Hexagon diagnostic.
+    const brands = emittedBrandNames(module, this.#opaqueBrands);
+    const aliasLocals = declarationAliasPlan(
+      aliases,
+      new Set([...declarationTopLevelNames(module, []), ...brands]),
+    );
+    const universe = new Set([
+      ...declarationTopLevelNames(
+        module,
+        aliases.map((alias) => aliasLocals.get(alias) ?? alias),
       ),
+      ...brands,
+    ]);
+    const runtime = new RuntimeFaces(runtimeFacesAlias(module, universe));
+    // The settled runtime alias joins the probe's universe: it is a top-level
+    // identifier of this file that `declarationTopLevelNames` deliberately does
+    // not carry, being generated rather than source-derived.
+    //
+    // That universe is a documented *superset* of what the file emits, and it is
+    // one here too — a declaration that reaches no `.d.ts` row still spends its
+    // name. Cosmetic, and it errs the safe way: the cost of over-claiming is a
+    // moved generated spelling, the cost of under-claiming is a `.d.ts` that
+    // does not compile.
+    const taken = new Set([...universe, runtime.alias]);
+    this.#faces = {
+      prelude,
+      runtime,
+      nominals: new NominalFaces({
+        fileId: module.fileId,
+        own,
+        imported,
+        aliasLocals: new Map(aliases.map((alias) => [alias, aliasLocals.get(alias) ?? alias])),
+        prelude: new PreludeTypeFaces(module.preludeTypeImports, taken),
+        homes: options.nominalHomes,
+        path: options.modulePath,
+        taken,
+      }),
     };
     this.#runtimeSpecifier = options.runtimeSpecifier ?? DEFAULT_RUNTIME_SPECIFIER;
     this.#docs = new DocIndex(module.docs);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
-    const plan = planFundamentalSpecializations(module);
-    this.#specializations = plan.specializations;
     addSpecializationCollisionDiagnostics(this.#diagnostics, module, plan.collisions);
   }
 
   emit(): Emitted.Declarations {
-    const declarations: string[] = [];
+    // A source-written import line is owed by the *answers its names gave*, and
+    // no answer is in before rendering ends — so the item's seat is reserved
+    // here and filled at the end. §2.4's Placement: a line rung 2 or rung 3 owes
+    // keeps its **source position**, because it is the module's own import and
+    // not the compiler's, and is simply absent where no answer owed it.
+    const declarations: (string | Core.ImportItem)[] = [];
     let isExternalModule = false;
     for (const item of this.#module.items) {
       if (item.kind === "Import") {
-        const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
-        if (item.form.kind === "Namespace") {
-          declarations.push(`import type * as ${item.form.alias} from ${specifier};`);
-          isExternalModule = true;
-        } else if (item.form.kind === "Named") {
-          // Every name that binds a type, not just those binding *only* a type
-          // (§2.4 channel 1): a record's name imports its constructor and its
-          // type at once, and the term half must not cost the `.d.ts` its type
-          // row. The JavaScript side reads `typeOnly` and is untouched.
-          const names = item.form.names.filter(({ typeBinding }) => typeBinding === true)
-            .map(({ imported, local }) => imported === local ? imported : `${imported} as ${local}`);
-          if (names.length > 0) {
-            declarations.push(`import type { ${names.join(", ")} } from ${specifier};`);
-            isExternalModule = true;
-          }
-        }
+        declarations.push(item);
         continue;
       }
       if (item.kind === "ExternBlock") {
@@ -7438,13 +8131,35 @@ class DeclarationEmitter {
       declarations.push(renderIsHexErrorDeclaration());
       isExternalModule = true;
     }
-    // The prelude types the rendered faces actually reached (§2.4). Unshifted
-    // for the reason the runtime import below is: a compiler-written import
-    // precedes the module's own items. They are read only now, when every face
-    // has been rendered and the referenced set is closed.
-    const preludeTypeLines = this.#faces.preludeTypes.lines();
-    if (preludeTypeLines.length > 0) {
-      declarations.unshift(...preludeTypeLines.map(({ line }) => line));
+    // Every rung's answers are in; the file's imports are exactly what they owe.
+    //
+    // The source-written lines first, in their own seats: a namespace line is
+    // written where a face qualified through it, and a named line keeps only the
+    // names an answer reached. Everything an import binds that no face named
+    // vanishes — a companion imported for its terms, a term-only name, a type
+    // alias whose expansion the faces carry instead of its name. That is one
+    // rule, not a feature of its own, and it is what dissolves the alias/
+    // declaration and alias/named-import collisions with no renaming at all.
+    let importSurvived = false;
+    const rendered = declarations.flatMap((entry) => {
+      if (typeof entry === "string") return [entry];
+      const lines = this.#importLines(entry);
+      importSurvived ||= lines.length > 0;
+      return lines;
+    });
+    isExternalModule ||= importSurvived;
+    // The prelude types the rendered faces actually reached (§2.4 rung 4), then
+    // rung 5's minted lines. Unshifted for the reason the runtime import below
+    // is: a compiler-written import precedes the module's own items. They are
+    // read only now, when every face has been rendered and the answers are
+    // closed.
+    const preludeTypeLines = this.#faces.nominals.preludeLines();
+    const mintedTypeLines = this.#faces.nominals.mintedLines();
+    if (preludeTypeLines.length > 0 || mintedTypeLines.length > 0) {
+      rendered.unshift(
+        ...preludeTypeLines.map(({ line }) => line),
+        ...mintedTypeLines.map(({ line }) => line),
+      );
       isExternalModule = true;
     }
     // Exactly one type-only import of the runtime declaration module, and only
@@ -7454,22 +8169,58 @@ class DeclarationEmitter {
     // type-only and erases, so it adds no emitted JavaScript dependency and no
     // `hex.js` is ever written.
     if (this.#faces.runtime.used) {
-      declarations.unshift(
+      rendered.unshift(
         `import type * as ${this.#faces.runtime.alias} from ` +
           `${JSON.stringify(this.#runtimeSpecifier)};`,
       );
       isExternalModule = true;
     }
-    if (!isExternalModule) declarations.push("export {};");
+    if (!isExternalModule) rendered.push("export {};");
 
     return {
       kind: "Declarations",
       fileId: this.#module.fileId,
-      text: `${declarations.join("\n")}\n`,
+      text: `${rendered.join("\n")}\n`,
       importsRuntimeTypes: this.#faces.runtime.used,
       preludeTypeImports: [...new Set(preludeTypeLines.map(({ specifier }) => specifier))],
+      mintedTypeImports: [...new Set(mintedTypeLines.map(({ specifier }) => specifier))],
       diagnostics: this.#diagnostics.toArray(),
     };
+  }
+
+  /**
+   * One source-written import item's `.d.ts` lines — none, where no rendered
+   * face answered through it (§2.4).
+   *
+   * The declaration file is not a transcription of the module's import list; it
+   * carries what its faces need. A module importing a companion for its *terms*
+   * — the common case, and the whole of the companion idiom — writes no
+   * declaration-side line for it, and so cannot collide on its alias.
+   */
+  #importLines(item: Core.ImportItem): readonly string[] {
+    const specifier = JSON.stringify(emittedModuleSpecifier(item.specifier));
+    if (item.form.kind === "Namespace") {
+      if (!this.#faces.nominals.usedAlias(item.form.alias)) return [];
+      return [
+        `import type * as ${this.#faces.nominals.aliasLocal(item.form.alias)} from ${specifier};`,
+      ];
+    }
+    // No `synthesized` test on either arm, and none is owed: the one synthesized
+    // item is the prelude's used-names import, whose `ImportName`s carry neither
+    // `typeBinding` nor an identity, so the gate below declines them anyway. A
+    // test that can never fire is a claim about a shape that does not exist.
+    if (item.form.kind !== "Named") return [];
+    // Every name that binds a type, not just those binding *only* a type: a
+    // record's name imports its constructor and its type at once, and the term
+    // half must not cost the `.d.ts` its type row. The JavaScript side reads
+    // `typeOnly` and is untouched.
+    const names = item.form.names.flatMap((name) => {
+      const identity = importNameIdentity(name);
+      if (name.typeBinding !== true || identity === undefined) return [];
+      if (!this.#faces.nominals.usedImport(identity)) return [];
+      return [name.imported === name.local ? name.imported : `${name.imported} as ${name.local}`];
+    });
+    return names.length === 0 ? [] : [`import type { ${names.join(", ")} } from ${specifier};`];
   }
 
   /**
@@ -7513,8 +8264,11 @@ class TypeScriptPreviewEmitter {
     this.#faces = {
       prelude: preludeIds(module),
       runtime: new RuntimeFaces(runtimeFacesAlias(module)),
-      // Inert: §2.4's Scope keeps the preview on bare names.
-      preludeTypes: new PreludeTypeFaces([], []),
+      // Inert: §2.4's Scope keeps the preview on bare names. It is one pane of
+      // text with nothing to import from, so every rung declines and the sink
+      // answers with the declared name — which is what the preview has always
+      // printed, and what §14.3 leaves unchanged.
+      nominals: bareNominalFaces(module.fileId),
     };
     this.#docs = new DocIndex(module.docs);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
@@ -10021,9 +10775,13 @@ function renderType(
       // `boolean`, not as the `"False" | "True"` string union its all-nullary
       // shape would otherwise produce. Only the prelude's; a user union spelled
       // `Bool` renders as itself.
+      //
+      // §2.3's pins are settled **before the sink is asked**, so a qualified
+      // `S.Bool` faces as `boolean` and imports nothing, exactly as a bare one
+      // does: what the pin governs is the face, not the spelling that reached it.
       if (faces.prelude.bool !== undefined && type.union === faces.prelude.bool) return "boolean";
       return renderNominal(
-        faces.preludeTypes.referenceUnion(type.union) ?? type.name,
+        faces.nominals.reference({ kind: "union", id: type.union }, type.qualifier, type.name),
         type.arguments,
         variables,
         faces,
@@ -10038,13 +10796,17 @@ function renderType(
         return `Iterable<${renderType(type.arguments[0] ?? { kind: "Error" }, variables, faces, false)}>`;
       }
       return renderNominal(
-        faces.preludeTypes.referenceRecord(type.record) ?? type.name,
+        faces.nominals.reference({ kind: "record", id: type.record }, type.qualifier, type.name),
         type.arguments,
         variables,
         faces,
       );
     case "ExternType":
-      return faces.preludeTypes.referenceExternType(type.externType) ?? type.name;
+      return faces.nominals.reference(
+        { kind: "externType", id: type.externType },
+        type.qualifier,
+        type.name,
+      );
     case "Tuple":
       // The arity-indexed representation's `.d.ts` faces (Products §2.6, #159):
       // at arity 0 the value is `undefined`, never `[]` — a `Unit`-returning
