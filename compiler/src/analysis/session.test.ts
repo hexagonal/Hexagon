@@ -1082,7 +1082,7 @@ describe("AnalysisSession.rename", () => {
 
 describe("hover: a parameterized opaque type's variance (#205)", () => {
   test("shows the declared claim and what the representation supports", () => {
-    const source = "export opaque record Box(+a) = { get: () -> a }\n";
+    const source = "opaque record Box(+a) = { get: () -> a }\n";
     const { session } = sessionOf({ "/main.hex": source });
     const hover = session.hover("/main.hex", at(source, "+a"));
     expect(hover?.name).toBe("a");
@@ -1093,7 +1093,7 @@ describe("hover: a parameterized opaque type's variance (#205)", () => {
   test("a bare parameter says so, and says what it costs", () => {
     // The empty claim is a claim, and the two lines together are the whole
     // teaching surface: this is what you wrote, this is what you could write.
-    const source = "export opaque record Box(a) = { get: () -> a }\n";
+    const source = "opaque record Box(a) = { get: () -> a }\n";
     const { session } = sessionOf({ "/main.hex": source });
     const hover = session.hover("/main.hex", at(source, "a) = {"));
     expect(hover?.documentation).toContain("no claim (bare, so invariant outside this module)");
@@ -1101,7 +1101,7 @@ describe("hover: a parameterized opaque type's variance (#205)", () => {
   });
 
   test("a parameter the representation never mentions reads as unused", () => {
-    const source = "export opaque record Tag(a) = { name: String }\n";
+    const source = "opaque record Tag(a) = { name: String }\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.hover("/main.hex", at(source, "a) = {"))?.documentation)
       .toContain("unused");
@@ -1121,7 +1121,7 @@ describe("hoverSpans (#254)", () => {
   /**
    * Every position the issue measured a disagreement at, in one file: a record
    * field and an `honor` member (no occurrence identity, documented and
-   * undocumented), an `export opaque` type parameter (a variance site and
+   * undocumented), an `opaque` type parameter (a variance site and
    * nothing else), a union declaration name, and a constraint named in an
    * `honor` head.
    */
@@ -1138,7 +1138,7 @@ describe("hoverSpans (#254)", () => {
     "honor Shown<P> =",
     "    show(value) = value.name",
     "",
-    "export opaque record Box(a) = { get: () -> a }",
+    "opaque record Box(a) = { get: () -> a }",
     "",
     "union Shade =",
     "    | Pale",

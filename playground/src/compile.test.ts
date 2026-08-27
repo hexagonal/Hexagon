@@ -396,7 +396,7 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("const half = Rat.create(1n, 2n);");
     expect(response.javascript).toContain("const tenTwelfths = Rat.create(10n, 12n);");
     expect(response.javascript).toContain("tenTwelfths, fiveSixths");
-    expect(response.javascript).not.toContain("export opaque record Rat");
+    expect(response.javascript).not.toContain("opaque record Rat");
     expect(response.executionModules.map(({ path }) => path)).toContain(
       "/stdlib/Rat.hex",
     );

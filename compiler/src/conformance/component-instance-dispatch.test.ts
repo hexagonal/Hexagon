@@ -12,7 +12,7 @@ import { compileFiles, compileMain, runMain, runProject } from "../support/test-
  * structurally, reaching into each nominal component's representation. A
  * hand-written `honor Ord<T>` on a field type was therefore *partially dead*:
  * `t1 < t2` consulted it and `container1 < container2` did not, and the two
- * silently disagreed. It read through `export opaque` for the same reason, and
+ * silently disagreed. It read through `opaque` for the same reason, and
  * imported the component's dictionary only to leave it unused.
  *
  * The rule is **always dispatch**: wherever the walk meets a nominal component,
@@ -257,9 +257,9 @@ describe("direct structural use sites run the same walk", () => {
   });
 });
 
-describe("across module boundaries and through `export opaque`", () => {
+describe("across module boundaries and through `opaque`", () => {
   const component =
-    "export opaque record Metre derives Eq = {span: Int}\n" +
+    "opaque record Metre derives Eq = {span: Int}\n" +
     "export fun metre(n: Int): Metre = Metre({span = n})\n" +
     "honor Ord<Metre> =\n" +
     "    compare(left, right) = if left.span < right.span then Greater else if right.span < left.span then Less else Equal\n" +

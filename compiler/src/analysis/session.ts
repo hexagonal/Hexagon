@@ -393,7 +393,7 @@ export class AnalysisSession {
   }
 
   /**
-   * A parameterized `export opaque` declaration's parameter, hovered.
+   * A parameterized `opaque` declaration's parameter, hovered.
    *
    * Only for a declaration written in *this* file: the spans come from the
    * declaration head, and an imported declaration's head is in another file.

@@ -24,7 +24,7 @@ export interface ParameterSite {
 }
 
 /**
- * Every parameterized `export opaque` declaration *written in this file* whose
+ * Every parameterized `opaque` declaration *written in this file* whose
  * parameters have spans. Imported declarations are excluded by the file check:
  * their heads live in a stranger's source, and neither an edit nor a hover here
  * may be about a span in another file.

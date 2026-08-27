@@ -920,7 +920,7 @@ describe("members cannot be imported severally (Modules §3.1, §12.4)", () => {
   });
 });
 
-describe("`export honor` and `export opaque constraint` (Modules §4.1, §10)", () => {
+describe("`export honor` and `opaque constraint` (Modules §4.1, §10)", () => {
   test("`export honor` names the rule rather than the grammar", () => {
     expect(messagesOf([["/main.hex", [
       "constraint Tally<a> =",
@@ -934,9 +934,9 @@ describe("`export honor` and `export opaque constraint` (Modules §4.1, §10)", 
     );
   });
 
-  test("`export opaque constraint` names where `opaque` applies", () => {
+  test("`opaque constraint` names where `opaque` applies", () => {
     expect(messagesOf([["/main.hex", [
-      "export opaque constraint Hidden<a> =",
+      "opaque constraint Hidden<a> =",
       "    peek(subject: a): Int",
       "",
     ].join("\n")]])).toContain(

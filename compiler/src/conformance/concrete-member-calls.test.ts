@@ -601,7 +601,7 @@ describe("what the clause does not reach", () => {
 
 /** `stdlib/Rat.hex`, the one prelude companion whose members are ordinary source. */
 const RAT = [
-  "export opaque record Rat derives (Eq, Hash) = {",
+  "opaque record Rat derives (Eq, Hash) = {",
   "    top: BigInt,",
   "    bottom: BigInt,",
   "}",

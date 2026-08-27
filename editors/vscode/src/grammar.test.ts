@@ -142,11 +142,27 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     expect(await scope("let as = 1", "as")).toBe("variable.other.definition.hexagon");
   });
 
+  /**
+   * `opaque` fills the head's visibility slot on its own since #590 — no
+   * leading `export` — so the bare head is the spelling the grammar has to
+   * paint. The refused pair is painted too: it is what a pre-#590 file still
+   * says while its migration is pending, and a grammar colours what is written.
+   */
   it("recognizes `opaque` only before `record`/`union`", async () => {
+    expect(await scope("opaque record Seq(a) = {}", "opaque")).toBe(
+      "storage.modifier.hexagon",
+    );
+    expect(await scope("opaque union Box(a) = Wrap(v: a)", "opaque")).toBe(
+      "storage.modifier.hexagon",
+    );
     expect(await scope("export opaque record Seq(a) = {}", "opaque")).toBe(
       "storage.modifier.hexagon",
     );
     expect(await scope("let opaque = 1", "opaque")).toBe("variable.other.definition.hexagon");
+    expect(await scope("let f(opaque: Int): Int = 1", "opaque")).toBe(
+      "variable.parameter.hexagon",
+    );
+    expect(await scope("let r = { opaque = 1 }", "opaque")).toBe("variable.other.hexagon");
   });
 
   /**
@@ -165,7 +181,7 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     expect(await scope("export union Shape = Circle | Rect", "union")).toBe(
       "storage.type.hexagon",
     );
-    expect(await scope("export opaque union Box(a) = Wrap(v: a)", "union")).toBe(
+    expect(await scope("opaque union Box(a) = Wrap(v: a)", "union")).toBe(
       "storage.type.hexagon",
     );
     // An ordinary name everywhere else, in whichever term role the position
@@ -412,7 +428,7 @@ describe("type variables are nominal-coloured in type positions", () => {
 
   it("paints a variance sigil with the parameter it claims (#205)", async () => {
     const pairs = await scopePairs(
-      "export opaque record Registry(k, +v) = {get: k -> Option(v)}",
+      "opaque record Registry(k, +v) = {get: k -> Option(v)}",
     );
     expect(pairs.filter(([text]) => ["k", "v", "+"].includes(text))).toEqual([
       ["k", "entity.name.type.parameter.hexagon"],
@@ -424,7 +440,7 @@ describe("type variables are nominal-coloured in type positions", () => {
   });
 
   it("paints a contravariant sigil the same way", async () => {
-    expect(await scope("export opaque record Sink(-a) = {accept: a -> Unit}", "-")).toBe(
+    expect(await scope("opaque record Sink(-a) = {accept: a -> Unit}", "-")).toBe(
       "storage.modifier.variance.hexagon",
     );
   });
@@ -873,6 +889,36 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
     for (const guard of guards) {
       expect(guard, guard).toContain(
         "|widens(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|union",
+      );
+    }
+  });
+
+  /**
+   * `opaque` joins the guard on the same terms, and #590 is what put it there:
+   * the word now heads a declaration by itself, so a line beginning `opaque
+   * record Point = ...` is a declaration start an unclosed bracket or comment
+   * must not swallow. Before #590 the guard's `export` arm covered every one of
+   * these lines, because the word could not appear without it.
+   *
+   * Keyed on the follower like its two neighbours, and for their reason: the
+   * word is contextual, so an indented continuation may legitimately read
+   * `opaque(x)` or `opaque + 1`, and a bare arm would bail at a line that never
+   * left the group. The follower is `record`/`union` rather than a start class —
+   * the refused subjects (`opaque type`, `opaque let`, …) are diagnosed lines,
+   * and a guard is for structure, not for repair.
+   *
+   * It sits *first* in the contextual arms, which keeps the `union` assertion
+   * above measuring what it says it measures: that arm is still last in the
+   * group.
+   */
+  it("admits `opaque` to the guard only ahead of `record`/`union`", async () => {
+    const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
+      .filter((end) => end.includes("(?=^\\S"));
+    expect(guards).toHaveLength(15);
+    for (const guard of guards) {
+      expect(guard, guard).toContain(
+        "|opaque(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+(?:record|union)" +
+          "(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])|widens",
       );
     }
   });

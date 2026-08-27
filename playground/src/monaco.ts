@@ -198,7 +198,7 @@ export function createMonacoEditors(
    * (`hoverSpans`). It used to gate on the compile's type-occurrence table,
    * which answers a different question — where a *value* has a displayable type
    * — and so opened an empty hover on a record field and stayed shut on an
-   * `export opaque` type parameter, a union's name, and a constraint in an
+   * `opaque` type parameter, a union's name, and a constraint in an
    * `honor` head. A gate not derived from the answer drifts from it; this one
    * is the answer, sampled.
    *

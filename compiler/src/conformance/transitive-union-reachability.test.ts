@@ -116,7 +116,7 @@ describe("the coverage column answers from the reached declaration", () => {
     expect(diagnostics([
       [
         "/a.hex",
-        "export opaque union Flag = On | Off\n" +
+        "opaque union Flag = On | Off\n" +
         "export fun make(): Flag = On\n",
       ],
       [

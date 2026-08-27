@@ -36,7 +36,7 @@ import { compileFiles, runProject } from "../support/test-project.js";
 /** The companion module Modules §5.3's example is written against. */
 const POINT = [
   "/point.hex",
-  "export opaque record Point = {x: Float, y: Float}\n" +
+  "opaque record Point = {x: Float, y: Float}\n" +
     "export fun make(x: Float, y: Float): Point = Point({x = x, y = y})\n" +
     "export fun getX(p: Point): Float = p.x\n",
 ] as const;
@@ -175,7 +175,7 @@ describe("a contestant that binds nothing in JavaScript is no contestant", () =>
 
   test("an imported opaque record's type leaves the alias alone", () => {
     expect(javascript([LIB, ["/op.hex",
-      "export opaque record Lib = {n: Int}\n" +
+      "opaque record Lib = {n: Int}\n" +
         "export fun make(n: Int): Lib = Lib({n = n})\n",
     ], [
       "/main.hex",

@@ -39,7 +39,7 @@ function messages(files: readonly (readonly [string, string])[]): readonly strin
 /** The companion module §5.3's example is written against. */
 const POINT = [
   "/point.hex",
-  "export opaque record Point = {x: Float, y: Float}\n" +
+  "opaque record Point = {x: Float, y: Float}\n" +
     "export fun make(x: Float, y: Float): Point = Point({x = x, y = y})\n" +
     "export fun getX(p: Point): Float = p.x\n",
 ] as const;

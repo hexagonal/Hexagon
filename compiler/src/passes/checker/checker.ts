@@ -10485,7 +10485,7 @@ class Checker {
    *
    * The stored `representationVisible` flag answers a narrower question: the
    * resolver stamps every imported copy `false` regardless of opacity, so it
-   * means "this copy is the declaring module's own". Only `export opaque`
+   * means "this copy is the declaring module's own". Only `opaque`
    * hides fields (§4.2); a plain `export record` carries construction, `p.x`,
    * patterns, and update across the import (§4.1). So the home module always
    * sees, and everyone else sees exactly when the declaration is not opaque.

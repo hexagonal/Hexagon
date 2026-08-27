@@ -124,7 +124,7 @@ describe("a member name with no instance behind it is still a misspelling", () =
       diagnostics([
         [
           "/vault.hex",
-          "export opaque record Token = {show: (Int) -> Int}\n" +
+          "opaque record Token = {show: (Int) -> Int}\n" +
             "export fun issue(f: (Int) -> Int): Token = Token({show = f})\n",
         ],
         [

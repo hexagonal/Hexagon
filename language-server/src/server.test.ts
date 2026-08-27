@@ -1114,7 +1114,7 @@ describe("hover renders the arrow trio", () => {
  */
 describe("the companion fallback reaches the editor", () => {
   const POINT = [
-    "export opaque record Point = {x: Float, y: Float}",
+    "opaque record Point = {x: Float, y: Float}",
     "",
     "export let getX(p: Point): Float = p.x",
     "",
@@ -1186,8 +1186,10 @@ describe("the companion fallback reaches the editor", () => {
     expect(definition).toHaveLength(1);
     expect(definition[0]!.uri).toBe(hex.uriOf("point.hex"));
     expect(definition[0]!.range).toEqual({
-      start: { line: 0, character: 21 },
-      end: { line: 0, character: 26 },
+      // `opaque record Point` — the head is one word since #590, so the name
+      // starts seven columns earlier than it did under `export opaque`.
+      start: { line: 0, character: 14 },
+      end: { line: 0, character: 19 },
     });
   });
 

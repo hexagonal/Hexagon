@@ -38,6 +38,20 @@ const clauseContinuations = new Set<Lexed.Token["kind"]>([
 ]);
 
 /**
+ * The declaration keywords the head's visibility slot may stand before (Modules
+ * §4). `union` is absent because it is contextual and needs a second token of
+ * lookahead — `declarationStart` does that test itself.
+ */
+const opensDeclaration = new Set<Lexed.Token["kind"]>([
+  "Let",
+  "Fun",
+  "Type",
+  "Record",
+  "Exception",
+  "Constraint",
+]);
+
+/**
  * Tokens that can only *continue* an expression, never begin a new item. A line
  * at an open block's own indentation that starts with one of these continues the
  * preceding item instead of receiving a VSEP, so an aligned multiline chain
@@ -260,7 +274,8 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
     return true;
   }
 
-  const first = item[item[0]?.kind === "Export" ? 1 : 0];
+  const head = declarationStart(item);
+  const first = item[head];
   if (
     first?.kind === "Extern" &&
     item.some((token) => token.kind === "NonUpperName" && token.text === "from") &&
@@ -282,7 +297,7 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   // *name* follows only in a declaration; a member binding spelled `union(l, r)`
   // has a `LeftParen` there and must keep opening its block like any other.
   const unionHead = first?.kind === "NonUpperName" && first.text === "union" &&
-    ["UpperName", "NonUpperName"].includes(item[item[0]?.kind === "Export" ? 2 : 1]?.kind ?? "");
+    ["UpperName", "NonUpperName"].includes(item[head + 1]?.kind ?? "");
   if (first?.kind === "Record" || unionHead || first?.kind === "Type") {
     return false;
   }
@@ -301,7 +316,7 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   // through the parameter-list rule below.
   if (
     first?.kind === "NonUpperName" && first.text === "widens" &&
-    item[item[0]?.kind === "Export" ? 2 : 1]?.kind === "UpperName"
+    item[head + 1]?.kind === "UpperName"
   ) {
     return true;
   }
@@ -309,8 +324,38 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   return hasBindingParameterList(item);
 }
 
+/**
+ * Where the declaration proper begins, past whatever fills the head's
+ * **visibility slot** (Modules §4, #590).
+ *
+ * `export` and `opaque` are two values of one slot, so layout has to look past
+ * either to find the word that decides whether a block opens — and past both
+ * where the refused pair `export opaque` is written, since layout runs before
+ * the parser reports it and the line still has to lay out as the declaration it
+ * plainly is.
+ *
+ * `opaque` is contextual (Lexer §4.2), recognized here on the parser's own test
+ * and for its reason: a declaration keyword — or a `union` head — immediately
+ * after the word, which no term named `opaque` could ever be followed by, since
+ * the grammar has no juxtaposition. `let opaque = 3` and `opaque(2)` are
+ * untouched.
+ */
+function declarationStart(item: readonly Lexed.Token[]): number {
+  const index = item[0]?.kind === "Export" ? 1 : 0;
+  const word = item[index];
+  if (word?.kind !== "NonUpperName" || word.text !== "opaque") return index;
+  const next = item[index + 1];
+  if (next === undefined) return index;
+  if (next.kind === "NonUpperName" && next.text === "union") {
+    return ["UpperName", "NonUpperName"].includes(item[index + 2]?.kind ?? "")
+      ? index + 1
+      : index;
+  }
+  return opensDeclaration.has(next.kind) ? index + 1 : index;
+}
+
 function hasBindingParameterList(item: readonly Lexed.Token[]): boolean {
-  let index = item[0]?.kind === "Export" ? 1 : 0;
+  let index = declarationStart(item);
   const first = item[index];
   if (first?.kind === "NonUpperName") {
     return item[index + 1]?.kind === "LeftParen";

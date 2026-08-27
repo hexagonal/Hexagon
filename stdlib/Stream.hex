@@ -1,7 +1,7 @@
 (** An effectful pull sequence: every pull asks the world for the next element,
     and a pull is spent. It is `Seq`'s impure nominal sibling — no tail, no
     persistence, and no replay of any kind. *)
-export opaque record Stream(+a) = { next: () ->! Option(a) }
+opaque record Stream(+a) = { next: () ->! Option(a) }
 
 extern from "hex:intrinsic"
     (** A pure sequence driven as a stream: each pull takes one step of `source`

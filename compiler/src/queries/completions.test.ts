@@ -304,7 +304,7 @@ describe("completions", () => {
       "export let plain(colour: Colour): Colour = colour",
       "",
       "(** A box, sealed. *)",
-      "export opaque record Box = { width: Int }",
+      "opaque record Box = { width: Int }",
       "",
       'extern from "node:fs"',
       "    (** What the filesystem knows. *)",

@@ -678,7 +678,7 @@ describe("shapes the §11 snippets do not exhibit", () => {
 
   test("opaque exports document their branded type, not the brand", () => {
     const main = compiled(
-      "(** An opaque handle. *)\nexport opaque record Handle = {id: Int}\n",
+      "(** An opaque handle. *)\nopaque record Handle = {id: Int}\n",
     );
 
     expect(main.declarations.text).toContain(

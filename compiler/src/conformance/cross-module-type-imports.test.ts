@@ -94,7 +94,7 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
       [
         "/Prelude.hex",
         `${PRELUDE_SOURCES["Prelude.hex"]!}\n` +
-          "export opaque record Pair = {left: Int, right: Int}\n" +
+          "opaque record Pair = {left: Int, right: Int}\n" +
           'extern from "./shapes.js"\n    export type Handle\n',
       ],
     ]);

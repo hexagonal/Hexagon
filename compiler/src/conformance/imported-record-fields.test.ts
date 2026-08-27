@@ -7,7 +7,7 @@ import { compileProject, Source } from "../index";
  *
  * `export record` exports the type *and* the constructor, "fields come with the
  * constructor: construction, `p.x`, patterns, update" (§4.1), and §13(b) pins
- * that row across an import. Only `export opaque record` withholds them (§4.2).
+ * that row across an import. Only `opaque record` withholds them (§4.2).
  *
  * The defect (#285) was that the checker read one flag for two questions. The
  * resolver stamps `representationVisible: false` on every imported nominal copy
@@ -115,7 +115,7 @@ describe("opacity is unchanged — the control on §4.2", () => {
   // These hold before and after #285's fix. They are here so that a repair
   // reached by unstamping imported copies in the resolver, rather than by
   // asking the declaration whether it is opaque, fails loudly.
-  const VAULT = "export opaque record Token = {value: Int}\n" +
+  const VAULT = "opaque record Token = {value: Int}\n" +
     "export fun issue(value: Int): Token = Token({value = value})\n";
 
   test("an opaque record's fields stay private through a named import", () => {

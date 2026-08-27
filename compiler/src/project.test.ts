@@ -93,7 +93,7 @@ test("makes an imported module's coherent instances available to operators", () 
     new Source.File(
       Source.fileId(0),
       "/box.hex",
-      "export opaque record Box = {value: Int}\n" +
+      "opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
         "honor Num<Box> =\n" +
         "    add(left, right) = create(left.value + right.value)\n" +
@@ -128,7 +128,7 @@ test("propagates coherent instances through the complete import graph", () => {
     new Source.File(
       Source.fileId(0),
       "/box.hex",
-      "export opaque record Box = {value: Int}\n" +
+      "opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
         "honor Num<Box> =\n" +
         "    add(left, right) = create(left.value + right.value)\n" +
@@ -171,7 +171,7 @@ test("deduplicates one coherent instance reached through a diamond import", () =
     new Source.File(
       Source.fileId(0),
       "/box.hex",
-      "export opaque record Box = {value: Int}\n" +
+      "opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
         "honor Num<Box> =\n" +
         "    add(left, right) = create(left.value + right.value)\n" +
@@ -316,7 +316,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
       Source.fileId(0),
       "/vault.hex",
       "export type Pair(a) = (a, a)\n" +
-        "export opaque record Token = {value: Int}\n" +
+        "opaque record Token = {value: Int}\n" +
         "export fun issue(value: Int): Token = Token({value = value})\n" +
         "export fun reveal(token: Token): Int = token.value",
     ),
