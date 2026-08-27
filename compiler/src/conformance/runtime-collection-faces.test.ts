@@ -144,15 +144,13 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
     );
   });
 
-  // A private union's shape still reaches the `.d.ts` (it may be named by an
-  // exported signature), so a module can render a face while exporting
-  // nothing. The import alone makes the file a module, so no `export {};`
-  // follows it — the marker exists for a file that has neither.
-  test("a file whose only face is in a private declaration needs no `export {};`", () => {
-    expect(declarations("union Holder = Held(rows: Vector(Int))\n")).toBe(
-      'import type * as Hex from "./hex.js";\n' +
-        'type Holder = { tag: "Held"; rows: Hex.Vector<number> };\n',
-    );
+  // A private declaration reaches the shipped `.d.ts` in no form at all
+  // (Modules §11.4, #621 — the union arm's missing `exported` gate was the one
+  // exception, and it published the whole representation). A module of nothing
+  // but private declarations therefore renders no face, imports nothing, and
+  // takes the marker, which is what says the empty file is a module.
+  test("a file whose only declaration is private renders nothing, and takes the marker", () => {
+    expect(declarations("union Holder = Held(rows: Vector(Int))\n")).toBe("export {};\n");
   });
 
   test("the import leads the file, ahead of the module's own imports", () => {

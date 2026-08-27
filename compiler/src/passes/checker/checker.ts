@@ -1316,6 +1316,8 @@ class Checker {
    */
   readonly #recordConstructors = new Map<Resolved.SymbolId, Resolved.RecordId>();
   readonly #aliasParameters = new WeakMap<Resolved.TypeAliasItem, ReadonlyMap<string, Variable>>();
+  /** Each type alias's elaborated target, memoized — see `#aliasTarget`. */
+  readonly #aliasTargets = new WeakMap<Resolved.TypeAliasItem, Mono>();
   readonly #exceptions = new Map<Resolved.SymbolId, Resolved.ExceptionItem>();
   /**
    * The dot-callable operations of each nominal type, by that type's identity
@@ -9686,6 +9688,28 @@ class Checker {
     return ERROR;
   }
 
+  /**
+   * A type alias's elaborated right-hand side, once per item.
+   *
+   * Two readers want it and they must agree: materialization publishes it as the
+   * alias's `.d.ts` face, and §4.3's boundary check walks it for private
+   * nominals (#621). Elaborating it twice would report whatever the right-hand
+   * side draws twice — and the boundary check reaches aliases no use site ever
+   * elaborates, so both reports would be its own. Memoized on the item, which is
+   * the unit both readers hold.
+   */
+  #aliasTarget(item: Resolved.TypeAliasItem): Mono {
+    const cached = this.#aliasTargets.get(item);
+    if (cached !== undefined) return cached;
+    const parameters = this.#aliasParameters.get(item) ?? new Map();
+    const target = this.#inPosition(
+      "alias",
+      () => this.#annotationType(item.annotation, 0, new Map(), parameters),
+    );
+    this.#aliasTargets.set(item, target);
+    return target;
+  }
+
   #annotationType(
     annotation: Resolved.TypeAnnotation,
     level = 0,
@@ -11053,16 +11077,40 @@ class Checker {
         declaration.exported ? [declaration.externType] : []
       ),
     );
-    const visit = (type: Mono, found = new Set<string>()): ReadonlySet<string> => {
+    // Each private nominal the walk finds, by name, against the span of the
+    // declaration keeping it private — where §4.3's secondary label points, which
+    // is also exactly where the one-keyword fix goes.
+    //
+    // The span is `undefined` in exactly one shape, and the diagnostic then
+    // ships without its label: the **extern** arm flags any identity absent from
+    // this module's own `#externTypes`, having no locality component of its own,
+    // so a consumer reaching another module's private extern type through that
+    // module's exported alias refuses here with no declaration in reach — and
+    // the right answer is to withhold the label rather than point across files
+    // (§4.2.1: the label is in the file the reader is looking at). A record or
+    // union always has a span, because that branch fires only on a declaration
+    // the table holds. The gap, and whether the consumer-side refusal should
+    // exist at all, is #629's; §4.3's every-diagnostic-carries-a-label sentence
+    // holds for every other route.
+    type Mentions = Map<string, Source.Span | undefined>;
+    const visit = (type: Mono, found: Mentions = new Map()): ReadonlyMap<string, Source.Span | undefined> => {
       const actual = this.#prune(type);
       if (actual.kind === "Union") {
-        if (!publicUnions.has(actual.union) && this.#unions.get(actual.union)?.representationVisible) found.add(actual.name);
+        const declaration = this.#unions.get(actual.union);
+        if (!publicUnions.has(actual.union) && declaration?.representationVisible) {
+          found.set(actual.name, declaration.span);
+        }
         actual.arguments.forEach((argument) => visit(argument, found));
       } else if (actual.kind === "NominalRecord") {
-        if (!publicRecords.has(actual.record) && this.#records.get(actual.record)?.representationVisible) found.add(actual.name);
+        const declaration = this.#records.get(actual.record);
+        if (!publicRecords.has(actual.record) && declaration?.representationVisible) {
+          found.set(actual.name, declaration.span);
+        }
         actual.arguments.forEach((argument) => visit(argument, found));
       } else if (actual.kind === "ExternType") {
-        if (!publicExternTypes.has(actual.externType)) found.add(actual.name);
+        if (!publicExternTypes.has(actual.externType)) {
+          found.set(actual.name, this.#externTypes.get(actual.externType)?.span);
+        }
       } else if (actual.kind === "Function") {
         actual.parameters.forEach((parameter) => visit(parameter, found));
         visit(actual.result, found);
@@ -11075,6 +11123,62 @@ class Checker {
       else if (actual.kind === "Nullable") visit(actual.value, found);
       else if (actual.kind === "Map" || actual.kind === "JsMap") { visit(actual.key, found); visit(actual.value, found); }
       return found;
+    };
+    /**
+     * One member of Modules §4.3's message family: the carrier's own noun in
+     * both seats, the primary at the offending seat, and the secondary label at
+     * the private type's declaration.
+     */
+    const exposes = (
+      noun: string,
+      keep: string,
+      carrier: string,
+      exposed: string,
+      declaration: Source.Span | undefined,
+      primary: Source.Span,
+    ): void => {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `exported ${noun} \`${carrier}\` exposes private type \`${exposed}\`; ` +
+          `export the type, perhaps opaquely, or keep the ${keep} private`,
+        primary,
+        ...(declaration === undefined
+          ? {}
+          : { labels: [{ span: declaration, message: `\`${exposed}\` is declared private here` }] }),
+      });
+    };
+    /**
+     * A **type** carrier's seats, read in declaration order, each named type
+     * reported **once** at the first seat that reaches it (§4.3): three fields of
+     * one private type draw one diagnostic, a carrier leaking two draw two. The
+     * seat is the carrier's whole written annotation, never a nested
+     * occurrence's sub-annotation — a field `token: Vector(Token)` anchors at
+     * `Vector(Token)` — which is what makes the seat the annotation's own span
+     * rather than anything the walk found inside it.
+     *
+     * A seat whose type is missing is skipped rather than guessed at: the row is
+     * absent only where elaboration already failed and said so.
+     */
+    const carrier = (
+      noun: string,
+      keep: string,
+      name: string,
+      seats: readonly { readonly type: Mono | undefined; readonly span: Source.Span }[],
+    ): void => {
+      const reported = new Set<string>();
+      for (const seat of seats) {
+        if (seat.type === undefined) continue;
+        for (const [exposed, declaration] of visit(seat.type)) {
+          if (reported.has(exposed)) continue;
+          reported.add(exposed);
+          exposes(noun, keep, name, exposed, declaration, seat.span);
+        }
+      }
+    };
+    /** The slot types of a constructor's scheme, index-aligned with its slots. */
+    const slotTypes = (symbol: Resolved.SymbolId): readonly Mono[] => {
+      const type = this.#prune(this.#scheme(symbol).type);
+      return type.kind === "Function" ? type.parameters : [];
     };
     for (const item of items) {
       if ((item.kind === "Let" || item.kind === "Fun") && item.exported) {
@@ -11091,12 +11195,10 @@ class Checker {
           : [];
       for (const binding of bindings) {
         const signature = this.#scheme(binding.symbol).type;
-        for (const name of visit(signature)) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `exported binding \`${binding.name}\` exposes private type \`${name}\`; export the type, perhaps opaquely, or keep the binding private`,
-          primary: binding.span,
-        });
+        // A binding reports at the binding, whose signature is one seat already
+        // (§4.3) — the family's one anchor that is not an annotation.
+        for (const [name, declaration] of visit(signature)) {
+          exposes("binding", "binding", binding.name, name, declaration, binding.span);
         }
         // The hidden `Node` intrinsic has no public form: a runtime module may
         // build with it, but never hand one across a module boundary. This is the
@@ -11110,6 +11212,43 @@ class Checker {
             primary: binding.span,
           });
         }
+      }
+      // The four **type** carriers (#621), read beside the bindings above, each
+      // gated on the head's own `export` — never on `opaque`. That second half
+      // is load-bearing where a head can take the keyword: an `opaque` item
+      // carries `exported: true` here, and its interior is no carrier at all —
+      // FFI Part 7 §5's brand-only face mentions neither a field nor a payload,
+      // so a private nominal inside one leaks nothing, and hiding a private
+      // representation behind an opaque name is §4.2's intended idiom. `type`
+      // and `exception` heads take no `opaque` (§4.2), so those two read
+      // `exported` alone.
+      if (item.kind === "TypeAlias" && item.exported) {
+        carrier("type alias", "alias", item.name, [
+          { type: this.#aliasTarget(item), span: item.annotation.span },
+        ]);
+      }
+      if (item.kind === "RecordDeclaration" && item.exported && !item.opaque) {
+        const fields = this.#recordFields.get(item.record);
+        carrier("record", "record", item.name, item.fields.map((field) => ({
+          type: fields?.get(field.name),
+          span: field.annotation.span,
+        })));
+      }
+      if (item.kind === "Union" && item.exported && !item.opaque) {
+        carrier("union", "union", item.name, item.constructors.flatMap((constructor) => {
+          const types = slotTypes(constructor.binding.symbol);
+          return constructor.slots.map((slot, index) => ({
+            type: types[index],
+            span: slot.annotation.span,
+          }));
+        }));
+      }
+      if (item.kind === "Exception" && item.exported) {
+        const types = slotTypes(item.binding.symbol);
+        carrier("exception", "exception", item.binding.name, item.slots.map((slot, index) => ({
+          type: types[index],
+          span: slot.annotation.span,
+        })));
       }
       // `Node` also has no public form when it hides in an *exported* algebraic
       // type: the constructor of an exported union/record/exception becomes a
@@ -12105,10 +12244,7 @@ class Checker {
         exported: item.exported,
         name: item.name,
         parameters: [...parameters.values()].map(({ id }) => Typed.typeVariableId(id)),
-        type: this.#inPosition(
-          "alias",
-          () => this.#publicType(this.#annotationType(item.annotation, 0, new Map(), parameters)),
-        ),
+        type: this.#inPosition("alias", () => this.#publicType(this.#aliasTarget(item))),
         span: item.span,
       };
     }

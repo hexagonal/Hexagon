@@ -7998,29 +7998,35 @@ class DeclarationEmitter {
           isExternalModule = true;
           continue;
         }
+        // Modules §11.4: a private type gets no line of any kind in the shipped
+        // file, a non-exported `type` declaration included. This arm alone
+        // pushed its row for every union, exported or not — only the
+        // constructors below were gated — so every private union in every module
+        // was published, representation and all (#621). The gate is every other
+        // arm's, and with it the constructors' own `exported` test is the same
+        // question asked twice.
+        if (!item.exported) continue;
+        isExternalModule = true;
         declarations.push(...this.#docs.lines(item.span, "", [], true));
-        declarations.push(renderUnionDeclaration(item, item.exported, this.#faces));
-        if (item.exported) {
-          isExternalModule = true;
-          const variables = typeVariableNames(item.parameters);
-          const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
-          const generics = genericNames.length === 0
-            ? ""
-            : `<${genericNames.join(", ")}>`;
-          const result = item.parameters.length === 0
-            ? item.name
-            : `${item.name}<${genericNames.join(", ")}>`;
-          for (const constructor of item.constructors) {
-            const type = constructor.slots.length === 0
-              ? item.parameters.length === 0
-                ? item.name
-                : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
-              : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
-            declarations.push(...this.#docs.lines(constructor.span, "", [], true));
-            declarations.push(
-              `export declare const ${constructor.name}: ${type};`,
-            );
-          }
+        declarations.push(renderUnionDeclaration(item, true, this.#faces));
+        const variables = typeVariableNames(item.parameters);
+        const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
+        const generics = genericNames.length === 0
+          ? ""
+          : `<${genericNames.join(", ")}>`;
+        const result = item.parameters.length === 0
+          ? item.name
+          : `${item.name}<${genericNames.join(", ")}>`;
+        for (const constructor of item.constructors) {
+          const type = constructor.slots.length === 0
+            ? item.parameters.length === 0
+              ? item.name
+              : `${item.name}<${item.parameters.map(() => "never").join(", ")}>`
+            : `${generics}(${constructor.slots.map((slot, index) => `${slot.field || `arg${index}`}: ${renderType(slot.type, variables, this.#faces, false)}`).join(", ")}) => ${result}`;
+          declarations.push(...this.#docs.lines(constructor.span, "", [], true));
+          declarations.push(
+            `export declare const ${constructor.name}: ${type};`,
+          );
         }
         continue;
       }

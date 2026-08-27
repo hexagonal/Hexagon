@@ -133,7 +133,7 @@ describe("the coverage column answers from the reached declaration", () => {
     // The other route into the un-registered column, and the one that stays a
     // question of a program already being refused: §4.3 reports the escape at
     // the exporter, and the importer's match must not pile a second fault on it.
-    expect(diagnostics([
+    const files = [
       [
         "/a.hex",
         "union Flag = On | Off\n" +
@@ -146,10 +146,22 @@ describe("the coverage column answers from the reached declaration", () => {
         "    match make()\n" +
         "        _ => 1\n",
       ],
-    ])).toEqual([
+    ] as const;
+    expect(diagnostics(files)).toEqual([
       "exported binding `make` exposes private type `Flag`; " +
       "export the type, perhaps opaquely, or keep the binding private",
     ]);
+    // The one report carries §4.3's secondary label, at the union's own
+    // declaration in `/a.hex` — every member of the family does (#621).
+    const [escape] = compileFiles(files).diagnostics;
+    expect(escape?.labels?.map(({ message }) => message)).toEqual([
+      "`Flag` is declared private here",
+    ]);
+    const label = escape!.labels![0]!.span;
+    expect(files[0][1].slice(label.start.offset, label.end.offset)).toBe("Flag");
+    // In `/a.hex`, not in the importer — the fix goes on the declaration.
+    expect(label.fileId).toBe(escape!.primary.fileId);
+    expect(label.start.line).toBe(0);
   });
 });
 
