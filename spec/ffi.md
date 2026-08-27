@@ -186,7 +186,7 @@ Each row: the observable claim an implementation must satisfy, and the owner who
 
 **Sources:** Part 1 §8/§10.1 formerly required deterministic resolution no later than Part 12; Part 7 §2.1 restated that requirement. Before Part 12 no part stated the algorithm; it is fixed here and propagated back to both owners:
 
-> **First-free numeric suffix probing on the generated import alias:** try `Hex`, then `Hex1`, `Hex2`, …, taking the first candidate that collides with **no top-level identifier emitted in that `.d.ts` file, regardless of TypeScript namespace** (exported types, exported terms, generated brand symbols, other generated aliases — one flat check, since a namespace import alias occupies both TS spaces and per-namespace subtlety buys nothing). **Only the generated import alias is ever renamed; a user export is never renamed.** `Hex` remains the normal spelling — the probe moves past it only in the rare module that itself emits a top-level `Hex`.
+> **First-free numeric suffix probing on the generated import alias:** try `Hex`, then `Hex1`, `Hex2`, …, taking the first candidate that collides with **no top-level identifier the module's items can put in that `.d.ts` file, regardless of TypeScript namespace** (exported types, exported terms, generated brand symbols, other generated aliases — one flat check, since a namespace import alias occupies both TS spaces and per-namespace subtlety buys nothing). **Only the generated import alias is ever renamed; a user export is never renamed.** `Hex` remains the normal spelling — the probe moves past it only in the rare module that itself emits a top-level `Hex`.
 
 The scheme is deterministic (a pure function of the emitted identifier set) and is recorded in Part 7 §2.1 (§10.4).
 
