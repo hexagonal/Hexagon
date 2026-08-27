@@ -265,7 +265,7 @@ nothing to declare that a reader could not already see. Nor does a use site: an
 annotation is always written `Box(Int)`, never `Box(+Int)`. The claim belongs to the
 type, once, where it is declared.
 
-## Public signatures must remain usable
+## Public faces must remain usable
 
 Every exported term writes a complete signature. Values have a type annotation.
 Functions annotate every parameter and their result, and constrained functions
@@ -311,7 +311,8 @@ is the same pair: export `Token`, perhaps opaquely, or keep `Cursor` private.
 
 A private type alias is different. Since an alias is only another name for its
 expansion, the public signature may expose the underlying type instead of leaking the
-private alias.
+private alias — though if the expansion itself is a private type, that is the same
+leak by another name, and the compiler refuses it the same way.
 
 Module boundaries do not change polymorphism. The complete annotation pins an
 export's public contract, while checking still verifies it against the same
@@ -422,7 +423,7 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 - a parameterized opaque type declares what it promises with `+a` or `-a`, checked
   against its representation; a bare parameter claims nothing;
 - exported terms have complete signatures with explicit maximal constraints;
-- public signatures cannot leak private nominal types;
+- public faces — signatures, fields, payloads, and alias targets — cannot leak private nominal types;
 - instances are global over the imported program graph rather than exported names;
 - imports are acyclic and initialize dependencies before dependants;
 - a selected root runs through ordinary top-level module evaluation, without `main`;
