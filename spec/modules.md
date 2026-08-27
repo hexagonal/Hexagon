@@ -159,17 +159,20 @@ opaque record Registry(k, +v) = ...      -- claims are per-parameter
 - **Declared claims are used uniformly, the home module included** — Step 2's covariance test (Functions §8.7) reads the claim, never the private representation, so a program cannot compile in its home module and fail identically-written elsewhere. The computed variance is used exactly once, for the verification above.
 - Transparent types are the other half of the rule and take no syntax: their variance is **inferred** — the definition is public, so the computation leaks nothing a reader could not derive (closure doc §5.3).
 
-### 4.3 Private types in public signatures
+### 4.3 Private types in public faces
 
-An exported term whose type mentions a **private nominal type** is a hard error at the export:
+An exported face whose type mentions a **private nominal type** is a hard error at the mention. The rule reads **every carrier an exported declaration has** *(#621)*: an exported binding's signature, an exported type alias's target, an exported record's fields, an exported union's constructor payloads, and an exported exception's payloads.
 
-> exported `parse` mentions the private type `Token`; export `Token` (possibly as `opaque`)
+> exported binding `parse` exposes private type `Token`; export the type, perhaps opaquely, or keep the binding private
 
-Rust's private-in-public rule, same rationale: the caller could neither name nor use the type, so the export is unusable as written, and the fix is one keyword. The error names every offending type once. Details:
+One message family, the carrier's own noun in both seats — `` exported type alias `W` … keep the alias private ``, `` exported record `Outer` … keep the record private ``, `` exported union `U` … keep the union private ``, `` exported exception `Boom` … keep the exception private ``. Rust's private-in-public rule, same rationale: the caller could neither name nor use the type, so the export is unusable as written, and the fix is one keyword — "perhaps opaquely" offers the second keyword, since `opaque` is itself a kind of export (§4.2). The remedy's spine holds for every private nominal the walk can find; for an extern type, whose head does not take `opaque` (§4.2), the "perhaps" is doing its honest work.
 
-- An **`opaque`** type in an exported signature is fine — that is the whole point of `opaque`.
-- A private **alias** in an exported signature is fine: aliases are transparent (Preamble §4), so the exported signature (and its `.d.ts`) simply uses the expansion; display stickiness (Preamble §6) yields to visibility.
+**The diagnostic sits at the offending mention's seat** — the field's annotation, the constructor slot's annotation, the alias's right-hand side; a binding's stays at the binding — so the eye lands on the mention the message describes, not on a ten-field head indicted for one field's fault. Each carrier names every offending type **once**: three fields of one private type draw one diagnostic, at the first offending seat; a carrier leaking two private types draws two, each at its own first seat. Details:
+
+- An **`opaque`** type in an exported face is fine — that is the whole point of `opaque`.
+- A private **alias** in an exported face is fine: aliases are transparent (Preamble §4), so the exported face (and its `.d.ts`) simply uses the expansion; display stickiness (Preamble §6) yields to visibility. Transparency cuts both ways: a private alias whose *expansion* mentions a private nominal launders nothing — the expansion is the face, and the nominal in it is refused the same.
 - Instances are exempt (they are not exports and can mention anything; §7.4).
+- An exported **constraint** is not a carrier: its member signatures have no `.d.ts` face (FFI Parts 8–9), so nothing crosses here. Whether a private nominal in an exported constraint's members deserves its own refusal — the declaration is unhonorable outside its home module — is #626's question, not this rule's.
 
 ---
 
@@ -372,7 +375,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | `opaque` on `type` | "aliases are transparent; make it a `record` or single-constructor `union`" |
 | `opaque` on `let`/`fun`/`constraint`/`exception` | parse error: "`opaque` applies to `record` and `union` declarations" |
 | Opaque field access / construction / match outside home module | "`Point` is opaque outside `./point`; use its exported functions" |
-| Private nominal type in exported signature | "exported `parse` mentions the private type `Token`; export `Token` (possibly as `opaque`)" (§4.3) |
+| Private nominal type in exported face | "exported binding `parse` exposes private type `Token`; export the type, perhaps opaquely, or keep the binding private" — one family, the carrier's noun in both seats, at the mention's seat (§4.3) |
 | Cross-module duplicate instance | "duplicate instance of `Ord<String>`: `./a.hex` (line N) and `./b.hex` (line M)" (§7.3) |
 | Workspace instance outside the current graph (LSP) | existing Constraints §8 error + hint: "its instance is in `./x`; add `import \"./x\"`" (§7.6) |
 | Bare package specifier in Hexagon `import` | "package imports are not yet supported" (§12.1); foreign `extern from` bare specifiers are legal (FFI Part 4 §2.1) |
@@ -389,7 +392,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 1. **One module → one ESM module.** `export` → `export`; unexported bindings → plain `const`/`function`. Privacy is enforced by the Hexagon checker; the emitted JS simply doesn't export what wasn't exported.
 2. **Named imports always.** Because module aliases are not values, every `Geo.area` resolves at compile time to a specific export; the emitter uses named ESM imports (`import { area } from "./geometry.js"`) **even when the source used the namespace form** — tree-shakeable, readable, no runtime namespace objects. (An emitted `import * as` — JavaScript's own namespace form, a spelling that survives only in emission now that source spells the head `import module` (§3.3, #565) — is permitted where the emitter judges it more readable for heavy qualified use; semantics identical either way.) **The emitter may likewise add a named import a resolved companion dot call requires even when the source never textually imported the companion module** (Method Syntax §8.2) — the same liberty, exercised for calls the checker resolved; emitted-name collisions are the emitter's ordinary renaming problem.
 3. **Load order** is ESM's own, valid because the graph is acyclic (§8.1). Effect imports emit as bare `import "./telemetry.js"`.
-4. **`.d.ts`:** exported terms and types appear; private ones don't; private aliases in exported signatures appear as their expansion (§4.3). An exported opaque record or union uses FFI Part 7 §5's brand-only face: one non-exported `unique symbol` per type, with no honest fields or constructors exposed. The brand is TypeScript-only; runtime representation and identity are unchanged.
+4. **`.d.ts`:** exported terms and types appear; private ones don't — no line of any kind, a non-exported `type` declaration included, which §4.3's face rule is what makes possible: no exported face can mention a private nominal, so no `.d.ts` row ever needs one declared. Private aliases in exported signatures appear as their expansion (§4.3). An exported opaque record or union uses FFI Part 7 §5's brand-only face: one non-exported `unique symbol` per type, with no honest fields or constructors exposed. The brand is TypeScript-only; runtime representation and identity are unchanged.
 5. **Instances** remain global compiler-selected declarations and are never nameable from Hexagon. At the JavaScript boundary, every instance satisfying FFI Part 9 §5's public-evidence closure forces a stable module-level handle or factory export from the instance declaration's home module, with its `Constraint.Dictionary<a>` face in `.d.ts`; this capability exists independently of current consumption. Private instances remain plumbing. Fundamental specializations are dictionary-free (FFI Part 8).
 
 ---
@@ -462,8 +465,12 @@ import { area } from "./rect"                -- ERROR: area already imported; al
 -- (h) Private-in-public
 union Token = Word(s: String) | Gap          -- private
 export fun parse(s: String): Vector(Token) = ...
--- ERROR: exported parse mentions the private type Token; export Token
--- (possibly as opaque)
+-- ERROR: exported binding parse exposes private type Token; export the
+-- type, perhaps opaquely, or keep the binding private
+
+export record Cursor = {at: Int, token: Token}
+-- ERROR (at the field annotation): exported record Cursor exposes private
+-- type Token; export the type, perhaps opaquely, or keep the record private
 
 -- (i) Instance globality + effect import (legal but normally redundant in v1,
 --     §7.6; Config's home is one of the only legal instance homes)
@@ -507,7 +514,7 @@ make(1.5).m                                  -- ERROR: Crate has fields n, not m
 | Exported terms require complete annotations; constrained functions explicitly list maximal constraints and omit entailed bases; private module-level function guidance remains style | §4.1.1 |
 | One head visibility slot, three values — absent / `export` / `opaque`; `export opaque` refused with the required rewrite (#590). `opaque` on `record`/`union`: type name only; fields/constructors/matching private outside home; derives unaffected; home module unaffected | §4, §4.2 |
 | Transparent representation visibility travels with the type (sole-authority rule): field access, update, and the bare copy are import-insensitive; imports carry names (constructor and its pattern included); no intermediary or per-signature re-abstraction | §4.2 |
-| Private-in-public: hard error for nominal types; transparent aliases exempt (expansion used) | §4.3 |
+| Private-in-public: hard error for nominal types at every exported face — binding signatures, alias targets, record fields, union and exception payloads — reported once per type per carrier, at the mention's seat; transparent aliases exempt (expansion used) | §4.3 |
 | Fourth namespace (module aliases); position-based resolution; `Name.` checks modules first | §5.1 |
 | Collisions: duplicate module aliases error; alias-vs-type/constructor legal (companion idiom blessed); named-import same-namespace collisions error; Elm-strict restriction = v2 candidate | §5.2, §12.3 |
 | Importing a constraint binds the name and its members; aliasing renames the constraint name only, members never rename at the border; member collisions report at the import item; namespace imports qualify constraints and members through the alias | §3.1–§3.3, §5.1 |

@@ -295,6 +295,20 @@ export let parse(source: String): Token = ... // error
 The caller could neither name nor use the result. Export `Token`, perhaps opaquely, or
 keep `parse` private.
 
+Exported types answer to the same rule. A field of an exported record, a constructor
+payload of an exported union or exception, and the target of an exported type alias
+are all part of the module's public face, and a private type can hide in any of them
+as easily as in a signature:
+
+```hexagon
+record Token = {text: String}
+
+export record Cursor = {at: Int, token: Token} // error, at the field
+```
+
+The compiler points at the mention itself — here the `token` field — and the remedy
+is the same pair: export `Token`, perhaps opaquely, or keep `Cursor` private.
+
 A private type alias is different. Since an alias is only another name for its
 expansion, the public signature may expose the underlying type instead of leaking the
 private alias.
