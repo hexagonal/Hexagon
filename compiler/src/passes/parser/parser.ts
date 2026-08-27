@@ -4289,11 +4289,18 @@ function externDeclarationKeyword(token: LaidOut.Token): string {
  * only; compiler-owned *types* in particular do not enter here (§3.3), which is
  * why the rewrite points at an ordinary declaration in the same module rather
  * than at a different extern spelling.
+ *
+ * The row's sentence carries the head exemplar at its **tail** since #590's
+ * respell rider: `export opaque` had reduced to the one word `opaque`, and a
+ * one-word parenthetical mid-sentence read as a gloss on "ordinary" rather than
+ * as the spelling to write. The clause naming the offending form — which the row
+ * itself does not carry — trails the whole sentence as an aside, so the two do
+ * not become adjacent parentheses.
  */
 function intrinsicFormError(form: string): string {
   return `the intrinsic boundary provides operations only; declare \`fun\` here, ` +
-    `and declare types as ordinary (\`opaque\`) declarations in this module ` +
-    `(\`${form}\` is not admitted)`;
+    `and declare types as ordinary declarations in this module ` +
+    `(typically \`opaque record\`) — \`${form}\` is not admitted`;
 }
 
 function lowerInitial(name: string): string {

@@ -219,8 +219,13 @@ describe("what the block admits (§3.3)", () => {
     ]);
   }
 
+  // §11's row, verbatim to its closing parenthesis. The head exemplar sits at
+  // the sentence's tail since #590's respell rider — a one-word `(opaque)`
+  // mid-sentence read as a gloss on "ordinary" instead of as the spelling to
+  // write. What follows it in the compiler's message is the offending form,
+  // which the row does not carry and the tests below assert separately.
   const REFUSAL = "the intrinsic boundary provides operations only; declare `fun` here, " +
-    "and declare types as ordinary (`opaque`) declarations in this module";
+    "and declare types as ordinary declarations in this module (typically `opaque record`)";
 
   test("`let` is refused, and the rewrite points at an ordinary declaration", () => {
     const [message] = privileged(
