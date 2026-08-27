@@ -158,12 +158,32 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   test("the import leads the file, ahead of the module's own imports", () => {
     const compiled = project({
       "/src/main.hex": "import module Other from \"./other\"\n" +
+        "export let seat(x: Other.Row): Vector(Int) = Other.rows\n",
+      "/src/other.hex": "export record Row = { n: Int }\nexport let rows: Vector(Int) = [1]\n",
+    });
+    // The source line keeps its **source position** (FFI Part 7 §2.4's
+    // Placement) — it is the module's own import, not the compiler's — and the
+    // runtime import precedes it because that one is the compiler's.
+    expect(declarationsOf(compiled, "/src/main.hex")).toBe(
+      'import type * as Hex from "./hex.js";\n' +
+        'import type * as Other from "./other.js";\n' +
+        "export declare const seat: (x: Other.Row) => Hex.Vector<number>;\n",
+    );
+  });
+
+  // An import no face reached through contributes no line, whichever form the
+  // source wrote (FFI Part 7 §2.4): the module below imports `Other` for its
+  // *terms*, which is the whole of the companion idiom, and the declaration file
+  // is not a transcription of the import list. This is one of the three shapes
+  // §14.3 names as legitimately changed text.
+  test("a namespace import no face qualifies through contributes no line", () => {
+    const compiled = project({
+      "/src/main.hex": "import module Other from \"./other\"\n" +
         "export let rows: Vector(Int) = Other.rows\n",
       "/src/other.hex": "export let rows: Vector(Int) = [1]\n",
     });
     expect(declarationsOf(compiled, "/src/main.hex")).toBe(
       'import type * as Hex from "./hex.js";\n' +
-        'import type * as Other from "./other.js";\n' +
         "export declare const rows: Hex.Vector<number>;\n",
     );
   });
@@ -173,16 +193,35 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   // always written `import type * as <alias>` for a source-level namespace
   // import, so the §10 probe has to see those aliases and not only the
   // module's declared names.
+  //
+  // *Amended with FFI Part 7 §2.4:* it forces `Hex1` **where the file carries
+  // that alias's line**, which is where some occurrence qualifies through it.
+  // The face below does, so the collision is real and the generated alias moves.
   test("a source namespace import aliased `Hex` pushes the generated alias to `Hex1`", () => {
+    const compiled = project({
+      "/src/main.hex": "import module Hex from \"./other\"\n" +
+        "export let seat(x: Hex.Row): Vector(Int) = Hex.rows\n",
+      "/src/other.hex": "export record Row = { n: Int }\nexport let rows: Vector(Int) = [1]\n",
+    });
+    expect(declarationsOf(compiled, "/src/main.hex")).toBe(
+      'import type * as Hex1 from "./hex.js";\n' +
+        'import type * as Hex from "./other.js";\n' +
+        "export declare const seat: (x: Hex.Row) => Hex1.Vector<number>;\n",
+    );
+  });
+
+  // The other half of the amendment, and the reason the alias set is the one
+  // member of the universe that is not over-claimed: an alias absent from the
+  // `.d.ts` contests nothing in it, so the generated alias keeps `Hex`.
+  test("a source alias `Hex` no face qualifies through contests nothing", () => {
     const compiled = project({
       "/src/main.hex": "import module Hex from \"./other\"\n" +
         "export let rows: Vector(Int) = Hex.rows\n",
       "/src/other.hex": "export let rows: Vector(Int) = [1]\n",
     });
     expect(declarationsOf(compiled, "/src/main.hex")).toBe(
-      'import type * as Hex1 from "./hex.js";\n' +
-        'import type * as Hex from "./other.js";\n' +
-        "export declare const rows: Hex1.Vector<number>;\n",
+      'import type * as Hex from "./hex.js";\n' +
+        "export declare const rows: Hex.Vector<number>;\n",
     );
   });
 

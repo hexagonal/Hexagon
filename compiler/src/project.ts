@@ -22,6 +22,8 @@ import {
   emitDeclarations,
   emitJavaScript,
   emittedModuleSpecifier,
+  type NominalHome,
+  nominalHomeKey,
   runtimeDeclarationsText,
   RUNTIME_DECLARATIONS_STEM,
   RUNTIME_WIRINGS,
@@ -219,6 +221,24 @@ export function compileProject(
   // through an imported function's result arrives with its whole set, having
   // never been imported here at all.
   const programOperations = new Map<string, Map<string, ProgramOperation>>();
+  /**
+   * FFI Part 7 §2.4 rung 5's table: every **exported** nominal the program
+   * declares, by identity, with the module that declares it.
+   *
+   * `programOperations`' shape one field narrower, and gathered the same way —
+   * from each module's own items as it is compiled, dependencies first — because
+   * the question is the same one: which module *owns* this identity, asked from
+   * a module that may never have imported it. A declaration file's minted import
+   * is the one channel that has to name a module the source never mentioned, so
+   * this is the only place the answer can come from.
+   *
+   * Exported only. A minted `import type { Hidden }` of a name its home module
+   * withholds would resolve to nothing; §2.4 fences the shapes that reach a
+   * private nominal to #621, and the sink declines there and prints the declared
+   * name — the pre-existing behaviour — rather than writing an import that
+   * cannot bind.
+   */
+  const nominalHomes = new Map<string, NominalHome>();
   let symbolBase = 0;
   let unionBase = 0;
   let recordBase = 0;
@@ -345,6 +365,24 @@ export function compileProject(
     const typed = check(resolved, { importedSchemes, programNominals, programOperations });
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
+    // Read from the module's own **items**, never from `resolved.unions` and its
+    // siblings: those carry the imported copies too, so every module that named
+    // a type would claim to be its home.
+    for (const item of resolved.items) {
+      if (item.kind === "Union" && item.exported) {
+        nominalHomes.set(nominalHomeKey("union", Number(item.union)), { name: item.name, path });
+      } else if (item.kind === "RecordDeclaration" && item.exported) {
+        nominalHomes.set(nominalHomeKey("record", Number(item.record)), { name: item.name, path });
+      } else if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          if (declaration.kind !== "ExternType" || !declaration.exported) continue;
+          nominalHomes.set(
+            nominalHomeKey("externType", Number(declaration.externType)),
+            { name: declaration.localName, path },
+          );
+        }
+      }
+    }
     // The schemes are this module's published ones, taken beside the symbols
     // rather than left for a consumer to look up: the operations that need the
     // table most are the ones no consumer imported, so no consumer holds their
@@ -388,6 +426,8 @@ export function compileProject(
         runtimeSpecifier: emittedModuleSpecifier(
           relativeSpecifier(path, `${root}/${runtimeBasename}.hex`),
         ),
+        nominalHomes,
+        modulePath: path,
       }),
     };
     compiled.set(path, result);
@@ -471,6 +511,10 @@ export function compileProject(
         // nothing else. Its target must still be emitted, or the declarations
         // import from a file that was never written.
         ...(module?.declarations.preludeTypeImports ?? []),
+        // Rung 5's minted lines are edges of the same kind, and they reach
+        // modules the source never imported at all (FFI Part 7 §2.4's
+        // Reachability, extended by §14.3).
+        ...(module?.declarations.mintedTypeImports ?? []),
         // The runtime modules (Collections Part 3 §4, Part 4 §2.1) are the
         // fourth such channel and the one with no `Import` item anywhere in the
         // program to fall back on: a runtime module exports nothing at the

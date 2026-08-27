@@ -127,6 +127,18 @@ export interface Declarations extends Output {
    * new dress.
    */
   readonly preludeTypeImports: readonly string[];
+  /**
+   * Specifiers of the modules this file **mints** a type-only named import from
+   * (FFI Part 7 §2.4 rung 5), in source form.
+   *
+   * `preludeTypeImports`' sibling, one rung down and with a wider reach: rung 5
+   * names a module the source never imported at all — the shape a type alias's
+   * expansion reaches, where the importer binds the alias and nothing the
+   * expansion mentions (#618). Those edges count toward what gets emitted on
+   * exactly the same footing, or the declarations import from a file that was
+   * never written. Declaration-side only: no JavaScript import is added.
+   */
+  readonly mintedTypeImports: readonly string[];
 }
 
 /** Inspection-only declarations for every representable top-level binding. */

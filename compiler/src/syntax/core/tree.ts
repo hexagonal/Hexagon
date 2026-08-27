@@ -128,6 +128,13 @@ export interface Module {
    */
   readonly preludeTypeImports: readonly Resolved.PreludeTypeImport[];
   /**
+   * The namespace aliases some occurrence qualifies a type through (FFI Part 7
+   * §2.4 rung 3); see `Resolved.Module.qualifiedModuleAliases`. The declaration
+   * emitter's collision universe reads it, and it is a *pre-rendering* quantity
+   * on purpose — the probe runs once, before any face is spelled.
+   */
+  readonly qualifiedModuleAliases: readonly string[];
+  /**
    * Exception declarations in scope here that this module did not write (#469);
    * see `Resolved.Module.visibleExceptions`. Emission reads it exactly as it
    * reads this module's own `Exception` items — to recognise a catch arm's

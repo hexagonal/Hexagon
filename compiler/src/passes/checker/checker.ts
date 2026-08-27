@@ -486,11 +486,23 @@ interface NullableMono {
   readonly value: Mono;
 }
 
+/**
+ * The namespace alias an occurrence was written through (FFI Part 7 §2.4 rung
+ * 3), carried on the three nominal monos so it survives into `Typed.Type`.
+ *
+ * It rides the node and nothing here reads it: instantiation and substitution
+ * rebuild a nominal's *arguments* and spread the rest, so a derived declaration
+ * — a specialization, a constructor arrow, an export wrapper — inherits the
+ * qualifiers of the scheme it came from, which is what §2.4 requires of it.
+ */
+type Qualifier = Resolved.TypeQualifier;
+
 interface UnionMono {
   readonly kind: "Union";
   readonly union: Resolved.UnionId;
   readonly name: string;
   readonly arguments: readonly Mono[];
+  readonly qualifier?: Qualifier;
 }
 
 interface NominalRecordMono {
@@ -498,12 +510,14 @@ interface NominalRecordMono {
   readonly record: Resolved.RecordId;
   readonly name: string;
   readonly arguments: readonly Mono[];
+  readonly qualifier?: Qualifier;
 }
 
 interface ExternMono {
   readonly kind: "ExternType";
   readonly externType: Resolved.ExternTypeId;
   readonly name: string;
+  readonly qualifier?: Qualifier;
 }
 
 interface ErrorMono {
@@ -2275,6 +2289,7 @@ class Checker {
       preludeUnions: module.preludeUnions,
       preludeInstances: module.preludeInstances,
       preludeTypeImports: module.preludeTypeImports,
+      qualifiedModuleAliases: module.qualifiedModuleAliases,
       visibleExceptions: module.visibleExceptions.map((declaration) =>
         this.#materializeException(declaration)
       ),
@@ -3368,7 +3383,9 @@ class Checker {
             annotation.span,
             true,
           );
-          if (this.#hasNumericWidening(item.value)) valueType = annotationType;
+          valueType = this.#hasNumericWidening(item.value)
+            ? annotationType
+            : this.#carryWrittenQualifiers(annotationType, valueType);
         }
         this.#closeSignature(enclosingSignature);
         const scheme = this.#generalize(
@@ -7607,6 +7624,106 @@ class Checker {
         "is expected; generics do not abstract over arity, so wrap it: `_ => thunk()`";
   }
 
+  /**
+   * The inferred type with the **written** signature's namespace qualifiers
+   * grafted on (FFI Part 7 §2.4 rung 3).
+   *
+   * `let o: Lib.Point = Lib.origin` writes a qualified occurrence and then keeps
+   * the *value's* type: unification matched two concrete nominal nodes, so
+   * neither was rewritten to the other, and the node this binding publishes is
+   * the one that came out of `Lib.origin`'s instantiated scheme — carrying its
+   * writer's spellings, which is to say none. §2.4 rests rung 3 on every nominal
+   * in an exported face having a written occurrence, and this is the one seat
+   * where the checker had the occurrence and dropped it. A parameter list keeps
+   * its annotations by construction, and so do record fields, union payloads,
+   * exception payloads and extern rows.
+   *
+   * **Only the qualifier moves.** Handing the annotation's type back wholesale
+   * would be a different change — the two are equal only up to substitution, and
+   * `#hasNumericWidening` is the standing evidence that they are sometimes not
+   * equal at all — so this decorates the inferred node and returns everything
+   * else untouched. Nothing but the declaration emitter reads the field.
+   *
+   * The walk is guided by the *written* tree, which is finite, so a recursive
+   * type cannot make it diverge; anywhere the two shapes disagree it stops and
+   * yields the inferred side unchanged.
+   */
+  #carryWrittenQualifiers(written: Mono, inferred: Mono): Mono {
+    const source = this.#prune(written);
+    const target = this.#prune(inferred);
+    if (source.kind !== target.kind) return target;
+    if (
+      (source.kind === "Union" && target.kind === "Union" && source.union === target.union) ||
+      (source.kind === "NominalRecord" && target.kind === "NominalRecord" &&
+        source.record === target.record)
+    ) {
+      const nominal = source as UnionMono | NominalRecordMono;
+      const carried = target as UnionMono | NominalRecordMono;
+      return {
+        ...carried,
+        arguments: carried.arguments.map((argument, index) =>
+          index < nominal.arguments.length
+            ? this.#carryWrittenQualifiers(nominal.arguments[index]!, argument)
+            : argument
+        ),
+        ...(nominal.qualifier === undefined || carried.qualifier !== undefined
+          ? {}
+          : { qualifier: nominal.qualifier }),
+      } as Mono;
+    }
+    if (
+      source.kind === "ExternType" && target.kind === "ExternType" &&
+      source.externType === target.externType && source.qualifier !== undefined &&
+      target.qualifier === undefined
+    ) {
+      return { ...target, qualifier: source.qualifier };
+    }
+    if (source.kind === "Function" && target.kind === "Function") {
+      return {
+        ...target,
+        parameters: target.parameters.map((parameter, index) =>
+          index < source.parameters.length
+            ? this.#carryWrittenQualifiers(source.parameters[index]!, parameter)
+            : parameter
+        ),
+        result: this.#carryWrittenQualifiers(source.result, target.result),
+      };
+    }
+    if (source.kind === "Tuple" && target.kind === "Tuple") {
+      return {
+        ...target,
+        elements: target.elements.map((element, index) =>
+          index < source.elements.length
+            ? this.#carryWrittenQualifiers(source.elements[index]!, element)
+            : element
+        ),
+      };
+    }
+    if (
+      (source.kind === "Vector" && target.kind === "Vector") ||
+      (source.kind === "Set" && target.kind === "Set") ||
+      (source.kind === "Array" && target.kind === "Array") ||
+      (source.kind === "JsSet" && target.kind === "JsSet") ||
+      (source.kind === "Node" && target.kind === "Node")
+    ) {
+      return { ...target, element: this.#carryWrittenQualifiers(source.element, target.element) };
+    }
+    if (source.kind === "Nullable" && target.kind === "Nullable") {
+      return { ...target, value: this.#carryWrittenQualifiers(source.value, target.value) };
+    }
+    if (
+      (source.kind === "Map" && target.kind === "Map") ||
+      (source.kind === "JsMap" && target.kind === "JsMap")
+    ) {
+      return {
+        ...target,
+        key: this.#carryWrittenQualifiers(source.key, target.key),
+        value: this.#carryWrittenQualifiers(source.value, target.value),
+      };
+    }
+    return target;
+  }
+
   #prune(type: Mono): Mono {
     if (type.kind !== "Variable" || type.instance === undefined) return type;
     type.instance = this.#prune(type.instance);
@@ -9591,6 +9708,9 @@ class Checker {
         ...(effect === undefined ? {} : { effect }),
       };
     }
+    // The written qualifier rides the elaborated node from here (FFI Part 7
+    // §2.4 rung 3): it is a property of the *occurrence*, and this is the one
+    // place an occurrence becomes a type.
     if (annotation.kind === "Union") {
       return {
         kind: "Union",
@@ -9599,6 +9719,7 @@ class Checker {
         arguments: annotation.arguments.map((argument) =>
           this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes, holes)
         ),
+        ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
     }
     if (annotation.kind === "RecordDeclaration") {
@@ -9609,6 +9730,7 @@ class Checker {
         arguments: annotation.arguments.map((argument) =>
           this.#annotationType(argument, level, namedTails, typeParameters, impliedTypes, holes)
         ),
+        ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
     }
     if (annotation.kind === "ExternType") {
@@ -9616,6 +9738,7 @@ class Checker {
         kind: "ExternType",
         externType: annotation.externType,
         name: annotation.name,
+        ...(annotation.qualifier === undefined ? {} : { qualifier: annotation.qualifier }),
       };
     }
     if (annotation.kind === "TypeVariable") {
@@ -11409,12 +11532,16 @@ class Checker {
         ...(tail?.kind === "Variable" ? { tail: Typed.typeVariableId(tail.id) } : {}),
       };
     }
+    // The qualifier crosses into the published type with the identity it sits
+    // on: the declaration emitter reads a *published* scheme, so a qualifier
+    // dropped here would be a qualifier that never reached a face.
     if (actual.kind === "Union") {
       return {
         kind: "Union",
         union: actual.union,
         name: actual.name,
         arguments: actual.arguments.map((argument) => this.#publicType(argument, seen)),
+        ...(actual.qualifier === undefined ? {} : { qualifier: actual.qualifier }),
       };
     }
     if (actual.kind === "NominalRecord") {
@@ -11423,6 +11550,7 @@ class Checker {
         record: actual.record,
         name: actual.name,
         arguments: actual.arguments.map((argument) => this.#publicType(argument, seen)),
+        ...(actual.qualifier === undefined ? {} : { qualifier: actual.qualifier }),
       };
     }
     if (actual.kind === "ExternType") {
@@ -11430,6 +11558,7 @@ class Checker {
         kind: "ExternType",
         externType: actual.externType,
         name: actual.name,
+        ...(actual.qualifier === undefined ? {} : { qualifier: actual.qualifier }),
       };
     }
     if (actual.kind === "Range") return { kind: "Range" };

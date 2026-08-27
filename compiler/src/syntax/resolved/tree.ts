@@ -165,11 +165,46 @@ export interface RecordTypeField {
   readonly span: Source.Span;
 }
 
+/**
+ * The **namespace-import alias one occurrence was written through** (Modules
+ * §3.3), for FFI Part 7 §2.4 rung 3.
+ *
+ * Rung 3 is the one rung keyed on the occurrence rather than on the identity,
+ * because an identity does not determine a qualifier: the companion fallback
+ * (Modules §5.1 rule 2) lets one type be named qualified at one seat and bare at
+ * another, and two aliases onto one module are both legal, so neither is *the*
+ * alias. Re-deriving one from the import items by identity is exactly what the
+ * rule refuses, so the qualifier has to ride the occurrence.
+ *
+ * `module` is what makes the qualifier **readable only in the module that wrote
+ * it**. A qualifier is a spelling, and a spelling that travelled would be
+ * meaningless at best: a type alias's expansion crosses a module boundary
+ * carrying its *writer's* qualifiers (FFI Part 7 §1), and an importer binding
+ * the same alias spelling to a different module would then publish a face naming
+ * a real type that is the wrong one, with nothing to report it. The declaration
+ * emitter compares this against its own `fileId` and ignores every other.
+ *
+ * Set only for a **source-written** namespace import of the rendering module —
+ * never for a prelude companion (§6.4's qualified home, which carries no import
+ * line and reaches rung 4 instead), and never for the companion fallback, whose
+ * occurrence the source wrote *bare*.
+ */
+export interface TypeQualifier {
+  /** The module that wrote the qualifier; only that module may read it. */
+  readonly module: Source.FileId;
+  /** The alias as the source spelled it; emission may move it (§2.4). */
+  readonly alias: string;
+  /** The type's own name in its home module — what follows the dot. */
+  readonly member: string;
+}
+
 export interface UnionTypeAnnotation {
   readonly kind: "Union";
   readonly union: UnionId;
   readonly name: string;
   readonly arguments: readonly TypeAnnotation[];
+  /** See `TypeQualifier`. */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
@@ -222,6 +257,8 @@ export interface RecordDeclarationTypeAnnotation {
   readonly record: RecordId;
   readonly name: string;
   readonly arguments: readonly TypeAnnotation[];
+  /** See `TypeQualifier`. */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
@@ -229,6 +266,8 @@ export interface ExternTypeAnnotation {
   readonly kind: "ExternType";
   readonly externType: ExternTypeId;
   readonly name: string;
+  /** See `TypeQualifier`. */
+  readonly qualifier?: TypeQualifier;
   readonly span: Source.Span;
 }
 
@@ -401,6 +440,33 @@ export interface Module {
    * members before it, and `Bool.hex`'s is empty.
    */
   readonly preludeTypeImports: readonly PreludeTypeImport[];
+  /**
+   * The **namespace-import aliases some occurrence of this module qualifies a
+   * type through** (FFI Part 7 §2.4), in source order and deduplicated.
+   *
+   * The one member of the declaration file's collision universe that is not
+   * over-claimed. Every other top-level identifier is counted whether or not it
+   * reaches the file, because re-deciding that in the probe would be a second
+   * copy of emission's conditions; an alias is different because its line is
+   * carried *only* where a face qualifies through it, and an alias absent from
+   * the file contests nothing. Counting a gated alias would push a minted local
+   * aside for a name the reader cannot find — the companion-fallback module,
+   * whose alias line no face owes, would render its own bare face as `Shape1`
+   * against a `Shape` the file does not contain.
+   *
+   * Recorded here rather than derived during rendering so it stays a
+   * **pre-rendering** quantity: whether any occurrence is qualified is settled
+   * before a single spelling is chosen, which is what lets the runtime alias and
+   * every minted local be probed once and early.
+   *
+   * A superset on the axis every other member is a superset on — an alias
+   * qualified only inside a function body, or only at a seat §2.3 pins away
+   * (`S.Seq(Int)` faces as `Iterable<a>` and imports nothing), is counted
+   * although no line is owed. That errs the way over-claiming always errs here:
+   * the cost is a moved compiler-chosen spelling, never a `.d.ts` that fails to
+   * compile.
+   */
+  readonly qualifiedModuleAliases: readonly string[];
   /**
    * Every constraint declaration this module can see — its own and everything
    * its import graph reaches — deduplicated by identity. A wider set than the
@@ -840,6 +906,22 @@ export interface ImportName {
    * half silently cost the `.d.ts` its `import type` row (#227).
    */
   readonly typeBinding?: boolean;
+  /**
+   * The **identity** the type half binds, where it binds a nominal one — exactly
+   * one of the three is set, and all three are absent where `typeBinding` is
+   * unset or the name binds a *type alias* (which has no identity, because a
+   * face carries an alias's expansion and never its name; FFI Part 7 §1).
+   *
+   * FFI Part 7 §2.4 rung 2 answers by **identity**, so the declaration emitter
+   * can spell a face with the local this import bound — honouring `as` — instead
+   * of with the type's declared name. Before this the named-import channel
+   * carried no identity at all, so there was nothing to look the local up by and
+   * a renamed import emitted `import type { Shape as S }` beside a face spelling
+   * `Shape` (#617).
+   */
+  readonly union?: UnionId;
+  readonly record?: RecordId;
+  readonly externType?: ExternTypeId;
   /**
    * The name is a **member of an imported constraint** rather than a name the
    * source listed (Modules §3.1: importing a constraint imports its members).

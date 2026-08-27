@@ -126,11 +126,25 @@ export interface RecordType {
   readonly tail?: TypeVariableId;
 }
 
+/**
+ * The namespace alias one *occurrence* was written through — `Resolved`'s, ridden
+ * into the typed tree so FFI Part 7 §2.4 rung 3 can read it.
+ *
+ * It rides the type rather than being looked up from the annotation syntax, so a
+ * declaration the compiler **derives** rather than renders — a fundamental
+ * specialization, a constructor arrow, a stable export wrapper — inherits the
+ * qualifiers of the scheme it came from: they survive substitution because
+ * substitution rebuilds a nominal node's *arguments* and keeps the node.
+ */
+export type TypeQualifier = Resolved.TypeQualifier;
+
 export interface UnionType {
   readonly kind: "Union";
   readonly union: Resolved.UnionId;
   readonly name: string;
   readonly arguments: readonly Type[];
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare. */
+  readonly qualifier?: TypeQualifier;
 }
 
 export interface NominalRecordType {
@@ -138,12 +152,16 @@ export interface NominalRecordType {
   readonly record: Resolved.RecordId;
   readonly name: string;
   readonly arguments: readonly Type[];
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare. */
+  readonly qualifier?: TypeQualifier;
 }
 
 export interface ExternType {
   readonly kind: "ExternType";
   readonly externType: Resolved.ExternTypeId;
   readonly name: string;
+  /** See `TypeQualifier`; absent for an occurrence the source wrote bare. */
+  readonly qualifier?: TypeQualifier;
 }
 
 /**
@@ -286,6 +304,11 @@ export interface Module {
   readonly preludeInstances: readonly Resolved.PreludeInstance[];
   /** Prelude-visible nominal types (#227, FFI Part 7 §2.4); see `Resolved.Module`. */
   readonly preludeTypeImports: readonly Resolved.PreludeTypeImport[];
+  /**
+   * The namespace aliases some occurrence qualifies a type through (FFI Part 7
+   * §2.4); see `Resolved.Module.qualifiedModuleAliases`.
+   */
+  readonly qualifiedModuleAliases: readonly string[];
   /**
    * Exception declarations in scope here that this module did not write (#469);
    * see `Resolved.Module.visibleExceptions`. Carried past the checker because

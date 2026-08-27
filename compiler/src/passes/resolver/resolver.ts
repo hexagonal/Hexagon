@@ -1033,6 +1033,15 @@ class Resolver {
   readonly #diagnostics: Diagnostics.Bag;
   /** This module's file id, held for identity minting; set by `resolve`. */
   #fileId = 0;
+  /**
+   * The same id, unbranded rather than numbered: a `TypeQualifier` records which
+   * module *wrote* the qualifier, and only that module may read it back (FFI
+   * Part 7 §2.4). Held beside `#fileId` because that one is a `number` for the
+   * identity arithmetic and this one has to be the branded id it is compared to.
+   */
+  #moduleFileId = 0 as unknown as Source.FileId;
+  /** See `Resolved.Module.qualifiedModuleAliases`. */
+  readonly #qualifiedModuleAliases: string[] = [];
   #lambdaDepth = 0;
   /** Written-hole identities; see `Resolved.HoleTypeAnnotation.id`. */
   #nextHole = 0;
@@ -1460,6 +1469,7 @@ class Resolver {
 
   resolve(module: Parsed.Module): Resolved.Module {
     this.#fileId = Number(module.fileId);
+    this.#moduleFileId = module.fileId;
     this.#predeclareTypes(module.items);
     // Implied type names have owner-relative identity, but failed uses outside
     // an owner still receive the knowing v1 diagnostic even before declaration.
@@ -1545,6 +1555,7 @@ class Resolver {
       // source-written import took an entry over (§2.4), and the import items
       // are only all resolved by now.
       preludeTypeImports: this.#preludeTypeImports.map((entry) => ({ ...entry })),
+      qualifiedModuleAliases: [...this.#qualifiedModuleAliases],
       visibleConstraints: [...this.#visibleConstraints.values()],
       visibleExceptions: [...this.#visibleExceptions.values()],
       externTypes: this.#externTypes,
@@ -2331,6 +2342,29 @@ class Resolver {
                       ...(term === undefined ? {} : { symbol: term.id }),
                       ...(term === undefined && typeBinding ? { typeOnly: true } : {}),
                       ...(typeBinding ? { typeBinding: true } : {}),
+                      // The identity the type half binds (§2.4 rung 2), so the
+                      // declaration emitter can answer by identity and spell the
+                      // face with the local this line chose. A type *alias* is
+                      // deliberately absent: faces carry its expansion, so no
+                      // face ever answers with its name (#618).
+                      //
+                      // Gated on the `#…Names` maps for the reason the emission
+                      // inventory above is: those are the record of what really
+                      // bound, so a name a collision refused answers for nothing
+                      // and the face falls to a rung that can name it.
+                      ...(union !== undefined &&
+                          this.#unionNames.get(name.local.text) === union.id
+                        ? { union: union.id }
+                        : {}),
+                      ...(record !== undefined &&
+                          this.#recordNames.get(name.local.text) === record.id
+                        ? { record: record.id }
+                        : {}),
+                      ...(externType !== undefined &&
+                          this.#externTypeNames.get(name.local.text) ===
+                            externType.externType
+                        ? { externType: externType.externType }
+                        : {}),
                       span: name.span,
                     }];
               return [...own, ...memberNames];
@@ -4019,11 +4053,25 @@ class Resolver {
       const arguments_ = annotation.kind === "AppliedType"
         ? annotation.arguments.map((argument) => this.#resolveTypeAnnotation(argument, typeParameters, impliedContext, substitutions))
         : [];
+      // FFI Part 7 §2.4 rung 3 reads the *occurrence*, so the alias this seat
+      // was written through rides the resolved node from here (`TypeQualifier`).
+      // Only a **source-written** `import module` qualifies: `#namedModule` also
+      // answers for a prelude companion (§6.4's qualified home), which carries no
+      // import line at all and whose identity reaches rung 4 instead.
+      const qualifier = this.#qualifierOf(annotation.qualifier.text, name);
       const union = imported.unions.get(name);
-      if (union !== undefined) return this.#resolvedNominalType("union", union, name, arguments_, annotation.span);
+      if (union !== undefined) {
+        return this.#resolvedNominalType("union", union, name, arguments_, annotation.span, qualifier);
+      }
       const record = imported.records.get(name);
-      if (record !== undefined) return this.#resolvedNominalType("record", record, name, arguments_, annotation.span);
+      if (record !== undefined) {
+        return this.#resolvedNominalType("record", record, name, arguments_, annotation.span, qualifier);
+      }
       const alias = imported.aliases.get(name);
+      // A type alias has no identity of its own — a face carries its expansion
+      // (FFI Part 7 §1) — so the qualifier stops here rather than being pushed
+      // onto the nominals the expansion mentions. Those carry whatever their
+      // *writer* wrote, which is the whole of the travelling-spelling rule.
       if (alias !== undefined) return this.#instantiateResolvedAlias(alias, arguments_, annotation.span);
       const externType = imported.externTypes.get(name);
       if (externType !== undefined) {
@@ -4038,6 +4086,7 @@ class Resolver {
           kind: "ExternType",
           externType: externType.externType,
           name: `${annotation.qualifier.text}.${name}`,
+          ...(qualifier === undefined ? {} : { qualifier }),
           span: annotation.span,
         };
       }
@@ -4401,6 +4450,7 @@ class Resolver {
     name: string,
     arguments_: readonly Resolved.TypeAnnotation[],
     span: Source.Span,
+    qualifier?: Resolved.TypeQualifier,
   ): Resolved.TypeAnnotation {
     const expected = declaration.parameters.length;
     if (arguments_.length !== expected) {
@@ -4410,9 +4460,25 @@ class Resolver {
         primary: span,
       });
     }
+    const written = qualifier === undefined ? {} : { qualifier };
     return kind === "union"
-      ? { kind: "Union", union: (declaration as Resolved.Union).id, name, arguments: arguments_, span }
-      : { kind: "RecordDeclaration", record: (declaration as Resolved.RecordDeclaration).id, name, arguments: arguments_, span };
+      ? { kind: "Union", union: (declaration as Resolved.Union).id, name, arguments: arguments_, ...written, span }
+      : { kind: "RecordDeclaration", record: (declaration as Resolved.RecordDeclaration).id, name, arguments: arguments_, ...written, span };
+  }
+
+  /**
+   * FFI Part 7 §2.4 rung 3's record of one qualified occurrence, or `undefined`
+   * where the qualifier is not a source-written namespace import's.
+   *
+   * The alias joins `Module.qualifiedModuleAliases` here, which is what keeps
+   * the declaration file's collision universe a pre-rendering quantity: the
+   * question the universe asks is whether *some* occurrence qualifies through
+   * the alias, and that is settled the moment the occurrence resolves.
+   */
+  #qualifierOf(alias: string, member: string): Resolved.TypeQualifier | undefined {
+    if (!this.#moduleAliases.has(alias)) return undefined;
+    if (!this.#qualifiedModuleAliases.includes(alias)) this.#qualifiedModuleAliases.push(alias);
+    return { module: this.#moduleFileId, alias, member };
   }
 
   /**
