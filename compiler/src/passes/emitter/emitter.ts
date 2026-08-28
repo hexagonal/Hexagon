@@ -1977,8 +1977,8 @@ function declarationAliasPlan(
  * old ground for leaving them out — that no compiler-chosen spelling could
  * collide with one — died with that rung.
  *
- * Two classes stay out, each on a prefix or suffix argument that still holds
- * against every spelling this file can mint:
+ * Three classes stay out, each on a prefix, suffix or case argument that still
+ * holds against every spelling this file can mint:
  *
  * - A **`__bindingN` local** is under Lexer §3.2's reserved prefix, which no
  *   `Hex` spelling and no Hexagon type name can be.
@@ -1987,6 +1987,15 @@ function declarationAliasPlan(
  *   generated-name scheme that ever drops that shape has to revisit this — and
  *   the brands are the standing example of a scheme whose shape argument did
  *   lapse, so the revisit is not hypothetical.
+ * - The **`isHexError` guard face** (Exceptions §7.6, #478) is emitted by every
+ *   module exporting an exception, so it really is a top-level identifier of
+ *   that file — but every spelling the probes here can mint starts uppercase:
+ *   the runtime alias is `Hex` and a suffix, a minted local is a nominal's
+ *   declared name, which the lexer makes uppercase-start, and a brand is
+ *   `<Name>Brand` and a suffix. The guard starts lowercase, and a *user* export
+ *   colliding with it is already FFI Part 8 §6.2's hard error (Part 7 §6), so
+ *   the universe never has to route around it. A scheme that ever mints a
+ *   lowercase-start spelling has to revisit this alongside the brands.
  *
  * **The module's own items, never `module.symbols`.** That list also carries the
  * prelude's terms and every symbol a *namespace* alias reaches, and neither is a
