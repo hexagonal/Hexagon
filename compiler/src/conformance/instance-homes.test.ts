@@ -333,6 +333,78 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
   });
 
   /**
+   * Sealed × **coincide** — the sealed analogue of "one home when they coincide",
+   * and the one sealed shape whose repair needs no new import at all: `./gate.hex`
+   * declares the constraint *and* the subject, so the honor can be written there
+   * as it stands. The clause names that one module, which is what it always does
+   * on this branch; the point of the pin is that the coinciding case is a record.
+   */
+  test("a sealed constraint whose subject shares its module names that module", () => {
+    expect(messagesOf([
+      ["/gate.hex", [
+        "constraint Gate<a> =",
+        "    pass(subject: a): String",
+        "",
+        "export record Ticket = {serial: Int}",
+        "",
+        "export fun admit<a: Gate>(subject: a): String = pass(subject)",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        "import { admit, Ticket } from \"./gate\"",
+        "",
+        "export fun go(t: Ticket): String = admit(t)",
+        "",
+      ].join("\n")],
+    ])).toEqual([
+      "type `Ticket` has no `Gate` instance; `Gate` is not nameable here, so the honor " +
+        "can only be written in `./gate.hex`, which declares it",
+    ]);
+  });
+
+  /**
+   * Sealed × the two nominal subjects the file had no sealed case for: a
+   * **prelude-supplied** union and a **user** union. Both true — the subject's
+   * own home is irrelevant on this branch, since it is the constraint that
+   * cannot be named — and with the record cases already pinned above, every
+   * sealed cell in the file is now a record.
+   */
+  test("a sealed constraint names its module at a prelude union and at a user union alike", () => {
+    const gate = [
+      "constraint Gate<a> =",
+      "    pass(subject: a): String",
+      "",
+      "export fun admit<a: Gate>(subject: a): String = pass(subject)",
+      "",
+    ].join("\n");
+    const sealed = (subject: string) =>
+      `type \`${subject}\` has no \`Gate\` instance; \`Gate\` is not nameable here, ` +
+      "so the honor can only be written in `./gate.hex`, which declares it";
+
+    expect(messagesOf([
+      ["/gate.hex", gate],
+      ["/main.hex", [
+        "import { admit } from \"./gate\"",
+        "",
+        "export fun go(m: Option(Int)): String = admit(m)",
+        "",
+      ].join("\n")],
+    ])).toEqual([sealed("Option(Int)")]);
+
+    expect(messagesOf([
+      ["/gate.hex", gate],
+      ["/main.hex", [
+        "import { admit } from \"./gate\"",
+        "",
+        "export union Colour = Red | Green",
+        "",
+        "export fun go(c: Colour): String = admit(c)",
+        "",
+      ].join("\n")],
+    ])).toEqual([sealed("Colour")]);
+  });
+
+  /**
    * §5.1.1's disambiguate-by-home remedy. The branch is right here — `./alpha.hex`'s
    * `Describe` is genuinely private — but "`Describe` is not nameable here" reads
    * as plainly false to a reader who has just written `constraint Describe` in

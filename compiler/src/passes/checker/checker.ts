@@ -8980,6 +8980,18 @@ class Checker {
    * `Iterable` twin is (§3.3's third gate): the fixit would name a file the user
    * cannot edit. `#preludeUnionIds`/`#preludeRecordIds` are the occlusion-proof
    * channel for that question, so the answer does not ride on a name.
+   *
+   * **Two unlike facts leave through this one `undefined`, and only one of them
+   * is a truth requirement.** For a *structural* subject no home exists anywhere
+   * — Constraints §5.4/§9.3 refuse a structural instance head outright — so the
+   * bare message is the only true report, and every branch above must fall back:
+   * that is why `#legalHomesClause` asks this question before it splits. For an
+   * *extern type* a home does exist, the file holding its `extern` block; it
+   * leaves here only because `Resolved.ExternTypeDeclaration` carries no
+   * `declaringPath` to name it with, which makes the fallback merely
+   * conservative — never wrong, only less. Whoever gives extern types a
+   * `declaringPath` should return a home for them here and must not let the
+   * structural case ride out on the same predicate.
    */
   #subjectHome(type: Mono): LegalHome | undefined {
     if (type.kind === "Constructor") {
