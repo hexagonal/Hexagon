@@ -259,15 +259,16 @@ constraint Iterable<c> =
 
 ## 9. Diagnostics checklist
 
-Noun policy: the noun for the `type`-declared member is **implied type**; the instance noun remains **instance**; `Hash` diagnostics use the derivation vocabulary of Constraints §4.5.
+Noun policy: the noun for the `type`-declared member is **implied type**; the instance noun remains **instance**; `Hash` diagnostics use the derivation vocabulary of Constraints §4.5 — the user-facing head states the law positively ("`Hash` instances must be derived", #647), while this spec's prose keeps *hand-written* as the term of art for member-block provenance.
 
 | Situation | Error / hint | Provenance |
 |---|---|---|
 | Unsatisfied `Hash` at a call/use site | the Constraints §8 head under Modules §7.6's **replacement** composition (#644): at a project-source nominal whose `Eq` is absent or derived, the legal-homes clause is replaced by §7.6's pinned derivation sentence, list-aware and base-complete — "`Hash` instances must be derived, so the only repair is `derives (Eq, Hash)` on the declaration of `Point` in `./main.hex`" | Constraints §8; Modules §7.6 |
 | Unsatisfied `Hash` at a project-source nominal whose `Eq` is hand-written | derivation is barred (§4.3), so no fixit is offered; the report states the requirement and the §4.5 route: "`derives Hash` requires a derived `Eq`, and `Weird` declares its own — key on a wrapper type whose `Eq` and `Hash` are both derived" | §4.3, §4.5; Modules §7.6 |
-| Member-block `honor Hash<T>` at a project-source nominal subject whose `Eq` is absent or derived | refused with Constraints §8's advice family (#647): "`Hash` instances must be derived; use `derives (Eq, Hash)` on the declaration of `Weird`" — list-aware ("…add `(Eq, Hash)` to `Weird`'s `derives` list") and base-complete in either dialect; the declaration's file is named ("…in `./types.hex`") only when it is not the reporting file, the refused honor itself being the anchor otherwise *(carve-out, #344: not emitted for privileged prelude companion source honoring at its own primitive — `BigInt.hex`'s `honor Hash<BigInt>`, `Int.hex`'s `honor Hash<Int>`, and `Nat.hex`'s `honor Hash<Nat>` are legal there and nowhere else; Constraints §4.5)* | §4.1; Constraints §8; Modules §7.6 |
+| Member-block `honor Hash<T>` at a project-source nominal subject whose `Eq` is absent or derived | refused with Constraints §8's advice family (#647): "`Hash` instances must be derived; use `derives (Eq, Hash)` on the declaration of `Weird`" — list-aware ("…add `(Eq, Hash)` to `Weird`'s `derives` list") and base-complete in either dialect; the declaration's file is named ("…in `./types.hex`") only when it is not the reporting file, the refused honor itself being the anchor otherwise — that branch is reachable only in an already-orphan program (a member-block honor outside `T`'s file, `Hash`'s other home being the prelude), and the orphan error stands beside it, both pointing at the same file; a pathless compilation degrades gracefully — the subject is still named, the file simply omitted | §4.1; Constraints §8; Modules §7.6 |
 | Member-block `honor Hash<T>` at a project-source nominal subject whose `Eq` is hand-written | the advice would itself be refused (§4.3), so the wrapper route stands in its place: "`Hash` instances must be derived, and `derives Hash` requires a derived `Eq` — `Weird` declares its own; key on a wrapper type whose `Eq` and `Hash` are both derived" | §4.1, §4.3, §4.5 |
-| Member-block `honor Hash<T>` at any other subject | prelude nominal, primitive outside the carve-out, extern, or structural: the head plus the one true sentence — "`Hash` instances must be derived; derivation is spelled on the subject's declaration, which is not in project source" — no advice a reader cannot follow (Modules §7.6's offering discipline); an unresolvable subject keeps the ordinary unknown-name error, which answers first | §4.1 |
+| Member-block `honor Hash<T>` at any other resolvable subject | prelude nominal, primitive outside the carve-out, extern, or structural: the head plus the one true sentence — "`Hash` instances must be derived; derivation is spelled on the subject's declaration, which is not in project source" — no advice a reader cannot follow (Modules §7.6's offering discipline) *(carve-out, #344: not emitted for privileged prelude companion source honoring at its own primitive — `BigInt.hex`'s `honor Hash<BigInt>`, `Int.hex`'s `honor Hash<Int>`, and `Nat.hex`'s `honor Hash<Nat>` are legal there and nowhere else; Constraints §4.5)* | §4.1 |
+| Member-block `honor Hash<T>` whose subject annotation does not resolve | this seat is **silent**: the unknown-name error is the whole answer, and no advice is owed about a subject the checker cannot name | §4.1 |
 | `honor Hash<T> = derive` with hand-written `Eq<T>` | "cannot derive `Hash<Weird>`: `Weird` has a hand-written `Eq` instance; a derived hash is only consistent with a derived equality" | §4.3 |
 | `derives Hash` with no `Eq` in scope | error for a missing base constraint + "add `Eq` to the `derives` list" | §3.1 |
 | Underivable field/slot for `Hash` | "cannot derive `Hash<Point>`: field `f` has type `T`, which has no `Hash` instance" | §3.1 |
@@ -365,8 +366,9 @@ let u = hash((1, fn))                            -- ERROR: no Hash for Int -> In
 
 -- (4) Hand-written Hash: closed door, signposted
 honor Hash<UserId> =
-    hash(u) = u.n                                  -- ERROR: Hash instances cannot be
-                                                 --   hand-written; use `derives Hash`
+    hash(u) = u.n                                  -- ERROR: Hash instances must be derived;
+                                                 --   use `derives (Eq, Hash)` on the
+                                                 --   declaration of `UserId`
 
 -- (5) Eq-agreement rule
 record Weird = {s: String}
