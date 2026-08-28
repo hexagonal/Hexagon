@@ -372,6 +372,51 @@ describe("aggregation: one clause per declaring module", () => {
     ]);
   });
 
+  test("two homes in one witness draw two clauses", () => {
+    // A row that wildcards the first column keeps the tail non-trivial, so the
+    // shallowest witness names a constructor at *both* columns and each routes
+    // to its own declaring module.
+    expect(diagnostics([
+      ["/a.hex", "export union A = A1 | A2\n"],
+      ["/b.hex", "export union B = B1 | B2\n"],
+      [
+        "/main.hex",
+        "import { A, A1 } from \"./a\"\n" +
+        "import { B, B1 } from \"./b\"\n" +
+        "export fun f(x: A, y: B): Int =\n" +
+        "    match (x, y)\n" +
+        "        (A1, B1) => 1\n" +
+        "        (_, B1) => 2\n",
+      ],
+    ])).toEqual([
+      "match is missing cases: `(A2, B2)` — `A2` is declared in `./a`; " +
+      "`import { A2 } from \"./a\"` to spell it here — `B2` is declared in " +
+      "`./b`; `import { B2 } from \"./b\"` to spell it here",
+    ]);
+  });
+
+  test("two clauses, per-module name aggregation and the cap, together", () => {
+    expect(diagnostics([
+      WIDE,
+      ["/other.hex", "export union G = G1 | G2\n"],
+      [
+        "/main.hex",
+        "import { Flag, On } from \"./flags\"\n" +
+        "import { G, G1 } from \"./other\"\n" +
+        "export fun f(x: Flag, y: G): Int =\n" +
+        "    match (x, y)\n" +
+        "        (On, G1) => 1\n" +
+        "        (_, G1) => 2\n",
+      ],
+    ])).toEqual([
+      "match is missing cases: `(Off, G2)`, `(Dim, G2)`, `(Warm, G2)` …and 1 " +
+      "more — `Off`, `Dim` and `Warm` are declared in `./flags`; " +
+      "`import { Off, Dim, Warm } from \"./flags\"` to spell them here — " +
+      "`G2` is declared in `./other`; `import { G2 } from \"./other\"` to " +
+      "spell it here",
+    ]);
+  });
+
   test("the `…and N more` tail names no constructors, so it routes none", () => {
     expect(diagnostics([
       WIDE,
@@ -541,6 +586,47 @@ describe("the error-program obligation: a broken pattern must not widen the voca
   });
 });
 
+describe("the obligation reaches the nominal record's constructor pattern too", () => {
+  /** A foreign `Box`, so a local one can collide with it by spelling. */
+  const FOREIGN_BOX = [
+    "/h.hex",
+    "export record Box = {n: Int}\n" +
+    "export let mk = (): Box => Box({n = 1})\n",
+  ] as const;
+
+  test("a local record constructor against a foreign one reports the fault alone", () => {
+    // The double report the obligation was argued into the block to remove:
+    // `match is missing cases: `Box(_)`` beside `type mismatch: expected Box,
+    // found Box`. Both walks reach the record constructor through
+    // `#recordConstructorSlot`, so that is where the verdict has to be taken.
+    expect(diagnostics([
+      FOREIGN_BOX,
+      [
+        "/main.hex",
+        "import { mk } from \"./h\"\n" +
+        "record Box = {n: Int}\n" +
+        "export fun f(): Int =\n" +
+        "    match mk()\n" +
+        "        Box({n = 0}) => 1\n",
+      ],
+    ])).toEqual(["type mismatch: expected Box, found Box"]);
+  });
+
+  test("and the §5.3 gate leaks nothing either", () => {
+    expect(diagnostics([
+      FOREIGN_BOX,
+      [
+        "/main.hex",
+        "import { mk } from \"./h\"\n" +
+        "record Local = {n: Int}\n" +
+        "export fun f(): Int =\n" +
+        "    let Local({n = q}) = mk()\n" +
+        "    q\n",
+      ],
+    ])).toEqual(["type mismatch: expected Box, found Local"]);
+  });
+});
+
 describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
   test("a broken arm above good arms kills nothing", () => {
     expect(diagnostics([
@@ -587,6 +673,25 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
     ])).toEqual([
       "type mismatch: expected Flag, found Int",
       "type mismatch: expected Flag, found Int",
+    ]);
+  });
+
+  test("an arity-wrong pattern is not a shadower either", () => {
+    // `On(3)` is not dead under *every* repair of `On` — repair it to `On(0)`
+    // and `On(3)` is live — so §7.2's dual forbids the unreachable-arm error
+    // this drew, whose fixit told the reader to delete a perfectly good arm.
+    expect(diagnostics([
+      [
+        "/main.hex",
+        "export union Flag = On(Int) | Off\n" +
+        "export fun f(x: Flag): Int =\n" +
+        "    match x\n" +
+        "        On => 1\n" +
+        "        On(3) => 2\n" +
+        "        Off => 3\n",
+      ],
+    ])).toEqual([
+      "constructor pattern `On` expects 1 arguments, got 0",
     ]);
   });
 

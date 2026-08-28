@@ -5609,13 +5609,15 @@ class Checker {
   ): Mono | undefined {
     if (!this.#recordConstructors.has(pattern.symbol)) return undefined;
     const shape = this.#constructorShape(pattern.symbol, level);
-    this.#unify(expected, shape.result, pattern.span);
+    // Through `#unifyPattern` like every other pattern-shape unification: both
+    // walks route a record constructor pattern here, so this is the seat where
+    // §7.3's obligation reaches the nominal record. Left raw, a local `record
+    // Box` matched against a foreign `Box` drew the missing-cases report beside
+    // the type mismatch — the double report the obligation was argued into the
+    // block to remove.
+    this.#unifyPattern(pattern, expected, shape.result);
     if (pattern.arguments.length !== shape.parameters.length) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: `constructor pattern \`${pattern.text}\` expects ${shape.parameters.length} arguments, got ${pattern.arguments.length}`,
-        primary: pattern.span,
-      });
+      this.#reportPatternArity(pattern, shape.parameters.length);
     }
     return shape.parameters[0] ?? ERROR;
   }
@@ -5764,11 +5766,7 @@ class Checker {
       const parameters = shape.parameters;
       this.#unifyPattern(pattern, expected, shape.result);
       if (pattern.arguments.length !== parameters.length) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `constructor pattern \`${pattern.text}\` expects ${parameters.length} arguments, got ${pattern.arguments.length}`,
-          primary: pattern.span,
-        });
+        this.#reportPatternArity(pattern, parameters.length);
       }
       // Same standing as the `Or` arm's: `evaluated` here is an equivalent
       // mutant *today*, masked by #213 — this arm's components are opened at the
@@ -5965,11 +5963,7 @@ class Checker {
     const parameters = shape.parameters;
     this.#unifyPattern(pattern, expected, shape.result);
     if (pattern.arguments.length !== parameters.length) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: `constructor pattern \`${pattern.text}\` expects ${parameters.length} arguments, got ${pattern.arguments.length}`,
-        primary: pattern.span,
-      });
+      this.#reportPatternArity(pattern, parameters.length);
     }
     pattern.arguments.forEach((argument, index) =>
       this.#inferMatchPattern(argument, parameters[index] ?? ERROR, level)
@@ -6054,6 +6048,7 @@ class Checker {
         message: `exception pattern \`${pattern.text}\` expects ${shape.parameters.length} arguments, got ${pattern.arguments.length}`,
         primary: pattern.span,
       });
+      this.#brokenPatterns.add(pattern);
     }
     pattern.arguments.forEach((argument, index) =>
       this.#inferMatchPattern(argument, shape.parameters[index] ?? ERROR, level)
@@ -8083,9 +8078,38 @@ class Checker {
    * program (§7.3: "its row's well-typed columns stand as written").
    */
   #unifyPattern(pattern: Resolved.Pattern, expected: Mono, actual: Mono): void {
+    // `count` counts diagnostics as *added*, while `toArray` can drop one inside
+    // a `supersedes` region. No producer sets `supersedes` today, so the two
+    // readings agree; should one ever, a pattern could be granted maximal cover
+    // with no surviving diagnostic to explain the silence, and this read is
+    // where that would have to become "reported, and still reported".
     const before = this.#diagnostics.count;
     this.#unify(expected, actual, pattern.span);
     if (this.#diagnostics.count > before) this.#brokenPatterns.add(pattern);
+  }
+
+  /**
+   * A constructor pattern written at the wrong arity — Unions §4.2's sentence,
+   * from all three of its seats — and a pattern that **failed to type**.
+   *
+   * The brokenness matters for §7.2's half of §7.3's obligation rather than for
+   * coverage's. An arity-wrong pattern cannot widen a witness's vocabulary: the
+   * head is found and `#alignedSlots` pads, so exhaustiveness is unmoved. But it
+   * is not dead under every repair either, and left unmarked it *shadows*:
+   * `On => 1` above `On(3) => 2` reported the good arm unreachable, with §7.2's
+   * "remove the arm or reorder it" advice attached — the exact failure the
+   * block's dual forbids.
+   */
+  #reportPatternArity(
+    pattern: Resolved.ConstructorPattern,
+    arity: number,
+  ): void {
+    this.#diagnostics.add({
+      severity: "error",
+      message: `constructor pattern \`${pattern.text}\` expects ${arity} arguments, got ${pattern.arguments.length}`,
+      primary: pattern.span,
+    });
+    this.#brokenPatterns.add(pattern);
   }
 
   #unify(
