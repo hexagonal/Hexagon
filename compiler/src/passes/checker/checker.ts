@@ -11082,13 +11082,17 @@ class Checker {
     // extern type asks this module's own `#externTypes`, whose imported entries
     // are exported by construction — the interface publishes no other kind. So a
     // type that lives elsewhere contributes nothing here whatever its privacy at
-    // home, and nothing is left unguarded by the restraint: a private type
-    // reaches a consumer's face only through some exported carrier or binding of
-    // its home module, and that carrier is refused *there* (#629), in the one
-    // module that holds the declaration and can perform the remedy the message
-    // names. Locality is therefore also what makes the span total: every firing
-    // has a declaration in this file, so every diagnostic in the family carries
-    // its label, and none points across files (§4.2.1).
+    // home, and §4.3's **two** guards are what leave the restraint with nothing
+    // unguarded. Every *carrier* route into a consumer's face runs through some
+    // exported carrier or binding of the home module, and that carrier is refused
+    // **there** (#629), in the one module that holds the declaration the label
+    // points at and can perform the remedy the message names. Where no carrier
+    // route exists — an exported constraint's members, which have no `.d.ts` face
+    // and are no carrier (#626) — the private type is unnameable in the consumer,
+    // so no complete exported signature (§4.1.1) can mention it. Locality is
+    // therefore also what makes the span total: every firing has a declaration in
+    // this file, so every diagnostic in the family carries its label, and none
+    // points across files (§4.2.1).
     type Mentions = Map<string, Source.Span>;
     const visit = (type: Mono, found: Mentions = new Map()): ReadonlyMap<string, Source.Span> => {
       const actual = this.#prune(type);

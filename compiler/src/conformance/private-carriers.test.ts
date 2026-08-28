@@ -222,12 +222,16 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
   // unions have practised this since #605 (`representationVisible` is stamped
   // false on every imported copy); the extern arm now asks the same question of
   // the module's own extern-type table, whose imported entries are exported by
-  // construction. Nothing is left unguarded by the restraint, and these tests
-  // are that claim measured rather than argued: a private type reaches a
-  // consumer's face only through some exported carrier or binding of its home
-  // module, and each such route is refused *at home*, in the one module holding
-  // the declaration the label points at and able to perform the remedy the
-  // message names.
+  // construction. What leaves the restraint with nothing unguarded is §4.3's
+  // pair of guards, and these tests are that pair measured rather than argued.
+  // Every **carrier** route into a consumer's face runs through some exported
+  // carrier or binding of the home module, and that carrier is refused *there*,
+  // in the one module holding the declaration the label points at and able to
+  // perform the remedy the message names. Where no carrier route exists — an
+  // exported constraint's members, which are no carrier (#626) — the guard is a
+  // different one: the private type is unnameable in the consumer, so no
+  // complete exported signature (§4.1.1) can mention it. One test below is that
+  // second guard's, and it is the one route with no home refusal to point at.
 
   const PRIVATE_EXTERN = 'extern from "./lib.js"\n    type Hidden\n';
 
@@ -345,6 +349,28 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(moduleOf(compiled, "/src/main.hex").declarations.text).toContain(
       'import type { Shown } from "./lib.js";',
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("and across two hops, with the import minted at the declaring module", async () => {
+    // The route the repair opens is now reachable through an intermediary, and
+    // the seat where that could go wrong is the emitted import's provenance: an
+    // alias is transparent, so `main`'s face is `Shown` — a name `mid` never
+    // declared and only passed along. The mint must therefore name `lib`, the
+    // declaring module, never the module `main` actually imported from. Pinned
+    // because nothing else in the suite reaches this arm through two hops.
+    const compiled = project({
+      "/src/lib.hex": 'extern from "./lib.js"\n    export type Shown\n',
+      "/src/mid.hex": 'import { Shown } from "./lib"\nexport type Alias = Shown\n',
+      "/src/main.hex": 'import { Alias } from "./mid"\n' +
+        "export record Wrap = {h: Alias}\n",
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
+    expect(moduleOf(compiled, "/src/main.hex").declarations.text).toBe(
+      'import type { Shown } from "./lib.js";\n' +
+        "export type Wrap = { h: Shown };\n" +
+        "export declare const Wrap: (record: { h: Shown }) => Wrap;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
