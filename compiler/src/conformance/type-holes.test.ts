@@ -484,7 +484,12 @@ describe("§8.11 a seeded constraint refuses a bad fill", () => {
     // No new diagnostic family (§6.1): the error arises at the use that fixes
     // the fill, from ordinary instance resolution, and says only what it says.
     expect(projectDiagnostics(`let f(x: _ : Num) = x and True\n${TAIL}`))
-      .toEqual(["type `Bool` has no `Num` instance"]);
+      .toEqual([
+        "type `Bool` has no `Num` instance; its only legal homes are the module declaring " +
+          "`Num` and the prelude module declaring `Bool`, both outside project source, so " +
+          "this pair's honored set is closed — change the type, or go through the " +
+          "operations those homes export",
+      ]);
   });
 
   test("§6.1 the same message an accumulated `Num` gets at the same fill", () => {
@@ -614,7 +619,12 @@ describe("§8.14 seeding survives substitution as one obligation", () => {
   test("§4.4 the shared seed is checked once, at whatever fixes the fill", () => {
     expect(projectDiagnostics(
       `${PAIR}let g(p: Pair(_ : Num)): Int = 1\nexport let out: Int = g(("a", "b"))\n`,
-    )).toEqual(["type `String` has no `Num` instance"]);
+    )).toEqual([
+      "type `String` has no `Num` instance; its only legal homes are the module declaring " +
+        "`Num` and `String`'s prelude companion module, both outside project source, so " +
+        "this pair's honored set is closed — change the type, or go through the operations " +
+        "those homes export",
+    ]);
   });
 });
 

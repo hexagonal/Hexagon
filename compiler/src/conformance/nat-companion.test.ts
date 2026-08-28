@@ -257,10 +257,20 @@ describe("`Nat` honors no `Signed`", () => {
   test("subtraction and negation at `Nat` are refused", () => {
     expect(diagnostics([
       ["/main.hex", "export let gap(a: Nat, b: Nat): Nat = a - b\n"],
-    ])).toContain("type `Nat` has no `Signed` instance");
+    ])).toContain(
+      "type `Nat` has no `Signed` instance; its only legal homes are the module declaring " +
+        "`Signed` and `Nat`'s prelude companion module, both outside project source, so " +
+        "this pair's honored set is closed — change the type, or go through the operations " +
+        "those homes export",
+    );
     expect(diagnostics([
       ["/main.hex", "export let flipped(a: Nat): Nat = -a\n"],
-    ])).toContain("type `Nat` has no `Signed` instance");
+    ])).toContain(
+      "type `Nat` has no `Signed` instance; its only legal homes are the module declaring " +
+        "`Signed` and `Nat`'s prelude companion module, both outside project source, so " +
+        "this pair's honored set is closed — change the type, or go through the operations " +
+        "those homes export",
+    );
   });
 
   /** But `Num`, `Ord`, `Eq`, `Show`, `Hash`, `Pow`, and `Integral` all answer. */

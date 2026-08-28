@@ -222,7 +222,8 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
     ]);
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
-      "type `Bool` has no `Describe` instance",
+      "type `Bool` has no `Describe` instance; `Describe` is not nameable here, so the " +
+        "honor can only be written in `./alpha.hex`, which declares it",
     ]);
   });
 });

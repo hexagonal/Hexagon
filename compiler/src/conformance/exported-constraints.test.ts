@@ -308,7 +308,10 @@ describe("base-constraint entailment through an imported constraint", () => {
         "export fun run(): String = banner(Siren({pitch = 3}))",
         "",
       ].join("\n")],
-    ])).toEqual(["type `Siren` has no `Loud` instance"]);
+    ])).toEqual([
+      "type `Siren` has no `Loud` instance; `Loud` is not nameable here, so the honor can " +
+        "only be written in `./units.hex`, which declares it",
+    ]);
   });
 });
 
@@ -404,7 +407,10 @@ describe("a base chain whose middle link the importer cannot name", () => {
         "    big(o) = \"ounce\"",
         "",
       ].join("\n")],
-    ])).toEqual(["type `Ounce` has no `Small` instance"]);
+    ])).toEqual([
+      "type `Ounce` has no `Small` instance; `Small` is not nameable here, so the honor " +
+        "can only be written in `./scales.hex`, which declares it",
+    ]);
   });
 });
 

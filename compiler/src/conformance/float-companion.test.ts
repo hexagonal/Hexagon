@@ -391,7 +391,12 @@ describe("the wired rows are gone, not dormant", () => {
     expect(projectDiagnostics("export let q: Float = Float.quot(1.0, 2.0)\n"))
       .toEqual(["module `Float` does not export `quot`"]);
     expect(projectDiagnostics("export let g: Float = gcd(1.5, 2.0)\n"))
-      .toEqual(["type `Float` has no `Integral` instance"]);
+      .toEqual([
+        "type `Float` has no `Integral` instance; its only legal homes are the module " +
+          "declaring `Integral` and `Float`'s prelude companion module, both outside " +
+          "project source, so this pair's honored set is closed — change the type, or go " +
+          "through the operations those homes export",
+      ]);
   });
 
   /**
