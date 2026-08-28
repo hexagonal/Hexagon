@@ -110,7 +110,10 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
     expect(projectDiagnostics(
       "record Weird = {s: String}\n" +
         "export let bad: Set(Weird) = Set.add(Set.empty, Weird({s = \"K\"}))\n",
-    )).toContain("type `Weird` has no `Hash` instance");
+    )).toContain(
+      "type `Weird` has no `Hash` instance; it could only be declared in `./main.hex` " +
+        "(declares `Weird`) or the module declaring `Hash`",
+    );
   });
 
   /** §3.2's `fromVector`, and §3.4's synonym pair. */

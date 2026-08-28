@@ -1200,6 +1200,22 @@ export interface ConstraintItem {
    * to the wrong dictionary — the miscompile #276 names.
    */
   readonly baseConstraintIdentities: readonly string[];
+  /**
+   * The path of the file whose text contains this declaration — the constraint's
+   * **home module** for the orphan rule (Constraints §5.3), and the file Modules
+   * §7.6's missing-instance diagnostic names.
+   *
+   * Stamped where the declaration is written, exactly as `Union.declaringPath`
+   * and `RecordDeclaration.declaringPath` are, and for the same reason: the
+   * declaration travels — through `Module.visibleConstraints`, through an
+   * import's `constraints`, and on through a second hop — while the identity it
+   * carries addresses the *file id*, which no consumer can turn back into a path.
+   * A module reporting a missing instance must name a file the reader can open.
+   *
+   * Absent where the compilation has no path for the module (a bare `check` in a
+   * unit harness); §7.6's report falls back to its path-free form there.
+   */
+  readonly declaringPath?: string;
   readonly impliedTypes: readonly ConstraintImpliedType[];
   readonly members: readonly ConstraintMember[];
   readonly span: Source.Span;

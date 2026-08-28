@@ -1248,7 +1248,10 @@ describe("emitJavaScript", () => {
     const module = coreSource("let left: Nat = 3\nlet right: Nat = 2\nleft - right");
 
     expect(module.diagnostics.map(({ message }) => message)).toContain(
-      "type `Nat` has no `Signed` instance",
+      "type `Nat` has no `Signed` instance; its only legal homes are the module " +
+        "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
+        "source, so this pair's honored set is closed — change the type, or go through " +
+        "the operations those homes export",
     );
   });
 
