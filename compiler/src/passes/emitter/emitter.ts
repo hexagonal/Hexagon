@@ -1989,12 +1989,13 @@ function declarationAliasPlan(
  *   lapse, so the revisit is not hypothetical.
  * - The **`isHexError` guard face** (Exceptions §7.6, #478) is emitted by every
  *   module exporting an exception, so it really is a top-level identifier of
- *   that file — but every spelling the probes here can mint starts uppercase:
- *   the runtime alias is `Hex` and a suffix, a minted local is a nominal's
- *   declared name, which the lexer makes uppercase-start, and a brand is
- *   `<Name>Brand` and a suffix. The guard starts lowercase, and a *user* export
- *   colliding with it is already FFI Part 8 §6.2's hard error (Part 7 §6), so
- *   the universe never has to route around it. A scheme that ever mints a
+ *   that file — but every spelling this file mints starts uppercase: the
+ *   runtime alias is `Hex` and a suffix, a brand is `<Name>Brand` and a suffix,
+ *   and the two source-derived ones — a minted local's nominal name, a yielding
+ *   alias's module alias — sit at seats the parser gates uppercase-start
+ *   (`UpperName`). The guard starts lowercase, and a *user* export colliding
+ *   with it is already the Part 8 §6.2 family's hard error (Part 7 §6), so the
+ *   universe never has to route around it. A scheme that ever mints a
  *   lowercase-start spelling has to revisit this alongside the brands.
  *
  * **The module's own items, never `module.symbols`.** That list also carries the
