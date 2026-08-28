@@ -7,6 +7,7 @@ import {
   type CompiledProject,
 } from "../index";
 import type { Diagnostic } from "../support/diagnostics.js";
+import { compileFiles } from "../support/test-project.js";
 import { typeScriptErrors } from "../support/typescript-check.js";
 
 /**
@@ -26,6 +27,19 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * The two halves land together, which is what leaves no state in which a clean
  * compile ships a broken or leaking declaration file: the checker refuses every
  * face that could reach a private union, and the emitter stops writing one.
+ *
+ * A sixth exported face joined the family later, and it is the only one that is
+ * no carrier at all: an **exported constraint's member signatures** (#626). No
+ * `.d.ts` row of its own rides Part 7's carrier list, and the refusal stands on
+ * two legs. The one that never was the emitter's: §4.3's rationale reads a
+ * member signature verbatim — an honor abroad must produce what the signature
+ * names and can neither name nor build the type. And the emitter's after all:
+ * member signatures reach a declaration file through Parts 8–9's deliberate
+ * surfaces, where the public-evidence closure's `Constraint.Dictionary<a>`
+ * interface renders the member set (FFI Part 9 §2.2; Modules §11.5), and a
+ * private nominal there is #621's failure class exactly. Its scope lines are
+ * pinned beside it — default bodies stay free, and a *private* constraint
+ * gating an export is the lawful sealing idiom.
  */
 
 /** One compiled project, keyed by path. */
@@ -222,16 +236,15 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
   // unions have practised this since #605 (`representationVisible` is stamped
   // false on every imported copy); the extern arm now asks the same question of
   // the module's own extern-type table, whose imported entries are exported by
-  // construction. What leaves the restraint with nothing unguarded is §4.3's
-  // pair of guards, and these tests are that pair measured rather than argued.
-  // Every **carrier** route into a consumer's face runs through some exported
-  // carrier or binding of the home module, and that carrier is refused *there*,
-  // in the one module holding the declaration the label points at and able to
-  // perform the remedy the message names. Where no carrier route exists — an
-  // exported constraint's members, which are no carrier (#626) — the guard is a
-  // different one: the private type is unnameable in the consumer, so no
-  // complete exported signature (§4.1.1) can mention it. One test below is that
-  // second guard's, and it is the one route with no home refusal to point at.
+  // construction. What leaves the restraint with nothing unguarded is that
+  // every route into a consumer's face runs through some exported face of the
+  // home module — a carrier, a binding, or (since #626) an exported
+  // constraint's member signatures — and every one is refused *there*, in the
+  // one module holding the declaration the label points at and able to perform
+  // the remedy the message names. The unnameability backstop stands behind
+  // that: a consumer cannot name the type, so no complete exported signature of
+  // its own (§4.1.1) could mention it regardless. These tests are the restraint
+  // measured rather than argued, the constraint route included.
 
   const PRIVATE_EXTERN = 'extern from "./lib.js"\n    type Hidden\n';
 
@@ -297,31 +310,41 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     ]);
   });
 
-  test("a constraint member's mention, where no home refusal exists at all", () => {
-    // The one route with *no* carrier behind it: an exported constraint is not a
-    // carrier (§4.3's last bullet; #626), so `lib` alone draws nothing and there
-    // is no home-side refusal for the consumer's report to duplicate. The guard
-    // here is a different one and it holds on its own — §4.1.1 plus
-    // unnameability: `main` cannot spell `Hidden`, so no complete exported
-    // signature of its can mention it, and the incomplete one it wrote is
-    // refused as incomplete. What is left is that refusal alone.
+  test("the constraint route reports at home too, and only there", () => {
+    // Measured before the route had a home refusal (#631, for #626's dossier):
+    // `lib` alone drew nothing, because an exported constraint was no carrier,
+    // and the consumer was stopped by §4.1.1 plus unnameability alone. Since
+    // #626 the member signature is the family's sixth face, so the refusal lands
+    // where the fix does — in `lib`, at the member, with the label on `Hidden`'s
+    // row — and the consumer still hears only about the annotation it owes.
     const lib = 'extern from "./lib.js"\n    type Hidden\n' +
       "export constraint Probe<a> =\n    probe(x: a): Hidden\n";
     const consumer = 'import { Probe } from "./lib"\n' +
       "export fun g<a: Probe>(x: a) = probe(x)\n";
-    expect(project({ "/src/lib.hex": lib }).diagnostics.map(({ message }) => message))
-      .toEqual([]);
+    const alone = project({ "/src/lib.hex": lib }).diagnostics;
+    expect(alone.map(({ message }) => message)).toEqual([
+      "exported constraint `Probe` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the constraint private",
+    ]);
+    expect(at(lib, alone[0]!.primary)).toBe("probe(x: a): Hidden");
+    expect(at(lib, alone[0]!.labels![0]!.span)).toBe("type Hidden");
+    // The consumer adds nothing about `Hidden`: locality holds here as at every
+    // other face, and the unnameability backstop stands behind it — `main`
+    // cannot spell the type, so no complete exported signature of its own could
+    // mention it, and the incomplete one it wrote is refused as incomplete.
     const compiled = project({ "/src/lib.hex": lib, "/src/main.hex": consumer });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "exported constraint `Probe` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the constraint private",
       "exported function `g` requires a complete signature; add a return type",
     ]);
   });
 
   test("and the same shape over a private *record* draws exactly the same", () => {
     // The parity control for the test above: the record arm has been local since
-    // #605, so this program has always drawn the completeness error alone. The
-    // extern arm now agrees with it — which is the whole of the repair, stated as
-    // a program the two arms answer identically.
+    // #605 and the extern arm since #629, so the two answer this program
+    // identically — one refusal at `lib`'s member, one completeness error at
+    // `main`, and no word to `main` about a type it cannot name.
     const consumer = 'import { Probe } from "./lib"\n' +
       "export fun g<a: Probe>(x: a) = probe(x)\n";
     const compiled = project({
@@ -330,6 +353,8 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
       "/src/main.hex": consumer,
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "exported constraint `Probe` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the constraint private",
       "exported function `g` requires a complete signature; add a return type",
     ]);
   });
@@ -518,6 +543,278 @@ describe("what is not a carrier", () => {
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+});
+
+describe("an exported constraint's member signatures are the sixth face (#626)", () => {
+  // The family's one **non-carrier** member: no `.d.ts` row of its own rides FFI
+  // Part 7's carrier list, so none of the four blocks above could reach it. The
+  // refusal stands on two legs (§4.3) — the usability one, which reads a member
+  // signature verbatim (an honor abroad must produce what the signature names,
+  // and can neither name nor build the type), and the emitter's, since member
+  // signatures do reach a declaration file through Parts 8–9's deliberate
+  // public-evidence surfaces. Before the ruling this whole shape compiled clean
+  // and the honor-writer abroad met ``type `Hidden` has no `Num`
+  // instance``-grade misdirection instead.
+
+  const REFUSED = "exported constraint `Probe` exposes private type `Hidden`; " +
+    "export the type, perhaps opaquely, or keep the constraint private";
+
+  test("the issue's own shape: a private extern type in a member's result", () => {
+    const source = 'extern from "./lib.js"\n    type Hidden\n' +
+      "export constraint Probe<a> =\n    probe(x: a): Hidden\n";
+    const drawn = lone(source);
+    expect(drawn.message).toBe(REFUSED);
+    expect(at(source, drawn.primary)).toBe("probe(x: a): Hidden");
+    expect(at(source, drawn.labels![0]!.span)).toBe("type Hidden");
+  });
+
+  test("a private record in a member's result, seat and label", () => {
+    // The seat is the member's **whole written signature** — a binding in
+    // miniature, the family's second anchor that is not an annotation — and the
+    // label rides at the declaration, where the one-keyword fix goes.
+    const source = "record Hidden = {a: Int}\n" +
+      "export constraint Probe<a> =\n    peek(x: a): Hidden\n";
+    const drawn = lone(source);
+    expect(drawn.message).toBe(REFUSED);
+    expect(at(source, drawn.primary)).toBe("peek(x: a): Hidden");
+    expect(drawn.labels?.map(({ message }) => message)).toEqual([
+      "`Hidden` is declared private here",
+    ]);
+    expect(at(source, drawn.labels![0]!.span)).toBe("record Hidden = {a: Int}");
+  });
+
+  test("a private type in a member's *parameter* is read the same", () => {
+    const source = HIDDEN + "export constraint Probe<a> =\n    poke(x: a, h: Hidden): Int\n";
+    const drawn = lone(source);
+    expect(drawn.message).toBe(REFUSED);
+    expect(at(source, drawn.primary)).toBe("poke(x: a, h: Hidden): Int");
+  });
+
+  test("a nested occurrence still anchors at the whole member signature", () => {
+    const source = HIDDEN + "export constraint Probe<a> =\n    peek(x: a): Vector(Hidden)\n";
+    expect(at(source, lone(source).primary)).toBe("peek(x: a): Vector(Hidden)");
+  });
+
+  test("two members mentioning one private type draw one, at the first", () => {
+    // The family's dedupe, per (constraint, type), members in written order.
+    const source = HIDDEN + "export constraint Probe<a> =\n" +
+      "    peek(x: a): Hidden\n    poke(x: a, h: Hidden): a\n";
+    const drawn = lone(source);
+    expect(at(source, drawn.primary)).toBe("peek(x: a): Hidden");
+  });
+
+  test("a constraint leaking two private types draws two, each at its own first member", () => {
+    const source = "record Alpha = {n: Int}\nrecord Beta = {n: Int}\n" +
+      "export constraint Probe<a> =\n    one(x: a): Alpha\n    two(x: a): Beta\n";
+    const drawn = diagnose(source);
+    expect(drawn.map(({ message }) => message)).toEqual([
+      "exported constraint `Probe` exposes private type `Alpha`; " +
+        "export the type, perhaps opaquely, or keep the constraint private",
+      "exported constraint `Probe` exposes private type `Beta`; " +
+        "export the type, perhaps opaquely, or keep the constraint private",
+    ]);
+    expect(drawn.map((one) => at(source, one.primary))).toEqual([
+      "one(x: a): Alpha",
+      "two(x: a): Beta",
+    ]);
+    expect(drawn.map((one) => at(source, one.labels![0]!.span))).toEqual([
+      "record Alpha = {n: Int}",
+      "record Beta = {n: Int}",
+    ]);
+  });
+
+  test("an `opaque` type mentioned in a member is fine — that is the whole point", () => {
+    expect(messages("opaque record Hidden = {n: Int}\n" +
+      "export constraint Probe<a> =\n    peek(x: a): Hidden\n")).toEqual([]);
+  });
+
+  test("an unexported constraint mentions private types freely", () => {
+    // Only an exported face shows anybody anything, exactly as for a private
+    // carrier.
+    expect(messages(HIDDEN + "constraint Probe<a> =\n    peek(x: a): Hidden\n" +
+      "export let n: Int = 1\n")).toEqual([]);
+  });
+
+  test("an `honor` block at a private type is still exempt (§7.4)", () => {
+    expect(messages(HIDDEN + "export constraint Probe<a> =\n    peek(x: a): Int\n" +
+      "honor Probe<Hidden> =\n    peek(x) = x.n\n")).toEqual([]);
+  });
+
+  test("an implied type bound to a private type draws nothing, and the silence is right", () => {
+    // The **projection route**: a private nominal reached only through an
+    // instance's `type Item = Hidden`. Nothing here is a face. The member's
+    // signature writes `Item`, not a nominal; the binding that names `Hidden`
+    // sits in an `honor` block, which is exempt (§7.4); and the route is closed
+    // downstream before any face can form — Collections Part 2 §7.2's v1 binder
+    // ban leaves an importer no way to bind the projection, and §7.3's
+    // non-referenceability means the projected type is not nameable as a type in
+    // the first place (the ground the #632 spec review settled this on). So the
+    // rule has nothing to read and says nothing, correctly.
+    //
+    // Pinned because the tree is what keeps it that way: `impliedTypes` is a
+    // **separate field** from `members`, so `item.members.map(…)` never sees an
+    // implied type. A refactor that folded the two into one list would start
+    // reporting here, at a seat with no fix behind it. The sibling case below is
+    // the other half — the walk is not derailed by the implied type either.
+    expect(messages(HIDDEN + "export record Ledger = {n: Int}\n" +
+      "export constraint Source<a> =\n    type Item\n    peek(supply: a): Item\n" +
+      "honor Source<Ledger> =\n    type Item = Hidden\n" +
+      "    peek(l) = Hidden({n = l.n})\n")).toEqual([]);
+  });
+
+  test("but a projection-bearing constraint's *other* member is still refused", () => {
+    const source = HIDDEN + "export constraint Source<a> =\n    type Item\n" +
+      "    peek(supply: a): Item\n    poke(supply: a): Hidden\n";
+    const drawn = lone(source);
+    expect(drawn.message).toBe(
+      "exported constraint `Source` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the constraint private",
+    );
+    expect(at(source, drawn.primary)).toBe("poke(supply: a): Hidden");
+  });
+});
+
+describe("default bodies are bodies, not faces (#626; Constraints §6.5)", () => {
+  test("a default body may name its module's private binding", () => {
+    // The scope line the ruling drew: member **signatures** are visited, default
+    // bodies are not. A default is checked at home in the constraint's generic
+    // context, and a private module-level name is exactly what it is entitled to
+    // reach — the same freedom an instance has (§7.4).
+    expect(messages(HIDDEN + "let secret: Hidden = Hidden({n = 7})\n" +
+      "export constraint Probe<a> =\n    size(x: a): Int = secret.n\n")).toEqual([]);
+  });
+
+  test("a default body may *construct* the private type", () => {
+    expect(messages(HIDDEN + "export constraint Probe<a> =\n" +
+      "    size(x: a): Int = Hidden({n = 3}).n\n")).toEqual([]);
+  });
+});
+
+describe("the sealing idiom is lawful, deliberately (#626)", () => {
+  // A *private* constraint in an exported binding's signature, or as a base of an
+  // exported constraint, crosses nothing: the constraint is the gate, not the
+  // cargo. Nothing unnameable lands in a consumer's hands, and no consumer can
+  // honor the constraint at a new type — which is the point (Rust's sealed
+  // traits, deliberate there too). A constraint in a binder's constraint list is
+  // not a type mention, and the binding rule is untouched.
+
+  test("a private constraint gates an exported function, and a consumer calls it", () => {
+    const compiled = project({
+      "/src/lib.hex": "constraint Priv<a> =\n    twiddle(x: a): Int\n" +
+        "export record Pub = {n: Int}\n" +
+        "honor Priv<Pub> =\n    twiddle(x) = x.n\n" +
+        "export fun use<a: Priv>(x: a): Int = twiddle(x)\n",
+      "/src/main.hex": 'import { use, Pub } from "./lib"\n' +
+        "export let n: Int = use(Pub({n = 1}))\n",
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
+  });
+
+  test("a private constraint may be the base of an exported one", () => {
+    expect(messages("constraint Priv<a> =\n    twiddle(x: a): Int\n" +
+      "export constraint Shown<a: Priv> =\n    show(x: a): Int\n")).toEqual([]);
+  });
+});
+
+describe("`opaque` is the recovery the message names (#626)", () => {
+  // The accidental existential pattern, measured whole: a home module honors its
+  // own constraint at its own exported type, a consumer honors at a type of its
+  // own by *harvesting* a value through the home instance, and an exported
+  // constrained function threads values it can never name. Under `opaque` the
+  // whole program compiles — this is the pattern spelled honestly (§4.2) — and
+  // with the identical program's `Hidden` left a transparent private record it is
+  // refused once, at the member. Ordering matters: an honor block sits above the
+  // bare member uses that follow it.
+  const OPAQUE_LIB = "opaque record Hidden = {n: Int}\n" +
+    "export record Pub = {n: Int}\n" +
+    "export constraint Probe<a> =\n" +
+    "    peek(x: a): Hidden\n" +
+    "    poke(x: a, h: Hidden): Int\n" +
+    "honor Probe<Pub> =\n" +
+    "    peek(x) = Hidden({n = x.n})\n" +
+    "    poke(x, h) = h.n + x.n\n";
+  const CONSUMER = 'import { Probe, Pub } from "./lib"\n' +
+    "export record Mine = {n: Int}\n" +
+    "honor Probe<Mine> =\n" +
+    "    peek(x) = Pub({n = x.n}).peek()\n" +
+    "    poke(x, h) = Pub({n = x.n}).poke(h)\n" +
+    "export fun thread<a: Probe>(x: a): Int = poke(x, peek(x))\n";
+
+  test("the whole existential pattern compiles under `opaque`", () => {
+    const compiled = project({ "/src/lib.hex": OPAQUE_LIB, "/src/main.hex": CONSUMER });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
+  });
+
+  test("and the identical program over a transparent private record is refused once", () => {
+    const compiled = project({
+      "/src/lib.hex": OPAQUE_LIB.replace("opaque record", "record"),
+      "/src/main.hex": CONSUMER,
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "exported constraint `Probe` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the constraint private",
+    ]);
+  });
+
+  test("locality: a consumer's own exported constraint reports nothing abroad", () => {
+    // `main`'s member genuinely mentions `Hidden` — `Exposed` expands to it — and
+    // the one refusal is `lib`'s, at the alias that let the name travel. The
+    // consumer holds no declaration to label and could perform no remedy.
+    const compiled = project({
+      "/src/lib.hex": 'extern from "./lib.js"\n    type Hidden\n' +
+        "export type Exposed = Hidden\n",
+      "/src/main.hex": 'import { Exposed } from "./lib"\n' +
+        "export constraint Probe<a> =\n    peek(x: a): Exposed\n",
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "exported type alias `Exposed` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the alias private",
+    ]);
+  });
+});
+
+describe("no shipped exported constraint draws the new refusal", () => {
+  // The survival sweep the ruling asked for. `shipped-sources.test.ts` already
+  // compiles every `stdlib/` and `runtime/` file and demands zero diagnostics;
+  // this one is narrowed to the files that actually declare an exported
+  // constraint and names *this* message, so a future stdlib edit that trips the
+  // sixth face fails here with the reason attached rather than as one more line
+  // in a general sweep. One case per file, as there — a per-file budget, and a
+  // failure that points at the file.
+  const SHIPPED: Record<string, string> = {
+    ...import.meta.glob("../../../stdlib/*.hex", { eager: true, query: "?raw", import: "default" }),
+    ...import.meta.glob("../../../runtime/*.hex", { eager: true, query: "?raw", import: "default" }),
+  } as Record<string, string>;
+
+  const SUBJECTS = Object.entries(SHIPPED)
+    .filter(([, source]) => /^export constraint /mu.test(source))
+    .map(([globPath, source]) => {
+      const basename = globPath.slice(globPath.lastIndexOf("/") + 1);
+      return [
+        `${globPath.includes("/runtime/") ? "runtime" : "stdlib"}/${basename}`,
+        { basename, source, privileged: globPath.includes("/runtime/") },
+      ] as const;
+    })
+    .sort(([left], [right]) => left.localeCompare(right));
+
+  test("the sweep reaches the constraint-declaring sources", () => {
+    // A glob that matched nothing, or a filter that matched nothing, would make
+    // every case below disappear rather than fail.
+    const labels = SUBJECTS.map(([label]) => label);
+    expect(labels).toContain("stdlib/Eq.hex");
+    expect(labels).toContain("stdlib/Ord.hex");
+    expect(labels.length).toBeGreaterThan(4);
+  });
+
+  test.each(SUBJECTS)("%s exposes no private type", (_label, subject) => {
+    const compiled = compileFiles(
+      [[`/${subject.basename}`, subject.source]],
+      subject.privileged ? { runtimePaths: [`/${subject.basename}`] } : {},
+    );
+    expect(compiled.diagnostics
+      .map(({ message }) => message)
+      .filter((message) => message.includes("exposes private type"))).toEqual([]);
   });
 });
 
