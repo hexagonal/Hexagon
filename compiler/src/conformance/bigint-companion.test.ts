@@ -544,11 +544,15 @@ describe("the orphan rule reads for a primitive as it does for a nominal (§5.3)
    * primitive's own injection path. The *rule* for user source is unchanged;
    * what it says is Collections Part 2 §9's **fourth** row (#647), a primitive
    * having no declaration a `derives` clause could sit on.
+   *
+   * The body carries a literal, which is free here and is not free everywhere:
+   * a literal in a refused `honor` body crashed the checker until #651, so this
+   * pin doubles as a regression site for it.
    */
   test("a user `honor Hash<BigInt>` keeps the derivable-only refusal", () => {
     expect(projectDiagnostics(
       "honor Hash<BigInt> =\n" +
-      "    hash(value) = toIntUnchecked\n",
+      "    hash(value) = toIntUnchecked(value) * 31\n",
     )).toContain(
       "`Hash` instances must be derived, and this subject has no declaration " +
         "that could carry a `derives` clause",

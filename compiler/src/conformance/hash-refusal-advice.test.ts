@@ -30,8 +30,10 @@ import { compileFiles, projectDiagnostics } from "../support/test-project.js";
  *    discipline).
  * 4. **No `derives` seat at all** — a primitive outside the carve-out, an extern
  *    type, a structural subject.
- * 5. **A subject annotation that does not resolve.** Silent: the unknown-name
- *    error is the whole answer.
+ * 5. **A subject that cannot be named, or cannot host an instance** — an
+ *    annotation that does not resolve, or a bare type-variable head. Silent:
+ *    the unknown-name error, or Constraints §5.4's head refusal, is the whole
+ *    answer.
  *
  * Every specimen here carries a **numeric literal** in its member body, which is
  * what #651 was: the refusal `continue`d out of `#inferItems` before the body's
@@ -273,7 +275,7 @@ describe("row 4: a subject with no `derives` seat", () => {
   });
 });
 
-describe("row 5: a subject annotation that does not resolve", () => {
+describe("row 5: a subject that cannot be named, or cannot host an instance", () => {
   /**
    * The seat is **silent**. The refusal still stands — the instance never joins
    * the table — but no advice is owed about a subject the checker cannot name,
@@ -292,6 +294,49 @@ describe("row 5: a subject annotation that does not resolve", () => {
     ].join("\n"));
 
     expect(messages).toContain("unknown type `Nope`");
+    expect(messages.join("\n")).not.toContain("`Hash` instances must be derived");
+  });
+
+  /**
+   * The row's **second arm**, and the widening that put it here: row 5's
+   * principle reads from "cannot be named" to "cannot host an instance at all".
+   * A bare type variable resolves perfectly well and is still no subject —
+   * Constraints §5.4 refuses the head outright, and that refusal is the whole
+   * answer. Row 4's sentence would be true of a variable the way it is true of a
+   * number: not usefully, and it is what this seat used to say.
+   *
+   * The body carries a literal, so the specimen drives the #651 guard too.
+   */
+  test("a bare type-variable head takes §5.4's refusal and no advice", () => {
+    const messages = projectDiagnostics([
+      "honor Hash<a> =",
+      "    hash(x) = 31",
+      "",
+    ].join("\n"));
+
+    expect(messages).toContain(
+      "an instance head must name a primitive or nominal type constructor",
+    );
+    expect(messages.join("\n")).not.toContain("`Hash` instances must be derived");
+  });
+
+  /**
+   * The same subject under the `honor<a>` prefix, which §5.4 refuses with its
+   * *other* message. One check answers both because both elaborate to a
+   * variable, and pinning only the bare spelling would let the prefix form drift
+   * back into row 4 unnoticed.
+   */
+  test("the prefix spelling of the same head is silent too", () => {
+    const messages = projectDiagnostics([
+      "honor<a> Hash<a> =",
+      "    hash(x) = 31",
+      "",
+    ].join("\n"));
+
+    expect(messages).toContain(
+      "a parameterized instance head must be a nominal constructor applied " +
+        "once to each distinct instance parameter",
+    );
     expect(messages.join("\n")).not.toContain("`Hash` instances must be derived");
   });
 });

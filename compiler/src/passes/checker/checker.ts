@@ -1686,8 +1686,21 @@ class Checker {
    * identical crash sat behind the unknown-constraint refusal beside it.
    *
    * Recording the refusal is the repair that fits the arm: the members were
-   * never typed, so there is nothing to materialize, and a refused instance is
-   * never emitted — a program carrying errors does not reach the emitter.
+   * never typed, so there is nothing to materialize.
+   *
+   * **What happens downstream is measured, not assumed.** `compileProject` runs
+   * `elaborate`, `emitJavaScript` and `emitDeclarations` *unconditionally*, so
+   * an erroring module reaches all three — which is precisely why the emitter
+   * reads `module.diagnostics` into `#alreadyDiagnosed` at all. The refused
+   * instance therefore *is* elaborated and *is* emitted; it simply carries an
+   * empty member list, and every consumer handles that, the emitted dictionary
+   * coming out as `const __Hash_UserId = {  };` with both emitters completing
+   * and adding no diagnostic of their own. What makes that harmless is not that
+   * nothing sees it but that nothing *runs* it: a project carrying errors is
+   * never executed. Whoever edits this must not read "the emitter never sees a
+   * refused instance" out of it — the emitter sees it, and the empty list is
+   * the contract it is being handed.
+   *
    * Inferring the bodies anyway was the alternative and is the wrong one here:
    * the ordinary path would check them against a declaration the refusal has
    * just ruled out — or, at an unknown constraint, against no declaration at
@@ -9524,21 +9537,36 @@ class Checker {
    *    it. Modules §7.6's offering discipline says name the fact, never the
    *    repair, so the head carries one true sentence and no fixit.
    * 4. **No `derives` seat at all** — a primitive outside #344's carve-out, an
-   *    extern type, a structural subject, a bare head variable. There is no
-   *    declaration to edit and the report says exactly that.
-   * 5. **A subject annotation that does not resolve.** Silent. The resolver has
-   *    already reported the unknown name against this very span, and no advice
-   *    is owed about a subject the checker cannot name — the refusal still
-   *    stands, the instance still never joins the table, only the sentence is
-   *    withheld.
+   *    extern type, a structural subject. There is a subject, it has no
+   *    declaration to edit, and the report says exactly that.
+   * 5. **A subject annotation that does not resolve, or a head that is a bare
+   *    type variable.** Silent, on one principle read at two widths (#647's
+   *    rider): no advice is owed about a subject the checker cannot *name*, nor
+   *    about one that cannot *host an instance at all*. The resolver has already
+   *    reported the unknown name against this very span, and Constraints §5.4
+   *    has already refused the variable head; either is the whole answer. The
+   *    refusal still stands in both cases — the instance never joins the table —
+   *    and only the sentence is withheld.
    *
-   * The row-5 question is asked of the **resolver's** answer rather than of the
-   * elaborated type: `ErrorType` is precisely "this annotation named nothing",
-   * while an `Error` mono is reachable from several unrelated failures.
+   * The two arms of row 5 are asked in different channels, and deliberately.
+   * "Did not resolve" is the **resolver's** answer: `ErrorType` is precisely
+   * "this annotation named nothing", while an `Error` mono is reachable from
+   * several unrelated failures. "Is a variable" is a fact about the *elaborated*
+   * type, which is what makes one check cover both `honor Hash<a>` and
+   * `honor<a> Hash<a>` — they take different §5.4 messages and are the same
+   * subject.
    */
   #handWrittenHashRefusal(item: Resolved.HonorItem): string | undefined {
     if (item.subject.kind === "ErrorType") return undefined;
     const subject = this.#prune(this.#instanceSubjects.get(item) ?? ERROR);
+    // Row 5's **second arm**, and the one asked of the elaborated type rather
+    // than the annotation: a head that is a bare type variable. Constraints
+    // §5.4 refuses it outright — `honor Hash<a>` takes the must-name-a-
+    // constructor message, `honor<a> Hash<a>` the parameterized-head one — and
+    // that refusal is the whole answer. One check covers both spellings because
+    // both elaborate to a variable, which is the fact that matters: a variable
+    // is not a subject with a bad `derives` seat, it is not a subject at all.
+    if (subject.kind === "Variable") return undefined;
     // Declaration and prelude provenance are read together because only the
     // narrowed subject can answer the second, and `#preludeUnionIds`
     // /`#preludeRecordIds` are the occlusion-proof channel for it — the same one
@@ -13207,8 +13235,13 @@ class Checker {
           // because `#materializeUnwidenedExpr` reads `#requirements` for a
           // literal, an interpolation and a `hash(…)` call without a fallback —
           // and a body the `Honor` arm refused before inference reached it has
-          // no entries at all. Nothing downstream loses anything: the refusal is
-          // an error, and an erroring program never reaches the emitter.
+          // no entries at all. Elaboration and both emitters still run over this
+          // item — `compileProject` calls them whatever the diagnostics say —
+          // and what they are handed is an instance with no members, which is a
+          // shape they already handle: the measured emission is an empty
+          // dictionary, no crash and no further diagnostic. It is safe because
+          // an erroring project is never *executed*, not because it is never
+          // emitted. See `#uninferredInstanceMembers`.
           ...(this.#uninferredInstanceMembers.has(item)
             ? []
             : item.members.map((member) => ({

@@ -296,13 +296,17 @@ describe("`Hash` stays derivable-only with its declaration in view", () => {
    * names the subject, and no file — the refused `honor` sits in the
    * declaration's own file. `hash-refusal-advice.test.ts` owns the five rows;
    * this pin only holds the refusal steady under a visible declaration.
+   *
+   * The body carries a literal, which is free here and is not free everywhere:
+   * a literal in a refused `honor` body crashed the checker until #651, so this
+   * pin doubles as a regression site for it.
    */
   test("a hand-written `honor Hash<T>` is refused with the derivable-only diagnostic", () => {
     expect(projectDiagnostics([
       "export record Point = {x: Int}",
       "",
       "honor Hash<Point> =",
-      "    hash(value) = value.x",
+      "    hash(value) = value.x * 31",
       "",
     ].join("\n"))).toEqual([
       "`Hash` instances must be derived; use `derives (Eq, Hash)` on the " +
