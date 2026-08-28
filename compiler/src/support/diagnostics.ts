@@ -46,6 +46,24 @@ export interface Diagnostic {
    */
   readonly incompleteSignature?: true;
   /**
+   * Set on the refusals of Modules §5.1's **`import module` repair family**: the
+   * type-not-module seat, the `widens` head whose qualifier names nothing, and
+   * the bare constraint name nothing answers for (#577). It carries the spelling
+   * the message named and which namespace a *workspace* would have to find it
+   * in, so the tooling tier can look for the one module exporting it and offer
+   * the import line as an applied edit (§5.1's LSP obligation).
+   *
+   * Marked rather than recognised, for `incompleteSignature`'s reason exactly:
+   * the alternative is matching on message text, which makes a sentence a user
+   * reads into an interface a pass depends on. The compiler sets it from the
+   * graph it can see and asks nothing of the workspace — the split the two tiers
+   * are drawn on.
+   */
+  readonly importModuleRepair?: {
+    readonly name: string;
+    readonly namespace: "type" | "constraint";
+  };
+  /**
    * The region this report speaks for: every other diagnostic whose primary
    * span falls inside it is a consequence of this one and is dropped.
    *

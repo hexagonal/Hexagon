@@ -1087,3 +1087,217 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
     expect(session.codeActions("/main.hex", { start: 0, end: main.length })).toEqual([]);
   });
 });
+
+/**
+ * The workspace tier of Modules §5.1's **`import module` repair family** (#577).
+ *
+ * The compiler tier is three sentences at three seats, pinned in
+ * `conformance/import-module-repairs.test.ts`, and it stops where the compiler's
+ * knowledge stops: it can say that an import line is the repair and cannot say
+ * *which* one, because a batch compile is handed a graph and never searches a
+ * workspace. This is the half a session can answer, and the split is §7.6's,
+ * followed deliberately — the instance-discoverability hint splits on the same
+ * line.
+ *
+ * One action covers all three seats, because all three carry the same marker.
+ * The inventory rule is the family's own, as in every message that names
+ * repairs: one exporter is applied, several are named and left to the author,
+ * none is silence.
+ */
+describe("code actions: the `import module` repair family (#577)", () => {
+  /** A user constraint in its own module, unimported by anything below. */
+  const SCALE = "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n";
+  /** A union and a function over it: the type seat's exporter. */
+  const SHAPE = "export union Shape = Circle(Float) | Square(Float)\n" +
+    "export fun area(s: Shape): Float = 1.0\n";
+
+  test("the type seat's insert lands beside the imports already there", () => {
+    // The filing's own shape: the type came in by name, the author reached for
+    // the module. The alias joins the import block, and the type import the
+    // author already wrote is left exactly as it is — this action adds a line,
+    // it does not rewrite one.
+    const main = 'import { Shape } from "./shape"\n\n' +
+      "export fun go(s: Shape): Float = Shape.area(s)\n";
+    const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
+    const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
+    expect(action.title).toBe("import module `Shape`");
+    expect(action.kind).toBe("quickfix");
+    expect(action.disabled).toBeUndefined();
+    expect(applied(main, action)).toBe(
+      'import { Shape } from "./shape"\n' +
+        'import module Shape from "./shape"\n\n' +
+        "export fun go(s: Shape): Float = Shape.area(s)\n",
+    );
+  });
+
+  test("the inserted line is the repair, not a gesture at one", () => {
+    // The property that makes an *applied* edit honest: the file it produces
+    // compiles. Asserted for the seat whose message the author cannot act on
+    // without knowing the path.
+    const main = 'import { Shape } from "./shape"\n' +
+      "export fun go(s: Shape): Float = Shape.area(s)\n";
+    const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
+    const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
+    session.setFile("/main.hex", applied(main, action));
+    expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
+  });
+
+  test("the constraint seats offer the same action, and it repairs them too", () => {
+    // A binder, and a `widens` head: two different passes report, one marker
+    // carries, one action answers.
+    const binder = "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": binder });
+    const first = sole(actionsOn(session, "/main.hex", binder, "Scale>"));
+    expect(first.title).toBe("import module `Scale`");
+    expect(applied(binder, first)).toBe(
+      'import module Scale from "./scale"\n' +
+        "export fun go<a: Scale>(x: a): a = x\n",
+    );
+
+    const head = "export record Metre = {m: Float}\n" +
+      "widens Scale.scale(value: Metre, factor: Float): Metre = value\n";
+    session.setFile("/main.hex", head);
+    const second = sole(actionsOn(session, "/main.hex", head, "Scale.scale"));
+    expect(applied(head, second)).toBe(
+      'import module Scale from "./scale"\n' +
+        "export record Metre = {m: Float}\n" +
+        "widens Scale.scale(value: Metre, factor: Float): Metre = value\n",
+    );
+  });
+
+  test("the specifier is relative to the file being fixed", () => {
+    const main = "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf({
+      "/lib/scaling/scale.hex": SCALE,
+      "/src/main.hex": main,
+    });
+    const action = sole(actionsOn(session, "/src/main.hex", main, "Scale>"));
+    expect(applied(main, action)).toBe(
+      'import module Scale from "../lib/scaling/scale"\n' +
+        "export fun go<a: Scale>(x: a): a = x\n",
+    );
+  });
+
+  test("a doc comment keeps the declaration it documents", () => {
+    // The one placement that would change what the file *means* rather than how
+    // it reads: a doc comment attaches to what immediately follows it
+    // (`spec/doc-comments.md` §2.1), so an insert between the two would silently
+    // unfile the documentation. With no import line to sit under, the top of the
+    // file is above the comment and above everything else.
+    const main = "(** The metre, and nothing else. *)\n" +
+      "export record Metre = {m: Float}\n" +
+      "\n" +
+      "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
+    const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
+    expect(applied(main, action)).toBe(
+      'import module Scale from "./scale"\n' +
+        "(** The metre, and nothing else. *)\n" +
+        "export record Metre = {m: Float}\n" +
+        "\n" +
+        "export fun go<a: Scale>(x: a): a = x\n",
+    );
+    // And the documentation still reaches its declaration afterwards.
+    session.setFile("/main.hex", applied(main, action));
+    expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
+    expect(session.hover("/main.hex", applied(main, action).indexOf("Metre = {"))
+      ?.documentation).toContain("The metre, and nothing else.");
+  });
+
+  test("an import written below the use is not one the alias could sit under", () => {
+    // §3's top-down half is the whole of the placement rule for term positions:
+    // only imports the refused use is already *below* are candidates to join.
+    const main = "export fun go(s: Shape): Float = Shape.area(s)\n" +
+      'import { Shape } from "./shape"\n';
+    const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
+    const actions = actionsOn(session, "/main.hex", main, "Shape.area");
+    const action = actions.find(({ title }) => title === "import module `Shape`")!;
+    expect(applied(main, action).startsWith('import module Shape from "./shape"\n'))
+      .toBe(true);
+  });
+
+  test("two exporters name the candidates and apply nothing", () => {
+    // The exported inventory drives which repairs are named, here as in every
+    // message in the family. The action is returned refused rather than dropped:
+    // the repair is real and obvious, and choosing between two modules is the
+    // author's call, not the tooling's.
+    const main = "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf({
+      "/lib/metric.hex": SCALE,
+      "/lib/imperial.hex": "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
+      "/src/main.hex": main,
+    });
+    const action = sole(actionsOn(session, "/src/main.hex", main, "Scale>"));
+    expect(action.edits).toEqual([]);
+    expect(action.disabled).toBe(
+      "2 modules export a constraint `Scale`: `../lib/imperial`, `../lib/metric` " +
+        "— write the import for the one you mean",
+    );
+  });
+
+  test("no exporter is silence, not a guess", () => {
+    const main = "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf({ "/main.hex": main });
+    expect(actionsOn(session, "/main.hex", main, "Scale>")).toEqual([]);
+  });
+
+  test("the namespaces do not answer for each other", () => {
+    // A module exporting a *type* `Scale` is no candidate for a constraint the
+    // workspace has none of, and the reverse holds at the type seat.
+    const main = "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf({
+      "/scale.hex": "export record Scale = {factor: Float}\n",
+      "/main.hex": main,
+    });
+    expect(actionsOn(session, "/main.hex", main, "Scale>")).toEqual([]);
+
+    const qualified = "union Shape = Circle(Float)\n" +
+      "export let n: Float = Shape.area(1.0)\n";
+    session.setFile("/scale.hex", "export constraint Shape<a> =\n    area(value: a): Float\n");
+    session.setFile("/main.hex", qualified);
+    expect(actionsOn(session, "/main.hex", qualified, "Shape.area")).toEqual([]);
+  });
+
+  test("the module being fixed is never its own candidate", () => {
+    // It exports the spelling and still cannot import itself; the repair for a
+    // `Name.` seat over the module's own type is not an import at all.
+    const main = "export union Shape = Circle(Float)\n" +
+      "export let n: Float = Shape.area(1.0)\n";
+    const { session } = sessionOf({ "/main.hex": main });
+    expect(actionsOn(session, "/main.hex", main, "Shape.area")).toEqual([]);
+  });
+
+  test("a prelude type is nobody's import line to write", () => {
+    // `Ordering` is exported by `stdlib/Prelude.hex` and reachable everywhere
+    // without an import, and no module alias is spelled `Ordering` — so rule 1's
+    // refusal really does fire at it. The workspace tier has nothing to offer
+    // there: the injected modules are not the user's to import, and the line
+    // this would otherwise produce names a path no source file holds.
+    const main = "export let n: Int = Ordering.rank(1)\n";
+    const { session } = sessionOf({ "/main.hex": main });
+    expect((session.allDiagnostics().get("/main.hex") ?? []).map(({ message }) => message))
+      .toEqual([
+        "`Ordering` is a type, not a module; import its home module with " +
+          "`import module` for qualified access, or import the constructor/function you need",
+      ]);
+    expect(actionsOn(session, "/main.hex", main, "Ordering")).toEqual([]);
+  });
+
+  test("a private declaration is no export, and offers nothing", () => {
+    const main = "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf({
+      "/scale.hex": "constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
+      "/main.hex": main,
+    });
+    expect(actionsOn(session, "/main.hex", main, "Scale>")).toEqual([]);
+  });
+
+  test("the offer is scoped to the caret, like every other action here", () => {
+    const main = "export fun go<a: Scale>(x: a): a = x\n" +
+      "export let n: Int = 1\n";
+    const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
+    expect(actionsOn(session, "/main.hex", main, "Scale>")).toHaveLength(1);
+    expect(actionsOn(session, "/main.hex", main, "Int = 1")
+      .map(({ title }) => title)).not.toContain("import module `Scale`");
+  });
+});

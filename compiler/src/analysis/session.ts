@@ -45,9 +45,11 @@ import { codePointBefore, isIdentifierContinue } from "../support/identifiers.js
 import {
   compileProject,
   resolveSpecifier,
+  specifierFor,
   type CompiledModule,
   type ProjectOptions,
 } from "../project.js";
+import { moduleInterface } from "../passes/resolver/resolver.js";
 import {
   collectOccurrences,
   targetKey,
@@ -611,6 +613,8 @@ export class AnalysisSession {
         const edits = locate(analysis, fix.edits);
         if (edits !== undefined) actions.push({ title: fix.message, diagnostic, edits });
       }
+      const insert = this.#importModuleAction(analysis, normalized, diagnostic);
+      if (insert !== undefined) actions.push(insert);
     }
 
     // Asked once per *place* rather than once per diagnostic. More than one
@@ -665,6 +669,75 @@ export class AnalysisSession {
       }
     }
     return actions;
+  }
+
+  /**
+   * The workspace tier of Modules §5.1's **`import module` repair family** — the
+   * one code action all three seats share (#577).
+   *
+   * The split the two tiers are drawn on is what makes this method small. The
+   * compiler already decided that this refusal names `import module` as a
+   * repair, and said so in a marker rather than in a sentence to be re-read
+   * (`Diagnostics.Diagnostic.importModuleRepair`); the only thing left that the
+   * compiler could not know is *which module* — a question about the workspace,
+   * which is exactly what a session holds and a batch compile does not.
+   *
+   * The inventory rule is the family's own, followed here as it is in every
+   * message that names repairs: **one** exporter is the case worth acting on,
+   * and the edit is offered applied. Several make the choice the author's, so
+   * the action is returned refused rather than dropped, naming the candidates —
+   * the `disabled` shape this file already uses for a repair that is real,
+   * obvious, and not the tooling's to make. None at all is silence: there is no
+   * import line to write, and a wrong guess would be worse than a lightbulb that
+   * never comes.
+   *
+   * The module being edited is never its own candidate. A module cannot import
+   * itself, and a spelling it exports *and* fails to resolve is a different
+   * fault than a missing import (a `Name.` seat over its own type is rule 1's
+   * message, and its repair is not an import at all).
+   */
+  #importModuleAction(
+    analysis: Analysis,
+    path: string,
+    diagnostic: Diagnostics.Diagnostic,
+  ): CodeAction | undefined {
+    const repair = diagnostic.importModuleRepair;
+    const text = this.#texts.get(path);
+    if (repair === undefined || text === undefined) return undefined;
+    const exporters = analysis
+      .exportersOf(repair.name, repair.namespace)
+      .filter((exporter) => exporter !== path);
+    if (exporters.length === 0) return undefined;
+    const title = `import module \`${repair.name}\``;
+    if (exporters.length > 1) {
+      return {
+        title,
+        diagnostic,
+        kind: "quickfix",
+        edits: [],
+        disabled: `${exporters.length} modules export a ${repair.namespace} ` +
+          `\`${repair.name}\`: ` +
+          exporters.map((exporter) => `\`${specifierFor(path, exporter)}\``).join(", ") +
+          " — write the import for the one you mean",
+      };
+    }
+    const specifier = specifierFor(path, exporters[0]!);
+    const offset = importInsertionOffset(
+      analysis.resolvedOf(path),
+      text,
+      diagnostic.primary.start.offset,
+    );
+    const file = new Source.File(this.#fileIds.get(path)!, path, text);
+    return {
+      title,
+      diagnostic,
+      kind: "quickfix",
+      edits: [{
+        path,
+        span: file.span(offset, offset),
+        replacement: `import module ${repair.name} from ${JSON.stringify(specifier)}\n`,
+      }],
+    };
   }
 
   /**
@@ -1079,6 +1152,9 @@ class Analysis {
   readonly #typesByPath = new Map<string, Map<string, TypeOccurrence>>();
   readonly #typedByPath = new Map<string, Typed.Module>();
   readonly #fileIdsByPath: ReadonlyMap<string, Source.FileId>;
+  /** The project's modules, for the export inventory built on demand below. */
+  readonly #modules: readonly CompiledModule[];
+  #exporters: Map<string, readonly string[]> | undefined;
   /** Gathered once for the whole project — see `collectSymbolFacts`. */
   readonly symbolFacts: ReadonlyMap<number, SymbolFacts>;
   /** Attached documentation, indexed for lookup by name and by position. */
@@ -1096,6 +1172,7 @@ class Analysis {
       project.modules.map((module) => [module.source.path, module.source.id]),
     );
     this.#fileIdsByPath = fileIdsByPath;
+    this.#modules = project.modules;
     for (const module of project.modules) {
       const path = module.source.path;
       this.#pathsByFileId.set(Number(module.source.id), path);
@@ -1153,6 +1230,53 @@ class Analysis {
   /** The compiler identity of a path, for reading a span's file back. */
   fileIdOf(path: string): Source.FileId | undefined {
     return this.#fileIdsByPath.get(path);
+  }
+
+  /**
+   * Which of the project's modules **export** a type or constraint of this
+   * spelling, in path order (#577's workspace tier).
+   *
+   * Read through `moduleInterface`, which is the compiler's own answer to what a
+   * module exports, rather than through a second reading of the items: an
+   * inventory that drifted from the resolver's would offer an import line for a
+   * name no importer could bind.
+   *
+   * The candidate set needs no injected-module filter of its own, and must not
+   * have one. `compileProject` already returns the modules the program *emits*,
+   * which excludes the injected prelude and runtime sources — so a spelling that
+   * only the prelude exports has no candidate here, and rule 1's refusal at a
+   * prelude type such as `Ordering` correctly offers nothing. The one way an
+   * injected basename does appear is a module some file imported **by path**,
+   * and that is precisely an import line a user can write.
+   *
+   * Built on the first ask and kept for the life of the analysis. Nothing else
+   * needs it, and a workspace's whole export surface is not worth computing for
+   * the hovers and completions that make up nearly every request.
+   */
+  exportersOf(name: string, namespace: "type" | "constraint"): readonly string[] {
+    if (this.#exporters === undefined) {
+      const exporters = new Map<string, string[]>();
+      for (const module of this.#modules) {
+        const iface = moduleInterface(module.resolved);
+        const seen = new Set<string>();
+        const record = (namespaceKey: string, spelling: string): void => {
+          const key = `${namespaceKey}:${spelling}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          const bucket = exporters.get(key);
+          if (bucket === undefined) exporters.set(key, [module.source.path]);
+          else bucket.push(module.source.path);
+        };
+        for (const spelling of iface.unions.keys()) record("type", spelling);
+        for (const spelling of iface.records.keys()) record("type", spelling);
+        for (const spelling of iface.aliases.keys()) record("type", spelling);
+        for (const spelling of iface.externTypes.keys()) record("type", spelling);
+        for (const spelling of iface.constraints.keys()) record("constraint", spelling);
+      }
+      for (const bucket of exporters.values()) bucket.sort();
+      this.#exporters = exporters;
+    }
+    return this.#exporters.get(`${namespace}:${name}`) ?? [];
   }
 
   /**
@@ -1309,6 +1433,45 @@ function locate(
     located.push({ path, span: edit.span, replacement: edit.replacement });
   }
   return located;
+}
+
+/**
+ * Where an inserted `import module` line goes in a file that already has text
+ * in it (Modules §5.1's "placed so the file stays well-formed and any
+ * term-position use sits below it", #577).
+ *
+ * Two placements, and the second is the one that needs saying. **After the last
+ * import line above the use** is the natural one — the new alias joins the ones
+ * already there, and §3's top-down half is satisfied by construction, since the
+ * imports considered are only those the use is already below. **The top of the
+ * file** is the fallback, and it is chosen rather than settled for: an insert at
+ * offset zero is above every declaration, so it can split nothing — in
+ * particular it can never come between a doc comment and the declaration the
+ * comment documents, which is the one placement that would change what the file
+ * means rather than merely how it reads (`spec/doc-comments.md` §2.1: a doc
+ * comment attaches to what *immediately* follows it).
+ *
+ * Synthesized imports are not lines: the resolver writes one for the prelude
+ * names a module used (Modules §5.5, §6.4), and it has no text to sit under.
+ */
+function importInsertionOffset(
+  resolved: Resolved.Module | undefined,
+  text: string,
+  before: number,
+): number {
+  let offset = 0;
+  for (const item of resolved?.items ?? []) {
+    if (item.kind !== "Import" || item.synthesized) continue;
+    if (item.span.end.offset > before) continue;
+    offset = Math.max(offset, pastLineEnd(text, item.span.end.offset));
+  }
+  return offset;
+}
+
+/** The offset just past the line break that ends the line `offset` is on. */
+function pastLineEnd(text: string, offset: number): number {
+  const index = text.indexOf("\n", offset);
+  return index === -1 ? text.length : index + 1;
 }
 
 /** Applies edits back to front, so an earlier one cannot move a later one. */

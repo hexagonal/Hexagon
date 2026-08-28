@@ -1795,7 +1795,7 @@ class Checker {
             if (!this.#constraintNames.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                message: this.#unknownConstraintMessage(constraint),
+                ...this.#unknownConstraint(constraint),
                 primary: parameter.span,
               });
               continue;
@@ -2061,7 +2061,7 @@ class Checker {
               if (!this.#constraintNames.has(constraint)) {
                 this.#diagnostics.add({
                   severity: "error",
-                  message: this.#unknownConstraintMessage(constraint),
+                  ...this.#unknownConstraint(constraint),
                   primary: parameter.span,
                 });
                 continue;
@@ -3472,7 +3472,7 @@ class Checker {
           if (this.#checkPreludeHonor(item, level)) continue;
           this.#diagnostics.add({
             severity: "error",
-            message: this.#unknownConstraintMessage(item.constraint),
+            ...this.#unknownConstraint(item.constraint),
             primary: item.span,
           });
           continue;
@@ -4565,7 +4565,7 @@ class Checker {
             if (!this.#constraintNames.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                message: this.#unknownConstraintMessage(constraint),
+                ...this.#unknownConstraint(constraint),
                 primary: parameter.span,
               });
               continue;
@@ -8505,20 +8505,52 @@ class Checker {
    * and, exactly as in type position, the **exported inventory drives which
    * repairs are named**: one is the case worth spelling out in full, several
    * make "the constraint it exports" a false singular.
+   *
+   * With **no alias standing there at all** the refusal carries the family's
+   * own signpost instead (#577, Constraints §8's row, in Modules §5.1 rule 1's
+   * register): nothing of the spelling is in scope, which is the arrival state
+   * of an author who has read §5.3 and not yet written the import, and the two
+   * routes that reach a constraint are the import line and the named import.
+   * The arm is unreachable at the eleven pre-registered spellings, which always
+   * resolve (Constraints §5.1.1) — no case is carved for them, because a carve
+   * would be a claim about a branch nothing can enter. It is the **bare**
+   * spelling's, though, and only that: a qualified head (`honor D.NotThere<T>`,
+   * §4.1's spelling) arrives here under its whole dotted name, whose repair is
+   * not an import of a module called `D.NotThere` — that writer already holds an
+   * alias, or holds the wrong one, and the plain refusal is what the row names.
+   *
+   * Returns the message *and the marker*, rather than a string, because the two
+   * are one decision: the arm that names `import module` as a repair is exactly
+   * the arm whose workspace tier can apply it, and a caller free to attach one
+   * without the other could put a fixit on a message that never offered it.
    */
-  #unknownConstraintMessage(constraint: string): string {
+  #unknownConstraint(
+    constraint: string,
+  ): Pick<Diagnostics.Diagnostic, "message" | "importModuleRepair"> {
     const refusal = `unknown constraint \`${constraint}\``;
     const alias = this.#aliasConstraints.get(constraint);
-    if (alias === undefined) return refusal;
+    if (alias === undefined) {
+      if (constraint.includes(".")) return { message: refusal };
+      return {
+        message: `${refusal}; import its home module with ` +
+          `\`import module ${constraint}\` for qualified access, or import the ` +
+          "constraint by name",
+        importModuleRepair: { name: constraint, namespace: "constraint" },
+      };
+    }
     const only = alias.exported.length === 1 ? alias.exported[0]! : undefined;
     if (only === undefined) {
-      return `${refusal}; \`${constraint}\` is a module alias — the constraints it exports ` +
-        `are reached through it, as \`${constraint}.Name\``;
+      return {
+        message: `${refusal}; \`${constraint}\` is a module alias — the constraints it exports ` +
+          `are reached through it, as \`${constraint}.Name\``,
+      };
     }
-    return `${refusal}; \`${constraint}\` is a module alias — write \`${constraint}.${only}\` ` +
-      `for the constraint it exports, name it bare with ` +
-      `\`import { ${only} } from ${JSON.stringify(alias.specifier)}\`, ` +
-      `or realias as \`import module ${only}\``;
+    return {
+      message: `${refusal}; \`${constraint}\` is a module alias — write \`${constraint}.${only}\` ` +
+        `for the constraint it exports, name it bare with ` +
+        `\`import { ${only} } from ${JSON.stringify(alias.specifier)}\`, ` +
+        `or realias as \`import module ${only}\``,
+    };
   }
 
   /** Whether a constraint *named* here declares implied type members. */
@@ -9854,7 +9886,7 @@ class Checker {
         if (!this.#constraintNames.has(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            message: this.#unknownConstraintMessage(constraint),
+            ...this.#unknownConstraint(constraint),
             primary: annotation.span,
           });
           continue;
