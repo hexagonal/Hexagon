@@ -574,6 +574,28 @@ describe("the error-program obligation: a broken pattern must not widen the voca
     ]);
   });
 
+  test("an arity-wrong arm takes its route clause with it", () => {
+    // The coverage half of the same change, and the one program where it moves
+    // a *route clause* off the output: at base this printed `match is missing
+    // cases: `Off`` — under this PR's tiers, with the clause routing `Off` to
+    // `./flags` — beside the arity error. The broken arm now reads as `_`, so
+    // `Flag` is covered under every repair and the deeper fault leads alone.
+    // That is the block's named trade: coverage recomputes the moment the arity
+    // is fixed.
+    expect(diagnostics([
+      ["/flags.hex", "export union Flag = On(Int) | Off\n"],
+      [
+        "/main.hex",
+        "import { Flag, On } from \"./flags\"\n" +
+        "export fun f(x: Flag): Int =\n" +
+        "    match x\n" +
+        "        On => 1\n",
+      ],
+    ])).toEqual([
+      "constructor pattern `On` expects 1 arguments, got 0",
+    ]);
+  });
+
   test("the obligation never engages without a broken pattern", () => {
     expect(diagnostics([
       [
@@ -692,6 +714,25 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
       ],
     ])).toEqual([
       "constructor pattern `On` expects 1 arguments, got 0",
+    ]);
+  });
+
+  test("and the `catch` seat's arity reads the same way", () => {
+    // The same dual at the other arm seat, whose message differs: base drew
+    // `exception `Bad` is already caught above` on an arm that is live under a
+    // narrow repair of the one above it.
+    expect(diagnostics([
+      [
+        "/main.hex",
+        "exception Bad(Int)\n" +
+        "export fun f(): Int =\n" +
+        "    try 1\n" +
+        "    catch\n" +
+        "        Bad => 2\n" +
+        "        Bad(n) => n\n",
+      ],
+    ])).toEqual([
+      "exception pattern `Bad` expects 1 arguments, got 0",
     ]);
   });
 
