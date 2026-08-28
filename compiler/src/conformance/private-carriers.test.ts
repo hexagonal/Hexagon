@@ -640,6 +640,39 @@ describe("an exported constraint's member signatures are the sixth face (#626)",
     expect(messages(HIDDEN + "export constraint Probe<a> =\n    peek(x: a): Int\n" +
       "honor Probe<Hidden> =\n    peek(x) = x.n\n")).toEqual([]);
   });
+
+  test("an implied type bound to a private type draws nothing, and the silence is right", () => {
+    // The **projection route**: a private nominal reached only through an
+    // instance's `type Item = Hidden`. Nothing here is a face. The member's
+    // signature writes `Item`, not a nominal; the binding that names `Hidden`
+    // sits in an `honor` block, which is exempt (§7.4); and the route is closed
+    // downstream before any face can form — Collections Part 2 §7.2's v1 binder
+    // ban leaves an importer no way to bind the projection, and §7.3's
+    // non-referenceability means the projected type is not nameable as a type in
+    // the first place (the ground the #632 spec review settled this on). So the
+    // rule has nothing to read and says nothing, correctly.
+    //
+    // Pinned because the tree is what keeps it that way: `impliedTypes` is a
+    // **separate field** from `members`, so `item.members.map(…)` never sees an
+    // implied type. A refactor that folded the two into one list would start
+    // reporting here, at a seat with no fix behind it. The sibling case below is
+    // the other half — the walk is not derailed by the implied type either.
+    expect(messages(HIDDEN + "export record Ledger = {n: Int}\n" +
+      "export constraint Source<a> =\n    type Item\n    peek(supply: a): Item\n" +
+      "honor Source<Ledger> =\n    type Item = Hidden\n" +
+      "    peek(l) = Hidden({n = l.n})\n")).toEqual([]);
+  });
+
+  test("but a projection-bearing constraint's *other* member is still refused", () => {
+    const source = HIDDEN + "export constraint Source<a> =\n    type Item\n" +
+      "    peek(supply: a): Item\n    poke(supply: a): Hidden\n";
+    const drawn = lone(source);
+    expect(drawn.message).toBe(
+      "exported constraint `Source` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the constraint private",
+    );
+    expect(at(source, drawn.primary)).toBe("poke(supply: a): Hidden");
+  });
 });
 
 describe("default bodies are bodies, not faces (#626; Constraints §6.5)", () => {
