@@ -8837,17 +8837,34 @@ class Checker {
     if (here === undefined) return undefined;
     const constraintHome = this.#constraintHome(requirement.identity);
     if (constraintHome === undefined) return undefined;
-    if (!this.#constraintNameableHere(requirement.identity)) {
+    // Asked **before** the branch split, not inside the ordinary arm. §7.6 scopes
+    // the whole obligation — the sealed branch included — to "subjects that have
+    // a declaring module to name", and a structural subject has no lawful home
+    // under *either* branch: Constraints §5.4/§9.3 refuse a structural instance
+    // head outright, so directing the reader at the constraint's own module would
+    // offer an honor no file in the program may hold. The bare head is the only
+    // true report there.
+    const subjectHome = this.#subjectHome(type);
+    if (subjectHome === undefined) return undefined;
+    if (this.#sealedConstraint(requirement.identity)) {
       // §7.6's unnameable branch. `path` is present whenever the compilation has
       // paths at all, since a constraint this module cannot spell was still
       // declared by a file in the graph; the guard is the same honesty as above.
       if (constraintHome.path === undefined) return undefined;
+      const seat = relativeFilePath(here, constraintHome.path);
+      // §5.1.1's disambiguate-by-home remedy, for the reader who has just written
+      // a constraint of this very spelling and would read "not nameable here" as
+      // simply false. What they cannot name is the *declaration*, not the word,
+      // and only the home module tells the two apart.
+      const rival = this.#constraintIdentities.get(constraintHome.name);
+      if (rival !== undefined && rival !== requirement.identity) {
+        return `; the \`${constraintHome.name}\` required here is ` +
+          `\`${seat}\`'s, not the one this module names; the honor can only be ` +
+          "written there";
+      }
       return `; \`${constraintHome.name}\` is not nameable here, so the honor ` +
-        `can only be written in \`${relativeFilePath(here, constraintHome.path)}\`, ` +
-        "which declares it";
+        `can only be written in \`${seat}\`, which declares it`;
     }
-    const subjectHome = this.#subjectHome(type);
-    if (subjectHome === undefined) return undefined;
     const constraintSeat = constraintHome.path === undefined
       ? undefined
       : relativeFilePath(here, constraintHome.path);
@@ -8877,26 +8894,47 @@ class Checker {
   }
 
   /**
-   * Whether this module's own source could **spell** the constraint a
-   * requirement demands (Modules §7.6's unnameable branch, Constraints §5.1.1).
+   * Whether §7.6's **unnameable** branch governs this requirement: the constraint
+   * is unexported, and no name in this module reaches its declaration.
    *
-   * The question is asked of identities and answered from `#constraintIdentities`
-   * — this module's name → identity map, seeded with the pre-registered eleven
-   * and extended by its own declarations and its imports. A requirement copied
-   * out of an imported scheme carries the *defining* module's identity, and the
-   * map is deliberately not total over those: an identity with no name here is
-   * precisely one no import or alias reaches, which is what "unnameable" means.
+   * Both halves are load-bearing, and the first is the one the spec's own
+   * justification turns on — "the subject's module is a lawful home in which the
+   * honor cannot be *written*, **since the unexported constraint is reachable
+   * there by no import or alias**". "Not spelled here" is a weaker fact than
+   * "not spellable here", and only the second licenses the branch: an **exported**
+   * constraint the reporting module merely never imported is one `import` away,
+   * so the subject's own module *is* a writable home and the two-home template is
+   * the right report. Taking the sealed branch for it denies the home that works
+   * and directs the reader at one that cannot — the acyclic-import rule (§7.3)
+   * forbids the constraint's module from naming a type declared downstream of it.
+   * §7.6 files that shape under discoverability *residue* (its bullet (a)), not
+   * here.
    *
-   * Derived from what the module could write, never from what the program
+   * `exported` is read off the declaration rather than re-derived, and it travels
+   * with it through every hop (`ConstraintItem.exported`). All three sealed
+   * routes — a private middle link of a base chain, a private constraint gating
+   * an exported binding, a private base of an exported one (#626/#633) — carry
+   * `false` and keep this branch.
+   *
+   * The nameability half is asked of identities and answered from
+   * `#constraintIdentities` — this module's name → identity map, seeded with the
+   * pre-registered eleven and extended by its own declarations and its imports.
+   * A requirement copied out of an imported scheme carries the *defining*
+   * module's identity, and the map is deliberately not total over those. It is
+   * derived from what the module could write, never from what the program
    * contains: `#constraintsByIdentity` reaches every declaration in the graph,
    * private middle links included (#276), and reading nameability off *it* would
    * offer a home whose honor the reader cannot even spell the constraint for.
+   * The half still matters after the `exported` gate, for the one module where an
+   * unexported constraint *is* nameable — the one that declares it.
    */
-  #constraintNameableHere(identity: string): boolean {
+  #sealedConstraint(identity: string): boolean {
+    const declaration = this.#constraintsByIdentity.get(identity);
+    if (declaration === undefined || declaration.exported) return false;
     for (const known of this.#constraintIdentities.values()) {
-      if (known === identity) return true;
+      if (known === identity) return false;
     }
-    return false;
+    return true;
   }
 
   /**

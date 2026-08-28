@@ -309,8 +309,13 @@ describe("base-constraint entailment through an imported constraint", () => {
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Siren` has no `Loud` instance; `Loud` is not nameable here, so the honor can " +
-        "only be written in `./units.hex`, which declares it",
+      // §7.6's **ordinary** clause, not its sealed one: `Loud` is exported, so
+      // `main` is one `import { Loud } from "./units"` away from writing the
+      // honor at its own type, and its own file is the home the report leads
+      // with. (`./units.hex` could not hold it — naming `Siren` there would need
+      // an import of `./main.hex`, which §7.3 forbids on this graph.)
+      "type `Siren` has no `Loud` instance; it could only be declared in `./main.hex` " +
+        "(declares `Siren`) or `./units.hex` (declares `Loud`)",
     ]);
   });
 });
