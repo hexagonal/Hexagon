@@ -640,13 +640,22 @@ describe("Collections Part 2 §2.5's `Hash` row, now hand-written source", () =>
     expect(exports["collapsed"]).toBe(2);
   });
 
-  /** The carve-out follows compilation privilege: a user module keeps the refusal. */
+  /**
+   * The carve-out follows compilation privilege: a user module keeps the
+   * refusal.
+   *
+   * Outside the carve-out a primitive is Collections Part 2 §9's **fourth** row
+   * (#647) — there is no declaration a `derives` clause could sit on, which is
+   * the very fact the carve-out exists for, so the report states it and offers
+   * nothing (Modules §7.6's offering discipline). The body carries a literal,
+   * which crashed the checker before #651.
+   */
   test("a hand-written `honor Hash<Int>` in user source is still refused", () => {
     expect(diagnostics([
-      ["/main.hex", "honor Hash<Int> =\n    hash(value) = value\n"],
+      ["/main.hex", "honor Hash<Int> =\n    hash(value) = value * 31\n"],
     ])).toContain(
-      "`Hash` instances cannot be hand-written; use `derives Hash` on the " +
-        "declaration of the subject type",
+      "`Hash` instances must be derived, and this subject has no declaration " +
+        "that could carry a `derives` clause",
     );
   });
 });

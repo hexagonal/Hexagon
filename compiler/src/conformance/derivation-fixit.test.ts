@@ -156,7 +156,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
       "record Point = {n: Int}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
-      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
         "in `./main.hex`",
     );
@@ -167,7 +167,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
       "record Point derives Eq = {n: Int}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
-      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
         "in `./main.hex`",
     );
@@ -178,7 +178,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
       "record Point derives Show = {n: Int}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
-      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `(Eq, Hash)` to `Point`'s `derives` list " +
         "in `./main.hex`",
     );
@@ -197,7 +197,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
         "honor Eq<Point> = derive\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
-      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives Hash` on the declaration of `Point` " +
         "in `./main.hex`",
     );
@@ -227,7 +227,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
         "in `./point.hex`",
     ]);
@@ -289,7 +289,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
         "in `./point.hex`",
     ]);
@@ -339,7 +339,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
         "in `./point.hex`",
     ]);

@@ -541,15 +541,17 @@ describe("the orphan rule reads for a primitive as it does for a nominal (§5.3)
   /**
    * Constraints §4.5's carve-out, and its exact boundary: `Hash` stays
    * derivable-only everywhere the compilation did not seat the module at a
-   * primitive's own injection path. The message is unchanged, because the rule
-   * for user source is unchanged.
+   * primitive's own injection path. The *rule* for user source is unchanged;
+   * what it says is Collections Part 2 §9's **fourth** row (#647), a primitive
+   * having no declaration a `derives` clause could sit on.
    */
   test("a user `honor Hash<BigInt>` keeps the derivable-only refusal", () => {
     expect(projectDiagnostics(
       "honor Hash<BigInt> =\n" +
       "    hash(value) = toIntUnchecked\n",
     )).toContain(
-      "`Hash` instances cannot be hand-written; use `derives Hash` on the declaration of the subject type",
+      "`Hash` instances must be derived, and this subject has no declaration " +
+        "that could carry a `derives` clause",
     );
   });
 });
