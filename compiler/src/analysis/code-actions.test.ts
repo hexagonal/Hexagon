@@ -1267,20 +1267,120 @@ describe("code actions: the `import module` repair family (#577)", () => {
     expect(actionsOn(session, "/main.hex", main, "Shape.area")).toEqual([]);
   });
 
-  test("a prelude type is nobody's import line to write", () => {
-    // `Ordering` is exported by `stdlib/Prelude.hex` and reachable everywhere
-    // without an import, and no module alias is spelled `Ordering` — so rule 1's
-    // refusal really does fire at it. The workspace tier has nothing to offer
-    // there: the injected modules are not the user's to import, and the line
-    // this would otherwise produce names a path no source file holds.
-    const main = "export let n: Int = Ordering.rank(1)\n";
-    const { session } = sessionOf({ "/main.hex": main });
+  /**
+   * The one prelude type rule 1's refusal can fire at today: `Ordering` is
+   * exported by `stdlib/Prelude.hex`, and §6.4 gives a prelude *name* a
+   * qualified home (`Prelude.Ordering`) rather than a module alias spelled
+   * `Ordering` — so "no module alias `Name` exists" is met exactly.
+   *
+   * **The file has to reach the prelude for the pin to mean anything.** A
+   * module mentioning no prelude name at all compiles as a project of one:
+   * `compileProject` returns the modules a program *reached*, and an unreached
+   * injected source is not among them, so a file whose only line is the refusal
+   * would pass this test for a reason that has nothing to do with the filter it
+   * is written about. `Prelude.Less` is the line that puts `/Prelude.hex` in the
+   * inventory, and with it there the tier is asked the real question.
+   */
+  const REACHES_PRELUDE = "export let c: Ordering = Prelude.Less\n" +
+    "export let n: Int = Ordering.rank(1)\n";
+
+  test("an injected module is never offered, even once the program reaches it", () => {
+    const { session } = sessionOf({ "/main.hex": REACHES_PRELUDE });
     expect((session.allDiagnostics().get("/main.hex") ?? []).map(({ message }) => message))
       .toEqual([
         "`Ordering` is a type, not a module; import its home module with " +
           "`import module` for qualified access, or import the constructor/function you need",
       ]);
-    expect(actionsOn(session, "/main.hex", main, "Ordering")).toEqual([]);
+    // The line the tier would otherwise write is `import module Ordering from
+    // "./Prelude"`, which repairs nothing — the recompiled file reports
+    // ``module `Ordering` does not export `rank```` — and emits
+    // `import * as Ordering from "./Prelude.js"` into the user's JavaScript.
+    expect(actionsOn(session, "/main.hex", REACHES_PRELUDE, "Ordering.rank")).toEqual([]);
+  });
+
+  test("nor is it named as a candidate beside a real one", () => {
+    // The ambiguity arm reads the same inventory, so it inherits whatever the
+    // enabled arm inherits. With a user module exporting the spelling there is
+    // exactly one candidate, not two: the action is enabled and names `./mine`.
+    const { session } = sessionOf({
+      "/mine.hex": "export union Ordering = Up | Down\n",
+      "/main.hex": REACHES_PRELUDE,
+    });
+    const action = sole(actionsOn(session, "/main.hex", REACHES_PRELUDE, "Ordering.rank"));
+    expect(action.disabled).toBeUndefined();
+    expect(applied(REACHES_PRELUDE, action)).toBe(
+      'import module Ordering from "./mine"\n' + REACHES_PRELUDE,
+    );
+  });
+
+  test("a user's own module at a prelude basename is still a candidate", () => {
+    // Why the filter is the workspace's file set and not `isInjectedModule`,
+    // which classifies by *basename*: this file is the user's, and dropping it
+    // would be the mirror-image defect — a repair withheld because of what the
+    // author happened to name their module.
+    const main = 'import { Meters } from "./lib/Prelude"\n' +
+      "export let n: Float = Meters.zero\n";
+    const { session } = sessionOf({
+      "/lib/Prelude.hex": "export type Meters = Float\n",
+      "/main.hex": main,
+    });
+    const action = sole(actionsOn(session, "/main.hex", main, "Meters.zero"));
+    expect(applied(main, action)).toBe(
+      'import { Meters } from "./lib/Prelude"\n' +
+        'import module Meters from "./lib/Prelude"\n' +
+        "export let n: Float = Meters.zero\n",
+    );
+  });
+
+  test("one spelling, one offer, however many refusals a range holds", () => {
+    // Two obligations naming one unimported constraint are two diagnostics and
+    // one keystroke. The dedupe is the method's own idiom, one block down.
+    const main = "export fun go<a: Scale, b: Scale>(x: a, y: b): a = x\n";
+    const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
+    expect(session.codeActions("/main.hex", { start: 0, end: main.length })
+      .filter(({ title }) => title === "import module `Scale`")).toHaveLength(1);
+  });
+
+  test("the placement law is read locally — the use being repaired", () => {
+    // Modules §5.1's "any term-position use sits below it", adjudicated: the
+    // caret's use, not every use in the file. The two readings differ only with
+    // imports interleaved between declarations and two refused uses straddling
+    // one. Repairing the lower use seats the alias below the upper one, which
+    // keeps its own refusal — now with a fixit of its own — rather than having
+    // the author's own import line reordered under them.
+    const main = 'import { Shape } from "./shape"\n' +
+      "export fun a(s: Shape): Float = Shape.area(s)\n" +
+      'import { z } from "./other"\n' +
+      "export fun b(s: Shape): Float = Shape.area(s)\n";
+    const { session } = sessionOf({
+      "/shape.hex": SHAPE,
+      "/other.hex": "export let z: Int = 1\n",
+      "/main.hex": main,
+    });
+    const lower = sole(actionsOn(session, "/main.hex", main, "Shape.area", 2));
+    expect(applied(main, lower)).toBe(
+      'import { Shape } from "./shape"\n' +
+        "export fun a(s: Shape): Float = Shape.area(s)\n" +
+        'import { z } from "./other"\n' +
+        'import module Shape from "./shape"\n' +
+        "export fun b(s: Shape): Float = Shape.area(s)\n",
+    );
+    session.setFile("/main.hex", applied(main, lower));
+    expect((session.allDiagnostics().get("/main.hex") ?? []).map(({ message }) => message))
+      .toEqual([
+        "`Shape.area` is declared later in this block; declarations are read " +
+          "top-down — move the import above this use",
+      ]);
+
+    // And the universal reading is satisfied anyway wherever a request covers
+    // both: the dedupe keeps the *first* refusal, so the line lands above the
+    // earliest use and repairs the file whole.
+    session.setFile("/main.hex", main);
+    const both = session.codeActions("/main.hex", { start: 0, end: main.length })
+      .filter(({ title }) => title === "import module `Shape`");
+    expect(both).toHaveLength(1);
+    session.setFile("/main.hex", applied(main, both[0]!));
+    expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
   });
 
   test("a private declaration is no export, and offers nothing", () => {

@@ -608,11 +608,25 @@ export class AnalysisSession {
     const actions: CodeAction[] = [];
     const asked = here.filter((diagnostic) => touches(diagnostic.primary, range));
 
+    // The import insert is asked once per *spelling*, the way the annotation
+    // planner below is asked once per place: one range can hold several
+    // refusals of one name — `<a: Scale, b: Scale>` is two, and a file with
+    // three uses of an unimported type is three — and every one of them wants
+    // the identical line. Keeping the **first** is what makes the dedupe more
+    // than tidying: `asked` is in source order, so the surviving offer is the
+    // one seated above the earliest refused use, and therefore above all of
+    // them (see `importInsertionOffset` on the local reading of §5.1).
+    const offered = new Set<string>();
     for (const diagnostic of asked) {
       for (const fix of diagnostic.fixes ?? []) {
         const edits = locate(analysis, fix.edits);
         if (edits !== undefined) actions.push({ title: fix.message, diagnostic, edits });
       }
+      const repair = diagnostic.importModuleRepair;
+      if (repair === undefined) continue;
+      const spelling = `${repair.namespace}:${repair.name}`;
+      if (offered.has(spelling)) continue;
+      offered.add(spelling);
       const insert = this.#importModuleAction(analysis, normalized, diagnostic);
       if (insert !== undefined) actions.push(insert);
     }
@@ -691,10 +705,23 @@ export class AnalysisSession {
    * import line to write, and a wrong guess would be worse than a lightbulb that
    * never comes.
    *
-   * The module being edited is never its own candidate. A module cannot import
-   * itself, and a spelling it exports *and* fails to resolve is a different
-   * fault than a missing import (a `Name.` seat over its own type is rule 1's
-   * message, and its repair is not an import at all).
+   * **A candidate is a file the workspace supplied.** `#texts` is exactly that
+   * set, and testing membership in it is the filter — not `isInjectedModule`,
+   * which classifies by *basename* and would drop a user's own `/lib/Prelude.hex`
+   * along with the compiler's. The distinction is load-bearing rather than
+   * defensive: `compileProject` returns every module the program *reached*, and
+   * a program that reaches `Prelude.hex` — one mention of a prelude name does
+   * it — puts a compiler-injected module in the inventory. Offering it would
+   * write `import module Ordering from "./Prelude"` into the user's source,
+   * which repairs nothing (`` module `Ordering` does not export `rank` ``) and
+   * emits `import * as Ordering from "./Prelude.js"` into their JavaScript.
+   * Injected sources are not what the user wrote (`isInjectedModule`'s own
+   * rule), and nothing here may hand one to them to type.
+   *
+   * The module being edited is never its own candidate either. A module cannot
+   * import itself, and a spelling it exports *and* fails to resolve is a
+   * different fault than a missing import (a `Name.` seat over its own type is
+   * rule 1's message, and its repair is not an import at all).
    */
   #importModuleAction(
     analysis: Analysis,
@@ -706,7 +733,7 @@ export class AnalysisSession {
     if (repair === undefined || text === undefined) return undefined;
     const exporters = analysis
       .exportersOf(repair.name, repair.namespace)
-      .filter((exporter) => exporter !== path);
+      .filter((exporter) => exporter !== path && this.#texts.has(exporter));
     if (exporters.length === 0) return undefined;
     const title = `import module \`${repair.name}\``;
     if (exporters.length > 1) {
@@ -1241,13 +1268,13 @@ class Analysis {
    * inventory that drifted from the resolver's would offer an import line for a
    * name no importer could bind.
    *
-   * The candidate set needs no injected-module filter of its own, and must not
-   * have one. `compileProject` already returns the modules the program *emits*,
-   * which excludes the injected prelude and runtime sources — so a spelling that
-   * only the prelude exports has no candidate here, and rule 1's refusal at a
-   * prelude type such as `Ordering` correctly offers nothing. The one way an
-   * injected basename does appear is a module some file imported **by path**,
-   * and that is precisely an import line a user can write.
+   * **Every** module the project compiled is read, injected sources included:
+   * `compileProject` returns the modules the program *reached*, which drops only
+   * the injected sources nothing reached, so `Prelude.hex` is in here the moment
+   * one prelude name is mentioned. This index therefore answers about the module
+   * graph and nothing else — deciding which of its answers a *user* may be
+   * offered is `#importModuleAction`'s, which keeps that decision next to the
+   * edit it governs and next to the `#texts` set that settles it.
    *
    * Built on the first ask and kept for the life of the analysis. Nothing else
    * needs it, and a workspace's whole export surface is not worth computing for
@@ -1453,6 +1480,22 @@ function locate(
  *
  * Synthesized imports are not lines: the resolver writes one for the prelude
  * names a module used (Modules §5.5, §6.4), and it has no text to sit under.
+ *
+ * **"Any term-position use" is read locally — the use being repaired.** The
+ * universal reading is available and is deliberately not taken. It differs only
+ * where imports are *interleaved* between declarations and two refused uses of
+ * one spelling straddle one: repairing the lower use seats the alias below the
+ * upper one, which then draws its own declared-later error rather than being
+ * fixed by the same edit. Three reasons for the local reading. It is what the
+ * author asked for — the caret is on one use, and an edit that jumped above an
+ * import line the author wrote between two declarations would be reordering
+ * their file, not adding to it. It never makes a file worse: the upper use was
+ * already refused and is now refused with a fixit of its own. And the shape is
+ * reachable only through interleaved imports, which the top-down half of §3
+ * exists to make legible rather than to encourage. The universal reading is
+ * satisfied anyway wherever a request covers both uses, because `codeActions`
+ * dedupes to the *first* refusal of a spelling and so places the line above the
+ * earliest one.
  */
 function importInsertionOffset(
   resolved: Resolved.Module | undefined,
