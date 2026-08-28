@@ -10408,15 +10408,36 @@ class Checker {
    * can still reach the mandatory fixit — `(?2, Int)`. §6 requires survivors
    * there to be named rather than numbered, which is the same sentence that
    * excepts declared variables: both say the message speaks the user's names.
+   * `#display` reads this for **every** report (Constraints §8, #649); §6's own
+   * seat still calls it after settling, because settling is what display may
+   * not do.
+   *
+   * Fresh names are deduped against every name already *visible in the
+   * displayed type*: its declared variables and any survivor already carrying a
+   * display name. Seeding from `rigidName` alone was enough while the only
+   * caller ran once per type, but a sticky name minted by an earlier report is
+   * as visible as a declared one — without it a second report on
+   * `Pair(?1, ?2)`, one half already named `a`, would name the other `a` too.
+   *
+   * A variable in an *effect* slot is skipped: it prints through `#arrow` as a
+   * colour (`->?¹`), never as a name, so spending a letter on it would only
+   * shift the letters the type's own variables get. The two notations cannot be
+   * confused for each other either: a numbered arrow carries its ordinal in
+   * **superscript** digits (`arrows.ts`), so §10's `->?¹` and the `?N` this law
+   * abolishes are typographically disjoint.
    */
   #nameSurvivingVariables(type: Mono): void {
     const variables = this.#collectVariables(type);
-    const taken = new Set(
-      variables.flatMap(({ rigidName }) => rigidName === undefined ? [] : [rigidName]),
-    );
+    const colours = new Set(this.#effectVariables(type));
+    const taken = new Set<string>();
+    for (const { rigidName, displayName } of variables) {
+      if (rigidName !== undefined) taken.add(rigidName);
+      if (displayName !== undefined) taken.add(displayName);
+    }
     let index = 0;
     for (const variable of variables) {
       if (variable.rigidName !== undefined || variable.displayName !== undefined) continue;
+      if (colours.has(variable.id)) continue;
       let name = inferredTypeVariableName(index++);
       while (taken.has(name)) name = inferredTypeVariableName(index++);
       taken.add(name);
@@ -11297,6 +11318,17 @@ class Checker {
    * Split out of `#instanceKey` rather than written beside it: the reverse index
    * (`#instancesBySubject`) has to agree with selection exactly, and one function
    * is the only way to keep them from drifting apart.
+   *
+   * The fallback renders through `#display`, which since #649 *names* surviving
+   * variables — so the rendered text alone no longer tells two unsolved
+   * variables apart: five distinct ones all render `{n: a}` where they once
+   * rendered `{n: ?431}`, `{n: ?437}`, and so on. A key is an identity, not a
+   * message, so each survivor carries its id beside the text. That the 49
+   * measured arrivals are all *lookups* — an admitted subject's variables are
+   * head binders minted rigid at registration, so no key in the tables can
+   * carry a survivor, and colliding lookups miss identically — is true, and is
+   * exactly the kind of unstated invariant that gets broken innocently. Keying
+   * by id costs one walk and removes the dependency instead of documenting it.
    */
   #subjectKey(subject: Mono): string {
     const type = this.#prune(subject);
@@ -11317,7 +11349,10 @@ class Checker {
     if (type.kind === "Array") return "array";
     if (type.kind === "JsMap") return "jsmap";
     if (type.kind === "JsSet") return "jsset";
-    return this.#display(type);
+    const survivors = this.#collectVariables(type).filter(
+      ({ rigidName }) => rigidName === undefined,
+    );
+    return survivors.reduce((key, { id }) => `${key}:?${id}`, this.#display(type));
   }
 
   /** Records an instance in both directions; the one writer of either table. */
@@ -12970,6 +13005,17 @@ class Checker {
    * Requirements minted against an already-concrete type carry no slot of their
    * own and fall back to the type, which is what the non-ABI readers of
    * `#publicRequirements` want.
+   *
+   * That the unpruned read comes **first** is also the guard that keeps #649
+   * out of this slot name. `#display` names surviving variables, and two
+   * distinct survivors then render alike — which is precisely the merge the
+   * paragraph above calls a clean compile that read `.show` off `undefined`.
+   * The short-circuit is what a slot-carrying requirement takes, so the display
+   * fallback is left the requirements minted against a type, whose variables
+   * are the callee's declared ones; instrumenting the fallback across the suite
+   * found no arrival carrying an unsolved variable at all. Pruning first, or
+   * dropping the `Variable` arm, would put one there — and the report the merge
+   * produces is silence.
    */
   #evidenceSlot(requirement: Requirement): string {
     if (requirement.type.kind === "Variable") return `v${requirement.type.id}`;
@@ -13944,8 +13990,19 @@ class Checker {
    * lone variable needed an *inlet* occurrence, or the else-constant rule would
    * read the undecorated spelling back as the impure constant — along with the
    * rule itself (§10, and Effects §11's note).
+   *
+   * Naming surviving variables is the other whole-type property, and for the
+   * same reason: which names are free cannot be known part-way down. No
+   * diagnostic displays a numbered inference variable (Constraints §8, #649),
+   * so the naming happens here, on entry, at the one point every report reads a
+   * type through — which is what makes `#render`'s `?N` fallback unreachable.
+   * Naming only: it is a label, and `#display` is called mid-inference, where a
+   * display that *settled* would be a display that mutates the program's
+   * meaning. A seat that can honestly settle first does so before reporting
+   * (Numeric Literals §6's own settle-then-name sequence).
    */
   #display(type: Mono): string {
+    this.#nameSurvivingVariables(type);
     const colours = this.#effectVariables(type);
     return this.#render(
       type,
@@ -13959,7 +14016,14 @@ class Checker {
     if (actual.kind === "Constructor") return actual.name;
     // A declared variable has a name the user wrote; `?3` in its place is
     // unreadable, and worse inside a diagnostic the Rewrite Rule makes
-    // mandatory.
+    // mandatory. Since #649 the third arm is unreachable from any report:
+    // `#display` names every survivor on entry, so a value-position variable
+    // arriving here already has one of the first two. It stays as a **guard,
+    // not a no-op** — an unnamed variable would otherwise render as `undefined`
+    // in a mandatory fixit, and the one variable `#display` deliberately leaves
+    // unnamed, an effect colour, prints through `#arrow` rather than here only
+    // as long as effects stay out of value position. Whoever finds it redundant
+    // should make the law hold without it, not delete it.
     if (actual.kind === "Variable") {
       return actual.rigidName ?? actual.displayName ?? `?${actual.id}`;
     }

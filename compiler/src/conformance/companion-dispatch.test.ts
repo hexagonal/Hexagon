@@ -196,10 +196,15 @@ describe("a built-in receiver reaches the module addressable under its name", ()
       ],
     ]);
 
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatch(
-      /^`Vector\(\?\d+\)` has no field `doubled`, its companion exports no operation `doubled`, and no constraint honored at `Vector\(\?\d+\)` has a subject-first member `doubled`; call an available subject-first function explicitly$/u,
-    );
+    // The literal receiver's element type is still an unsolved variable when
+    // the message is rendered. Since #649 that variable is *named*, not
+    // numbered, so the sentence is spelled out rather than matched against an
+    // allocation counter.
+    expect(messages).toEqual([
+      "`Vector(a)` has no field `doubled`, its companion exports no operation " +
+      "`doubled`, and no constraint honored at `Vector(a)` has a subject-first " +
+      "member `doubled`; call an available subject-first function explicitly",
+    ]);
   });
 
   /**

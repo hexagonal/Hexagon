@@ -168,12 +168,13 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
         'import { Shape } from "./shape"\n' +
         "export let s: Shape = Shape.make(3)\n"],
     ]);
-    // The inference variable's number is not the claim — that the writer is
-    // shown a *mismatch*, with the constructor on the expected side, is.
-    expect(reported).toHaveLength(1);
-    expect(reported[0]).toMatch(
-      /^type mismatch: expected \(\{n: Int\}\) -> Shape, found \{make: \?\d+, \.\.\.\}$/u,
-    );
+    // The claim is that the writer is shown a *mismatch*, with the constructor
+    // on the expected side. The field's type is an unsolved variable, which
+    // #649 spells `a` rather than the allocation counter this pin used to have
+    // to match.
+    expect(reported).toEqual([
+      "type mismatch: expected ({n: Int}) -> Shape, found {make: a, ...}",
+    ]);
   });
 });
 

@@ -493,7 +493,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "        None => 1\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Handle, found Option(?443)",
+      "type mismatch: expected Handle, found Option(a)",
     ]);
   });
 
@@ -508,7 +508,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "    1\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Handle, found Option(?442)",
+      "type mismatch: expected Handle, found Option(a)",
     ]);
   });
 
@@ -524,7 +524,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
         "    1\n",
       ],
     ])).toEqual([
-      "type mismatch: expected Handle, found Option(?443)",
+      "type mismatch: expected Handle, found Option(a)",
     ]);
   });
 
@@ -555,7 +555,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
       ],
     ])).toEqual([
       "match is missing cases: `(_, False)`",
-      "type mismatch: expected Handle, found Option(?445)",
+      "type mismatch: expected Handle, found Option(a)",
     ]);
   });
 
@@ -676,7 +676,7 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
         "        None => 1\n" +
         "        x => 2\n",
       ],
-    ])).toEqual(["type mismatch: expected Handle, found Option(?443)"]);
+    ])).toEqual(["type mismatch: expected Handle, found Option(a)"]);
   });
 
   test("two broken arms report twice and nothing else", () => {
