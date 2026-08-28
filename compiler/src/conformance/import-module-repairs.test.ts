@@ -309,6 +309,13 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     // The constraint namespace holds all eleven, so the bare spellings resolve:
     // a binder compiles, and an `honor` head reaches its own later failure —
     // here §4.2's base obligation — rather than an unknown-constraint refusal.
+    //
+    // What the third case is *for* is the noun: a missing **instance**, not an
+    // unknown constraint and not an unknown module. Matched whole rather than by
+    // prefix so that a message which drifted into either signpost's shape would
+    // fail here; the legal-homes clause it now carries is #638's (§7.6), naming
+    // the subject's own module and stating `Num`'s prelude home as fact rather
+    // than offering it.
     expect(messages([
       ["/main.hex", "export fun go<a: Pow>(x: a): a = x\n"],
     ])).toEqual([]);
@@ -316,7 +323,10 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
       ["/main.hex",
         "export record Box = {value: Float}\n" +
         "honor Pow<Box> =\n    pow(value, exponent) = value\n"],
-    ])).toEqual(["type `Box` has no `Num` instance"]);
+    ])).toEqual([
+      "type `Box` has no `Num` instance; it could only be declared in " +
+        "`./main.hex` (declares `Box`) or the module declaring `Num`",
+    ]);
   });
 });
 
