@@ -192,19 +192,19 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   // import, so the §10 probe has to see those aliases and not only the
   // module's declared names.
   //
-  // *Amended with FFI Part 7 §2.4:* it forces `Hex1` **where the file carries
+  // *Amended with FFI Part 7 §2.4:* it forces `Hex_1` **where the file carries
   // that alias's line**, which is where some occurrence qualifies through it.
   // The face below does, so the collision is real and the generated alias moves.
-  test("a source namespace import aliased `Hex` pushes the generated alias to `Hex1`", () => {
+  test("a source namespace import aliased `Hex` pushes the generated alias to `Hex_1`", () => {
     const compiled = project({
       "/src/main.hex": "import module Hex from \"./other\"\n" +
         "export let seat(x: Hex.Row): Vector(Int) = Hex.rows\n",
       "/src/other.hex": "export record Row = { n: Int }\nexport let rows: Vector(Int) = [1]\n",
     });
     expect(declarationsOf(compiled, "/src/main.hex")).toBe(
-      'import type * as Hex1 from "./hex.js";\n' +
+      'import type * as Hex_1 from "./hex.js";\n' +
         'import type * as Hex from "./other.js";\n' +
-        "export declare const seat: (x: Hex.Row) => Hex1.Vector<number>;\n",
+        "export declare const seat: (x: Hex.Row) => Hex_1.Vector<number>;\n",
     );
   });
 
@@ -228,19 +228,19 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
       "export record Hex = { digits: String }\n" +
         "export let rows: Vector(Int) = [1]\n",
     );
-    expect(text).toContain('import type * as Hex1 from "./hex.js";');
+    expect(text).toContain('import type * as Hex_1 from "./hex.js";');
     expect(text).toContain("export type Hex = { digits: string };");
-    expect(text).toContain("export declare const rows: Hex1.Vector<number>;");
+    expect(text).toContain("export declare const rows: Hex_1.Vector<number>;");
   });
 
-  test("the probe keeps counting: `Hex` and `Hex1` both taken gives `Hex2`", () => {
+  test("the probe keeps counting: `Hex` and `Hex_1` both taken gives `Hex_2`", () => {
     const text = declarations(
       "export record Hex = { digits: String }\n" +
-        "export record Hex1 = { digits: String }\n" +
+        "export record Hex_1 = { digits: String }\n" +
         "export let rows: Vector(Int) = [1]\n",
     );
-    expect(text).toContain('import type * as Hex2 from "./hex.js";');
-    expect(text).toContain("export declare const rows: Hex2.Vector<number>;");
+    expect(text).toContain('import type * as Hex_2 from "./hex.js";');
+    expect(text).toContain("export declare const rows: Hex_2.Vector<number>;");
   });
 });
 
@@ -359,7 +359,7 @@ describe("the preview declares the namespace inline (obligation 6)", () => {
     expect(preview(
       "export record Hex = { digits: String }\n" +
         "export let rows: Vector(Int) = [1]\n",
-    )).toContain("declare namespace Hex1 {");
+    )).toContain("declare namespace Hex_1 {");
   });
 });
 

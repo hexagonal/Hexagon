@@ -560,10 +560,10 @@ describe("where the alias is contested, the alias yields", () => {
     // alias's line now being present to contest it. TypeScript binds both to the
     // same declaration, which is what the `tsc` run below establishes.
     expect(declarations(compiled)).toBe(
-      'import type { Point as Point1 } from "./point.js";\n' +
+      'import type { Point as Point_1 } from "./point.js";\n' +
         'import type * as Point from "./point.js";\n' +
         "export declare function qualified(p: Point.Point): number;\n" +
-        "export declare function bare(p: Point1): number;\n",
+        "export declare function bare(p: Point_1): number;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -594,11 +594,11 @@ describe("the opaque brands are in every universe the file probes", () => {
     // settled first — it is derived from a declaration, so it is as much a
     // property of the module — and the minted local moves around it.
     expect(declarations(compiled)).toBe(
-      'import type { PointBrand as PointBrand1 } from "./lib.js";\n' +
+      'import type { PointBrand as PointBrand_1 } from "./lib.js";\n' +
         "declare const PointBrand: unique symbol;\n" +
         "export type Point = { readonly [PointBrand]: never };\n" +
         "export declare function mk(): Point;\n" +
-        "export declare const w: PointBrand1;\n",
+        "export declare const w: PointBrand_1;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -647,6 +647,31 @@ describe("the opaque brands are in every universe the file probes", () => {
         "export type Point = { readonly [PointBrand]: never };\n" +
         "export declare function mk(): Point;\n" +
         "export declare function row(r: PointBrand_1.Row): number;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  // The brand's *own* probe, the fourth compiler-chosen `.d.ts` spelling and the
+  // one the other tests here reach only from the outside. It suffixes the way
+  // §2.1's does — `<name>Brand_1`, never `<name>Brand1` (#619): a brand already
+  // looks like a type, so it aliases like one.
+  test("a declared `PointBrand` pushes the brand to `PointBrand_1`", async () => {
+    const compiled = project([
+      [
+        "/main.hex",
+        "export record PointBrand = {n: Int}\nopaque record Point = {x: Int}\n" +
+          "export fun mk(): Point = Point({x = 1})\n" +
+          "export fun tag(): PointBrand = PointBrand({n = 1})\n",
+      ],
+    ]);
+
+    expect(declarations(compiled)).toBe(
+      "export type PointBrand = { n: number };\n" +
+        "export declare const PointBrand: (record: { n: number }) => PointBrand;\n" +
+        "declare const PointBrand_1: unique symbol;\n" +
+        "export type Point = { readonly [PointBrand_1]: never };\n" +
+        "export declare function mk(): Point;\n" +
+        "export declare function tag(): PointBrand;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -702,10 +727,10 @@ describe("placement, and one probe for both minting rungs", () => {
     // universe: whichever is asked first takes the unsuffixed name and the other
     // moves. Two probes over two sets would put one declaration under two names.
     expect(declarations(compiled)).toBe(
-      'import type { Option as Option1 } from "./Option.js";\n' +
+      'import type { Option as Option_1 } from "./Option.js";\n' +
         'import type { Option } from "./lib.js";\n' +
         "export declare const a: Option;\n" +
-        "export declare const b: Option1<number>;\n",
+        "export declare const b: Option_1<number>;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
