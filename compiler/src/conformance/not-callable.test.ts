@@ -282,7 +282,8 @@ export fun pong(n: Int): Unit =
    * Unions §2.2's targeted hint for a called nullary constructor (#413):
    * "`None` is a value, not a function; write it without `()`". The generic
    * report's type display would print the instantiation's fresh variable —
-   * `Option(?433)` — noise about a value the writer named, so the hint
+   * `Option(a)`, and `Option(?433)` before #649 — noise about a value the
+   * writer named either way, so the hint
    * displaces the whole sentence, type and argument count included. The fixit
    * deletes the empty argument list; a call that *supplies* arguments keeps
    * the sentence but offers no fixit, because deleting `(x)` deletes an

@@ -80,15 +80,16 @@ describe("a misspelling beside a correctly-spelled operation", () => {
   });
 
   // The receiver is a literal, so its element type is still an unsolved variable
-  // when the message is rendered (`Vector(?n)`). The variable's number is an
-  // allocation counter, not behaviour, so it is matched rather than spelled.
+  // when the message is rendered — `Vector(a)` since #649, where it used to be
+  // an allocation counter the pin could only match rather than spell.
   test("a misspelled one on the same receiver still reports", () => {
     const messages = projectDiagnostics("export let v: Vector(Int) = [1, 2].appendd(3)\n");
 
-    expect(messages).toHaveLength(1);
-    expect(messages[0]).toMatch(
-      /^`Vector\(\?\d+\)` has no field `appendd`, its companion exports no operation `appendd`, and no constraint honored at `Vector\(\?\d+\)` has a subject-first member `appendd`; call an available subject-first function explicitly$/u,
-    );
+    expect(messages).toEqual([
+      "`Vector(a)` has no field `appendd`, its companion exports no operation " +
+      "`appendd`, and no constraint honored at `Vector(a)` has a subject-first " +
+      "member `appendd`; call an available subject-first function explicitly",
+    ]);
   });
 });
 
