@@ -290,17 +290,27 @@ describe("`Hash` stays derivable-only with its declaration in view", () => {
    * The refusal is checked *before* the declaration lookup, so making `Hash`'s
    * declaration visible could not have weakened it — but "could not have" is
    * the kind of claim this arc has been wrong about before, so it is measured.
+   *
+   * The specimen is Collections Part 2 §9's **first** row (#647): a
+   * project-source nominal with no `Eq`, so the advice is base-complete and
+   * names the subject, and no file — the refused `honor` sits in the
+   * declaration's own file. `hash-refusal-advice.test.ts` owns the five rows;
+   * this pin only holds the refusal steady under a visible declaration.
+   *
+   * The body carries a literal, which is free here and is not free everywhere:
+   * a literal in a refused `honor` body crashed the checker until #651, so this
+   * pin doubles as a regression site for it.
    */
   test("a hand-written `honor Hash<T>` is refused with the derivable-only diagnostic", () => {
     expect(projectDiagnostics([
       "export record Point = {x: Int}",
       "",
       "honor Hash<Point> =",
-      "    hash(value) = value.x",
+      "    hash(value) = value.x * 31",
       "",
     ].join("\n"))).toEqual([
-      "`Hash` instances cannot be hand-written; use `derives Hash` on the " +
-        "declaration of the subject type",
+      "`Hash` instances must be derived; use `derives (Eq, Hash)` on the " +
+        "declaration of `Point`",
     ]);
   });
 

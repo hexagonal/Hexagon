@@ -120,7 +120,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
       "record Point = {s: String}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({s = \"K\"}))\n",
     )).toContain(
-      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+      "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
         "in `./main.hex`",
     );

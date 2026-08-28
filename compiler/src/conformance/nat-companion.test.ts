@@ -442,19 +442,21 @@ describe("the wired `Nat` row is gone, not dormant", () => {
   });
 
   /**
-   * The carve-out is the companion's alone; user source keeps the refusal.
+   * The carve-out is the companion's alone; user source keeps the refusal —
+   * Collections Part 2 §9's **fourth** row (#647), a primitive having no
+   * declaration a `derives` clause could sit on.
    *
-   * The body is the parameter rather than a literal because a *literal* inside
-   * a refused `honor` block crashes the checker — at `BigInt` and `String` as
-   * much as at `Nat`, so it is a general defect in what a refused instance
-   * leaves half-built, not this arc's.
+   * The body now carries a literal, which is what this pin used to have to
+   * avoid: a literal inside a refused `honor` block crashed the checker, a
+   * general defect in what a refused instance left half-built rather than this
+   * arc's. That is #651, repaired at the seat, and the specimen exercises it.
    */
   test("a hand-written `honor Hash<Nat>` in user source is still refused", () => {
     expect(diagnostics([
-      ["/main.hex", "honor Hash<Nat> =\n    hash(value) = value\n"],
+      ["/main.hex", "honor Hash<Nat> =\n    hash(value) = value * 31\n"],
     ])).toContain(
-      "`Hash` instances cannot be hand-written; use `derives Hash` on the " +
-        "declaration of the subject type",
+      "`Hash` instances must be derived, and this subject has no declaration " +
+        "that could carry a `derives` clause",
     );
   });
 });

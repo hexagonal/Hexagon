@@ -764,6 +764,19 @@ const DERIVABLE_IDENTITIES: ReadonlySet<string> = new Set(
 );
 
 /**
+ * The head every user-facing `Hash` diagnostic opens with (#647, James's point
+ * 4): Constraints §4.5's derivable-only law stated **positively**, telling the
+ * reader what to write rather than what not to.
+ *
+ * One constant and not two spellings, because the two seats that print it — the
+ * member-block refusal (Collections Part 2 §9) and Modules §7.6's replacement
+ * sentence (#644) — are one voice by ruling, and a family that drifts is exactly
+ * what the ruling was about. The spec's *prose* keeps "hand-written" as the term
+ * of art for member-block provenance; it is no longer a phrase any message says.
+ */
+const HASH_MUST_BE_DERIVED = "`Hash` instances must be derived";
+
+/**
  * The base constraints of the pre-registered constraints the compiler holds
  * declarations for (Constraints §7, `spec/integral-constraint.md`), keyed by the
  * one identity each of them has.
@@ -1658,6 +1671,42 @@ class Checker {
    * component structurally.
    */
   readonly #instanceComponents = new WeakMap<Resolved.HonorItem, readonly RequirementComponent[]>();
+  /**
+   * Instances this pass **refused before checking their member bodies** — the
+   * `#inferItems` `Honor` arm's `continue`s that fire ahead of member inference
+   * (#651).
+   *
+   * The set exists because `#materializeItem` walks an item's members whatever
+   * the diagnostics said, and that walk is the one part of the arm which is not
+   * defensive: `#materializeUnwidenedExpr` dereferences `#requirements` for an
+   * integer literal, for a string interpolation, and for a `hash(…)` call, and
+   * a body no inference ever visited leaves all three empty. Any refused member
+   * body carrying one therefore crashed the checker — Collections Part
+   * 2 §4.1's own worked example (`hash(u) = u.n * 31`) among them, and the
+   * identical crash sat behind the unknown-constraint refusal beside it.
+   *
+   * Recording the refusal is the repair that fits the arm: the members were
+   * never typed, so there is nothing to materialize.
+   *
+   * **What happens downstream is measured, not assumed.** `compileProject` runs
+   * `elaborate`, `emitJavaScript` and `emitDeclarations` *unconditionally*, so
+   * an erroring module reaches all three — which is precisely why the emitter
+   * reads `module.diagnostics` into `#alreadyDiagnosed` at all. The refused
+   * instance therefore *is* elaborated and *is* emitted; it simply carries an
+   * empty member list, and every consumer handles that, the emitted dictionary
+   * coming out as `const __Hash_UserId = {  };` with both emitters completing
+   * and adding no diagnostic of their own. What makes that harmless is not that
+   * nothing sees it but that nothing *runs* it: a project carrying errors is
+   * never executed. Whoever edits this must not read "the emitter never sees a
+   * refused instance" out of it — the emitter sees it, and the empty list is
+   * the contract it is being handed.
+   *
+   * Inferring the bodies anyway was the alternative and is the wrong one here:
+   * the ordinary path would check them against a declaration the refusal has
+   * just ruled out — or, at an unknown constraint, against no declaration at
+   * all — turning one true refusal into a spray of consequences.
+   */
+  readonly #uninferredInstanceMembers = new WeakSet<Resolved.HonorItem>();
   readonly #mutableSymbols = new Set<Resolved.SymbolId>();
   /**
    * Every symbol this module can name, imports included (the resolver puts both
@@ -3576,15 +3625,30 @@ class Checker {
         // instances sit side by side. Every user module keeps the refusal
         // verbatim: the carve-out follows compilation privilege, exactly as the
         // intrinsic door's gate does.
+        //
+        // The refusal itself is unchanged; what it *says* is Collections Part 2
+        // §9's five-row law (#647), rendered by `#handWrittenHashRefusal` — the
+        // seat joins #644's advice family, so the advice offered is the advice
+        // the subject can actually take, and one of the five rows is silence.
+        // The gate stays name-keyed on purpose (§5.1.1: the constraint was just
+        // written here, so there is nothing to occlude it), while everything the
+        // renderer asks of the *subject* is asked by identity.
         if (
           !item.derived && item.constraint === "Hash" &&
           !this.#companionsPrimitive(item.subject)
         ) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: "`Hash` instances cannot be hand-written; use `derives Hash` on the declaration of the subject type",
-            primary: item.span,
-          });
+          const message = this.#handWrittenHashRefusal(item);
+          if (message !== undefined) {
+            this.#diagnostics.add({
+              severity: "error",
+              message,
+              primary: item.span,
+            });
+          }
+          // Refused either way — silence is about the report, not about the
+          // instance, which never joins the table. #651: the member bodies below
+          // are therefore never inferred, and materialization must be told.
+          this.#uninferredInstanceMembers.add(item);
           continue;
         }
         if (declaration === undefined && !item.derived) {
@@ -3594,6 +3658,7 @@ class Checker {
             ...this.#unknownConstraint(item.constraint),
             primary: item.span,
           });
+          this.#uninferredInstanceMembers.add(item);
           continue;
         }
         if (item.derived) {
@@ -9370,24 +9435,7 @@ class Checker {
     const carriesList = declaration.derives.length > 0;
     const name = this.#constraintsByIdentity.get(requirement.identity)?.name ??
       requirement.name;
-    // The derivability filter is a **guard, not a no-op**: today every base of
-    // the derivable four is `Eq`, so it drops nothing, and it is what keeps the
-    // fixit compilable if that ever stops being true — a non-derivable base
-    // named in a `derives` list would be refused at the seat the fixit sent the
-    // reader to. Whoever finds it redundant should add the base that makes it
-    // matter, not delete it.
-    const absentBases = this.#baseConstraintsOf(requirement.identity)
-      .filter(({ identity }) =>
-        DERIVABLE_IDENTITIES.has(identity) &&
-        this.#instances.get(this.#instanceKey(identity, type)) === undefined
-      )
-      .map(({ name: base }) => base);
-    // Declaration order, bases first: `derives (Eq, Ord)` is the order a
-    // `derives` clause is written in, and the order the missing-base row would
-    // have demanded them in.
-    const spelling = absentBases.length === 0
-      ? name
-      : `(${[...absentBases, name].join(", ")})`;
+    const spelling = this.#derivationSpelling(requirement.identity, name, type);
     if (requirement.identity !== preRegisteredConstraintIdentity("Hash")) {
       return {
         replaces: false,
@@ -9415,11 +9463,164 @@ class Checker {
     const seat = relativeFilePath(here, home.path);
     return {
       replaces: true,
-      text: "; `Hash` instances cannot be hand-written, so the only repair is " +
+      // The head states §4.5's law positively (#647, James's point 4): one voice
+      // with the member-block refusal's own head, and a sentence that tells the
+      // reader what to write rather than what not to.
+      text: `; ${HASH_MUST_BE_DERIVED}, so the only repair is ` +
         (carriesList
           ? `adding \`${spelling}\` to \`${declaration.name}\`'s \`derives\` list in \`${seat}\``
           : `\`derives ${spelling}\` on the declaration of \`${declaration.name}\` in \`${seat}\``),
     };
+  }
+
+  /**
+   * Constraints §8's **base-complete** spelling for `derives` at this subject —
+   * the bare name where every base is already satisfied, the parenthesised list
+   * where one is not. `#derivationFixit` above states why the completeness is
+   * owed; this is only where it is computed.
+   *
+   * The derivability filter is a **guard, not a no-op**: today every base of the
+   * derivable four is `Eq`, so it drops nothing, and it is what keeps the fixit
+   * compilable if that ever stops being true — a non-derivable base named in a
+   * `derives` list would be refused at the seat the fixit sent the reader to.
+   * Whoever finds it redundant should add the base that makes it matter, not
+   * delete it. The bases are read from the declaration through
+   * `#baseConstraintsOf`, by identity, rather than re-listed here.
+   *
+   * Shared by #644's use-site fixit and #647's member-block refusal, which owe
+   * the reader the same list for the same reason and must not drift apart in
+   * what they spell.
+   */
+  #derivationSpelling(identity: string, name: string, type: Mono): string {
+    const absentBases = this.#baseConstraintsOf(identity)
+      .filter(({ identity: base }) =>
+        DERIVABLE_IDENTITIES.has(base) &&
+        this.#instances.get(this.#instanceKey(base, type)) === undefined
+      )
+      .map(({ name: base }) => base);
+    // Declaration order, bases first: `derives (Eq, Ord)` is the order a
+    // `derives` clause is written in, and the order the missing-base row would
+    // have demanded them in.
+    return absentBases.length === 0
+      ? name
+      : `(${[...absentBases, name].join(", ")})`;
+  }
+
+  /**
+   * Collections Part 2 §9's report for a refused member-block `honor Hash<T>`
+   * (#647) — or `undefined` where the seat is **silent**.
+   *
+   * The refusal is §4.1's and does not move: `Hash` is derivable-only, and every
+   * user module refuses the hand-written form. What James ruled is that the
+   * refusal joins #644's advice family — the same head, the same list-aware and
+   * base-complete fixit — and that the advice offered must be advice the reader
+   * can take. Five rows come out of that, and the branch below is only choosing
+   * between them:
+   *
+   * 1. **A project-source nominal whose `Eq` is absent or derived.** Constraints
+   *    §8's fixit in both dialects, base-complete in each — `(Eq, Hash)` where
+   *    no `Eq` instance exists, `Hash` alone beside a derived one. The subject is
+   *    named always; the *file* only when the declaration is not this one. That
+   *    gate is deliberately softer than #644's, which prints a path
+   *    unconditionally: there the report hangs off a use site that may be
+   *    anywhere, while here the refused `honor` is itself the anchor, so a
+   *    pathless compilation degrades to naming the subject and nothing worse.
+   *    The elsewhere-file branch is reachable only in an already-orphan program
+   *    — a member-block honor outside `T`'s file, `Hash`'s other home being the
+   *    prelude — and the orphan error stands beside this one, both pointing at
+   *    the same file.
+   * 2. **A project-source nominal whose `Eq` is hand-written.** The advice of row
+   *    1 would itself be refused (§4.3), so §4.5's wrapper route stands in its
+   *    place — the same sentence #644's replacement fixit reaches, seated after
+   *    this refusal's head.
+   * 3. **A prelude nominal.** A `derives` seat exists and the reader cannot edit
+   *    it. Modules §7.6's offering discipline says name the fact, never the
+   *    repair, so the head carries one true sentence and no fixit.
+   * 4. **No `derives` seat at all** — a primitive outside #344's carve-out, an
+   *    extern type, a structural subject. There is a subject, it has no
+   *    declaration to edit, and the report says exactly that.
+   * 5. **A subject annotation that does not resolve, or a head that is a bare
+   *    type variable.** Silent, on one principle read at two widths (#647's
+   *    rider): no advice is owed about a subject the checker cannot *name*, nor
+   *    about one that cannot *host an instance at all*. The resolver has already
+   *    reported the unknown name against this very span, and Constraints §5.4
+   *    has already refused the variable head; either is the whole answer. The
+   *    refusal still stands in both cases — the instance never joins the table —
+   *    and only the sentence is withheld.
+   *
+   * The two arms of row 5 are asked in different channels, and deliberately.
+   * "Did not resolve" is the **resolver's** answer: `ErrorType` is precisely
+   * "this annotation named nothing", while an `Error` mono is reachable from
+   * several unrelated failures. "Is a variable" is a fact about the *elaborated*
+   * type, which is what makes one check cover both `honor Hash<a>` and
+   * `honor<a> Hash<a>` — they take different §5.4 messages and are the same
+   * subject.
+   */
+  #handWrittenHashRefusal(item: Resolved.HonorItem): string | undefined {
+    if (item.subject.kind === "ErrorType") return undefined;
+    const subject = this.#prune(this.#instanceSubjects.get(item) ?? ERROR);
+    // Row 5's **second arm**, and the one asked of the elaborated type rather
+    // than the annotation: a head that is a bare type variable. Constraints
+    // §5.4 refuses it outright — `honor Hash<a>` takes the must-name-a-
+    // constructor message, `honor<a> Hash<a>` the parameterized-head one — and
+    // that refusal is the whole answer. One check covers both spellings because
+    // both elaborate to a variable, which is the fact that matters: a variable
+    // is not a subject with a bad `derives` seat, it is not a subject at all.
+    if (subject.kind === "Variable") return undefined;
+    // Declaration and prelude provenance are read together because only the
+    // narrowed subject can answer the second, and `#preludeUnionIds`
+    // /`#preludeRecordIds` are the occlusion-proof channel for it — the same one
+    // `#subjectHome` consults, so the answer never rides on a name (Modules
+    // §5.5).
+    const nominal = subject.kind === "Union"
+      ? {
+          declaration: this.#nominalDeclaration(subject),
+          preludeSupplied: this.#preludeUnionIds.has(subject.union),
+        }
+      : subject.kind === "NominalRecord"
+      ? {
+          declaration: this.#nominalDeclaration(subject),
+          preludeSupplied: this.#preludeRecordIds.has(subject.record),
+        }
+      : undefined;
+    if (nominal === undefined || nominal.declaration === undefined) {
+      return `${HASH_MUST_BE_DERIVED}, and this subject has no declaration that ` +
+        "could carry a `derives` clause";
+    }
+    const declaration = nominal.declaration;
+    if (nominal.preludeSupplied) {
+      return `${HASH_MUST_BE_DERIVED}; derivation is spelled on the subject's ` +
+        "declaration, which is not in project source";
+    }
+    // The provenance channel is the instance record's own `derived` flag — the
+    // same one the derive-site Eq-agreement check in this arm reads, and the
+    // same one #644's fixit reads. A *derived* `Eq` or none at all leaves
+    // `derives Hash` writable; a hand-written one bars it outright.
+    const equality = this.#instances.get(
+      this.#instanceKey(preRegisteredConstraintIdentity("Eq"), subject),
+    );
+    if (equality !== undefined && !equality.derived) {
+      return `${HASH_MUST_BE_DERIVED}, and \`derives Hash\` requires a derived ` +
+        `\`Eq\` — \`${declaration.name}\` declares its own; key on a wrapper ` +
+        "type whose `Eq` and `Hash` are both derived";
+    }
+    const spelling = this.#derivationSpelling(
+      preRegisteredConstraintIdentity("Hash"),
+      "Hash",
+      subject,
+    );
+    const advice = declaration.derives.length > 0
+      ? `add \`${spelling}\` to \`${declaration.name}\`'s \`derives\` list`
+      : `use \`derives ${spelling}\` on the declaration of \`${declaration.name}\``;
+    const here = this.#modulePath;
+    const there = declaration.declaringPath;
+    // Two facts, not one: the compilation has paths at all, and the declaration
+    // is somewhere else. Same-file is the ordinary case and names no file — the
+    // `honor` the caret sits on is already in the file the reader must open.
+    const elsewhere = here !== undefined && there !== undefined && there !== here
+      ? ` in \`${relativeFilePath(here, there)}\``
+      : "";
+    return `${HASH_MUST_BE_DERIVED}; ${advice}${elsewhere}`;
   }
 
   /**
@@ -13029,11 +13230,25 @@ class Checker {
           span: impliedType.span,
         })),
         members: [
-          ...item.members.map((member) => ({
-            name: member.name,
-            value: this.#materializeLambda(member.value),
-            span: member.span,
-          })),
+          // Dropped whole for a refused instance (#651). Every other field of
+          // this arm coalesces a missing table entry; the member walk cannot,
+          // because `#materializeUnwidenedExpr` reads `#requirements` for a
+          // literal, an interpolation and a `hash(…)` call without a fallback —
+          // and a body the `Honor` arm refused before inference reached it has
+          // no entries at all. Elaboration and both emitters still run over this
+          // item — `compileProject` calls them whatever the diagnostics say —
+          // and what they are handed is an instance with no members, which is a
+          // shape they already handle: the measured emission is an empty
+          // dictionary, no crash and no further diagnostic. It is safe because
+          // an erroring project is never *executed*, not because it is never
+          // emitted. See `#uninferredInstanceMembers`.
+          ...(this.#uninferredInstanceMembers.has(item)
+            ? []
+            : item.members.map((member) => ({
+                name: member.name,
+                value: this.#materializeLambda(member.value),
+                span: member.span,
+              }))),
           ...inherited,
         ],
         // The declaration's subject, so emission can bind the dictionary under
