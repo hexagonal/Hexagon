@@ -1906,11 +1906,12 @@ function qualifyingAliases(
  *
  * A yielding alias is **a source name stepping aside, not a spelling the
  * compiler minted**, so it takes the collision-only suffix its emitted-JavaScript
- * counterpart takes — `Point_1`, counting from `_1`. The category still differs
- * from the minted local's probe, whose subject is names the compiler made up,
- * but since #619 the two agree on the spelling of a suffix: every
- * compiler-chosen `.d.ts` name counts `_1`, `_2`, … and only the universe each
- * probes against tells them apart.
+ * counterpart takes — `Point_1`, counting from `_1`. Since #619 the two agree on
+ * the spelling of a suffix — every suffixed `.d.ts` spelling counts `_1`, `_2`,
+ * … What still tells them apart is the subject that moves and the universe each
+ * probes against: here the *source alias* steps aside and the declaration keeps
+ * the bare name, where a minted local is a spelling the compiler made up and is
+ * itself what moves.
  *
  * The declaration file decides this **independently of the emitted JavaScript**,
  * and the two may differ. They must: the `.js` binds terms and the `.d.ts` binds
@@ -11121,6 +11122,12 @@ function neverInstantiation(
   return new Map(variables.map((variable) => [variable, NEVER]));
 }
 
+/**
+ * `a`, `b`, … `z`, then `a1` at the 27th binder: FFI Part 7 §2.2's binder
+ * alphabet, not §2.1's probe. No universe is consulted — the alphabet cycles on
+ * arity alone — so the digit is a cycle counter rather than a collision suffix,
+ * and it rightly stays bare of #619's underscore.
+ */
 function typeVariableName(index: number): string {
   const letter = String.fromCharCode("a".charCodeAt(0) + (index % 26));
   const cycle = Math.floor(index / 26);

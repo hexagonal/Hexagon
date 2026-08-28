@@ -378,8 +378,14 @@ describe("row 4 — a bare face in scope only by the companion fallback (TS2709,
 
   test("the gated alias moves nothing — the minted local keeps the bare name", () => {
     // §14.3's fourth rejected alternative, measured: counting the alias in the
-    // probe's universe would push this file's own face to `Shape1`, against a
+    // probe's universe would push this file's own face to `Shape_1`, against a
     // `Shape` the file does not contain.
+    //
+    // Pinned by the file's **exact text**, not by the absence of a spelling. A
+    // negative containment check here is a test that cannot fail: it names one
+    // spelling the rejected alternative happens to produce today, and every
+    // change to how a moved spelling is written — #619's underscore among them —
+    // walks the real answer out from under it while it stays green.
     const compiled = project([
       ["/shape.hex", "export record Shape = {s: Int}\nexport let unit: Int = 1\n"],
       [
@@ -389,7 +395,10 @@ describe("row 4 — a bare face in scope only by the companion fallback (TS2709,
       ],
     ]);
 
-    expect(declarations(compiled)).not.toContain("Shape1");
+    expect(declarations(compiled)).toBe(
+      'import type { Shape } from "./shape.js";\n' +
+        "export declare function width(s: Shape): number;\n",
+    );
   });
 });
 
@@ -824,7 +833,7 @@ describe("what the sink is not asked", () => {
     // unexported binding's signature publishes nothing — so the qualified dot
     // above spells nothing in the `.d.ts`, the alias's line is not written, and
     // the minted local for the exported bare face keeps `Shape`. Counting the
-    // written dot would render `Shape1` against a `Shape` the file does not
+    // written dot would render `Shape_1` against a `Shape` the file does not
     // contain.
     expect(declarations(compiled)).toBe(
       'import type { Shape } from "./shape.js";\n' +
