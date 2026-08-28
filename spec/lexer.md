@@ -142,7 +142,7 @@ I元素      E无效年龄  M数据库           -- cultural role prefixes, ordi
   evidence parameter), `__value` (a helper binder). Public-surface spellings a
   generator also chooses — a `.d.ts` brand identifier (FFI Part 7 §5), FFI
   Part 9's documentation parameter names — are faces, not hygiene names, and
-  stay outside the prefix (Part 7 §5's collision clause keeps the brands there). The reservation
+  stay outside the prefix (Part 7 §2.1 states the class, and §5's collision clause keeps the brands there). The reservation
   governs Hexagon's own name seats; the foreign side of an FFI `as` alias
   (FFI Part 4 §3.2) is outside them, so a `__`-named foreign export stays
   bindable under an ordinary local alias — the lexer emits the token and the
