@@ -301,7 +301,7 @@ These instances make `Map`s and `Set`s usable as map keys and set elements thems
 | Situation | Error / behaviour | § |
 |---|---|---|
 | `m[k]` with absent key | runtime `KeyError` (nullary; best-effort key rendering in the JS message, non-normative) | §4.1, §4.3 |
-| `m[k]` where `k`'s type lacks `Hash` | ordinary unsatisfied-constraint error (hint: `derives (Eq, Hash)` — Part 2 §9) | §4.1 |
+| `m[k]` where `k`'s type lacks `Hash` | the unsatisfied-`Hash` report (Part 2 §9, under Modules §7.6's replacement composition; the repair named remains `derives (Eq, Hash)`) | §4.1 |
 | `s[x]` on a `Set` | ordinary type error (no bracket support on `Set`); no special diagnostic owed | §4.4 |
 | `m[lo..hi]` where the key type is not `Range` | ordinary type error; with a `Range` key type (and `Hash<Range>` provided) it is an ordinary key lookup, never a slice | §4.4 |
 | Hand-written-`Eq` key type used with `Map`/`Set` | unsatisfied `Hash` at the use site; the Part 2 §4.3 Eq-agreement error at the derivation site; wrapper-key pattern is the sanctioned answer | Part 2 §4.3/§4.5 |
