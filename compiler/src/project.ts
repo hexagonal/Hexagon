@@ -784,6 +784,32 @@ export function resolveSpecifier(importer: string, specifier: string): string {
   return candidate.endsWith(".hex") ? candidate : `${candidate}.hex`;
 }
 
+/**
+ * The specifier one module would write to import another — `resolveSpecifier`
+ * read backwards, and the round trip is the property that matters:
+ * `resolveSpecifier(importer, specifierFor(importer, target))` is `target`.
+ *
+ * Exported for the same reason its inverse is, and needed by the tooling tier
+ * that *writes* an import line rather than reading one (Modules §5.1's LSP
+ * obligation, #577). Same-directory targets keep the explicit `./`, which is
+ * the only spelling the grammar admits for a relative path (§12.1: a bare
+ * specifier is a package import, and those are refused), and an ascent is
+ * spelled with as many `../` as the paths differ by.
+ */
+export function specifierFor(importer: string, target: string): string {
+  const from = normalizePath(importer).split("/").slice(0, -1);
+  const to = normalizePath(target).replace(/\.hex$/u, "").split("/");
+  const file = to.pop()!;
+  let shared = 0;
+  while (shared < from.length && shared < to.length && from[shared] === to[shared]) {
+    shared += 1;
+  }
+  const ascent = from.slice(shared).map(() => "..");
+  const descent = to.slice(shared);
+  const parts = [...ascent, ...descent, file];
+  return ascent.length === 0 ? `./${parts.join("/")}` : parts.join("/");
+}
+
 function normalizePath(path: string): string {
   const absolute = path.startsWith("/");
   const parts: string[] = [];

@@ -1162,7 +1162,10 @@ describe("check", () => {
     expect(typeName(letSymbol(module, "divided").scheme.type)).toBe("Float");
     expect(typeName(letSymbol(module, "joined").scheme.type)).toBe("String");
     expect(module.diagnostics.map(({ message }) => message)).toContain(
-      "type `String` has no `Signed` instance",
+      "type `String` has no `Signed` instance; its only legal homes are the module " +
+        "declaring `Signed` and `String`'s prelude companion module, both outside project " +
+        "source, so this pair's honored set is closed — change the type, or go through " +
+        "the operations those homes export",
     );
   });
 
@@ -1678,7 +1681,10 @@ describe("check", () => {
       "this pattern can fail: `_`; use `match`",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
-      "type `Int` has no `Iterable` instance",
+      "type `Int` has no `Iterable` instance; its only legal homes are the module " +
+        "declaring `Iterable` and `Int`'s prelude companion module, both outside project " +
+        "source, so this pair's honored set is closed — change the type, or go through " +
+        "the operations those homes export",
     );
   });
 

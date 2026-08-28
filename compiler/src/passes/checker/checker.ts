@@ -21,11 +21,13 @@ import {
 } from "./variance.js";
 import {
   declaredConstraintIdentity,
+  isPreRegisteredIdentity,
   PRE_REGISTERED_CONSTRAINT_MEMBERS,
   PRE_REGISTERED_CONSTRAINTS,
   preRegisteredConstraintIdentity,
 } from "../../constraints.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
+import { PRIMITIVE_COMPANION_BASENAMES } from "../../prelude.js";
 import { relativeFilePath, relativeSpecifier } from "../../support/paths.js";
 import type * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
@@ -765,6 +767,36 @@ const PRE_REGISTERED_BASE_CONSTRAINTS: Readonly<Record<string, readonly string[]
 
 function primitive(name: Typed.PrimitiveName): Constructor {
   return { kind: "Constructor", name };
+}
+
+/**
+ * The primitives whose home module is a **fixed prelude companion** (Constraints
+ * §5.3, #344 — `Int` → `Int.hex` and its four siblings).
+ *
+ * Read off `PRIMITIVE_COMPANION_BASENAMES` rather than re-listed, so the orphan
+ * rule's home for a primitive and the prelude's injection table cannot drift
+ * apart. `Unit` and `Exn` are absent from both, and §5.3 says why for `Unit`: it
+ * is the empty tuple, covered by the structural instances, with no home and none
+ * needed.
+ */
+const PRIMITIVE_COMPANION_HOMES: ReadonlySet<string> = new Set(
+  PRIMITIVE_COMPANION_BASENAMES.values(),
+);
+
+/**
+ * One of the two legal homes Modules §7.6's missing-instance clause names.
+ *
+ * `path` is present exactly when the home is **offerable** — a module the reader
+ * could write the honor in. A prelude or compiler-supplied home carries none,
+ * and `statedHome` is the phrase that names it as fact instead. The asymmetry is
+ * the spec's, not a convenience: "a prelude- or compiler-supplied home is named
+ * as fact, never as repair".
+ */
+interface LegalHome {
+  /** The declaration's own name — the subject constructor, or the constraint. */
+  readonly name: string;
+  readonly path?: string;
+  readonly statedHome: string;
 }
 
 /**
@@ -1866,7 +1898,7 @@ class Checker {
             if (!this.#constraintNames.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                message: this.#unknownConstraintMessage(constraint),
+                ...this.#unknownConstraint(constraint),
                 primary: parameter.span,
               });
               continue;
@@ -2132,7 +2164,7 @@ class Checker {
               if (!this.#constraintNames.has(constraint)) {
                 this.#diagnostics.add({
                   severity: "error",
-                  message: this.#unknownConstraintMessage(constraint),
+                  ...this.#unknownConstraint(constraint),
                   primary: parameter.span,
                 });
                 continue;
@@ -3543,7 +3575,7 @@ class Checker {
           if (this.#checkPreludeHonor(item, level)) continue;
           this.#diagnostics.add({
             severity: "error",
-            message: this.#unknownConstraintMessage(item.constraint),
+            ...this.#unknownConstraint(item.constraint),
             primary: item.span,
           });
           continue;
@@ -4636,7 +4668,7 @@ class Checker {
             if (!this.#constraintNames.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                message: this.#unknownConstraintMessage(constraint),
+                ...this.#unknownConstraint(constraint),
                 primary: parameter.span,
               });
               continue;
@@ -8845,20 +8877,52 @@ class Checker {
    * and, exactly as in type position, the **exported inventory drives which
    * repairs are named**: one is the case worth spelling out in full, several
    * make "the constraint it exports" a false singular.
+   *
+   * With **no alias standing there at all** the refusal carries the family's
+   * own signpost instead (#577, Constraints §8's row, in Modules §5.1 rule 1's
+   * register): nothing of the spelling is in scope, which is the arrival state
+   * of an author who has read §5.3 and not yet written the import, and the two
+   * routes that reach a constraint are the import line and the named import.
+   * The arm is unreachable at the eleven pre-registered spellings, which always
+   * resolve (Constraints §5.1.1) — no case is carved for them, because a carve
+   * would be a claim about a branch nothing can enter. It is the **bare**
+   * spelling's, though, and only that: a qualified head (`honor D.NotThere<T>`,
+   * §4.1's spelling) arrives here under its whole dotted name, whose repair is
+   * not an import of a module called `D.NotThere` — that writer already holds an
+   * alias, or holds the wrong one, and the plain refusal is what the row names.
+   *
+   * Returns the message *and the marker*, rather than a string, because the two
+   * are one decision: the arm that names `import module` as a repair is exactly
+   * the arm whose workspace tier can apply it, and a caller free to attach one
+   * without the other could put a fixit on a message that never offered it.
    */
-  #unknownConstraintMessage(constraint: string): string {
+  #unknownConstraint(
+    constraint: string,
+  ): Pick<Diagnostics.Diagnostic, "message" | "importModuleRepair"> {
     const refusal = `unknown constraint \`${constraint}\``;
     const alias = this.#aliasConstraints.get(constraint);
-    if (alias === undefined) return refusal;
+    if (alias === undefined) {
+      if (constraint.includes(".")) return { message: refusal };
+      return {
+        message: `${refusal}; import its home module with ` +
+          `\`import module ${constraint}\` for qualified access, or import the ` +
+          "constraint by name",
+        importModuleRepair: { name: constraint, namespace: "constraint" },
+      };
+    }
     const only = alias.exported.length === 1 ? alias.exported[0]! : undefined;
     if (only === undefined) {
-      return `${refusal}; \`${constraint}\` is a module alias — the constraints it exports ` +
-        `are reached through it, as \`${constraint}.Name\``;
+      return {
+        message: `${refusal}; \`${constraint}\` is a module alias — the constraints it exports ` +
+          `are reached through it, as \`${constraint}.Name\``,
+      };
     }
-    return `${refusal}; \`${constraint}\` is a module alias — write \`${constraint}.${only}\` ` +
-      `for the constraint it exports, name it bare with ` +
-      `\`import { ${only} } from ${JSON.stringify(alias.specifier)}\`, ` +
-      `or realias as \`import module ${only}\``;
+    return {
+      message: `${refusal}; \`${constraint}\` is a module alias — write \`${constraint}.${only}\` ` +
+        `for the constraint it exports, name it bare with ` +
+        `\`import { ${only} } from ${JSON.stringify(alias.specifier)}\`, ` +
+        `or realias as \`import module ${only}\``,
+    };
   }
 
   /** Whether a constraint *named* here declares implied type members. */
@@ -9089,9 +9153,245 @@ class Checker {
           : type.kind === "Function"
           ? `functions have no \`${requirement.name}\` instance`
           : this.#userNominalIterableFailure(requirement, type) ??
-            `type \`${this.#display(type)}\` has no \`${requirement.name}\` instance`,
+            this.#missingInstanceMessage(requirement, type),
       primary: requirement.span,
     });
+  }
+
+  /**
+   * The generic missing-instance report, carrying Modules §7.6's **legal-homes
+   * clause** (#287, #633).
+   *
+   * The head is Constraints §8's — "type `X` has no `C` instance" — and the
+   * clause is appended to it. §7.6's exemplar opens differently ("no `Ord<Config>`
+   * instance is in the program"), but the unsatisfied-constraint row of
+   * Constraints §8 owns the head shape and every pin in the corpus reads it; the
+   * *clause* is what §7.6 obliges, and it is the conformance content. Recorded
+   * here so the next reader does not re-adjudicate it from the exemplar alone.
+   *
+   * The clause says where the honor could be written, and it is the orphan rule
+   * (Constraints §5.3) that makes that a closed question: exactly two modules
+   * may hold `honor C<T>` — the one declaring `C` and the one declaring `T` —
+   * so the report hands the reader a lookup rather than a search. Three shapes
+   * come out of that, and the branch below is only choosing between them:
+   *
+   * - **Ordinary.** Both homes are named; each is *offered* — with a path the
+   *   reader can open — only where the honor could be written in project source.
+   *   A prelude home is stated as fact and never as a repair, the same asymmetry
+   *   the §3.3 loop-head report already keeps and the same one §7.6's exemplar
+   *   spells (`./config` offered, "the module declaring `Ord`" stated).
+   * - **Closed pair.** When *neither* home is offerable — a prelude constraint
+   *   at a primitive or prelude subject — there is no honor to offer at all, and
+   *   an impossible fixit would be worse than none: the clause says the pair's
+   *   honored set is closed and points at the two ways out that need no instance.
+   * - **Unnameable.** When the required constraint is not nameable in this
+   *   module, the two-home template is *wrong*: the subject's own module is a
+   *   lawful home in which the honor cannot be written, because no import or
+   *   alias here reaches the constraint's name. §7.6 names the declaring module
+   *   alone and directs the honor there — which is exactly what the sealing
+   *   idiom's stranded reader is owed (Modules §4.3).
+   *
+   * Anything the clause cannot be *true* about falls back to the bare head:
+   * a structural subject has no home module to name (§7.6's own carve-out), and
+   * a compilation with no paths — a bare `check` in a unit harness — cannot name
+   * a file. That is the fourth gate of the §3.3 report, kept for the same reason:
+   * a fixit naming no openable file is not a fixit.
+   */
+  #missingInstanceMessage(requirement: Requirement, type: Mono): string {
+    const head = `type \`${this.#display(type)}\` has no \`${requirement.name}\` instance`;
+    const clause = this.#legalHomesClause(requirement, type);
+    return clause === undefined ? head : `${head}${clause}`;
+  }
+
+  /** Modules §7.6's clause, or `undefined` where the head must stand alone. */
+  #legalHomesClause(requirement: Requirement, type: Mono): string | undefined {
+    const here = this.#modulePath;
+    if (here === undefined) return undefined;
+    const constraintHome = this.#constraintHome(requirement.identity);
+    if (constraintHome === undefined) return undefined;
+    // Asked **before** the branch split, not inside the ordinary arm. §7.6 scopes
+    // the whole obligation — the sealed branch included — to "subjects that have
+    // a declaring module to name", and a structural subject has no lawful home
+    // under *either* branch: Constraints §5.4/§9.3 refuse a structural instance
+    // head outright, so directing the reader at the constraint's own module would
+    // offer an honor no file in the program may hold. The bare head is the only
+    // true report there.
+    const subjectHome = this.#subjectHome(type);
+    if (subjectHome === undefined) return undefined;
+    if (this.#sealedConstraint(requirement.identity)) {
+      // §7.6's unnameable branch. `path` is present whenever the compilation has
+      // paths at all, since a constraint this module cannot spell was still
+      // declared by a file in the graph; the guard is the same honesty as above.
+      if (constraintHome.path === undefined) return undefined;
+      const seat = relativeFilePath(here, constraintHome.path);
+      // §5.1.1's disambiguate-by-home remedy, for the reader who has just written
+      // a constraint of this very spelling and would read "not nameable here" as
+      // simply false. What they cannot name is the *declaration*, not the word,
+      // and only the home module tells the two apart.
+      const rival = this.#constraintIdentities.get(constraintHome.name);
+      if (rival !== undefined && rival !== requirement.identity) {
+        return `; the \`${constraintHome.name}\` required here is ` +
+          `\`${seat}\`'s, not the one this module names; the honor can only be ` +
+          "written there";
+      }
+      return `; \`${constraintHome.name}\` is not nameable here, so the honor ` +
+        `can only be written in \`${seat}\`, which declares it`;
+    }
+    const constraintSeat = constraintHome.path === undefined
+      ? undefined
+      : relativeFilePath(here, constraintHome.path);
+    const subjectSeat = subjectHome.path === undefined
+      ? undefined
+      : relativeFilePath(here, subjectHome.path);
+    if (subjectSeat !== undefined && constraintSeat !== undefined) {
+      return subjectSeat === constraintSeat
+        ? `; it could only be declared in \`${subjectSeat}\`, which declares both ` +
+          `\`${subjectHome.name}\` and \`${constraintHome.name}\``
+        : `; it could only be declared in \`${subjectSeat}\` (declares ` +
+          `\`${subjectHome.name}\`) or \`${constraintSeat}\` (declares ` +
+          `\`${constraintHome.name}\`)`;
+    }
+    if (subjectSeat !== undefined) {
+      return `; it could only be declared in \`${subjectSeat}\` (declares ` +
+        `\`${subjectHome.name}\`) or ${constraintHome.statedHome}`;
+    }
+    if (constraintSeat !== undefined) {
+      return `; it could only be declared in \`${constraintSeat}\` (declares ` +
+        `\`${constraintHome.name}\`) or ${subjectHome.statedHome}`;
+    }
+    return `; its only legal homes are ${constraintHome.statedHome} and ` +
+      `${subjectHome.statedHome}, both outside project source, so this pair's ` +
+      "honored set is closed — change the type, or go through the operations " +
+      "those homes export";
+  }
+
+  /**
+   * Whether §7.6's **unnameable** branch governs this requirement: the constraint
+   * is unexported, and no name in this module reaches its declaration.
+   *
+   * Both halves are load-bearing, and the first is the one the spec's own
+   * justification turns on — "the subject's module is a lawful home in which the
+   * honor cannot be *written*, **since the unexported constraint is reachable
+   * there by no import or alias**". "Not spelled here" is a weaker fact than
+   * "not spellable here", and only the second licenses the branch: an **exported**
+   * constraint the reporting module merely never imported is one `import` away,
+   * so the subject's own module *is* a writable home and the two-home template is
+   * the right report. Taking the sealed branch for it denies the home that works
+   * and directs the reader at one that cannot — the acyclic-import rule (§7.3)
+   * forbids the constraint's module from naming a type declared downstream of it.
+   * §7.6 files that shape under discoverability *residue* (its bullet (a)), not
+   * here.
+   *
+   * `exported` is read off the declaration rather than re-derived, and it travels
+   * with it through every hop (`ConstraintItem.exported`). All three sealed
+   * routes — a private middle link of a base chain, a private constraint gating
+   * an exported binding, a private base of an exported one (#626/#633) — carry
+   * `false` and keep this branch.
+   *
+   * The nameability half is asked of identities and answered from
+   * `#constraintIdentities` — this module's name → identity map, seeded with the
+   * pre-registered eleven and extended by its own declarations and its imports.
+   * A requirement copied out of an imported scheme carries the *defining*
+   * module's identity, and the map is deliberately not total over those. It is
+   * derived from what the module could write, never from what the program
+   * contains: `#constraintsByIdentity` reaches every declaration in the graph,
+   * private middle links included (#276), and reading nameability off *it* would
+   * offer a home whose honor the reader cannot even spell the constraint for.
+   * The half still matters after the `exported` gate, for the one module where an
+   * unexported constraint *is* nameable — the one that declares it.
+   */
+  #sealedConstraint(identity: string): boolean {
+    const declaration = this.#constraintsByIdentity.get(identity);
+    if (declaration === undefined || declaration.exported) return false;
+    for (const known of this.#constraintIdentities.values()) {
+      if (known === identity) return false;
+    }
+    return true;
+  }
+
+  /**
+   * The constraint half of the legal-homes pair: its declaration's name, the
+   * file it was written in, and — for a home outside project source — the phrase
+   * that states it as fact.
+   *
+   * `path` is present only where the home is **offerable**: a pre-registered
+   * constraint's declaration lives in the prelude (Constraints §5.1.1's third
+   * bullet, and all eleven have prelude source), where no user may write an
+   * honor, so its path is withheld and `statedHome` carries it instead. The test
+   * is the `hex:` identity space rather than the name, which is what makes it
+   * occlusion-proof: a module's own `constraint Ord` would be a different
+   * identity (and is refused outright), and the eleven are the whole of the
+   * prelude's constraint inventory.
+   */
+  #constraintHome(identity: string): LegalHome | undefined {
+    const declaration = this.#constraintsByIdentity.get(identity);
+    if (declaration === undefined) return undefined;
+    const statedHome = `the module declaring \`${declaration.name}\``;
+    if (isPreRegisteredIdentity(identity)) {
+      return { name: declaration.name, statedHome };
+    }
+    // An offerable home with no path is not offerable in any useful sense — the
+    // reader is handed a repair and no file to make it in. The head stands alone.
+    if (declaration.declaringPath === undefined) return undefined;
+    return { name: declaration.name, path: declaration.declaringPath, statedHome };
+  }
+
+  /**
+   * The subject half of the pair — `undefined` for a subject with no home module
+   * to name, which is §7.6's own carve-out: a tuple, a function type, a
+   * structural record, and the structural collection heads have no declaring
+   * module, and their refusals keep the messages they already have.
+   *
+   * A **primitive** does have a home — its fixed prelude companion (Constraints
+   * §5.3, #344) — and that home is never offerable: `honor Integral<BigInt>` is
+   * legal in exactly two prelude files and in no user module. `Unit` and `Exn`
+   * are deliberately outside the table: §5.3 puts `Unit` under the structural
+   * instances with no home and none needed, and `Exn` has no companion.
+   *
+   * A prelude-supplied nominal is named as fact for the same reason its
+   * `Iterable` twin is (§3.3's third gate): the fixit would name a file the user
+   * cannot edit. `#preludeUnionIds`/`#preludeRecordIds` are the occlusion-proof
+   * channel for that question, so the answer does not ride on a name.
+   *
+   * **Two unlike facts leave through this one `undefined`, and only one of them
+   * is a truth requirement.** For a *structural* subject no home exists anywhere
+   * — Constraints §5.4/§9.3 refuse a structural instance head outright — so the
+   * bare message is the only true report, and every branch above must fall back:
+   * that is why `#legalHomesClause` asks this question before it splits. For an
+   * *extern type* a home does exist, the file holding its `extern` block; it
+   * leaves here only because `Resolved.ExternTypeDeclaration` carries no
+   * `declaringPath` to name it with, which makes the fallback merely
+   * conservative — never wrong, only less. Whoever gives extern types a
+   * `declaringPath` should return a home for them here and must not let the
+   * structural case ride out on the same predicate.
+   */
+  #subjectHome(type: Mono): LegalHome | undefined {
+    if (type.kind === "Constructor") {
+      return PRIMITIVE_COMPANION_HOMES.has(type.name)
+        ? {
+          name: type.name,
+          statedHome: `\`${type.name}\`'s prelude companion module`,
+        }
+        : undefined;
+    }
+    if (type.kind !== "Union" && type.kind !== "NominalRecord") return undefined;
+    // This module's view first, then the whole program's — the same pairing, and
+    // the same reason, as the §3.3 report's: a nominal reached only through an
+    // imported function's type is in neither of this module's own tables.
+    const declaration: Resolved.Union | Resolved.RecordDeclaration | undefined =
+      type.kind === "Union"
+        ? this.#unions.get(type.union) ?? find(this.#programNominals.unions, type.union)
+        : this.#records.get(type.record) ?? find(this.#programNominals.records, type.record);
+    if (declaration === undefined) return undefined;
+    const preludeSupplied = type.kind === "Union"
+      ? this.#preludeUnionIds.has(type.union)
+      : this.#preludeRecordIds.has(type.record);
+    const statedHome = `the prelude module declaring \`${declaration.name}\``;
+    if (preludeSupplied) return { name: declaration.name, statedHome };
+    // As in `#constraintHome`: a home this module could write in, with no file
+    // to name, is not a home worth offering.
+    if (declaration.declaringPath === undefined) return undefined;
+    return { name: declaration.name, path: declaration.declaringPath, statedHome };
   }
 
   /**
@@ -10194,7 +10494,7 @@ class Checker {
         if (!this.#constraintNames.has(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            message: this.#unknownConstraintMessage(constraint),
+            ...this.#unknownConstraint(constraint),
             primary: annotation.span,
           });
           continue;

@@ -97,13 +97,23 @@ describe("the two acceptances", () => {
     expect(verdict("export let x: Int = n - m\n")).toEqual([]);
     // The boundary: without the face, `Nat` subtraction has nowhere to go.
     expect(verdict("export let x: Nat = n - m\n"))
-      .toEqual(["type `Nat` has no `Signed` instance"]);
+      .toEqual([
+        "type `Nat` has no `Signed` instance; its only legal homes are the module " +
+          "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
+          "source, so this pair's honored set is closed — change the type, or go through " +
+          "the operations those homes export",
+      ]);
   });
 
   test("`let mean: Float = sum / size` — `Int` has no `Frac`, and `Float` has", () => {
     expect(verdict("export let mean: Float = sum / size\n")).toEqual([]);
     expect(verdict("export let mean: Int = sum / size\n"))
-      .toEqual(["type `Int` has no `Frac` instance"]);
+      .toEqual([
+        "type `Int` has no `Frac` instance; its only legal homes are the module declaring " +
+          "`Frac` and `Int`'s prelude companion module, both outside project source, so " +
+          "this pair's honored set is closed — change the type, or go through the " +
+          "operations those homes export",
+      ]);
   });
 
   test("`let r: Rat = a / b` — the same acceptance at a nominal home", () => {
@@ -327,7 +337,12 @@ describe("the recursion", () => {
     // converted operand. This is the only path through the `Nat` conversion in
     // the unary arm — the `Int` case above takes the `Signed.fromInt` one.
     expect(verdict("export let x: Nat = -n\n"))
-      .toEqual(["type `Nat` has no `Signed` instance"]);
+      .toEqual([
+        "type `Nat` has no `Signed` instance; its only legal homes are the module " +
+          "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
+          "source, so this pair's honored set is closed — change the type, or go through " +
+          "the operations those homes export",
+      ]);
     expect(verdict("export let x: Float = -n\n")).toEqual([]);
     expect(emitted("export let x: Float = -n\n")).toContain("-n");
     expect(verdict("export let x: BigInt = -n\n")).toEqual([]);

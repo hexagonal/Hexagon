@@ -686,7 +686,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "    pow = widened",
       "",
     ].join("\n"))).toEqual([
-      "unknown module `Qow`",
+      "unknown module `Qow`; a `widens` head names its member through a module " +
+        "alias; import the member's home module with `import module Qow`",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",
     ]);
@@ -750,7 +751,11 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "",
       "widens Nowhere.pow(value: Box, exponent: Float): Box = value",
       "",
-    ].join("\n"))).toEqual(["unknown module `Nowhere`"]);
+    ].join("\n"))).toEqual([
+      "unknown module `Nowhere`; a `widens` head names its member through a " +
+        "module alias; import the member's home module with " +
+        "`import module Nowhere`",
+    ]);
   });
 });
 
