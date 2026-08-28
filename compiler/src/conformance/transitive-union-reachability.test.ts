@@ -73,7 +73,11 @@ describe("the coverage column answers from the reached declaration", () => {
         "    match make()\n" +
         "        On => 1\n",
       ],
-    ])).toEqual(["match is missing cases: `Off`"]);
+    ])).toEqual([
+      // #607: `Off` was never imported here, so §7.3's clause states its route.
+      "match is missing cases: `Off` — `Off` is declared in `./a`; " +
+      "`import { Off } from \"./a\"` to spell it here",
+    ]);
   });
 
   test("a reached union's missing payload carries its slot witness", () => {
@@ -92,7 +96,10 @@ describe("the coverage column answers from the reached declaration", () => {
         "    match make()\n" +
         "        Dot => 1\n",
       ],
-    ])).toEqual(["match is missing cases: `Circle(_)`"]);
+    ])).toEqual([
+      "match is missing cases: `Circle(_)` — `Circle` is declared in `./a`; " +
+      "`import { Circle } from \"./a\"` to spell it here",
+    ]);
   });
 
   test("the already-shipped partial-import case is unchanged", () => {
@@ -107,7 +114,10 @@ describe("the coverage column answers from the reached declaration", () => {
         "    match f\n" +
         "        On => 1\n",
       ],
-    ])).toEqual(["match is missing cases: `Off`"]);
+    ])).toEqual([
+      "match is missing cases: `Off` — `Off` is declared in `./a`; " +
+      "`import { Off } from \"./a\"` to spell it here",
+    ]);
   });
 
   test("a reached `opaque` union still admits its catch-all", () => {

@@ -619,6 +619,34 @@ interface CoverageHead {
   readonly key: string;
   readonly slots: readonly Mono[];
   readonly print: (slots: readonly string[]) => string;
+  /**
+   * Set where `print` had to fall back to §7.3's third tier — a bare name this
+   * module cannot spell — so a report that lists the witness can state the
+   * route. Absent for every head that printed a spelling the reader can paste,
+   * which is what keeps the clause off the names a shallower tier spelled.
+   */
+  readonly route?: RouteNeed;
+}
+
+/** One constructor a witness named without a pastable spelling (§7.3 tier 3). */
+interface RouteNeed {
+  /** The constructor's declared name — the bare spelling the witness printed. */
+  readonly name: string;
+  /** The path of the module its type was **declared** in, from that declaration. */
+  readonly path: string;
+  /** Whether that module is a prelude one, which has no importable path. */
+  readonly prelude: boolean;
+}
+
+/**
+ * One rendered witness: its columns, and the routes §7.3 owes if a report
+ * lists it. The routes ride with the witness rather than with the report,
+ * because the cap decides which witnesses a message names and only those
+ * route — "the '…and N more' tail names no constructors and so routes none".
+ */
+interface CoverageWitness {
+  readonly columns: readonly string[];
+  readonly routes: readonly RouteNeed[];
 }
 
 /** A pattern split against its column: the heads it tests, and its sub-patterns. */
@@ -1299,6 +1327,48 @@ class Checker {
   #preludeUnionIds: ReadonlySet<Resolved.UnionId> = new Set();
   #preludeRecordIds: ReadonlySet<Resolved.RecordId> = new Set();
   /**
+   * What the **bare** spelling of a name denotes in this module — Pattern
+   * Matching §7.3's tier 1 asks exactly this question, and it is the resolver's
+   * to answer (Modules §5.4/§5.5: an import or a local declaration occludes a
+   * prelude name, and nothing downstream re-derives the layering).
+   *
+   * Built from `Resolved.Module.scopes` in the order the resolver recorded them
+   * — outermost first, so a later region's binding wins — which is the same
+   * containment reading `ScopeRegion`'s own doc states. Only constructor
+   * spellings are ever looked up here, and a constructor name is upper-case, so
+   * the flattening across nested regions cannot answer for a binder that is not
+   * module-level in the first place.
+   */
+  #bareNames: ReadonlyMap<string, Resolved.SymbolId> = new Map();
+  /** The inverse: the bare spelling a symbol answers to here, if any. */
+  #bareSpellings: ReadonlyMap<Resolved.SymbolId, string> = new Map();
+  /**
+   * The pastable **qualification** a symbol has here (§7.3 tier 2):
+   * `Bool.True` through a prelude module's ambient name, `A.Off` through an
+   * `import module` alias. Both spellings are legal in pattern position
+   * (Modules §3.3).
+   *
+   * A module alias shadows an earlier one of the same name — the resolver lists
+   * the module's own aliases before the prelude's, so first entry wins — which
+   * is what leaves the shadowed-prelude corner with no qualification at all.
+   */
+  #aliasQualifications: ReadonlyMap<Resolved.SymbolId, string> = new Map();
+  /** Every module-alias spelling in scope, for the derived-alias repair. */
+  #aliasNames: ReadonlySet<string> = new Set();
+  /**
+   * Every pattern the checker's **own verdict** found ill-typed — Pattern
+   * Matching §7.3's "a pattern that failed to type must not widen the witness's
+   * vocabulary".
+   *
+   * Membership is decided at the one seat that can decide it: a unification of
+   * the pattern's own shape against its expected type that reported. Nothing
+   * else infers brokenness — not a neighbouring diagnostic, not a shape the
+   * coverage column failed to recognize — because the obligation is stated
+   * against the checker's verdict and a guess either side of it changes which
+   * programs report.
+   */
+  readonly #brokenPatterns = new Set<Resolved.Pattern>();
+  /**
    * The prelude `Bool` union's identity (#147). `Bool` stopped being a primitive
    * and became `union Bool = False | True` declared in `stdlib/Bool.hex`, so every
    * condition, guard, logic operand, comparison result, and compiler-known
@@ -1661,6 +1731,7 @@ class Checker {
     this.#modulePath = module.path;
     this.#preludeUnionIds = new Set(module.preludeUnions.values());
     this.#preludeRecordIds = new Set(module.preludeRecords.values());
+    this.#buildSpellingTables(module);
     // The fallback is deliberately guarded on the prelude being *absent
     // entirely*, not merely on `Bool` being missing from it. Reaching for a
     // locally declared `Bool` in any other circumstance would hand a user's own
@@ -5570,13 +5641,15 @@ class Checker {
   ): Mono | undefined {
     if (!this.#recordConstructors.has(pattern.symbol)) return undefined;
     const shape = this.#constructorShape(pattern.symbol, level);
-    this.#unify(expected, shape.result, pattern.span);
+    // Through `#unifyPattern` like every other pattern-shape unification: both
+    // walks route a record constructor pattern here, so this is the seat where
+    // §7.3's obligation reaches the nominal record. Left raw, a local `record
+    // Box` matched against a foreign `Box` drew the missing-cases report beside
+    // the type mismatch — the double report the obligation was argued into the
+    // block to remove.
+    this.#unifyPattern(pattern, expected, shape.result);
     if (pattern.arguments.length !== shape.parameters.length) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: `constructor pattern \`${pattern.text}\` expects ${shape.parameters.length} arguments, got ${pattern.arguments.length}`,
-        primary: pattern.span,
-      });
+      this.#reportPatternArity(pattern, shape.parameters.length);
     }
     return shape.parameters[0] ?? ERROR;
   }
@@ -5643,7 +5716,7 @@ class Checker {
   ): void {
     if (pattern.kind === "Wildcard") return;
     if (pattern.kind === "Unit") {
-      this.#unify(expected, UNIT, pattern.span);
+      this.#unifyPattern(pattern, expected, UNIT);
       return;
     }
     if (pattern.kind === "Binding") {
@@ -5723,17 +5796,9 @@ class Checker {
       if (constructor === undefined) return;
       const shape = this.#constructorShape(constructor.binding.symbol, level);
       const parameters = shape.parameters;
-      this.#unify(
-        expected,
-        shape.result,
-        pattern.span,
-      );
+      this.#unifyPattern(pattern, expected, shape.result);
       if (pattern.arguments.length !== parameters.length) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `constructor pattern \`${pattern.text}\` expects ${parameters.length} arguments, got ${pattern.arguments.length}`,
-          primary: pattern.span,
-        });
+        this.#reportPatternArity(pattern, parameters.length);
       }
       // Same standing as the `Or` arm's: `evaluated` here is an equivalent
       // mutant *today*, masked by #213 — this arm's components are opened at the
@@ -5752,18 +5817,18 @@ class Checker {
       return;
     }
     if (pattern.kind === "Integer") {
-      this.#unify(expected, primitive("Int"), pattern.span);
+      this.#unifyPattern(pattern, expected, primitive("Int"));
       return;
     }
     if (pattern.kind === "String") {
-      this.#unify(expected, primitive("String"), pattern.span);
+      this.#unifyPattern(pattern, expected, primitive("String"));
       return;
     }
 
     if (pattern.kind === "Vector") {
       const element = this.#fresh(level + 1, false);
       const vector: VectorMono = { kind: "Vector", element };
-      this.#unify(expected, vector, pattern.span);
+      this.#unifyPattern(pattern, expected, vector);
       for (const nested of pattern.elements) {
         this.#inferPattern(nested, element, level, generalizable, evaluated);
       }
@@ -5790,11 +5855,11 @@ class Checker {
         const field = this.#fresh(level + 1, false);
         fields.set(fieldPattern.name, field);
       }
-      this.#unify(expected, {
+      this.#unifyPattern(pattern, expected, {
         kind: "Record",
         fields,
         tail: this.#fresh(level + 1, false),
-      }, pattern.span);
+      });
       for (const fieldPattern of pattern.fields) {
         this.#inferPattern(
           fieldPattern.pattern,
@@ -5808,11 +5873,7 @@ class Checker {
     }
 
     const elements = pattern.elements.map(() => this.#fresh(level + 1, false));
-    this.#unify(
-      expected,
-      { kind: "Tuple", elements },
-      pattern.span,
-    );
+    this.#unifyPattern(pattern, expected, { kind: "Tuple", elements });
     pattern.elements.forEach((element, index) => {
       this.#inferPattern(element, elements[index]!, level, generalizable, evaluated);
     });
@@ -5825,7 +5886,7 @@ class Checker {
   ): void {
     if (pattern.kind === "Wildcard") return;
     if (pattern.kind === "Unit") {
-      this.#unify(expected, UNIT, pattern.span);
+      this.#unifyPattern(pattern, expected, UNIT);
       return;
     }
     if (pattern.kind === "Binding") {
@@ -5854,16 +5915,16 @@ class Checker {
       return;
     }
     if (pattern.kind === "Integer") {
-      this.#unify(expected, primitive("Int"), pattern.span);
+      this.#unifyPattern(pattern, expected, primitive("Int"));
       return;
     }
     if (pattern.kind === "String") {
-      this.#unify(expected, primitive("String"), pattern.span);
+      this.#unifyPattern(pattern, expected, primitive("String"));
       return;
     }
     if (pattern.kind === "Tuple") {
       const elements = pattern.elements.map(() => this.#fresh(level, false));
-      this.#unify(expected, { kind: "Tuple", elements }, pattern.span);
+      this.#unifyPattern(pattern, expected, { kind: "Tuple", elements });
       pattern.elements.forEach((element, index) =>
         this.#inferMatchPattern(element, elements[index] ?? ERROR, level)
       );
@@ -5872,7 +5933,7 @@ class Checker {
     if (pattern.kind === "Vector") {
       const element = this.#fresh(level, false);
       const vector: VectorMono = { kind: "Vector", element };
-      this.#unify(expected, vector, pattern.span);
+      this.#unifyPattern(pattern, expected, vector);
       for (const nested of pattern.elements) this.#inferMatchPattern(nested, element, level);
       if (pattern.rest?.pattern !== undefined) {
         this.#inferMatchPattern(pattern.rest.pattern, vector, level);
@@ -5892,11 +5953,11 @@ class Checker {
       const fields = new Map(
         pattern.fields.map((field) => [field.name, this.#fresh(level, false)]),
       );
-      this.#unify(expected, {
+      this.#unifyPattern(pattern, expected, {
         kind: "Record",
         fields,
         tail: this.#fresh(level, false),
-      }, pattern.span);
+      });
       for (const field of pattern.fields) {
         this.#inferMatchPattern(
           field.pattern,
@@ -5932,13 +5993,9 @@ class Checker {
     if (constructor === undefined) return;
     const shape = this.#constructorShape(constructor.binding.symbol, level);
     const parameters = shape.parameters;
-    this.#unify(expected, shape.result, pattern.span);
+    this.#unifyPattern(pattern, expected, shape.result);
     if (pattern.arguments.length !== parameters.length) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: `constructor pattern \`${pattern.text}\` expects ${parameters.length} arguments, got ${pattern.arguments.length}`,
-        primary: pattern.span,
-      });
+      this.#reportPatternArity(pattern, parameters.length);
     }
     pattern.arguments.forEach((argument, index) =>
       this.#inferMatchPattern(argument, parameters[index] ?? ERROR, level)
@@ -6023,10 +6080,166 @@ class Checker {
         message: `exception pattern \`${pattern.text}\` expects ${shape.parameters.length} arguments, got ${pattern.arguments.length}`,
         primary: pattern.span,
       });
+      this.#brokenPatterns.add(pattern);
     }
     pattern.arguments.forEach((argument, index) =>
       this.#inferMatchPattern(argument, shape.parameters[index] ?? ERROR, level)
     );
+  }
+
+  /**
+   * The three scope tables Pattern Matching §7.3's tiers are judged against,
+   * read off the resolved module once per check.
+   *
+   * Nameability is a property of the **reporting** module — what it imported,
+   * what aliases it holds, what it declared, and which prelude names survived
+   * occlusion — so the answer has to come from the resolver's own record of its
+   * scoping (Modules §5.4/§5.5). Re-deriving it here would be writing Hexagon's
+   * scope rule a second time in a copy nothing keeps honest.
+   */
+  #buildSpellingTables(module: Resolved.Module): void {
+    const bare = new Map<string, Resolved.SymbolId>();
+    for (const region of module.scopes) {
+      for (const binding of region.bindings) bare.set(binding.name, binding.symbol);
+    }
+    const spellings = new Map<Resolved.SymbolId, string>();
+    for (const [name, symbol] of bare) {
+      if (!spellings.has(symbol)) spellings.set(symbol, name);
+    }
+    const qualifications = new Map<Resolved.SymbolId, string>();
+    const aliasNames = new Set<string>();
+    for (const { alias, members } of module.moduleAliases) {
+      // First entry wins: the resolver lists this module's own aliases before
+      // the prelude's, so a user alias of a prelude module's name shadows the
+      // ambient one — Modules §5.4, and §7.3's one corner with no import.
+      if (aliasNames.has(alias)) continue;
+      aliasNames.add(alias);
+      for (const member of members) {
+        if (!qualifications.has(member.symbol)) {
+          qualifications.set(member.symbol, `${alias}.${member.name}`);
+        }
+      }
+    }
+    this.#bareNames = bare;
+    this.#bareSpellings = spellings;
+    this.#aliasQualifications = qualifications;
+    this.#aliasNames = aliasNames;
+    this.#brokenPatterns.clear();
+  }
+
+  /**
+   * Pattern Matching §7.3's tiers, for one constructor occurrence in a witness:
+   * "each constructor name in a witness prints in the spelling the reporting
+   * module can lawfully write, preferring the barest one."
+   *
+   * 1. **Bare**, where a bare spelling in scope denotes *this* constructor —
+   *    declared here, imported by name (under whatever local name the import
+   *    bound), or the prelude's unshadowed name. The ordinary case, byte for
+   *    byte what the witness said before this rule.
+   * 2. **Qualified**, where bare would be wrong or absent but a module alias
+   *    reaches it — `Bool.True` past an occluding local `True`, `A.Off` through
+   *    an `import module` alias.
+   * 3. **Bare, with the route stated**, where neither exists. The witness keeps
+   *    the bare name and the message says where it lives; the route itself is
+   *    rendered once per declaring module by `#routeClause`, and only for the
+   *    witnesses a report actually lists.
+   */
+  #constructorSpelling(
+    binding: Resolved.Binding,
+    home: { readonly path: string | undefined; readonly prelude: boolean },
+  ): { readonly text: string; readonly route?: RouteNeed } {
+    if (this.#bareNames.get(binding.name) === binding.symbol) return { text: binding.name };
+    const local = this.#bareSpellings.get(binding.symbol);
+    if (local !== undefined) return { text: local };
+    const qualified = this.#aliasQualifications.get(binding.symbol);
+    if (qualified !== undefined) return { text: qualified };
+    if (home.path === undefined) return { text: binding.name };
+    return {
+      text: binding.name,
+      route: { name: binding.name, path: home.path, prelude: home.prelude },
+    };
+  }
+
+  /**
+   * §7.3's route clauses for the constructors a report actually listed — "one
+   * route clause per declaring module, covering the listed names that lack a
+   * pastable spelling", the "…and N more" tail naming none and so routing none.
+   *
+   * The repair is computed from the exported inventory rather than asserted: a
+   * union that reached this module crossed an exported face, so Modules §4.3
+   * makes its constructors importable severally, and the only obstacle left is
+   * a **taken spelling** — which the module route always clears, since an alias
+   * for the declaring module cannot already be in scope (tier 2 would have
+   * fired) and the importer picks the name.
+   */
+  #routeClauses(routes: readonly RouteNeed[]): string {
+    if (routes.length === 0) return "";
+    // One clause per declaring **module**, not per type: two types from one file
+    // share an import line, and the reader wants one edit.
+    const byModule = new Map<string, { readonly prelude: boolean; readonly names: string[] }>();
+    for (const route of routes) {
+      const group = byModule.get(route.path) ??
+        { prelude: route.prelude, names: [] };
+      if (!group.names.includes(route.name)) group.names.push(route.name);
+      byModule.set(route.path, group);
+    }
+    return [...byModule].flatMap(([path, { prelude, names }]) => {
+      const clause = this.#routeClause(path, prelude, names);
+      return clause === undefined ? [] : [` — ${clause}`];
+    }).join("");
+  }
+
+  /** One declaring module's clause; `undefined` where there is nothing to say. */
+  #routeClause(
+    path: string,
+    prelude: boolean,
+    names: readonly string[],
+  ): string | undefined {
+    const listed = englishList(names.map((name) => `\`${name}\``));
+    const plural = names.length > 1;
+    // The one corner with no import to name (§7.3): a prelude constructor whose
+    // bare spelling is occluded *and* whose prelude module's ambient name is
+    // taken by a module alias. Prelude modules have no importable path, so the
+    // clause states the shadowing and the repair is the alias's rename.
+    if (prelude) {
+      const home = moduleBaseName(path);
+      if (home === undefined) return undefined;
+      const spelled = englishList(names.map((name) => `\`${home}.${name}\``));
+      return `${listed} ${plural ? "are" : "is"} declared in the prelude module ` +
+        `\`${home}\`, and this module's \`${home}\` alias shadows it; rename that ` +
+        `alias to spell ${plural ? "them" : "it"} ${spelled}`;
+    }
+    if (this.#modulePath === undefined) return undefined;
+    const specifier = relativeSpecifier(this.#modulePath, path);
+    const taken = names.filter((name) => this.#bareNames.has(name));
+    if (taken.length === 0) {
+      return `${listed} ${plural ? "are" : "is"} declared in \`${specifier}\`; ` +
+        `\`import { ${names.join(", ")} } from "${specifier}"\` to spell ` +
+        `${plural ? "them" : "it"} here`;
+    }
+    const alias = this.#derivedAlias(path);
+    const spelled = englishList(names.map((name) => `\`${alias}.${name}\``));
+    return `${listed} ${plural ? "are" : "is"} declared in \`${specifier}\`, and this ` +
+      `module binds ${englishList(taken.map((name) => `another \`${name}\``))}; ` +
+      `\`import module ${alias} from "${specifier}"\` and spell ` +
+      `${plural ? "them" : "it"} ${spelled}`;
+  }
+
+  /**
+   * The alias the module-import repair offers, derived from the declaring
+   * module's file name: `./flags` → `Flags`, `./my-flags` → `MyFlags`. Any
+   * spelling already bound here — as a module alias or as anything else — takes
+   * a `_1`, `_2`… suffix, so the repair the clause prints is one the compiler
+   * would accept (Modules §5.2 refuses a rebinding).
+   */
+  #derivedAlias(path: string): string {
+    const base = moduleBaseName(path) ?? "M";
+    const candidate = /^[A-Za-z]/u.test(base) ? base : `M${base}`;
+    if (!this.#aliasNames.has(candidate) && !this.#bareNames.has(candidate)) return candidate;
+    for (let suffix = 1;; suffix += 1) {
+      const next = `${candidate}_${suffix}`;
+      if (!this.#aliasNames.has(next) && !this.#bareNames.has(next)) return next;
+    }
   }
 
   /**
@@ -6038,8 +6251,38 @@ class Checker {
    * fields, absent mentions widening to `_`" (§7.1), and the vector, whose
    * length signature reaches exactly as far as its patterns can tell lengths
    * apart. Every other domain answers from its type alone.
+   *
+   * **A broken pattern reads as `_` here** (§7.3's error-program obligation):
+   * it neither splits the column nor contributes to a derived signature, which
+   * is the maximal-cover grant stated in the matrix's own terms. The grant is
+   * for the coverage judgments; §7.2's dual is taken at `#checkArmReachability`,
+   * where a row carrying a broken pattern is simply not a shadower.
    */
   #coverageColumn(
+    type: Mono,
+    headPatterns: readonly Resolved.Pattern[],
+  ): CoverageColumn {
+    // `headPatterns` is exactly the set `split` will be asked about — both
+    // callers pass the first column of the matrix they then split — so a column
+    // with none of them broken needs neither the filter nor the wrapper, and
+    // the ordinary compile pays one scan.
+    const broken = this.#brokenPatterns.size > 0 &&
+      headPatterns.some((pattern) => this.#brokenPatterns.has(pattern));
+    const column = this.#coverageDomain(
+      type,
+      broken
+        ? headPatterns.filter((pattern) => !this.#brokenPatterns.has(pattern))
+        : headPatterns,
+    );
+    if (!broken) return column;
+    return {
+      ...(column.signature === undefined ? {} : { signature: column.signature }),
+      split: (pattern) =>
+        this.#brokenPatterns.has(pattern) ? undefined : column.split(pattern),
+    };
+  }
+
+  #coverageDomain(
     type: Mono,
     patterns: readonly Resolved.Pattern[],
   ): CoverageColumn {
@@ -6211,14 +6454,20 @@ class Checker {
     const slots = shape.parameters.map((parameter) =>
       this.#replaceVariables(parameter, replacements)
     );
-    // The **declared** name, not a local spelling: a witness names a case of the
-    // type, and the type's cases are named where they were declared.
-    const name = binding.name;
+    // §7.3's tiers, judged per occurrence: the barest spelling this module can
+    // lawfully write for *this* constructor — which is the declared name in the
+    // ordinary case, and is not it under occlusion, a rename, or an alias.
+    const { text: name, route } = this.#constructorSpelling(binding, {
+      path: this.#programUnion(type.union)?.declaringPath ??
+        this.#unions.get(type.union)?.declaringPath,
+      prelude: this.#preludeUnionIds.has(type.union),
+    });
     return {
       key: constructorHeadKey(binding.symbol),
       slots,
       print: (witnesses) =>
         witnesses.length === 0 ? name : `${name}(${witnesses.join(", ")})`,
+      ...(route === undefined ? {} : { route }),
     };
   }
 
@@ -6236,16 +6485,24 @@ class Checker {
    * either. A diagnostic never signposts a spelling the reader cannot write.
    */
   #nominalRecordColumn(type: NominalRecordMono): CoverageColumn {
-    const constructor = (this.#records.get(type.record) ??
-      this.#programRecord(type.record))?.constructor;
+    const declaration = this.#records.get(type.record) ?? this.#programRecord(type.record);
+    const constructor = declaration?.constructor;
     if (constructor === undefined) return this.#openColumn();
     const slots: readonly Mono[] = this.#recordRepresentationVisible(type.record)
       ? [{ kind: "Record", fields: new Map(this.#nominalRecordFields(type)) }]
       : [];
+    // §7.3's tiers reach this constructor too: a record reached through an
+    // `import module` alias is written `H.Box({…})` in a pattern, so a witness
+    // that printed `Box({…})` would name a spelling this module cannot write.
+    const { text: name, route } = this.#constructorSpelling(constructor, {
+      path: this.#programRecord(type.record)?.declaringPath ?? declaration?.declaringPath,
+      prelude: this.#preludeRecordIds.has(type.record),
+    });
     const head: CoverageHead = {
       key: constructorHeadKey(constructor.symbol),
       slots,
-      print: (witnesses) => `${type.name}(${witnesses[0] ?? "_"})`,
+      ...(route === undefined ? {} : { route }),
+      print: (witnesses) => `${name}(${witnesses[0] ?? "_"})`,
     };
     return {
       signature: [head],
@@ -6546,15 +6803,17 @@ class Checker {
     types: readonly Mono[],
     matrix: readonly (readonly Resolved.Pattern[])[],
     limit: number,
-  ): readonly (readonly string[])[] {
+  ): readonly CoverageWitness[] {
     if (limit <= 0) return [];
     const first = types[0];
-    if (first === undefined) return matrix.length === 0 ? [[]] : [];
+    if (first === undefined) {
+      return matrix.length === 0 ? [{ columns: [], routes: [] }] : [];
+    }
     const rest = types.slice(1);
     const column = this.#coverageColumn(first, coverageHeadPatterns(matrix));
     const present = this.#columnHeads(column, matrix);
     const signature = column.signature;
-    const witnesses: (readonly string[])[] = [];
+    const witnesses: CoverageWitness[] = [];
     if (signature !== undefined && signature.every(({ key }) => present.has(key))) {
       // Every head is named, so nothing is missing *here*: the witnesses, if
       // any, are under one of them.
@@ -6566,10 +6825,13 @@ class Checker {
             limit - witnesses.length,
           )
         ) {
-          witnesses.push([
-            head.print(witness.slice(0, head.slots.length)),
-            ...witness.slice(head.slots.length),
-          ]);
+          witnesses.push({
+            columns: [
+              head.print(witness.columns.slice(0, head.slots.length)),
+              ...witness.columns.slice(head.slots.length),
+            ],
+            routes: headRoutes(head, witness.routes),
+          });
           if (witnesses.length >= limit) return witnesses;
         }
       }
@@ -6585,12 +6847,19 @@ class Checker {
     // §7.3's "prefer the shallowest witness that is genuinely missing": where
     // no row split this column at all, `_` says everything a named head would
     // and says it one level up.
-    const heads = present.size === 0 || missing.length === 0
-      ? ["_"]
-      : missing.map((head) => head.print(head.slots.map(() => "_")));
+    const heads: readonly { readonly text: string; readonly route?: RouteNeed }[] =
+      present.size === 0 || missing.length === 0
+        ? [{ text: "_" }]
+        : missing.map((head) => ({
+          text: head.print(head.slots.map(() => "_")),
+          ...(head.route === undefined ? {} : { route: head.route }),
+        }));
     for (const tail of tails) {
       for (const head of heads) {
-        witnesses.push([head, ...tail]);
+        witnesses.push({
+          columns: [head.text, ...tail.columns],
+          routes: head.route === undefined ? tail.routes : [head.route, ...tail.routes],
+        });
         if (witnesses.length >= limit) return witnesses;
       }
     }
@@ -6670,11 +6939,16 @@ class Checker {
    */
   #checkBindingPattern(pattern: Resolved.Pattern, type: Mono): void {
     if (pattern.kind === "Wildcard" || pattern.kind === "Binding") return;
-    const witness = this.#coverageWitnesses([type], [[pattern]], 1)[0]?.[0];
-    if (witness === undefined) return;
+    const found = this.#coverageWitnesses([type], [[pattern]], 1)[0];
+    const witness = found?.columns[0];
+    if (found === undefined || witness === undefined) return;
     this.#diagnostics.add({
       severity: "error",
+      // §7.3: "where a seat's message already carries its own trailing fixit
+      // (the lambda-parameter gate's §6.7 line), the route clause stands before
+      // that fixit."
       message: `this pattern can fail: \`${witness}\`; use \`match\`` +
+        this.#routeClauses(found.routes) +
         this.#matchFunctionFixit(),
       primary: pattern.span,
     });
@@ -6697,17 +6971,21 @@ class Checker {
       [type],
       arms.flatMap((arm) => arm.guard === undefined ? [[arm.pattern]] : []),
       COVERAGE_WITNESS_LIMIT,
-    ).flatMap((witness) => witness[0] === undefined ? [] : [witness[0]]);
+    ).flatMap((witness) =>
+      witness.columns[0] === undefined
+        ? []
+        : [{ text: witness.columns[0], routes: witness.routes }]
+    );
     if (witnesses.length === 0) return;
-    const shown = witnesses
-      .slice(0, COVERAGE_WITNESSES_SHOWN)
-      .map((witness) => `\`${witness}\``)
-      .join(", ");
+    const listed = witnesses.slice(0, COVERAGE_WITNESSES_SHOWN);
+    const shown = listed.map(({ text }) => `\`${text}\``).join(", ");
     const remaining = witnesses.length - COVERAGE_WITNESSES_SHOWN;
     this.#diagnostics.add({
       severity: "error",
       message: `match is missing cases: ${shown}` +
-        (remaining > 0 ? ` …and ${remaining} more` : ""),
+        (remaining > 0 ? ` …and ${remaining} more` : "") +
+        // The cap decides what routes: the tail names no constructors (§7.3).
+        this.#routeClauses(listed.flatMap(({ routes }) => routes)),
       primary: span,
     });
   }
@@ -6733,12 +7011,27 @@ class Checker {
         if (!this.#coverageUseful([type], above, [alternative])) {
           this.#reportUnreachableArm(arm, alternative, shadowed, above, type, reports);
         }
-        reached.push([alternative]);
+        // §7.3 takes the dual here: "an arm is dead only if it stays dead under
+        // every repair, so a broken pattern is never a shadower". The maximal
+        // cover granted to a broken pattern is for the coverage judgments; let
+        // it into this matrix and a mistyped arm would kill — as hard errors,
+        // with a fixit telling the reader to delete them — the good arms below
+        // it. The arm *under test* still reads as `_`, which is exactly "is
+        // some repair of it useful", so a genuine catch-all above still
+        // shadows a broken arm below.
+        if (!this.#patternIsBroken(alternative)) reached.push([alternative]);
       }
       if (arm.guard !== undefined) continue;
       covering.push(...reached);
+      if (this.#patternIsBroken(arm.pattern)) continue;
       shadowed ||= this.#coverageIrrefutable(arm.pattern, type);
     }
+  }
+
+  /** Whether anything inside this pattern failed to type (§7.3's obligation). */
+  #patternIsBroken(pattern: Resolved.Pattern): boolean {
+    return this.#brokenPatterns.size > 0 &&
+      resolvedPatternNodes(pattern).some((node) => this.#brokenPatterns.has(node));
   }
 
   /**
@@ -7802,6 +8095,53 @@ class Checker {
     if (type.kind !== "Variable" || type.instance === undefined) return type;
     type.instance = this.#prune(type.instance);
     return type.instance;
+  }
+
+  /**
+   * A pattern's own shape unified against what its seat expects, recording the
+   * verdict — Pattern Matching §7.3's error-program obligation needs to know
+   * which patterns *failed to type*, and this is the only seat that knows.
+   *
+   * The reading is deliberately narrow: a pattern is broken when the check of
+   * its own shape reported, not when a diagnostic merely landed nearby and not
+   * when the coverage column later fails to recognize it. Everything else about
+   * the pattern still happens — sub-patterns walk, binders exist — because the
+   * obligation is about what a *witness* may say, never about abandoning the
+   * program (§7.3: "its row's well-typed columns stand as written").
+   */
+  #unifyPattern(pattern: Resolved.Pattern, expected: Mono, actual: Mono): void {
+    // `count` counts diagnostics as *added*, while `toArray` can drop one inside
+    // a `supersedes` region. No producer sets `supersedes` today, so the two
+    // readings agree; should one ever, a pattern could be granted maximal cover
+    // with no surviving diagnostic to explain the silence, and this read is
+    // where that would have to become "reported, and still reported".
+    const before = this.#diagnostics.count;
+    this.#unify(expected, actual, pattern.span);
+    if (this.#diagnostics.count > before) this.#brokenPatterns.add(pattern);
+  }
+
+  /**
+   * A constructor pattern written at the wrong arity — Unions §4.2's sentence,
+   * from all three of its seats — and a pattern that **failed to type**.
+   *
+   * The brokenness matters for §7.2's half of §7.3's obligation rather than for
+   * coverage's. An arity-wrong pattern cannot widen a witness's vocabulary: the
+   * head is found and `#alignedSlots` pads, so exhaustiveness is unmoved. But it
+   * is not dead under every repair either, and left unmarked it *shadows*:
+   * `On => 1` above `On(3) => 2` reported the good arm unreachable, with §7.2's
+   * "remove the arm or reorder it" advice attached — the exact failure the
+   * block's dual forbids.
+   */
+  #reportPatternArity(
+    pattern: Resolved.ConstructorPattern,
+    arity: number,
+  ): void {
+    this.#diagnostics.add({
+      severity: "error",
+      message: `constructor pattern \`${pattern.text}\` expects ${arity} arguments, got ${pattern.arguments.length}`,
+      primary: pattern.span,
+    });
+    this.#brokenPatterns.add(pattern);
   }
 
   #unify(
@@ -13513,6 +13853,38 @@ function wildcardSlots(count: number, span: Source.Span): readonly Resolved.Patt
   return Array.from({ length: count }, () => wildcardAt(span));
 }
 
+/** `a`, `a` and `b`, `a`, `b` and `c` — the clause's own prose (§7.3). */
+function englishList(items: readonly string[]): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+/** A witness's routes, with the head's own added where §7.3's tier 3 fired. */
+function headRoutes(
+  head: CoverageHead,
+  routes: readonly RouteNeed[],
+): readonly RouteNeed[] {
+  return head.route === undefined ? routes : [head.route, ...routes];
+}
+
+/**
+ * A module's own name, from its path: `/app/flags.hex` → `Flags`. The alias a
+ * §7.3 module-import repair offers, and the name a prelude module's clause
+ * states — both want the file's own name in constructor-alias case.
+ *
+ * Separators inside the file name (`my-flags`, `my_flags`) become word breaks,
+ * so the derived alias is one identifier the compiler would accept.
+ */
+function moduleBaseName(path: string): string | undefined {
+  const file = path.split("/").at(-1)?.replace(/\.hex$/u, "") ?? "";
+  const name = file
+    .split(/[^A-Za-z0-9]+/u)
+    .filter((part) => part !== "")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+  return name === "" ? undefined : name;
+}
+
 /**
  * The head key a constructor owns wherever it is written — the symbol, so a
  * qualified or renamed spelling groups with the plain one.
@@ -13791,6 +14163,44 @@ function nestedAdapterType(
     }
   }
   return undefined;
+}
+
+/**
+ * Every pattern node inside `pattern`, itself included — the walk §7.2's dual
+ * needs: a row is a shadower only if *nothing* in it failed to type.
+ */
+function resolvedPatternNodes(
+  pattern: Resolved.Pattern,
+): readonly Resolved.Pattern[] {
+  switch (pattern.kind) {
+    case "Binding":
+    case "Wildcard":
+    case "Unit":
+    case "Integer":
+    case "String":
+      return [pattern];
+    case "As":
+      return [pattern, ...resolvedPatternNodes(pattern.pattern)];
+    case "Or":
+      return [pattern, ...pattern.alternatives.flatMap(resolvedPatternNodes)];
+    case "Tuple":
+      return [pattern, ...pattern.elements.flatMap(resolvedPatternNodes)];
+    case "Vector":
+      return [
+        pattern,
+        ...pattern.elements.flatMap(resolvedPatternNodes),
+        ...(pattern.rest?.pattern === undefined
+          ? []
+          : resolvedPatternNodes(pattern.rest.pattern)),
+      ];
+    case "Record":
+      return [
+        pattern,
+        ...pattern.fields.flatMap((field) => resolvedPatternNodes(field.pattern)),
+      ];
+    case "Constructor":
+      return [pattern, ...pattern.arguments.flatMap(resolvedPatternNodes)];
+  }
 }
 
 function resolvedPatternBindings(

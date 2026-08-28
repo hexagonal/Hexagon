@@ -852,10 +852,11 @@ describe("a constraint's default body is checked like any other body (#599)", ()
       "    match flag\n" +
       "        Thing => 1\n",
     );
-    expect(inDefault).toEqual([
-      "match is missing cases: `On`, `Off`",
-      "type mismatch: expected Flag, found Other",
-    ]);
+    // #607: the missing-cases report that used to ride beside the type error is
+    // gone at both seats. Pattern Matching §7.3's error-program obligation reads
+    // the broken `Thing` arm as `_`, so `Flag` is covered under every repair of
+    // it and there is nothing left to report but the deeper fault.
+    expect(inDefault).toEqual(["type mismatch: expected Flag, found Other"]);
     expect(inDefault).toEqual(atTopLevel);
   });
 
