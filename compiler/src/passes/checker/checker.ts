@@ -11082,17 +11082,16 @@ class Checker {
     // extern type asks this module's own `#externTypes`, whose imported entries
     // are exported by construction — the interface publishes no other kind. So a
     // type that lives elsewhere contributes nothing here whatever its privacy at
-    // home, and §4.3's **two** guards are what leave the restraint with nothing
-    // unguarded. Every *carrier* route into a consumer's face runs through some
-    // exported carrier or binding of the home module, and that carrier is refused
-    // **there** (#629), in the one module that holds the declaration the label
-    // points at and can perform the remedy the message names. Where no carrier
-    // route exists — an exported constraint's members, which have no `.d.ts` face
-    // and are no carrier (#626) — the private type is unnameable in the consumer,
-    // so no complete exported signature (§4.1.1) can mention it. Locality is
-    // therefore also what makes the span total: every firing has a declaration in
-    // this file, so every diagnostic in the family carries its label, and none
-    // points across files (§4.2.1).
+    // home, and the restraint leaves nothing unguarded. Every route into a
+    // consumer's face runs through some exported face of the home module — a
+    // carrier, a binding, or a constraint's member signatures (#626) — and every
+    // one is refused **there** (#629), in the one module that holds the
+    // declaration the label points at and can perform the remedy the message
+    // names. The unnameability backstop stands behind that: a consumer cannot
+    // name the type, so no complete exported signature of its own (§4.1.1) could
+    // mention it regardless. Locality is therefore also what makes the span
+    // total: every firing has a declaration in this file, so every diagnostic in
+    // the family carries its label, and none points across files (§4.2.1).
     type Mentions = Map<string, Source.Span>;
     const visit = (type: Mono, found: Mentions = new Map()): ReadonlyMap<string, Source.Span> => {
       const actual = this.#prune(type);
@@ -11148,13 +11147,15 @@ class Checker {
       });
     };
     /**
-     * A **type** carrier's seats, read in declaration order, each named type
-     * reported **once** at the first seat that reaches it (§4.3): three fields of
-     * one private type draw one diagnostic, a carrier leaking two draw two. The
-     * seat is the carrier's whole written annotation, never a nested
-     * occurrence's sub-annotation — a field `token: Vector(Token)` anchors at
-     * `Vector(Token)` — which is what makes the seat the annotation's own span
-     * rather than anything the walk found inside it.
+     * A **type** carrier's seats — and an exported constraint's member
+     * signatures, the one member of the family that is no carrier (#626) — read
+     * in declaration order, each named type reported **once** at the first seat
+     * that reaches it (§4.3): three fields of one private type draw one
+     * diagnostic, a carrier leaking two draw two. The seat is the carrier's
+     * whole written annotation, never a nested occurrence's sub-annotation — a
+     * field `token: Vector(Token)` anchors at `Vector(Token)` — which is what
+     * makes the seat the annotation's own span rather than anything the walk
+     * found inside it.
      *
      * A seat whose type is missing is skipped rather than guessed at: the row is
      * absent only where elaboration already failed and said so.
@@ -11248,6 +11249,44 @@ class Checker {
         carrier("exception", "exception", item.binding.name, item.slots.map((slot, index) => ({
           type: types[index],
           span: slot.annotation.span,
+        })));
+      }
+      // The family's sixth member, and its only **non-carrier** (#626): an
+      // exported constraint's member signatures. No `.d.ts` row of its own
+      // rides FFI Part 7's carrier list, so the four blocks above cannot reach
+      // it — and the refusal stands on two legs (§4.3). The one that never was
+      // the emitter's: the rationale reads a member signature verbatim — an
+      // honor abroad must produce what the signature names, a member call hands
+      // it back, and neither party can name or use the type. And the emitter's
+      // after all: member signatures do reach a declaration file, through Parts
+      // 8–9's deliberate surfaces — the public-evidence closure's
+      // `Constraint.Dictionary<a>` interface renders the member set with the
+      // members' boundary faces (FFI Part 9 §2.2; Modules §11.5) — and a
+      // private nominal there is exactly #621's failure class, a published face
+      // naming what no file binds, guarded here before it can arise.
+      //
+      // Read with the same walk, so locality and the opaque exemption are
+      // inherited rather than restated, and through the same `carrier` helper,
+      // so the dedupe is the family's — once per (constraint, type), at the
+      // first offending member in written order.
+      //
+      // Three scope lines, all normative:
+      //  * **Member signatures only.** A member's whole written signature is one
+      //    seat — a binding in miniature — which is what `member.span` is: the
+      //    name through the return annotation, stopping before any `=`. Default
+      //    **bodies** are bodies, not faces, and stay free (a default may use its
+      //    module's private bindings; Constraints §6.5), as instances are (§7.4).
+      //  * **Constraints are not type mentions.** A base constraint on the head,
+      //    or a constraint in any binder list, crosses nothing — the constraint
+      //    is the gate, not the cargo. A *private* constraint gating an exported
+      //    binding is the lawful sealing idiom, stated deliberately; the binding
+      //    rule above is untouched.
+      //  * **Unexported constraints are not visited**, exactly as a private
+      //    carrier is not: only an exported face shows anybody anything.
+      if (item.kind === "ConstraintDeclaration" && item.exported) {
+        carrier("constraint", "constraint", item.name, item.members.map((member) => ({
+          type: this.#schemes.get(member.binding.symbol)?.type,
+          span: member.span,
         })));
       }
       // `Node` also has no public form when it hides in an *exported* algebraic
