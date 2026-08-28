@@ -1666,7 +1666,15 @@ describe("check", () => {
         "    for item in 42\n" +
         "        ()",
     );
+    // #607: `True` fails to type against the `Int` item, and Pattern Matching
+    // §7.3's error-program obligation reaches the `for..in` gate — the broken
+    // pattern reads as `_`, so every repair of it is irrefutable and the gate
+    // has nothing left to report. The deeper fault leads, and it is the one
+    // below.
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
+      "type mismatch: expected Int, found Bool",
+    );
+    expect(invalid.diagnostics.map(({ message }) => message)).not.toContain(
       "this pattern can fail: `_`; use `match`",
     );
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(

@@ -162,7 +162,9 @@ describe("a module alias qualifies an imported union's constructors in patterns"
         "    match s\n" +
         "        Lib.Circle(r) => r\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
-      "match is missing cases: `Square(_)`",
+      // #607: the witness prints through the alias, because that is what pastes
+      // here — bare `Square` is not in this module's scope at all (§7.3 tier 2).
+      "match is missing cases: `Lib.Square(_)`",
     ]);
   });
 });

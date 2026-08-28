@@ -118,7 +118,10 @@ describe("a pattern spelled by the alias matches the declared tag", () => {
         "    match s\n" +
         "        Round(r) => r\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
-      "match is missing cases: `Square(_)`",
+      // #607: `Square` was never imported, so there is no spelling for it here;
+      // the witness keeps the bare name and §7.3's clause states the route.
+      "match is missing cases: `Square(_)` — `Square` is declared in `./shapes`; " +
+      "`import { Square } from \"./shapes\"` to spell it here",
     ]);
   });
 });
