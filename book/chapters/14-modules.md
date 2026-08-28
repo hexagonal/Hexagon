@@ -316,6 +316,18 @@ expansion, the public signature may expose the underlying type instead of leakin
 private alias — though if the expansion itself is a private type, that is the same
 leak by another name, and the compiler refuses it the same way.
 
+An exported constraint's member signatures answer to the same rule, for the same
+reason. A member like `peek(x: a): Token` with `Token` private asks an importer to
+produce and handle a value whose type they can neither name nor build; the compiler
+refuses it at the member, with the same marker on `Token`'s declaration and the same
+remedy — export `Token`, perhaps opaquely, or keep the constraint private.
+
+The other way around is fine, and useful: a *private* constraint may gate an
+exported function (`export fun use<a: Priv>(x: a): Int`). The constraint never
+crosses the boundary — callers pass with a type this module honors, and nobody
+outside can honor `Priv` at a new type. That closed world is the point: it is how a
+module offers an operation over exactly the types it chooses, and no others.
+
 Module boundaries do not change polymorphism. The complete annotation pins an
 export's public contract, while checking still verifies it against the same
 polymorphic type system used for private bindings.
@@ -425,7 +437,7 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 - a parameterized opaque type declares what it promises with `+a` or `-a`, checked
   against its representation; a bare parameter claims nothing;
 - exported terms have complete signatures with explicit maximal constraints;
-- public faces — signatures, fields, payloads, and alias targets — cannot leak private nominal types;
+- public faces — signatures, fields, payloads, alias targets, and constraint member signatures — cannot leak private nominal types (though a private constraint may gate an exported function);
 - instances are global over the imported program graph rather than exported names;
 - imports are acyclic and initialize dependencies before dependants;
 - a selected root runs through ordinary top-level module evaluation, without `main`;
