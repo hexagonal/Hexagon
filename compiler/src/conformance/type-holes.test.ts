@@ -581,7 +581,10 @@ describe("§8.13 grammar boundaries", () => {
     expect(projectDiagnostics(`let f(x: _ : Nope) = x\n${TAIL}`))
       .toEqual(projectDiagnostics(`let f<a: Nope>(x: a) = x\n${TAIL}`));
     expect(projectDiagnostics(`let f(x: _ : Nope) = x\n${TAIL}`))
-      .toContain("unknown constraint `Nope`");
+      .toContain(
+        "unknown constraint `Nope`; import its home module with " +
+          "`import module Nope` for qualified access, or import the constraint by name",
+      );
   });
 
   test("§5.1 the suffix reaches every type position a hole reaches", () => {

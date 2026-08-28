@@ -326,14 +326,19 @@ describe("constraint position: the same reading, one namespace over", () => {
 
   test("a renamed alias over one exported constraint names all three repairs", () => {
     // A renamed alias answers no bare spelling at all: neither the constraint's
-    // own name (nothing binds it) nor the alias's (the module exports no
-    // `R`) — and only the second has repairs worth naming.
+    // own name (nothing binds it) nor the alias's (the module exports no `R`).
+    // The first has no *alias* repairs to name — no alias of that spelling is
+    // standing there — so it takes the family signpost instead (#577), whose
+    // `import module Render` is the realias the second arm spells out in full.
     expect(messages([
       RENDER,
       ["/main.hex",
         'import module R from "./render"\n' +
         "export fun label<a: Render>(x: a): String = R.render(x)\n"],
-    ])).toContain("unknown constraint `Render`");
+    ])).toContain(
+      "unknown constraint `Render`; import its home module with " +
+        "`import module Render` for qualified access, or import the constraint by name",
+    );
     expect(messages([
       RENDER,
       ["/main.hex",
@@ -381,9 +386,15 @@ describe("constraint position: the same reading, one namespace over", () => {
     );
   });
 
-  test("a name that is nothing at all keeps the plain refusal", () => {
+  test("a name that is nothing at all carries the family signpost", () => {
+    // The fallback declined and no alias is standing there, so the refusal is
+    // the #577 seat's: nothing of the spelling is in scope, and the two routes
+    // that reach a constraint are named (Constraints §8's row).
     expect(messages([
       ["/main.hex", "export fun size<a: Nope>(x: a): Int = 1\n"],
-    ])).toContain("unknown constraint `Nope`");
+    ])).toContain(
+      "unknown constraint `Nope`; import its home module with " +
+        "`import module Nope` for qualified access, or import the constraint by name",
+    );
   });
 });

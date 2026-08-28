@@ -3305,6 +3305,11 @@ class Resolver {
               span: expression.span,
             };
           }
+          // No module alias answered, so rule 1's own sentence gets its turn
+          // before the receiver decays to an unknown name (#577).
+          if (this.#typeIsNotAModule(expression.receiver, scope)) {
+            return { kind: "ErrorExpr", span: expression.span };
+          }
         }
         return {
           ...expression,
@@ -3793,6 +3798,56 @@ class Resolver {
         : {}),
     });
     return callee;
+  }
+
+  /**
+   * Modules §5.1 rule 1's own sentence, at the one seat that owes it (#577).
+   *
+   * `Name.` resolves in the module-alias namespace first; where nothing there
+   * answers and the *type* namespace holds the spelling, the refusal says which
+   * namespace the name actually lives in and names the two routes that reach
+   * what the writer wanted. Without it the receiver decays to a bare
+   * `unknown name` — true of the term namespace, and silent about the type
+   * standing one namespace over, which is the whole content of the mistake.
+   *
+   * The check is the **failed-resolution** half of the family and no more (the
+   * #577 ruling's v1 scope): a spelling that resolves as a term is somebody
+   * else's — a record import binds its constructor, so `Shape.make` is a field
+   * access on a constructor-typed head, and its inverted mismatch is #642's.
+   * The order refusal is read first for the same reason it is read first
+   * in `#resolveName`: "declared later" is the truer sentence where it applies,
+   * and this one would be a false classification of a name that resolves fine
+   * one line down.
+   *
+   * The type namespace is read through the same four maps every annotation
+   * reads (`#resolveTypeAnnotation`), so an imported type, a prelude type, an
+   * alias and an extern type all count — the message's repair is the same for
+   * each, and "a type exists" is exactly what rule 1 conditions on. Rule 1's
+   * own "uppercase immediately followed by `.`" is asked separately rather than
+   * inferred from those maps: a `type foo` in an `extern` block is refused for
+   * its lowercase alias and still registered, and a second sentence classifying
+   * it would be a report about the compiler's recovery rather than the source.
+   */
+  #typeIsNotAModule(receiver: Parsed.NameExpr, scope: Scope): boolean {
+    const name = receiver.name.text;
+    if (
+      receiver.name.startClass !== "upper" ||
+      this.#lookupTerm(name, scope) !== undefined ||
+      this.#findLaterDeclaration(name) !== undefined ||
+      !(this.#unionNames.has(name) || this.#recordNames.has(name) ||
+        this.#typeAliases.has(name) || this.#externTypeNames.has(name))
+    ) {
+      return false;
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message: `\`${name}\` is a type, not a module; import its home module ` +
+        "with `import module` for qualified access, or import the " +
+        "constructor/function you need",
+      primary: receiver.span,
+      importModuleRepair: { name, namespace: "type" },
+    });
+    return true;
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {
@@ -5692,7 +5747,11 @@ class Resolver {
    * no spelling at all and the law is never consulted (§4.6, Modules §3.1).
    *
    * A path naming no member is refused here, in the ordinary
-   * unknown-qualified-name words. Whether the module *honors* the constraint at
+   * unknown-qualified-name words. A path whose *qualifier* names nothing is the
+   * not-yet-imported author's front door (#577, Constraints §8's row): the
+   * refusal carries the route, because "unknown module" alone leaves a writer
+   * who has read §5.3 with no next move, and the next move is one import line.
+   * Whether the module *honors* the constraint at
    * its own type cannot be asked yet — an `honor` block may stand below this
    * line — so `#checkWidensDeclarations` asks it once every item is resolved.
    */
@@ -5704,8 +5763,11 @@ class Resolver {
       if (iface === undefined) {
         this.#diagnostics.add({
           severity: "error",
-          message: `unknown module \`${target.module.text}\``,
+          message: `unknown module \`${target.module.text}\`; a \`widens\` head ` +
+            "names its member through a module alias; import the member's home " +
+            `module with \`import module ${target.module.text}\``,
           primary: target.module.span,
+          importModuleRepair: { name: target.module.text, namespace: "constraint" },
         });
         return [];
       }
