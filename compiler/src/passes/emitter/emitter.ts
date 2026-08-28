@@ -1328,8 +1328,9 @@ class PreludeTypeFaces {
   }
 
   /**
-   * The type's own name, then `Option1`, `Option2`, … — the `Hex` alias probe of
-   * §2.1, on the same rule that only *generated* spellings move (Part 1 §10).
+   * The type's own name, then `Option_1`, `Option_2`, … — the `Hex` alias probe
+   * of §2.1, on the same rule that only *generated* spellings move (Part 1 §10).
+   * The suffix takes an underscore, the emitted JavaScript's own idiom (#619).
    *
    * Nearly unreachable today: a term cannot start with an uppercase letter, and
    * occlusion forecloses the local-type collision by keeping the occluded
@@ -1339,7 +1340,7 @@ class PreludeTypeFaces {
   #probe(name: string): string {
     if (!this.#taken.has(name)) return name;
     for (let suffix = 1; ; suffix += 1) {
-      const candidate = `${name}${suffix}`;
+      const candidate = `${name}_${suffix}`;
       if (!this.#taken.has(candidate)) return candidate;
     }
   }
@@ -1530,11 +1531,11 @@ class NominalFaces {
     return local;
   }
 
-  /** The type's own name, then `Option1`, `Option2`, … — §2.1's probe exactly. */
+  /** The type's own name, then `Option_1`, `Option_2`, … — §2.1's probe exactly. */
   #probe(name: string): string {
     if (!this.#taken.has(name)) return name;
     for (let suffix = 1; ; suffix += 1) {
-      const candidate = `${name}${suffix}`;
+      const candidate = `${name}_${suffix}`;
       if (!this.#taken.has(candidate)) return candidate;
     }
   }
@@ -1905,8 +1906,12 @@ function qualifyingAliases(
  *
  * A yielding alias is **a source name stepping aside, not a spelling the
  * compiler minted**, so it takes the collision-only suffix its emitted-JavaScript
- * counterpart takes — `Point_1`, counting from `_1` — rather than the minted
- * local's probe, whose subject is names the compiler made up.
+ * counterpart takes — `Point_1`, counting from `_1`. Since #619 the two agree on
+ * the spelling of a suffix — every suffixed `.d.ts` spelling counts `_1`, `_2`,
+ * … What still tells them apart is the subject that moves and the universe each
+ * probes against: here the *source alias* steps aside and the declaration keeps
+ * the bare name, where a minted local is a spelling the compiler made up and is
+ * itself what moves.
  *
  * The declaration file decides this **independently of the emitted JavaScript**,
  * and the two may differ. They must: the `.js` binds terms and the `.d.ts` binds
@@ -1950,12 +1955,12 @@ function declarationAliasPlan(
  * TypeScript namespace", and §8.3 obligation 2 names the class this must not
  * miss: the emitter already writes `import type * as Json from "./tiny-json.js"`
  * for a source-level namespace import, so a module importing under the alias
- * `Hex` forces `Hex1`. That collision predates this ruling.
+ * `Hex` forces `Hex_1`. That collision predates this ruling.
  *
  * **`namespaceAliases` is the one part the caller supplies**, because it is the
  * one member of this universe that is not over-claimed (§2.4). An alias reaches
  * the `.d.ts` only where some occurrence qualifies through it, and one that does
- * not contests nothing there; forcing `Hex1` for an alias absent from the file
+ * not contests nothing there; forcing `Hex_1` for an alias absent from the file
  * is exactly the failure the amended obligation 2 spells out. The declaration
  * emitter passes the qualifying aliases under their *emitted* spellings; the
  * preview, which writes every alias line unconditionally and is out of §2.4's
@@ -2004,7 +2009,7 @@ function declarationAliasPlan(
  * alias and nowhere else. Counting them is not over-approximation but error in
  * the direction the rung order cannot absorb: a record's constructor shares its
  * type's name, so every companion an alias reaches would push a minted local to
- * `Name1` against a `Name` the file does not contain. The names the switch adds
+ * `Name_1` against a `Name` the file does not contain. The names the switch adds
  * are exactly what `emit` can write at top level.
  */
 function declarationTopLevelNames(
@@ -2053,15 +2058,16 @@ function allNamespaceAliases(module: Core.Module): readonly string[] {
 }
 
 /**
- * The generated namespace alias: first free of `Hex`, `Hex1`, `Hex2`, …
+ * The generated namespace alias: first free of `Hex`, `Hex_1`, `Hex_2`, …
  * (FFI Part 1 §10, Part 12 §11.1). Only the generated import is renamed; a user
- * name always keeps its spelling.
+ * name always keeps its spelling, and the suffix takes an underscore — the
+ * emitted JavaScript's own idiom, never `Hex1` (#619).
  */
 function runtimeFacesAlias(module: Core.Module, universe?: ReadonlySet<string>): string {
   const taken = universe ?? declarationTopLevelNames(module);
   if (!taken.has("Hex")) return "Hex";
   for (let suffix = 1; ; suffix += 1) {
-    const candidate = `Hex${suffix}`;
+    const candidate = `Hex_${suffix}`;
     if (!taken.has(candidate)) return candidate;
   }
 }
@@ -8578,13 +8584,15 @@ function opaqueBrandNames(module: Core.Module): ReadonlyMap<string, string> {
   // TypeScript reader looks at, so it stays outside Lexer §3.2's reserved `__`
   // prefix, and so do its collision probes (FFI Part 7 §5, #425). `<name>Brand`
   // is that part's own representative spelling; per-type uniqueness within the
-  // file is the contract, which is what the probe delivers.
+  // file is the contract, which is what the probe delivers. A moved brand takes
+  // §2.1's underscore suffix — `<name>Brand_1`, never `<name>Brand1` — a brand
+  // already looking like a type, so it aliases like one (#619).
   const taken = new Set([...module.symbols.map(({ name }) => name), ...typeNames]);
   const brand = (name: string): string => {
     const base = `${name}Brand`;
     let candidate = base;
     let suffix = 1;
-    while (taken.has(candidate)) candidate = `${base}${suffix++}`;
+    while (taken.has(candidate)) candidate = `${base}_${suffix++}`;
     taken.add(candidate);
     return candidate;
   };
@@ -11114,6 +11122,12 @@ function neverInstantiation(
   return new Map(variables.map((variable) => [variable, NEVER]));
 }
 
+/**
+ * `a`, `b`, … `z`, then `a1` at the 27th binder: FFI Part 7 §2.2's binder
+ * alphabet, not §2.1's probe. No universe is consulted — the alphabet cycles on
+ * arity alone — so the digit is a cycle counter rather than a collision suffix,
+ * and it rightly stays bare of #619's underscore.
+ */
 function typeVariableName(index: number): string {
   const letter = String.fromCharCode("a".charCodeAt(0) + (index % 26));
   const cycle = Math.floor(index / 26);

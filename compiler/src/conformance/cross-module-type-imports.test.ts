@@ -239,7 +239,7 @@ describe("placement", () => {
 // a guard rather than decoration, so each is pinned here — the alias one below
 // is the least surprising of them and was the only one the ruling foresaw.
 describe("the generated local is probed, and only it moves", () => {
-  test("an exported constructor sharing a prelude type's name forces `Option1`", async () => {
+  test("an exported constructor sharing a prelude type's name forces `Option_1`", async () => {
     const compiled = project([[
       "/main.hex",
       "export union MyU = Option(Int) | Nother\nexport let o: Option(Int) = None\n",
@@ -250,9 +250,9 @@ describe("the generated local is probed, and only it moves", () => {
     // identifier (§3–§4), so it collides with a prelude type's name on its own.
     // The constructor is a user name and keeps its spelling; only the generated
     // local moves (Part 1 §10).
-    expect(text).toContain('import type { Option as Option1 } from "./Option.js";');
+    expect(text).toContain('import type { Option as Option_1 } from "./Option.js";');
     expect(text).toContain("export declare const Option: (item1: number) => MyU;");
-    expect(text).toContain("export declare const o: Option1<number>;");
+    expect(text).toContain("export declare const o: Option_1<number>;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
@@ -267,13 +267,13 @@ describe("the generated local is probed, and only it moves", () => {
     // prelude union (Modules §5.4, §6.4), so the occluded identity does reach an
     // exported face. Both types then live in one file — the module's own under
     // the bare name, the prelude's under a probed local.
-    expect(text).toContain('import type { Ordering as Ordering1 } from "./Prelude.js";');
+    expect(text).toContain('import type { Ordering as Ordering_1 } from "./Prelude.js";');
     expect(text).toContain('export type Ordering = "Asc" | "Desc";');
-    expect(text).toContain("export declare const f: (x: Ordering1) => number;");
+    expect(text).toContain("export declare const f: (x: Ordering_1) => number;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
-  test("a namespace alias spelling a prelude type's name forces `Option1`", async () => {
+  test("a namespace alias spelling a prelude type's name forces `Option_1`", async () => {
     const compiled = project([
       ["/lib.hex", "export record Row = {n: Int}\nexport let one: Int = 1\n"],
       [
@@ -293,9 +293,9 @@ describe("the generated local is probed, and only it moves", () => {
     // The alias is spoken for **because a face qualifies through it**: that is
     // what puts its line in the file. Without the `Option.Row` seat below the
     // line is not written and the alias contests nothing — the case beneath.
-    expect(text).toContain('import type { Option as Option1 } from "./Option.js";');
+    expect(text).toContain('import type { Option as Option_1 } from "./Option.js";');
     expect(text).toContain('import type * as Option from "./lib.js";');
-    expect(text).toContain("export declare const o: Option1<number>;");
+    expect(text).toContain("export declare const o: Option_1<number>;");
     expect(text).toContain("export declare const r: (x: Option.Row) => number;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
