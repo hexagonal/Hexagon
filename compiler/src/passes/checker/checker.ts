@@ -9341,13 +9341,15 @@ class Checker {
    * are read from the declaration through `#baseConstraintsOf`, by identity,
    * rather than re-listed here.
    *
-   * One cell of §7.6's pinned grid has no program behind it, and is written out
-   * anyway because the grid is: `Hash` in the *no-list* dialect with a **derived**
-   * `Eq` present. A derived instance can only come from a `derives` clause, and a
-   * declaration carrying one is in the list dialect by definition — so that cell
-   * is unreachable, and the conformance file pins the three that are not. Nothing
-   * special-cases it: the composition falls out of the two questions above, and
-   * arranging for it to be unspellable would cost a branch to say less.
+   * All four of §7.6's `Hash` cells are reachable, and one of them is the cell
+   * the two questions above make least obvious: the *no-list* dialect with a
+   * **derived** `Eq` present. It exists because derivation has two spellings —
+   * Constraints §4.5's core form `honor Eq<Point> = derive` and the `derives`
+   * header sugar — so a declaration carrying no `derives` clause at all can still
+   * have a derived `Eq` beside it. That is also why the dialect question and the
+   * provenance question are asked of different things: the dialect is a fact
+   * about the declaration's text, and provenance is a fact about the *instance*,
+   * and reading the second off the first would call `= derive` hand-written.
    */
   #derivationFixit(
     requirement: Requirement,
@@ -9368,6 +9370,12 @@ class Checker {
     const carriesList = declaration.derives.length > 0;
     const name = this.#constraintsByIdentity.get(requirement.identity)?.name ??
       requirement.name;
+    // The derivability filter is a **guard, not a no-op**: today every base of
+    // the derivable four is `Eq`, so it drops nothing, and it is what keeps the
+    // fixit compilable if that ever stops being true — a non-derivable base
+    // named in a `derives` list would be refused at the seat the fixit sent the
+    // reader to. Whoever finds it redundant should add the base that makes it
+    // matter, not delete it.
     const absentBases = this.#baseConstraintsOf(requirement.identity)
       .filter(({ identity }) =>
         DERIVABLE_IDENTITIES.has(identity) &&
@@ -10794,7 +10802,15 @@ class Checker {
       constraintIdentity: imported.constraintIdentity,
       typeParameters: imported.typeParameters,
       subject: imported.subject,
-      derived: false,
+      // The declaring module's word, carried across every hop (#644). It used to
+      // be hard-coded `false`, which was harmless while nothing downstream asked
+      // — no member body is re-checked here, and the emitter reaches the
+      // exporter's dictionary either way — and stopped being harmless the moment
+      // §7.6's `Hash` report started asking whether the subject's `Eq` was
+      // hand-written: every imported `Eq` read as one, and the modal library case
+      // (`export record Point derives Eq` used as a `Set` element downstream) got
+      // the wrapper-key report in place of the one-word repair.
+      derived: imported.derived,
       dictionary: imported.localDictionary,
       // The declaring module's spellings, carried on so that a concrete member
       // call in *this* module can route to them (#444).

@@ -184,6 +184,25 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     );
   });
 
+  test("no list, `Eq` derived through §4.5's core form — `Hash` alone", () => {
+    // The fourth cell of the grid, and the one the gate's two questions make
+    // least obvious. Derivation has **two spellings** — `honor Eq<Point> =
+    // derive` and the `derives` header sugar — so "no `derives` clause" and "no
+    // derived `Eq`" are independent facts, and the dialect question cannot
+    // answer the provenance one. A checker that read provenance off the
+    // declaration's `derives` list would call this `Eq` hand-written and print
+    // the wrapper-key report.
+    expect(projectDiagnostics(
+      "record Point = {n: Int}\n" +
+        "honor Eq<Point> = derive\n" +
+        "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
+    )).toContain(
+      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+        "so the only repair is `derives Hash` on the declaration of `Point` " +
+        "in `./main.hex`",
+    );
+  });
+
   test("the clause is gone, not merely followed", () => {
     // The whole of James's point 1, as a negative: the two-home template
     // invites a hand-written honor, and neither home would accept one.
@@ -230,9 +249,11 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     );
   });
 
-  test("the wrapper-key report offers no `derives` and no seat", () => {
-    // The negative half: a `derives Hash` fixit here would be an impossible
-    // one, which is the single thing §7.6 rules out by name.
+  test("the wrapper-key report offers neither a repair nor a seat", () => {
+    // The negative half: a `derives Hash` *fixit* here would be an impossible
+    // one, which is the single thing §7.6 rules out by name. The words
+    // `derives Hash` do appear — in the requirement the report states — so what
+    // is pinned is the absence of the offer, not of the spelling.
     const messages = projectDiagnostics(
       "record Weird = {s: String}\n" +
         "honor Eq<Weird> =\n" +
@@ -242,6 +263,86 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
 
     expect(messages).not.toContain("the only repair");
     expect(messages).not.toContain("could only be declared");
+  });
+});
+
+/**
+ * `Eq`'s provenance is the one fact the `Hash` report needs that the consuming
+ * module cannot see for itself, and the modal shape of the whole feature is a
+ * library type used as a key downstream. `InstanceImport.derived` is what
+ * carries the answer; before it existed, `#seedImportedInstance` hard-coded
+ * `false` and every imported `Eq` read as hand-written — so the wrapper-key
+ * report fired on `export record Point derives Eq` and hid the one-word repair.
+ *
+ * Both provenances are pinned across a module boundary, and the derived one is
+ * pinned across two hops as well: the flag is the declaring module's word, and
+ * a transit re-export must not launder it.
+ */
+describe("`Eq`'s provenance travels with the instance, not with the importer", () => {
+  test("a derived `Eq` upstream gets the repair, at the declaring module's path", () => {
+    expect(messagesOf([
+      ["/point.hex", "export record Point derives Eq = {n: Int}\n"],
+      ["/main.hex", [
+        "import { Point } from \"./point\"",
+        "",
+        "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))",
+        "",
+      ].join("\n")],
+    ])).toEqual([
+      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+        "so the only repair is adding `Hash` to `Point`'s `derives` list " +
+        "in `./point.hex`",
+    ]);
+  });
+
+  test("a hand-written `Eq` upstream gets the wrapper-key report", () => {
+    // The other side of the same channel. Getting one of these right by
+    // accident is easy — a hard-coded `false` passes this one — so the pair is
+    // what makes the pin worth having.
+    expect(messagesOf([
+      ["/point.hex", [
+        "export record Point = {n: Int}",
+        "",
+        "honor Eq<Point> =",
+        "    equals(left, right) = left.n == right.n",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        "import { Point } from \"./point\"",
+        "",
+        "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))",
+        "",
+      ].join("\n")],
+    ])).toEqual([
+      "type `Point` has no `Hash` instance; `derives Hash` requires a derived `Eq`, " +
+        "and `Point` declares its own — key on a wrapper type whose `Eq` and `Hash` " +
+        "are both derived",
+    ]);
+  });
+
+  test("two hops do not launder the flag", () => {
+    // `./middle.hex` carries the instance through without declaring it, and a
+    // transit module re-exports the dictionary, not the declaration. The
+    // provenance is `./point.hex`'s word at both hops, and so is the path.
+    expect(messagesOf([
+      ["/point.hex", "export record Point derives (Eq, Show) = {n: Int}\n"],
+      ["/middle.hex", [
+        "import { Point } from \"./point\"",
+        "",
+        "export fun make(n: Int): Point = Point({n = n})",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        "import { make } from \"./middle\"",
+        "",
+        "export fun go(): Int = Set.size(Set.add(Set.empty, make(1)))",
+        "",
+      ].join("\n")],
+    ])).toEqual([
+      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+        "so the only repair is adding `Hash` to `Point`'s `derives` list " +
+        "in `./point.hex`",
+    ]);
   });
 });
 
@@ -262,12 +363,14 @@ describe("the gate: what draws no fixit at all", () => {
     ]);
   });
 
-  test("a user constraint is untouched, whatever it is spelled", () => {
-    // The identity gate, from the side that matters most: a module's own
-    // `constraint Show` is a *different* constraint (§5.1.1), and its missing
-    // instance has no `derives` form to offer. Read by name, this would print a
-    // fixit that does not compile. `Show` itself is non-redeclarable, so the
-    // nearest legal spelling stands in.
+  test("a non-derivable user constraint draws no fixit", () => {
+    // A user constraint has no `derives` form at all, so nothing is owed here
+    // however the subject is declared. The *rival-spelling* case the identity
+    // gate is really aimed at cannot be built from source — §5.1.1 makes all
+    // eleven pre-registered names non-redeclarable, so no module can declare a
+    // second `Show` for a name-keyed test to confuse the first with. The gate
+    // is written by identity because that ban is the only thing standing
+    // between the two readings, not because a program can tell them apart.
     expect(messagesOf([
       ["/render.hex", [
         "export constraint Render<a> =",
@@ -318,14 +421,46 @@ describe("the gate: what draws no fixit at all", () => {
     ]);
   });
 
-  test("a structural subject keeps the bare head, at a derivable constraint too", () => {
-    // §7.6's subject carve-out is upstream of the whole composition: a tuple
-    // has no declaring module, so neither clause nor fixit is true about it.
+  /**
+   * **No structural subject reaches the gate at a derivable constraint**, and
+   * the two tests below are that fact rather than a branch of it.
+   *
+   * The four derivable constraints are satisfied componentwise at every
+   * structural head (Constraints §4.5), so a structural type never *fails* one
+   * as a whole: the failure is its component's, and the component is what the
+   * report names. Measured, not assumed — `(Int, (Int) -> Int)`, `{n: (Int) ->
+   * Int}` and `Vector((Int) -> Int)` all report on the function inside, at
+   * `Show` and at `Hash` alike, and a plain `(Int, Int)` reports nothing at all.
+   *
+   * So the first test below does not exercise `#derivationFixit`: a `Function`
+   * subject is answered by `#validate`'s own ternary, which never reaches
+   * `#missingInstanceMessage`. It is kept as the boundary it pins — that the
+   * function arm still owns its message — and labelled so no reader mistakes it
+   * for coverage of the gate. The second test is the load-bearing half: it is
+   * the only way a structural type gets a derivation fixit into a report, and
+   * the fixit lands on the **component**, where the `derives` seat is.
+   */
+  test("a function subject is answered before the composition is reached", () => {
     expect(messagesOf([
       ["/main.hex", [
         "export fun go(p: ((Int) -> Int)): String = show(p)",
         "",
       ].join("\n")],
     ])).toEqual(["functions have no `Show` instance"]);
+  });
+
+  test("a structural subject's nominal component is what the fixit names", () => {
+    expect(messagesOf([
+      ["/main.hex", [
+        "export record Odd = {n: Int}",
+        "",
+        "export fun go(p: (Int, Odd)): String = show(p)",
+        "",
+      ].join("\n")],
+    ])).toEqual([
+      "type `Odd` has no `Show` instance; it could only be declared in " +
+        "`./main.hex` (declares `Odd`) or the module declaring `Show`" +
+        "; add `derives Show` to the declaration of `Odd`",
+    ]);
   });
 });
