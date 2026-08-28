@@ -105,14 +105,24 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
     expect(main["walked"]).toBe(1);
   });
 
-  /** §16 (b): the keyed operations do demand it, and say so at the use site. */
-  test("a keyed operation at the same element type is refused, unhinted-`Hash`", () => {
+  /**
+   * §16 (b): the keyed operations do demand it, and say so at the use site.
+   *
+   * The report is Modules §7.6's **replacing** composition (#644): `Hash` is
+   * derivable-only, so neither legal home may hold the hand-written honor the
+   * two-home clause invites, and the clause gives way to the one repair the
+   * checker would accept. Base-complete, this specimen having no `Eq` either.
+   * `derivation-fixit.test.ts` owns the family; this pin reads it at a real
+   * element type.
+   */
+  test("a keyed operation at the same element type is refused, with the derivation repair", () => {
     expect(projectDiagnostics(
-      "record Weird = {s: String}\n" +
-        "export let bad: Set(Weird) = Set.add(Set.empty, Weird({s = \"K\"}))\n",
+      "record Point = {s: String}\n" +
+        "export let bad: Set(Point) = Set.add(Set.empty, Point({s = \"K\"}))\n",
     )).toContain(
-      "type `Weird` has no `Hash` instance; it could only be declared in `./main.hex` " +
-        "(declares `Weird`) or the module declaring `Hash`",
+      "type `Point` has no `Hash` instance; `Hash` instances cannot be hand-written, " +
+        "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
+        "in `./main.hex`",
     );
   });
 

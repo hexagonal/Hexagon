@@ -81,6 +81,12 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
     // already kept: `./widget.hex` is a file the reader can open and write the
     // honor in, and `Show`'s home is not. Naming it with a path would offer a
     // repair in the prelude.
+    //
+    // `Show` is derivable, and `Widget` has a `derives` seat, so §7.6's
+    // derivation fixit is appended here (#644 — `derivation-fixit.test.ts` owns
+    // the family). The clause is untouched: at `Show` both homes may still hold
+    // a hand-written honor, so the fixit is the cheaper repair beside them, not
+    // a replacement for them.
     expect(messagesOf([
       ["/widget.hex", [
         "export record Widget = {size: Int}",
@@ -94,7 +100,8 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
       ].join("\n")],
     ])).toEqual([
       "type `Widget` has no `Show` instance; it could only be declared in " +
-        "`./widget.hex` (declares `Widget`) or the module declaring `Show`",
+        "`./widget.hex` (declares `Widget`) or the module declaring `Show`" +
+        "; add `derives Show` to the declaration of `Widget`",
     ]);
   });
 
