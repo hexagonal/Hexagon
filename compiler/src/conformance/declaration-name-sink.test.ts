@@ -956,14 +956,11 @@ describe("rung 5 declines a private nominal on every arm of the guard", () => {
   });
 
   test("a private extern type", () => {
-    // The consumer draws a *third* refusal here and not in the union arm above,
-    // and the asymmetry is the walk's own: `representationVisible` is stamped
-    // false on an imported record or union, so a type that lives elsewhere is out
-    // of the check there, while the extern arm reads the table's `exported` flag
-    // — and an extern type its home keeps private is not exported anywhere. The
-    // signals are §14.4's, quoted as they stand; the same second report is
-    // already reachable through an exported *binding* whose signature names the
-    // alias, and predates every carrier added here.
+    // The same two refusals as the union arm, and for the same reason: §4.3's
+    // check is local on every arm (#629), so `lib`'s private type is refused at
+    // `lib`'s two carriers and the consumer — which can neither name the type
+    // nor export it — is told nothing. The emitter's guard is what this test
+    // watches, and it declines the mint here exactly as it does above.
     const compiled = refused(
       [
         [
@@ -973,11 +970,7 @@ describe("rung 5 declines a private nominal on every arm of the guard", () => {
         ],
         CONSUMER,
       ],
-      [
-        ...LIB_REFUSALS,
-        "exported record `Wrap` exposes private type `Hidden`; " +
-          "export the type, perhaps opaquely, or keep the record private",
-      ],
+      LIB_REFUSALS,
     );
 
     expect(declarations(compiled)).toBe(FACE);

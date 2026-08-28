@@ -11072,28 +11072,25 @@ class Checker {
     this.#checkGeneratedGuardCollision(items);
     const publicUnions = new Set(items.flatMap((item) => item.kind === "Union" && item.exported ? [item.union] : []));
     const publicRecords = new Set(items.flatMap((item) => item.kind === "RecordDeclaration" && item.exported ? [item.record] : []));
-    const publicExternTypes = new Set(
-      [...this.#externTypes.values()].flatMap((declaration) =>
-        declaration.exported ? [declaration.externType] : []
-      ),
-    );
     // Each private nominal the walk finds, by name, against the span of the
     // declaration keeping it private — where §4.3's secondary label points, which
     // is also exactly where the one-keyword fix goes.
     //
-    // The span is `undefined` in exactly one shape, and the diagnostic then
-    // ships without its label: the **extern** arm flags any identity absent from
-    // this module's own `#externTypes`, having no locality component of its own,
-    // so a consumer reaching another module's private extern type through that
-    // module's exported alias refuses here with no declaration in reach — and
-    // the right answer is to withhold the label rather than point across files
-    // (§4.2.1: the label is in the file the reader is looking at). A record or
-    // union always has a span, because that branch fires only on a declaration
-    // the table holds. The gap, and whether the consumer-side refusal should
-    // exist at all, is #629's; §4.3's every-diagnostic-carries-a-label sentence
-    // holds for every other route.
-    type Mentions = Map<string, Source.Span | undefined>;
-    const visit = (type: Mono, found: Mentions = new Map()): ReadonlyMap<string, Source.Span | undefined> => {
+    // All three nominal arms are **local**: they fire only on a declaration this
+    // module itself withholds. A record or union asks `representationVisible`,
+    // stamped false on every imported copy (`#materializeReachedUnion`); an
+    // extern type asks this module's own `#externTypes`, whose imported entries
+    // are exported by construction — the interface publishes no other kind. So a
+    // type that lives elsewhere contributes nothing here whatever its privacy at
+    // home, and nothing is left unguarded by the restraint: a private type
+    // reaches a consumer's face only through some exported carrier or binding of
+    // its home module, and that carrier is refused *there* (#629), in the one
+    // module that holds the declaration and can perform the remedy the message
+    // names. Locality is therefore also what makes the span total: every firing
+    // has a declaration in this file, so every diagnostic in the family carries
+    // its label, and none points across files (§4.2.1).
+    type Mentions = Map<string, Source.Span>;
+    const visit = (type: Mono, found: Mentions = new Map()): ReadonlyMap<string, Source.Span> => {
       const actual = this.#prune(type);
       if (actual.kind === "Union") {
         const declaration = this.#unions.get(actual.union);
@@ -11108,8 +11105,9 @@ class Checker {
         }
         actual.arguments.forEach((argument) => visit(argument, found));
       } else if (actual.kind === "ExternType") {
-        if (!publicExternTypes.has(actual.externType)) {
-          found.set(actual.name, this.#externTypes.get(actual.externType)?.span);
+        const declaration = this.#externTypes.get(actual.externType);
+        if (declaration !== undefined && !declaration.exported) {
+          found.set(actual.name, declaration.span);
         }
       } else if (actual.kind === "Function") {
         actual.parameters.forEach((parameter) => visit(parameter, found));
@@ -11134,7 +11132,7 @@ class Checker {
       keep: string,
       carrier: string,
       exposed: string,
-      declaration: Source.Span | undefined,
+      declaration: Source.Span,
       primary: Source.Span,
     ): void => {
       this.#diagnostics.add({
@@ -11142,9 +11140,7 @@ class Checker {
         message: `exported ${noun} \`${carrier}\` exposes private type \`${exposed}\`; ` +
           `export the type, perhaps opaquely, or keep the ${keep} private`,
         primary,
-        ...(declaration === undefined
-          ? {}
-          : { labels: [{ span: declaration, message: `\`${exposed}\` is declared private here` }] }),
+        labels: [{ span: declaration, message: `\`${exposed}\` is declared private here` }],
       });
     };
     /**
