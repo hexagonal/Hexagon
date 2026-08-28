@@ -215,39 +215,182 @@ describe("the seat is the offending mention's, and the label the declaration's",
     const drawn = lone(source);
     expect(at(source, drawn.labels![0]!.span)).toBe("type Hidden");
   });
+});
 
-  test("the one shape with no declaration in reach ships without the label (#629)", () => {
-    // The extern arm of the walk has no locality component — it flags any
-    // identity absent from the module's own extern-type table, unlike records
-    // and unions, whose `representationVisible` is stamped false on every
-    // imported copy. So a *consumer* reaching another module's private extern
-    // type through that module's exported alias refuses here, with no
-    // declaration span in reach and therefore no label: pointing across files
-    // would break §4.2.1's convention that the label is in the file the reader
-    // is looking at, so withholding it is the right answer to the wrong
-    // question. The refusal is pre-existing (the same report is drawn on the
-    // exported-binding route) and misaddressed — its remedy, "export the type",
-    // is one `main` cannot perform. #629 owns both halves; a repair there has to
-    // move this test.
+describe("the rule is local: a type declared elsewhere is refused at home (#629)", () => {
+  // The private nominals the rule reads are the module's **own**. Records and
+  // unions have practised this since #605 (`representationVisible` is stamped
+  // false on every imported copy); the extern arm now asks the same question of
+  // the module's own extern-type table, whose imported entries are exported by
+  // construction. What leaves the restraint with nothing unguarded is §4.3's
+  // pair of guards, and these tests are that pair measured rather than argued.
+  // Every **carrier** route into a consumer's face runs through some exported
+  // carrier or binding of the home module, and that carrier is refused *there*,
+  // in the one module holding the declaration the label points at and able to
+  // perform the remedy the message names. Where no carrier route exists — an
+  // exported constraint's members, which are no carrier (#626) — the guard is a
+  // different one: the private type is unnameable in the consumer, so no
+  // complete exported signature (§4.1.1) can mention it. One test below is that
+  // second guard's, and it is the one route with no home refusal to point at.
+
+  const PRIVATE_EXTERN = 'extern from "./lib.js"\n    type Hidden\n';
+
+  test("the alias route reports once, at home, with its label", () => {
+    // Formerly the shape with no declaration in reach: the consumer's table held
+    // nothing to label, so its report shipped bare and told `main` to export a
+    // type declared in `lib`. Now `lib`'s own alias — a carrier since #621 —
+    // carries the arc alone, and every diagnostic in the family has its label.
+    const lib = PRIVATE_EXTERN + "export type Exposed = Hidden\n";
     const compiled = project({
-      "/src/lib.hex": 'extern from "./lib.js"\n    type Hidden\n' +
-        "export type Exposed = Hidden\n",
+      "/src/lib.hex": lib,
       "/src/main.hex": 'import { Exposed } from "./lib"\n' +
         "export record Wrap = {h: Exposed}\n",
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
-      // `lib`'s own alias is a carrier too, so the home diagnosis exists and
-      // carries its label; the consumer's is a second report of that defect.
       "exported type alias `Exposed` exposes private type `Hidden`; " +
         "export the type, perhaps opaquely, or keep the alias private",
-      "exported record `Wrap` exposes private type `Hidden`; " +
-        "export the type, perhaps opaquely, or keep the record private",
     ]);
-    const [home, consumer] = compiled.diagnostics;
+    const [home] = compiled.diagnostics;
     expect(home!.labels?.map(({ message }) => message)).toEqual([
       "`Hidden` is declared private here",
     ]);
-    expect(consumer!.labels ?? []).toEqual([]);
+    // In `lib`, where the one-keyword fix goes — never across the file boundary
+    // (§4.2.1).
+    expect(at(lib, home!.labels![0]!.span)).toBe("type Hidden");
+  });
+
+  test("the binding route: the consumer's own exported face draws nothing", () => {
+    // The consumer's signature genuinely mentions `Hidden` — `Exposed` expands
+    // to it — and that is the case for the restraint, not against it: both of
+    // `lib`'s exports are refused at home, so the consumer's report would be a
+    // third telling of one defect, addressed to the one module that cannot fix
+    // it.
+    const compiled = project({
+      "/src/lib.hex": PRIVATE_EXTERN + "export type Exposed = Hidden\n" +
+        "export fun peek(h: Hidden): Hidden = h\n",
+      "/src/main.hex": 'import { peek, Exposed } from "./lib"\n' +
+        "export fun g(h: Exposed): Exposed = peek(h)\n",
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "exported type alias `Exposed` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the alias private",
+      "exported binding `peek` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the binding private",
+    ]);
+    expect(compiled.diagnostics.every(({ labels }) => labels?.length === 1)).toBe(true);
+  });
+
+  test("the inference route carries nothing an annotation did not", () => {
+    // With no exported alias, the consumer cannot *spell* `Hidden`, and
+    // §4.1.1's completeness rule means it cannot export a face over it either:
+    // an exported binding's scheme is what its annotations write. So the route
+    // closes on its own terms — the only word the consumer hears is about the
+    // annotation it owes, never about a type it cannot name.
+    const compiled = project({
+      "/src/lib.hex": PRIVATE_EXTERN + "export fun peek(h: Hidden): Hidden = h\n",
+      "/src/main.hex": 'import { peek } from "./lib"\n' + "export let g = peek\n",
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "exported binding `peek` exposes private type `Hidden`; " +
+        "export the type, perhaps opaquely, or keep the binding private",
+      "exported value `g` requires a type annotation",
+    ]);
+  });
+
+  test("a constraint member's mention, where no home refusal exists at all", () => {
+    // The one route with *no* carrier behind it: an exported constraint is not a
+    // carrier (§4.3's last bullet; #626), so `lib` alone draws nothing and there
+    // is no home-side refusal for the consumer's report to duplicate. The guard
+    // here is a different one and it holds on its own — §4.1.1 plus
+    // unnameability: `main` cannot spell `Hidden`, so no complete exported
+    // signature of its can mention it, and the incomplete one it wrote is
+    // refused as incomplete. What is left is that refusal alone.
+    const lib = 'extern from "./lib.js"\n    type Hidden\n' +
+      "export constraint Probe<a> =\n    probe(x: a): Hidden\n";
+    const consumer = 'import { Probe } from "./lib"\n' +
+      "export fun g<a: Probe>(x: a) = probe(x)\n";
+    expect(project({ "/src/lib.hex": lib }).diagnostics.map(({ message }) => message))
+      .toEqual([]);
+    const compiled = project({ "/src/lib.hex": lib, "/src/main.hex": consumer });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "exported function `g` requires a complete signature; add a return type",
+    ]);
+  });
+
+  test("and the same shape over a private *record* draws exactly the same", () => {
+    // The parity control for the test above: the record arm has been local since
+    // #605, so this program has always drawn the completeness error alone. The
+    // extern arm now agrees with it — which is the whole of the repair, stated as
+    // a program the two arms answer identically.
+    const consumer = 'import { Probe } from "./lib"\n' +
+      "export fun g<a: Probe>(x: a) = probe(x)\n";
+    const compiled = project({
+      "/src/lib.hex": "record Hidden = {n: Int}\n" +
+        "export constraint Probe<a> =\n    probe(x: a): Hidden\n",
+      "/src/main.hex": consumer,
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "exported function `g` requires a complete signature; add a return type",
+    ]);
+  });
+
+  test("an elsewhere-**exported** extern type in an exported face is lawful", async () => {
+    // The locality gate the extern arm lacked, read from the other side. This
+    // program was refused before the repair — the consumer imports the alias,
+    // never the extern type, so the home module's public row was in no table the
+    // consumer could consult and read as private. Nothing was wrong with it: the
+    // shipped declarations import the type and `tsc` accepts them.
+    const compiled = project({
+      "/src/lib.hex": 'extern from "./lib.js"\n    export type Shown\n' +
+        "export type Alias = Shown\n",
+      "/src/main.hex": 'import { Alias } from "./lib"\n' +
+        "export record Wrap = {h: Alias}\n",
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
+    expect(moduleOf(compiled, "/src/main.hex").declarations.text).toContain(
+      'import type { Shown } from "./lib.js";',
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("and across two hops, with the import minted at the declaring module", async () => {
+    // The route the repair opens is now reachable through an intermediary, and
+    // the seat where that could go wrong is the emitted import's provenance: an
+    // alias is transparent, so `main`'s face is `Shown` — a name `mid` never
+    // declared and only passed along. The mint must therefore name `lib`, the
+    // declaring module, never the module `main` actually imported from. Pinned
+    // because nothing else in the suite reaches this arm through two hops.
+    const compiled = project({
+      "/src/lib.hex": 'extern from "./lib.js"\n    export type Shown\n',
+      "/src/mid.hex": 'import { Shown } from "./lib"\nexport type Alias = Shown\n',
+      "/src/main.hex": 'import { Alias } from "./mid"\n' +
+        "export record Wrap = {h: Alias}\n",
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
+    expect(moduleOf(compiled, "/src/main.hex").declarations.text).toBe(
+      'import type { Shown } from "./lib.js";\n' +
+        "export type Wrap = { h: Shown };\n" +
+        "export declare const Wrap: (record: { h: Shown }) => Wrap;\n",
+    );
+    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
+  });
+
+  test("a module's own private extern type is still refused, imports notwithstanding", () => {
+    // Locality withholds the check from types that live elsewhere; it does not
+    // weaken it at home. `main` here has both an import and a private extern row
+    // of its own, and only its own is read.
+    const main = 'import { Shown } from "./lib"\n' +
+      'extern from "./host.js"\n    type Own\n' +
+      "export record Wrap = {a: Shown, b: Own}\n";
+    const compiled = project({
+      "/src/lib.hex": 'extern from "./lib.js"\n    export type Shown\n',
+      "/src/main.hex": main,
+    });
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "exported record `Wrap` exposes private type `Own`; " +
+        "export the type, perhaps opaquely, or keep the record private",
+    ]);
+    expect(at(main, compiled.diagnostics[0]!.labels![0]!.span)).toBe("type Own");
   });
 });
 
