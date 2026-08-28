@@ -10420,8 +10420,11 @@ class Checker {
    * `Pair(?1, ?2)`, one half already named `a`, would name the other `a` too.
    *
    * A variable in an *effect* slot is skipped: it prints through `#arrow` as a
-   * colour (`->?1`), never as a name, so spending a letter on it would only
-   * shift the letters the type's own variables get.
+   * colour (`->?¹`), never as a name, so spending a letter on it would only
+   * shift the letters the type's own variables get. The two notations cannot be
+   * confused for each other either: a numbered arrow carries its ordinal in
+   * **superscript** digits (`arrows.ts`), so §10's `->?¹` and the `?N` this law
+   * abolishes are typographically disjoint.
    */
   #nameSurvivingVariables(type: Mono): void {
     const variables = this.#collectVariables(type);
@@ -11315,6 +11318,17 @@ class Checker {
    * Split out of `#instanceKey` rather than written beside it: the reverse index
    * (`#instancesBySubject`) has to agree with selection exactly, and one function
    * is the only way to keep them from drifting apart.
+   *
+   * The fallback renders through `#display`, which since #649 *names* surviving
+   * variables — so the rendered text alone no longer tells two unsolved
+   * variables apart: five distinct ones all render `{n: a}` where they once
+   * rendered `{n: ?431}`, `{n: ?437}`, and so on. A key is an identity, not a
+   * message, so each survivor carries its id beside the text. That the 49
+   * measured arrivals are all *lookups* — an admitted subject's variables are
+   * head binders minted rigid at registration, so no key in the tables can
+   * carry a survivor, and colliding lookups miss identically — is true, and is
+   * exactly the kind of unstated invariant that gets broken innocently. Keying
+   * by id costs one walk and removes the dependency instead of documenting it.
    */
   #subjectKey(subject: Mono): string {
     const type = this.#prune(subject);
@@ -11335,7 +11349,10 @@ class Checker {
     if (type.kind === "Array") return "array";
     if (type.kind === "JsMap") return "jsmap";
     if (type.kind === "JsSet") return "jsset";
-    return this.#display(type);
+    const survivors = this.#collectVariables(type).filter(
+      ({ rigidName }) => rigidName === undefined,
+    );
+    return survivors.reduce((key, { id }) => `${key}:?${id}`, this.#display(type));
   }
 
   /** Records an instance in both directions; the one writer of either table. */
@@ -12988,6 +13005,17 @@ class Checker {
    * Requirements minted against an already-concrete type carry no slot of their
    * own and fall back to the type, which is what the non-ABI readers of
    * `#publicRequirements` want.
+   *
+   * That the unpruned read comes **first** is also the guard that keeps #649
+   * out of this slot name. `#display` names surviving variables, and two
+   * distinct survivors then render alike — which is precisely the merge the
+   * paragraph above calls a clean compile that read `.show` off `undefined`.
+   * The short-circuit is what a slot-carrying requirement takes, so the display
+   * fallback is left the requirements minted against a type, whose variables
+   * are the callee's declared ones; instrumenting the fallback across the suite
+   * found no arrival carrying an unsolved variable at all. Pruning first, or
+   * dropping the `Variable` arm, would put one there — and the report the merge
+   * produces is silence.
    */
   #evidenceSlot(requirement: Requirement): string {
     if (requirement.type.kind === "Variable") return `v${requirement.type.id}`;

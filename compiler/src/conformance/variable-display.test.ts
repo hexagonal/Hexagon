@@ -67,7 +67,9 @@ describe("the law: a survivor reaching a report is named", () => {
   test("no report in this file's shapes reaches the reader with a `?N`", () => {
     // The law is a statement about *every* report, so it is pinned once as
     // itself: across a spread of shapes that leave a variable unsolved, no
-    // message spells an allocation counter.
+    // message spells an allocation counter. A numbered arrow is not a false
+    // positive waiting to happen — Effects §10 renders its ordinal in
+    // superscript digits (`arrows.ts`), which `\d` does not match.
     const shapes = [
       "export let n: Int = ((y) => y)\n",
       "export let n: {a: Int} = []\n",
@@ -99,10 +101,14 @@ describe("fresh names dedupe against every name already visible", () => {
 
   test("a name an earlier report minted is as visible as a declared one", () => {
     // The sticky-name path, and the reason the dedupe reads display names and
-    // not just declared ones. A `var` is monomorphic, so both reports are about
-    // the *same* variable: the first names the vector's element `a` and the
-    // name stays with it, and the second displays it beside a variable no
-    // report has seen — which must therefore not be `a` too. Seeded from
+    // not just declared ones. The fixture is a `var` because a `var` *never*
+    // generalises — Statements §6.1 says so outright, so the pin rests on a
+    // stated rule rather than on an outcome. (The same program with `let`
+    // reports identically today; both reports concern one variable either way.)
+    // Both reports are therefore about the *same* variable: the first names the
+    // vector's element `a` and the name stays with it, and the second displays
+    // it beside a variable no report has seen — which must not be `a` too.
+    // Seeded from
     // declared names alone, the second message would read `(Vector(a), a)`, one
     // variable named by history and one fresh, with nothing to tell them apart.
     expect(main(
