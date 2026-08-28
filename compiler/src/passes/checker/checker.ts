@@ -748,6 +748,22 @@ const UNIT: TupleMono = { kind: "Tuple", elements: [] };
 const structuralConstraints = ["Eq", "Ord", "Show", "Hash"];
 
 /**
+ * The four constraints a `derives` clause may name (Constraints §4.5), **as
+ * identities** — the channel Modules §7.6's derivation-fixit bullet pins in so
+ * many words (#644): "read by identity, never spelling".
+ *
+ * Spelling would be answerable by shadowing, which is the failure mode §5.1.1's
+ * identity rule exists to close; all four are pre-registered and non-redeclarable,
+ * so no rival declaration can occupy the name and the set is exactly these four
+ * `hex:` rows forever. The name-keyed test at the `derives` seat itself is a
+ * different question — there the constraint has just been *written*, and §5.1.1's
+ * ban makes the spelling decisive — and it is deliberately left where it is.
+ */
+const DERIVABLE_IDENTITIES: ReadonlySet<string> = new Set(
+  ["Eq", "Ord", "Show", "Hash"].map(preRegisteredConstraintIdentity),
+);
+
+/**
  * The base constraints of the pre-registered constraints the compiler holds
  * declarations for (Constraints §7, `spec/integral-constraint.md`), keyed by the
  * one identity each of them has.
@@ -9196,11 +9212,38 @@ class Checker {
    * a compilation with no paths — a bare `check` in a unit harness — cannot name
    * a file. That is the fourth gate of the §3.3 report, kept for the same reason:
    * a fixit naming no openable file is not a fixit.
+   *
+   * **The derivation fixit joins the report** where the missing constraint is
+   * one the subject could simply `derives` (§7.6's composition bullet, #644).
+   * Two compositions, and `#derivationFixit` chooses between them because the
+   * choice is a fact about the constraint, not about this message:
+   *
+   * - **Appended** at `Eq`/`Ord`/`Show`. The two-home clause is still true —
+   *   either home may hold a hand-written honor — so it stands, and Constraints
+   *   §8's fixit follows it as the cheaper repair. The fixit names no file: the
+   *   clause in front of it has just named the only one it could mean.
+   * - **Replacing** at `Hash`, the one *derivable-only* constraint. Both homes
+   *   remain legal and neither may hold the form the two-home template invites,
+   *   because Collections Part 2 §4.1 refuses a hand-written `Hash` in every
+   *   user module. §7.6's precedent — a home is offered only where what the
+   *   reader would write there is accepted — makes the clause a wrong offer, so
+   *   the replacement sentence carries the seat *and* the path itself. Where the
+   *   subject's `Eq` is hand-written, derivation is barred outright (Part 2
+   *   §4.3) and the wrapper-key route replaces clause and fixit alike.
+   *
+   * Anything outside that gate is byte-identical to what it printed before.
    */
   #missingInstanceMessage(requirement: Requirement, type: Mono): string {
     const head = `type \`${this.#display(type)}\` has no \`${requirement.name}\` instance`;
     const clause = this.#legalHomesClause(requirement, type);
-    return clause === undefined ? head : `${head}${clause}`;
+    const fixit = this.#derivationFixit(requirement, type);
+    if (fixit === undefined) return clause === undefined ? head : `${head}${clause}`;
+    // `clause` is never `undefined` on the appending arm: the fixit's gate is the
+    // ordinary branch's `subjectSeat`, which is strictly narrower than the
+    // clause's own. The coalesce is the honest spelling of that rather than a
+    // second claim about it — a `!` here would assert what the gate already
+    // guarantees, in the one file where the guarantee could later move.
+    return fixit.replaces ? `${head}${fixit.text}` : `${head}${clause ?? ""}${fixit.text}`;
   }
 
   /** Modules §7.6's clause, or `undefined` where the head must stand alone. */
@@ -9263,6 +9306,120 @@ class Checker {
       `${subjectHome.statedHome}, both outside project source, so this pair's ` +
       "honored set is closed — change the type, or go through the operations " +
       "those homes export";
+  }
+
+  /**
+   * Modules §7.6's **derivation fixit** and its composition, or `undefined`
+   * where no fixit is owed (#644). `replaces` is the composition: `false`
+   * appends the text after the legal-homes clause, `true` stands in its place.
+   *
+   * **The gate is three facts, and each one is a truth requirement.**
+   *
+   * 1. *The constraint is derivable* — one of Constraints §4.5's four, asked of
+   *    the requirement's **identity**. §7.6 pins the channel, and §5.1.1 is why:
+   *    a spelling can be occluded, an identity cannot.
+   * 2. *The subject has a `derives` seat in project source* — a union or nominal
+   *    record with a path to name. `#subjectHome`'s `path` is exactly that
+   *    question already answered: only a nominal declaration ever carries one,
+   *    and it is withheld for a prelude-supplied one. Primitives, prelude
+   *    nominals, extern types and structural subjects therefore fall out here
+   *    with their branches untouched, which is what "gates as proposed" means.
+   * 3. *The compilation has paths at all.* Implied by (2) for the appended form,
+   *    and load-bearing for the replacing one, which prints a path of its own.
+   *
+   * Under that gate the clause the fixit composes with is always the ordinary
+   * branch's offered-subject shape: the sealed branch cannot be reached (all
+   * four constraints are prelude-declared and exported), and neither can the
+   * coincident-home or constraint-seat-only arms, since `#constraintHome`
+   * withholds the path of every pre-registered constraint.
+   *
+   * **Base-completeness** (James's point 3): a fixit that compiles when followed.
+   * Where a base of the required constraint is itself absent, following a bare
+   * `derives Ord` would only trade this error for the missing-base one, so every
+   * absent base is named alongside — and every base of the derivable four is
+   * itself derivable, so the list the fixit prints is always writable. The bases
+   * are read from the declaration through `#baseConstraintsOf`, by identity,
+   * rather than re-listed here.
+   *
+   * All four of §7.6's `Hash` cells are reachable, and one of them is the cell
+   * the two questions above make least obvious: the *no-list* dialect with a
+   * **derived** `Eq` present. It exists because derivation has two spellings —
+   * Constraints §4.5's core form `honor Eq<Point> = derive` and the `derives`
+   * header sugar — so a declaration carrying no `derives` clause at all can still
+   * have a derived `Eq` beside it. That is also why the dialect question and the
+   * provenance question are asked of different things: the dialect is a fact
+   * about the declaration's text, and provenance is a fact about the *instance*,
+   * and reading the second off the first would call `= derive` hand-written.
+   */
+  #derivationFixit(
+    requirement: Requirement,
+    type: Mono,
+  ): { readonly replaces: boolean; readonly text: string } | undefined {
+    if (!DERIVABLE_IDENTITIES.has(requirement.identity)) return undefined;
+    const here = this.#modulePath;
+    if (here === undefined) return undefined;
+    const home = this.#subjectHome(type);
+    if (home?.path === undefined) return undefined;
+    const declaration = this.#nominalDeclaration(type);
+    if (declaration === undefined) return undefined;
+    // §8 speaks two dialects, and which one is right is a fact about the
+    // declaration's text: a `derives` clause is either there to extend or not
+    // there to write. Emptiness is the whole test — the resolver carries the
+    // written names verbatim (`Union.derives`/`RecordDeclaration.derives`), and
+    // a declaration that carries any of them has the clause.
+    const carriesList = declaration.derives.length > 0;
+    const name = this.#constraintsByIdentity.get(requirement.identity)?.name ??
+      requirement.name;
+    // The derivability filter is a **guard, not a no-op**: today every base of
+    // the derivable four is `Eq`, so it drops nothing, and it is what keeps the
+    // fixit compilable if that ever stops being true — a non-derivable base
+    // named in a `derives` list would be refused at the seat the fixit sent the
+    // reader to. Whoever finds it redundant should add the base that makes it
+    // matter, not delete it.
+    const absentBases = this.#baseConstraintsOf(requirement.identity)
+      .filter(({ identity }) =>
+        DERIVABLE_IDENTITIES.has(identity) &&
+        this.#instances.get(this.#instanceKey(identity, type)) === undefined
+      )
+      .map(({ name: base }) => base);
+    // Declaration order, bases first: `derives (Eq, Ord)` is the order a
+    // `derives` clause is written in, and the order the missing-base row would
+    // have demanded them in.
+    const spelling = absentBases.length === 0
+      ? name
+      : `(${[...absentBases, name].join(", ")})`;
+    if (requirement.identity !== preRegisteredConstraintIdentity("Hash")) {
+      return {
+        replaces: false,
+        text: carriesList
+          ? `; add \`${spelling}\` to the \`derives\` list of \`${declaration.name}\``
+          : `; add \`derives ${spelling}\` to the declaration of \`${declaration.name}\``,
+      };
+    }
+    // The provenance channel is the instance record's own `derived` flag — the
+    // same one the derive-site Eq-agreement check reads (Collections Part 2
+    // §4.3). A *derived* `Eq` or none at all leaves `derives Hash` writable;
+    // a hand-written one bars it, and no repair through this type's own
+    // instances exists, so the report states the requirement and §4.5's route.
+    const equality = this.#instances.get(
+      this.#instanceKey(preRegisteredConstraintIdentity("Eq"), type),
+    );
+    if (equality !== undefined && !equality.derived) {
+      return {
+        replaces: true,
+        text: "; `derives Hash` requires a derived `Eq`, and " +
+          `\`${declaration.name}\` declares its own — key on a wrapper type ` +
+          "whose `Eq` and `Hash` are both derived",
+      };
+    }
+    const seat = relativeFilePath(here, home.path);
+    return {
+      replaces: true,
+      text: "; `Hash` instances cannot be hand-written, so the only repair is " +
+        (carriesList
+          ? `adding \`${spelling}\` to \`${declaration.name}\`'s \`derives\` list in \`${seat}\``
+          : `\`derives ${spelling}\` on the declaration of \`${declaration.name}\` in \`${seat}\``),
+    };
   }
 
   /**
@@ -9375,13 +9532,7 @@ class Checker {
         : undefined;
     }
     if (type.kind !== "Union" && type.kind !== "NominalRecord") return undefined;
-    // This module's view first, then the whole program's — the same pairing, and
-    // the same reason, as the §3.3 report's: a nominal reached only through an
-    // imported function's type is in neither of this module's own tables.
-    const declaration: Resolved.Union | Resolved.RecordDeclaration | undefined =
-      type.kind === "Union"
-        ? this.#unions.get(type.union) ?? find(this.#programNominals.unions, type.union)
-        : this.#records.get(type.record) ?? find(this.#programNominals.records, type.record);
+    const declaration = this.#nominalDeclaration(type);
     if (declaration === undefined) return undefined;
     const preludeSupplied = type.kind === "Union"
       ? this.#preludeUnionIds.has(type.union)
@@ -9392,6 +9543,33 @@ class Checker {
     // to name, is not a home worth offering.
     if (declaration.declaringPath === undefined) return undefined;
     return { name: declaration.name, path: declaration.declaringPath, statedHome };
+  }
+
+  /**
+   * The **resolved declaration** behind a nominal subject, or `undefined` for a
+   * type that is not one.
+   *
+   * This module's view first, then the whole program's — the same pairing, and
+   * the same reason, as the §3.3 report's: a nominal reached only through an
+   * imported function's type is in neither of this module's own tables.
+   *
+   * Split out of `#subjectHome` for #644's fixit, which needs the declaration
+   * itself and not only its home: whether a `derives` clause is already written
+   * there is what chooses between Constraints §8's two dialects, and only the
+   * declaration knows.
+   */
+  #nominalDeclaration(
+    type: Mono,
+  ): Resolved.Union | Resolved.RecordDeclaration | undefined {
+    if (type.kind === "Union") {
+      return this.#unions.get(type.union) ??
+        find(this.#programNominals.unions, type.union);
+    }
+    if (type.kind === "NominalRecord") {
+      return this.#records.get(type.record) ??
+        find(this.#programNominals.records, type.record);
+    }
+    return undefined;
   }
 
   /**
@@ -10624,7 +10802,15 @@ class Checker {
       constraintIdentity: imported.constraintIdentity,
       typeParameters: imported.typeParameters,
       subject: imported.subject,
-      derived: false,
+      // The declaring module's word, carried across every hop (#644). It used to
+      // be hard-coded `false`, which was harmless while nothing downstream asked
+      // — no member body is re-checked here, and the emitter reaches the
+      // exporter's dictionary either way — and stopped being harmless the moment
+      // §7.6's `Hash` report started asking whether the subject's `Eq` was
+      // hand-written: every imported `Eq` read as one, and the modal library case
+      // (`export record Point derives Eq` used as a `Set` element downstream) got
+      // the wrapper-key report in place of the one-word repair.
+      derived: imported.derived,
       dictionary: imported.localDictionary,
       // The declaring module's spellings, carried on so that a concrete member
       // call in *this* module can route to them (#444).

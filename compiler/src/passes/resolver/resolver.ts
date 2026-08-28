@@ -103,6 +103,13 @@ export interface InstanceInterface {
   readonly impliedTypes: readonly Resolved.HonorImpliedType[];
   readonly dictionary: string;
   /**
+   * Whether the declaring module derived this instance — see
+   * `Resolved.InstanceImport.derived`, which this becomes on the far side. The
+   * declaring module's word, so it passes through a transit re-export untouched
+   * exactly as the two fields below do.
+   */
+  readonly derived: boolean;
+  /**
    * The instance's member seats under this interface's spellings (#444), and
    * the path of the module that declared it — see `Resolved.InstanceImport`,
    * whose two fields these become on the far side. Both pass through a transit
@@ -593,6 +600,10 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
         // binding never outranks the module's own instance for its interface
         // name — and then `exportedDictionary` is the suffixed name itself.
         dictionary: item.exportedDictionary ?? item.dictionary,
+        // The declaring module's own answer, at the one seat that holds it: a
+        // `derives` clause and a `= derive` body both land here as `derived`,
+        // and neither is visible to any consumer (#644).
+        derived: item.derived,
         // §8's export clause read from the other side, seat by seat: the bare
         // spelling unless a declared-versus-declared contest pushed a suffix
         // this far. `declaringPath` is this module's, because this is the arm
@@ -615,7 +626,9 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
       impliedTypes: instance.impliedTypes,
       dictionary: instance.localDictionary,
       // Untouched in transit: the seats belong to the declaring module and are
-      // reached there, never through the hop that carried the dictionary.
+      // reached there, never through the hop that carried the dictionary, and
+      // `derived` is the declaring module's word in the same way.
+      derived: instance.derived,
       memberSeats: instance.memberSeats,
       ...(instance.declaringPath === undefined
         ? {}
@@ -2426,6 +2439,7 @@ class Resolver {
             // The exporter's interface name, unaliased. `nameDictionaries`
             // suffixes it later if this module contests the spelling (§5).
             localDictionary: instance.dictionary,
+            derived: instance.derived,
             memberSeats: instance.memberSeats,
             ...this.#seatOrigin(instance.declaringPath),
             span: item.span,
@@ -4829,6 +4843,7 @@ class Resolver {
           importedDictionary: instance.dictionary,
           // Unaliased, as in the explicit channel; `nameDictionaries` decides.
           localDictionary: instance.dictionary,
+          derived: instance.derived,
           memberSeats: instance.memberSeats,
           // `specifier` above names the prelude member this instance was
           // *found* in, which the deduplication above may have settled on

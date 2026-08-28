@@ -764,6 +764,24 @@ export interface InstanceImport {
   readonly importedDictionary: string;
   readonly localDictionary: string;
   /**
+   * Whether the declaring module wrote this instance as a **derivation** rather
+   * than by hand — `HonorItem.derived`, carried across every hop.
+   *
+   * The resolver's answer travels rather than being re-derived, the principle
+   * `identity`, `memberSeats` and `declaringPath` above already follow: nothing
+   * on this side can see the `derives` clause or the `= derive` body that
+   * settled it, and the two spellings of a derivation (Constraints §4.5's core
+   * form and the header sugar) mean even the declaration's own `derives` list is
+   * not a complete answer.
+   *
+   * Modules §7.6's derivation fixit is the consumer (#644): a derived `Hash`
+   * requires a derived `Eq`, so a missing-`Hash` report at an imported type has
+   * to know which kind of `Eq` the type's own module wrote. Defaulting it here
+   * would make every imported `Eq` read as hand-written and fire the wrapper-key
+   * report on the modal library case.
+   */
+  readonly derived: boolean;
+  /**
    * The instance's member seats under the **declaring** module's interface
    * spellings (#444), carried unchanged across every hop for the reason
    * `identity` is: a consumer routing a concrete member call to a seat has to
