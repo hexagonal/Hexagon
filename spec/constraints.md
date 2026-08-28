@@ -325,6 +325,8 @@ Comparison/`equals` operator sugar (`==`, `<`, etc. dispatching to these members
 
 Diagnostic noun policy (restated from the preamble): the noun is **instance**, the verb is **honor**; "implement"/"implementation" do not appear in this mechanism's diagnostics.
 
+Displayed-type law, all reports (#649): **no diagnostic displays a numbered inference variable.** An unsolved variable surviving into any reported type is named — Numeric Literals §6's rule, "named rather than numbered where they survive", generalised from its fixit to the one entry point every diagnostic reads a type through — fresh names deduped against every name already visible in the displayed type: its declared variables and any survivor already carrying a display name. So `Box(?442)` is unwritable and the head reads `type `Box(a)` has no `Hash` instance`, §5.4's general-head convention. Naming is a label, never a solution: display binds nothing, and a seat that can honestly settle a variable first (§6's own settle-then-name sequence at the literal fixit) does so deliberately before reporting, never from inside display. Two types displayed in one message name independently, as Effects §10's arrow numbering already does, its unit being the one displayed type expression.
+
 | Situation | Error / hint |
 |---|---|
 | Missing member in `honor` | "the `Ord<Point>` instance is missing `compare`" |
