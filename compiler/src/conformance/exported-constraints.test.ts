@@ -308,7 +308,15 @@ describe("base-constraint entailment through an imported constraint", () => {
         "export fun run(): String = banner(Siren({pitch = 3}))",
         "",
       ].join("\n")],
-    ])).toEqual(["type `Siren` has no `Loud` instance"]);
+    ])).toEqual([
+      // §7.6's **ordinary** clause, not its sealed one: `Loud` is exported, so
+      // `main` is one `import { Loud } from "./units"` away from writing the
+      // honor at its own type, and its own file is the home the report leads
+      // with. (`./units.hex` could not hold it — naming `Siren` there would need
+      // an import of `./main.hex`, which §7.3 forbids on this graph.)
+      "type `Siren` has no `Loud` instance; it could only be declared in `./main.hex` " +
+        "(declares `Siren`) or `./units.hex` (declares `Loud`)",
+    ]);
   });
 });
 
@@ -404,7 +412,10 @@ describe("a base chain whose middle link the importer cannot name", () => {
         "    big(o) = \"ounce\"",
         "",
       ].join("\n")],
-    ])).toEqual(["type `Ounce` has no `Small` instance"]);
+    ])).toEqual([
+      "type `Ounce` has no `Small` instance; `Small` is not nameable here, so the honor " +
+        "can only be written in `./scales.hex`, which declares it",
+    ]);
   });
 });
 

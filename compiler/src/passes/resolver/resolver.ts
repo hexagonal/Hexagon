@@ -2584,6 +2584,11 @@ class Resolver {
           baseConstraintIdentities: item.baseConstraints.map(({ text }) =>
             this.#constraintIdentity(text)
           ),
+          // The declaring file, stamped here and carried onward untouched — the
+          // orphan rule's "the module that declares `C`" (Constraints §5.3), and
+          // what Modules §7.6's missing-instance report names
+          // (`Resolved.ConstraintItem.declaringPath`).
+          ...(this.#path === undefined ? {} : { declaringPath: this.#path }),
           impliedTypes: item.impliedTypes.map(({ name, span }) => ({
             name: name.text,
             span,

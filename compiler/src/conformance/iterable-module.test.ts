@@ -475,7 +475,12 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
         "    for item in maybe\n" +
         "        ()\n",
     );
-    expect(messages).toContain("type `Option(Int)` has no `Iterable` instance");
+    expect(messages).toContain(
+      "type `Option(Int)` has no `Iterable` instance; its only legal homes are " +
+        "the module declaring `Iterable` and the prelude module declaring " +
+        "`Option`, both outside project source, so this pair's honored set is " +
+        "closed — change the type, or go through the operations those homes export",
+    );
     expect(messages.join("\n")).not.toContain("is not iterable");
   });
 
@@ -508,15 +513,30 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
     );
   });
 
-  /** The concrete non-nominal row, unchanged: no home to name, so no homes named. */
+  /**
+   * The concrete non-nominal row keeps the **generic** report — §3.3's loop-head
+   * fixit is still not what fires — but the generic report is no longer bare:
+   * a primitive does have a home, its fixed prelude companion (Constraints
+   * §5.3), and Modules §7.6 obliges the pair be named. Both homes here are
+   * outside project source, so what it names is the closed set, never an honor
+   * to write (#287).
+   */
   test("a concrete non-nominal type keeps its own report", () => {
     const messages = projectDiagnostics(
       "export fun run(): Unit =\n" +
         "    for item in 42\n" +
         "        ()\n",
     );
-    expect(messages).toContain("type `Int` has no `Iterable` instance");
-    expect(messages.join("\n")).not.toContain("legal home");
+    expect(messages).toContain(
+      "type `Int` has no `Iterable` instance; its only legal homes are the " +
+        "module declaring `Iterable` and `Int`'s prelude companion module, both " +
+        "outside project source, so this pair's honored set is closed — change " +
+        "the type, or go through the operations those homes export",
+    );
+    // The loop-head report and its `honor` fixit stay away: no file the user
+    // cannot edit is offered as a seat.
+    expect(messages.join("\n")).not.toContain("is not iterable");
+    expect(messages.join("\n")).not.toContain("Define `honor");
   });
 });
 

@@ -119,6 +119,20 @@ export function preRegisteredConstraintIdentity(name: string): string {
   return `hex:${name}`;
 }
 
+/**
+ * Whether an identity is a **pre-registered** one — the `hex:` space above,
+ * asked of an identity rather than of a name.
+ *
+ * The distinction is the point: a module's own `constraint Show` would mint
+ * `<fileId>:Show` (and is refused outright by §5.1.1's ban), so a name is not a
+ * safe test for "this constraint's declaration is the prelude's". Modules §7.6's
+ * missing-instance report asks exactly this question to decide whether a home is
+ * offerable, and it must not be answerable by shadowing.
+ */
+export function isPreRegisteredIdentity(identity: string): boolean {
+  return identity.startsWith("hex:");
+}
+
 /** The identity of a constraint declared by the module with this file id. */
 export function declaredConstraintIdentity(
   fileId: number,
