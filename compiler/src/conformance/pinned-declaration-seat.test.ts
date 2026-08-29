@@ -100,13 +100,16 @@ describe("a §2.3-pinned type's seat is the pin's alias (§14.5)", () => {
     // already settled ahead of §2.4's sink, so the faces spelled the notion
     // before this rule and spell it after — including the alias's own module,
     // which deliberately does not route its faces through the new name.
+    //
+    // The absence goes **first**, ahead of the positive pins below, because it
+    // is the broader of the two claims: a sink answering for `Seq` writes the
+    // declared name at every parameter seat in this file, `declare function` and
+    // `declare const` alike, while each positive pin below names one of them. An
+    // assertion that only ever runs after its own subject has been caught by a
+    // narrower neighbour is not the guard it reads as.
+    expect(seq).not.toContain("source: Seq<a>");
     expect(lines(files, "Seq.d.ts")).toContain("export declare const empty: Iterable<never>;");
     expect(seq).toContain("export declare function memoize<a>(source: Iterable<a>): Iterable<a>;");
-    // A face spelling the *declared name* rather than the notion, named as the
-    // parameter seat `memoize` above pins positively: this is the text a sink
-    // answering for `Seq` would produce, and the alias being transparent is
-    // exactly why nothing else in the file would notice.
-    expect(seq).not.toContain("source: Seq<a>");
     expect(lines(files, "main.d.ts")).toContain("export declare const e: Iterable<number>;");
   });
 
