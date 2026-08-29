@@ -1252,6 +1252,103 @@ function pinnedDeclarationFace(
 }
 
 /**
+ * FFI Part 7 §1.1's **contested vocabulary**: the TypeScript standard-library
+ * spellings this file's face rules can write (#662; correction record §14.6).
+ *
+ * TypeScript resolves a name file-locally before its library, so a type-space
+ * binding under one of these in a module's own `.d.ts` captures every face there
+ * written in it. Four measured severity classes: a non-generic capture ships a
+ * declaration file that fails the consumer's compile (`TS2315`); a *same-arity*
+ * capture compiles clean everywhere with every face silently meaning the user's
+ * type; an `Error` capture strips the real `Error` members from every exception
+ * face; and an exception itself named `Error` captures its own face into a
+ * circular alias (`TS2456`), which no TypeScript accepts.
+ *
+ * **This is the list, once.** A second copy is how the two halves of the repair
+ * drift apart, and each half reads the whole list: the spellings join every
+ * probe universe (§1.1 half 1, so nothing the compiler mints can take a lib
+ * spelling a face needs), and a face written in one qualifies through
+ * `globalThis` exactly where the file's universe binds it (§1.1 half 2,
+ * `VocabularyFaces`).
+ *
+ * **The vocabulary is defined by the faces, not by TypeScript's library.** It
+ * holds exactly what the seats below emit, and grows only when a face rule is
+ * added — `IterableIterator` joins with Part 3 §14.2's `Stream` face (#659), on
+ * the same edit that teaches `renderType`'s pinned arm to spell it. TypeScript
+ * growing its library moves nothing: a global no face spells captures nothing,
+ * because the capture needs both sides. Lowercase library spellings (`boolean`,
+ * `number`, `string`, `void`, `unknown`, `never`) are outside it permanently —
+ * nominal names are parser-gated uppercase.
+ *
+ * The one lib spelling a face rule writes that is deliberately *not* here is
+ * `renderType`'s `Node` arm (`Array<…>`), the hidden vector-trie node: §1.1
+ * enumerates the vocabulary from the published faces, and that arm's own note
+ * records that the node never appears in a public `.d.ts`. A change that
+ * publishes it has to revisit this list alongside that note.
+ */
+const CONTESTED_VOCABULARY = [
+  "Iterable",
+  "ReadonlyArray",
+  "ReadonlyMap",
+  "ReadonlySet",
+  "Error",
+] as const;
+
+/** One member of the vocabulary above — the argument `VocabularyFaces` takes. */
+type ContestedSpelling = typeof CONTESTED_VOCABULARY[number];
+
+/**
+ * One declaration file's spelling of the contested vocabulary (FFI Part 7 §1.1
+ * half 2): bare where nothing in the file contests it, `globalThis.`-qualified
+ * where something does.
+ *
+ * **Collision-only**, which is the house rule that a probe which has not had to
+ * move emits the text it always emitted, read at the face: a file whose universe
+ * binds no contested spelling emits the bare vocabulary byte-identically to
+ * before this rule existed. Constant qualification was rejected — it would spend
+ * every shipped file's resemblance to hand-written TypeScript on a hazard only
+ * self-colliding files have (§14.6).
+ *
+ * The qualified spelling **is** the library type: assignability, inference and
+ * member access are byte-for-byte those of the bare spelling, consumers never
+ * write the qualifier themselves, and the reference works on every toolchain
+ * that can consume these declarations at all (measured through real `tsc` at
+ * 4.7, 5.0, 5.6 and current). The qualifier is itself beyond contest, and not by
+ * the uppercase gate: `export let globalThis: Int = 1` is legal Hexagon and
+ * emits a `declare const globalThis` into the same file, and the qualified faces
+ * still resolve to the library types, because TypeScript resolves `globalThis`
+ * in type position specially rather than through the file's bindings.
+ *
+ * The universe is §2.4's **flat** one — every top-level identifier the module's
+ * items can put in the file, read without per-namespace subtlety. The bindings
+ * that make qualification *necessary* are the type-space ones (an exported type,
+ * a carried named import's local); a value-space-only member — a constructor
+ * sharing the spelling, a carried namespace alias — triggers a qualification the
+ * file did not strictly need, which is this rule's instance of §2.4's licensed
+ * over-claim: one flat universe, no second drifting quantity, at the cost of a
+ * harmless qualified spelling.
+ *
+ * Settled **before** any face is rendered, like every other spelling this file
+ * chooses: the decision is per (file, spelling) and reads a property of the
+ * module, so no seat's answer depends on the order the seats are visited in.
+ */
+class VocabularyFaces {
+  readonly #qualified: ReadonlySet<string>;
+
+  constructor(universe: ReadonlySet<string>) {
+    this.#qualified = new Set(CONTESTED_VOCABULARY.filter((name) => universe.has(name)));
+  }
+
+  /** The spelling this file writes for one vocabulary member. */
+  spell(name: ContestedSpelling): string {
+    return this.#qualified.has(name) ? `globalThis.${name}` : name;
+  }
+}
+
+/** The inert vocabulary a file with no universe to consult holds: always bare. */
+const BARE_VOCABULARY = new VocabularyFaces(new Set());
+
+/**
  * The `Hex.*` runtime collection faces, exactly as FFI Part 1 §8.3 fixes them.
  *
  * The brand is a structural phantom marker rather than Part 7 §5's `unique
@@ -1264,20 +1361,28 @@ function pinnedDeclarationFace(
  * Binders are lowercase per FFI Part 7 §2.2. No `/// <reference lib="…" />`
  * accompanies these: the declared floor is a consuming `lib` of es2015 or
  * later, stated rather than silently widened (§8.3).
+ *
+ * `Iterable` is a parameter because these lines are *faces*, and the preview
+ * writes them into the module's own pane where a user's `Iterable` can capture
+ * them — measured, `TS2315` on the `extends` clause. The shipped runtime module
+ * is a file of its own whose four top-level names are fixed, so it never
+ * qualifies and passes the bare spelling.
  */
-const RUNTIME_FACE_DECLARATIONS = [
-  `export interface Vector<a> extends Iterable<a> { readonly "~hex": "Vector"; }`,
-  `export interface Set<a> extends Iterable<a> { readonly "~hex": "Set"; }`,
-  `export interface Map<k, v> extends Iterable<[k, v]> { readonly "~hex": "Map"; }`,
-  `export interface Range extends Iterable<number> { readonly "~hex": "Range"; }`,
-] as const;
+function runtimeFaceDeclarations(iterable: string): readonly string[] {
+  return [
+    `export interface Vector<a> extends ${iterable}<a> { readonly "~hex": "Vector"; }`,
+    `export interface Set<a> extends ${iterable}<a> { readonly "~hex": "Set"; }`,
+    `export interface Map<k, v> extends ${iterable}<[k, v]> { readonly "~hex": "Map"; }`,
+    `export interface Range extends ${iterable}<number> { readonly "~hex": "Range"; }`,
+  ];
+}
 
 /** The basename stem the runtime declaration module claims before probing. */
 export const RUNTIME_DECLARATIONS_STEM = "hex";
 
 /** The text of a program's runtime declaration module (FFI Part 1 §8.3). */
 export function runtimeDeclarationsText(): string {
-  return `${RUNTIME_FACE_DECLARATIONS.join("\n")}\n`;
+  return `${runtimeFaceDeclarations(BARE_VOCABULARY.spell("Iterable")).join("\n")}\n`;
 }
 
 /**
@@ -1287,12 +1392,17 @@ export function runtimeDeclarationsText(): string {
  * obligation 6 has it declare the namespace inline instead. Members of an
  * ambient namespace are exported implicitly; the `export` keyword is dropped
  * because writing it inside `declare namespace` is redundant, and the bodies
- * are otherwise character-for-character the normative ones.
+ * are otherwise character-for-character the normative ones — including §1.1's
+ * qualification, since sharing the pane is exactly what exposes them to it.
  */
-function runtimeNamespaceDeclaration(alias: string): readonly string[] {
+function runtimeNamespaceDeclaration(
+  alias: string,
+  vocabulary: VocabularyFaces,
+): readonly string[] {
   return [
     `declare namespace ${alias} {`,
-    ...RUNTIME_FACE_DECLARATIONS.map((line) => `  ${line.replace(/^export /, "")}`),
+    ...runtimeFaceDeclarations(vocabulary.spell("Iterable"))
+      .map((line) => `  ${line.replace(/^export /, "")}`),
     "}",
   ];
 }
@@ -1645,6 +1755,14 @@ interface DeclarationFaces {
    * whose every rung declines and whose answer is the declared name.
    */
   readonly nominals: NominalFaces;
+  /**
+   * §1.1's contested vocabulary, per file. **The preview is not out of scope
+   * here**, and the two readings do not conflict: §2.4's Scope note keeps the
+   * preview on bare *names* because the pane has nothing to import from, and
+   * qualification imports nothing — so the preview shows what would ship, which
+   * is the #622 precedent (§14.6).
+   */
+  readonly vocabulary: VocabularyFaces;
 }
 
 /**
@@ -2023,13 +2141,24 @@ function qualifyingAliases(
  * spelling — so it is the same superset every probe here works against. Where it
  * over-claims, an alias moves that need not have; the cost of that is a spelling
  * exported from neither file, which is why the safe direction is this one.
+ *
+ * §1.1's contested vocabulary joins the **suffix probe** and deliberately not
+ * the yield *decision*. The two are different questions asked of one set here:
+ * a yielding alias must not land on a lib spelling a face needs (half 1, which
+ * is why it is in `taken`), but a namespace binding does not occupy the plain
+ * type-name space — measured with a control (#662) — so `import module Iterable`
+ * captures nothing and is not a reason for the source alias to step aside.
+ * Making it one would be worse than idle: the alias would leave the universe as
+ * `Iterable_1` and the file's genuinely-owed qualification would stop firing.
+ * §14.6 states the outcome directly — a carried `import module Iterable`
+ * triggers only the licensed harmless qualification, never a yield.
  */
 function declarationAliasPlan(
   aliases: readonly string[],
   contestants: ReadonlySet<string>,
 ): ReadonlyMap<string, string> {
   if (!aliases.some((alias) => contestants.has(alias))) return new Map();
-  const taken = new Set([...contestants, ...aliases]);
+  const taken = new Set<string>([...contestants, ...aliases, ...CONTESTED_VOCABULARY]);
   const plan = new Map<string, string>();
   for (const alias of aliases) {
     if (!contestants.has(alias)) continue;
@@ -8007,7 +8136,24 @@ class DeclarationEmitter {
       ),
       ...brands,
     ]);
-    const runtime = new RuntimeFaces(runtimeFacesAlias(module, universe));
+    // §1.1 half 2, and it reads the universe **before** the vocabulary joins it
+    // below: what this asks is whether the *module* binds a contested spelling,
+    // and a set that carries the vocabulary unconditionally answers yes always.
+    // The aliases are already at their emitted spellings here, which is the
+    // whole of §14.6's namespace clause — a yielded `Iterable_1` is not an
+    // `Iterable` in this universe, and a carried, unyielded one is.
+    const vocabulary = new VocabularyFaces(universe);
+    // §1.1 half 1: the vocabulary joins every probe universe, so no spelling the
+    // compiler mints can take a lib spelling a face needs. It bites at rung 5 —
+    // a minted local's first candidate is the foreign type's *own name*, so a
+    // module exporting a record genuinely named `Iterable` would otherwise be
+    // imported under `Iterable` here and capture this file's `Seq` faces. The
+    // other two probes below can only ever produce `Hex_n` and `Name_n`, so the
+    // vocabulary is inert for them; they read it anyway, because a probe that
+    // reads a different universe from its neighbours is the drift this rule's
+    // single list exists to prevent.
+    const probed = new Set([...universe, ...CONTESTED_VOCABULARY]);
+    const runtime = new RuntimeFaces(runtimeFacesAlias(module, probed));
     // The settled runtime alias joins the probe's universe: it is a top-level
     // identifier of this file that `declarationTopLevelNames` deliberately does
     // not carry, being generated rather than source-derived.
@@ -8017,10 +8163,11 @@ class DeclarationEmitter {
     // name. Cosmetic, and it errs the safe way: the cost of over-claiming is a
     // moved generated spelling, the cost of under-claiming is a `.d.ts` that
     // does not compile.
-    const taken = new Set([...universe, runtime.alias]);
+    const taken = new Set([...probed, runtime.alias]);
     this.#faces = {
       prelude,
       runtime,
+      vocabulary,
       nominals: new NominalFaces({
         fileId: module.fileId,
         own,
@@ -8257,7 +8404,7 @@ class DeclarationEmitter {
     // own rows: it is the module's guard, not any one exception's, and its
     // emitted counterpart sits with the export lines for the same reason.
     if (this.#module.items.some((item) => item.kind === "Exception" && item.exported)) {
-      declarations.push(renderIsHexErrorDeclaration());
+      declarations.push(renderIsHexErrorDeclaration(this.#faces));
       isExternalModule = true;
     }
     // Every rung's answers are in; the file's imports are exactly what they owe.
@@ -8390,9 +8537,21 @@ class TypeScriptPreviewEmitter {
   constructor(module: Core.Module) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
+    // The preview writes every namespace alias line unconditionally and is out
+    // of §2.4's gated-alias scope, so its universe carries them all — the
+    // default `declarationTopLevelNames` reading, which is also the one the
+    // runtime-alias probe here has always used.
+    const universe = declarationTopLevelNames(module);
     this.#faces = {
       prelude: preludeIds(module),
-      runtime: new RuntimeFaces(runtimeFacesAlias(module)),
+      runtime: new RuntimeFaces(
+        runtimeFacesAlias(module, new Set([...universe, ...CONTESTED_VOCABULARY])),
+      ),
+      // §1.1 qualifies here too, and the preview is the one file where the
+      // *runtime* faces are exposed to the capture as well: the pane declares
+      // `Hex` inline, so `interface Vector<a> extends Iterable<a>` shares a
+      // scope with the user's own `Iterable` (measured, `TS2315`).
+      vocabulary: new VocabularyFaces(universe),
       // Inert: §2.4's Scope keeps the preview on bare names. It is one pane of
       // text with nothing to import from, so every rung declines and the sink
       // answers with the declared name — which is what the preview has always
@@ -8639,7 +8798,7 @@ class TypeScriptPreviewEmitter {
     // The stage-1 guard's face (Exceptions §7.6), on the same condition the
     // `.d.ts` emits it on: at least one *exported* exception.
     if (this.#module.items.some((item) => item.kind === "Exception" && item.exported)) {
-      declarations.push(renderIsHexErrorDeclaration());
+      declarations.push(renderIsHexErrorDeclaration(this.#faces));
       isExternalModule = true;
     }
 
@@ -8650,7 +8809,9 @@ class TypeScriptPreviewEmitter {
     // The header goes first to read like one, not because TypeScript needs it
     // there: a type reference may precede its declaration in the same file.
     if (this.#faces.runtime.used) {
-      declarations.unshift(...runtimeNamespaceDeclaration(this.#faces.runtime.alias));
+      declarations.unshift(
+        ...runtimeNamespaceDeclaration(this.#faces.runtime.alias, this.#faces.vocabulary),
+      );
     }
     if (!isExternalModule) declarations.push("export {};");
 
@@ -10867,7 +11028,8 @@ function renderType(
           // The brand carries the declaring module (#488), so the face that
           // admits *any* Hexagon exception says `string` — the same shape
           // `isHexError` narrows to (Exceptions §7.6).
-          return "Error & { readonly $hex: string; readonly name: string }";
+          return `${faces.vocabulary.spell("Error")} ` +
+            "& { readonly $hex: string; readonly name: string }";
       }
     case "Variable":
       return variables.get(type.id) ?? "unknown";
@@ -10895,7 +11057,9 @@ function renderType(
       // surface (FFI Part 1 §4.1; Part 2 §6.1, §13), so the face is the
       // immutable spelling. Structural, not branded: the value is an ordinary
       // foreign JS array, not one of the runtime collections above.
-      return `ReadonlyArray<${renderType(type.element, variables, faces, false)}>`;
+      return `${faces.vocabulary.spell("ReadonlyArray")}<${
+        renderType(type.element, variables, faces, false)
+      }>`;
     case "JsMap":
     case "JsSet":
       // The borrowed views of native `Map`/`Set` (FFI Part 10 §1). Structural
@@ -10904,10 +11068,12 @@ function renderType(
       // no mutation on it, so the readonly spelling is the whole of what the
       // face has to say (§1's table).
       return type.kind === "JsSet"
-        ? `ReadonlySet<${renderType(type.element, variables, faces, false)}>`
-        : `ReadonlyMap<${renderType(type.key, variables, faces, false)}, ${
-          renderType(type.value, variables, faces, false)
-        }>`;
+        ? `${faces.vocabulary.spell("ReadonlySet")}<${
+          renderType(type.element, variables, faces, false)
+        }>`
+        : `${faces.vocabulary.spell("ReadonlyMap")}<${
+          renderType(type.key, variables, faces, false)
+        }, ${renderType(type.value, variables, faces, false)}>`;
     case "Node":
       // The hidden trie node never appears in a public `.d.ts`; its honest JS
       // shape is a fixed-length mutable array of the slot type.
@@ -10942,7 +11108,9 @@ function renderType(
       // no brand (Part 7 §2.3, §14.5, #622), and a pin true here but false there
       // is the divergence this issue repaired.
       if (pinnedRecord(type.record, faces.prelude)) {
-        return `Iterable<${renderType(type.arguments[0] ?? { kind: "Error" }, variables, faces, false)}>`;
+        return `${faces.vocabulary.spell("Iterable")}<${
+          renderType(type.arguments[0] ?? { kind: "Error" }, variables, faces, false)
+        }>`;
       }
       return renderNominal(
         faces.nominals.reference({ kind: "record", id: type.record }, type.qualifier, type.name),
@@ -11084,7 +11252,12 @@ function renderExceptionDeclarations(
   const name = item.binding.name;
   const slot = (slot: Typed.ConstructorSlot): string =>
     `${slot.field}: ${renderType(slot.type, new Map(), faces, false)}`;
-  const face = `Error & { readonly $hex: ${JSON.stringify(item.owner)}` +
+  // §1.1: the exception face is the vocabulary's sharpest seat. An `export
+  // record Error` in this file silently intersects every one of these with the
+  // user's record instead of the library's `Error`, and an exception *itself*
+  // named `Error` makes the row a circular alias no TypeScript accepts.
+  const face = `${faces.vocabulary.spell("Error")} & ` +
+    `{ readonly $hex: ${JSON.stringify(item.owner)}` +
     `; readonly name: ${JSON.stringify(name)}` +
     `${item.slots.map((declared) => `; readonly ${slot(declared)}`).join("")} }`;
   const rows = [
@@ -11105,9 +11278,14 @@ function renderExceptionDeclarations(
  * module that exports at least one exception. Its predicate narrows an
  * `unknown` catch binding to the shape every Hexagon exception shares.
  */
-function renderIsHexErrorDeclaration(): string {
+function renderIsHexErrorDeclaration(faces: DeclarationFaces): string {
+  // §1.1 reaches the guard as much as the faces: captured, its predicate narrows
+  // a caught value to the *user's* type intersected with the brand shape, so a
+  // consumer's `e.message` in the true branch stops typechecking — the guard is
+  // degraded rather than broken, which is why it is pinned rather than assumed.
   return `export declare function ${IS_HEX_ERROR}(${GUARD_PARAMETER}: unknown): ` +
-    `${GUARD_PARAMETER} is Error & { readonly $hex: string; readonly name: string };`;
+    `${GUARD_PARAMETER} is ${faces.vocabulary.spell("Error")}` +
+    ` & { readonly $hex: string; readonly name: string };`;
 }
 
 function patternBindings(pattern: Core.Pattern): Core.Binding[] {
