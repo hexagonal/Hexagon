@@ -368,7 +368,7 @@ Diagnostics for extern declaration *syntax* (callable `let`, missing subject par
 
 ## 10. Part 12 closeout
 
-Part 12 §11.1 fixes the deterministic `Hex`-alias collision scheme promised by §8. The declaration emitter tries `Hex`, then `Hex_1`, `Hex_2`, … and takes the first candidate colliding with no top-level identifier the module's items can put in that `.d.ts`, regardless of TypeScript namespace. Only the generated import alias is renamed; a user export is never renamed. The universe probed against is deliberately a superset of what the file finally emits, and Part 7 §2.4 states why.
+Part 12 §11.1 fixes the deterministic `Hex`-alias collision scheme promised by §8. The declaration emitter tries `Hex`, then `Hex_1`, `Hex_2`, … and takes the first candidate colliding with no top-level identifier the module's items can put in that `.d.ts`, regardless of TypeScript namespace, nor any spelling in Part 7 §1.1's contested vocabulary (#662). Only the generated import alias is renamed; a user export is never renamed. The universe probed against is deliberately a superset of what the file finally emits, and Part 7 §2.4 states why.
 
 ---
 
