@@ -587,7 +587,7 @@ The issue is corrected by comment, not by rewriting its body (the #235 precedent
 - The ruling as first drafted priced no reachability edge, and implementation found the gap the hard way: a project whose only use of `Option` is a face compiled clean and emitted `import type … from "./Option.js"` beside no `Option.d.ts` — #227's own failure in a new dress. §2.4's Reachability paragraph now carries the obligation; `Emitted.Declarations.preludeTypeImports` records the edges for `compileProject`'s reachability walk, beside `preludeInstanceImports` and `preludeTermImports`.
 - Conformance: `compiler/src/conformance/cross-module-type-imports.test.ts` — the emitted prelude's declaration files pass real `tsc` **as a set** (the filed acceptance: `Seq.d.ts` compiles), plus the term+type route, the explicit-prelude-import single-binding property, occlusion, and a negative control on the pre-fix spelling.
 - §2.1's "exactly one type-only namespace import" is amended in place — it remains the only *namespace* import; §14.1's two expired passages carry discharge notes; Part 1 §8.3's acceptance item strikes #227 from its "may still trip" list (its scope fence already assigned the fix here and is unchanged).
-- The TypeScript **preview** is out of scope and keeps bare names (§2.4 Scope); the shipped `.d.ts` is the boundary artifact, the preview is one importless pane.
+- The TypeScript **preview** is out of scope for the sink's *names* and keeps them bare (§2.4 Scope); the shipped `.d.ts` is the boundary artifact, the preview is one importless pane. §1.1's vocabulary qualification reaches it all the same — qualification imports nothing, so the preview carries it exactly as the shipped file does (§14.6).
 
 **Rejected alternatives (do not re-litigate):**
 
