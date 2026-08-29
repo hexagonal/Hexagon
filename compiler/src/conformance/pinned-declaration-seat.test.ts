@@ -102,7 +102,11 @@ describe("a §2.3-pinned type's seat is the pin's alias (§14.5)", () => {
     // which deliberately does not route its faces through the new name.
     expect(lines(files, "Seq.d.ts")).toContain("export declare const empty: Iterable<never>;");
     expect(seq).toContain("export declare function memoize<a>(source: Iterable<a>): Iterable<a>;");
-    expect(seq).not.toContain("Seq<a>>");
+    // A face spelling the *declared name* rather than the notion, named as the
+    // parameter seat `memoize` above pins positively: this is the text a sink
+    // answering for `Seq` would produce, and the alias being transparent is
+    // exactly why nothing else in the file would notice.
+    expect(seq).not.toContain("source: Seq<a>");
     expect(lines(files, "main.d.ts")).toContain("export declare const e: Iterable<number>;");
   });
 
@@ -136,6 +140,15 @@ describe("a §2.3-pinned type's seat is the pin's alias (§14.5)", () => {
           'import { e, twice } from "./main.js";\n' +
           "export const byBrand: Seq<number> = e;\n" +
           "export const roundTrip: number = twice(byBrand);\n" +
+          // The outbound direction through the *declared* type, and the only
+          // line here that really carries it. `byBrand` is a `const` with an
+          // initializer, so TypeScript narrows it to `typeof e` at every use
+          // site: the line above measures `Iterable<number>` reaching `twice`
+          // however wide `Seq<number>` is, and passed with the seat mutated to
+          // `Iterable<a> | undefined`. A parameter is not narrowed, so this one
+          // asks what the issue asked — a value named by the exported type is
+          // accepted by an exported function.
+          "export const viaParam = (s: Seq<number>): number => twice(s);\n" +
           // The other direction of the same claim: the name and the face are
           // one type, so a value the consumer builds against the native
           // spelling satisfies the exported name too.
