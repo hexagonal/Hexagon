@@ -2168,11 +2168,106 @@ than settling a style question.
   its own `compileProject` path, established rather than assumed. The review
   re-derived the failure split and the instrumentation independently, and
   its probes past the suite filed two pre-existing byproducts: a derived
-  `Hash` collapsing to a constant over a *reached* nominal component — a
-  residue the record half has carried since #587 (#609) — and a
-  `()`-fixit parity gap on the same import-keyed table (#610).
+  `Hash` collapsing to a constant over a *reached* nominal component
+  (#609) *(Amended 2026-08-29, #609: the origin predates #587 — see that
+  entry.)* — and a `()`-fixit parity gap on the same import-keyed table
+  (#610).
 - **Credit:** filed by the #604 review's adversarial instrumentation, which
   built the three-file reproduction the arc's own probe had generalized
   past; the wider inventory — the vacuous pattern typing and both emitter
   misjudgments — established by probe when this arc opened. Repaired in
   PR #608.
+
+## 2026-08-29 — derived `Hash` re-derived components the checker had already selected (#609)
+
+- **Classification:** compiler defect against specification; no design
+  change. Pre-existing, and older than both mechanisms the neighbouring
+  entries name: the walk misses on the emitter's own by-id lookup, so it
+  never depended on a reached declaration registering anywhere — both
+  halves reproduce clean, hash collapsed, on the compiler that predates
+  #587's implementation. Found by the #608 review's probes past its suite;
+  the severer equality half below was found by probe when this arc opened
+  and folded in by ruling.
+- **Authority:** Products §2.5's implementer note (a component means its
+  instance, #278): "the checker selects the component instances when it
+  discharges the demands; emission must render that same selection", and in
+  so many words — "`Hash` is no exemption: component hashes come from
+  component instances too … never by a representation walk." Shortcuts are
+  licensed only by Operators §5.1's fast-path criterion, "only where the
+  emitted operation provably preserves the selected instance's semantics."
+  Collections Part 2 §4.3 (a derived hash requires derived equality) is
+  what made the structural expansion *look* semantics-preserving; Part 4's
+  §8.1 extensional `Eq`, §3.3 duplicates rule, and §5.1 upsert are what the
+  equality half observably violates.
+- **Defect origin:** `#derivedHash` and the hash-backed mode of
+  `#derivedEquals` (the `eq` slot of a structural `Hash` dictionary) were
+  the last two components-blind walks — the hash walk took no component
+  selection at all, and the hash-backed equality dropped the one it was
+  handed, both under a licence whose premise ("the structural answer *is*
+  the instance's answer") is true of the law and false of the emission the
+  moment the declaration is out of the import-keyed tables. On a component
+  whose nominal reaches the module only through an imported alias, the
+  by-id lookups miss and the walks take their miss arms: `0` for the hash —
+  a derived instance of literally `__value => __mixHash(0, 0)`, the
+  component's imported dictionary unused beside it — and JavaScript `===`
+  for the equality, which over a reached *tagged* union is reference
+  equality on fresh objects. Two symptom classes on diagnostic-free
+  programs: silent hash-quality collapse (every value of the deriving type
+  in one bucket, diverging from what the direct-import spelling emits), and
+  wrong `Set`/`Map` answers — two equal structural records over a reached
+  tagged union occupy two `Set` members.
+- **Correction:** the ruled repair (2026-08-29, recorded on #609) makes the
+  two walks evidence-directed, exactly as #278 made `equals`, `compare`,
+  and `show`: each component position renders the evidence the checker
+  selected — an `Instance` dispatches (`.hash(v)`; for the hash-backed
+  equality, the `Hash` evidence's embedded `.eq.equals`, the components
+  having been raised as `Hash`), `Structural` evidence recurses carrying
+  its own selection, and the #344 primitive fast path stands unchanged. The
+  program-table alternative was declined: the walks recurse through
+  representations, so a declaration door would owe transitive
+  materialization plus a reached-records carriage, where evidence chains
+  carry reach for free. The ruling's condition — that the selection is
+  complete at every seat dispatch relies on — was verified before it was
+  recorded: `Hash` sits in `structuralConstraints`, so `#validate` keeps
+  per-component `Hash` requirements at every structural shape under the
+  walk's own keys, and `#derivationComponents` covers the declaration-site
+  derives for records and unions both. The hash walk's `Set`/`Map` arms,
+  which synthesized empty-selection structural evidence, now read the
+  checker's recorded `element`/`key`/`value` components through the same
+  door as the equality walk's. The miss arms stand as best-effort on
+  already-diagnosed modules; on the filed record program the
+  previously-unused imported dictionary is now the emitted answer —
+  `__mixHash(0, __Hash_Flag.hash(__value.f))`, the instance's own `eq` slot
+  still the derived `Eq` instance beside it; on the filed `Set` program the
+  structural element dictionary's embedded equality is
+  `__Hash_Shape.eq.equals(…)` where it was `===`. The licence comments the
+  repair retires — "`Hash` is the one member still walked structurally" and
+  the hash-backed mode's "always `undefined`" — are rewritten to what is
+  now true, along with the two further comments that cited the exemption.
+- **Executable conformance:**
+  `conformance/derived-hash-component-dispatch.test.ts` — eleven rows:
+  reached untagged and tagged union components hash distinctly; the
+  reached nominal-record half; the `Set` program holds one member
+  and `contains` finds it; a `Map` keyed by a structural record over a
+  reached union deduplicates; `Vector(F)` and `(F, Int)` nesting;
+  transitive reach with no downstream naming; a union *subject* whose slot
+  is reached; two direct-import parity controls; and the all-primitive
+  inline shape (`__stableHash(__value.across)`, no dictionary call — the
+  #344 guard). Eight of the eleven fail at the pre-fix base — every reached
+  spelling; the three that pass are the two parity controls and the inline
+  guard. Suites at the fix: compiler 3653 + 1 expected fail,
+  language-server 121, playground 228. The review re-derived the split and
+  the key spellings independently, instrumented all four miss arms and
+  observed zero hits across the full suite and thirty probes of its own
+  (thirteen red at base — the hash-backed `Map`-value arm, `Set(Set(…))`, a
+  reached parameterized union, a recursive union with a reached leaf
+  payload, cross-module structural-`Set` interop among them), confirmed
+  five rejected shapes emit best-effort with no internal-error spam, and
+  verified direct-import hash values byte-identical before and after. Its
+  reading past the change filed #669: the `Set`/`Map` `Variable`-element
+  shortcut still rebuilds its dictionary from the type rather than the
+  recorded evidence — path-free by construction today, and the last
+  one-conditional residue of the re-derivation shape.
+- **Credit:** the hash collapse filed by the #608 review's probes past its
+  suite; the equality half established by probe at arc open; the measured
+  origin established by the #668 review. Repaired in PR #668.
