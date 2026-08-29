@@ -2168,10 +2168,10 @@ than settling a style question.
   its own `compileProject` path, established rather than assumed. The review
   re-derived the failure split and the instrumentation independently, and
   its probes past the suite filed two pre-existing byproducts: a derived
-  `Hash` collapsing to a constant over a *reached* nominal component —
-  dated to #587 at filing; the #609 entry below records the measured
-  earlier origin (#609) — and a
-  `()`-fixit parity gap on the same import-keyed table (#610).
+  `Hash` collapsing to a constant over a *reached* nominal component
+  (#609) *(Amended 2026-08-29, #609: the origin predates #587 — see that
+  entry.)* — and a `()`-fixit parity gap on the same import-keyed table
+  (#610).
 - **Credit:** filed by the #604 review's adversarial instrumentation, which
   built the three-file reproduction the arc's own probe had generalized
   past; the wider inventory — the vacuous pattern typing and both emitter
@@ -2241,14 +2241,13 @@ than settling a style question.
   still the derived `Eq` instance beside it; on the filed `Set` program the
   structural element dictionary's embedded equality is
   `__Hash_Shape.eq.equals(…)` where it was `===`. The licence comments the
-  repair retires — "`Hash` is
-  the one member still walked structurally" and the hash-backed mode's
-  "always `undefined`" — are rewritten to what is now true, along with the
-  two further comments that cited the exemption.
+  repair retires — "`Hash` is the one member still walked structurally" and
+  the hash-backed mode's "always `undefined`" — are rewritten to what is
+  now true, along with the two further comments that cited the exemption.
 - **Executable conformance:**
   `conformance/derived-hash-component-dispatch.test.ts` — eleven rows:
   reached untagged and tagged union components hash distinctly; the
-  #587-era reached nominal-record half; the `Set` program holds one member
+  reached nominal-record half; the `Set` program holds one member
   and `contains` finds it; a `Map` keyed by a structural record over a
   reached union deduplicates; `Vector(F)` and `(F, Int)` nesting;
   transitive reach with no downstream naming; a union *subject* whose slot
@@ -2271,5 +2270,4 @@ than settling a style question.
   one-conditional residue of the re-derivation shape.
 - **Credit:** the hash collapse filed by the #608 review's probes past its
   suite; the equality half established by probe at arc open; the measured
-  origin — older than either registration mechanism — established by this
-  entry's own review. Repaired in PR #668.
+  origin established by the #668 review. Repaired in PR #668.
