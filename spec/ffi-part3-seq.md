@@ -208,7 +208,7 @@ Consequently: **resource-owning iterators that require prompt closure are not su
 
 ### 9.1 An exported Hexagon `Seq` is replayable
 
-Its `.d.ts` face remains the necessarily weaker `Iterable<a>`, but the exported value is stronger than the face promises: **each call to `[Symbol.iterator]()` creates an independent traversal cursor at the exported Hexagon sequence position.** Repeated JavaScript traversals observe the same memoized Hexagon sequence rather than re-running its lazy computation and effects. One JS consumer's early `return()` ends only its own cursor (§8).
+Its `.d.ts` face remains the necessarily weaker `Iterable<a>`, but the exported value is stronger than the face promises: **each call to `[Symbol.iterator]()` creates an independent traversal cursor at the exported Hexagon sequence position.** Repeated JavaScript traversals observe the same memoized Hexagon sequence rather than re-running its lazy computation and effects. One JS consumer's early `return()` ends only its own cursor (§8). The exported name `Seq` in `Seq.d.ts` is Part 7 §2.3's transparent alias of this same face *(#622)*, so the name and the face mean one type — the replayability above stays a documented strengthening, expressed by no TypeScript type.
 
 *(Annotation, 2026-07-28.)* This promise survived the de-intrinsification unchanged — it was reaffirmed twice after the re-derivation default was adopted (Loops §6.4's "the export boundary memoizes unconditionally"; the ledger's `Seq.hex` row) — but its mechanism was destroyed with the intrinsic and never replaced. §9.4 now supplies the mechanism; nothing in this section's promise is weakened or strengthened by it.
 
