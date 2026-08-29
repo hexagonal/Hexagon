@@ -2168,8 +2168,9 @@ than settling a style question.
   its own `compileProject` path, established rather than assumed. The review
   re-derived the failure split and the instrumentation independently, and
   its probes past the suite filed two pre-existing byproducts: a derived
-  `Hash` collapsing to a constant over a *reached* nominal component — a
-  residue the record half has carried since #587 (#609) — and a
+  `Hash` collapsing to a constant over a *reached* nominal component —
+  dated to #587 at filing; the #609 entry below records the measured
+  earlier origin (#609) — and a
   `()`-fixit parity gap on the same import-keyed table (#610).
 - **Credit:** filed by the #604 review's adversarial instrumentation, which
   built the three-file reproduction the arc's own probe had generalized
@@ -2180,20 +2181,24 @@ than settling a style question.
 ## 2026-08-29 — derived `Hash` re-derived components the checker had already selected (#609)
 
 - **Classification:** compiler defect against specification; no design
-  change. Pre-existing — the record half has shipped since #587, the union
-  half since unions joined that mechanism — and found by the #608 review's
-  probes past its suite; the severer equality half below was found by probe
-  when this arc opened and folded in by ruling.
-- **Authority:** Products' implementer note (a component means its instance,
-  #278): "the checker selects the component instances when it discharges
-  the demands; emission must render that same selection", and in so many
-  words — "`Hash` is no exemption: component hashes come from component
-  instances too … never by a representation walk." Shortcuts are licensed
-  only by Operators §5.1's fast-path criterion, "only where the emitted
-  operation provably preserves the selected instance's semantics."
+  change. Pre-existing, and older than both mechanisms the neighbouring
+  entries name: the walk misses on the emitter's own by-id lookup, so it
+  never depended on a reached declaration registering anywhere — both
+  halves reproduce clean, hash collapsed, on the compiler that predates
+  #587's implementation. Found by the #608 review's probes past its suite;
+  the severer equality half below was found by probe when this arc opened
+  and folded in by ruling.
+- **Authority:** Products §2.5's implementer note (a component means its
+  instance, #278): "the checker selects the component instances when it
+  discharges the demands; emission must render that same selection", and in
+  so many words — "`Hash` is no exemption: component hashes come from
+  component instances too … never by a representation walk." Shortcuts are
+  licensed only by Operators §5.1's fast-path criterion, "only where the
+  emitted operation provably preserves the selected instance's semantics."
   Collections Part 2 §4.3 (a derived hash requires derived equality) is
   what made the structural expansion *look* semantics-preserving; Part 4's
-  `Set`/`Map` laws are what the equality half observably violates.
+  §8.1 extensional `Eq`, §3.3 duplicates rule, and §5.1 upsert are what the
+  equality half observably violates.
 - **Defect origin:** `#derivedHash` and the hash-backed mode of
   `#derivedEquals` (the `eq` slot of a structural `Hash` dictionary) were
   the last two components-blind walks — the hash walk took no component
@@ -2230,10 +2235,13 @@ than settling a style question.
   which synthesized empty-selection structural evidence, now read the
   checker's recorded `element`/`key`/`value` components through the same
   door as the equality walk's. The miss arms stand as best-effort on
-  already-diagnosed modules; on the filed program the previously-unused
-  imported dictionary is now the emitted answer —
-  `__Hash_Flag.hash(__value.f)`, and `__Hash_Flag.eq.equals(…)` in the
-  embedded equality. The licence comments the repair retires — "`Hash` is
+  already-diagnosed modules; on the filed record program the
+  previously-unused imported dictionary is now the emitted answer —
+  `__mixHash(0, __Hash_Flag.hash(__value.f))`, the instance's own `eq` slot
+  still the derived `Eq` instance beside it; on the filed `Set` program the
+  structural element dictionary's embedded equality is
+  `__Hash_Shape.eq.equals(…)` where it was `===`. The licence comments the
+  repair retires — "`Hash` is
   the one member still walked structurally" and the hash-backed mode's
   "always `undefined`" — are rewritten to what is now true, along with the
   two further comments that cited the exemption.
@@ -2245,8 +2253,8 @@ than settling a style question.
   reached union deduplicates; `Vector(F)` and `(F, Int)` nesting;
   transitive reach with no downstream naming; a union *subject* whose slot
   is reached; two direct-import parity controls; and the all-primitive
-  inline shape (`__stableHash(__value.x)`, no dictionary call — the #344
-  guard). Eight of the eleven fail at the pre-fix base — every reached
+  inline shape (`__stableHash(__value.across)`, no dictionary call — the
+  #344 guard). Eight of the eleven fail at the pre-fix base — every reached
   spelling; the three that pass are the two parity controls and the inline
   guard. Suites at the fix: compiler 3653 + 1 expected fail,
   language-server 121, playground 228. The review re-derived the split and
@@ -2262,6 +2270,6 @@ than settling a style question.
   recorded evidence — path-free by construction today, and the last
   one-conditional residue of the re-derivation shape.
 - **Credit:** the hash collapse filed by the #608 review's probes past its
-  suite (recorded in the #605 entry above as the residue the record half
-  had carried since #587); the equality half established by probe at arc
-  open. Repaired in PR #668.
+  suite; the equality half established by probe at arc open; the measured
+  origin — older than either registration mechanism — established by this
+  entry's own review. Repaired in PR #668.
