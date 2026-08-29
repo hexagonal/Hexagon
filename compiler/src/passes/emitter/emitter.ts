@@ -1161,6 +1161,55 @@ function preludeIds(module: Core.Module): PreludeIds {
 }
 
 /**
+ * Whether a record identity is the one FFI Part 7 §2.3 **pins** — the prelude's
+ * `Seq`, whose entire boundary meaning is the JS-native notion `for...of`
+ * consumes, so its face is `Iterable<a>` (§2.3's criterion).
+ *
+ * **One seat, read by everything the pin governs** (#622). A pin governs the
+ * type *everywhere* it reaches a `.d.ts`: every rendered face spells the notion,
+ * the home module's declaration seat is the same spelling as a transparent
+ * alias, and §5's brand is not emitted at all. Those are three readers of one
+ * fact, and a second copy of the fact is a fact that can drift — a face pinned
+ * while a seat brands is exactly the mismatch this issue repaired. `Stream(a)`
+ * is Part 3 §14.2's standing candidate: when #659 settles its membership, this
+ * predicate is where it joins, and all three readers move together.
+ *
+ * `Bool`'s pin is a **union**, and its declaration seat is the union arm's own
+ * `type Bool = boolean;` (§14.5) — nothing here duplicates or contests it.
+ */
+function pinnedRecord(record: Resolved.RecordId, prelude: PreludeIds): boolean {
+  return prelude.seq !== undefined && record === prelude.seq;
+}
+
+/**
+ * A §2.3-pinned record's declaration seat — the pinned face at the type's own
+ * §2.2 parameters — or `undefined` where the type is unpinned and §5's brand is
+ * owed (#622):
+ *
+ * ```ts
+ * export type Seq<a> = Iterable<a>;
+ * ```
+ *
+ * The spelling is `renderType`'s, asked for the declared type at its own
+ * parameters, rather than a second rendering of the same face: the seat *is* the
+ * face, and one that changed without the other would reinstate the divergence.
+ */
+function pinnedDeclarationFace(
+  item: Core.RecordItem,
+  variables: ReadonlyMap<Typed.TypeVariableId, string>,
+  faces: DeclarationFaces,
+): string | undefined {
+  if (!pinnedRecord(item.record, faces.prelude)) return undefined;
+  const self: Typed.NominalRecordType = {
+    kind: "NominalRecord",
+    record: item.record,
+    name: item.name,
+    arguments: item.parameters.map((id) => ({ kind: "Variable", id })),
+  };
+  return renderType(self, variables, faces, false);
+}
+
+/**
  * The `Hex.*` runtime collection faces, exactly as FFI Part 1 §8.3 fixes them.
  *
  * The brand is a structural phantom marker rather than Part 7 §5's `unique
@@ -1570,12 +1619,19 @@ interface DeclarationFaces {
  * `opaque` on a union or a record implies export, so those two arms cannot
  * differ today; they test it anyway, because a rule read off a coincidence is
  * one the next change to `opaque` silently breaks.
+ *
+ * A §2.3-**pinned** record declares no brand at all (#622), so it claims no name
+ * either — the same over-claim, one condition further over.
  */
 function emittedBrandNames(
   module: Core.Module,
+  prelude: PreludeIds,
   brands: ReadonlyMap<string, string>,
 ): readonly string[] {
   return module.items.flatMap((item) => {
+    if (item.kind === "RecordDeclaration" && item.opaque && pinnedRecord(item.record, prelude)) {
+      return [];
+    }
     if ((item.kind === "Union" || item.kind === "RecordDeclaration") && item.opaque) {
       return item.exported ? [brands.get(item.name)!] : [];
     }
@@ -1873,6 +1929,11 @@ function qualifyingAliases(
   for (const type of renderedFaceTypes(module, specializations)) {
     faceQualifiers(type, occurrences);
   }
+  // The two pinned identities as *home keys*, this probe's currency — the same
+  // two `renderType` and `pinnedRecord` read as ids. A record pin added to
+  // `pinnedRecord` (#659's `Stream`, say) belongs in this set too, or a
+  // qualifier reaching a face the pin settles would count for a spelling the
+  // file never prints.
   const pinned = new Set([
     ...(prelude.bool === undefined ? [] : [nominalHomeKey("union", Number(prelude.bool))]),
     ...(prelude.seq === undefined ? [] : [nominalHomeKey("record", Number(prelude.seq))]),
@@ -7900,7 +7961,7 @@ class DeclarationEmitter {
     // candidate is a *foreign type's own name*, which can end in anything. A
     // foreign `PointBrand` minted beside an `opaque record Point` collided
     // silently — TS2440 and two TS2395s on a program with no Hexagon diagnostic.
-    const brands = emittedBrandNames(module, this.#opaqueBrands);
+    const brands = emittedBrandNames(module, prelude, this.#opaqueBrands);
     const aliasLocals = declarationAliasPlan(
       aliases,
       new Set([...declarationTopLevelNames(module, []), ...brands]),
@@ -8052,6 +8113,18 @@ class DeclarationEmitter {
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
         if (item.opaque) {
+          // A §2.3-pinned type takes no brand: its seat is the pinned face as a
+          // transparent alias, so the exported name and every rendered face
+          // denote one type (§5's exclusion; §14.5, #622). There is no
+          // `declare const` line to emit, and the documentation rides the alias
+          // exactly as it rode the branded row.
+          const pinned = pinnedDeclarationFace(item, variables, this.#faces);
+          if (pinned !== undefined) {
+            declarations.push(...this.#docs.lines(item.span, "", [], true));
+            declarations.push(`export type ${item.name}${generics} = ${pinned};`);
+            isExternalModule = true;
+            continue;
+          }
           const brand = this.#opaqueBrands.get(item.name)!;
           declarations.push(`declare const ${brand}: unique symbol;`);
           declarations.push(...this.#docs.lines(item.span, "", [], true));
@@ -8405,6 +8478,19 @@ class TypeScriptPreviewEmitter {
         const names = item.parameters.map((parameter) => variables.get(parameter)!);
         const generics = names.length === 0 ? "" : `<${names.join(", ")}>`;
         if (item.opaque) {
+          // The pin governs the preview's seat too (#622). The preview already
+          // renders a pinned *face* as the notion — `renderType` is the same
+          // function here — so a brand at the seat would be the same divergence
+          // in one pane of text that it was across a program's files. The
+          // preview reaches it only in a module that declares the prelude's
+          // `Seq`, which is the point: what it shows is what would ship.
+          const pinned = pinnedDeclarationFace(item, variables, this.#faces);
+          if (pinned !== undefined) {
+            declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
+            declarations.push(`${prefix}type ${item.name}${generics} = ${pinned};`);
+            isExternalModule ||= item.exported;
+            continue;
+          }
           const brand = this.#opaqueBrands.get(item.name)!;
           declarations.push(`declare const ${brand}: unique symbol;`);
           declarations.push(...this.#docs.lines(item.span, "", [], item.exported));
@@ -10816,7 +10902,12 @@ function renderType(
       // both are decided — the bridge pair is what makes the face honest. Only
       // the *prelude's* `Seq` gets this; a user record spelled `Seq` is an
       // ordinary nominal type.
-      if (faces.prelude.seq !== undefined && type.record === faces.prelude.seq) {
+      //
+      // The identity is asked of `pinnedRecord`, the one seat the pin lives at:
+      // the home module's declaration seat aliases *this* spelling and declares
+      // no brand (Part 7 §2.3, §14.5, #622), and a pin true here but false there
+      // is the divergence this issue repaired.
+      if (pinnedRecord(type.record, faces.prelude)) {
         return `Iterable<${renderType(type.arguments[0] ?? { kind: "Error" }, variables, faces, false)}>`;
       }
       return renderNominal(
