@@ -520,8 +520,10 @@ type EvidenceNames = ReadonlyMap<string, string>;
  *
  * `undefined` where there is none to render: a component whose evidence is a
  * dictionary parameter or an error, and the leaf recursions that reach a type
- * with no components at all. A derived body given `undefined` re-walks the type,
- * which is the best-effort answer on a module the checker already rejected.
+ * with no components at all. A derived body given `undefined` walks the type —
+ * at a dictionary parameter that is one step to the `Variable` arm and is the
+ * whole of the right answer, and on a module the checker rejected it is the
+ * best effort there is.
  */
 type ComponentEvidence = ReadonlyMap<string, Core.Evidence> | undefined;
 

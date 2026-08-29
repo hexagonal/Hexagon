@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileFiles, compileMain, runProject } from "../support/test-project.js";
+import { compileMain, runProject } from "../support/test-project.js";
 
 /**
  * Conformance for the derived `Hash` walk under #278's rule — a component means
