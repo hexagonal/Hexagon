@@ -518,10 +518,12 @@ type EvidenceNames = ReadonlyMap<string, string>;
  * The checker's per-component evidence selection for one container, keyed by
  * component position (#278, `spec/products.md` §2.5's implementer note).
  *
- * `undefined` where there is none to render — the `Hash` walk, which is
- * licensed to stay structural because a `Hash` subject's `Eq` is derived all the
- * way down (Collections Part 2 §4.3), and the error fallbacks. A derived body
- * given `undefined` re-walks the type, which is exactly the old behaviour.
+ * `undefined` where there is none to render: a component whose evidence is a
+ * dictionary parameter or an error, and the leaf recursions that reach a type
+ * with no components at all. A derived body given `undefined` walks the type —
+ * at a dictionary parameter that is one step to the `Variable` arm and is the
+ * whole of the right answer, and on a module the checker rejected it is the
+ * best effort there is.
  */
 type ComponentEvidence = ReadonlyMap<string, Core.Evidence> | undefined;
 
@@ -5909,10 +5911,15 @@ class JavaScriptEmitter {
    * through `opaque`, and `spec/products.md` §2.5's implementer note now pins
    * the rule the checker already followed.
    *
-   * `Hash` is the one member still walked structurally, and it is licensed to
-   * be: `Hash` cannot be hand-written, and deriving it requires derived `Eq`
-   * (Collections Part 2 §4.3), so every type reachable from a `Hash` subject
-   * has derived equality and the structural answer *is* the instance's answer.
+   * `Hash` is rendered from the selection like the other three (#609). The
+   * licence that once exempted it — deriving `Hash` requires derived `Eq`
+   * (Collections Part 2 §4.3), so the structural answer *is* the instance's
+   * answer — was true of the *answer* and false of the *walk*: expanding a
+   * component's representation needs that component's declaration, and a module
+   * only has the declarations it names. A nominal reaching this module solely
+   * through an imported alias had no row to expand, so the walk took its miss
+   * arm and collapsed the hash to a constant while the component's own
+   * dictionary stood beside it unused.
    */
   #derivedMembers(
     item: Core.HonorItem,
@@ -5951,7 +5958,7 @@ class JavaScriptEmitter {
     }
     return [{
       name: "hash",
-      rendered: `__value => ${this.#derivedHash(subject, "__value", evidenceNames)}`,
+      rendered: `__value => ${this.#derivedHash(subject, "__value", evidenceNames, components)}`,
     }];
   }
 
@@ -5979,8 +5986,53 @@ class JavaScriptEmitter {
     return evidence;
   }
 
-  /** Builds law-preserving hashes from the same structural components as derived Eq. */
-  #derivedHash(type: Typed.Type, value: string, evidenceNames: EvidenceNames): string {
+  /** One component of a derived or structural `hash`; see `#componentCompare`. */
+  #componentHash(
+    type: Typed.Type,
+    value: string,
+    evidenceNames: EvidenceNames,
+    evidence: Core.Evidence | undefined,
+  ): string {
+    if (componentInstance(evidence)) {
+      const dictionary = this.#emitEvidence(evidence, "Hash", this.#module.span, evidenceNames);
+      return `${dictionary}.hash(${value})`;
+    }
+    const components = evidence?.kind === "Structural"
+      ? componentEvidence(evidence.components)
+      : undefined;
+    return this.#derivedHash(type, value, evidenceNames, components);
+  }
+
+  /**
+   * Builds law-preserving hashes from the same components as derived `Eq` —
+   * from the *instances* the checker selected for them, not from a walk into
+   * their representations (#278, #609).
+   *
+   * `components` carries that selection, under the keys the checker records:
+   * tuple positions by index, a `Vector`'s `element`, a record's field names, a
+   * union's `Constructor.field`, and `element`/`key`/`value` at the collections.
+   * The two laws this keeps are the same one read twice — equal values hash
+   * equally — because the component's `hash` and the component's `equals` are
+   * now the same instance's two members rather than two walks that agree only
+   * where this module can see far enough to make them.
+   */
+  #derivedHash(
+    type: Typed.Type,
+    value: string,
+    evidenceNames: EvidenceNames,
+    components: ComponentEvidence = undefined,
+  ): string {
+    const component = (
+      key: string,
+      componentType: Typed.Type,
+      componentValue: string,
+    ): string =>
+      this.#componentHash(
+        componentType,
+        componentValue,
+        evidenceNames,
+        this.#componentEvidenceAt(components, key),
+      );
     if (type.kind === "Primitive") return `${this.#useHelper("stableHash")}(${value})`;
     if (type.kind === "Variable") {
       return `${this.#dictionary(type.id, "Hash", this.#module.span, evidenceNames)}.hash(${value})`;
@@ -5992,7 +6044,7 @@ class JavaScriptEmitter {
       );
     if (type.kind === "Tuple") {
       return combine(type.elements.map((element, index) =>
-        this.#derivedHash(element, `${value}[${index}]`, evidenceNames)
+        component(String(index), element, `${value}[${index}]`)
       ));
     }
     if (type.kind === "Vector") {
@@ -6004,29 +6056,33 @@ class JavaScriptEmitter {
       // to do with it.
       const element = this.#generatedNames.fresh("element");
       const accumulator = this.#generatedNames.fresh("hash");
-      const elementHash = this.#derivedHash(type.element, element, evidenceNames);
+      const elementHash = component("element", type.element, element);
       return `(() => { let ${accumulator} = 0; for (const ${element} of ${value}) ` +
         `${accumulator} = ${this.#useHelper("mixHash")}(${accumulator}, ${elementHash}); ` +
         `return ${accumulator}; })()`;
     }
     if (type.kind === "Set") {
+      // Through `#subDictionary`, like `#derivedEquals`' matching arm: the
+      // checker records the `element` demand at a `Set`'s `Hash`, and
+      // synthesizing an empty structural node here would throw that selection
+      // away *and* hand the dispatch a component map with no entry in it.
       const dictionary = type.element.kind === "Variable"
         ? this.#dictionary(type.element.id, "Hash", this.#module.span, evidenceNames)
-        : this.#emitEvidence({ kind: "Structural", type: type.element, components: [] }, "Hash", this.#module.span, evidenceNames);
+        : this.#subDictionary(components, "element", "Hash", type.element, evidenceNames);
       return `${this.#useHelper("setHash")}(${dictionary}, ${value})`;
     }
     if (type.kind === "Map") {
       const key = type.key.kind === "Variable"
         ? this.#dictionary(type.key.id, "Hash", this.#module.span, evidenceNames)
-        : this.#emitEvidence({ kind: "Structural", type: type.key, components: [] }, "Hash", this.#module.span, evidenceNames);
+        : this.#subDictionary(components, "key", "Hash", type.key, evidenceNames);
       const item = type.value.kind === "Variable"
         ? this.#dictionary(type.value.id, "Hash", this.#module.span, evidenceNames)
-        : this.#emitEvidence({ kind: "Structural", type: type.value, components: [] }, "Hash", this.#module.span, evidenceNames);
+        : this.#subDictionary(components, "value", "Hash", type.value, evidenceNames);
       return `${this.#useHelper("mapHash")}(${key}, ${item}, ${value})`;
     }
     if (type.kind === "Record") {
       return combine([...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
-        this.#derivedHash(field.type, `${value}.${field.name}`, evidenceNames)
+        component(field.name, field.type, `${value}.${field.name}`)
       ));
     }
     if (type.kind === "NominalRecord") {
@@ -6037,7 +6093,11 @@ class JavaScriptEmitter {
         type.arguments[index] ?? { kind: "Error" as const },
       ]));
       return combine([...record.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
-        this.#derivedHash(substituteType(field.type, replacements), `${value}.${field.name}`, evidenceNames)
+        component(
+          field.name,
+          substituteType(field.type, replacements),
+          `${value}.${field.name}`,
+        )
       ));
     }
     if (type.kind === "Union") {
@@ -6052,10 +6112,10 @@ class JavaScriptEmitter {
       const cases = union.constructors.map((constructor) => {
         const parts = [
           `${this.#useHelper("stableHash")}(${JSON.stringify(constructor.name)})`,
-          ...constructor.slots.map((slot) => this.#derivedHash(
+          ...constructor.slots.map((slot) => component(
+            `${constructor.name}.${slot.field}`,
             substituteType(slot.type, replacements),
             `${value}.${slot.field}`,
-            evidenceNames,
           )),
         ];
         return `case ${JSON.stringify(constructor.name)}: return ${combine(parts)};`;
@@ -6270,7 +6330,15 @@ class JavaScriptEmitter {
     return this.#emitEvidence(evidence, constraint, this.#module.span, evidenceNames);
   }
 
-  /** One component of a derived or structural `equals`; see `#componentCompare`. */
+  /**
+   * One component of a derived or structural `equals`; see `#componentCompare`.
+   *
+   * `hashBacked` changes which dictionary the component is asked for, never
+   * whether it is asked (#609). The components of a `Hash` node were raised as
+   * `Hash` requirements, so its evidence is keyed under `Hash` and the equality
+   * comes out of that dictionary's `eq` — asking for the same evidence under
+   * `Eq` would name a dictionary the checker never selected.
+   */
   #componentEquals(
     type: Typed.Type,
     left: string,
@@ -6280,7 +6348,9 @@ class JavaScriptEmitter {
     evidence: Core.Evidence | undefined,
   ): string {
     if (componentInstance(evidence)) {
-      const dictionary = this.#emitEvidence(evidence, "Eq", this.#module.span, evidenceNames);
+      const dictionary = hashBacked
+        ? `${this.#emitEvidence(evidence, "Hash", this.#module.span, evidenceNames)}.eq`
+        : this.#emitEvidence(evidence, "Eq", this.#module.span, evidenceNames);
       return `${dictionary}.equals(${left}, ${right})`;
     }
     const components = evidence?.kind === "Structural"
@@ -6295,10 +6365,12 @@ class JavaScriptEmitter {
     right: string,
     evidenceNames: EvidenceNames,
     hashBacked = false,
-    // Always `undefined` when `hashBacked`: that mode renders the `eq` slot of a
-    // *structural `Hash`* dictionary, which the note licenses to stay
-    // structural, and whose components the checker raised as `Hash` rather than
-    // `Eq` anyway.
+    // Carried in both modes (#609). When `hashBacked` this renders the `eq` slot
+    // of a *structural `Hash`* dictionary, whose components the checker raised
+    // as `Hash` rather than `Eq` — a difference in which dictionary each
+    // component is named under, which `#componentEquals` reads, and not a reason
+    // to drop the selection: dropping it fell back to a representation walk that
+    // decides a reached tagged union by JavaScript `===`.
     components: ComponentEvidence = undefined,
   ): string {
     const component = (
@@ -6313,7 +6385,7 @@ class JavaScriptEmitter {
         componentRight,
         evidenceNames,
         hashBacked,
-        hashBacked ? undefined : this.#componentEvidenceAt(components, key),
+        this.#componentEvidenceAt(components, key),
       );
     if (type.kind === "Primitive") {
       return type.name === "Float"
@@ -6354,7 +6426,8 @@ class JavaScriptEmitter {
         `if (!(${elementEquals})) return false; } return true; })()`;
     }
     if (type.kind === "Set") {
-      // `Hash`, so the structural walk stands where no selection was recorded.
+      // `Hash` at both the `Eq` and the `Hash` node: a set's equality is its
+      // elements' hashing, so the one key answers for both modes.
       const hash = type.element.kind === "Variable"
         ? this.#dictionary(type.element.id, "Hash", this.#module.span, evidenceNames)
         : this.#subDictionary(components, "element", "Hash", type.element, evidenceNames);
@@ -6364,17 +6437,16 @@ class JavaScriptEmitter {
       const hash = type.key.kind === "Variable"
         ? this.#dictionary(type.key.id, "Hash", this.#module.span, evidenceNames)
         : this.#subDictionary(components, "key", "Hash", type.key, evidenceNames);
+      // The `value` key again, under the constraint the enclosing node raised
+      // it as: `Hash` beneath a `Hash` node, where the equality is the
+      // dictionary's `eq`, and `Eq` beneath an `Eq` one.
       const equals = type.value.kind === "Variable"
         ? hashBacked
           ? `${this.#dictionary(type.value.id, "Hash", this.#module.span, evidenceNames)}.eq`
           : this.#equalityDictionary(type.value.id, evidenceNames)
-        : this.#subDictionary(
-            hashBacked ? undefined : components,
-            "value",
-            "Eq",
-            type.value,
-            evidenceNames,
-          );
+        : hashBacked
+        ? `${this.#subDictionary(components, "value", "Hash", type.value, evidenceNames)}.eq`
+        : this.#subDictionary(components, "value", "Eq", type.value, evidenceNames);
       return `${this.#useHelper("mapEquals")}(${hash}, ${equals}, ${left}, ${right})`;
     }
     if (type.kind === "Record") {
@@ -6622,13 +6694,17 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
   ): readonly DerivedSlot[] {
     if (constraint === "Hash") {
-      const equals = this.#derivedEquals(type, "__left", "__right", evidenceNames, true);
+      const equals = this.#derivedEquals(type, "__left", "__right", evidenceNames, true, components);
       return [
         {
           name: "eq",
           rendered: `{ equals: (__left, __right) => ${equals}, notEquals: (__left, __right) => !(${equals}) }`,
         },
-        derivedArrow("hash", ["__value"], this.#derivedHash(type, "__value", evidenceNames)),
+        derivedArrow(
+          "hash",
+          ["__value"],
+          this.#derivedHash(type, "__value", evidenceNames, components),
+        ),
       ];
     }
     if (constraint === "Eq") {
@@ -10329,8 +10405,7 @@ function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undef
  * body's evidence parameter. But it is not sufficient on its own, because a
  * structural node's rendering is a *walk over its type*, not an application of
  * its components: a node the checker recorded no component demand for (the
- * `Bool` pin, `Concat<Vector(a)>`, and the `Hash`-shaped sub-dictionaries
- * `#derivedHash`/`#derivedEquals` synthesize for a `Set`/`Map` element)
+ * `Bool` pin, `Concat<Vector(a)>`, and the `Iterable` provided rows)
  * vacuously satisfies "all components ground" while the walk beneath it still
  * reaches `#dictionary` at every `Variable` it meets — a free evidence
  * parameter, in a module-level initializer. So the type must be variable-free
@@ -10518,7 +10593,8 @@ function selfEvidenceKey(rendering: string): string {
  *
  * An instance honored at a primitive is not one of those. Its evidence became
  * an ordinary `Instance` when that primitive's companion migrated (#344), but
- * the leaf arms of `#derivedEquals`, `#derivedCompare`, and `#derivedShow` are
+ * the leaf arms of the four derived walks — `#derivedEquals`, `#derivedCompare`,
+ * `#derivedShow`, `#derivedHash` (#609) — are
  * that instance rendered, not a second definition of it — Constraints §6.1's
  * last sentence, the same licence `#emitConstraintCall` takes for `+` and
  * `#emitComparison` for `<`. #278's hazard was a hand-written *component*
