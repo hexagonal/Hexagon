@@ -38,11 +38,16 @@ import { compileMain, runMain } from "../support/test-project.js";
  *
  * The controls are the other half. A generic body still takes its evidence
  * parameter and emits exactly what it always did; an unexported function mints
- * no editions at all; a `Hash` binder mints none either, because no fundamental
- * type's row honors `Hash`. None of those emissions moved by a byte. Two of the
- * three are red at base for a property they assert; the generic-body one is red
- * only because its own module's editions ICE, so it pins the spelling rather
- * than detecting the defect.
+ * no editions at all; a `Hash` binder mints none either, because the planner's
+ * own support table carries no `Hash` row — a fact about `fundamentalSupports`,
+ * not about the types: five of the seven fundamentals do hold lawful `Hash`
+ * instances in `stdlib`, and whether the missing row is deliberate is #679's
+ * open question. None of those emissions moved by a byte.
+ *
+ * Only **one** of the three is red at base, and not for a property it asserts:
+ * the generic-body one, because its own module's editions ICE. It pins a
+ * spelling rather than detecting the defect. The other two are green at base,
+ * as a control that mints nothing should be — the defect never reached them.
  *
  * One test here is green at base on purpose and says so: the `Map` value seat
  * was cured earlier, by #669. It covers a helper — `#subDictionary` — that no
@@ -530,9 +535,13 @@ describe("nothing outside the editions moves", () => {
   });
 
   test("a `Hash` binder mints none either, so its walk is the generic one", () => {
-    // No fundamental type's row in `fundamentalSupports` honors `Hash`, so the
-    // planner's candidate set is empty and the item is skipped entirely. The
-    // seat this pins is the one #669 repaired; it must read the same after #675.
+    // `fundamentalSupports` lists no `Hash` for any fundamental, so the
+    // planner's candidate set is empty and the item is skipped entirely. That
+    // is the table's content, not the types' standing — five fundamentals do
+    // hold lawful `Hash` instances, and #679 asks whether the row's absence is
+    // deliberate. If it is ever added, this control flips and must be rewritten
+    // rather than re-pinned. The seat it guards is the one #669 repaired; it
+    // must read the same after #675.
     const emitted = javascript([
       "export let gathered<a: Hash>(s: Set((a, Int)), v: (a, Int)): Set((a, Int)) =",
       "    Set.add(s, v)",
