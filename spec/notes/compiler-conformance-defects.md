@@ -2381,19 +2381,19 @@ than settling a style question.
   fundamentals hold lawful `Hash` instances; whether that omission is
   deliberate is #679's question — and their component seats are
   type-directed wherever no recorded selection stands, so each hit its
-  `Variable` arm and rebuilt a
-  dictionary parameter the edition no longer binds: one internal-error
-  diagnostic per edition per stale seat — seven on a one-variable binder,
+  `Variable` arm and rebuilt a dictionary parameter the edition no longer
+  binds: one internal-error diagnostic
+  per edition per stale seat — seven on a one-variable binder,
   ninety-eight on `<k: Eq, v: Eq>` (forty-nine editions, both components)
   — with best-effort `undefined.compare(…)`-shaped editions beside them,
   and on the `Eq` route a report naming `Hash`, a constraint the program
   never wrote, through the equality helper's name probe. The symptom class
   is loud, not silent, and reaches every exported generic walked over a
   tuple, `Vector`, or record shape under `Eq`, `Ord`, or `Show`. The `Map`
-  component seats are the exception that proves the qualifier: they read
-  through the sub-dictionary helper, where a recorded selection stands,
-  and the #669 arc's repair had already cured them. `Set` shapes never
-  reach the planner at all — their element operations demand `Hash`, which
+  value seat is the exception that proves the qualifier: it reads through
+  the sub-dictionary helper, where a recorded selection stands, and the
+  #669 arc's repair had already cured it. `Set` shapes — and `Map` keys —
+  never reach the planner at all: those operations demand `Hash`, which
   mints no editions.
 - **Correction:** the ruled repair (2026-08-30, recorded on #675): the
   planner completes the substitution. The same deep walk that rewrites an
@@ -2408,9 +2408,9 @@ than settling a style question.
   (#425), and up to an edition's declaration form and name. The component
   dispatch predicate and the #344 primitive exemption stand untouched, and
   the equality helper's planner route is closed: zero reaches on accepted
-  programs across the suite. The
-  alternative — teaching the walks' component seats to render `Primitive`
-  and `Structural` evidence directly — was declined: it patrols consumers
+  programs across the suite. The alternative — teaching the walks'
+  component seats to render `Primitive` and `Structural` evidence
+  directly — was declined: it patrols consumers
   of a disagreement only the planner manufactures, and leaves the stale
   types standing for every future type-directed arm to trip on.
 - **Executable conformance:** `conformance/planner-edition-walks.test.ts`
@@ -2431,8 +2431,8 @@ than settling a style question.
   across the fix — every broken-at-base program in it cured, every
   program clean at base byte-identical at head, and no module beside a
   program's own moved in any of the thirty-nine — proved the
-  discriminating rows unique by running the wrong
-  implementation each claims to catch (a first-variable-only substitution
+  discriminating rows unique by running the wrong implementation each
+  claims to catch (a first-variable-only substitution
   reddens exactly the cartesian row; a dispatch reaching past `Instance`
   evidence reddens exactly the `honor` row), and counted the walk
   rewriting 9,906 type nodes across the corpus, none carrying a
