@@ -6278,9 +6278,13 @@ class JavaScriptEmitter {
    * (#675), so no accepted program presents a variable component the enclosing
    * scheme does not bind, and nothing reaches here.
    *
-   * The helper stays for the blind mode alone: a walk that has no selection to
-   * read still needs a name, and these two probes are the best guess available
-   * where nothing was recorded.
+   * What the helper is retained for is best-effort emission on a module the
+   * checker **rejected**, where a walk may still have no selection to read and
+   * these two probes are the best guess available. Say the rest plainly: that
+   * path is measured by nothing. A per-call counter puts its reaches at **zero**
+   * across the entire compiler suite, accepted and rejected programs alike, so
+   * the helper's behaviour is currently unpinned and a reader changing it will
+   * get no signal from the tests.
    */
   #equalityDictionary(
     variable: Typed.TypeVariableId,
@@ -6739,9 +6743,14 @@ class JavaScriptEmitter {
    * is why this one seat was already right for a specialization-planner edition
    * back when the edition's evidence was `Primitive` over a still-`Variable`
    * type and every sibling seat reported #675's ICE. Editions now substitute
-   * their types too, so the shape that made the point no longer arises; the
-   * reading rule is unchanged, and `planner-edition-walks.test.ts` pins that
-   * this seat's emission is the ground one.
+   * their types too, so the shape that made the point no longer arises, and the
+   * reading rule is unchanged.
+   *
+   * The seat is pinned by the `Map` programs in `derived-walk-evidence.test.ts`
+   * and `planner-edition-walks.test.ts`. Only `Map` reaches here: a per-call
+   * counter measures 16 reaches from each of those two programs and **zero**
+   * from every tuple, `Vector` and record program in either file, so a change
+   * here is invisible to all of them.
    */
   #subDictionary(
     components: ComponentEvidence,
