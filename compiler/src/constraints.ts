@@ -110,6 +110,26 @@ export const PRE_REGISTERED_CONSTRAINT_MEMBERS: Readonly<
   Integral: ["div", "mod", "quot", "rem", "gcd"],
 };
 
+/**
+ * The constraints an **automatic structural instance** satisfies (Constraints
+ * §4.5's structural bullet; Products §2.5, with `Hash` per Collections Part 2
+ * §2.5).
+ *
+ * Structural types — tuples, structural records, and the containers that walk
+ * like them — have no constructor name to key an instance on and no home module
+ * to write one in (§5.4, §9.3), so these four are the whole of what they honor
+ * and the set is closed against user code by construction.
+ *
+ * Two readers, one inventory. The checker satisfies a requirement at a tuple,
+ * record, or `Vector` from it; the specialization planner reads it as `Unit`'s
+ * candidate row, `Unit` being the empty tuple and the vacuous arity of the same
+ * rule (Zero-Cost Fundamental Exports §3.2's judgment at `Unit` and `Bool`).
+ * Names rather than identities because the readers ask in both currencies; all
+ * four are pre-registered and non-redeclarable, so the two agree by
+ * construction.
+ */
+export const STRUCTURAL_CONSTRAINTS: readonly string[] = ["Eq", "Ord", "Show", "Hash"];
+
 export function isPreRegisteredConstraint(name: string): boolean {
   return PRE_REGISTERED_CONSTRAINTS.includes(name);
 }

@@ -37,17 +37,18 @@ import { compileMain, runMain } from "../support/test-project.js";
  * dispatchers about `Primitive` would have left those two reporting.
  *
  * The controls are the other half. A generic body still takes its evidence
- * parameter and emits exactly what it always did; an unexported function mints
- * no editions at all; a `Hash` binder mints none either, because the planner's
- * own support table carries no `Hash` row — a fact about `fundamentalSupports`,
- * not about the types: five of the seven fundamentals do hold lawful `Hash`
- * instances in `stdlib`, and whether the missing row is deliberate is #679's
- * open question. None of those emissions moved by a byte.
+ * parameter and emits exactly what it always did, and an unexported function
+ * mints no editions at all. The third was a `Hash` binder minting none, which
+ * #679 retired: that was the hand table's content and never the types'
+ * standing — all seven fundamentals hold a lawful `Hash` — so the row now
+ * asserts the seven editions it mints under §3.2's instance judgment, and is a
+ * measurement of this file's repair at a seat that could not reach it before.
  *
- * Only **one** of the three is red at base, and not for a property it asserts:
- * the generic-body one, because its own module's editions ICE. It pins a
- * spelling rather than detecting the defect. The other two are green at base,
- * as a control that mints nothing should be — the defect never reached them.
+ * Only **one** of the two surviving controls is red at base, and not for a
+ * property it asserts: the generic-body one, because its own module's editions
+ * ICE. It pins a spelling rather than detecting the defect. The unexported one
+ * is green at base, as a control that mints nothing should be — the defect
+ * never reached it.
  *
  * One test here is green at base on purpose and says so: the `Map` value seat
  * was cured earlier, by #669. It covers a helper — `#subDictionary` — that no
@@ -534,21 +535,30 @@ describe("nothing outside the editions moves", () => {
     expect(emitted).not.toContain("hushedInt");
   });
 
-  test("a `Hash` binder mints none either, so its walk is the generic one", () => {
-    // `fundamentalSupports` lists no `Hash` for any fundamental, so the
-    // planner's candidate set is empty and the item is skipped entirely. That
-    // is the table's content, not the types' standing — five fundamentals do
-    // hold lawful `Hash` instances, and #679 asks whether the row's absence is
-    // deliberate. If it is ever added, this control flips and must be rewritten
-    // rather than re-pinned. The seat it guards is the one #669 repaired; it
-    // must read the same after #675.
+  test("a `Hash` binder mints all seven, and the generic body keeps its walk", () => {
+    // Rewritten rather than re-pinned, which is what this row's own note asked
+    // for: it used to assert that a `Hash` binder minted *nothing*, which was
+    // the hand table's content and never the types' standing — and #679 ruled
+    // the table out in favour of §3.2's instance judgment. All seven
+    // fundamentals hold a lawful `Hash`, so all seven editions mint, and this is
+    // the one program in the file where the collections API becomes reachable
+    // from JavaScript at all.
     const emitted = javascript([
       "export let gathered<a: Hash>(s: Set((a, Int)), v: (a, Int)): Set((a, Int)) =",
       "    Set.add(s, v)",
       "",
     ].join("\n"));
+    // The generic body is unmoved: still an evidence parameter, still the walk.
     expect(emitted).toContain("__Hash_a.hash(__value[0])");
     expect(emitted).toContain("__Hash_a.eq.equals(__left[0], __right[0])");
-    expect(emitted).not.toContain("gatheredInt");
+    // And each edition is ground — the `(a, Int)` element's dictionary is the
+    // hoisted one a hand-written program at that element type emits, not a walk
+    // over a variable the edition no longer binds (#675's property, at the seat
+    // that could not exercise it before).
+    for (const edition of ["Nat", "Int", "Float", "BigInt", "Bool", "String", "Unit"]) {
+      expect(emitted).toContain(`function gathered${edition}(s, v) {`);
+      expect(emitted).toContain(`return add(s, v, __Hash_${edition}_Int);`);
+    }
+    expect(emitted).not.toContain("undefined.");
   });
 });

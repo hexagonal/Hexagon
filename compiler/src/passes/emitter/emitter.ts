@@ -20,8 +20,10 @@ import {
   faceOnlyEditionInstances,
   planFundamentalSpecializations,
   planImportedSpecializations,
+  preludeBoolUnion,
   sourceInstanceDictionary,
   specializeItem,
+  type FundamentalInstances,
   type FundamentalSpecialization,
   type FundamentalType,
   type SpecializationCollision,
@@ -264,6 +266,17 @@ export interface JavaScriptEmissionOptions {
    * default, which is the wrong file from any module below the root.
    */
   readonly runtimeGlobalsSpecifier?: string;
+  /**
+   * The program's Algorithm S candidate rows for the **pre-registered**
+   * constraints (#679); see `FundamentalInstances`.
+   *
+   * Only `compileProject` can supply them, and for the reason the two options
+   * above name plus one of its own: the rows are a fact about the prelude, and a
+   * prelude module sees only the members before its own seat. Emitting one
+   * module alone answers from that module's own channels instead, which is the
+   * complete answer for any module that sees the whole prelude.
+   */
+  readonly fundamentalInstances?: FundamentalInstances;
 }
 
 /**
@@ -590,6 +603,13 @@ export interface DeclarationEmissionOptions {
   readonly nominalHomes?: ReadonlyMap<string, NominalHome>;
   /** This module's own path, for relativizing `nominalHomes`. */
   readonly modulePath?: string;
+  /**
+   * The program's Algorithm S candidate rows (#679); see the identically-named
+   * option on `JavaScriptEmissionOptions` for why only `compileProject` has
+   * them. The two faces must plan the same editions or a declared entry point
+   * names a function the JavaScript never emitted.
+   */
+  readonly fundamentalInstances?: FundamentalInstances;
 }
 
 /** One entry of `DeclarationEmissionOptions.nominalHomes`. */
@@ -625,8 +645,9 @@ export function emitDeclarations(
 /** Emits a module-local TypeScript view of top-level bindings for interactive tools. */
 export function emitTypeScriptPreview(
   module: Core.Module,
+  fundamentalInstances?: FundamentalInstances,
 ): Emitted.TypeScriptPreview {
-  return new TypeScriptPreviewEmitter(module).emit();
+  return new TypeScriptPreviewEmitter(module, fundamentalInstances).emit();
 }
 
 type EvidenceNames = ReadonlyMap<string, string>;
@@ -1282,10 +1303,10 @@ function preludeIds(module: Core.Module): PreludeIds {
     // on the module rather than on the inventory's size — the absence of a
     // `Stream` entry beside a declaration of that name is the real condition.
     stream: module.preludeRecords.get("Stream"),
-    bool: module.preludeUnions.get("Bool")
-      ?? (module.preludeUnions.size === 0
-        ? module.unions.find(({ name }) => name === "Bool")?.id
-        : undefined),
+    // `preludeBoolUnion` rather than a copy of it: the planner reads the same
+    // pin, and "the passes must agree about which declaration is the pinned one"
+    // is a claim better held by there being one reading than by two that match.
+    bool: preludeBoolUnion(module),
     ignore: preludeIgnoreSymbol(module),
   };
 }
@@ -2715,6 +2736,11 @@ class JavaScriptEmitter {
    */
   readonly #reportedEditionInstances = new Set<string>();
   /**
+   * The program's Algorithm S candidate rows, or `undefined` where this module
+   * is being emitted outside a project; see `JavaScriptEmissionOptions`.
+   */
+  readonly #fundamentalInstances: FundamentalInstances | undefined;
+  /**
    * How each quantified type variable is spelled in the signature it comes from
    * (#425), which is what an evidence parameter is named after: `<a: Show>` is
    * answered by `__Show_a`, not by a counter, so a generic body reads as a
@@ -3088,8 +3114,10 @@ class JavaScriptEmitter {
         );
       }
     }
+    this.#fundamentalInstances = options.fundamentalInstances;
     const plan = planFundamentalSpecializations(
       module,
+      options.fundamentalInstances,
       options.previewPrivateSpecializations ?? false,
     );
     this.#specializations = plan.specializations;
@@ -5333,7 +5361,12 @@ class JavaScriptEmitter {
     const planned =
       declaration === undefined || !item.specializableTerms.includes(declaration.name)
         ? []
-        : planImportedSpecializations(declaration, this.#prelude.bool);
+        : planImportedSpecializations(
+            declaration,
+            this.#module,
+            this.#fundamentalInstances,
+            this.#prelude.bool,
+          );
     this.#importedSpecializations.set(symbol, planned);
     return planned;
   }
@@ -7177,12 +7210,16 @@ class JavaScriptEmitter {
    * `#referencedDictionaries` here: the evidence carries the name, and it is
    * rendering the evidence that decides whether the module reaches it.
    *
-   * `undefined` cannot happen while the plan's candidates and the instance
-   * judgment agree, which is what makes it worth reporting rather than
-   * absorbing: the plan offered this fundamental as a candidate and no instance
-   * backs it, and an edition with no dictionary at all reads a slot off nothing
-   * at run time, a long way from the cause. Reported once per triple, not once
-   * per asking — see `#reportedEditionInstances`.
+   * `undefined` is unreachable on a well-formed program, and since #679's leg 2
+   * it is unreachable *by construction*: for a declared constraint the plan's
+   * candidates and this lookup read the same three instance channels
+   * (`fundamentalInstancesOf` and `sourceInstanceDictionary`), so a candidate
+   * the judgment admits is an instance this finds. The report is what keeps
+   * that pairing honest rather than assumed — the two were separate answers
+   * once, and while the hand table stood they disagreed about every declared
+   * constraint. An edition with no dictionary at all reads a slot off nothing at
+   * run time, a long way from the cause. Reported once per triple, not once per
+   * asking — see `#reportedEditionInstances`.
    */
   #editionInstanceDictionary(
     constraintIdentity: string,
@@ -8810,8 +8847,9 @@ class DeclarationEmitter {
     this.#opaqueBrands = opaqueBrandNames(module);
     // Hoisted above the alias set because that set has to know which constrained
     // exports render a face at all, and this is what decides it. A pure function
-    // of the module, so it settles here as readily as at the end.
-    const plan = planFundamentalSpecializations(module);
+    // of the module and the program's candidate rows, so it settles here as
+    // readily as at the end.
+    const plan = planFundamentalSpecializations(module, options.fundamentalInstances);
     this.#specializations = plan.specializations;
     // Every spelling below is settled **before** a single face is rendered, and
     // that is what §2.4's rung order rests on: the probe's universe is a property
@@ -9243,7 +9281,7 @@ class TypeScriptPreviewEmitter {
   readonly #faces: DeclarationFaces;
   readonly #docs: DocIndex;
 
-  constructor(module: Core.Module) {
+  constructor(module: Core.Module, fundamentalInstances?: FundamentalInstances) {
     this.#module = module;
     this.#opaqueBrands = opaqueBrandNames(module);
     // The preview writes every namespace alias line unconditionally and is out
@@ -9269,7 +9307,7 @@ class TypeScriptPreviewEmitter {
     };
     this.#docs = new DocIndex(module.docs);
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
-    const plan = planFundamentalSpecializations(module, true);
+    const plan = planFundamentalSpecializations(module, fundamentalInstances, true);
     this.#specializations = plan.specializations;
     addSpecializationCollisionDiagnostics(this.#diagnostics, module, plan.collisions);
   }

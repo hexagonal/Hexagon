@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { compileFiles } from "../support/test-project.js";
+import { compileFiles, runProject } from "../support/test-project.js";
 import {
   faceOnlyEditionInstances,
+  fundamentalInstancesOf,
   planFundamentalSpecializations,
   sourceInstanceDictionary,
   specializeItem,
@@ -48,14 +49,17 @@ import type * as Typed from "../syntax/typed/index.js";
  * module like every non-`Unit` fundamental, while `Unit` is never among a
  * declared constraint's candidates at all.
  *
- * ## Why this file is unit-shaped
+ * ## Two legs, one file
  *
- * `fundamentalSupports` is **untouched** by leg 1: it admits pre-registered
- * names only, so no program can reach the repaired arm end to end yet — leg 2
- * replaces the table with the derived judgment and is what makes it reachable.
- * The last `describe` block pins that untouchedness rather than assuming it, and
- * everything above drives `specializeItem` and `sourceInstanceDictionary`
+ * Leg 1 landed the repair while `fundamentalSupports` — the hand table deciding
+ * which fundamentals honor which constraint — still admitted pre-registered
+ * names only, so no program could reach the repaired arm and the rows below are
+ * unit-shaped: they drive `specializeItem` and `sourceInstanceDictionary`
  * directly, over Core trees a real compile produced.
+ *
+ * Leg 2 retired that table for §3.2's own judgment, and the last two blocks are
+ * what that added: the repaired arm reached end to end by an ordinary program,
+ * and the defect report that guards the judgment's one obligation.
  */
 
 /** The compiled `/main.hex` of a project asserted to have reported nothing. */
@@ -95,10 +99,11 @@ function constrainedItem(
 /**
  * One edition of that item, assembled here rather than planned.
  *
- * The shipping table admits no declared constraint, so `planFundamentalSpecializations`
- * yields nothing for the programs below and cannot supply the subject. Only the
- * assignment reaches `specializeBody`; the scheme rides along for the face,
- * which nothing here reads.
+ * Assembled because the rows below ask what `specializeBody` does at an
+ * assignment, including assignments the plan would never offer — `Describe` at
+ * `Nat`, where the point is that nothing is invented. Only the assignment
+ * reaches the walk; the scheme rides along for the face, which nothing here
+ * reads.
  */
 function edition(
   item: SpecializableItem,
@@ -545,16 +550,19 @@ describe("the lookup walks all three channels, keyed on identity", () => {
   });
 });
 
-describe("leg 1 leaves the planner's support table where it was", () => {
-  test("a declared constraint's binder still mints no editions", () => {
+describe("a declared constraint's binder mints the editions its instances back", () => {
+  test("one per fundamental it is honored at, and no other", () => {
     const module = core([["/main.hex", declaredConstraints]]);
 
-    const planned = planFundamentalSpecializations(module).specializations;
+    const planned = planFundamentalSpecializations(
+      module,
+      fundamentalInstancesOf([module], boolUnion(module)),
+    ).specializations;
 
-    // The repair above is unreachable end to end until leg 2 replaces
-    // `fundamentalSupports` with §3.2's instance judgment. `render`'s `Show`
-    // binder mints its seven; `tell` and `tag` mint none, because the table
-    // holds no row a declared constraint's name could match.
+    // `Describe` is honored at `Int` alone and `Mark` at `Bool` alone, so each
+    // binder mints exactly one edition — the judgment reading the instances
+    // rather than a table reading names. `render`'s pre-registered `Show` mints
+    // all seven.
     expect(planned.map(({ name }) => name).sort()).toEqual([
       "renderBigInt",
       "renderBool",
@@ -563,6 +571,47 @@ describe("leg 1 leaves the planner's support table where it was", () => {
       "renderNat",
       "renderString",
       "renderUnit",
+      "tagBool",
+      "tellInt",
     ]);
+  });
+
+  test("the emitted editions call the instance, end to end", async () => {
+    const source = [
+      "constraint Describe<a> =",
+      "    describe(subject: a): String",
+      "",
+      "honor Describe<Int> =",
+      "    describe(n) = \"int ${n}\"",
+      "",
+      "honor Describe<String> =",
+      "    describe(s) = \"string ${s}\"",
+      "",
+      "constraint Mark<a> =",
+      "    mark(subject: a): String",
+      "",
+      "honor Mark<Bool> =",
+      "    mark(b) = if b then \"marked\" else \"plain\"",
+      "",
+      "export fun tell<a: Describe>(x: a): String = describe(x)",
+      "export fun tag<a: Mark>(x: a): String = mark(x)",
+      "",
+    ].join("\n");
+    const project = compileFiles([["/main.hex", source]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+
+    // Leg 1's repair, now on a reachable program: the primitive editions name
+    // the instance rather than reporting a defect, and the `Bool` one names it
+    // rather than building an empty dictionary literal and calling a member on
+    // it.
+    const emitted = project.modules
+      .find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
+    expect(emitted).not.toContain("undefined.");
+    expect(emitted).not.toContain("({})");
+
+    const exports = await runProject([["/main.hex", source]]);
+    expect((exports.tellInt as (x: number) => string)(3)).toBe("int 3");
+    expect((exports.tellString as (x: string) => string)("x")).toBe("string x");
+    expect((exports.tagBool as (x: boolean) => string)(true)).toBe("marked");
   });
 });

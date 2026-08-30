@@ -29,6 +29,11 @@ import {
   RUNTIME_DECLARATIONS_STEM,
   RUNTIME_WIRINGS,
 } from "./passes/emitter/emitter.js";
+import {
+  fundamentalInstancesOf,
+  preludeBoolUnion,
+  type FundamentalInstances,
+} from "./passes/emitter/specializations.js";
 import type { PreludeImport } from "./passes/resolver/resolver.js";
 import type { RuntimeLocations } from "./passes/emitter/emitter.js";
 import { PRELUDE_MODULES, PRIMITIVE_COMPANION_BASENAMES } from "./prelude.js";
@@ -62,6 +67,13 @@ export interface CompiledModule {
    */
   readonly runtimeGlobalsSpecifier: string;
 }
+
+/**
+ * One module through elaboration, before emission — `CompiledModule` minus the
+ * two emitted artefacts. See `checked` in `compileProject` for why the compile
+ * has a seam here at all.
+ */
+type CheckedModule = Omit<CompiledModule, "javascript" | "declarations">;
 
 /**
  * Whether a module is an injected one the host should treat as compiler-owned
@@ -100,6 +112,16 @@ export interface CompiledProject {
    * its first import, so an execution set must carry it like a prelude module.
    */
   readonly runtimeGlobals: Emitted.RuntimeGlobals | undefined;
+  /**
+   * Algorithm S's candidate rows for the pre-registered constraints, read off
+   * this program's prelude (#679, `fundamentalInstancesOf`).
+   *
+   * Carried out for the reason `CompiledModule.runtimes` is: a host that
+   * re-emits a module — the Playground, for its inspection preview — has to
+   * plan the same editions the shipped emission planned, and only the compile
+   * that ran the prelude can say which those are.
+   */
+  readonly fundamentalInstances: FundamentalInstances;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
@@ -218,6 +240,44 @@ export function compileProject(
   ordered.unshift(...injectedPaths);
 
   const compiled = new Map<string, CompiledModule>();
+  /**
+   * Every module through elaboration, before any of them is emitted.
+   *
+   * The compile is two passes over `ordered` rather than one, and the boundary
+   * is what the specialization planner's candidate judgment needs (#679): the
+   * fundamental instances a pre-registered constraint holds are a fact about the
+   * **prelude**, not about what the module being planned happens to see, and a
+   * prelude module sees only the members before its own seat (Modules §5.5). In
+   * one interleaved pass `Nat.hex` would be emitted knowing `Int.hex`'s rows and
+   * nothing later, and would plan a different edition set for its own exports
+   * than every consumer recomputes for them (`planImportedSpecializations`) —
+   * an importer emitting a call to a name the exporter never published.
+   *
+   * Splitting here answers it with the real machinery and no second copy of the
+   * truth: the rows are read off the prelude's own checked `honor` items, once
+   * every one of them exists, and handed to every emission as one
+   * program-invariant table.
+   *
+   * What that does **not** buy is freedom from the seat order. The table settles
+   * what a module *plans*; the module still has to **resolve** what it plans,
+   * and an edition at a primitive carries `Primitive` evidence that
+   * `#emitEvidence` resolves from the emitting module's own channels. A prelude
+   * module planning an edition at a fundamental whose companion sits after its
+   * own seat reports a compiler defect — measured on `stdlib/Ord.hex`, where one
+   * added constrained export mints five editions and produces five of them. The
+   * seat order is load-bearing for that, loudly rather than silently, and
+   * `conformance/derived-fundamental-candidates.test.ts` asserts the obligation
+   * over every module a project emits.
+   *
+   * Nothing else moved across the boundary. The second pass reads only what the
+   * first stored plus tables the first completed, and the one table emission
+   * shared with the first pass — `nominalHomes` — is now complete for every
+   * module rather than complete-as-far-as-this-one, which is a difference no
+   * emission can see: a face can only carry a nominal declared in a module
+   * compiled before it, imports being acyclic, so every entry a module could
+   * reach was already there.
+   */
+  const checked = new Map<string, CheckedModule>();
   // Every nominal the program has resolved, dependencies first. `ordered` is a
   // topological order and imports are acyclic (Modules §8), so a declaration is
   // in here before anything that could name it — and, because a type reference
@@ -279,7 +339,7 @@ export function compileProject(
     const importedSchemes = new Map<Resolved.SymbolId, Typed.Scheme>();
     for (const item of parsedModule.items) {
       if (item.kind !== "Import") continue;
-      const dependency = compiled.get(resolveSpecifier(path, item.specifier));
+      const dependency = checked.get(resolveSpecifier(path, item.specifier));
       if (dependency === undefined) continue;
       imports.set(item.specifier, moduleInterface(dependency.resolved));
       for (const symbol of dependency.typed.symbols) {
@@ -298,7 +358,7 @@ export function compileProject(
       ? preludePaths
       : preludePaths.filter((preludePath) => injectedSeats.get(preludePath)! < seat);
     const preludeImports: PreludeImport[] = preludeVisible.flatMap((preludePath) => {
-      const preludeCompiled = compiled.get(preludePath);
+      const preludeCompiled = checked.get(preludePath);
       if (preludeCompiled === undefined) return [];
       for (const symbol of preludeCompiled.typed.symbols) {
         importedSchemes.set(symbol.id, symbol.scheme);
@@ -435,7 +495,40 @@ export function compileProject(
     // module sits at the source common root under §8.3's probed stem, and a
     // module below the root spells it `../hex` (FFI Part 7 §1.2).
     const runtimeGlobalsSpecifier = relativeSpecifier(path, `${root}/${runtimeBasename}.hex`);
-    const result: CompiledModule = {
+    checked.set(path, {
+      source,
+      parsed: parsedModule,
+      resolved,
+      typed,
+      core,
+      runtimes,
+      runtimeGlobalsSpecifier,
+    });
+  }
+
+  // Algorithm S's candidate rows for the pre-registered constraints, read off
+  // the prelude now that every prelude module has been checked (#679). One table
+  // for the whole program, so an exporter's plan and every importer's
+  // recomputation of it are the same function of the same input.
+  //
+  // The `Bool` pin comes from a prelude module that *sees* `Bool.hex` rather
+  // than from `Bool.hex` itself, which cannot see its own declaration (Modules
+  // §5.5). Any of them answers, and they answer the same identity.
+  const preludeCores = preludePaths.flatMap((path) => {
+    const module = checked.get(path);
+    return module === undefined ? [] : [module.core];
+  });
+  const fundamentalInstances = fundamentalInstancesOf(
+    preludeCores,
+    preludeCores.map(preludeBoolUnion).find((id) => id !== undefined),
+  );
+
+  for (const path of ordered) {
+    const module = checked.get(path);
+    if (module === undefined) continue;
+    const { source, parsed: parsedModule, resolved, typed, core, runtimes } = module;
+    const { runtimeGlobalsSpecifier } = module;
+    compiled.set(path, {
       source,
       parsed: parsedModule,
       resolved,
@@ -447,6 +540,7 @@ export function compileProject(
         exportInstanceEvidence: true,
         runtimes,
         runtimeGlobalsSpecifier,
+        fundamentalInstances,
       }),
       declarations: emitDeclarations(core, {
         runtimeSpecifier: emittedModuleSpecifier(
@@ -454,9 +548,9 @@ export function compileProject(
         ),
         nominalHomes,
         modulePath: path,
+        fundamentalInstances,
       }),
-    };
-    compiled.set(path, result);
+    });
   }
 
   // Surface every module's own diagnostics on the project. `typed` accumulates
@@ -595,6 +689,7 @@ export function compileProject(
           text: runtimeGlobalsText(),
         }
       : undefined,
+    fundamentalInstances,
     diagnostics: diagnostics.toArray(),
   };
 }
