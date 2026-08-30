@@ -2267,7 +2267,81 @@ than settling a style question.
   reading past the change filed #669: the `Set`/`Map` `Variable`-element
   shortcut still rebuilds its dictionary from the type rather than the
   recorded evidence — path-free by construction today, and the last
-  one-conditional residue of the re-derivation shape.
+  one-conditional residue of the re-derivation shape. *(Amended 2026-08-30,
+  #669: both qualifications failed measurement at that arc's open — base
+  constraints are user-declarable, so the recorded path was load-bearing
+  already, and the residue was ten seats across two families plus a helper;
+  the 2026-08-30 entry carries the accounting.)*
 - **Credit:** the hash collapse filed by the #608 review's probes past its
   suite; the equality half established by probe at arc open; the measured
   origin established by the #668 review. Repaired in PR #668.
+
+## 2026-08-30 — the derived walks dropped the recorded entailment path at variable components (#669)
+
+- **Classification:** compiler defect against specification; no design change.
+  One clarifying sentence added to Collections Part 2 §4.1 in the same change
+  records what was already true: derivable-only constrains the instance form,
+  and `Hash` as a base constraint of a user-declared constraint is ordinary.
+- **Authority:** `spec/products.md` §2.5's implementer note (#278): a derived
+  body renders each component from the evidence the checker selected, never
+  from a walk into the component's type. At a variable component the selection
+  *is* the requirement's evidence route — where a demand is satisfied by a
+  wider binder through the base-constraint DAG (Constraints §2), the checker
+  records the provider's constraint and the dictionary slot path whose
+  spellings Constraints §6.2 fixes. Rendering the demand's own spelling
+  instead of the recorded route is §2.5's nonconformance one level down.
+- **Defect origin:** ten seats in the emitter re-derived a variable
+  component's dictionary from the type's kind. Six were the `Set`/`Map` arms
+  of the hash and equality walks — `element`/`key`/`value` positions
+  answering `kind === "Variable"` with a rebuilt, path-free reference. Four
+  were the component dispatchers of all four walks, whose predicate admitted
+  only nominal `Instance` evidence, so a recorded `Dictionary` node fell
+  through *blind* to the walk's own `Variable` arm — the rebuilt reference
+  again, the recorded constraint override and slot path both dropped. Beside
+  them, the hash-carried equality helper re-derived the one stdlib
+  entailment edge by name probe (`Eq`, else `Hash`'s embedded `eq`). Every
+  guard was structural, not principled: correct exactly while no seat
+  recorded a non-empty path — and base constraints are user-declarable, so
+  `constraint Wide<a: Hash>`, or any user constraint extending `Eq`, `Ord`,
+  or `Show`, made the path load-bearing already. Filed as latent and
+  unconstructible; six probes refuted that at arc open. The symptom class is
+  loud, not silent: the rebuilt lookup misses the binder's evidence name,
+  reports the internal-error diagnostic on a checker-accepted module, and
+  emits best-effort — coherence makes the two routes name one dictionary
+  wherever both resolve, so no silently-wrong answer was constructible.
+- **Correction:** every component seat reads the recorded evidence. The
+  sub-dictionary helper prefers the recorded node and renders it through the
+  one evidence door — a `Dictionary` node becomes the binder parameter with
+  its slot path applied — keeping the type-kind shortcut only where no
+  selection exists to read (components-blind mode: rejected modules,
+  best-effort). The dispatch predicate admits `Dictionary` nodes beside
+  nominal instances; the #344 primitive exemption stands untouched, a
+  `Dictionary` node being a parameter with no primitive concern. The
+  hash-carried `.eq` selection composes with the emitted reference unchanged
+  (`__Wide_a.hash.eq`). Direct binders emit byte-identically: an empty
+  recorded path reproduces the old rebuild exactly. The equality helper
+  stands as the blind-mode fallback; the specialization-planner route that
+  still reaches it on accepted programs is #675's defect, filed from this
+  arc — editions rewritten to `Primitive` evidence over still-`Variable`
+  component types, the same disagreement with the walk from the other side,
+  its reports naming a constraint the program never wrote. One #675 seat the
+  correction cures outright, caught unclaimed by the review: `Map` values
+  under a direct `Eq` binder now read the recorded `Primitive` node per
+  edition; the seat is pinned so the #675 repair cannot regress it.
+- **Executable conformance:** `conformance/derived-walk-evidence.test.ts` —
+  fifteen rows, eleven red at the pre-fix base: set and tuple equality,
+  tuple order, and interpolation under user constraints extending `Hash`,
+  `Ord`, and `Show`; `Map` key and value seats in both walks; the
+  hash-carried `.eq` route; nested collections; emitted-spelling asserts
+  (`__Wide_a.hash`, `__Wide_a.hash.eq`); the cured planner seat with its
+  seven per-edition dictionaries and no `undefined.eq`; and four
+  direct-binder controls green at base and fix both. Suites at the fix:
+  compiler 3707 + 1 expected fail. The review re-derived the red split,
+  diffed emitted JavaScript for sixteen direct-binder programs across the
+  fix (byte-identical, diagnostics included), executed ten wide-binder
+  programs with runtime assertions, and instrumented the missing-component
+  defect report across the whole suite — no reach on any accepted program.
+- **Credit:** filed by the #668 review reading past its change; the latency
+  refutation and the seat enumeration measured at arc open, where the
+  base-constraint question was also ruled; the `Eq`-binder scope and the
+  unclaimed cure established by the #674 review. Repaired in PR #674.
