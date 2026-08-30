@@ -6,6 +6,7 @@ import { emitJavaScript } from "../passes/emitter/emitter.js";
 import {
   fundamentalInstancesOf,
   planFundamentalSpecializations,
+  planImportedSpecializations,
   preludeBoolUnion,
   sourceInstanceDictionary,
   type FundamentalType,
@@ -431,6 +432,81 @@ describe("a declared constraint's candidates are its own instances", () => {
       expect(fundamentals).toContain(type);
       expect(sourceInstanceDictionary(module, identity, type, bool)).toBeDefined();
     }
+  });
+
+  test("exporter and importer agree across a module that never names the declarer", () => {
+    // The orphan-rule argument at its full length, which is the shape the
+    // two-module rows cannot reach. Three modules:
+    //
+    //   A declares `Describe` and honors it at `Int`;
+    //   B imports A and exports a constrained `tell`;
+    //   C imports **only B** and calls `tell` at a ground `Int`.
+    //
+    // C has to recompute B's plan (`planImportedSpecializations`) to know which
+    // edition to call, and it does that from its own instance channels — where
+    // `Describe<Int>` arrives only because `ImportItem.instances` carries an
+    // instance transitively. C spells neither the constraint's declaring module
+    // nor the instance's; if the judgment consulted only what a module names,
+    // C would plan nothing here and keep the generic call while `tellInt` sat
+    // published in B.
+    const compiled = project([
+      ["/describe.hex", [
+        "export constraint Describe<a> =",
+        "    describe(subject: a): String",
+        "",
+        "honor Describe<Int> =",
+        "    describe(n) = \"int ${n}\"",
+        "",
+      ].join("\n")],
+      ["/tell.hex", [
+        "import { Describe } from \"./describe\"",
+        "",
+        "export fun tell<a: Describe>(x: a): String = describe(x)",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        "import { tell } from \"./tell\"",
+        "",
+        "let one: Int = 1",
+        "export let told: String = tell(one)",
+        "",
+      ].join("\n")],
+    ]);
+    const teller = compiled.modules.find(({ source }) => source.path === "/tell.hex")!.core;
+    const consumer = main(compiled);
+
+    // The instance reached C without C asking for it, and through a module that
+    // did not declare it.
+    const transitive = consumer.items.flatMap((item) =>
+      item.kind === "Import" ? item.instances : []
+    );
+    expect(transitive.map(({ constraintIdentity, localDictionary }) =>
+      `${constraintIdentity}=${localDictionary}`
+    )).toEqual(["0:Describe=__Describe_Int"]);
+
+    // The agreement itself: what B published, and what C recomputes for the
+    // same declaration. A mismatch either way is a defect — an importer calling
+    // a name the exporter never wrote, or an exporter publishing one nobody
+    // reaches.
+    const published = planFundamentalSpecializations(teller, compiled.fundamentalInstances)
+      .specializations.map(({ name }) => name);
+    const recomputed = planImportedSpecializations(
+      consumer.symbols.find(({ name }) => name === "tell")!,
+      consumer,
+      compiled.fundamentalInstances,
+      preludeBoolUnion(consumer),
+    ).map(({ name }) => name);
+
+    expect(published).toEqual(["tellInt"]);
+    expect(recomputed).toEqual(published);
+
+    // And the emission that rests on it: C reaches the edition by name, from B,
+    // naming A nowhere at all.
+    const javascript = compiled.modules
+      .find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(javascript).toContain('import { __tell as tell, tellInt } from "./tell.js";');
+    expect(javascript).toContain("const told = tellInt(one);");
+    expect(javascript).not.toContain("./describe.js");
   });
 });
 
