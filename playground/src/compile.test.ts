@@ -693,6 +693,42 @@ describe("compileSource", () => {
     ]);
   });
 
+  test("a contested program's execution set carries the runtime module, and runs", async () => {
+    // FFI Part 7 §1.2's execution-set obligation, and §14.7 names this pane as
+    // its live instance: `hex.js` belongs to no source file, so an execution set
+    // built from the compiled modules alone would omit it — and unlike the
+    // type-only `hex.d.ts` this artefact is *executable*, so the program would
+    // die at its first import with a clean compile behind it.
+    const response = compileSource(9, [
+      "record Error = {code: Int}",
+      "exception Boom(value: Int)",
+      "export let caught(): Int =",
+      "    try",
+      "        throw(Boom(3))",
+      "    catch",
+      "        Boom(value) => value",
+      "",
+    ].join("\n"));
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).toContain('import { __Error } from "./hex.js";');
+    expect(response.executionModules.map(({ path }) => path)).toContain("/hex.hex");
+
+    const moduleUrls = new Map<string, string>();
+    for (const module of response.executionModules) {
+      const linked = linkModule(module.javascript, module.path, moduleUrls);
+      moduleUrls.set(
+        module.path,
+        `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+      );
+    }
+    const entry = await import(
+      /* @vite-ignore */ moduleUrls.get(response.entryPath)!
+    ) as { readonly caught: () => number };
+    expect(entry.caught()).toBe(3);
+  });
+
   test("returns bounded, de-duplicated diagnostics instead of partial output", () => {
     const source = "let broken = missing\n";
     const response = compileSource(8, source);

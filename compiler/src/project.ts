@@ -25,6 +25,7 @@ import {
   type NominalHome,
   nominalHomeKey,
   runtimeDeclarationsText,
+  runtimeGlobalsText,
   RUNTIME_DECLARATIONS_STEM,
   RUNTIME_WIRINGS,
 } from "./passes/emitter/emitter.js";
@@ -52,6 +53,14 @@ export interface CompiledModule {
    * does not exist — both of which compile clean and fail at load.
    */
   readonly runtimes: RuntimeLocations;
+  /**
+   * The specifier this module spells the program's runtime module by (FFI Part 7
+   * §1.2), source-form — carried for `runtimes`' reason exactly: only
+   * `compileProject` knows the source common root and the stem §8.3's probe
+   * settled there, and a host that re-emits the module (the Playground) would
+   * otherwise write an import of a path that is not there.
+   */
+  readonly runtimeGlobalsSpecifier: string;
 }
 
 /**
@@ -80,6 +89,17 @@ export interface CompiledProject {
    * this repo does; see `Emitted.RuntimeDeclarations` for what that means.
    */
   readonly runtimeDeclarations: Emitted.RuntimeDeclarations | undefined;
+  /**
+   * The program's runtime module (FFI Part 7 §1.2), or `undefined` when no
+   * module of it binds a runtime-vocabulary spelling.
+   *
+   * The seat beside `runtimeDeclarations`, sharing its stem and its program
+   * scope, and independent of it: a program can owe either, both, or neither.
+   * Unlike its type-only sibling this artefact is **executable** — a host that
+   * materializes only source-derived modules loses every contested program at
+   * its first import, so an execution set must carry it like a prelude module.
+   */
+  readonly runtimeGlobals: Emitted.RuntimeGlobals | undefined;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
@@ -411,6 +431,10 @@ export function compileProject(
     // quote what was written (Exceptions §5.4's cannot-throw message).
     const core = elaborate(typed, source);
     const runtimes = runtimesFor(path, runtimeModulePathsByBasename);
+    // Source-form, like every other specifier emission is handed: the runtime
+    // module sits at the source common root under §8.3's probed stem, and a
+    // module below the root spells it `../hex` (FFI Part 7 §1.2).
+    const runtimeGlobalsSpecifier = relativeSpecifier(path, `${root}/${runtimeBasename}.hex`);
     const result: CompiledModule = {
       source,
       parsed: parsedModule,
@@ -418,9 +442,11 @@ export function compileProject(
       typed,
       core,
       runtimes,
+      runtimeGlobalsSpecifier,
       javascript: emitJavaScript(core, {
         exportInstanceEvidence: true,
         runtimes,
+        runtimeGlobalsSpecifier,
       }),
       declarations: emitDeclarations(core, {
         runtimeSpecifier: emittedModuleSpecifier(
@@ -555,6 +581,18 @@ export function compileProject(
           kind: "RuntimeDeclarations",
           path: `${root}/${runtimeBasename}.d.ts`,
           text: runtimeDeclarationsText(),
+        }
+      : undefined,
+    // Present exactly when some emitted module imports its reserved captures
+    // (FFI Part 7 §1.2). Independent of the declaration module above and decided
+    // the same way — over the *emitted* list, because an unemitted module writes
+    // no file and so imports nothing — and, unlike it, load-bearing at run time:
+    // a host's execution set must carry this one.
+    runtimeGlobals: modules.some(({ javascript }) => javascript.importsRuntimeGlobals)
+      ? {
+          kind: "RuntimeGlobals",
+          path: `${root}/${runtimeBasename}.js`,
+          text: runtimeGlobalsText(),
         }
       : undefined,
     diagnostics: diagnostics.toArray(),

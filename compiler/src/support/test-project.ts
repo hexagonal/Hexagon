@@ -93,6 +93,18 @@ export async function runProject(
     );
   }
   const moduleUrls = new Map<string, string>();
+  // The program's runtime module first, and on the same footing as a prelude
+  // one: it is executable, and a contested program's very first import is of it
+  // (FFI Part 7 §1.2). It belongs to no source file, so it is keyed by the
+  // `.hex` path `resolveModulePath` derives from the `./hex.js` specifier its
+  // importers spell.
+  const runtimeGlobals = project.runtimeGlobals;
+  if (runtimeGlobals !== undefined) {
+    moduleUrls.set(
+      runtimeGlobals.path.replace(/\.js$/u, ".hex"),
+      `data:text/javascript;charset=utf-8,${encodeURIComponent(runtimeGlobals.text)}`,
+    );
+  }
   for (const module of project.modules) {
     const text = options.transform === undefined
       ? module.javascript.text
