@@ -790,8 +790,13 @@ function* instanceHeads(module: Core.Module): Generator<{
  *
  * Keyed on the dictionary's binding name, which is exact rather than a spelling
  * risk: it is one module-level `const` or `import` binding, named by the
- * resolver's own naming pass (Dictionary Sharing §5), and it is the very name
- * `#emitEvidence` renders for this evidence.
+ * resolver's own naming pass (Dictionary Sharing §5), and, for the
+ * `arguments.length === 0` evidence this can answer, the very name
+ * `#emitEvidence` renders. A parameterized instance breaks that last equality
+ * and nothing rests on it — `evidence.dictionary` is the factory
+ * (`__Describe_Box`) while the rendering is its hoisted application
+ * (`__Describe_Box_Bool`), and neither is in this table, so the lookup declines
+ * as it should.
  */
 export function fundamentalInstanceDictionaries(
   module: Core.Module,

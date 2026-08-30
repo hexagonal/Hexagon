@@ -5356,11 +5356,18 @@ class JavaScriptEmitter {
   #groundFundamental(evidence: Core.Evidence): FundamentalType | undefined {
     const primitive = primitiveInstance(evidence);
     if (primitive !== undefined) return primitive === "Exn" ? undefined : primitive;
-    // Asked only after the tag above declines, so a primitive keeps answering
-    // from what elaboration stamped. A *parameterized* instance needs no test of
-    // its own: an instance binder must appear in the head (Constraints §5.4), so
-    // a factory's subject names its variables and is never a fundamental, and no
-    // factory's dictionary is in the table to be found.
+    // Below the tag as a discipline, not because anything can see the order:
+    // the two readings agree wherever both answer, and moving this arm above
+    // the tag leaves the suite green (measured). The tag is asked first because
+    // it is the *authoritative* reading — elaboration stamped it from the
+    // requirement's own type, and it is total over primitives — while this is a
+    // lookup that can miss, and a fallback belongs after the answer it falls
+    // back from.
+    //
+    // A *parameterized* instance needs no test of its own: an instance binder
+    // must appear in the head (Constraints §5.4), so a factory's subject names
+    // its variables and is never a fundamental, and no factory's dictionary is
+    // in the table to be found.
     if (evidence.kind === "Instance") {
       return this.#instanceDictionaryHeads.get(evidence.dictionary);
     }

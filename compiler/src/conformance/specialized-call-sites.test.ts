@@ -640,6 +640,37 @@ describe("a declared constraint's `Bool` edition", () => {
     expect(javascript).not.toContain("tellPoint");
   });
 
+  test("another union is not the pin, and a factory is not a subject", () => {
+    const javascript = emitted([[
+      "/main.hex",
+      `${DESCRIBE}union Colour = Red | Green\n` +
+        "honor Describe<Colour> =\n" +
+        "    describe(c) = \"colour\"\n" +
+        "union Box(a) = Packed(a)\n" +
+        "honor<a: Describe> Describe<Box(a)> =\n" +
+        "    describe(b) = \"box\"\n" +
+        "export let atColour: String = tell(Red)\n" +
+        "export let atBox: String = tell(Packed(True))\n",
+    ]]);
+
+    // The control the `Point` row cannot be. A record subject declines because
+    // it is not a union at all, so it would go on declining however the `Bool`
+    // test were written; `Colour` is a union and declines only because the test
+    // is the *identity* of the prelude's `Bool`. Loosen that to "any union" and
+    // this call becomes `tellBool(Red)` — a clean compile with the wrong
+    // dictionary at run time.
+    expect(javascript).toContain("const atColour = tell(Red, __Describe_Colour);");
+
+    // And the parameterized instance beside it, which is why no arity test
+    // guards the lookup: `Box(a)`'s subject names the factory's own variable, so
+    // it is no fundamental and its dictionary is not in the table. Under the
+    // same loosening it would be, and `atBox` would route too — so this is the
+    // falsifiable form of a guard that could not be given one directly.
+    expect(javascript).toContain("const atBox = tell(Packed(true), __Describe_Box_Bool);");
+    expect(javascript).not.toContain("tellBool(Red)");
+    expect(javascript).not.toContain("tellBool(Packed");
+  });
+
   test("an unexported callee mints nothing, so nothing routes", () => {
     const javascript = emitted([[
       "/main.hex",
