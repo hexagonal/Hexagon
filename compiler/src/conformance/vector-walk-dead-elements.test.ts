@@ -28,6 +28,22 @@ import { compileMain, runMain } from "../support/test-project.js";
  *   walk to a length comparison would be a different emission rather than a
  *   deletion, and is deliberately not taken.
  *
+ * Only the literal `true` collapses the loop. An operand-free element that is
+ * not `true` — a tuple of units inlines to `true && true` — sheds the binding
+ * and keeps the walk, and that arm is pinned as hard as the cascade, because
+ * nothing about the *answers* distinguishes the two.
+ *
+ * Where the changed lines land is worth knowing before auditing a diff: the
+ * rule keys on the element expression, so a `Vector(Unit)` *held* by a record
+ * or a tuple moves that holder's dictionary — `__Eq_Sheet_equals` — whose name
+ * says nothing about vectors or units. Grepping for `__*_Vector_Unit` finds
+ * most of the change and not all of it.
+ *
+ * One thing the walk table does not say: `hash` is untouched as a *walk*, and
+ * its loop-header binder is left exactly where it was, but a
+ * `__Hash_Vector_Unit` dictionary line still moves — the `eq` slot nested
+ * inside it collapses like any other equality. The second test pins that.
+ *
  * The controls carry the weight here, because this is a cosmetic change to a
  * shared walk: a `Vector` over any type whose equality reads its operands must
  * emit exactly what it always did, and a module mixing a collapsed dictionary
@@ -129,6 +145,148 @@ describe("an operand-free element equality leaves only the size check", () => {
     expect(module.gridsMatch).toBe(true);
     // Inner lengths decide: `[(), ()]` against `[()]`.
     expect(module.gridsPartApart).toBe(false);
+  });
+});
+
+describe("an operand-free element that is not `true` keeps its loop", () => {
+  /**
+   * The other half of the rule, and the half a reader is most likely to
+   * simplify away: only the literal `true` collapses the loop, because only the
+   * identity of the fold makes the loop unable to decide anything. An element
+   * expression that ignores its operands *without* being `true` sheds the
+   * binding and the iterator it does not read, and keeps the walk.
+   *
+   * `Vector((Unit, Unit))` is the shape that reaches it: a tuple of units
+   * inlines to `true && true`, which is operand-free but is not `true`. The
+   * distinction has no semantic weight here — both answers are the same — so
+   * nothing but a pin stops it being flattened into "collapse anything
+   * operand-free" by someone tidying the arm.
+   *
+   * The minimal pair below makes the boundary visible: `{a: Unit}` has one
+   * field and inlines to bare `true`, so its vector collapses; `(Unit, Unit)`
+   * has two and inlines to `true && true`, so its vector does not.
+   */
+  test("`Vector((Unit, Unit))` keeps the walk `true && true` does not decide", async () => {
+    const source = [
+      "export let samePairs(x: Vector((Unit, Unit)), y: Vector((Unit, Unit))): Bool =",
+      "    x == y",
+      "",
+      "let twoPairs: Vector((Unit, Unit)) = [((), ()), ((), ())]",
+      "let alsoTwoPairs: Vector((Unit, Unit)) = [((), ()), ((), ())]",
+      "let onePair: Vector((Unit, Unit)) = [((), ())]",
+      "",
+      "export let pairsMatch: Bool = samePairs(twoPairs, alsoTwoPairs)",
+      "export let pairsCountApart: Bool = samePairs(twoPairs, onePair)",
+      "",
+    ].join("\n");
+    const emitted = javascript(source);
+    // The loop survives, guard and all. Collapsing every operand-free element
+    // rather than only `true` deletes this line.
+    expect(emitted).toContain(
+      "__trieSize(__left) === __trieSize(__right) && (() => { " +
+        "for (const __leftElement of __left) { if (!(true && true)) return false; } " +
+        "return true; })()",
+    );
+    // And the two names it genuinely does not read are still shed.
+    expect(emitted).not.toContain("__rightElement");
+    expect(emitted).not.toContain("__rightStep");
+    const module = await runMain(source);
+    expect(module.pairsMatch).toBe(true);
+    expect(module.pairsCountApart).toBe(false);
+  });
+
+  test("the boundary: a one-field all-`Unit` record collapses where a pair does not", () => {
+    // Same semantics on both sides — every element equals every other — and
+    // different emission, because the rule reads the text rather than the
+    // meaning. That is the rule working as #680 specified it, and the pair is
+    // here so the asymmetry is deliberate rather than discovered.
+    expect(javascript(
+      "export let sameCellRuns(x: Vector({a: Unit}), y: Vector({a: Unit})): Bool =\n    x == y\n",
+    )).toContain(
+      "const __Eq_Vector_a = ({ equals: (__left, __right) => " +
+        "__trieSize(__left) === __trieSize(__right), ",
+    );
+    expect(javascript(
+      "export let sameTriples(x: Vector((Unit, Unit, Unit)), y: Vector((Unit, Unit, Unit))): Bool =\n" +
+        "    x == y\n",
+    )).toContain("for (const __leftElement of __left) { if (!(true && true && true)) return false; }");
+  });
+
+  test("`compare` over `Vector((Unit, Unit))` keeps its walk too", async () => {
+    const source = [
+      "export let pairsBefore(x: Vector((Unit, Unit)), y: Vector((Unit, Unit))): Bool =",
+      "    x < y",
+      "",
+      "let shortPairs: Vector((Unit, Unit)) = [((), ())]",
+      "let longPairs: Vector((Unit, Unit)) = [((), ()), ((), ())]",
+      "",
+      "export let shortPairFirst: Bool = pairsBefore(shortPairs, longPairs)",
+      "export let longPairFirst: Bool = pairsBefore(longPairs, shortPairs)",
+      "",
+    ].join("\n");
+    const emitted = javascript(source);
+    expect(emitted).toContain("if (__step.done) return \"Greater\"; ");
+    expect(emitted).toContain("return __rightStep.next().done ? \"Equal\" : \"Less\";");
+    expect(emitted).not.toContain("const __rightElement = __step.value;");
+    const module = await runMain(source);
+    expect(module.shortPairFirst).toBe(true);
+    expect(module.longPairFirst).toBe(false);
+  });
+});
+
+describe("the collapse reaches dictionaries whose names never say `Vector`", () => {
+  /**
+   * The rule keys on the element expression, so it fires wherever a
+   * `Vector(Unit)` is *held* — and there the changed line belongs to the
+   * holder's dictionary, whose name carries no trace of the vector. A reader
+   * auditing this change by grepping for `__*_Vector_Unit` would miss both
+   * shapes below.
+   */
+  test("a record field and a tuple element holding `Vector(Unit)`", async () => {
+    const held = [
+      "export record Sheet derives Eq = {rows: Vector(Unit), tag: Int}",
+      "",
+      "export let sameSheets(x: Sheet, y: Sheet): Bool =",
+      "    x == y",
+      "",
+      "let firstSheet: Sheet = Sheet({rows = [(), ()], tag = 3})",
+      "let matchingSheet: Sheet = Sheet({rows = [(), ()], tag = 3})",
+      "let shorterSheet: Sheet = Sheet({rows = [()], tag = 3})",
+      "",
+      "export let sheetsMatch: Bool = sameSheets(firstSheet, matchingSheet)",
+      "export let sheetsRowsApart: Bool = sameSheets(firstSheet, shorterSheet)",
+      "",
+    ].join("\n");
+    const heldEmitted = javascript(held);
+    expect(heldEmitted).toContain(
+      "const __Eq_Sheet_equals = (__left, __right) => " +
+        "__trieSize(__left.rows) === __trieSize(__right.rows) && __left.tag === __right.tag;",
+    );
+    expect(heldEmitted).not.toContain("if (!(true))");
+    const heldModule = await runMain(held);
+    expect(heldModule.sheetsMatch).toBe(true);
+    expect(heldModule.sheetsRowsApart).toBe(false);
+
+    const carried = [
+      "export let sameHolders(x: (Vector(Unit), Int), y: (Vector(Unit), Int)): Bool =",
+      "    x == y",
+      "",
+      "let firstHolder: (Vector(Unit), Int) = ([(), ()], 7)",
+      "let matchingHolder: (Vector(Unit), Int) = ([(), ()], 7)",
+      "let taggedApart: (Vector(Unit), Int) = ([(), ()], 8)",
+      "",
+      "export let holdersMatch: Bool = sameHolders(firstHolder, matchingHolder)",
+      "export let holdersTagApart: Bool = sameHolders(firstHolder, taggedApart)",
+      "",
+    ].join("\n");
+    const carriedEmitted = javascript(carried);
+    expect(carriedEmitted).toContain(
+      "__trieSize(__left[0]) === __trieSize(__right[0]) && __left[1] === __right[1]",
+    );
+    expect(carriedEmitted).not.toContain("if (!(true))");
+    const carriedModule = await runMain(carried);
+    expect(carriedModule.holdersMatch).toBe(true);
+    expect(carriedModule.holdersTagApart).toBe(false);
   });
 });
 
