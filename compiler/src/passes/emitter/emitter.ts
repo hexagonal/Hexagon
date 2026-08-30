@@ -6747,10 +6747,16 @@ class JavaScriptEmitter {
    * reading rule is unchanged.
    *
    * The seat is pinned by the `Map` programs in `derived-walk-evidence.test.ts`
-   * and `planner-edition-walks.test.ts`. Only `Map` reaches here: a per-call
-   * counter measures 16 reaches from each of those two programs and **zero**
-   * from every tuple, `Vector` and record program in either file, so a change
-   * here is invisible to all of them.
+   * and `planner-edition-walks.test.ts` — a per-call counter measures 16 reaches
+   * from each — and by that first file's `Set` rows, which traverse it too: 1
+   * reach from the `Set(a)` equals walk, 4 from `Set(Set(a))`'s hash walk, 2
+   * from the `Map(a, Int)` key walk. Its `describe` says as much; the seat
+   * belongs to `Set` and `Map` alike.
+   *
+   * What measures **zero** is every tuple, `Vector` and record program in
+   * `planner-edition-walks.test.ts`, that file's `Set((a, Int))` under a `Hash`
+   * binder included — so the walks reached by an *edition* are, `Map` aside,
+   * blind to a change here.
    */
   #subDictionary(
     components: ComponentEvidence,
