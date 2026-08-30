@@ -6267,21 +6267,20 @@ class JavaScriptEmitter {
    * **components-blind fallback** (#669) — every seat with a selection to read
    * renders the recorded entailment path through `#emitEvidence` instead.
    *
-   * Blind is not unreachable, and the live route is neither of the two a reader
-   * would guess. It is **#675**: a specialization-planner edition rewrites its
-   * dictionary parameters to `Primitive` evidence while leaving the component's
-   * walked type a `Variable`, so `#derivedEquals`' bare-`Variable` arm arrives
-   * here on a module the checker **accepted**. Both probes then miss — an
-   * edition has no dictionary parameters at all — and the `Hash` fallback
-   * reports `missing \`Hash\` evidence` on a program that never writes `Hash`.
-   * `export let both<a: Eq>(x: (a, Int), y: (a, Int))` and its `Vector(a)` twin
-   * both arrive that way. So the naming of the wrong constraint is #675's to
-   * fix, not a defect of the probe order.
+   * There was one live route into it, and it is gone. A specialization-planner
+   * edition used to rewrite its dictionary parameters to `Primitive` evidence
+   * while leaving the component's walked type a `Variable`, so
+   * `#derivedEquals`' bare-`Variable` arm arrived here on a module the checker
+   * had **accepted** — both probes missing, because an edition has no dictionary
+   * parameters at all, and the `Hash` fallback reporting `missing \`Hash\`
+   * evidence` on a program that never writes `Hash`. `specializeItem` now
+   * carries the assignment into the edition's types as well as its evidence
+   * (#675), so no accepted program presents a variable component the enclosing
+   * scheme does not bind, and nothing reaches here.
    *
-   * What the repair changed is which seats arrive. The `Map` value seat no
-   * longer does — `#subDictionary` reads the recorded `Primitive` node there —
-   * and every seat that still arrives ends in #675's ICE, so nothing that
-   * survives to a run has come through this helper.
+   * The helper stays for the blind mode alone: a walk that has no selection to
+   * read still needs a name, and these two probes are the best guess available
+   * where nothing was recorded.
    */
   #equalityDictionary(
     variable: Typed.TypeVariableId,
@@ -6531,13 +6530,16 @@ class JavaScriptEmitter {
    * fallback on a module the checker rejected.
    *
    * The primitive shortcut is licensed by the component's **type**, not by the
-   * evidence's kind, and the two come apart (#675). A specialization-planner
-   * edition rewrites the evidence to `Primitive` and leaves the type a
-   * `Variable`; the inline arm taken there is not the shortcut but the walk's
-   * dictionary rebuild, which is that issue's ICE. `Primitive` stays out of
-   * `componentDispatch` because admitting it is #344's exemption to reopen and
-   * an experiment showed it does not close #675 anyway — but the arm is benign
-   * only where type and evidence agree.
+   * evidence's kind, and it is sound because the two always agree. Nothing in
+   * the compiler manufactures a `Primitive`-evidence-over-`Variable`-type pair
+   * any more: the specialization planner used to, rewriting an edition's
+   * evidence and leaving its walked types generic, and the inline arm taken
+   * there was not the shortcut but the walk's dictionary rebuild — #675's ICE.
+   * `specializeItem` now carries the assignment into both, so an edition's
+   * component seat presents a ground type beside its ground evidence and the
+   * shortcut fires exactly where a hand-written program at that type fires it.
+   * `Primitive` therefore stays out of `componentDispatch`: admitting it would
+   * reopen #344's exemption and buy nothing.
    *
    * *(#344.)* An instance **honored at a primitive** keeps the inline arm too,
    * which is `componentDispatch`'s whole job: a migrated companion's evidence
@@ -6734,11 +6736,12 @@ class JavaScriptEmitter {
    * The condition is **whether a node was recorded**, never which kind it is, so
    * a variable component renders `Primitive` and `Instance` nodes here as well.
    * That is deliberate — the recording is the answer wherever it exists — and it
-   * has one consequence beyond #669: a specialization-planner edition, whose
-   * evidence is `Primitive` over a still-`Variable` type, gets its own primitive
-   * dictionary at this seat instead of #675's ICE. That single cured seat is
-   * pinned by `derived-walk-evidence.test.ts`, because no other test would
-   * notice it going away.
+   * is why this one seat was already right for a specialization-planner edition
+   * back when the edition's evidence was `Primitive` over a still-`Variable`
+   * type and every sibling seat reported #675's ICE. Editions now substitute
+   * their types too, so the shape that made the point no longer arises; the
+   * reading rule is unchanged, and `planner-edition-walks.test.ts` pins that
+   * this seat's emission is the ground one.
    */
   #subDictionary(
     components: ComponentEvidence,
