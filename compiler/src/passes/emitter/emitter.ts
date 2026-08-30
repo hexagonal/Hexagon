@@ -6274,16 +6274,14 @@ class JavaScriptEmitter {
    * here on a module the checker **accepted**. Both probes then miss — an
    * edition has no dictionary parameters at all — and the `Hash` fallback
    * reports `missing \`Hash\` evidence` on a program that never writes `Hash`.
-   * Measured at this commit: `export let both<a: Eq>(x: (a, Int), y: (a, Int))`
-   * and its `Vector(a)` twin both reach here, seven times each. So the naming of
-   * the wrong constraint is #675's to fix, not a defect of the probe order.
+   * `export let both<a: Eq>(x: (a, Int), y: (a, Int))` and its `Vector(a)` twin
+   * both arrive that way. So the naming of the wrong constraint is #675's to
+   * fix, not a defect of the probe order.
    *
-   * What the repair did change is how much traffic arrives. Over ten exported
-   * generic `Eq` programs that mint editions, calls here fall from 108 to 70,
-   * and one program — `Map(Int, a)` — stops arriving entirely, because its value
-   * seat now reads the recorded `Primitive` node through `#subDictionary`. Nine
-   * of the ten still reach here, and every one of those nine still ends in
-   * #675's ICE, so nothing that survives to a run has come through this helper.
+   * What the repair changed is which seats arrive. The `Map` value seat no
+   * longer does — `#subDictionary` reads the recorded `Primitive` node there —
+   * and every seat that still arrives ends in #675's ICE, so nothing that
+   * survives to a run has come through this helper.
    */
   #equalityDictionary(
     variable: Typed.TypeVariableId,
