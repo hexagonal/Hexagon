@@ -6646,12 +6646,22 @@ class JavaScriptEmitter {
       const step = this.#generatedNames.fresh("step");
       const order = this.#generatedNames.fresh("order");
       const elementOrder = component("element", type.element, leftElement, rightElement);
+      // #680, the same elision as `#derivedEquals`': an element order that
+      // ignores its right-hand operand — `Unit`'s inlines to `"Equal"` — leaves
+      // this read discarded. Only the binding goes. The loop itself is
+      // load-bearing whatever the element says, because exhaustion is what
+      // decides a vector order: `.next()` still has to run, `done` still decides
+      // `Greater`, and the tail check still separates `Equal` from `Less`.
+      // Collapsing an all-`"Equal"` walk to a length comparison would be a
+      // different emission rather than a deletion, so it is not taken here.
+      const readsRight = elementOrder.includes(rightElement);
+      const rightBinding = readsRight ? `const ${rightElement} = ${step}.value; ` : "";
       return "(() => { " +
         `const ${iterator} = ${right}[${this.#spell("Symbol")}.iterator](); ` +
         `for (const ${leftElement} of ${left}) { ` +
         `const ${step} = ${iterator}.next(); ` +
         `if (${step}.done) return "Greater"; ` +
-        `const ${rightElement} = ${step}.value; ` +
+        `${rightBinding}` +
         `const ${order} = ${elementOrder}; ` +
         `if (${order} !== "Equal") return ${order}; } ` +
         `return ${iterator}.next().done ? "Equal" : "Less"; })()`;
@@ -6877,10 +6887,35 @@ class JavaScriptEmitter {
       const rightElement = this.#generatedNames.fresh("rightElement");
       const step = this.#generatedNames.fresh("rightStep");
       const elementEquals = component("element", type.element, leftElement, rightElement);
-      return `${this.#useVectorRuntime("size")}(${left}) === ${this.#useVectorRuntime("size")}(${right}) && ` +
-        `(() => { const ${step} = ${right}[${this.#spell("Symbol")}.iterator](); ` +
+      const size = `${this.#useVectorRuntime("size")}(${left}) === ` +
+        `${this.#useVectorRuntime("size")}(${right})`;
+      // #680. An element equality that ignores its operands makes the machinery
+      // around it dead, and `Unit`'s does: it inlines to `true`, so base emitted
+      // a discarded `.next()` read and a guard testing a literal, once per
+      // element, forever false. The three names above are still *claimed* even
+      // where nothing is emitted — `#claim` is what decides the `_1` suffixes,
+      // so releasing them here would renumber the binders of every other
+      // dictionary in the module, which is a change to emission that is not
+      // dead.
+      //
+      // `true` is the identity of the fold, so the loop cannot do anything: the
+      // equality is its size check and nothing more. Any other operand-free
+      // element expression keeps its loop — it may still decide the answer —
+      // and only sheds the right-hand binding it does not read.
+      if (elementEquals === "true") return size;
+      // Conservative by construction: a name that merely *contains* this
+      // binder — a nested walk's `__rightElement_1` — counts as a mention, so
+      // the walk keeps a binding it might not need rather than dropping one it
+      // does.
+      const readsRight = elementEquals.includes(rightElement);
+      const iterator = readsRight
+        ? `const ${step} = ${right}[${this.#spell("Symbol")}.iterator](); `
+        : "";
+      const advance = readsRight ? `const ${rightElement} = ${step}.next().value; ` : "";
+      return `${size} && ` +
+        `(() => { ${iterator}` +
         `for (const ${leftElement} of ${left}) { ` +
-        `const ${rightElement} = ${step}.next().value; ` +
+        `${advance}` +
         `if (!(${elementEquals})) return false; } return true; })()`;
     }
     if (type.kind === "Set") {
