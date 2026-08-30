@@ -1445,7 +1445,7 @@ const UNIT_IMMUNE_SPELLING = "void 0";
  * Siblings of §1.1's list, never copies: `Iterable` names no JavaScript value
  * and `Math` appears in no face, so each file guards its own.
  */
-const RUNTIME_VOCABULARY = [
+export const RUNTIME_VOCABULARY = [
   UNIT_SPELLING,
   "Array",
   "BigInt",
@@ -9678,6 +9678,36 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   hashTrieMix: [],
   bitCount: [],
 };
+
+/**
+ * Every helper body the emitter can write, rendered once each with the **bare**
+ * vocabulary — the input FFI Part 7 §1.2's tripwire scans
+ * (`conformance/runtime-vocabulary.test.ts`).
+ *
+ * Exported for that one reader, and driven off `HELPER_DEPENDENCIES`' keys
+ * rather than a second list, so a helper added to the `Helper` union is rendered
+ * here without anyone remembering to add it: the tripwire's whole value is that
+ * it cannot be outrun by an edit elsewhere. The names handed in are stand-ins —
+ * what is scanned is which *globals* a body names, and no helper's spelling of
+ * its own name or its dependencies' can be one.
+ *
+ * One entry per helper, whole: a body is scanned as a unit because its locals
+ * are what separate its globals from its own names, and a helper read a line at
+ * a time would report every parameter as free.
+ */
+export function renderEveryHelper(): readonly string[] {
+  return (Object.keys(HELPER_DEPENDENCIES) as Helper[]).map((helper) =>
+    renderHelper(
+      helper,
+      `__${helper}`,
+      (dependency) => `__${dependency}`,
+      (operation) => `__trie_${operation}`,
+      (operation) => `__hashTrie_${operation}`,
+      "probe",
+      (global) => BARE_RUNTIME_VOCABULARY.spell(global),
+    ).join("\n")
+  );
+}
 
 enum Precedence {
   Arrow = 1,

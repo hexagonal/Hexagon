@@ -1,0 +1,728 @@
+import { beforeAll, describe, expect, test } from "vitest";
+
+import type { CompiledProject } from "../project.js";
+import { compileFiles, runProject } from "../support/test-project.js";
+import { freeIdentifiers } from "../support/free-identifiers.js";
+import { RUNTIME_VOCABULARY, renderEveryHelper } from "../passes/emitter/emitter.js";
+
+/**
+ * Conformance for **FFI Part 7 §1.2's runtime vocabulary** — the rule that the
+ * emitted JavaScript survives its own module (#666; correction record §14.7).
+ *
+ * §1.1's disease in the other file, and discovered by §1.1's implementation.
+ * JavaScript resolves a name file-locally before the global scope, and the
+ * emitted `.js` writes runtime text in the global vocabulary: the exception
+ * helper's `new Error(…)` and `Object.assign`, the range and `Seq` machinery's
+ * `Symbol.iterator`, the inbound adapter's `Boolean`/`TypeError`/`String`, the
+ * memoizer's `WeakMap`, the derived helpers' `Math`/`Number`/`Array`, the match
+ * lowering's `RangeError`, and Unit's own spelling `undefined`. A module-scope
+ * binding under any of those captured every such reference in its module.
+ *
+ * The repair is §1.1's move in value space, with the protected spelling
+ * manufactured rather than found — JavaScript protects no spelling of the global
+ * scope, `globalThis` included — so a contested module imports the globals it
+ * contests as `__`-reserved captures from the program's runtime module, `hex.js`
+ * (Part 1 §8.3's reserved seat, now taken), Unit takes `void 0` exactly where
+ * `undefined` is bound, and the unpublishable seats extend the `__binding`
+ * rename. On the spelling alone, per module: a module binding no vocabulary
+ * spelling emits the bare text it always did, byte-identically.
+ *
+ * **The capture classes are executed, never merely emitted.** Three of the four
+ * measured severities produce *running* programs — a raise that throws the wrong
+ * error, a loop that throws before its first iteration, values that are silently
+ * wrong — and two of those emit text a reader would call correct. Each class
+ * below therefore runs, and carries its **negative baseline**: the pre-repair
+ * text, hand-written and executed, so the failure this repairs is a measurement
+ * rather than a claim.
+ */
+
+/** Distinguishes otherwise-identical emitted text; see `runProject`'s note. */
+let runTag = 0;
+
+/** Executes one hand-written module, for the negative baselines. */
+async function runJavaScript(text: string): Promise<Record<string, unknown>> {
+  runTag += 1;
+  return (await import(
+    /* @vite-ignore */ `data:text/javascript;charset=utf-8,${
+      encodeURIComponent(`${text}\n// baseline ${runTag}\n`)
+    }`
+  )) as Record<string, unknown>;
+}
+
+/** One module's emitted JavaScript, with the project's diagnostics asserted empty. */
+function javascript(
+  files: readonly (readonly [string, string])[],
+  path = "/main.hex",
+): string {
+  const project = compileFiles(files);
+  expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+  const module = project.modules.find(({ source }) => source.path === path);
+  if (module === undefined) throw new Error(`${path} was not emitted`);
+  return module.javascript.text;
+}
+
+/** The `name` and payload of whatever `call` threw, or `undefined` when it returned. */
+function thrown(call: () => unknown): Record<string, unknown> | undefined {
+  try {
+    call();
+  } catch (error) {
+    const failure = error as { name?: string; message?: string; value?: unknown };
+    return {
+      name: failure.name,
+      message: failure.message,
+      value: failure.value,
+      isError: error instanceof Error,
+    };
+  }
+  return undefined;
+}
+
+describe("class 1 — `record Error` and `record Object` beside a raise", () => {
+  const PROGRAM = "export record Error = {code: Int}\n" +
+    "export record Object = {tag: Int}\n" +
+    "exception Boom(value: Int)\n" +
+    "export let raise(): Int = throw(Boom(3))\n";
+
+  test("the raise reaches the real `Error`, and the helper says which spellings moved", () => {
+    const text = javascript([["/main.hex", PROGRAM]]);
+
+    // The import line is a manifest: exactly the two spellings this module
+    // binds, and nothing else. `Symbol`, `String`, and the rest stay bare here
+    // because the decision is per (module, spelling).
+    expect(text).toContain('import { __Error, __Object } from "./hex.js";');
+    expect(text).toContain(
+      "  return __Object.assign(new __Error(__message), " +
+        '{ $hex: "main", name: __name }, __fields);',
+    );
+    // Part 1 §10 stands absolute at both seats: the user's constructors keep
+    // their spellings and their export names.
+    expect(text).toContain("const Error = __record => __record;");
+    expect(text).toContain("const Object = __record => __record;");
+    expect(text).toContain("export { Error };");
+  });
+
+  test("executed: the raise throws the declared exception", async () => {
+    const exports = await runProject([["/main.hex", PROGRAM]]);
+
+    expect(thrown(exports["raise"] as () => number)).toEqual({
+      name: "Boom",
+      message: "",
+      value: 3,
+      isError: true,
+    });
+  });
+
+  test("the negative baseline: unqualified, every raise throws `Error is not a constructor`", async () => {
+    // What shipped before this rule, executed. The record's constructor stands
+    // where the helper reads `Error`, so the helper's `new` finds an arrow.
+    const exports = await runJavaScript(
+      "function __exception(__name, __message, __fields) {\n" +
+        '  return Object.assign(new Error(__message), { $hex: "main", name: __name }, __fields);\n' +
+        "}\n" +
+        "const Error = __record => __record;\n" +
+        'export const raise = () => { throw __exception("Boom", "", { value: 3 }); };\n',
+    );
+
+    expect(thrown(exports["raise"] as () => number)).toMatchObject({
+      name: "TypeError",
+      message: "Error is not a constructor",
+    });
+  });
+});
+
+describe("class 2 — `record Symbol` beside a `for` loop", () => {
+  const PROGRAM = "export record Symbol = {code: Int}\n" +
+    "export let total(n: Int): Int =\n" +
+    "    var sum = 0\n" +
+    "    for i in 1..n\n" +
+    "        sum := sum + i\n" +
+    "    sum\n";
+
+  test("the range's iterator key qualifies", () => {
+    const text = javascript([["/main.hex", PROGRAM]]);
+
+    expect(text).toContain('import { __Symbol } from "./hex.js";');
+    expect(text).toContain("    *[__Symbol.iterator]() {");
+  });
+
+  test("executed: the loop runs", async () => {
+    const exports = await runProject([["/main.hex", PROGRAM]]);
+
+    expect((exports["total"] as (n: number) => number)(4)).toBe(10);
+  });
+
+  test("the negative baseline: unqualified, the loop throws before its first iteration", async () => {
+    const exports = await runJavaScript(
+      "function __range(__start, __end) {\n" +
+        "  return { start: __start, end: __end, descending: false,\n" +
+        "    *[Symbol.iterator]() {\n" +
+        "      for (let __value = __start; __value <= __end; __value += 1) yield __value;\n" +
+        "    },\n" +
+        "  };\n" +
+        "}\n" +
+        "const Symbol = __record => __record;\n" +
+        "export const total = n => {\n" +
+        "  let sum = 0;\n" +
+        "  for (const i of __range(1, n)) sum = sum + i;\n" +
+        "  return sum;\n" +
+        "};\n",
+    );
+
+    // The record's constructor has no `.iterator`, so the computed key is
+    // `undefined` and the object carries no iteration protocol at all.
+    expect(thrown(() => (exports["total"] as (n: number) => number)(4)))
+      .toMatchObject({ name: "TypeError" });
+  });
+});
+
+describe("class 3 — a bound `undefined`, the silent-wrong-value class", () => {
+  test("a module-level binding: Unit takes `void 0` throughout", () => {
+    const text = javascript([["/main.hex", [
+      "export let undefined: Int = 1",
+      "export let unit(): Unit = ()",
+      "",
+    ].join("\n")]]);
+
+    // No import and no capture: `undefined` owes the runtime module nothing.
+    // `void 0` is immune at every scope with no per-module machinery, which is
+    // exactly why the reserved import — measured to work, §14.7 — is not used.
+    expect(text).not.toContain("hex.js");
+    expect(text).toBe(
+      "const undefined = 1;\n" +
+        "const unit = () => void 0;\n" +
+        "export { undefined };\n" +
+        "export { unit };\n",
+    );
+  });
+
+  test("a function-scope binding moves the whole module, because `let` admits it", () => {
+    // The one vocabulary member a function local can bind: `let` requires a
+    // non-uppercase-start name, so every other spelling is a module-level
+    // exposure only. The trigger reads the module's own symbols at every scope,
+    // and the answer applies throughout — the Unit below is *inside* the
+    // shadowing function, which is where the measured failure was.
+    expect(javascript([["/main.hex", [
+      "export let unit(): Unit =",
+      "    let undefined = 1",
+      "    ignore(undefined)",
+      "    ()",
+      "",
+    ].join("\n")]])).toBe(
+      "const unit = () => {\n" +
+        "  const undefined = 1;\n" +
+        "  undefined;\n" +
+        "  return void 0;\n" +
+        "};\n" +
+        "export { unit };\n",
+    );
+  });
+
+  test("executed: the Unit is the real `undefined`, not the shadowing value", async () => {
+    // Two programs, because one module cannot hold both bindings — Hexagon
+    // refuses the rebinding, which is the shadowing JavaScript would have
+    // allowed and is exactly why the module-level and function-level exposures
+    // are separate classes.
+    const outer = await runProject([["/main.hex", [
+      "export let undefined: Int = 1",
+      "export let unit(): Unit = ()",
+      "",
+    ].join("\n")]]);
+    const inner = await runProject([["/main.hex", [
+      "export let unit(): Unit =",
+      "    let undefined = 2",
+      "    ignore(undefined)",
+      "    ()",
+      "",
+    ].join("\n")]]);
+
+    expect((outer["unit"] as () => unknown)()).toBeUndefined();
+    expect((inner["unit"] as () => unknown)()).toBeUndefined();
+  });
+
+  test("the negative baseline: unqualified, every Unit in scope becomes the bound value", async () => {
+    const exports = await runJavaScript(
+      "const undefined = 1;\n" +
+        "export const unit = () => undefined;\n" +
+        "export const inner = () => {\n" +
+        "  const undefined = 2;\n" +
+        "  return undefined;\n" +
+        "};\n",
+    );
+
+    // No throw, no diagnostic, no type-level symptom: the program runs and
+    // answers the wrong value. This is why the trigger reads the *spelling*.
+    expect((exports["unit"] as () => unknown)()).toBe(1);
+    expect((exports["inner"] as () => unknown)()).toBe(2);
+  });
+});
+
+describe("class 4 — `exception Boolean` beside a `Seq` boundary", () => {
+  const PROGRAM = "export exception Boolean(value: Int)\n" +
+    "export let count(): Int = Seq.length(Vector.toSeq([1, 2, 3]))\n";
+
+  test("the inbound adapter's coercion qualifies", () => {
+    const text = javascript([["/main.hex", PROGRAM]]);
+
+    expect(text).toContain('import { __Boolean } from "./hex.js";');
+    expect(text).toContain("            __step = __Boolean(__next.done)");
+    // Per spelling: the same helper's `TypeError`, `String`, `Object`, `Error`,
+    // and `Symbol` are untouched, because this module binds none of them.
+    expect(text).toContain('              throw new TypeError("Iterator result " + String(__next)');
+  });
+
+  test("executed: `Seq.length` of a three-element sequence answers 3", async () => {
+    const exports = await runProject([["/main.hex", PROGRAM]]);
+
+    expect((exports["count"] as () => number)()).toBe(3);
+  });
+
+  test("the negative baseline: unqualified, the same call answers 0", async () => {
+    // The adapter's `Boolean(__next.done)` reads the exception constructor,
+    // which answers a branded object — truthy — so the first pull reports the
+    // sequence ended. The second measured instance of the silent-wrong-value
+    // class, and the reason a `.length` is the observation rather than a throw.
+    const exports = await runJavaScript(
+      "const Boolean = value => ({ $hex: \"main\", name: \"Boolean\", value });\n" +
+        "export const ended = Boolean(1) ? 0 : 3;\n",
+    );
+
+    expect(exports["ended"]).toBe(0);
+  });
+});
+
+describe("the two `SyntaxError` classes — the module never parsed at all", () => {
+  test("`export let eval` binds a reserved local and publishes its own name", async () => {
+    // Strict mode refuses `eval` and `arguments` as binding names, and an
+    // emitted module is always strict, so the pre-repair `const eval = 7;` was
+    // a load-time `SyntaxError`: nothing in the module ran. The rename is
+    // lawful here on the lowercase gate — every JavaScript reserved word is
+    // lowercase and a Hexagon type name is parser-gated uppercase, so a
+    // `__binding` alias can carry a value's export seat but never a type's.
+    expect(javascript([["/main.hex", "export let eval: Int = 7\n"]])).toBe(
+      "const __binding0 = 7;\n" +
+        "export { __binding0 as eval };\n",
+    );
+
+    const exports = await runProject([["/main.hex", "export let eval: Int = 7\n"]]);
+    expect(exports["eval"]).toBe(7);
+  });
+
+  test("`import { await }` aliases its local, and every reference follows", async () => {
+    // The rename's missing leg (§1.2 rule 4): the export seat already renamed,
+    // so `export let await` emitted correctly while `import { await }` emitted
+    // the spelling verbatim and the *importer* failed to parse.
+    const FILES = [
+      ["/lib.hex", "export let await: Int = 4\n"],
+      ["/main.hex", 'import { await } from "./lib"\nexport let n: Int = await + 1\n'],
+    ] as const;
+
+    expect(javascript(FILES)).toBe(
+      'import { await as __binding0 } from "./lib.js";\n' +
+        "const n = __binding0 + 1;\n" +
+        "export { n };\n",
+    );
+
+    const exports = await runProject(FILES);
+    expect(exports["n"]).toBe(5);
+  });
+});
+
+describe("the trigger's two cross-module legs", () => {
+  test("a named import's local contests, and the importer qualifies", async () => {
+    // Import locals capture exactly like declarations: `import { Error }` binds
+    // `Error` in the *importing* module, where the helper lives. The import
+    // itself keeps working — Part 1 §10 again — and the exporting module
+    // qualifies on its own account.
+    const FILES = [
+      ["/lib.hex", "export record Error = {code: Int}\n"],
+      ["/main.hex", 'import { Error } from "./lib"\n' +
+        "exception Boom(value: Int)\n" +
+        "export let raise(): Int = throw(Boom(3))\n" +
+        "export let mine: Int = 1\n"],
+    ] as const;
+    const text = javascript(FILES);
+
+    expect(text).toContain('import { __Error } from "./hex.js";');
+    expect(text).toContain("new __Error(__message)");
+    expect(text).toContain('import { Error } from "./lib.js";');
+
+    const exports = await runProject(FILES);
+    expect(thrown(exports["raise"] as () => number)).toMatchObject({
+      name: "Boom",
+      isError: true,
+    });
+  });
+
+  test("a namespace alias contests too — the leg on which the two rules diverge", async () => {
+    // Named in §1.2's trigger deliberately, against §1.1's grain: `import
+    // module Error` lowers to `import * as Error`, which occupies JavaScript's
+    // value-name space like any binding, where a TypeScript namespace import
+    // leaves the plain type-name space alone (§1.1's measured control). The
+    // alias keeps its own spelling; what steps aside is the compiler's
+    // reference.
+    const FILES = [
+      ["/lib.hex", "export let zero: Int = 0\n"],
+      ["/main.hex", 'import module Error from "./lib"\n' +
+        "exception Boom(value: Int)\n" +
+        "export let raise(): Int = throw(Boom(3))\n" +
+        "export let z: Int = Error.zero\n"],
+    ] as const;
+    const text = javascript(FILES);
+
+    expect(text).toContain('import { __Error } from "./hex.js";');
+    expect(text).toContain("new __Error(__message)");
+    expect(text).toContain('import * as Error from "./lib.js";');
+    expect(text).not.toContain("Error_1");
+
+    const exports = await runProject(FILES);
+    expect(thrown(exports["raise"] as () => number)).toMatchObject({ name: "Boom" });
+    expect(exports["z"]).toBe(0);
+  });
+
+  test("the negative baseline: a namespace alias really does capture in JavaScript", async () => {
+    const exports = await runJavaScript(
+      "const zero = 0;\n" +
+        "export const read = () => {\n" +
+        "  const Error = { zero };\n" +
+        "  try { return new Error(\"boom\").message; } catch (failure) { return failure.name; }\n" +
+        "};\n",
+    );
+
+    expect((exports["read"] as () => string)()).toBe("TypeError");
+  });
+});
+
+describe("the minted-local negative — the trigger reads source bindings only", () => {
+  test("a companion operation named `undefined` aliases, and Unit stays `undefined`", async () => {
+    // §1.2 rule 1: the minted import local is the one compiler-chosen `.js`
+    // spelling that can mirror an export's, so the vocabulary and the reserved
+    // words join its probe. A companion export named `undefined` is legal
+    // Hexagon, and a dot call reaches it with no import of its own to name it.
+    //
+    // The second half is what makes this the *negative*: rule 1's aliasing runs
+    // after rule 2's trigger and puts nothing into it, so this module — which
+    // binds no vocabulary spelling of its own — keeps `undefined` for Unit.
+    const FILES = [
+      ["/lib.hex", "export record Box = {n: Int}\nexport let undefined(b: Box): Int = b.n\n"],
+      ["/main.hex", 'import { Box } from "./lib"\n' +
+        "export let use(b: Box): Int = b.undefined()\n" +
+        "export let unit(): Unit = ()\n"],
+    ] as const;
+
+    expect(javascript(FILES)).toBe(
+      'import { undefined as __undefined } from "./lib.js";\n' +
+        'import { Box } from "./lib.js";\n' +
+        "const use = b => __undefined(b);\n" +
+        "const unit = () => undefined;\n" +
+        "export { use };\n" +
+        "export { unit };\n",
+    );
+
+    const exports = await runProject(FILES);
+    expect((exports["use"] as (b: { n: number }) => number)({ n: 5 })).toBe(5);
+    expect((exports["unit"] as () => unknown)()).toBeUndefined();
+  });
+});
+
+/**
+ * A corpus that binds no runtime-vocabulary spelling anywhere, exercising every
+ * family of reference seat the emitter has: helper bodies, the inline `Unit` and
+ * empty-tuple spellings, interpolation and derived `show`/`hash`, the match
+ * lowering's unreachable arm, the range and `Seq` machinery, and the collection
+ * brackets.
+ *
+ * It serves twice: as the byte-identity negative below, and as the tripwire's
+ * inline-seat input — the seats no rendered helper covers.
+ */
+const UNCONTESTED_CORPUS: readonly string[] = [
+  "exception Boom(line: Int, message: String)\n" +
+    "export let raise(n: Int): Int =\n" +
+    "    if n > 0 then throw(Boom(3, \"bad\")) else n\n" +
+    "export let caught(n: Int): Int =\n" +
+    "    try\n" +
+    "        raise(n)\n" +
+    "    catch\n" +
+    "        Boom(line, _) => line\n",
+  "export let loop(n: Int): Int =\n" +
+    "    var total = 0\n" +
+    "    for i in 1..n\n" +
+    "        total := total + i\n" +
+    "    total\n" +
+    "export let text(x: Int): String = \"value ${x} here\"\n" +
+    "export let empty: Unit = ()\n",
+  "export let v: Vector(Int) = [1, 2, 3]\n" +
+    "export let first: Int = v[1]\n" +
+    "export let sliced: Vector(Int) = v[1..2]\n" +
+    "export let m: Map(String, Int) = Map.fromVector([(\"a\", 1)])\n" +
+    "export let looked: Int = m[\"a\"]\n" +
+    "export let st: Set(Int) = Set.fromVector([1, 2, 3])\n" +
+    "export let ch: String = \"hello\"[1]\n" +
+    "export let sub: String = \"hello\"[1..3]\n" +
+    "export let ms: String = Show.show(m)\n" +
+    "export let mh: Int = Hash.hash(m)\n" +
+    "export let ss: String = Show.show(st)\n" +
+    "export let sh: Int = Hash.hash(st)\n" +
+    "export let vs: String = Show.show(v)\n" +
+    "export let vh: Int = Hash.hash(v)\n" +
+    "export let me: Bool = Eq.equals(m, m)\n" +
+    "export let se: Bool = Eq.equals(st, st)\n",
+  "export let n(): Int = Seq.length(Vector.toSeq([1, 2, 3]))\n" +
+    "export let memo(): Seq(Int) = Seq.memoize(Vector.toSeq([1, 2]))\n" +
+    "export let counted(): Seq(Int) = Seq.take(Seq.iterate(0, (x) => x + 1), 3)\n",
+  "export let probe(): Unit = Debug.log(\"hi\")\n",
+  "export let d(a: Int, b: Int): Int = Int.div(a, b)\n" +
+    "export let fl(a: Float, b: Float): Bool = a == b\n" +
+    "export let cmp(a: String, b: String): Ordering = Ord.compare(a, b)\n" +
+    "export let bi: BigInt = 12n\n" +
+    "export let widened(x: Int): BigInt = x\n" +
+    "export let narrowed(x: BigInt): Option(Int) = BigInt.toInt(x)\n" +
+    "export let bs: String = Show.show(12n)\n" +
+    "export let fx: Float = Float.pow(2.0, 3.0)\n" +
+    "export let sx: String = Show.show(1.5)\n",
+  "export union Shape = Circle(Int) | Rect(Int, Int)\n" +
+    "export let area(s: Shape): Int =\n" +
+    "    match s\n" +
+    "        Circle(0) => 1\n" +
+    "        Circle(_) => 2\n" +
+    "        Rect(0, 0) => 3\n" +
+    "        Rect(_, _) => 4\n",
+  "export record Point derives (Eq, Ord, Show, Hash) = {x: Int, y: Float}\n" +
+    "export let p: Point = Point({x = 1, y = 2.0})\n" +
+    "export let s: String = Show.show(p)\n" +
+    "export let h: Int = Hash.hash(p)\n" +
+    "export let e: Bool = Eq.equals(p, p)\n" +
+    "export let o: Ordering = Ord.compare(p, p)\n" +
+    "export let t: String = Show.show((1, \"a\"))\n" +
+    "export let th: Int = Hash.hash((1, \"a\"))\n" +
+    "export let te: Bool = Eq.equals((1, \"a\"), (1, \"a\"))\n",
+];
+
+/**
+ * The corpus compiled once, as **one program**: its members are independent
+ * modules that import nothing from each other, and compiling them together
+ * pays for the prelude's injection once instead of eight times.
+ */
+let compiledCorpus: CompiledProject | undefined;
+
+function corpus(): CompiledProject {
+  return compiledCorpus ??= compileFiles(
+    UNCONTESTED_CORPUS.map((source, index) => [`/corpus${index}.hex`, source] as const),
+  );
+}
+
+// Compiled in a hook rather than inside whichever test asks first, so the one
+// slow thing in this file is not charged to a per-test timeout under a parallel
+// run — the failure that would report as a timeout in an unrelated assertion.
+beforeAll(() => {
+  corpus();
+});
+
+describe("the negatives — an uncontested module emits the text it always did", () => {
+  test("nothing in the corpus imports a capture, takes `void 0`, or owes a runtime module", () => {
+    // The byte-identity claim in the form a single run can check: the two
+    // spellings this rule can introduce appear nowhere, and no program of the
+    // corpus asks for `hex.js`. The whole-file pins the rest of this suite
+    // carries — and every `toBe` in the sibling conformance files, which this
+    // change left untouched — are the byte-for-byte half.
+    const project = corpus();
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    expect(project.runtimeGlobals).toBeUndefined();
+    for (const module of project.modules) {
+      expect(module.javascript.text).not.toContain("hex.js");
+      expect(module.javascript.text).not.toContain("void 0");
+      expect(module.javascript.importsRuntimeGlobals).toBe(false);
+      for (const member of RUNTIME_VOCABULARY) {
+        expect(module.javascript.text).not.toContain(`__${member}`);
+      }
+    }
+  });
+
+  test("a representative uncontested module, pinned whole", () => {
+    expect(javascript([["/main.hex", "exception Boom(value: Int)\n" +
+      "export let raise(): Int = throw(Boom(3))\n"]])).toBe(
+      "function __exception(__name, __message, __fields) {\n" +
+        '  return Object.assign(new Error(__message), { $hex: "main", name: __name }, __fields);\n' +
+        "}\n" +
+        "\n" +
+        'const Boom = value => __exception("Boom", "", { value });\n' +
+        "const raise = () => (() => { throw Boom(3); })();\n" +
+        "export { raise };\n",
+    );
+  });
+});
+
+describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
+  test("its bytes depend on the vocabulary alone, not on the program that asked", () => {
+    const first = compileFiles([["/main.hex", "export record Error = {code: Int}\n" +
+      "exception Boom(value: Int)\n" +
+      "export let raise(): Int = throw(Boom(3))\n"]]).runtimeGlobals;
+    const second = compileFiles([["/main.hex", "export record Symbol = {code: Int}\n" +
+      "export let total(n: Int): Int =\n" +
+      "    var sum = 0\n" +
+      "    for i in 1..n\n" +
+      "        sum := sum + i\n" +
+      "    sum\n"]]).runtimeGlobals;
+
+    // Two programs contesting *different* spellings, one text: the full
+    // vocabulary always, so nothing about the file is a function of the caller.
+    expect(second?.text).toBe(first?.text);
+    expect(first?.text).toBe(
+      "const __Array = globalThis.Array,\n" +
+        "  __BigInt = globalThis.BigInt,\n" +
+        "  __Boolean = globalThis.Boolean,\n" +
+        "  __console = globalThis.console,\n" +
+        "  __Error = globalThis.Error,\n" +
+        "  __Math = globalThis.Math,\n" +
+        "  __Number = globalThis.Number,\n" +
+        "  __Object = globalThis.Object,\n" +
+        "  __RangeError = globalThis.RangeError,\n" +
+        "  __String = globalThis.String,\n" +
+        "  __Symbol = globalThis.Symbol,\n" +
+        "  __TypeError = globalThis.TypeError,\n" +
+        "  __WeakMap = globalThis.WeakMap;\n" +
+        "export { __Array, __BigInt, __Boolean, __console, __Error, __Math, __Number, " +
+        "__Object, __RangeError, __String, __Symbol, __TypeError, __WeakMap };\n",
+    );
+  });
+
+  test("it follows §8.3's probed stem and its placement, and `hex.d.ts` does not grow", () => {
+    // One stem, one module identity: the code home follows whatever filename
+    // the type home's probe settled, and the probe's input is the source
+    // basenames, so the stem is defined for a program owing `hex.js` alone.
+    const collided = compileFiles([
+      ["/src/hex.hex", "export let z: Int = 0\n"],
+      ["/src/main.hex", "export record Error = {code: Int}\n" +
+        "exception Boom(value: Int)\n" +
+        "export let raise(): Int = throw(Boom(3))\n"],
+    ]);
+    expect(collided.runtimeGlobals?.path).toBe("/src/hex1.js");
+    expect(javascript(
+      [["/src/hex.hex", "export let z: Int = 0\n"], ["/src/main.hex",
+        "export record Error = {code: Int}\n" +
+        "exception Boom(value: Int)\n" +
+        "export let raise(): Int = throw(Boom(3))\n"]],
+      "/src/main.hex",
+    )).toContain('import { __Error } from "./hex1.js";');
+
+    // The declaration module is untouched: no generated `.d.ts` imports the
+    // runtime module's exports, and declaring them would surface reserved names
+    // in every consumer's `Hex` namespace. The two artefacts are emitted
+    // independently, each exactly when owed — here, only the executable one.
+    expect(collided.runtimeDeclarations).toBeUndefined();
+  });
+
+  test("a module below the root spells the specifier relative to itself", () => {
+    expect(javascript([
+      ["/src/a/main.hex", "export record Error = {code: Int}\n" +
+        "exception Boom(value: Int)\n" +
+        "export let raise(): Int = throw(Boom(3))\n"],
+      ["/src/b/other.hex", "export let z: Int = 0\n"],
+    ], "/src/a/main.hex")).toContain('import { __Error } from "../hex.js";');
+  });
+
+  test("executed: a contested program loads through it", async () => {
+    // The obligation §8.3's type-only artefact never carried. A host that
+    // materializes only source-derived modules loses every contested program at
+    // its first import, so the execution set carries this one like a prelude
+    // module — `runProject` is this repo's instance of that.
+    const exports = await runProject([["/main.hex", "export record Error = {code: Int}\n" +
+      "export record Object = {tag: Int}\n" +
+      "exception Late(message: String)\n" +
+      "export let boom(): Int = throw(Late(\"gone\"))\n"]]);
+
+    expect(thrown(exports["boom"] as () => number)).toMatchObject({
+      name: "Late",
+      message: "gone",
+    });
+  });
+});
+
+/**
+ * **The tripwire** (§1.2, §14.7's conformance bullet).
+ *
+ * The vocabulary is defined by the emitter's own references, so the one thing
+ * that can silently falsify it is the emitter growing a reference the list does
+ * not hold — a helper moved into module scope, an inline seat reaching for a new
+ * global. This renders every helper and scans every module of the corpus above,
+ * and asserts the globals they name are a subset of the single-sourced list, so
+ * the capturable set moves only by conscious edit.
+ *
+ * The program's runtime module is deliberately not scanned: it is the capture
+ * rather than a reference seat, its `globalThis` is safe by construction (the
+ * module binds only reserved names, so nothing there can be shadowed), and
+ * scanning it would put the qualifier itself into the vocabulary it guards.
+ */
+describe("the tripwire — the capturable set moves only by conscious edit", () => {
+  /**
+   * Every global the emitter's own text can name, from both seat families.
+   *
+   * A helper is rendered on its own, so the names it reaches for in the module
+   * around it — a sibling helper, a runtime operation's local — read as free
+   * here. They are dropped on Lexer §3.2's prefix, which is the same ground
+   * every other probe in the corpus rests on and is sound in this direction
+   * too: a name the emitter generated is a name the emitter bound, and no
+   * global spelling starts with the reservation.
+   */
+  let scanned: ReadonlySet<string> | undefined;
+
+  /** The scan, run once: compiling the corpus twice is the file's slowest thing. */
+  function referencedGlobals(): ReadonlySet<string> {
+    return scanned ??= scanReferencedGlobals();
+  }
+
+  function scanReferencedGlobals(): ReadonlySet<string> {
+    const globals = new Set<string>();
+    const collect = (text: string): void => {
+      for (const name of freeIdentifiers(text)) {
+        if (!name.startsWith("__")) globals.add(name);
+      }
+    };
+    for (const helper of renderEveryHelper()) collect(helper);
+    for (const module of corpus().modules) collect(module.javascript.text);
+    return globals;
+  }
+
+  test("every global the emitted text names is in the vocabulary", () => {
+    const vocabulary = new Set<string>(RUNTIME_VOCABULARY);
+    expect([...referencedGlobals()].filter((name) => !vocabulary.has(name)).sort()).toEqual([]);
+  });
+
+  test("and every vocabulary member is genuinely referenced", () => {
+    // The other direction, which is what keeps the assertion above from passing
+    // vacuously: a corpus that exercised nothing would satisfy any subset claim,
+    // and a member no seat writes would be dead weight in a list whose whole
+    // authority is that it is the feeder's.
+    const referenced = referencedGlobals();
+    expect(RUNTIME_VOCABULARY.filter((name) => !referenced.has(name))).toEqual([]);
+  });
+
+  test("the scanner can fail: a body naming an unlisted global is reported", () => {
+    // A tripwire that cannot fire asserts nothing. This is the shape of the
+    // edit it exists to catch — a helper reaching for a global the list does not
+    // hold — fed through the same scanner, with the three things a substring
+    // probe would get wrong sitting beside it: a global's name inside a string,
+    // a property access, and an object key.
+    const hypothetical = 'function __probe(__value) {\n' +
+      '  const __keys = Reflect.ownKeys(__value);\n' +
+      '  return { Reflect: __value.Reflect, name: "Reflect", keys: __keys };\n' +
+      "}\n";
+    const vocabulary = new Set<string>(RUNTIME_VOCABULARY);
+
+    expect([...freeIdentifiers(hypothetical)].sort()).toEqual(["Reflect"]);
+    expect([...freeIdentifiers(hypothetical)].filter((name) => !vocabulary.has(name)))
+      .toEqual(["Reflect"]);
+  });
+
+  test("the scanner reads code, not text: strings, keys, and members are not globals", () => {
+    // The three false positives the emitted corpus actually contains — a
+    // `"Map.empty"` constant inside a derived `show`, `{ start: __start }` in
+    // the range helper, `__error.name` in the exception path — with a template
+    // substitution beside them, which *is* code and must be scanned.
+    const sample = "function __probe(__range, __error) {\n" +
+      '  const __shown = "Map.empty" + `index ${String(__error.index)}`;\n' +
+      "  return { start: __range.start, name: __error.name, __shown };\n" +
+      "}\n";
+
+    expect([...freeIdentifiers(sample)].sort()).toEqual(["String"]);
+  });
+});
