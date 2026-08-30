@@ -40,10 +40,13 @@ import { compileMain, runMain } from "../support/test-project.js";
  *   at a bare `1` is a checker refusal, not an emission. Each call's arguments
  *   are annotated bindings.
  * - **Stay out of the specialization planner.** An *exported* generic `let` over
- *   a structural type under `Ord`/`Show` mints monomorphic editions whose
- *   component evidence the walks also drop, by a different route with its own
- *   repair — measured unchanged by this one at `ea46fc9`. Those two constraints
- *   reach the walk through a bound consumer instead.
+ *   a structural type mints monomorphic editions whose component evidence the
+ *   walks also drop, by a different route with its own repair (issue #675) —
+ *   under `Eq` as much as under `Ord` and `Show`. Every wide-binder program here
+ *   reaches the walks through a bound consumer instead, so none of them depends
+ *   on that route in either direction. The one exception is deliberate and
+ *   marked: the last `describe` pins the single planner seat this repair does
+ *   cure.
  *
  * Every program is textually distinct on purpose: two programs whose emitted JS
  * is byte-identical share one `data:` URL module instance, so a copy of another
@@ -286,6 +289,53 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
     const module = await runMain(source);
     expect(module.merged).toBe(1);
     expect(module.split).toBe(2);
+  });
+});
+
+describe("a planner edition's `Map` value, the one seat this repair also cures", () => {
+  /**
+   * Issue #675's defect is a different route into the same walks: the
+   * specialization planner rewrites a monomorphic edition's dictionary
+   * parameters to `Primitive` evidence *by primitive name*, but leaves the
+   * component's walked type a `Variable`. The walks' type-kind arms then look up
+   * a binder the edition no longer has, and seven editions report seven ICEs.
+   *
+   * #675 stays open, and every other shape in it is untouched by this PR. This
+   * one seat is not: `#subDictionary` renders whatever node is recorded at a
+   * variable component, and `Primitive` is a node like any other, so the `Map`
+   * value seat gets each edition's own dictionary where it used to get
+   * `undefined.eq`. The cure is a consequence of the shape rather than an aim of
+   * it, which is exactly why it is pinned here — nothing else in the suite would
+   * notice it going away.
+   */
+  test("each edition gets its own `Eq` dictionary where base emitted `undefined.eq`", async () => {
+    const source = [
+      "export let alike<a: Eq>(x: Map(Int, a), y: Map(Int, a)): Bool =",
+      "    x == y",
+      "",
+      "let held: Map(Int, String) = Map.fromVector([(1, \"a\")])",
+      "let copy: Map(Int, String) = Map.fromVector([(1, \"a\")])",
+      "let apart: Map(Int, String) = Map.fromVector([(1, \"b\")])",
+      "",
+      "export let agreeing: Bool = alike(held, copy)",
+      "export let differing: Bool = alike(held, apart)",
+      "",
+    ].join("\n");
+    const emitted = javascript(source);
+    // The generic body keeps its evidence parameter; each edition names the
+    // primitive's own instance. All seven, because seven is what the planner
+    // mints and seven is what reported at `ea46fc9`.
+    expect(emitted).toContain("__mapEquals(__Hash_Int, __Eq_a, x, y)");
+    for (const primitive of ["Nat", "Int", "Float", "BigInt", "Bool", "String", "Unit"]) {
+      expect(emitted).toContain(`__mapEquals(__Hash_Int, __Eq_${primitive}, x, y)`);
+    }
+    expect(emitted).not.toContain("undefined.eq");
+    // The consumer is bound at `String`, so the assertions below run *through*
+    // one of the cured editions rather than through the generic body.
+    expect(emitted).toContain("alikeString(held, copy)");
+    const module = await runMain(source);
+    expect(module.agreeing).toBe(true);
+    expect(module.differing).toBe(false);
   });
 });
 
