@@ -40,13 +40,13 @@ import { compileMain, runMain } from "../support/test-project.js";
  *   at a bare `1` is a checker refusal, not an emission. Each call's arguments
  *   are annotated bindings.
  * - **Stay out of the specialization planner.** An *exported* generic `let` over
- *   a structural type mints monomorphic editions whose component evidence the
- *   walks also drop, by a different route with its own repair (issue #675) —
- *   under `Eq` as much as under `Ord` and `Show`. Every wide-binder program here
- *   reaches the walks through a bound consumer instead, so none of them depends
- *   on that route in either direction. The one exception is deliberate and
- *   marked: the last `describe` pins the single planner seat this repair does
- *   cure.
+ *   a structural type mints monomorphic editions, and when this file was written
+ *   their component evidence was dropped too, by a different route with its own
+ *   repair (issue #675) — under `Eq` as much as under `Ord` and `Show`. Every
+ *   wide-binder program here reaches the walks through a bound consumer instead,
+ *   so none of them depended on that route in either direction. The one
+ *   exception is deliberate and marked: the last `describe` pins the single
+ *   planner seat this repair cured on its own, ahead of #675's.
  *
  * Every program is textually distinct on purpose: two programs whose emitted JS
  * is byte-identical share one `data:` URL module instance, so a copy of another
@@ -292,21 +292,27 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
   });
 });
 
-describe("a planner edition's `Map` value, the one seat this repair also cures", () => {
+describe("a planner edition's `Map` value, the seat #669's repair cured first", () => {
   /**
-   * Issue #675's defect is a different route into the same walks: the
-   * specialization planner rewrites a monomorphic edition's dictionary
-   * parameters to `Primitive` evidence *by primitive name*, but leaves the
-   * component's walked type a `Variable`. The walks' type-kind arms then look up
-   * a binder the edition no longer has, and seven editions report seven ICEs.
+   * Issue #675's defect was a different route into the same walks: the
+   * specialization planner rewrote a monomorphic edition's dictionary parameters
+   * to `Primitive` evidence *by primitive name*, but left the component's walked
+   * type a `Variable`. The walks' type-kind arms then looked up a binder the
+   * edition no longer had, and seven editions reported seven ICEs.
    *
-   * #675 stays open, and every other shape in it is untouched by this PR. This
-   * one seat is not: `#subDictionary` renders whatever node is recorded at a
-   * variable component, and `Primitive` is a node like any other, so the `Map`
-   * value seat gets each edition's own dictionary where it used to get
-   * `undefined.eq`. The cure is a consequence of the shape rather than an aim of
-   * it, which is exactly why it is pinned here — nothing else in the suite would
-   * notice it going away.
+   * This one seat escaped that, and it escaped because of the repair this file
+   * measures: `#subDictionary` renders whatever node is recorded at a variable
+   * component, and `Primitive` is a node like any other, so the `Map` value seat
+   * got each edition's own dictionary where it used to get `undefined.eq`. The
+   * cure was a consequence of the shape rather than an aim of it, which is why
+   * it is pinned here — nothing else in the suite would notice it going away.
+   *
+   * #675's own repair — the planner substituting an edition's types alongside
+   * its evidence — left this module's emission **byte-identical**, which is the
+   * strongest confirmation available that the two repairs meet rather than
+   * overlap: the seat was already ground-correct, and completing the
+   * substitution had nothing left to change here. Every expectation below is the
+   * one written before that repair landed.
    */
   test("each edition gets its own `Eq` dictionary where base emitted `undefined.eq`", async () => {
     const source = [

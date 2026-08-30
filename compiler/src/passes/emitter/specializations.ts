@@ -111,7 +111,27 @@ export function planFundamentalSpecializations(
   return { specializations, collisions };
 }
 
-/** Instantiates types and evidence so an edition emits concrete operations. */
+/**
+ * Instantiates types and evidence so an edition emits concrete operations.
+ *
+ * The substitution is applied to the *whole* body — every `Typed.Type` node and
+ * every dictionary evidence node in one walk — so an edition is the generic body
+ * read under the assignment, and nothing else. That completeness is the point
+ * (#675): while only the evidence moved, an edition's walked component types
+ * stayed `Variable` while its evidence said `Int`, and the emitter's derived
+ * walks, which are type-directed, rebuilt a reference to a dictionary parameter
+ * the edition no longer takes. Type and evidence now agree at every seat, so
+ * every type-directed arm fires where a ground program's fires it.
+ *
+ * The parity that buys is structural, not textual, and the difference is worth
+ * knowing before someone pins it. An edition's dictionary has the ground
+ * program's name, shape and inline arms — `__Ord_Int_Int` is character-for-
+ * character the ground one — but a dictionary carrying *internal* temporaries
+ * picks up the #425 collision-only suffixes once seven of them share a module's
+ * name allocator: an edition's `__Eq_Vector_Int` says `__rightStep_2` where the
+ * ground program says `__rightStep`. Block-scoped inside its own IIFE, so
+ * cosmetic — but a verbatim edition-against-ground comparison will trip on it.
+ */
 export function specializeItem(
   item: SpecializableItem,
   specialization: FundamentalSpecialization,
@@ -128,7 +148,7 @@ export function specializeItem(
       name: specialization.name,
       scheme: specialization.scheme,
     },
-    value: replaceDictionaryEvidence(item.value, substitutions, bool),
+    value: specializeBody(item.value, substitutions, bool),
   } as SpecializableItem;
 }
 
@@ -309,16 +329,50 @@ function substituteType(
   }
 }
 
-function replaceDictionaryEvidence<T>(
+/**
+ * One deep walk carrying the assignment into an edition's body, rewriting the
+ * two node families that name a specialized variable: the `Dictionary` evidence
+ * a dictionary parameter would have supplied, and the `Variable` *types* the
+ * body was elaborated at.
+ *
+ * The walk is untyped on purpose — the Core tree it crosses is a dozen node
+ * families deep and gains members regularly, and a hand-written traversal that
+ * has to be extended for each of them is a defect waiting for the next node
+ * kind. Two structural guards keep it honest. `Dictionary` is an evidence kind
+ * and nothing else, recognised by its numeric `variable`. `Variable` is
+ * `Typed.Type`'s — `syntax/typed/tree.ts`'s is the only `kind: "Variable"` node
+ * declared in the Core or Typed trees — recognised by its numeric `id`; the
+ * substituted-id test then narrows it further, so a node this walk rewrites is
+ * always a type the assignment names. Type-variable ids are unique across a
+ * module, so there is no capture to avoid: no inner binder can rebind an id the
+ * scheme generalized.
+ *
+ * A grep finds a *second* declaration and it is not a counterexample:
+ * `passes/checker/checker.ts` declares its own `Variable` for the checker's
+ * internal `Mono`, structurally identical and so a byte-for-byte match for this
+ * guard, which could not tell the two apart. What keeps that harmless is the
+ * module boundary: both that `Variable` and `Mono` itself are declared without
+ * `export`, so no value of either type leaves the checker to reach a Core tree.
+ * If `Mono` is ever exported, this walk is one of the places to re-examine.
+ */
+function specializeBody<T>(
   value: T,
   substitutions: ReadonlyMap<Typed.TypeVariableId, FundamentalType>,
   bool: Resolved.UnionId | undefined,
 ): T {
   if (Array.isArray(value)) {
-    return value.map((element) => replaceDictionaryEvidence(element, substitutions, bool)) as T;
+    return value.map((element) => specializeBody(element, substitutions, bool)) as T;
   }
   if (value === null || typeof value !== "object") return value;
   const candidate = value as Record<string, unknown>;
+  if (
+    candidate.kind === "Variable" && typeof candidate.id === "number" &&
+    substitutions.has(candidate.id as Typed.TypeVariableId)
+  ) {
+    // The same `substituteType` the scheme went through, so an edition's body
+    // and its signature cannot disagree about what the variable became.
+    return substituteType(candidate as unknown as Typed.Type, substitutions, bool) as T;
+  }
   if (candidate.kind === "Dictionary" && typeof candidate.variable === "number") {
     const replacement = substitutions.get(candidate.variable as Typed.TypeVariableId);
     // The two enumeration-membered fundamentals name no primitive, so their
@@ -347,7 +401,7 @@ function replaceDictionaryEvidence<T>(
   return Object.fromEntries(
     Object.entries(candidate).map(([key, nested]) => [
       key,
-      replaceDictionaryEvidence(nested, substitutions, bool),
+      specializeBody(nested, substitutions, bool),
     ]),
   ) as T;
 }
