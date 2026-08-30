@@ -2379,10 +2379,10 @@ than settling a style question.
   derived walks mint editions — the planner's support table has no `Hash`
   row, so a `Hash`-bound variable admits no candidates, though five
   fundamentals hold lawful `Hash` instances; whether that omission is
-  deliberate is #679's question *(answered 2026-08-31: ruled not
+  deliberate is #679's question *(Answered 2026-08-31, #679: ruled not
   deliberate — seven fundamentals hold lawful `Hash`, not five, and the
   table itself is retired for the derived judgment; the #679 entry below
-  carries the accounting)* — and their component seats are
+  carries the accounting.)* — and their component seats are
   type-directed wherever no recorded selection stands, so each hit its
   `Variable` arm and rebuilt a dictionary parameter the edition no longer
   binds: one internal-error diagnostic
@@ -2434,7 +2434,7 @@ than settling a style question.
   `Map` value seat — cured by the #669 arc's repair and standing here as
   blast-radius coverage for the sub-dictionary helper, not a defect pin.
   *(Amended 2026-08-31, #679: the `Hash`-binder control no longer mints
-  none — it asserts the seven editions and their ground `__Hash_<T>`
+  none — it asserts the seven editions and their ground `__Hash_<T>_Int`
   element dictionaries, this file's doctrine measured positively at the
   seat that could not exercise it before.)*
   Suites at the fix: compiler 3724 + 1 expected fail, language-server 121,
@@ -2516,16 +2516,17 @@ than settling a style question.
   or after `String.hex`'s seat — the plan-difference row is the named
   tripwire that reddens when that starts to matter.
 - **Executable conformance:** `conformance/edition-evidence-identity.test.ts`
-  — seventeen rows: the identity keying across all three channels and
-  three import spellings (bare `import module`, qualified, aliased), the
+  — eighteen rows: the identity keying across all three channels and
+  three import spellings (bare named, qualified `import module`,
+  aliased), the
   `Bool` union match on identity never name, the refused `honor` at
   `Unit` held as the falsifiable specimen, the evidence-decline seat.
-  `conformance/derived-fundamental-candidates.test.ts` — thirteen rows:
+  `conformance/derived-fundamental-candidates.test.ts` — fourteen rows:
   the row-set pin (the derived rows equal the historical seven plus
   `Hash` on all seven, so a prelude edit moving the fundamental instance
   set reddens at the planner), the seat-resolution obligation loop, the
   threading tripwire, the declared-constraint transitive three-module
-  agreement. Eight routing rows beside #441's in
+  agreement. Nine routing rows beside #441's in
   `conformance/specialized-call-sites.test.ts`, row 18's boundaries
   restated and the non-pin union control carrying the factory specimen.
   The rewritten controls: the mints-none `Hash` binder asserts its seven
@@ -2539,6 +2540,6 @@ than settling a style question.
 - **Credit:** filed from the #675 arc's implementation; the audit,
   ruling, and spec leg recorded on #679 and #682; repaired in PRs #684,
   #686, and #688, each under review — the leg-2 review measured the
-  seat-order consequence the entry states, and the rider review proved
-  the binding-name key safe. Byproducts #683, #685, and #687 filed on
-  the way.
+  seat-order consequence the entry states, and the rider review measured
+  the binding-name key collision-safe. Byproducts #683, #685, and #687
+  filed on the way.
