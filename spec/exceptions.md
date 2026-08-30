@@ -176,7 +176,7 @@ Object.assign(new Error("bad"), {
 
 ### 7.2 Construction sites
 
-The emitter provides one tiny module-level helper (shape at its discretion, e.g. `const $mkExn = (name, message, fields) => Object.assign(new Error(message), {$hex: "Parser", name}, fields);` — per-module, so the helper bakes in its own module's name, #488) so construction sites stay readable: `$mkExn("ParseError", "bad", {line: 3})`. Direct `Object.assign` inline is equally acceptable for the emitter where it reads better; the representation, not the helper, is the contract.
+The emitter provides one tiny module-level helper (shape at its discretion, e.g. `const $mkExn = (name, message, fields) => Object.assign(new Error(message), {$hex: "Parser", name}, fields);` — per-module, so the helper bakes in its own module's name, #488) so construction sites stay readable: `$mkExn("ParseError", "bad", {line: 3})`. Direct `Object.assign` inline is equally acceptable for the emitter where it reads better; the representation, not the helper, is the contract. In a module whose own bindings contest `Error` or `Object`, the helper's references reach the globals through reserved imports — `new __Error(…)` — under FFI Part 7 §1.2's runtime-vocabulary rule (#666); the representation is unchanged.
 
 ### 7.3 Nullary exceptions construct fresh
 
