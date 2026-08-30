@@ -2308,16 +2308,15 @@ than settling a style question.
   loud, not silent: the rebuilt lookup misses the binder's evidence name,
   reports the internal-error diagnostic on a checker-accepted module, and
   emits best-effort — coherence makes the two routes name one dictionary
-  wherever both resolve, so the failure is loud wherever both routes
-  resolve.
+  wherever both resolve.
 - **Correction:** every component seat reads the recorded evidence. The
   sub-dictionary helper prefers the recorded node and renders it through the
   one evidence door — a `Dictionary` node becomes the binder parameter with
   its slot path applied — keeping the type-kind shortcut only where no
   selection exists to read (components-blind mode, where the walk recurses
   with no recorded selection). The dispatch predicate admits `Dictionary`
-  nodes beside
-  nominal instances; the #344 primitive exemption stands untouched, a
+  nodes beside nominal instances; the #344 primitive exemption stands
+  untouched, a
   `Dictionary` node being a parameter with no primitive concern. The
   hash-carried `.eq` selection composes with the emitted reference unchanged
   (`__Wide_a.hash.eq`). Direct binders emit byte-identically: an empty
