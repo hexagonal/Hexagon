@@ -2271,7 +2271,7 @@ than settling a style question.
   #669: both qualifications failed measurement at that arc's open — base
   constraints are user-declarable, so the recorded path was load-bearing
   already, and the residue was ten seats across two families plus a helper;
-  the 2026-08-30 entry carries the accounting.)*
+  the #669 entry carries the accounting.)*
 - **Credit:** the hash collapse filed by the #608 review's probes past its
   suite; the equality half established by probe at arc open; the measured
   origin established by the #668 review. Repaired in PR #668.
@@ -2325,7 +2325,11 @@ than settling a style question.
   still reaches it on accepted programs is #675's defect, filed from this
   arc — editions rewritten to `Primitive` evidence over still-`Variable`
   component types, the same disagreement with the walk from the other side,
-  its reports naming a constraint the program never wrote. One #675 seat the
+  its reports naming a constraint the program never wrote. *(Amended
+  2026-08-30, #675: the route is closed — the planner substitutes an
+  edition's types alongside its evidence, and the helper measures zero
+  reaches on accepted programs across the suite; the #675 entry carries
+  the accounting.)* One #675 seat the
   correction cures outright, caught unclaimed by the review: `Map` values
   under a direct `Eq` binder now read the recorded `Primitive` node per
   edition; the seat is pinned so the #675 repair cannot regress it.
@@ -2347,3 +2351,95 @@ than settling a style question.
   refutation and the seat enumeration measured at arc open, where the
   base-constraint question was also ruled; the `Eq`-binder scope and the
   unclaimed cure established by the #674 review. Repaired in PR #674.
+
+## 2026-08-30 — planner editions kept their generic types beside rewritten evidence (#675)
+
+- **Classification:** compiler defect against specification; no design
+  change. Measured pre-existing at the #669 arc's base; the filed probes
+  are identical with that arc's repair applied, which cured and pinned one
+  further seat — the `Map` value — on its way. Filed from that arc's
+  implementation, which routed its own conformance around the broken route
+  in both directions.
+- **Authority:** Zero-Cost Fundamental Exports §8.1, the ABI contract: an
+  edition's observable behaviour is exactly the generic function
+  instantiated at its types, and the required emission is the concrete
+  semantics per type. One level down, Constraints §6.1's licence is what
+  the walks' type-directed arms lawfully exercise — an inlining of the
+  selected instance's slots — and the licence presumes the type and the
+  selection agree. The planner manufactured the disagreement.
+- **Defect origin:** `specializeItem` performed half a substitution. An
+  edition's dictionary parameters were rewritten by fundamental —
+  `Primitive` evidence by name for the five primitive fundamentals,
+  `Structural` evidence over the substituted type for `Bool` and `Unit`,
+  which left the primitive set (#147, #159) — while every type node in the
+  edition's body stayed the generic `Variable`. Direct expression seats
+  render that rewritten evidence on its own terms (the operator fast paths
+  read `Primitive` evidence; `Structural` renders the derived dictionary
+  over the node's own type), so plain-variable editions were sound. Three
+  derived walks mint editions — the planner's support table has no `Hash`
+  row, so a `Hash`-bound variable admits no candidates, though five
+  fundamentals hold lawful `Hash` instances; whether that omission is
+  deliberate is #679's question — and their component seats are
+  type-directed wherever no recorded selection stands, so each hit its
+  `Variable` arm and rebuilt a dictionary parameter the edition no longer
+  binds: one internal-error diagnostic
+  per edition per stale seat — seven on a one-variable binder,
+  ninety-eight on `<k: Eq, v: Eq>` (forty-nine editions, both components)
+  — with best-effort `undefined.compare(…)`-shaped editions beside them,
+  and on the `Eq` route a report naming `Hash`, a constraint the program
+  never wrote, through the equality helper's name probe. The symptom class
+  is loud, not silent, and reaches every exported generic walked over a
+  tuple, `Vector`, or record shape under `Eq`, `Ord`, or `Show`. The `Map`
+  value seat is the exception that proves the qualifier: it reads through
+  the sub-dictionary helper, where a recorded selection stands, and the
+  #669 arc's repair had already cured it. `Set` shapes — and `Map` keys —
+  never reach the planner at all: those operations demand `Hash`, which
+  mints no editions.
+- **Correction:** the ruled repair (2026-08-30, recorded on #675): the
+  planner completes the substitution. The same deep walk that rewrites an
+  edition's evidence substitutes the specialized variables' type nodes
+  through the same substitution its scheme already receives, so an
+  edition's body *is* the generic body under its assignment. Type and
+  evidence agree at every seat; the walks take the arms a hand-written
+  ground program takes — the primitive inline arms, `Bool`'s union walk,
+  `Unit`'s empty-tuple walk — and an edition's emission is structurally
+  the ground program's, byte-identical up to collision-only `_N` suffixes
+  where seven ground dictionaries share one module's name allocator
+  (#425), and up to an edition's declaration form and name. The component
+  dispatch predicate and the #344 primitive exemption stand untouched, and
+  the equality helper's planner route is closed: zero reaches on accepted
+  programs across the suite. The alternative — teaching the walks'
+  component seats to render `Primitive` and `Structural` evidence
+  directly — was declined: it patrols consumers
+  of a disagreement only the planner manufactures, and leaves the stale
+  types standing for every future type-directed arm to trip on.
+- **Executable conformance:** `conformance/planner-edition-walks.test.ts`
+  — seventeen rows, fourteen red at the pre-fix base: the three
+  edition-minting walks over tuples; `Vector` equality, order, and
+  interpolation; two walks deep; a record field component; a `fun` item;
+  the forty-nine-edition cartesian, pinned at both substitution orders so
+  a single-variable repair fails it; a perverse component `honor` beside a
+  specialized variable dispatching in every edition (#278 inside the
+  editions); ground-parity rows asserting editions carry the ground
+  dictionaries verbatim; and the generic-body control — red at base only
+  because its module's editions ICE beside it. Green at base: the
+  unexported and `Hash`-binder programs, which mint no editions, and the
+  `Map` value seat — cured by the #669 arc's repair and standing here as
+  blast-radius coverage for the sub-dictionary helper, not a defect pin.
+  Suites at the fix: compiler 3724 + 1 expected fail, language-server 121,
+  playground 229. The review byte-diffed a thirty-nine-program corpus
+  across the fix — every broken-at-base program in it cured, every
+  program clean at base byte-identical at head, and no module beside a
+  program's own moved in any of the thirty-nine — proved the
+  discriminating rows unique by running the wrong implementation each
+  claims to catch (a first-variable-only substitution
+  reddens exactly the cartesian row; a dispatch reaching past `Instance`
+  evidence reddens exactly the `honor` row), and counted the walk
+  rewriting 9,906 type nodes across the corpus, none carrying a
+  checker-internal field.
+- **Credit:** filed from the #674 implementation; the residual-two
+  identity — `Bool` and `Unit`'s `Structural` evidence, unreachable by any
+  `Primitive` admission — and the direct-seat contrast measured at arc
+  open, where the repair was also ruled; the wider scope (records, `fun`
+  items, nested generalized lets, the two-variable scale) established by
+  the #677 review. Repaired in PR #677.
