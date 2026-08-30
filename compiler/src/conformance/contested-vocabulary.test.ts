@@ -518,23 +518,31 @@ describe("the negatives — nothing else moves", () => {
     );
   });
 
-  test("the emitted JavaScript is untouched entirely, in the worst-contested file", () => {
-    // §1.1's last fixed consequence: the defect and its repair live in the
-    // declaration file alone. Class 3's program is the sharpest case — it binds
-    // `Error` in the emitted `.js` as well — and its JavaScript is pinned whole.
+  test("the emitted JavaScript is untouched by *this* rule, in the worst-contested file", () => {
+    // §1.1's last fixed consequence, as it now reads: the declaration file's
+    // defect and its `globalThis` qualification live here alone. Class 3's
+    // program is the sharpest case — it binds `Error` in the emitted `.js` as
+    // well — and its JavaScript is pinned whole.
     //
-    // The `new Error(...)` inside `__exception` below is **not** this rule's
-    // business and is deliberately pinned as it stands: the emitted JavaScript's
-    // own name capture is a separate defect at a separate seat, and a repair to
-    // it must be a conscious change to this line rather than a side effect here.
+    // **The `new __Error(...)` inside `__exception` is §1.2's repair, not
+    // this one's** (#666, correction record §14.7). This line previously pinned
+    // `new Error(__message)` verbatim and demanded a conscious edit before the
+    // emitted JavaScript's own name capture could move; §1.2 is that ruling and
+    // this is that edit. What the pin now holds is the *scope* claim: `Object`
+    // stays bare in the same helper on the same line, because this module binds
+    // `Error` and not `Object` and the decision is per (module, spelling), and
+    // no `globalThis` reaches the `.js` at any seat — value-position
+    // `globalThis` is an ordinary identifier and was never available here.
     const js = javascript(project({
       "/main.hex": "export record Error = {code: Int}\n" + "export exception Boom(value: Int)\n",
     }));
 
     expect(js).not.toContain("globalThis");
     expect(js).toBe(
-      "function __exception(__name, __message, __fields) {\n" +
-        '  return Object.assign(new Error(__message), { $hex: "main", name: __name }, __fields);\n' +
+      'import { __Error } from "./hex.js";\n' +
+        "\n" +
+        "function __exception(__name, __message, __fields) {\n" +
+        '  return Object.assign(new __Error(__message), { $hex: "main", name: __name }, __fields);\n' +
         "}\n" +
         "\n" +
         "const Error = __record => __record;\n" +
