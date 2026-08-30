@@ -2376,9 +2376,12 @@ than settling a style question.
   render that rewritten evidence on its own terms (the operator fast paths
   read `Primitive` evidence; `Structural` renders the derived dictionary
   over the node's own type), so plain-variable editions were sound. Three
-  derived walks mint editions — no fundamental honors `Hash`, so the hash
-  walk never does — and their component seats are type-directed wherever
-  no recorded selection stands, so each hit its `Variable` arm and rebuilt a
+  derived walks mint editions — the planner's support table has no `Hash`
+  row, so a `Hash`-bound variable admits no candidates, though five
+  fundamentals hold lawful `Hash` instances; whether that omission is
+  deliberate is #679's question — and their component seats are
+  type-directed wherever no recorded selection stands, so each hit its
+  `Variable` arm and rebuilt a
   dictionary parameter the edition no longer binds: one internal-error
   diagnostic per edition per stale seat — seven on a one-variable binder,
   ninety-eight on `<k: Eq, v: Eq>` (forty-nine editions, both components)
@@ -2386,10 +2389,12 @@ than settling a style question.
   and on the `Eq` route a report naming `Hash`, a constraint the program
   never wrote, through the equality helper's name probe. The symptom class
   is loud, not silent, and reaches every exported generic walked over a
-  tuple, `Vector`, or record shape under `Eq`, `Ord`, or `Show`. The
-  `Set`/`Map` component seats are the exception that proves the qualifier:
-  they read through the sub-dictionary helper, where a recorded selection
-  stands, and the #669 arc's repair had already cured them.
+  tuple, `Vector`, or record shape under `Eq`, `Ord`, or `Show`. The `Map`
+  component seats are the exception that proves the qualifier: they read
+  through the sub-dictionary helper, where a recorded selection stands,
+  and the #669 arc's repair had already cured them. `Set` shapes never
+  reach the planner at all — their element operations demand `Hash`, which
+  mints no editions.
 - **Correction:** the ruled repair (2026-08-30, recorded on #675): the
   planner completes the substitution. The same deep walk that rewrites an
   edition's evidence substitutes the specialized variables' type nodes
@@ -2400,9 +2405,10 @@ than settling a style question.
   `Unit`'s empty-tuple walk — and an edition's emission is structurally
   the ground program's, byte-identical up to collision-only `_N` suffixes
   where seven ground dictionaries share one module's name allocator
-  (#425), and up to an edition's declaration form and name. The component dispatch predicate and the #344 primitive
-  exemption stand untouched, and the equality helper's planner route is
-  closed: zero reaches on accepted programs across the suite. The
+  (#425), and up to an edition's declaration form and name. The component
+  dispatch predicate and the #344 primitive exemption stand untouched, and
+  the equality helper's planner route is closed: zero reaches on accepted
+  programs across the suite. The
   alternative — teaching the walks' component seats to render `Primitive`
   and `Structural` evidence directly — was declined: it patrols consumers
   of a disagreement only the planner manufactures, and leaves the stale
@@ -2422,10 +2428,10 @@ than settling a style question.
   blast-radius coverage for the sub-dictionary helper, not a defect pin.
   Suites at the fix: compiler 3724 + 1 expected fail, language-server 121,
   playground 229. The review byte-diffed a thirty-nine-program corpus
-  across the fix — thirteen broken at base, all cured; every program
-  clean at base byte-identical at head, and no module beside a program's
-  own moved in any of the thirty-nine — proved the discriminating rows
-  unique by running the wrong
+  across the fix — every broken-at-base program in it cured, every
+  program clean at base byte-identical at head, and no module beside a
+  program's own moved in any of the thirty-nine — proved the
+  discriminating rows unique by running the wrong
   implementation each claims to catch (a first-variable-only substitution
   reddens exactly the cartesian row; a dispatch reaching past `Instance`
   evidence reddens exactly the `honor` row), and counted the walk
