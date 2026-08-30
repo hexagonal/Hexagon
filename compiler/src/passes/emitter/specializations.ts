@@ -734,23 +734,75 @@ export function fundamentalInstancesOf(
   return rows;
 }
 
-/** Every (constraint declaration, subject) an instance channel offers here. */
+/**
+ * Every (constraint declaration, dictionary, subject) an instance channel offers
+ * here — the same three channels, read for whichever of the three fields the
+ * caller needs.
+ */
 function* instanceHeads(module: Core.Module): Generator<{
   readonly constraintIdentity: string;
+  /** The module-level name this instance's dictionary binds here. */
+  readonly dictionary: string;
   readonly subject: Typed.Type | Resolved.TypeAnnotation;
 }> {
   for (const item of module.items) {
     if (item.kind === "Honor") {
-      yield { constraintIdentity: item.constraintIdentity, subject: item.subject };
+      yield {
+        constraintIdentity: item.constraintIdentity,
+        dictionary: item.dictionary,
+        subject: item.subject,
+      };
     } else if (item.kind === "Import") {
       for (const instance of item.instances) {
-        yield { constraintIdentity: instance.constraintIdentity, subject: instance.subject };
+        yield {
+          constraintIdentity: instance.constraintIdentity,
+          dictionary: instance.localDictionary,
+          subject: instance.subject,
+        };
       }
     }
   }
   for (const instance of module.preludeInstances) {
-    yield { constraintIdentity: instance.constraintIdentity, subject: instance.subject };
+    yield {
+      constraintIdentity: instance.constraintIdentity,
+      dictionary: instance.localDictionary,
+      subject: instance.subject,
+    };
   }
+}
+
+/**
+ * The fundamental type each instance dictionary **in scope here** is honored at,
+ * by the module-level name that dictionary binds.
+ *
+ * The inverse reading of the table above, for the one question a *call site*
+ * asks: this call's evidence is `Instance` evidence naming a dictionary — is the
+ * type it is ground at one Part 8 calls fundamental, so that the call can take
+ * the callee's edition by name (§8.2, decisions-log row 18)?
+ *
+ * A **primitive** subject needs no entry read: elaboration stamps the primitive
+ * on the evidence itself (#344), and that tag is the authoritative answer. What
+ * needs this is `Bool` — a prelude union since #147, so its instances carry no
+ * tag to stamp and nothing at the call site could say what the dictionary is an
+ * instance *of*. `Unit` needs no counterpart at all: no `honor` can name the
+ * empty tuple (§3.2's judgment at `Unit`), so no `Instance` evidence exists
+ * there to route.
+ *
+ * Keyed on the dictionary's binding name, which is exact rather than a spelling
+ * risk: it is one module-level `const` or `import` binding, named by the
+ * resolver's own naming pass (Dictionary Sharing §5), and it is the very name
+ * `#emitEvidence` renders for this evidence.
+ */
+export function fundamentalInstanceDictionaries(
+  module: Core.Module,
+  bool: Resolved.UnionId | undefined,
+): ReadonlyMap<string, FundamentalType> {
+  const dictionaries = new Map<string, FundamentalType>();
+  for (const { dictionary, subject } of instanceHeads(module)) {
+    const head = instanceSubjectHead(subject, bool);
+    if (head !== undefined && head !== "Exn") dictionaries.set(dictionary, head);
+  }
+  return dictionaries;
 }
 
 /** `candidates(vi)`'s membership test for one constraint at one fundamental. */

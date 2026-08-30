@@ -18,6 +18,7 @@ import * as Typed from "../../syntax/typed/index.js";
 import { idContinue, idStart } from "../lexer/unicode-17.js";
 import {
   faceOnlyEditionInstances,
+  fundamentalInstanceDictionaries,
   planFundamentalSpecializations,
   planImportedSpecializations,
   preludeBoolUnion,
@@ -2710,6 +2711,11 @@ class JavaScriptEmitter {
   readonly #importLocals = new Map<Resolved.SymbolId, string>();
   /** The prelude identities emission is permitted to know; see `PreludeIds`. */
   readonly #prelude: PreludeIds;
+  /**
+   * The fundamental each instance dictionary in scope is honored at, for the
+   * call-site router; see `fundamentalInstanceDictionaries`.
+   */
+  readonly #instanceDictionaryHeads: ReadonlyMap<string, FundamentalType>;
   readonly #helpers = new Set<Helper>();
   readonly #helperNames = new Map<Helper, string>();
   readonly #exports: string[] = [];
@@ -2960,6 +2966,7 @@ class JavaScriptEmitter {
     this.#module = module;
     this.#docs = new DocIndex(module.docs);
     this.#prelude = preludeIds(module);
+    this.#instanceDictionaryHeads = fundamentalInstanceDictionaries(module, this.#prelude.bool);
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#runtimes = options.runtimes ?? new Map();
     this.#runtimeVocabulary = runtimeVocabularyTrigger(module);
@@ -5319,21 +5326,44 @@ class JavaScriptEmitter {
    * where it is ground at nothing Part 8 enumerates — a type variable still in
    * play, a user type, `Exn`.
    *
-   * Two spellings for one question, because the fundamental set is defined by
-   * enumeration and not by classification (#441). A primitive's ground type is
-   * the tag elaboration stamps on its evidence. `Bool` and `Unit` name no
-   * primitive to stamp — since #147 and #159 they are the prelude union and the
-   * arity-0 tuple — and their evidence is *structural*, which carries the
-   * ground type itself. Reading it is the same act: the elaborator computed
-   * both from the requirement's type.
+   * **Three** spellings for one question, because the fundamental set is defined
+   * by enumeration and not by classification (#441), and the three answers come
+   * from where each kind of evidence keeps the fact:
    *
-   * The `Bool` test is the union identity, not the name, and is the same one
-   * `#emitComparisonStep`'s representation pin uses — a module that declares its
-   * own `Bool` has not declared the prelude's.
+   * - a **primitive**'s ground type is the tag elaboration stamps on its
+   *   evidence (#344);
+   * - **structural** evidence carries the ground type itself, which is how
+   *   `Bool` and `Unit` are read for the constraints the compiler derives —
+   *   since #147 and #159 they are the prelude union and the arity-0 tuple, and
+   *   neither names a primitive to stamp;
+   * - an **`Instance`** at `Bool` carries neither. Its subject is a union, so
+   *   elaboration stamps nothing, and the node holds only a dictionary name —
+   *   so the answer comes from what that dictionary is an instance *of*
+   *   (`fundamentalInstanceDictionaries`). This is the case a constraint some
+   *   module *declared* takes at `Bool`: the four the compiler derives never
+   *   reach it, being satisfied structurally by the pin.
+   *
+   * Without the third, `tell(True)` at `<a: Describe>` kept the generic edition
+   * and its trailing `__Describe_Bool` while `tellBool` sat exported beside it
+   * — §8.2's freedom taken at five of the six non-`Unit` fundamentals and
+   * dropped at the sixth. `Unit` needs no counterpart: no `honor` can name the
+   * empty tuple, so no `Instance` evidence exists there to route.
+   *
+   * The `Bool` test is the union identity, not the name, in both places it is
+   * made — the same one `#emitComparisonStep`'s representation pin uses, so a
+   * module that declares its own `Bool` has not declared the prelude's.
    */
   #groundFundamental(evidence: Core.Evidence): FundamentalType | undefined {
     const primitive = primitiveInstance(evidence);
     if (primitive !== undefined) return primitive === "Exn" ? undefined : primitive;
+    // Asked only after the tag above declines, so a primitive keeps answering
+    // from what elaboration stamped. A *parameterized* instance needs no test of
+    // its own: an instance binder must appear in the head (Constraints §5.4), so
+    // a factory's subject names its variables and is never a fundamental, and no
+    // factory's dictionary is in the table to be found.
+    if (evidence.kind === "Instance") {
+      return this.#instanceDictionaryHeads.get(evidence.dictionary);
+    }
     if (evidence.kind !== "Structural") return undefined;
     if (evidence.type.kind === "Tuple" && evidence.type.elements.length === 0) return "Unit";
     return evidence.type.kind === "Union" &&
