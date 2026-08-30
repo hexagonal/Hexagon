@@ -307,6 +307,16 @@ describe("the two `SyntaxError` classes — the module never parsed at all", () 
     expect(exports["eval"]).toBe(7);
   });
 
+  test("`arguments` is the same hole and closes with it", async () => {
+    expect(javascript([["/main.hex", "export let arguments: Int = 8\n"]])).toBe(
+      "const __binding0 = 8;\n" +
+        "export { __binding0 as arguments };\n",
+    );
+
+    const exports = await runProject([["/main.hex", "export let arguments: Int = 8\n"]]);
+    expect(exports["arguments"]).toBe(8);
+  });
+
   test("`import { await }` aliases its local, and every reference follows", async () => {
     // The rename's missing leg (§1.2 rule 4): the export seat already renamed,
     // so `export let await` emitted correctly while `import { await }` emitted
