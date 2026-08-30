@@ -383,6 +383,24 @@ function moduleLevelBindings(
  * entries carry the *exporting* file's id, and a module that merely imports a
  * term named `undefined` through a namespace alias binds nothing under it.
  */
+/**
+ * Whether one name on an `import` item is the *emitter's* to spell rather than
+ * the source's — FFI Part 7 §1.2 rule 1's population, at the seat that decides
+ * a local.
+ *
+ * Two forms qualify. A **synthesized** prelude import was never written at all
+ * (Modules §11.2's liberty). A **constraint member** rides a written line but is
+ * not a written name: importing a constraint puts every member in scope
+ * (Modules §3.1), so the local mirrors the member's spelling by the emitter's
+ * choice, and no source text moves when it stops doing so.
+ */
+function mintedImportName(
+  item: Core.ImportItem,
+  name: { readonly constraintMember?: boolean },
+): boolean {
+  return item.synthesized === true || name.constraintMember === true;
+}
+
 function runtimeVocabularyTrigger(module: Core.Module): RuntimeVocabulary {
   return new RuntimeVocabulary(
     new Set(moduleLevelBindings(module)),
@@ -2931,7 +2949,10 @@ class JavaScriptEmitter {
         // is *not* shared with is a vocabulary spelling, which is the user's
         // binding and makes the module qualify around it instead (rule 2).
         if (name.symbol !== undefined) {
-          this.#importLocals.set(name.symbol, this.#identifier(name.symbol, name.local));
+          this.#importLocals.set(
+            name.symbol,
+            this.#importedLocal(name.symbol, name.local, mintedImportName(item, name)),
+          );
         }
       }
     }
@@ -2982,7 +3003,7 @@ class JavaScriptEmitter {
             name.symbol,
             item.form.kind === "Namespace"
               ? this.#namespaceConstrainedLocal(name.symbol, name.imported)
-              : name.local,
+              : this.#importedLocal(name.symbol, name.local, mintedImportName(item, name)),
           );
           this.#constrainedImportItems.set(name.symbol, item);
         }
@@ -5042,6 +5063,12 @@ class JavaScriptEmitter {
     const plan = new Map<string, string>();
     for (const { specifier, seat, member } of routed) {
       if (contested.has(member) || wanted.get(member) !== 1) continue;
+      // The fourth contestant, and not a binding at all: a seat that took the
+      // member's source spelling would be a minted import local mirroring an
+      // export's, which FFI Part 7 §1.2 rule 1 refuses for the runtime
+      // vocabulary and JavaScript's reserved words alike. Declining leaves the
+      // seat under its generated name, which Lexer §3.2's prefix protects.
+      if (MINTED_LOCAL_HAZARDS.has(member) || reservedWords.has(member)) continue;
       plan.set(memberSeatKey(specifier, seat), member);
     }
     return plan.size === 0 ? undefined : plan;
@@ -7377,6 +7404,28 @@ class JavaScriptEmitter {
     return this.#runtimeVocabulary.spell(name);
   }
 
+  /**
+   * The local one imported name binds under (FFI Part 7 §1.2 rules 1 and 4).
+   *
+   * The authorship split is the whole content of `minted`. A **source-written**
+   * import local moves only where JavaScript refuses the spelling outright
+   * (rule 4) — where it takes a vocabulary spelling the binding is the user's,
+   * and the module qualifies around it instead (rule 2). A **minted** one — the
+   * named imports emission itself decides, whose local mirrors the imported
+   * export's spelling: a constraint member Modules §3.1 put in scope, a
+   * synthesized prelude import's term — moves for either class, because nothing
+   * user-written is at stake.
+   *
+   * Without the second half, a constraint whose member is named `undefined`
+   * emits `import { __undefined as undefined }` into every module that calls it
+   * polymorphically, and every Unit in that module reads the forwarder; with
+   * `eval` the module does not parse at all. Both measured.
+   */
+  #importedLocal(symbol: Resolved.SymbolId, local: string, minted: boolean): string {
+    if (minted && MINTED_LOCAL_HAZARDS.has(local)) return `__binding${Number(symbol)}`;
+    return this.#identifier(symbol, local);
+  }
+
   /** The local a namespace alias is bound under here; see `namespaceAliasPlan`. */
   #namespaceLocal(alias: string): string {
     return this.#namespaceAliases.get(alias) ?? alias;
@@ -7453,7 +7502,8 @@ class JavaScriptEmitter {
         for (const { imported, symbol, constraintMember } of item.form.names) {
           if (constraintMember !== true || symbol === undefined) continue;
           if (!this.#referencedSymbols.has(symbol)) continue;
-          const local = this.#constrainedImports.get(symbol) ?? imported;
+          const local = this.#constrainedImports.get(symbol) ??
+            this.#importedLocal(symbol, imported, true);
           const source = this.#importedInternalName(imported, item);
           names.add(source === local ? source : `${source} as ${local}`);
         }
@@ -7535,7 +7585,11 @@ class JavaScriptEmitter {
         const source = this.#constrainedImports.has(symbol)
           ? this.#importedInternalName(imported, item)
           : imported;
-        return [source === local ? source : `${source} as ${local}`];
+        // The line the emitter decided, so its local takes rule 1's probe: a
+        // prelude term is minted by construction, whatever the resolver named
+        // it (`#importLocals` was seated the same way).
+        const bound = this.#importedLocal(symbol, local, true);
+        return [source === bound ? source : `${source} as ${bound}`];
       });
       if (names.length === 0) return [];
       return [{

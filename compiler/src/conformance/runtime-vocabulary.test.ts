@@ -422,6 +422,74 @@ describe("the minted-local negative — the trigger reads source bindings only",
     expect((exports["use"] as (b: { n: number }) => number)({ n: 5 })).toBe(5);
     expect((exports["unit"] as () => unknown)()).toBeUndefined();
   });
+
+  /**
+   * The second minted channel, and the one that reaches furthest: importing a
+   * constraint puts every member in scope (Modules §3.1), so a polymorphic call
+   * of a member binds a local under the member's own spelling in a module that
+   * named only the constraint. Both hazard classes are live there, and both were
+   * measured before the probe: `undefined` gave the importing module a local
+   * that every Unit in it then read, and `eval` gave it a binding strict mode
+   * refuses — a module that never parsed.
+   */
+  const CONSTRAINT = (member: string): readonly (readonly [string, string])[] => [
+    ["/lib.hex", [
+      "export constraint Boxy<a> =",
+      `    ${member}(x: a): Int`,
+      "",
+      "export record Box = {n: Int}",
+      "honor Boxy<Box> =",
+      `    ${member}(x) = x.n`,
+      "",
+    ].join("\n")],
+    ["/main.hex", [
+      'import { Boxy } from "./lib"',
+      `export let twice<a: Boxy>(x: a): Int = ${member}(x) + ${member}(x)`,
+      "export let unit(): Unit = ()",
+      "",
+    ].join("\n")],
+  ];
+
+  test("a constraint member named `undefined`, called polymorphically", async () => {
+    const text = javascript(CONSTRAINT("undefined"));
+
+    expect(text).toContain('import { __undefined as __binding0 } from "./lib.js";');
+    // The importer binds no vocabulary spelling of its own, so its Unit is bare.
+    expect(text).toContain("const unit = () => undefined;");
+
+    const exports = await runProject(CONSTRAINT("undefined"));
+    expect((exports["unit"] as () => unknown)()).toBeUndefined();
+  });
+
+  test("a constraint member named `eval`, on both sides of the import", async () => {
+    const text = javascript(CONSTRAINT("eval"));
+
+    expect(text).toContain('import { __eval as __binding0 } from "./lib.js";');
+    // The declaring module's own forwarder took the rename at its export seat,
+    // which the emitter already did; this is the importer's missing leg.
+    expect(javascript(CONSTRAINT("eval"), "/lib.hex")).toContain(
+      "export { __binding0 as __eval };",
+    );
+
+    // The observation is that the module *loads*: a strict-mode `eval` binding
+    // is a load-time `SyntaxError`, so importing it at all is the whole test.
+    // `twice` is constrained, so it publishes under its internal name (§6.5).
+    const exports = await runProject(CONSTRAINT("eval"));
+    expect(Object.keys(exports)).toContain("__twice");
+  });
+
+  test("the declaring module of an `undefined` member contests on its own account", () => {
+    // The forwarder is a *source*-derived top-level binding there — Constraints
+    // §6.5's `const undefined = (x, evidence) => …` — so that module is
+    // contested by rule 2's trigger and spells its own Unit `void 0`.
+    expect(javascript([["/main.hex", [
+      "export constraint Boxy<a> =",
+      "    undefined(x: a): Int",
+      "",
+      "export let unit(): Unit = ()",
+      "",
+    ].join("\n")]])).toContain("const unit = () => void 0;");
+  });
 });
 
 /**
