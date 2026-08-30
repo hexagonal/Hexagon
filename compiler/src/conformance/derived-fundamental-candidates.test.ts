@@ -41,11 +41,19 @@ import type * as Core from "../syntax/core/index.js";
  * block below measures that gap rather than asserting it is absent: nine prelude
  * modules see strictly fewer rows than the program does.
  *
- * That no prelude module *currently* mints an edition from a row it cannot see
- * is true and is not the reason this is safe. Every eligible prelude export
- * happens to sit at or after `String.hex`'s seat, which is an unwritten
- * invariant of the seat order and nothing else; the program table is what makes
- * the answer independent of it.
+ * ## What the table did not remove
+ *
+ * The table removed exporter/importer **disagreement**. It did not remove the
+ * exporter's duty to **resolve** what it plans, and the prelude seat order is
+ * what discharges that duty — so the seat order is load-bearing here, not
+ * incidental. An edition at a primitive carries `Primitive` evidence, which
+ * `#emitEvidence` resolves from the *emitting* module's own channels; a prelude
+ * module planning an edition at a fundamental whose companion sits after its own
+ * seat cannot see the dictionary. Measured, by adding one well-formed
+ * `export fun ordEq<a: Ord>(…)` to `stdlib/Ord.hex`: five editions mint and five
+ * compiler-defect diagnostics follow. Loud rather than silent, which is what
+ * makes the dependence safe — and the last row of the second block is that
+ * obligation asserted rather than assumed.
  *
  * ## Why the declared half can
  *
@@ -92,6 +100,24 @@ const COLLECTIONS = [
   "export let scaled: Float = 1.5",
   "export let big: BigInt = 9n",
   "",
+].join("\n");
+
+/**
+ * The same, plus what it takes to pull the **early constraint seats** into the
+ * emitted set.
+ *
+ * A ground `compare(1, 2)` does not: it lowers monomorphically and names no
+ * member forwarder. A *generic* one does, and each of these reaches its own
+ * declaration module — `Show.hex` is the first prelude seat of all.
+ */
+const REACHES_EARLY_SEATS = [
+  "export fun say<a: Show>(x: a): String = show(x)",
+  "export fun same<a: Eq>(x: a, y: a): Bool = equals(x, y)",
+  "export fun rank<a: Ord>(x: a, y: a): Ordering = compare(x, y)",
+  "export fun keyed<a: Hash>(x: a): Int = Hash.hash(x)",
+  "export fun neg<a: Signed>(x: a): a = negate(x)",
+  "export fun sq<a: Pow>(x: a, n: Nat): a = pow(x, n)",
+  COLLECTIONS,
 ].join("\n");
 
 describe("the judgment over the pre-registered constraints", () => {
@@ -187,18 +213,22 @@ describe("the program table is what makes a prelude module's plan the consumer's
     ].join("\n")]]);
     const core = main(compiled);
 
-    // The channel itself, pinned: hand emission an empty table and the
-    // pre-registered binder mints nothing, while the module's own view of the
-    // prelude is untouched and would mint all seven. Without this the option
-    // could quietly stop being threaded and every assertion above would still
-    // pass, the module's own answer being the right one for `/main.hex`.
+    // The **option** works, which is a narrower claim than it looks and is
+    // stated narrowly on purpose: hand emission an empty table and the
+    // pre-registered binder mints nothing; hand it the program's and it mints.
+    //
+    // What this row does *not* show is that `compileProject` threading the
+    // table changes any output, because today it does not — deleting
+    // `fundamentalInstances` from both emission calls leaves the whole suite
+    // green, the two answers coinciding on this prelude. The next row is the
+    // tripwire for when that stops being true.
     expect(emitJavaScript(core, { fundamentalInstances: new Set() }).text)
       .not.toContain("renderInt");
     expect(emitJavaScript(core, { fundamentalInstances: compiled.fundamentalInstances }).text)
       .toContain("function renderInt(");
   });
 
-  test("no prelude module's plan differs today, which is not why this is safe", () => {
+  test("no prelude module's plan differs from its own view — the tripwire", () => {
     const compiled = project([["/main.hex", COLLECTIONS]]);
     const differing = compiled.modules.filter(({ core }) => {
       const visible = fundamentalInstancesOf([core], preludeBoolUnion(core));
@@ -207,13 +237,77 @@ describe("the program table is what makes a prelude module's plan the consumer's
         planFundamentalSpecializations(core, visible).specializations.length;
     });
 
-    // Every eligible prelude export sits at or after `String.hex`'s seat, where
-    // the shortfall is zero — an unwritten invariant of the seat order, and the
-    // reason the row above is a *shortfall* count rather than an edition-count
-    // difference. This row records that the invariant holds today; nothing in
-    // the implementation relies on it, and re-seating one prelude module would
-    // break it without breaking a compile.
+    // The program table and a prelude module's own view answer differently only
+    // where the module *plans* from a row it cannot see, and no prelude module
+    // does today: every eligible prelude export sits at or after `String.hex`'s
+    // seat. That is why the shortfall row above is a shortfall count and not an
+    // edition-count difference, and it is why threading the table is currently
+    // unobservable.
+    //
+    // So this row is a tripwire, not a guarantee. When it reddens — a
+    // constrained export added at an early prelude seat, or a module re-seated
+    // — the seam has started to matter and needs a pin of its own that fails
+    // when the table is not threaded. Read it beside the obligation below,
+    // which is the half that is load-bearing today.
     expect(differing.map(({ source }) => source.path)).toEqual([]);
+  });
+
+  test("every edition a module plans, it can resolve the dictionaries for", () => {
+    // The obligation the seat order actually carries, and the correction to
+    // this file's first draft, which said nothing relied on it.
+    //
+    // The program table removed exporter/importer *disagreement*. It did not
+    // remove the exporter's duty to **resolve** what it plans: an edition at a
+    // primitive carries `Primitive` evidence, and `#emitEvidence` resolves that
+    // from the emitting module's own channels. A prelude module planning an
+    // edition at a fundamental whose companion sits after its own seat cannot
+    // see the dictionary and reports a compiler defect. Measured, by adding one
+    // well-formed `export fun ordEq<a: Ord>(…)` to `stdlib/Ord.hex` (seat 10):
+    // five editions mint, five `` compiler defect: `Ord<Nat>` is a source
+    // instance of a migrated primitive companion, but no dictionary for it
+    // reached this module `` diagnostics follow, and this row goes from zero
+    // unresolvable to five. Loud rather than silent, which is what makes the
+    // seat order safe to depend on — but depend on it we do.
+    //
+    // `Bool` and `Unit` are skipped because their editions carry `Structural`
+    // evidence, which is rendered from the type and asks no channel anything.
+    // `compileFiles` rather than the `project` helper, so the loop below is
+    // what detects a violation rather than the helper's blanket
+    // no-diagnostics guard. The symptom is asserted too, separately: the two
+    // are the same fact read at its cause and at its report, and neither
+    // should be able to go quiet while the other holds.
+    const compiled = compileFiles([["/main.hex", REACHES_EARLY_SEATS]]);
+    const unresolvable: string[] = [];
+    for (const { source, core } of compiled.modules) {
+      const bool = preludeBoolUnion(core);
+      const plan = planFundamentalSpecializations(core, compiled.fundamentalInstances);
+      for (const specialization of plan.specializations) {
+        const declaration = core.symbols.find(({ id }) => id === specialization.sourceSymbol);
+        for (const { variable, type } of specialization.assignment) {
+          if (type === "Bool" || type === "Unit") continue;
+          for (const constraint of declaration?.scheme.constraints ?? []) {
+            if (constraint.type.kind !== "Variable" || constraint.type.id !== variable) continue;
+            if (sourceInstanceDictionary(core, constraint.identity, type, bool) === undefined) {
+              unresolvable.push(`${source.path} ${specialization.name} ${constraint.identity}`);
+            }
+          }
+        }
+      }
+    }
+
+    expect(unresolvable).toEqual([]);
+    expect(
+      compiled.diagnostics
+        .map(({ message }) => message)
+        .filter((message) => message.startsWith("compiler defect:")),
+    ).toEqual([]);
+    // The loop reaches only what a project *emits*, so the corpus has to reach
+    // the seats the obligation is about or the row asserts nothing about them.
+    // `Show.hex` is prelude seat 1 and the hardest case there is.
+    const emitted = compiled.modules.map(({ source }) => source.path);
+    for (const seat of ["/Show.hex", "/Eq.hex", "/Ord.hex", "/Hash.hex", "/Signed.hex"]) {
+      expect(emitted).toContain(seat);
+    }
   });
 });
 
@@ -250,10 +344,34 @@ describe("a declared constraint's candidates are its own instances", () => {
   });
 
   test("`Unit` is never among them, which the judgment is obliged to hold", () => {
-    const compiled = project([["/main.hex", DESCRIBE]]);
-    const module = main(compiled);
+    // The subject is a **refused** `honor Describe<Unit>`, for the reason leg
+    // 1's twin of this row uses one: `DESCRIBE` has no tuple-subject instance,
+    // so asking it about `Unit` cannot fail however the walk is written. The
+    // refusal still leaves a `Honor` item over the empty tuple in Core, so both
+    // halves below are asked for real and redden together if `instanceSubjectHead`
+    // ever grows a tuple branch.
+    const compiled = compileFiles([["/main.hex", [
+      "constraint Describe<a> =",
+      "    describe(subject: a): String",
+      "",
+      "honor Describe<Unit> =",
+      "    describe(u) = \"unit\"",
+      "",
+      "export fun tell<a: Describe>(x: a): String = describe(x)",
+      "",
+    ].join("\n")]]);
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "instances are keyed on type constructors; tuples and structural records " +
+        "have compiler-derived instances only — declare a nominal `record` or " +
+        "`union` for a type you control",
+    ]);
+    const module = compiled.modules.find(({ source }) => source.path === "/main.hex")!.core;
     const bool = preludeBoolUnion(module);
     const identity = "0:Describe";
+    expect(module.items.find((item) => item.kind === "Honor")).toMatchObject({
+      constraintIdentity: identity,
+      subject: { kind: "Tuple", elements: [] },
+    });
 
     // Two halves of one obligation, stated together because each is the other's
     // reason (§3.2's judgment at `Unit`):
@@ -338,16 +456,26 @@ describe("the collections API gains its JavaScript entry points", () => {
     const source = [
       "export fun keyed<a: Hash>(x: a): Int = Hash.hash(x)",
       "",
+      // The ground answers to compare each edition against, hashed at the
+      // concrete type by a program that names no binder at all.
+      "export let groundString: Int = Hash.hash(\"a\")",
+      "export let groundInt: Int = Hash.hash(1)",
+      "export let groundBool: Int = Hash.hash(True)",
+      "export let groundUnit: Int = Hash.hash(())",
+      "",
     ].join("\n");
     const exports = await runProject([["/main.hex", source]]);
 
     for (const edition of ["Nat", "Int", "Float", "BigInt", "Bool", "String", "Unit"]) {
       expect(typeof exports[`keyed${edition}`]).toBe("function");
     }
-    // Ground, not merely present: each edition hashes at its own type.
-    expect((exports.keyedString as (x: string) => number)("a"))
-      .toBe((exports.keyedString as (x: string) => number)("a"));
-    expect((exports.keyedInt as (x: number) => number)(1))
-      .not.toBe((exports.keyedInt as (x: number) => number)(2));
+    // Ground parity, not mere determinism: each edition returns what a
+    // hand-written call at that type returns. A `keyedString` that hashed
+    // through the wrong dictionary would still be a function of its argument.
+    expect((exports.keyedString as (x: string) => number)("a")).toBe(exports.groundString);
+    expect((exports.keyedInt as (x: number) => number)(1)).toBe(exports.groundInt);
+    expect((exports.keyedBool as (x: boolean) => number)(true)).toBe(exports.groundBool);
+    expect((exports.keyedUnit as (x: undefined) => number)(undefined))
+      .toBe(exports.groundUnit);
   });
 });

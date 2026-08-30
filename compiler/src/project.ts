@@ -31,6 +31,7 @@ import {
 } from "./passes/emitter/emitter.js";
 import {
   fundamentalInstancesOf,
+  preludeBoolUnion,
   type FundamentalInstances,
 } from "./passes/emitter/specializations.js";
 import type { PreludeImport } from "./passes/resolver/resolver.js";
@@ -256,6 +257,17 @@ export function compileProject(
    * truth: the rows are read off the prelude's own checked `honor` items, once
    * every one of them exists, and handed to every emission as one
    * program-invariant table.
+   *
+   * What that does **not** buy is freedom from the seat order. The table settles
+   * what a module *plans*; the module still has to **resolve** what it plans,
+   * and an edition at a primitive carries `Primitive` evidence that
+   * `#emitEvidence` resolves from the emitting module's own channels. A prelude
+   * module planning an edition at a fundamental whose companion sits after its
+   * own seat reports a compiler defect — measured on `stdlib/Ord.hex`, where one
+   * added constrained export mints five editions and produces five of them. The
+   * seat order is load-bearing for that, loudly rather than silently, and
+   * `conformance/derived-fundamental-candidates.test.ts` asserts the obligation
+   * over every module a project emits.
    *
    * Nothing else moved across the boundary. The second pass reads only what the
    * first stored plus tables the first completed, and the one table emission
@@ -508,7 +520,7 @@ export function compileProject(
   });
   const fundamentalInstances = fundamentalInstancesOf(
     preludeCores,
-    preludeCores.map((core) => core.preludeUnions.get("Bool")).find((id) => id !== undefined),
+    preludeCores.map(preludeBoolUnion).find((id) => id !== undefined),
   );
 
   for (const path of ordered) {

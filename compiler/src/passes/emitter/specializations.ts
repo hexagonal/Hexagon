@@ -676,9 +676,11 @@ function instanceRow(constraintIdentity: string, type: FundamentalType): string 
  *   with each primitive's fixed companion as its home module): a pre-registered
  *   constraint's instance at a fundamental can only be written in the
  *   constraint's own module or the type's, and every one of those is a prelude
- *   module. No user file can add a row and none can take one away, which is what
- *   makes the answer a property of the shipped prelude rather than of whoever
- *   is being planned.
+ *   module. No *ordinary* user file can add a row or take one away: a project
+ *   supplies a prelude module only by carrying its basename (`injectEmbedded`),
+ *   which is how this repository compiles its own `stdlib/`. The rows are a
+ *   property of the prelude the program compiles, and are the same table for
+ *   every module in it.
  * - The planner hands in the **module being planned**, for the constraints it
  *   declared or imported. Determinism holds there for the same reason from the
  *   other end: a declared constraint's fundamental instances live in its
