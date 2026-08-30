@@ -121,7 +121,7 @@ honor Hash<UserId> =
 
 — is a **hard error with its own message** (§9), distinct from the generic non-derivable-constraint error: the user found the right constraint and the wrong door, and the message must say which door is open. Everything else about `honor ... = derive` (placement, orphan rule, coherence) is §3.1.
 
-The rule constrains the instance form and nothing else. `Hash` as a **base constraint** of a user-declared constraint — `constraint Wide<a: Hash>` — is ordinary and unrestricted: extension mints no instance, and every ground `honor` of the extending constraint still existence-checks (Constraints §4.2) a `Hash` instance that can only have entered through this section's door.
+The rule constrains the instance form and nothing else. `Hash` as a **base constraint** of a user-declared constraint — `constraint Wide<a: Hash>` — is ordinary and unrestricted: extension mints no instance, and every ground `honor` of the extending constraint still existence-checks (Constraints §4.2) a `Hash` instance that no user source could have written except through this section's door (§4.4 for the provided and carve-out instances).
 
 ### 4.2 Exceptions
 

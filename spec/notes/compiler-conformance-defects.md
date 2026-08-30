@@ -2308,13 +2308,15 @@ than settling a style question.
   loud, not silent: the rebuilt lookup misses the binder's evidence name,
   reports the internal-error diagnostic on a checker-accepted module, and
   emits best-effort — coherence makes the two routes name one dictionary
-  wherever both resolve, so no silently-wrong answer was constructible.
+  wherever both resolve, so the failure is loud wherever both routes
+  resolve.
 - **Correction:** every component seat reads the recorded evidence. The
   sub-dictionary helper prefers the recorded node and renders it through the
   one evidence door — a `Dictionary` node becomes the binder parameter with
   its slot path applied — keeping the type-kind shortcut only where no
-  selection exists to read (components-blind mode: rejected modules,
-  best-effort). The dispatch predicate admits `Dictionary` nodes beside
+  selection exists to read (components-blind mode, where the walk recurses
+  with no recorded selection). The dispatch predicate admits `Dictionary`
+  nodes beside
   nominal instances; the #344 primitive exemption stands untouched, a
   `Dictionary` node being a parameter with no primitive concern. The
   hash-carried `.eq` selection composes with the emitted reference unchanged
@@ -2337,10 +2339,11 @@ than settling a style question.
   seven per-edition dictionaries and no `undefined.eq`; and four
   direct-binder controls green at base and fix both. Suites at the fix:
   compiler 3707 + 1 expected fail. The review re-derived the red split,
-  diffed emitted JavaScript for sixteen direct-binder programs across the
-  fix (byte-identical, diagnostics included), executed ten wide-binder
-  programs with runtime assertions, and instrumented the missing-component
-  defect report across the whole suite — no reach on any accepted program.
+  diffed emitted JavaScript for sixteen programs — direct binders and
+  ground shapes — across the fix (byte-identical, diagnostics included),
+  executed ten wide-binder programs, eight asserting concrete runtime
+  values, and instrumented the missing-component defect report across the
+  whole suite — no reach on any accepted program.
 - **Credit:** filed by the #668 review reading past its change; the latency
   refutation and the seat enumeration measured at arc open, where the
   base-constraint question was also ruled; the `Eq`-binder scope and the
