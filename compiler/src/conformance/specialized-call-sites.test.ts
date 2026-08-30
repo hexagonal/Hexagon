@@ -14,9 +14,11 @@
  * from a `Debug.js` that was never written, compile clean, and fail only at
  * load.
  *
- * The last describe block is #441's: it covers **both** halves, because what it
- * pins is the recognition step the two share, and the two enumeration-membered
- * fundamentals were missing from it in each.
+ * The last two describe blocks are about the recognition step both halves
+ * share, and each covers both. #441's is the two enumeration-membered
+ * fundamentals, which were missing from it in each half; #679's rider is the one
+ * shape left after that — a constraint a module *declared*, honored at `Bool`,
+ * whose evidence is neither a stamped primitive nor a structural type.
  *
  * **Every executed graph is made byte-distinct**, through the `distinct`
  * transform `debug-log.test.ts` introduced: emitted modules mount as `data:`
@@ -497,5 +499,205 @@ describe("the two fundamentals that name no primitive", () => {
     );
 
     expect(lines).toEqual([["True"], ["()"]]);
+  });
+});
+
+/**
+ * #679's rider, and the last shape §8.2's freedom was dropped at: a constraint
+ * some module **declared**, honored at `Bool`.
+ *
+ * The block above reads `Bool` off *structural* evidence, which is what the four
+ * derivable constraints carry there — the #147 pin satisfies them without
+ * consulting an instance. A declared constraint has no pin and takes the
+ * ordinary instance row, so its evidence at `Bool` is `Instance` evidence: a
+ * dictionary name, a union subject, and no primitive for elaboration to stamp.
+ * Recognition read a primitive's tag or a structural type and found neither, so
+ * `tell(True)` kept the generic edition and its trailing `__Describe_Bool` while
+ * `tellBool` sat exported and unread — the freedom taken at five of the six
+ * non-`Unit` fundamentals and dropped at the sixth.
+ *
+ * `Unit` needs no counterpart and gets none: no `honor` can name the empty tuple
+ * (Zero-Cost Fundamental Exports §3.2's judgment at `Unit`), so a declared
+ * constraint mints no `Unit` edition and there is nothing at such a call site to
+ * route to. The last row is that, asserted rather than assumed.
+ *
+ * Routing only. The rows are paired with the value each call computes, and the
+ * boundary rows are row 18's own: any variable still in play, any
+ * non-fundamental concrete instantiation, any unexported callee keeps its
+ * evidence.
+ */
+describe("a declared constraint's `Bool` edition", () => {
+  const DESCRIBE = [
+    "export constraint Describe<a> =",
+    "    describe(subject: a): String",
+    "",
+    "honor Describe<Int> =",
+    "    describe(n) = \"int ${n}\"",
+    "",
+    "honor Describe<Bool> =",
+    "    describe(b) = if b then \"yes\" else \"no\"",
+    "",
+    "export fun tell<a: Describe>(x: a): String = describe(x)",
+    "",
+  ].join("\n");
+
+  test("a same-module ground call reaches it, with no dictionary left over", () => {
+    const javascript = emitted([[
+      "/main.hex",
+      `${DESCRIBE}export let atBool: String = tell(True)\n`,
+    ]]);
+
+    expect(javascript).toContain("const atBool = tellBool(true);");
+    // The two things the edition replaces: the generic callee, and the evidence
+    // that rode with it. `__Describe_Bool` is still *declared* — it is the
+    // instance the module wrote — but nothing passes it any more.
+    expect(javascript).not.toContain("tell(true");
+  });
+
+  test("the primitive half is unmoved beside it", () => {
+    const javascript = emitted([[
+      "/main.hex",
+      // Annotated, because a literal cannot default under a constraint the
+      // defaulting rule does not hold (Numeric Literals §4).
+      `${DESCRIBE}let one: Int = 1\nexport let atInt: String = tell(one)\n`,
+    ]]);
+
+    // Routed before this rider and routed after, through the primitive tag
+    // elaboration stamps rather than through the dictionary lookup.
+    expect(javascript).toContain("const atInt = tellInt(one);");
+  });
+
+  test("an imported callee reaches it, and its module is emitted", () => {
+    const files = [
+      ["/describe.hex", DESCRIBE],
+      [
+        "/main.hex",
+        'import { Describe, tell } from "./describe"\n' +
+          "export let atBool: String = tell(True)\n",
+      ],
+    ] as const;
+    const javascript = emitted(files);
+
+    expect(importLines(javascript)).toContain(
+      'import { __tell as tell, tellBool } from "./describe.js";',
+    );
+    expect(javascript).toContain("const atBool = tellBool(true);");
+    expect(danglingImports(files)).toEqual([]);
+  });
+
+  test("the edition computes what the generic edition would have", async () => {
+    const files = [
+      [
+        "/main.hex",
+        `${DESCRIBE}export let atBool: String = tell(True)\n` +
+          "export let atOther: String = tell(False)\n",
+      ],
+    ] as const;
+
+    expect(emitted(files)).toContain("const atBool = tellBool(true);");
+    const exports = await runProject(files, {
+      transform: distinct("specialized call sites: declared Bool edition"),
+    });
+
+    // The instance's own arms, not the host's boolean and not an empty
+    // dictionary's slot — leg 1's repair, read through the routed call.
+    expect(exports["atBool"]).toBe("yes");
+    expect(exports["atOther"]).toBe("no");
+  });
+
+  test("a variable still in play keeps the dictionary", () => {
+    const javascript = emitted([[
+      "/main.hex",
+      `${DESCRIBE}export let held<b: Describe>(y: b): String = tell(y)\n`,
+    ]]);
+
+    // Row 18's boundary: recognition is per variable, and this one is not
+    // ground, so the call keeps the generic edition and passes the binder's own
+    // dictionary through.
+    expect(javascript).toMatch(
+      /const held = \(y, (__Describe_\w+)\) => tell\(y, \1\);/u,
+    );
+    // The other side of the same claim: inside `held`'s own editions both
+    // variables are ground, so those bodies do route — `Bool` included, which is
+    // this rider reaching an edition from inside another edition.
+    expect(javascript).toContain("return tellBool(y);");
+  });
+
+  test("a nominal subject has no edition to reach", () => {
+    const javascript = emitted([[
+      "/main.hex",
+      `${DESCRIBE}record Point = {x: Int}\n` +
+        "honor Describe<Point> =\n" +
+        "    describe(p) = \"point\"\n" +
+        "export let atPoint: String = tell(Point({x = 1}))\n",
+    ]]);
+
+    // The same `Instance` evidence shape as the `Bool` case and a dictionary
+    // this module declares — but `Point` is not in Part 8's set, so the lookup
+    // answers nothing and the instance reaches the call visibly. The negative
+    // control for reading a fundamental off a dictionary name.
+    expect(javascript).toContain("__Describe_Point)");
+    expect(javascript).not.toContain("tellPoint");
+  });
+
+  test("another union is not the pin, and a factory is not a subject", () => {
+    const javascript = emitted([[
+      "/main.hex",
+      `${DESCRIBE}union Colour = Red | Green\n` +
+        "honor Describe<Colour> =\n" +
+        "    describe(c) = \"colour\"\n" +
+        "union Box(a) = Packed(a)\n" +
+        "honor<a: Describe> Describe<Box(a)> =\n" +
+        "    describe(b) = \"box\"\n" +
+        "export let atColour: String = tell(Red)\n" +
+        "export let atBox: String = tell(Packed(True))\n",
+    ]]);
+
+    // The control the `Point` row cannot be. A record subject declines because
+    // it is not a union at all, so it would go on declining however the `Bool`
+    // test were written; `Colour` is a union and declines only because the test
+    // is the *identity* of the prelude's `Bool`. Loosen that to "any union" and
+    // this call becomes `tellBool(Red)` — a clean compile with the wrong
+    // dictionary at run time.
+    expect(javascript).toContain("const atColour = tell(Red, __Describe_Colour);");
+
+    // And the parameterized instance beside it, which is why no arity test
+    // guards the lookup: `Box(a)`'s subject names the factory's own variable, so
+    // it is no fundamental and its dictionary is not in the table. Under the
+    // same loosening it would be, and `atBox` would route too — so this is the
+    // falsifiable form of a guard that could not be given one directly.
+    expect(javascript).toContain("const atBox = tell(Packed(true), __Describe_Box_Bool);");
+    expect(javascript).not.toContain("tellBool(Red)");
+    expect(javascript).not.toContain("tellBool(Packed");
+  });
+
+  test("an unexported callee mints nothing, so nothing routes", () => {
+    const javascript = emitted([[
+      "/main.hex",
+      `${DESCRIBE.replace("export fun tell", "fun tell")}` +
+        "export let atBool: String = tell(True)\n",
+    ]]);
+
+    expect(javascript).not.toContain("tellBool");
+    expect(javascript).toContain("__Describe_Bool)");
+  });
+
+  test("`Unit` has no counterpart, because the call cannot be written", () => {
+    const compiled = compileFiles([[
+      "/main.hex",
+      `${DESCRIBE}export let atUnit: String = tell(())\n`,
+    ]]);
+
+    // Constraints §5.4 refuses `honor Describe<Unit>`, so there is no instance
+    // for a ground call at `Unit` to discharge and the checker refuses the call
+    // outright. Nothing is left for a router to reach: `candidates(a)` never
+    // holds `Unit` (§3.2's judgment at `Unit`), no `tellUnit` is minted, and no
+    // legal program reaches a site where one would be wanted.
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
+      "type `Unit` has no `Describe` instance",
+    ]);
+    const javascript = compiled.modules
+      .find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    expect(javascript).not.toContain("tellUnit");
   });
 });
