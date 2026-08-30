@@ -2704,6 +2704,17 @@ class JavaScriptEmitter {
    */
   readonly #referencedDictionaries = new Set<string>();
   /**
+   * Which (edition, constraint, fundamental) triples `#editionInstanceDictionary`
+   * has already reported, so one missing instance is one diagnostic.
+   *
+   * The resolver is asked once per *dictionary node*, not once per edition — a
+   * body naming its constraint's member three times asks three times — and the
+   * answer is a function of the triple, so the three failures are one failure
+   * seen three times. The same doctrine `Constraint.unsatisfied` follows on the
+   * checker's side.
+   */
+  readonly #reportedEditionInstances = new Set<string>();
+  /**
    * How each quantified type variable is spelled in the signature it comes from
    * (#425), which is what an evidence parameter is named after: `<a: Show>` is
    * answered by `__Show_a`, not by a counter, so a generic body reads as a
@@ -7170,7 +7181,8 @@ class JavaScriptEmitter {
    * judgment agree, which is what makes it worth reporting rather than
    * absorbing: the plan offered this fundamental as a candidate and no instance
    * backs it, and an edition with no dictionary at all reads a slot off nothing
-   * at run time, a long way from the cause.
+   * at run time, a long way from the cause. Reported once per triple, not once
+   * per asking — see `#reportedEditionInstances`.
    */
   #editionInstanceDictionary(
     constraintIdentity: string,
@@ -7185,13 +7197,52 @@ class JavaScriptEmitter {
       this.#prelude.bool,
     );
     if (dictionary !== undefined) return dictionary;
+    const triple = `${specialization.name}|${constraintIdentity}|${type}`;
+    if (this.#reportedEditionInstances.has(triple)) return undefined;
+    this.#reportedEditionInstances.add(triple);
+    // The constraint is named the way the sibling report at `#emitEvidence`
+    // names one — `Describe<Int>` — wherever a declaration is in view to read
+    // the name off. Where none is (an imported constraint's base, reached
+    // through no declaration this module binds), the identity stands as the
+    // internal handle it is, and is labelled one rather than passed off as a
+    // spelling: its `<fileId>:` half means nothing to a reader and moves with
+    // the project's source order.
+    const name = this.#declaredConstraintName(constraintIdentity);
+    const missing = name === undefined
+      ? `constraint declaration \`${constraintIdentity}\` at \`${type}\``
+      : `\`${name}<${type}>\``;
     this.#diagnostics.add({
       severity: "error",
       message: `compiler defect: \`${specialization.name}\` is an edition at ` +
-        `\`${type}\`, and no instance of constraint \`${constraintIdentity}\` at ` +
-        `\`${type}\` reached this module`,
+        `\`${type}\`, and no instance of ${missing} reached this module`,
       primary: span,
     });
+    return undefined;
+  }
+
+  /**
+   * The name a constraint's own **declaration** gives it, found by identity.
+   *
+   * Two seats hold a declaration: this module's own items, and the constraints
+   * an import binds — which carry the *home* module's declaration, so the name
+   * read here is the one every module agrees on rather than this module's
+   * spelling for it, which an `as` alias may have moved. The checker's
+   * `#canonicalConstraintName` answers the same question from the other side of
+   * the Typed boundary.
+   *
+   * `undefined` where neither seat holds one, which the caller is written for.
+   */
+  #declaredConstraintName(constraintIdentity: string): string | undefined {
+    for (const item of this.#module.items) {
+      if (item.kind === "ConstraintDeclaration") {
+        if (item.identity === constraintIdentity) return item.name;
+        continue;
+      }
+      if (item.kind !== "Import") continue;
+      for (const { declaration } of item.constraints) {
+        if (declaration.identity === constraintIdentity) return declaration.name;
+      }
+    }
     return undefined;
   }
 

@@ -142,6 +142,43 @@ function evidenceNodes(value: unknown): readonly Core.Evidence[] {
   return found;
 }
 
+/**
+ * What now stands where each dictionary parameter over `variable` stood.
+ *
+ * Read by walking the generic and the specialized body in step rather than by
+ * collecting nodes out of the specialized one, because the answer under test is
+ * sometimes `{ kind: "Error" }` and that shape is unrecognizable on its own: a
+ * `Typed.ErrorType` is spelled identically, so a collector keyed on the tag
+ * would either miss the seat or claim seats that are not evidence. The two
+ * bodies agree in shape everywhere except the seats this substitutes, so the
+ * position *is* the discriminator.
+ */
+function replacedDictionaries(
+  generic: unknown,
+  specialized: unknown,
+  variable: Typed.TypeVariableId,
+): readonly unknown[] {
+  const found: unknown[] = [];
+  const visit = (left: unknown, right: unknown): void => {
+    if (Array.isArray(left)) {
+      if (!Array.isArray(right)) return;
+      left.forEach((element, index) => visit(element, right[index]));
+      return;
+    }
+    if (left === null || typeof left !== "object") return;
+    const node = left as Record<string, unknown>;
+    if (node.kind === "Dictionary" && node.variable === variable) {
+      found.push(right);
+      return;
+    }
+    if (right === null || typeof right !== "object") return;
+    const other = right as Record<string, unknown>;
+    for (const [key, nested] of Object.entries(node)) visit(nested, other[key]);
+  };
+  visit(generic, specialized);
+  return found;
+}
+
 /** A resolver over one module's real instances, plus a log of what it was asked. */
 function resolver(module: Core.Module): {
   readonly instances: (identity: string, type: FundamentalType) => string | undefined;
@@ -240,6 +277,29 @@ describe("a declared constraint's edition names its instance's dictionary", () =
     // emitter's own resolver reports a compiler defect before answering this
     // way; `Error` evidence is what elaboration already writes for a
     // requirement someone else has reported.
+    expect(replacedDictionaries(item.value, specialized.value, variable))
+      .toEqual([{ kind: "Error" }]);
+    expect(evidenceNodes(specialized.value)).toEqual([]);
+  });
+});
+
+describe("the face emitters resolve nothing", () => {
+  test("`faceOnlyEditionInstances` answers as a declining resolver does", () => {
+    const module = core([["/main.hex", declaredConstraints]]);
+    const { item, variable } = constrainedItem(module, "tell");
+
+    const specialized = specializeItem(
+      item,
+      edition(item, variable, "Int"),
+      boolUnion(module),
+      faceOnlyEditionInstances,
+    );
+
+    // What the `.d.ts` and preview emitters read is the substituted scheme and
+    // the lambda's parameters; nothing under them is rendered, so nothing under
+    // them is resolved — and nothing is invented in place of what was not.
+    expect(replacedDictionaries(item.value, specialized.value, variable))
+      .toEqual([{ kind: "Error" }]);
     expect(evidenceNodes(specialized.value)).toEqual([]);
   });
 });
@@ -301,24 +361,6 @@ describe("a pre-registered constraint's edition is unmoved", () => {
     expect(evidenceNodes(specialized.value)).toEqual([
       { kind: "Structural", type: { kind: "Tuple", elements: [] }, components: [] },
     ]);
-  });
-
-  test("the face emitters resolve nothing, and their bodies are dead anyway", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
-    const { item, variable } = constrainedItem(module, "tell");
-
-    const specialized = specializeItem(
-      item,
-      edition(item, variable, "Int"),
-      boolUnion(module),
-      faceOnlyEditionInstances,
-    );
-
-    // What the `.d.ts` and preview emitters read: the substituted scheme and the
-    // lambda's parameters. Nothing under them is rendered, so nothing under them
-    // is resolved.
-    expect(specialized.binding.name).toBe("tellInt");
-    expect(evidenceNodes(specialized.value)).toEqual([]);
   });
 });
 
@@ -436,15 +478,67 @@ describe("the lookup walks all three channels, keyed on identity", () => {
     expect(first).not.toBe(second);
   });
 
-  test("`Unit` answers nothing: no `honor` at the empty tuple is writable", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
-    const { constraint } = constrainedItem(module, "tell");
+  test("an import's instances, at the `Bool` union", () => {
+    const module = core([
+      ["/mark.hex", [
+        "export constraint Mark<a> =",
+        "    mark(subject: a): String",
+        "",
+        "honor Mark<Bool> =",
+        "    mark(b) = if b then \"yes\" else \"no\"",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        "import { Mark } from \"./mark\"",
+        "",
+        "export fun tag<a: Mark>(x: a): String = mark(x)",
+        "",
+      ].join("\n")],
+    ]);
+    const { constraint } = constrainedItem(module, "tag");
 
-    // Zero-Cost Fundamental Exports §3.2's judgment at `Unit`: instances key on
-    // type constructors and the empty tuple has neither a constructor name nor
-    // a home module, so a declared constraint never has `Unit` among its
-    // candidates and its lawful instances are the automatic structural ones.
-    expect(sourceInstanceDictionary(module, constraint.identity, "Unit", boolUnion(module)))
+    // The channel and the head are independent, and the pairing needs its own
+    // row: an imported instance's subject is a `Resolved.TypeAnnotation` while
+    // this module's own is a `Typed.Type`, and `Bool` is the one head where the
+    // two spellings are read for something other than a primitive's name.
+    expect(sourceInstanceDictionary(module, constraint.identity, "Bool", boolUnion(module)))
+      .toBe("__Mark_Bool");
+  });
+
+  test("`Unit` answers nothing, even where a refused `honor` names it", () => {
+    // The refusal is the instance-head rule's (Constraints §5.4, §9.3), and the
+    // refused declaration still reaches Core: a `Honor` item at
+    // `{ kind: "Tuple", elements: [] }` with a dictionary name of its own. So
+    // the lookup is asked the question for real here rather than being handed a
+    // module where nothing could have matched anyway.
+    const project = compileFiles([["/main.hex", [
+      "constraint Describe<a> =",
+      "    describe(subject: a): String",
+      "",
+      "honor Describe<Unit> =",
+      "    describe(u) = \"unit\"",
+      "",
+      "export fun tell<a: Describe>(x: a): String = describe(x)",
+      "",
+    ].join("\n")]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([
+      "instances are keyed on type constructors; tuples and structural records " +
+        "have compiler-derived instances only — declare a nominal `record` or " +
+        "`union` for a type you control",
+    ]);
+    const module = project.modules.find(({ source }) => source.path === "/main.hex")!.core;
+    const honor = module.items.find((item) => item.kind === "Honor");
+    expect(honor).toMatchObject({
+      constraintIdentity: "0:Describe",
+      subject: { kind: "Tuple", elements: [] },
+    });
+
+    // Zero-Cost Fundamental Exports §3.2's judgment at `Unit`: a declared
+    // constraint never has `Unit` among its candidates, and its lawful
+    // instances are exactly the automatic structural ones. Giving `honoredAt` a
+    // tuple branch — reading the refused item as though it stood — reddens
+    // this.
+    expect(sourceInstanceDictionary(module, "0:Describe", "Unit", boolUnion(module)))
       .toBeUndefined();
     expect(sourceInstanceDictionary(module, "hex:Show", "Unit", boolUnion(module)))
       .toBeUndefined();
