@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from "vitest";
 
 import type { CompiledProject } from "../project.js";
 import { compileFiles, runProject } from "../support/test-project.js";
-import { freeIdentifiers } from "../support/free-identifiers.js";
+import { codeOnly, freeIdentifiers } from "../support/free-identifiers.js";
 import { RUNTIME_VOCABULARY, renderEveryHelper } from "../passes/emitter/emitter.js";
 
 /**
@@ -593,6 +593,127 @@ function corpus(): CompiledProject {
 // run — the failure that would report as a timeout in an unrelated assertion.
 beforeAll(() => {
   corpus();
+});
+
+/**
+ * One module binding **every** capturable spelling at once, and reaching every
+ * family of seat that writes one: the exception helper, the range, the `Seq`
+ * spine and its memoizer, the map bracket, the derived `show`/`hash`/`compare`
+ * walks, string interpolation, the vector and string brackets, the `BigInt`
+ * widening, the match lowering's unreachable arm, and Unit.
+ *
+ * The uppercase members arrive as union constructors rather than as records:
+ * a constructor binds at module level in the emitted JavaScript exactly as a
+ * record's does, and `String`, `Number`, and `Array` are already spoken for as
+ * type names.
+ */
+const ALL_CONTESTED = [
+  "export union Contested =",
+  "    Error(Int)",
+  "    | Object(Int)",
+  "    | Symbol(Int)",
+  "    | Boolean(Int)",
+  "    | TypeError(Int)",
+  "    | RangeError(Int)",
+  "    | String(Int)",
+  "    | WeakMap(Int)",
+  "    | Math(Int)",
+  "    | Number(Int)",
+  "    | Array(Int)",
+  "    | BigInt(Int)",
+  "",
+  "export let console: Int = 1",
+  "export let undefined: Int = 2",
+  "",
+  "exception Boom(value: Int)",
+  "export let raise(): Int = throw(Boom(3))",
+  "export let loop(n: Int): Int =",
+  "    var sum = 0",
+  "    for i in 1..n",
+  "        sum := sum + i",
+  "    sum",
+  "export let counted(): Int = Seq.length(Vector.toSeq([1, 2, 3]))",
+  "export let memo(): Seq(Int) = Seq.memoize(Vector.toSeq([1, 2]))",
+  "export let unit(): Unit = ()",
+  "export let shown(x: Int): String = \"value ${x}\"",
+  "export let vs: String = Show.show([1, 2, 3])",
+  "export let vh: Int = Hash.hash([1, 2, 3])",
+  "export let cs: Ordering = Ord.compare(\"a\", \"b\")",
+  "export let big(x: Int): BigInt = x",
+  "export let sliced: Vector(Int) = [1, 2, 3][1..2]",
+  "export let ch: String = \"hello\"[1]",
+  "export let m: Map(String, Int) = Map.fromVector([(\"a\", 1)])",
+  "export let looked: Int = m[\"a\"]",
+  "export union Flag = On | Off",
+  "export let flag(f: Flag): Int =",
+  "    match f",
+  "        On => 1",
+  "        Off => 0",
+  "",
+].join("\n");
+
+describe("completeness — the worst-contested module writes no bare global", () => {
+  test("every seat steps around every spelling, in one module", () => {
+    const text = javascript([["/main.hex", ALL_CONTESTED]]);
+
+    // The manifest names the whole capturable vocabulary, because this module
+    // binds the whole of it.
+    expect(text).toContain(
+      "import { __Array, __BigInt, __Boolean, __console, __Error, __Math, __Number, " +
+        '__Object, __RangeError, __String, __Symbol, __TypeError, __WeakMap } from "./hex.js";',
+    );
+    // And the claim that matters, swept rather than spot-checked: **no
+    // compiler-written line of this module spells any vocabulary member bare.**
+    // The user's own declaration and export lines are the sole legitimate
+    // occurrences — Part 1 §10, at both seats — so they are the only lines
+    // excluded, by their declared name rather than by their shape. Everything
+    // that remains was written by the emitter, and a seat the qualification
+    // missed is the one bare word left in it.
+    //
+    // Deliberately not `freeIdentifiers`: a *free* identifier is the wrong
+    // question here, because the user's `const Error = …` binds the spelling, so
+    // an unqualified `new Error(…)` in a helper would read as bound and the
+    // assertion would pass vacuously. The lookarounds are what make this a
+    // reference check rather than a substring one — `__Error`, `IndexError`, and
+    // `"SliceError"` all leave the word alone.
+    const own = new Set<string>(RUNTIME_VOCABULARY);
+    const emitterWritten = codeOnly(text).split("\n").filter((line) => {
+      const declared = /^const ([A-Za-z_$][\w$]*) = /u.exec(line)?.[1] ??
+        /^export \{ ([A-Za-z_$][\w$]*) \};$/u.exec(line)?.[1];
+      return declared === undefined || !own.has(declared);
+    }).join("\n");
+    for (const member of RUNTIME_VOCABULARY) {
+      expect(emitterWritten).not.toMatch(new RegExp(`(?<![\\w$.])${member}(?![\\w$])`, "u"));
+    }
+    expect(text).toContain("const unit = () => void 0;");
+    // The seats the sweep above is silent about because they are *inside*
+    // qualified references, spot-checked so the families are on the record.
+    expect(text).toContain("new __Error(__message)");
+    expect(text).toContain("*[__Symbol.iterator]()");
+    expect(text).toContain("__Boolean(__next.done)");
+    expect(text).toContain("new __WeakMap()");
+    expect(text).toContain('throw new __RangeError("Unexpected pattern.");');
+    expect(text).toContain("__BigInt(x)");
+    expect(text).toContain("__Array.from(__text)");
+    expect(text).toContain("__Number.isNaN(__value)");
+    expect(text).toContain("__Math.imul(");
+    expect(text).toContain("new __TypeError(");
+  });
+
+  test("executed: the whole of it runs", async () => {
+    const exports = await runProject([["/main.hex", ALL_CONTESTED]]);
+
+    expect(thrown(exports["raise"] as () => number)).toMatchObject({ name: "Boom" });
+    expect((exports["loop"] as (n: number) => number)(4)).toBe(10);
+    expect((exports["counted"] as () => number)()).toBe(3);
+    expect((exports["unit"] as () => unknown)()).toBeUndefined();
+    expect((exports["shown"] as (x: number) => string)(7)).toBe("value 7");
+    expect(exports["vs"]).toBe("[1, 2, 3]");
+    expect(exports["looked"]).toBe(1);
+    expect((exports["big"] as (x: number) => bigint)(3)).toBe(3n);
+    expect((exports["ch"] as string)).toBe("h");
+    expect([...(exports["sliced"] as Iterable<number>)]).toEqual([1, 2]);
+  });
 });
 
 describe("the negatives — an uncontested module emits the text it always did", () => {

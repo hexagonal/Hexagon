@@ -180,6 +180,19 @@ function boundNames(code: string): ReadonlySet<string> {
   return bound;
 }
 
+/**
+ * The same text with every comment and string *blanked to spaces* — offsets and
+ * line breaks preserved, so a reported position still points where it did.
+ *
+ * Exported for the reader that wants to ask a question of the code alone rather
+ * than of the free names: a module specifier is a string, a tag is a string, and
+ * a bare-spelling sweep run over the raw text would find `"./String.js"`.
+ * `${…}` substitutions survive, because those are code.
+ */
+export function codeOnly(javascript: string): string {
+  return blankInert(javascript);
+}
+
 /** Replaces comment and string text with spaces, preserving every offset. */
 function blankInert(text: string): string {
   const out = [...text];
