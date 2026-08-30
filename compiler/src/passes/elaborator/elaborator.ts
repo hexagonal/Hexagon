@@ -570,6 +570,10 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
       return {
         kind: "Dictionary",
         variable: requirement.type.id,
+        // The *demanded* constraint's identity, not the provider's: this is the
+        // constraint the node answers, and the one an edition's substituted
+        // parameter has to find an instance of (#679).
+        constraintIdentity: requirement.identity,
         ...(requirement.evidenceConstraint === undefined
           ? {}
           : { constraint: requirement.evidenceConstraint }),

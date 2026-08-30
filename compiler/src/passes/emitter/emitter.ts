@@ -4,6 +4,7 @@
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
+import { preRegisteredConstraintIdentity } from "../../constraints.js";
 import { INTRINSIC_INVENTORY, isIntrinsicScheme } from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_BASENAMES } from "../../prelude.js";
 import { type Documentation, throwsManifests } from "../../support/documentation.js";
@@ -16,8 +17,10 @@ import type * as Resolved from "../../syntax/resolved/index.js";
 import * as Typed from "../../syntax/typed/index.js";
 import { idContinue, idStart } from "../lexer/unicode-17.js";
 import {
+  faceOnlyEditionInstances,
   planFundamentalSpecializations,
   planImportedSpecializations,
+  sourceInstanceDictionary,
   specializeItem,
   type FundamentalSpecialization,
   type FundamentalType,
@@ -4203,6 +4206,8 @@ class JavaScriptEmitter {
         item as SpecializableItem,
         specialization,
         this.#prelude.bool,
+        (constraintIdentity, type) =>
+          this.#editionInstanceDictionary(constraintIdentity, type, specialization, item.span),
       );
       const emitted = this.#emitFunctionDeclaration(
         specialized,
@@ -7125,22 +7130,69 @@ class JavaScriptEmitter {
    * The dictionary a **source** instance at this primitive exports, if one
    * exists (#344).
    *
-   * Read from `preludeInstances`, which is where a companion module's instances
-   * reach every consumer (#153) — so the lookup answers exactly for the
-   * companions that have migrated, and answers nothing for the ones still wired.
-   * A module's own instances never appear here and never need to: inside the
-   * companion the checker selects them directly, and their evidence is
-   * `Instance` before emission sees it.
+   * The lookup itself is `sourceInstanceDictionary`, which walks the three
+   * channels an instance reaches a module by and keys on the constraint's
+   * declaration identity (§5.1.1). The one thing this seat has to supply is that
+   * identity, and a use site carries only a name — so the `hex:` space is named
+   * outright, which is exactly right for the evidence that arrives here.
+   * `Primitive` evidence has two producers and both are pre-registered: the
+   * specialization planner mints it for a pre-registered constraint alone
+   * (`editionEvidence`), and elaboration mints it for a requirement at a
+   * primitive that selected no instance, which since #344 is the wired row the
+   * ruling retired. A declared constraint reaching here answers nothing, and the
+   * defect below is what says so — the same outcome the name-keyed lookup gave,
+   * for a better-stated reason.
    */
   #sourceInstanceDictionary(
     constraint: Typed.ConstraintName,
     instance: Typed.PrimitiveName,
   ): string | undefined {
-    return this.#module.preludeInstances.find((available) =>
-      available.constraint === constraint &&
-      available.subject.kind === "Primitive" &&
-      available.subject.name === instance
-    )?.localDictionary;
+    return sourceInstanceDictionary(
+      this.#module,
+      preRegisteredConstraintIdentity(constraint),
+      instance,
+      this.#prelude.bool,
+    );
+  }
+
+  /**
+   * The instance an edition's substituted dictionary parameter resolves to, or
+   * a reported compiler defect (#679).
+   *
+   * The planner asks this for every constraint a module *declared* — a
+   * pre-registered one is answered by the two compiler-derived arms without
+   * leaving `editionEvidence` — and the answer is the ordinary instance row a
+   * ground program at the same type would select. Nothing is added to
+   * `#referencedDictionaries` here: the evidence carries the name, and it is
+   * rendering the evidence that decides whether the module reaches it.
+   *
+   * `undefined` cannot happen while the plan's candidates and the instance
+   * judgment agree, which is what makes it worth reporting rather than
+   * absorbing: the plan offered this fundamental as a candidate and no instance
+   * backs it, and an edition with no dictionary at all reads a slot off nothing
+   * at run time, a long way from the cause.
+   */
+  #editionInstanceDictionary(
+    constraintIdentity: string,
+    type: FundamentalType,
+    specialization: FundamentalSpecialization,
+    span: Source.Span,
+  ): string | undefined {
+    const dictionary = sourceInstanceDictionary(
+      this.#module,
+      constraintIdentity,
+      type,
+      this.#prelude.bool,
+    );
+    if (dictionary !== undefined) return dictionary;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `compiler defect: \`${specialization.name}\` is an edition at ` +
+        `\`${type}\`, and no instance of constraint \`${constraintIdentity}\` at ` +
+        `\`${type}\` reached this module`,
+      primary: span,
+    });
+    return undefined;
   }
 
   /**
@@ -8955,6 +9007,7 @@ class DeclarationEmitter {
             item as SpecializableItem,
             specialization,
             this.#faces.prelude.bool,
+            faceOnlyEditionInstances,
           );
           // A constrained binding has no single `.d.ts` declaration — its face
           // is one per specialization — so its documentation rides each, and so
@@ -9342,6 +9395,7 @@ class TypeScriptPreviewEmitter {
             item as SpecializableItem,
             specialization,
             this.#faces.prelude.bool,
+            faceOnlyEditionInstances,
           );
           // A constrained binding has no single `.d.ts` declaration — its face
           // is one per specialization — so its documentation rides each.
