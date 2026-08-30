@@ -2379,7 +2379,10 @@ than settling a style question.
   derived walks mint editions — the planner's support table has no `Hash`
   row, so a `Hash`-bound variable admits no candidates, though five
   fundamentals hold lawful `Hash` instances; whether that omission is
-  deliberate is #679's question — and their component seats are
+  deliberate is #679's question *(Answered 2026-08-31, #679: ruled not
+  deliberate — seven fundamentals hold lawful `Hash`, not five, and the
+  table itself is retired for the derived judgment; the #679 entry below
+  carries the accounting.)* — and their component seats are
   type-directed wherever no recorded selection stands, so each hit its
   `Variable` arm and rebuilt a dictionary parameter the edition no longer
   binds: one internal-error diagnostic
@@ -2394,7 +2397,11 @@ than settling a style question.
   the sub-dictionary helper, where a recorded selection stands, and the
   #669 arc's repair had already cured it. `Set` shapes — and `Map` keys —
   never reach the planner at all: those operations demand `Hash`, which
-  mints no editions.
+  mints no editions. *(Amended 2026-08-31, #679: they reach it now —
+  `Hash` admits all seven fundamentals under the derived judgment, and
+  the walks this entry's repair completed are exactly what the new
+  editions exercise; the mints-none control stands rewritten as the
+  positive measurement.)*
 - **Correction:** the ruled repair (2026-08-30, recorded on #675): the
   planner completes the substitution. The same deep walk that rewrites an
   edition's evidence substitutes the specialized variables' type nodes
@@ -2426,6 +2433,10 @@ than settling a style question.
   unexported and `Hash`-binder programs, which mint no editions, and the
   `Map` value seat — cured by the #669 arc's repair and standing here as
   blast-radius coverage for the sub-dictionary helper, not a defect pin.
+  *(Amended 2026-08-31, #679: the `Hash`-binder control no longer mints
+  none — it asserts the seven editions and their ground `__Hash_<T>_Int`
+  element dictionaries, this file's doctrine measured positively at the
+  seat that could not exercise it before.)*
   Suites at the fix: compiler 3724 + 1 expected fail, language-server 121,
   playground 229. The review byte-diffed a thirty-nine-program corpus
   across the fix — every broken-at-base program in it cured, every
@@ -2443,3 +2454,92 @@ than settling a style question.
   open, where the repair was also ruled; the wider scope (records, `fun`
   items, nested generalized lets, the two-variable scale) established by
   the #677 review. Repaired in PR #677.
+
+## 2026-08-31 — Algorithm S candidates came from a hand-written support table (#679)
+
+- **Classification:** compiler defect against specification; no spec
+  behaviour changed. The ruling (#679, recorded there with its three
+  sub-rulings) chose the repair's shape — derive the candidates from the
+  judgment rather than re-mirror it — and the spec gained one statement
+  of already-forced consequences on the way (§3.2's `Unit`/`Bool`
+  paragraph, #682).
+- **Authority:** Zero-Cost Fundamental Exports §3.2 — `candidates(vi)`
+  is the ordinary Constraints §4/§5 lawfulness judgment over the
+  fundamental instances, "no new instance judgment is introduced" — and
+  §8.1's determinism contract: an importing module plans the editions
+  the declaring module published, from the scheme alone. Constraints
+  §5.1.1 keys the judgment (identity, never spelling); §5.3's homes make
+  it computable (a declared constraint's fundamental instances live
+  where naming the constraint already reaches).
+- **Defect origin:** `fundamentalSupports` mirrored the judgment as a
+  name-keyed table, and the planner collapsed each scheme requirement to
+  its spelling on the way in — the identity the requirement carries
+  precisely for cross-module discharge was discarded one call before
+  the seat that needed it. The mirror had drifted: no `Hash` row, though
+  all seven fundamentals hold lawful `Hash` — five by companion honor,
+  `Bool` by its declaration's derives, `Unit` structurally — so a
+  `Hash`-bound export minted nothing and the entire core `Set`/`Map`
+  surface was zero-entry-point, §3.4's legal case reached by drift
+  rather than intent. No declared constraint could mint at all, against
+  §3.4's own presumption. Downstream, latent behind the table: edition
+  evidence was rewritten to `Primitive`/`Structural` unconditionally, so
+  an admitted declared constraint would have met an internal error at
+  the five primitives and a silent runtime `TypeError` at `Bool` — the
+  #675 failure shape from the other side. (`Iterable`'s missing row is
+  no defect in v1: a projection-bearing constraint cannot reach a binder
+  — Collections Part 2 §7.2 — so the judgment is never asked.)
+- **Correction:** three PRs under the ruling. #684: editions resolve
+  their evidence by constraint identity over the three instance channels
+  — the module's own honors, the imports' transitive instance evidence,
+  the prelude rows — emitting `Instance` evidence naming the resolved
+  dictionary for a declared constraint, `Primitive`/`Structural`
+  reserved for the pre-registered cases they were right for. #686: the
+  table retired; candidates derive from the same channels, plus a
+  program-invariant row set for the pre-registered constraints read off
+  the checked prelude at the end of checking and threaded to every
+  emission — one table for every module in a program, exporters and
+  importers provably the same function of the same input. `Bool` and
+  `Unit` answer pre-registered constraints from the pin, matching the
+  `Structural` evidence editions carry; a declared constraint reaches
+  `Bool` through its ordinary instance row and can never reach `Unit`
+  (§3.2). #688: a source-ground call at `Bool` under a declared
+  constraint routes to the edition by name, through the judgment's own
+  table inverted — binding-name-keyed, head-derived, measured
+  collision-safe under contested spellings, declining to the generic
+  path wherever the head is not the pin. Two consequences are now
+  stated where they bite rather than standing unwritten: a prelude
+  module must resolve at its own seat every dictionary its plan mints,
+  so a constrained export in a prelude module seated before the last
+  fundamental companion is a compile-breaking constraint on `stdlib/`,
+  held by the resolution-obligation loop; and the program-table
+  threading is unobservable while every eligible prelude export sits at
+  or after `String.hex`'s seat — the plan-difference row is the named
+  tripwire that reddens when that starts to matter.
+- **Executable conformance:** `conformance/edition-evidence-identity.test.ts`
+  — eighteen rows: the identity keying across all three channels and
+  three import spellings (bare named, qualified `import module`,
+  aliased), the
+  `Bool` union match on identity never name, the refused `honor` at
+  `Unit` held as the falsifiable specimen, the evidence-decline seat.
+  `conformance/derived-fundamental-candidates.test.ts` — fourteen rows:
+  the row-set pin (the derived rows equal the historical seven plus
+  `Hash` on all seven, so a prelude edit moving the fundamental instance
+  set reddens at the planner), the seat-resolution obligation loop, the
+  threading tripwire, the declared-constraint transitive three-module
+  agreement. Nine routing rows beside #441's in
+  `conformance/specialized-call-sites.test.ts`, row 18's boundaries
+  restated and the non-pin union control carrying the factory specimen.
+  The rewritten controls: the mints-none `Hash` binder asserts its seven
+  editions; `declaration-name-sink`'s zero-edition specimen re-grounded
+  on the real §3.4 case. Suites at the close: compiler 3777 + 1 expected
+  fail, language-server 121, playground 229. Measured cost on a
+  collections-using graph (§10, measure-no-cap): JS 107,196 → 157,072
+  bytes, `.d.ts` 10,903 → 30,937; `Set.hex` forty-two editions,
+  `Map.hex` twenty-eight; four companions newly emitted, pulled in by
+  the editions' ground dictionaries.
+- **Credit:** filed from the #675 arc's implementation; the audit,
+  ruling, and spec leg recorded on #679 and #682; repaired in PRs #684,
+  #686, and #688, each under review — the leg-2 review measured the
+  seat-order consequence the entry states, and the rider review measured
+  the binding-name key collision-safe. Byproducts #683, #685, and #687
+  filed on the way.
