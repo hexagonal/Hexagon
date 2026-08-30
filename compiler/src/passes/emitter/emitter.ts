@@ -6258,7 +6258,18 @@ class JavaScriptEmitter {
     return this.#unit;
   }
 
-  /** Selects direct Eq evidence or the nested Eq base constraint of Hash. */
+  /**
+   * Selects direct Eq evidence or the nested Eq base constraint of Hash.
+   *
+   * A hand-mirror of one edge of the stdlib constraint graph, and correct only
+   * while that graph is the whole graph: a user base constraint `Wide<a: Hash>`
+   * reaches `Eq` by a path neither probe spells. So it is the **components-blind
+   * fallback only** (#669) — every seat that has a selection to read renders the
+   * recorded entailment path through `#emitEvidence` instead, and after that
+   * repair the blind arms are reachable only on a module the checker rejected or
+   * through `#componentEvidenceAt`'s defect report. Nothing that survives to a
+   * run has come through here.
+   */
   #equalityDictionary(
     variable: Typed.TypeVariableId,
     evidenceNames: EvidenceNames,
@@ -6361,7 +6372,7 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
     evidence: Core.Evidence | undefined,
   ): string {
-    if (componentInstance(evidence)) {
+    if (componentDispatch(evidence)) {
       const dictionary = this.#emitEvidence(evidence, "Hash", this.#module.span, evidenceNames);
       return `${dictionary}.hash(${value})`;
     }
@@ -6430,22 +6441,23 @@ class JavaScriptEmitter {
         `return ${accumulator}; })()`;
     }
     if (type.kind === "Set") {
-      // Through `#subDictionary`, like `#derivedEquals`' matching arm: the
-      // checker records the `element` demand at a `Set`'s `Hash`, and
-      // synthesizing an empty structural node here would throw that selection
-      // away *and* hand the dispatch a component map with no entry in it.
-      const dictionary = type.element.kind === "Variable"
-        ? this.#dictionary(type.element.id, "Hash", this.#module.span, evidenceNames)
-        : this.#subDictionary(components, "element", "Hash", type.element, evidenceNames);
+      // Through `#subDictionary` at every element kind, a variable's included
+      // (#278, #669): the checker records the `element` demand at a `Set`'s
+      // `Hash`, and both the old shortcuts around it — an empty structural node,
+      // and a reference rebuilt from `type.element.id` — threw that selection
+      // away. `#subDictionary` keeps the shortcut where it belongs, blind.
+      const dictionary = this.#subDictionary(
+        components,
+        "element",
+        "Hash",
+        type.element,
+        evidenceNames,
+      );
       return `${this.#useHelper("setHash")}(${dictionary}, ${value})`;
     }
     if (type.kind === "Map") {
-      const key = type.key.kind === "Variable"
-        ? this.#dictionary(type.key.id, "Hash", this.#module.span, evidenceNames)
-        : this.#subDictionary(components, "key", "Hash", type.key, evidenceNames);
-      const item = type.value.kind === "Variable"
-        ? this.#dictionary(type.value.id, "Hash", this.#module.span, evidenceNames)
-        : this.#subDictionary(components, "value", "Hash", type.value, evidenceNames);
+      const key = this.#subDictionary(components, "key", "Hash", type.key, evidenceNames);
+      const item = this.#subDictionary(components, "value", "Hash", type.value, evidenceNames);
       return `${this.#useHelper("mapHash")}(${key}, ${item}, ${value})`;
     }
     if (type.kind === "Record") {
@@ -6497,14 +6509,16 @@ class JavaScriptEmitter {
    * One component of a derived or structural `compare` (#278).
    *
    * `Instance` dispatches — always, whether that instance is hand-written or
-   * derived; the container never re-derives it. `Structural` recurses one level
-   * carrying its own component selection. `Primitive`, `Dictionary` and `Error`
-   * keep the inline arms of `#derivedCompare`: the licensed primitive shortcut,
-   * the type-variable dictionary parameter a factory already receives, and the
-   * best-effort fallback on a module the checker rejected.
+   * derived; the container never re-derives it. `Dictionary` dispatches too
+   * (#669): the reference the inline arm rebuilt from `type.id` is right only
+   * where the binder demands this walk's constraint directly, and the recorded
+   * node is right always. `Structural` recurses one level carrying its own
+   * component selection. `Primitive` and `Error` keep the inline arms of
+   * `#derivedCompare`: the licensed primitive shortcut, and the best-effort
+   * fallback on a module the checker rejected.
    *
    * *(#344.)* An instance **honored at a primitive** keeps the inline arm too,
-   * which is `#componentInstance`'s whole job: a migrated companion's evidence
+   * which is `componentDispatch`'s whole job: a migrated companion's evidence
    * is an ordinary `Instance` now, but Constraints §6.1's last sentence licenses
    * the monomorphic tables as *inlining of the door-backed slots* wherever the
    * instance stands, and coherence says there is exactly one to render. Reading
@@ -6518,7 +6532,7 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
     evidence: Core.Evidence | undefined,
   ): string {
-    if (componentInstance(evidence)) {
+    if (componentDispatch(evidence)) {
       const dictionary = this.#emitEvidence(evidence, "Ord", this.#module.span, evidenceNames);
       return `${dictionary}.compare(${left}, ${right})`;
     }
@@ -6685,6 +6699,15 @@ class JavaScriptEmitter {
    * The checker's selection when there is one (#278), so a `Map`'s values are
    * compared by their own `Eq` instance; otherwise the structural dictionary
    * this used to build unconditionally.
+   *
+   * A type-variable component reads the selection too (#669). The recorded
+   * `Dictionary` node carries the *entailment path* by which this binder's
+   * constraint reaches the demanded one — `__Wide_a.hash` under
+   * `constraint Wide<a: Hash>` — and rebuilding the reference from `type.id`
+   * spelled a dictionary named nowhere in scope. `#emitEvidence` renders that
+   * node as the same direct reference the shortcut used to write, path
+   * included, so nothing eta-wraps. The shortcut survives only components-blind,
+   * where there is no selection to read.
    */
   #subDictionary(
     components: ComponentEvidence,
@@ -6693,9 +6716,27 @@ class JavaScriptEmitter {
     type: Typed.Type,
     evidenceNames: EvidenceNames,
   ): string {
-    const evidence = this.#componentEvidenceAt(components, key) ??
-      ({ kind: "Structural", type, components: [] } as const);
-    return this.#emitEvidence(evidence, constraint, this.#module.span, evidenceNames);
+    const evidence = this.#componentEvidenceAt(components, key);
+    if (evidence !== undefined) {
+      return this.#emitEvidence(evidence, constraint, this.#module.span, evidenceNames);
+    }
+    // Reached components-blind, and — because `#componentEvidenceAt` reports a
+    // map that exists but lacks the key — on the defect path it names. Both want
+    // the same answer: a variable's dictionary is the parameter itself, never a
+    // literal wrapping its slots, and only a structural type has slots to build.
+    // `Eq` goes through the name-probe, the one thing blind mode has instead of
+    // a recorded path.
+    if (type.kind === "Variable") {
+      return constraint === "Eq"
+        ? this.#equalityDictionary(type.id, evidenceNames)
+        : this.#dictionary(type.id, constraint, this.#module.span, evidenceNames);
+    }
+    return this.#emitEvidence(
+      { kind: "Structural", type, components: [] },
+      constraint,
+      this.#module.span,
+      evidenceNames,
+    );
   }
 
   /**
@@ -6715,7 +6756,7 @@ class JavaScriptEmitter {
     hashBacked: boolean,
     evidence: Core.Evidence | undefined,
   ): string {
-    if (componentInstance(evidence)) {
+    if (componentDispatch(evidence)) {
       const dictionary = hashBacked
         ? `${this.#emitEvidence(evidence, "Hash", this.#module.span, evidenceNames)}.eq`
         : this.#emitEvidence(evidence, "Eq", this.#module.span, evidenceNames);
@@ -6795,24 +6836,19 @@ class JavaScriptEmitter {
     }
     if (type.kind === "Set") {
       // `Hash` at both the `Eq` and the `Hash` node: a set's equality is its
-      // elements' hashing, so the one key answers for both modes.
-      const hash = type.element.kind === "Variable"
-        ? this.#dictionary(type.element.id, "Hash", this.#module.span, evidenceNames)
-        : this.#subDictionary(components, "element", "Hash", type.element, evidenceNames);
+      // elements' hashing, so the one key answers for both modes. Through
+      // `#subDictionary` at every element kind, for `#derivedHash`' reason.
+      const hash = this.#subDictionary(components, "element", "Hash", type.element, evidenceNames);
       return `${this.#useHelper("setEquals")}(${hash}, ${left}, ${right})`;
     }
     if (type.kind === "Map") {
-      const hash = type.key.kind === "Variable"
-        ? this.#dictionary(type.key.id, "Hash", this.#module.span, evidenceNames)
-        : this.#subDictionary(components, "key", "Hash", type.key, evidenceNames);
+      const hash = this.#subDictionary(components, "key", "Hash", type.key, evidenceNames);
       // The `value` key again, under the constraint the enclosing node raised
       // it as: `Hash` beneath a `Hash` node, where the equality is the
-      // dictionary's `eq`, and `Eq` beneath an `Eq` one.
-      const equals = type.value.kind === "Variable"
-        ? hashBacked
-          ? `${this.#dictionary(type.value.id, "Hash", this.#module.span, evidenceNames)}.eq`
-          : this.#equalityDictionary(type.value.id, evidenceNames)
-        : hashBacked
+      // dictionary's `eq`, and `Eq` beneath an `Eq` one. The suffix is written
+      // here rather than asked of the selection, because it names a slot of
+      // whatever dictionary the selection resolved to.
+      const equals = hashBacked
         ? `${this.#subDictionary(components, "value", "Hash", type.value, evidenceNames)}.eq`
         : this.#subDictionary(components, "value", "Eq", type.value, evidenceNames);
       return `${this.#useHelper("mapEquals")}(${hash}, ${equals}, ${left}, ${right})`;
@@ -6870,7 +6906,7 @@ class JavaScriptEmitter {
     evidenceNames: EvidenceNames,
     evidence: Core.Evidence | undefined,
   ): string {
-    if (componentInstance(evidence)) {
+    if (componentDispatch(evidence)) {
       const dictionary = this.#emitEvidence(evidence, "Show", this.#module.span, evidenceNames);
       return `${dictionary}.show(${value})`;
     }
@@ -11071,8 +11107,9 @@ function selfEvidenceKey(rendering: string): string {
 }
 
 /**
- * Whether a derived container's component evidence is an instance the container
- * must **dispatch** to rather than re-derive (#278) — a nominal one.
+ * Whether a derived container's component evidence is one the container must
+ * **dispatch** to rather than re-derive (#278) — a nominal instance, or a
+ * binder's dictionary parameter.
  *
  * An instance honored at a primitive is not one of those. Its evidence became
  * an ordinary `Instance` when that primitive's companion migrated (#344), but
@@ -11082,10 +11119,21 @@ function selfEvidenceKey(rendering: string): string {
  * last sentence, the same licence `#emitConstraintCall` takes for `+` and
  * `#emitComparison` for `<`. #278's hazard was a hand-written *component*
  * instance being bypassed, and a primitive has exactly one instance to bypass.
+ *
+ * `Dictionary` joins it (#669). The walks' `Variable` arms rebuild the reference
+ * from the component's `type.id` under the walk's own constraint, which is the
+ * recorded node only when the binder demands that constraint directly; where a
+ * user base constraint entails it — `constraint Wide<a: Hash>` — the recording
+ * carries the constraint the binder was written with and the entailment path
+ * through it, and the rebuild named a dictionary that does not exist. There is
+ * no primitive concern to weigh here: a `Dictionary` node is a parameter, and
+ * `#emitEvidence` renders it as the same reference the arms wrote, plus the
+ * path they dropped.
  */
-function componentInstance(
+function componentDispatch(
   evidence: Core.Evidence | undefined,
-): evidence is Core.InstanceEvidence {
+): evidence is Core.InstanceEvidence | Core.DictionaryEvidence {
+  if (evidence?.kind === "Dictionary") return true;
   return evidence?.kind === "Instance" && evidence.primitive === undefined;
 }
 
