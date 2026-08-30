@@ -83,6 +83,11 @@ For an eligible export `f` with type variables `v1 … vn` **in declared order**
    - **body:** the direct monomorphic elaboration of `f`'s body at `t`, under the required-emission contract (§8).
 5. **Check names** for collisions (§6.2); any collision is a hard compile error.
 
+**The two ends of the fundamental set, stated — the ordinary judgment reaches them by different routes, and both routes are load-bearing for clause 2:**
+
+- **`Unit`** is the empty tuple. Its lawful instances are exactly the automatic structural ones — `Eq`, `Ord`, `Show`, `Hash` (Constraints §4.5's structural bullet) — and no `honor` can ever name it: it has no constructor to key an instance on (Constraints §5.4) and no home module (Modules §2). So `Unit ∈ candidates(vi)` precisely when `C(vi) ⊆ {Eq, Ord, Show, Hash}`, and a user constraint never has `Unit` among its candidates.
+- **`Bool`** is a prelude union. Its own four instances derive in its declaring module (Constraints §5.3), and it is an ordinary instance head for every other constraint: a lawful `honor K<Bool>` — necessarily in `K`'s declaring module, since `Bool`'s is prelude — puts `Bool` in `candidates(vi)` for `K`-constrained variables exactly as an instance at any other fundamental would.
+
 **No arbitrary combination cap exists.** The implementation must **measure** emitted code and `.d.ts` size (§10); a future threshold, opt-in, or alternative grouping requires field evidence and an explicit design decision — it is never silently introduced by an optimizer (rejected alternative §11.5).
 
 **Specializations are unconditional** for an eligible export: they are generated whether or not any Hexagon source calls `f` at those types. A JS consumer may import `plusFloat` even when no Hexagon code calls `plus` at `Float` (§5).
@@ -376,6 +381,7 @@ Exported constrained-polymorphic **non-function values**, should generalization 
 | 16 | Constraints §6.4 / Modules §11.5 wording contradictions recorded for the FFI consolidation, unresolved here | §13.2 |
 | 17 | `Bool` remains fundamental **by enumeration** after #147's prelude-union reclassification — membership is a language category, not type classification; Algorithms S/G/N unaffected; face `boolean` unchanged (now grounded in the Unions §6.2 pin) | §2.1, §2.3 |
 | 18 | **§8.2's known-concrete freedom is taken as the implementation's standing choice** (#440): an internal call to an exported constrained declaration whose constrained variables all instantiate at fundamental types emits the Algorithm N specialization by name — no evidence, no generic edition; every other internal site (any type variable in play, any non-fundamental concrete instantiation, any unexported callee) keeps trailing evidence. The direction is the permitted converse of §5's bar and §11.6's rejection: call sites here *consume* an unconditional export; the export surface still never depends on call sites | §5, §8.2, §11.6 |
+| 19 | **`Unit`/`Bool` under the candidates judgment, stated:** `Unit`'s instances are exactly the automatic structural four (`Eq`/`Ord`/`Show`/`Hash`) and no `honor` can name it — never a candidate for a user constraint; `Bool` derives its own four in its declaring module and is an ordinary instance head for user constraints | §3.2 |
 
 ---
 
