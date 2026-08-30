@@ -1,5 +1,6 @@
 /** Plans the closed family of fundamental editions for constrained functions. */
 
+import { isPreRegisteredIdentity } from "../../constraints.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
 import type * as Typed from "../../syntax/typed/index.js";
@@ -131,11 +132,18 @@ export function planFundamentalSpecializations(
  * name allocator: an edition's `__Eq_Vector_Int` says `__rightStep_2` where the
  * ground program says `__rightStep`. Block-scoped inside its own IIFE, so
  * cosmetic — but a verbatim edition-against-ground comparison will trip on it.
+ *
+ * What a substituted dictionary parameter *becomes* is `editionEvidence`'s
+ * question, and it is answered by the constraint's identity as much as by the
+ * type it is assigned (#679): the two compiler-derived answers below are right
+ * for the constraints the compiler pre-registers and wrong for every constraint
+ * a module declares, which reaches its instance through `instances`.
  */
 export function specializeItem(
   item: SpecializableItem,
   specialization: FundamentalSpecialization,
   bool: Resolved.UnionId | undefined,
+  instances: EditionInstances,
 ): SpecializableItem {
   const substitutions = new Map(
     specialization.assignment.map(({ variable, type }) => [variable, type] as const),
@@ -148,8 +156,120 @@ export function specializeItem(
       name: specialization.name,
       scheme: specialization.scheme,
     },
-    value: specializeBody(item.value, substitutions, bool),
+    value: specializeBody(item.value, substitutions, bool, instances),
   } as SpecializableItem;
+}
+
+/**
+ * Where an edition's substituted dictionary parameter finds the instance that
+ * answers it (#679).
+ *
+ * The planner asks and the caller answers, because the question is about a
+ * *module* — the three channels an instance reaches one by, which
+ * `sourceInstanceDictionary` below walks — while this file knows only about a
+ * scheme and a body. `undefined` is the answer for a pair no instance backs,
+ * which is a compiler defect the implementation is expected to report before
+ * answering: the plan offered a candidate the instance judgment does not
+ * support, and an edition whose dictionary is nothing at all is a `TypeError`
+ * at its first slot read.
+ */
+export type EditionInstances = (
+  constraintIdentity: string,
+  type: FundamentalType,
+) => string | undefined;
+
+/**
+ * The answer for a caller that renders an edition's **face** and never its body.
+ *
+ * The `.d.ts` and preview emitters specialize an item to read the substituted
+ * scheme and the lambda's parameter list, and nothing under them: no evidence
+ * node of theirs is ever rendered. They resolve nothing rather than pretending
+ * to, and the `Error` evidence that leaves in their copy of the body is exactly
+ * as dead as the body is.
+ */
+export const faceOnlyEditionInstances: EditionInstances = () => undefined;
+
+/**
+ * The dictionary a **source** instance of this constraint at this fundamental
+ * type exports, if one exists (#344, #679).
+ *
+ * Keyed on the constraint's **declaration identity** (`spec/constraints.md`
+ * §5.1.1) rather than on its name, because a name is not a property of a
+ * constraint at a module border: two modules may each declare a `Describe`, and
+ * an import may rename one.
+ *
+ * Three channels, which are the three ways an instance reaches a module: its
+ * own `honor` items, the instances an import makes global — transitively, so a
+ * consumer that never names the declaring module still finds them — and the
+ * prelude's (#153). They are disjoint by construction, so the order below is a
+ * reading order and not a precedence: a module's own instances never appear in
+ * `preludeInstances`, an explicit import of a prelude module carries none, and
+ * coherence forbids two instances of one constraint at one head. Only the
+ * prelude channel was consulted while the sole caller was `Primitive` evidence,
+ * whose companions all arrive by it; a constraint some module *declared* is
+ * honored in that module or in one this one imports, and both were invisible.
+ */
+export function sourceInstanceDictionary(
+  module: Core.Module,
+  constraintIdentity: string,
+  head: FundamentalType | Typed.PrimitiveName,
+  bool: Resolved.UnionId | undefined,
+): string | undefined {
+  for (const item of module.items) {
+    if (item.kind !== "Honor") continue;
+    if (item.constraintIdentity === constraintIdentity && honoredAt(item.subject, head, bool)) {
+      return item.dictionary;
+    }
+  }
+  for (const item of module.items) {
+    if (item.kind !== "Import") continue;
+    for (const instance of item.instances) {
+      if (
+        instance.constraintIdentity === constraintIdentity &&
+        honoredAt(instance.subject, head, bool)
+      ) {
+        return instance.localDictionary;
+      }
+    }
+  }
+  return module.preludeInstances.find((available) =>
+    available.constraintIdentity === constraintIdentity &&
+    honoredAt(available.subject, head, bool)
+  )?.localDictionary;
+}
+
+/**
+ * Whether an instance's subject **is** this fundamental type.
+ *
+ * One test over the two spellings a subject arrives in — a `Typed.Type` on this
+ * module's own `Honor` items, a `Resolved.TypeAnnotation` on an imported or
+ * prelude instance — which agree on the shapes that can be a fundamental: a
+ * primitive's name, and a union's identity.
+ *
+ * The `Bool` test is the union identity and never the name, the same pin the
+ * emitter's `#groundFundamental` and comparison lowering make: a module that
+ * declares its own `Bool` has not declared the prelude's. `Bool` is an ordinary
+ * instance head otherwise — Zero-Cost Fundamental Exports §3.2's judgment at
+ * `Unit` and `Bool` — so a declared constraint reaches it exactly as it reaches
+ * a primitive.
+ *
+ * `Unit` matches nothing, and that is the answer rather than a gap. Instances
+ * are keyed on type constructors and the empty tuple has neither a constructor
+ * name nor a home module, so no `honor` can ever name it (§3.2 again;
+ * Constraints §9.3, §4.5's structural bullet). `Unit`'s lawful instances are
+ * exactly the automatic structural ones, which `editionEvidence` renders itself
+ * and never asks about here.
+ */
+function honoredAt(
+  subject: Typed.Type | Resolved.TypeAnnotation,
+  head: FundamentalType | Typed.PrimitiveName,
+  bool: Resolved.UnionId | undefined,
+): boolean {
+  if (head === "Bool") {
+    return bool !== undefined && subject.kind === "Union" && subject.union === bool;
+  }
+  if (head === "Unit") return false;
+  return subject.kind === "Primitive" && subject.name === head;
 }
 
 /**
@@ -359,9 +479,12 @@ function specializeBody<T>(
   value: T,
   substitutions: ReadonlyMap<Typed.TypeVariableId, FundamentalType>,
   bool: Resolved.UnionId | undefined,
+  instances: EditionInstances,
 ): T {
   if (Array.isArray(value)) {
-    return value.map((element) => specializeBody(element, substitutions, bool)) as T;
+    return value.map((element) =>
+      specializeBody(element, substitutions, bool, instances)
+    ) as T;
   }
   if (value === null || typeof value !== "object") return value;
   const candidate = value as Record<string, unknown>;
@@ -375,35 +498,94 @@ function specializeBody<T>(
   }
   if (candidate.kind === "Dictionary" && typeof candidate.variable === "number") {
     const replacement = substitutions.get(candidate.variable as Typed.TypeVariableId);
-    // The two enumeration-membered fundamentals name no primitive, so their
-    // editions carry the evidence a *ground* site at the same type carries —
-    // structural, over the type `substituteType` above wrote into the scheme.
-    // `Unit`'s is the automatic tuple instance at arity 0 (#159); `Bool`'s is
-    // `stdlib/Bool.hex`'s derived walk (#147), which is what makes an edition's
-    // rendering agree with every other spelling of the same call: `"True"`
-    // rather than the host's `String(x)`.
-    if (replacement === "Unit") {
-      return { kind: "Structural", type: { kind: "Tuple", elements: [] }, components: [] } as T;
-    }
-    if (replacement === "Bool") {
-      return {
-        kind: "Structural",
-        type: bool === undefined
-          ? { kind: "Error" }
-          : { kind: "Union", union: bool, name: "Bool", arguments: [] },
-        components: [],
-      } as T;
-    }
     if (replacement !== undefined) {
-      return { kind: "Primitive", instance: replacement } as T;
+      // The identity is read off the node rather than guarded for, because a
+      // `Dictionary` node without one is not one this walk can rewrite: it
+      // reaches `editionEvidence` as the empty identity, which is no
+      // constraint's, and is reported there rather than left in the body as a
+      // reference to a parameter the edition does not take.
+      const identity = typeof candidate.constraintIdentity === "string"
+        ? candidate.constraintIdentity
+        : "";
+      return editionEvidence(identity, replacement, bool, instances) as T;
     }
   }
   return Object.fromEntries(
     Object.entries(candidate).map(([key, nested]) => [
       key,
-      specializeBody(nested, substitutions, bool),
+      specializeBody(nested, substitutions, bool, instances),
     ]),
   ) as T;
+}
+
+/**
+ * The evidence a **ground** program at this fundamental type carries for the
+ * constraint an edition's dictionary parameter answered.
+ *
+ * Which of the three answers is right is a question about the *constraint* and
+ * not only about the type, which is why the identity is read and not the
+ * assignment alone (#679):
+ *
+ * - A **pre-registered** constraint at one of the five primitive fundamentals is
+ *   `Primitive` evidence, which `#emitEvidence` resolves to the companion
+ *   module's exported dictionary (#344).
+ * - A pre-registered constraint at `Bool` or `Unit` is `Structural`, over the
+ *   type `substituteType` wrote into the scheme. `Unit`'s is the automatic tuple
+ *   instance at arity 0 (#159); `Bool`'s is `stdlib/Bool.hex`'s derived walk
+ *   (#147), which is what makes an edition's rendering agree with every other
+ *   spelling of the same call: `"True"` rather than the host's `String(x)`.
+ * - Everything else is a constraint some module **declared**, and its evidence
+ *   is the ordinary instance row — the dictionary a source `honor` at this
+ *   fundamental exports.
+ *
+ * Neither of the first two arms can stand in for the third, and both fail in
+ * their own way. A declared constraint is not one of the four the compiler
+ * derives, so the `Bool` arm renders an empty dictionary and calls a member on
+ * it — no diagnostic, a `TypeError` at run time. No companion module exports a
+ * declared constraint's dictionary, so the `Primitive` arm reports a compiler
+ * defect and leaves `undefined.member(…)` behind. Both were measured before this
+ * split existed; the table simply admitted no declared constraint to reach them.
+ *
+ * `Unit` never reaches the third arm, and Zero-Cost Fundamental Exports §3.2 is
+ * where that is normative rather than incidental: a user constraint never has
+ * `Unit` among its candidates. See `honoredAt` for the same fact from the
+ * lookup's side.
+ */
+function editionEvidence(
+  constraintIdentity: string,
+  type: FundamentalType,
+  bool: Resolved.UnionId | undefined,
+  instances: EditionInstances,
+): Core.Evidence {
+  if (!isPreRegisteredIdentity(constraintIdentity)) {
+    const dictionary = instances(constraintIdentity, type);
+    // The caller reports; a second diagnostic here would be the one failure
+    // told twice, and `Error` evidence is what elaboration already writes for a
+    // requirement someone else has reported.
+    if (dictionary === undefined) return { kind: "Error" };
+    return {
+      kind: "Instance",
+      dictionary,
+      arguments: [],
+      // The tag a ground site's evidence carries at a primitive head (#344),
+      // so an edition whose body calls another specializable function routes to
+      // *its* edition exactly as the ground program does (`#groundFundamental`).
+      ...(type === "Bool" || type === "Unit" ? {} : { primitive: type }),
+    };
+  }
+  if (type === "Unit") {
+    return { kind: "Structural", type: { kind: "Tuple", elements: [] }, components: [] };
+  }
+  if (type === "Bool") {
+    return {
+      kind: "Structural",
+      type: bool === undefined
+        ? { kind: "Error" }
+        : { kind: "Union", union: bool, name: "Bool", arguments: [] },
+      components: [],
+    };
+  }
+  return { kind: "Primitive", instance: type };
 }
 
 /**

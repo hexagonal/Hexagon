@@ -20,6 +20,23 @@ export interface PrimitiveEvidence {
 export interface DictionaryEvidence {
   readonly kind: "Dictionary";
   readonly variable: Typed.TypeVariableId;
+  /**
+   * The identity of the constraint this evidence **answers** (`spec/constraints.md`
+   * §5.1.1) — the *demanded* one, which `constraint` below is merely the
+   * provider of where entailment supplied it.
+   *
+   * Carried because nothing else on the node says which constraint it is for.
+   * `<a: (Eq, Show)>` raises two dictionary parameters over one variable and
+   * writes the same node for both; only the use site tells them apart, which is
+   * enough for `#emitEvidence` — the use site is what calls it — and not enough
+   * for the specialization planner, which reads an edition's body with no use
+   * site in hand and has to know which instance the parameter becomes (#679).
+   *
+   * Identity rather than name, because a name is not a property of a constraint
+   * at a module border: two modules may each declare a `Describe`, and an
+   * import may rename one.
+   */
+  readonly constraintIdentity: string;
   readonly constraint?: Typed.ConstraintName;
   readonly path?: readonly string[];
 }
@@ -356,6 +373,13 @@ export interface ConstraintMemberDeclaration
 export interface HonorItem {
   readonly kind: "Honor";
   readonly constraint: string;
+  /**
+   * The identity of the constraint declaration this instance answers (§5.1.1);
+   * see `Typed.HonorItem`. `constraint` is the spelling, this is what coherence
+   * compared — and what an edition's evidence looks this instance up by, since
+   * a spelling is not a property of a constraint at a module border (#679).
+   */
+  readonly constraintIdentity: string;
   readonly typeParameters: readonly Typed.HonorTypeParameter[];
   readonly subject: Typed.Type;
   readonly derived: boolean;
