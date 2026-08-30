@@ -1222,16 +1222,21 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
       [
         "/main.hex",
         "constraint Render<a> =\n    render(value: a): String\n" +
-          'honor Render<Int> =\n    render(value) = "i"\n' +
           HEAD +
           "export let describe<a: Render>(p: S.Point, value: a): String = render(value)\n" +
           "export let w: W = one()\n",
       ],
     ]);
 
-    // A constraint of the user's own admits no editions (Part 8 §3.2), so `emit`
-    // writes nothing for `describe` — and its qualified parameter therefore
-    // spells nothing in the file. Testing `item.exported` alone counted it.
+    // `Render` has no instance at any fundamental type, so `candidates(a)` is
+    // empty and `describe` is Part 8 §3.4's zero-entry-point export: `emit`
+    // writes nothing for it, and its qualified parameter therefore spells
+    // nothing in the file. Testing `item.exported` alone counted it.
+    //
+    // The emptiness is the constraint's *instances*, not its authorship — a
+    // reading this specimen used to rely on, and #679 corrected: the same
+    // constraint with `honor Render<Int>` beside it mints an `Int` edition and
+    // renders a face like any other.
     expect(declarations(compiled)).toBe(TAIL + "export declare const w: S;\n");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });

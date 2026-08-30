@@ -25,6 +25,7 @@ import {
   PRE_REGISTERED_CONSTRAINT_MEMBERS,
   PRE_REGISTERED_CONSTRAINTS,
   preRegisteredConstraintIdentity,
+  STRUCTURAL_CONSTRAINTS,
 } from "../../constraints.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_BASENAMES } from "../../prelude.js";
@@ -744,8 +745,12 @@ const INSTANCE_LEVEL = Number.MAX_SAFE_INTEGER;
  */
 const UNIT: TupleMono = { kind: "Tuple", elements: [] };
 
-/** The constraints every structural product satisfies componentwise (Constraints §4.5). */
-const structuralConstraints = ["Eq", "Ord", "Show", "Hash"];
+/**
+ * The constraints every structural product satisfies componentwise (Constraints
+ * §4.5). Held in `constraints.ts` since the specialization planner reads the
+ * same inventory as `Unit`'s candidate rows (#679); see `STRUCTURAL_CONSTRAINTS`.
+ */
+const structuralConstraints = STRUCTURAL_CONSTRAINTS;
 
 /**
  * The four constraints a `derives` clause may name (Constraints §4.5), **as

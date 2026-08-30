@@ -56,6 +56,12 @@ function compileWorkspace(
       // settled there, so a re-emission that guessed would give a contested
       // module an import of a path that is not there (FFI Part 7 §1.2).
       runtimeGlobalsSpecifier: module.runtimeGlobalsSpecifier,
+      // Third of the same kind (#679): Algorithm S's candidate rows for the
+      // pre-registered constraints are a fact about the *prelude*, and a prelude
+      // module sees only the members before its own seat — so a re-emission
+      // that recomputed them would give the earlier prelude modules a smaller
+      // edition set than the shipped emission gave them.
+      fundamentalInstances: project.fundamentalInstances,
     }),
   }));
   const main = outputs.find(({ module }) => module.source.path === entryPath);
@@ -72,7 +78,11 @@ function compileWorkspace(
     };
   }
 
-  const preview = emitTypeScriptPreview(main.module.core);
+  // The program's own candidate rows, not the preview's guess at them (#679):
+  // Algorithm S's answer for a pre-registered constraint is a fact about the
+  // prelude, and re-emitting one module alone would plan a different edition set
+  // than the pane beside it shows.
+  const preview = emitTypeScriptPreview(main.module.core, project.fundamentalInstances);
   // Diagnostics are anchored rather than mapped: every one of them has to be
   // shown, including the ones from a hosted library or the synthesized import
   // prefix, which no buffer offset covers. See `WorkspaceMap.anchor`.

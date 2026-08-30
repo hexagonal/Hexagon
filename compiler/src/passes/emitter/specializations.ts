@@ -1,6 +1,10 @@
 /** Plans the closed family of fundamental editions for constrained functions. */
 
-import { isPreRegisteredIdentity } from "../../constraints.js";
+import {
+  isPreRegisteredIdentity,
+  preRegisteredConstraintIdentity,
+  STRUCTURAL_CONSTRAINTS,
+} from "../../constraints.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
 import type * as Typed from "../../syntax/typed/index.js";
@@ -60,28 +64,36 @@ const fundamentalTypes: readonly FundamentalType[] = [
   "Unit",
 ];
 
+/**
+ * The pinned `Bool` union as this module sees it (#147).
+ *
+ * Same guard as the checker's `#boolUnion` and the emitter's `preludeIds` — the
+ * fallback is for `stdlib/Bool.hex` alone, and the passes must agree about which
+ * declaration is the pinned one.
+ */
+export function preludeBoolUnion(module: Core.Module): Resolved.UnionId | undefined {
+  return module.preludeUnions.get("Bool")
+    ?? (module.preludeUnions.size === 0
+      ? module.unions.find(({ name }) => name === "Bool")?.id
+      : undefined);
+}
+
 /** Computes Algorithms S and N for exported functions or inspection previews. */
 export function planFundamentalSpecializations(
   module: Core.Module,
+  instances?: FundamentalInstances,
   includePrivate = false,
 ): SpecializationPlan {
   const explicitTerms = topLevelTermNames(module);
   const generated = new Map<string, FundamentalSpecialization>();
   const specializations: FundamentalSpecialization[] = [];
   const collisions: SpecializationCollision[] = [];
-  // #147: `Bool` is a fundamental type that is no longer a primitive, so an
-  // edition assigning it has to name the prelude declaration. Same guard as the
-  // checker's `#boolUnion` and the emitter's `preludeIds` — the fallback is for
-  // `stdlib/Bool.hex` alone, and the three passes must agree about which
-  // declaration is the pinned one.
-  const bool = module.preludeUnions.get("Bool")
-    ?? (module.preludeUnions.size === 0
-      ? module.unions.find(({ name }) => name === "Bool")?.id
-      : undefined);
+  const bool = preludeBoolUnion(module);
+  const judgment = candidateJudgment(module, instances, bool);
 
   for (const item of module.items) {
     if (!isSpecializable(item) || (!includePrivate && !item.exported)) continue;
-    const planned = planItem(item, bool);
+    const planned = planItem(item, judgment, bool);
     for (const specialization of planned) {
       let collided = false;
       const explicit = explicitTerms.get(specialization.name);
@@ -265,11 +277,34 @@ function honoredAt(
   head: FundamentalType | Typed.PrimitiveName,
   bool: Resolved.UnionId | undefined,
 ): boolean {
-  if (head === "Bool") {
-    return bool !== undefined && subject.kind === "Union" && subject.union === bool;
-  }
-  if (head === "Unit") return false;
-  return subject.kind === "Primitive" && subject.name === head;
+  return instanceSubjectHead(subject, bool) === head;
+}
+
+/**
+ * The fundamental an instance's subject **is**, or `undefined` for a subject
+ * that is not one — read once and compared, rather than tested per candidate.
+ *
+ * `Exn` is in the answer's range and not in `FundamentalType`: it is a primitive
+ * and can be an instance head, and it is deliberately not a fundamental type
+ * (§2.1's enumeration). Callers building candidate rows drop it; the one caller
+ * asking about a specific head compares against it like any other primitive.
+ *
+ * `Unit` is never the answer, and that is the answer rather than a gap. Nothing
+ * declares an instance at the empty tuple — instances key on type constructors
+ * and it has neither a constructor name nor a home module (Constraints §9.3,
+ * §4.5's structural bullet) — so `Unit`'s rows come from the automatic
+ * structural instances alone, which `fundamentalInstancesOf` adds and no subject
+ * here can add to. Zero-Cost Fundamental Exports §3.2's judgment at `Unit` is
+ * the normative statement of both halves.
+ */
+function instanceSubjectHead(
+  subject: Typed.Type | Resolved.TypeAnnotation,
+  bool: Resolved.UnionId | undefined,
+): FundamentalType | "Exn" | undefined {
+  if (subject.kind === "Primitive") return subject.name;
+  return bool !== undefined && subject.kind === "Union" && subject.union === bool
+    ? "Bool"
+    : undefined;
 }
 
 /**
@@ -284,16 +319,33 @@ function honoredAt(
  * so a clean exporter published every name this plans. The one input the scheme
  * cannot supply — whether the item's value is a lambda — arrives on the import
  * as `specializableTerms`, which is the caller's gate rather than this one's.
+ *
+ * "A function of the scheme alone" grew a second input at #679, and the whole
+ * design of that input is what keeps this sentence true: the candidate judgment
+ * has to answer here exactly as it answered at the exporter. For a
+ * pre-registered constraint that is the program's table, shared by both; for a
+ * declared one it is the orphan rule, which puts the instances in a module both
+ * sides have imported. Neither side consults what it happens to see.
  */
 export function planImportedSpecializations(
   symbol: Core.Symbol,
+  module: Core.Module,
+  instances: FundamentalInstances | undefined,
   bool: Resolved.UnionId | undefined,
 ): readonly FundamentalSpecialization[] {
-  return planScheme(symbol.id, symbol.name, symbol.scheme, true, bool);
+  return planScheme(
+    symbol.id,
+    symbol.name,
+    symbol.scheme,
+    true,
+    candidateJudgment(module, instances, bool),
+    bool,
+  );
 }
 
 function planItem(
   item: SpecializableItem,
+  judgment: CandidateJudgment,
   bool: Resolved.UnionId | undefined,
 ): readonly FundamentalSpecialization[] {
   if (item.kind === "Let" && item.value.kind !== "Lambda") return [];
@@ -302,6 +354,7 @@ function planItem(
     item.binding.name,
     item.binding.scheme,
     item.exported,
+    judgment,
     bool,
   );
 }
@@ -311,25 +364,27 @@ function planScheme(
   name: string,
   scheme: Typed.Scheme,
   exported: boolean,
+  judgment: CandidateJudgment,
   bool: Resolved.UnionId | undefined,
 ): readonly FundamentalSpecialization[] {
   if (scheme.constraints.length === 0) return [];
 
-  const constraints = new Map<Typed.TypeVariableId, Set<Typed.ConstraintName>>();
+  // Keyed on each constraint's **identity** rather than its name (§5.1.1): the
+  // judgment below asks about a declaration, and a scheme can carry two
+  // declarations that share a word.
+  const constraints = new Map<Typed.TypeVariableId, Set<string>>();
   for (const requirement of scheme.constraints) {
     if (requirement.type.kind !== "Variable") continue;
-    const names = constraints.get(requirement.type.id) ?? new Set();
-    names.add(requirement.name);
-    constraints.set(requirement.type.id, names);
+    const demanded = constraints.get(requirement.type.id) ?? new Set<string>();
+    demanded.add(requirement.identity);
+    constraints.set(requirement.type.id, demanded);
   }
   const specializing = scheme.variables.filter((variable) => constraints.has(variable));
   if (specializing.length === 0) return [];
 
   const candidates = specializing.map((variable) =>
     fundamentalTypes.filter((type) =>
-      [...(constraints.get(variable) ?? [])].every((constraint) =>
-        fundamentalSupports(type, constraint)
-      )
+      [...(constraints.get(variable) ?? [])].every((identity) => judgment(identity, type))
     )
   );
   if (candidates.some((types) => types.length === 0)) return [];
@@ -589,31 +644,148 @@ function editionEvidence(
 }
 
 /**
- * Which fundamental types honor which constraint, for planning the monomorphic
- * editions (FFI's zero-cost fundamental exports).
+ * Which (constraint declaration, fundamental type) pairs hold a **lawful
+ * instance** — Zero-Cost Fundamental Exports §3.2 clause 2's `candidates(vi)`,
+ * as the set of rows it is a test against.
  *
- * *(#344.)* The table asks what a type honors, not where the instance lives, so
- * `BigInt`'s row is unchanged by the companion arc — but what an edition's
- * evidence *renders* to did change: a substituted dictionary at a migrated
- * companion resolves to that module's exported instance rather than to a
- * literal built at the use site, which is `#emitEvidence`'s business, not this
- * table's. `Int`, `Nat`, `Float`, and `String` follow at their milestones with
- * no row here moving either.
+ * §3.2 defines candidacy by the ordinary Constraints §4/§5 judgment and states
+ * that "no new instance judgment is introduced". This is that judgment read off
+ * the instances themselves, which is what retired the hand table that stood here
+ * (#679): the table was a mirror, it had drifted — no `Hash` row, though all
+ * seven fundamentals hold a lawful `Hash` — and a mirror only ever drifts again.
+ *
+ * A row is `identity|Fundamental`. Identity and not name, because §3.2's
+ * judgment is about a *declaration* (§5.1.1) and this set now holds rows for
+ * constraints a module declared, whose names are its own to choose.
  */
-function fundamentalSupports(
-  type: FundamentalType,
-  constraint: Typed.ConstraintName,
-): boolean {
-  const instances: Record<FundamentalType, readonly Typed.ConstraintName[]> = {
-    Nat: ["Num", "Eq", "Ord", "Show", "Pow", "Integral"],
-    Int: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral"],
-    Float: ["Num", "Signed", "Frac", "Eq", "Ord", "Show", "Pow"],
-    BigInt: ["Num", "Signed", "Eq", "Ord", "Show", "Pow", "Integral"],
-    Bool: ["Eq", "Ord", "Show"],
-    String: ["Eq", "Ord", "Show", "Concat"],
-    Unit: ["Eq", "Ord", "Show"],
+export type FundamentalInstances = ReadonlySet<string>;
+
+function instanceRow(constraintIdentity: string, type: FundamentalType): string {
+  return `${constraintIdentity}|${type}`;
+}
+
+/**
+ * The rows the given modules' instances supply, plus `Unit`'s automatic ones.
+ *
+ * Two callers, one function, because the difference between them is only which
+ * modules are handed in.
+ *
+ * - `compileProject` hands in **every prelude module**, once all of them are
+ *   checked, and the result is the program's table for the pre-registered
+ *   constraints. It is complete for them by the orphan rule (Constraints §5.3,
+ *   with each primitive's fixed companion as its home module): a pre-registered
+ *   constraint's instance at a fundamental can only be written in the
+ *   constraint's own module or the type's, and every one of those is a prelude
+ *   module. No user file can add a row and none can take one away, which is what
+ *   makes the answer a property of the shipped prelude rather than of whoever
+ *   is being planned.
+ * - The planner hands in the **module being planned**, for the constraints it
+ *   declared or imported. Determinism holds there for the same reason from the
+ *   other end: a declared constraint's fundamental instances live in its
+ *   declaring module, and a module that names the constraint has imported that
+ *   module — transitively, which `ImportItem.instances` carries — so exporter
+ *   and importer read the same rows.
+ *
+ * ## The two enumeration-membered fundamentals answer from the pin
+ *
+ * A **pre-registered** constraint's rows at `Unit` and `Bool` are seeded here
+ * and taken from no instance channel, because that is where the edition's
+ * *evidence* comes from: `editionEvidence` renders `Structural` at both, and the
+ * emitter can derive exactly `STRUCTURAL_CONSTRAINTS` from a type. A judgment
+ * that offered a fifth pre-registered constraint at either would mint an edition
+ * whose structural dictionary is empty and whose first member call is a
+ * `TypeError` — leg 1's silent failure, re-entered through the planner. The
+ * candidate and the evidence have to be the same fact, and this is it.
+ *
+ * Neither can come from a channel anyway. Instances key on type constructors and
+ * the empty tuple has none, so nothing declares one at `Unit` (Constraints §9.3;
+ * §3.2's judgment at `Unit`). `Bool`'s four *are* declared — `stdlib/Bool.hex`
+ * derives them — but the checker satisfies a `Bool` requirement from the #147
+ * pin rather than from them, and they reach no consumer as prelude instances
+ * (measured), which is the whole point of the pin: naming `Bool` in a signature
+ * drags in no dictionary import.
+ *
+ * A **declared** constraint reaches `Bool` through its ordinary instance row
+ * below, which is what leg 1 taught the edition's evidence to resolve. It cannot
+ * reach `Unit` by any route, and §3.2's judgment at `Unit` says so normatively.
+ */
+export function fundamentalInstancesOf(
+  modules: readonly Core.Module[],
+  bool: Resolved.UnionId | undefined,
+): FundamentalInstances {
+  const rows = new Set<string>();
+  for (const name of STRUCTURAL_CONSTRAINTS) {
+    rows.add(instanceRow(preRegisteredConstraintIdentity(name), "Unit"));
+    rows.add(instanceRow(preRegisteredConstraintIdentity(name), "Bool"));
+  }
+  for (const module of modules) {
+    for (const { constraintIdentity, subject } of instanceHeads(module)) {
+      const head = instanceSubjectHead(subject, bool);
+      if (head === undefined || head === "Exn") continue;
+      // The pin above is the whole of the pre-registered answer at `Bool`; a row
+      // read off `stdlib/Bool.hex`'s own `derives` would be the same four today
+      // and would stop being paired with the evidence the moment it was not.
+      if (head === "Bool" && isPreRegisteredIdentity(constraintIdentity)) continue;
+      rows.add(instanceRow(constraintIdentity, head));
+    }
+  }
+  return rows;
+}
+
+/** Every (constraint declaration, subject) an instance channel offers here. */
+function* instanceHeads(module: Core.Module): Generator<{
+  readonly constraintIdentity: string;
+  readonly subject: Typed.Type | Resolved.TypeAnnotation;
+}> {
+  for (const item of module.items) {
+    if (item.kind === "Honor") {
+      yield { constraintIdentity: item.constraintIdentity, subject: item.subject };
+    } else if (item.kind === "Import") {
+      for (const instance of item.instances) {
+        yield { constraintIdentity: instance.constraintIdentity, subject: instance.subject };
+      }
+    }
+  }
+  for (const instance of module.preludeInstances) {
+    yield { constraintIdentity: instance.constraintIdentity, subject: instance.subject };
+  }
+}
+
+/** `candidates(vi)`'s membership test for one constraint at one fundamental. */
+type CandidateJudgment = (constraintIdentity: string, type: FundamentalType) => boolean;
+
+/**
+ * §3.2's judgment, over the two grounds the two kinds of constraint have.
+ *
+ * A **pre-registered** constraint is answered by the program's table, because
+ * its rows are a fact about the prelude and a prelude module cannot see the
+ * whole prelude: `Nat.hex` sees `Int.hex` and nothing after it (Modules §5.5),
+ * so answering from its own channels would have it plan a different edition set
+ * for its own exports than every consumer recomputes for them — an importer
+ * calling a name the exporter never published.
+ *
+ * A **declared** constraint is answered from this module's own channels, which
+ * is not a weaker answer but the same one: the orphan rule puts its fundamental
+ * instances in its declaring module, and naming the constraint means importing
+ * that module.
+ *
+ * The fallback — no program table — is for a caller with no program to ask: the
+ * pass-level harnesses, which assemble one module and emit it. It answers both
+ * kinds from that module, which is the complete answer for any module that sees
+ * the whole prelude, and the only answer available to one that does not.
+ */
+function candidateJudgment(
+  module: Core.Module,
+  instances: FundamentalInstances | undefined,
+  bool: Resolved.UnionId | undefined,
+): CandidateJudgment {
+  const visible = fundamentalInstancesOf([module], bool);
+  return (constraintIdentity, type) => {
+    const rows = instances !== undefined && isPreRegisteredIdentity(constraintIdentity)
+      ? instances
+      : visible;
+    return rows.has(instanceRow(constraintIdentity, type));
   };
-  return instances[type].includes(constraint);
 }
 
 function topLevelTermNames(
