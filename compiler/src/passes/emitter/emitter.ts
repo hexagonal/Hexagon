@@ -393,9 +393,18 @@ function moduleLevelBindings(
  * reason: `moduleLevelBindings` is deliberately an over-approximation, and each
  * caller subtracts the part it must not over-count.
  *
- * Counted rather than collected, exactly as that plan counts: a module that
- * declares `console` itself *and* imports a constraint member spelled `console`
- * still contests, on the declaration's account.
+ * Counted rather than collected, exactly as that plan counts, so that a module
+ * declaring `console` itself *and* carrying a minted local spelled `console`
+ * would still contest on the declaration's account. **No accepted program
+ * observes that difference today**, and the clause is kept as the shape rather
+ * than as a live case: the named-import route is refused before it reaches here
+ * — "`console` is already bound; it arrived with `import { Boxy }`, and a named
+ * constraint import brings its members" (Modules §5.3's generalisation law) —
+ * and the route that diagnostic offers instead, `import module …`, contributes
+ * an alias rather than member names, so it subtracts nothing. Measured, both
+ * halves. The counting is what the rule would want if that collision rule ever
+ * relaxed along the route its own diagnostic names, and it costs nothing now;
+ * a collected set would be the same answer for every program that compiles.
  *
  * The reach is one spelling. A constraint member is a term, so it is
  * non-uppercase-start and cannot be any of the eleven uppercase members; a
