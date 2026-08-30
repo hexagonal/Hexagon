@@ -88,6 +88,20 @@ export interface JavaScript extends Output {
    * that the module has to be written at all.
    */
   readonly runtimeImports: readonly string[];
+  /**
+   * Whether this file imports reserved captures from the program's **runtime
+   * module** — true exactly when the module binds a runtime-vocabulary spelling
+   * (FFI Part 7 §1.2 rule 2, #666).
+   *
+   * A flag rather than a specifier, because the target is program-scoped: there
+   * is one runtime module per program and `compileProject` already knows where
+   * it sits. Carried for `Declarations.importsRuntimeTypes`' reason — the
+   * program emits `hex.js` iff some emitted file says `true` here — and with the
+   * same consequence if it were missing, one file worse: `hex.js` is
+   * *executable*, so a contested program without it emits an `import` of a file
+   * that was never written and dies at its first import.
+   */
+  readonly importsRuntimeGlobals: boolean;
 }
 
 /** A generated body that an interactive host may present separately. */
@@ -157,11 +171,33 @@ export interface TypeScriptPreview extends Output {
  * common root of `""`, so this reads `/hex.d.ts` where those sources read
  * `main.hex`. A host should resolve it as it resolves a prelude module's — a
  * prescription, not a description: the repo has no host that writes emitted
- * declarations to disk, so this seat is new and currently unoccupied. No
- * `hex.js` accompanies it: every import of it is type-only and erases (§8.3).
+ * declarations to disk, so this seat is new and currently unoccupied. Every
+ * import of it is type-only and erases (§8.3); a `hex.js` may or may not sit
+ * beside it, emitted on its own independent condition (`RuntimeGlobals`).
  */
 export interface RuntimeDeclarations {
   readonly kind: "RuntimeDeclarations";
+  readonly path: string;
+  readonly text: string;
+}
+
+/**
+ * The program-scoped runtime **module** (FFI Part 7 §1.2, #666): one `hex.js`
+ * per compiled program, holding the globals capture a contested module cannot
+ * perform for itself.
+ *
+ * `RuntimeDeclarations`' sibling at the seat FFI Part 1 §8.3 reserved, under the
+ * same probed stem — one module identity, not a second — and emitted on its own
+ * independent condition: some emitted module of the program binds a
+ * runtime-vocabulary spelling. Its text depends on the vocabulary alone, so it
+ * is byte-identical across every program that owes it.
+ *
+ * The one obligation the type-only artefact never carried: **this one is
+ * executable**. Every host's execution set has to load it on the same footing as
+ * a prelude module, or every contested program dies at its first import.
+ */
+export interface RuntimeGlobals {
+  readonly kind: "RuntimeGlobals";
   readonly path: string;
   readonly text: string;
 }

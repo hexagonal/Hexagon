@@ -248,6 +248,19 @@ export interface JavaScriptEmissionOptions {
    * `emitJavaScript`.
    */
   readonly memberSeatLocals?: ReadonlyMap<string, string>;
+  /**
+   * The specifier this module spells the program's **runtime module** by (FFI
+   * Part 7 §1.2), source-form, as an `Import` item would carry it — the file
+   * holding the globals capture a contested module imports its reserved names
+   * from.
+   *
+   * Only `compileProject` knows the program's source common root and the stem
+   * Part 1 §8.3's probe settled there, exactly as with `runtimes` above, so only
+   * it can compute the specifier. An uncontested module never spells it; a
+   * contested one emitted without it would import from the same-directory
+   * default, which is the wrong file from any module below the root.
+   */
+  readonly runtimeGlobalsSpecifier?: string;
 }
 
 /**
@@ -349,6 +362,34 @@ function moduleLevelBindings(
         return [];
     }
   });
+}
+
+/**
+ * FFI Part 7 §1.2's trigger quantity, settled before rendering: one flat set of
+ * the **source** names this module binds where a runtime-vocabulary spelling
+ * could land.
+ *
+ * `moduleLevelBindings` is exactly it — top-level declarations, import locals,
+ * and namespace-import aliases — read for its source spellings rather than for
+ * its emitted ones. The two coincide on everything that matters here: every
+ * vocabulary member is a safe JavaScript identifier, so `identifier`'s rename is
+ * the identity on all of them, and rule 1's aliasing of *minted* locals runs
+ * after this and puts nothing into the set.
+ *
+ * `undefined` is the one member a function scope can also bind, being the one
+ * lowercase member — `let` requires a non-uppercase-start name, so every other
+ * spelling is a module-level exposure only. Its trigger reads the module's whole
+ * symbol table instead, filtered to the symbols this file declares: the imported
+ * entries carry the *exporting* file's id, and a module that merely imports a
+ * term named `undefined` through a namespace alias binds nothing under it.
+ */
+function runtimeVocabularyTrigger(module: Core.Module): RuntimeVocabulary {
+  return new RuntimeVocabulary(
+    new Set(moduleLevelBindings(module)),
+    module.symbols.some(
+      (symbol) => symbol.name === UNIT_SPELLING && symbol.bindingSpan.fileId === module.fileId,
+    ),
+  );
 }
 
 /**
@@ -1351,6 +1392,186 @@ class VocabularyFaces {
 const BARE_VOCABULARY = new VocabularyFaces(new Set());
 
 /**
+ * Unit's own spelling (Products §2.6), and the one runtime-vocabulary member
+ * that owes the runtime module no capture: §1.2 rule 3 answers it with `void 0`.
+ *
+ * A reserved import of `globalThis.undefined` *works* — measured, and §14.7
+ * records the measurement so the false ground "no qualifier can rescue
+ * `undefined`" is not re-asserted — but `void 0` owes no import, is immune at
+ * every scope with no per-module machinery, and is JavaScript's own idiom for
+ * the value. It is also the only member capturable at *function* scope, being
+ * the only lowercase one a `let` can bind.
+ */
+const UNIT_SPELLING = "undefined";
+
+/** What a module binding `undefined` spells Unit as throughout (§1.2 rule 3). */
+const UNIT_IMMUNE_SPELLING = "void 0";
+
+/**
+ * FFI Part 7 §1.2's **runtime vocabulary**: the global spellings the emitted
+ * JavaScript writes (#666; correction record §14.7).
+ *
+ * §1.1's disease in the other file. JavaScript resolves a name file-locally
+ * before the global scope too, so a module-scope binding under one of these
+ * captures every emitted reference to it in that module. Four measured severity
+ * classes: `export record Error` (or `Object`) beside a declared exception makes
+ * every raise throw `TypeError: Error is not a constructor`; `export record
+ * Symbol` beside any `for` loop makes the loop throw before its first iteration;
+ * `let undefined = 1` and `export exception Boolean` beside a `Seq` boundary are
+ * both **silently wrong values** — every Unit in scope becomes `1`, and
+ * `Seq.length` of a three-element sequence answers `0`; and a binding JavaScript
+ * refuses outright (`export let eval`, `import { await }`) is a load-time
+ * `SyntaxError`.
+ *
+ * **The vocabulary is defined by the emitter's references, not by JavaScript's
+ * global object.** It holds exactly the spellings the emitted runtime text can
+ * write — helper bodies and inline expression seats alike — and grows only with
+ * the text that references them. JavaScript growing its global object moves
+ * nothing: a global the emitter never writes captures nothing, because the
+ * capture needs both sides. `conformance/runtime-vocabulary.test.ts`'s tripwire
+ * renders every helper and scans every emitted-reference seat, asserting the
+ * referenced globals are a subset of this list, so the capturable set moves only
+ * by conscious edit.
+ *
+ * Two members are here on the feeder rule rather than on a live user capture.
+ * `console` has one reference — the debug probe's module-evaluation capture —
+ * written into a stdlib module no user binding can reach, and is listed so a
+ * future inlining of the probe is covered before it happens. `BigInt` is
+ * capturable and is *not* in §14.7's measured enumeration, which the feeder rule
+ * settles rather than the enumeration: `BigInt(…)` is written by the widening
+ * seats and by `bigIntFromNat`/`bigIntFromInt`, and a union constructor named
+ * `BigInt` binds the spelling at module level exactly as `Error` does.
+ *
+ * Siblings of §1.1's list, never copies: `Iterable` names no JavaScript value
+ * and `Math` appears in no face, so each file guards its own.
+ */
+const RUNTIME_VOCABULARY = [
+  UNIT_SPELLING,
+  "Array",
+  "BigInt",
+  "Boolean",
+  "console",
+  "Error",
+  "Math",
+  "Number",
+  "Object",
+  "RangeError",
+  "String",
+  "Symbol",
+  "TypeError",
+  "WeakMap",
+] as const;
+
+/** One member of the vocabulary above — the argument `RuntimeVocabulary` takes. */
+type RuntimeSpelling = typeof RUNTIME_VOCABULARY[number];
+
+/**
+ * The vocabulary members that take a reserved capture from the program's runtime
+ * module — every one but Unit's, whose rule is `void 0`.
+ *
+ * The runtime module exports the whole of this, always, whichever program asked:
+ * its bytes depend on the vocabulary alone (§1.2, and `runtimeGlobalsText`).
+ */
+const RESERVED_CAPTURES: readonly Exclude<RuntimeSpelling, typeof UNIT_SPELLING>[] =
+  RUNTIME_VOCABULARY.filter(
+    (name): name is Exclude<RuntimeSpelling, typeof UNIT_SPELLING> => name !== UNIT_SPELLING,
+  );
+
+/** The reserved local one vocabulary member's capture is imported under. */
+function reservedCapture(name: string): string {
+  return `__${name}`;
+}
+
+/** Every spelling a minted `.js` import local must probe past (§1.2 rule 1). */
+const MINTED_LOCAL_HAZARDS: ReadonlySet<string> = new Set<string>(RUNTIME_VOCABULARY);
+
+/**
+ * One module's spelling of the runtime vocabulary (FFI Part 7 §1.2 rules 2
+ * and 3): bare where the module binds nothing under it, and stepped around
+ * where it does.
+ *
+ * **On the spelling alone, never on the emission's reference set.** The trigger
+ * reads what the module *binds* — top-level declarations, import locals, and
+ * namespace-import aliases, one flat quantity settled before rendering (§2.4's
+ * discipline) — because the reference set is exactly the quantity that re-draws
+ * silently, and a trigger reading it would fail precisely when the hazard moves.
+ * A module binding no vocabulary spelling emits the bare text it always did,
+ * byte-identically.
+ *
+ * The namespace alias is in that quantity deliberately, against §1.1's grain: a
+ * source `import module String …` lowers to `import * as String`, which occupies
+ * JavaScript's value-name space like any binding, where a TypeScript namespace
+ * import leaves the plain type-name space alone (§1.1's measured control). The
+ * two sections' triggers diverge on exactly this binding form.
+ *
+ * The protected spelling is **manufactured, not found**. TypeScript resolves
+ * type-position `globalThis` specially, immune to the file's bindings; JavaScript
+ * protects no spelling of the global scope, and `export let globalThis: Int = 1`
+ * emits `const globalThis = 1;` verbatim. So the capture is made in the one
+ * namespace no user binding can enter — Lexer §3.2's reserved prefix — and
+ * arrives as an import from a module the user's bindings cannot reach. It has to
+ * be an import: `const` shadows its whole scope, so a leading `const __Error =
+ * Error;` beside a later user `Error` binding reads the temporal dead zone and
+ * the module dies at load.
+ *
+ * `undefined` is the exception at both ends: its trigger also reads function
+ * scope (it is the one lowercase member, so the one a `let` can bind), and its
+ * answer is `void 0` rather than a capture.
+ */
+class RuntimeVocabulary {
+  readonly #captured: ReadonlySet<string>;
+  readonly #unitContested: boolean;
+
+  constructor(bindings: ReadonlySet<string>, unitContested: boolean) {
+    this.#captured = new Set(RESERVED_CAPTURES.filter((name) => bindings.has(name)));
+    this.#unitContested = unitContested;
+  }
+
+  /** The spelling this module writes for one vocabulary member. */
+  spell(name: RuntimeSpelling): string {
+    if (name === UNIT_SPELLING) return this.#unitContested ? UNIT_IMMUNE_SPELLING : UNIT_SPELLING;
+    return this.#captured.has(name) ? reservedCapture(name) : name;
+  }
+
+  /**
+   * The reserved captures this module imports, in vocabulary order — empty for
+   * an uncontested module, which then writes no import line at all.
+   *
+   * The line doubles as a manifest: it names exactly the spellings this module
+   * contests, whether or not its emission happens to reference them.
+   */
+  get captures(): readonly string[] {
+    return RESERVED_CAPTURES.filter((name) => this.#captured.has(name)).map(reservedCapture);
+  }
+}
+
+/** The inert vocabulary a module with no bindings to consult holds: always bare. */
+const BARE_RUNTIME_VOCABULARY = new RuntimeVocabulary(new Set(), false);
+
+/**
+ * The text of a program's runtime module (FFI Part 7 §1.2), which holds the
+ * globals capture no contested module can perform for itself.
+ *
+ * One binding per capturable vocabulary member, the full vocabulary always: the
+ * bytes depend on the vocabulary alone, never on which program or module asked.
+ * Nothing shadows inside it — the module binds only reserved names — which is
+ * the whole reason the capture lives here rather than at the head of the
+ * contested file.
+ */
+export function runtimeGlobalsText(): string {
+  const captures = RESERVED_CAPTURES.map(reservedCapture);
+  return [
+    `const ${
+      RESERVED_CAPTURES.map((name) => `${reservedCapture(name)} = globalThis.${name}`).join(
+        ",\n  ",
+      )
+    };`,
+    `export { ${captures.join(", ")} };`,
+    "",
+  ].join("\n");
+}
+
+/**
  * The `Hex.*` runtime collection faces, exactly as FFI Part 1 §8.3 fixes them.
  *
  * The brand is a structural phantom marker rather than Part 7 §5's `unique
@@ -1379,8 +1600,18 @@ function runtimeFaceDeclarations(iterable: string): readonly string[] {
   ];
 }
 
-/** The basename stem the runtime declaration module claims before probing. */
+/**
+ * The basename stem the runtime declaration module claims before probing.
+ *
+ * Shared with the runtime *module* (FFI Part 7 §1.2): `hex.d.ts` and `hex.js`
+ * are one module identity under one probed stem, which is the reservation Part 1
+ * §8.3 made and §1.2 takes up. The probe's input is the source basenames, so the
+ * stem is defined even for a program owing `hex.js` and no `hex.d.ts`.
+ */
 export const RUNTIME_DECLARATIONS_STEM = "hex";
+
+/** What a module at the source common root spells the runtime module by. */
+const DEFAULT_RUNTIME_GLOBALS_SPECIFIER = `./${RUNTIME_DECLARATIONS_STEM}`;
 
 /** The text of a program's runtime declaration module (FFI Part 1 §8.3). */
 export function runtimeDeclarationsText(): string {
@@ -2465,6 +2696,28 @@ class JavaScriptEmitter {
   readonly #exportInstanceEvidence: boolean;
   readonly #runtimes: RuntimeLocations;
   /**
+   * How this module spells the runtime vocabulary (FFI Part 7 §1.2), settled in
+   * construction from what the module *binds* and read at every seat that writes
+   * a global — the same before-rendering discipline §1.1's face qualification
+   * follows, and for the same reason: no seat's answer may depend on the order
+   * the seats are visited in.
+   */
+  readonly #runtimeVocabulary: RuntimeVocabulary;
+  /**
+   * Unit's spelling in this module (Products §2.6, FFI Part 7 §1.2 rule 3):
+   * `undefined` everywhere, and `void 0` throughout a module that binds
+   * `undefined` at any scope.
+   *
+   * Held as one string because it is written at a dozen seats — Unit and the
+   * empty tuple, an omitted-value placeholder, an errored binding's initializer,
+   * an empty block's `return` — and because one of those seats compares against
+   * it (`#hoistGroundEvidence`'s error-evidence check), which a second spelling
+   * would silently defeat.
+   */
+  readonly #unit: string;
+  /** Where this module finds the runtime module, when it contests anything. */
+  readonly #runtimeGlobalsSpecifier: string;
+  /**
    * The runtime operations this module's emission reached, and the local each
    * is named by — the import lists, decided by rendering exactly as the prelude
    * term channel's is (#263). Keyed by runtime basename; insertion order is not
@@ -2596,6 +2849,10 @@ class JavaScriptEmitter {
     this.#prelude = preludeIds(module);
     this.#exportInstanceEvidence = options.exportInstanceEvidence ?? false;
     this.#runtimes = options.runtimes ?? new Map();
+    this.#runtimeVocabulary = runtimeVocabularyTrigger(module);
+    this.#unit = this.#runtimeVocabulary.spell(UNIT_SPELLING);
+    this.#runtimeGlobalsSpecifier = options.runtimeGlobalsSpecifier ??
+      DEFAULT_RUNTIME_GLOBALS_SPECIFIER;
     const inputs = ownInternalNameInputs(module);
     this.#internalNames = internalNamePlan(inputs);
     this.#defaultHelpers = new Set(
@@ -2666,7 +2923,16 @@ class JavaScriptEmitter {
       // Namespace members are reached as `Alias.member` and never by bare local.
       if (item.form.kind === "Namespace") continue;
       for (const name of item.form.names) {
-        if (name.symbol !== undefined) this.#importLocals.set(name.symbol, name.local);
+        // Through `#identifier`, so a source-written import local under a name
+        // JavaScript refuses to bind is renamed here and every reference follows
+        // (FFI Part 7 §1.2 rule 4): `import { await } from …` emitted the
+        // spelling verbatim and the module never parsed. The seat is shared with
+        // every other unpublishable binding and the trigger is the same; what it
+        // is *not* shared with is a vocabulary spelling, which is the user's
+        // binding and makes the module qualify around it instead (rule 2).
+        if (name.symbol !== undefined) {
+          this.#importLocals.set(name.symbol, this.#identifier(name.symbol, name.local));
+        }
       }
     }
     this.#alreadyDiagnosed = module.diagnostics.some(
@@ -2829,6 +3095,7 @@ class JavaScriptEmitter {
           (operation) => this.#useVectorRuntime(operation),
           (operation) => this.#useHashTrieRuntime(operation),
           this.#identity,
+          (global) => this.#runtimeVocabulary.spell(global),
         )
       );
 
@@ -2905,7 +3172,20 @@ class JavaScriptEmitter {
     body.push(...this.#exports);
     body.push(...this.#runtimeExports());
 
-    const lines = helpers.length === 0 ? body : [...helpers, "", ...body];
+    // FFI Part 7 §1.2 rule 2's line, first in the file and a manifest of exactly
+    // the spellings this module contests. Empty for every module that binds none
+    // of them, which is what keeps an uncontested file byte-identical.
+    const captures = this.#runtimeVocabulary.captures;
+    const runtimeGlobalsImport = captures.length === 0 ? [] : [
+      `import { ${captures.join(", ")} } from ${
+        JSON.stringify(emittedModuleSpecifier(this.#runtimeGlobalsSpecifier))
+      };`,
+      "",
+    ];
+    const lines = [
+      ...runtimeGlobalsImport,
+      ...(helpers.length === 0 ? body : [...helpers, "", ...body]),
+    ];
 
     const text = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
     return {
@@ -2929,6 +3209,7 @@ class JavaScriptEmitter {
         ...new Set(companionOperationImports.map(({ specifier }) => specifier)),
       ],
       runtimeImports: runtimeImports.map(({ specifier }) => specifier),
+      importsRuntimeGlobals: captures.length > 0,
       diagnostics: this.#diagnostics.toArray(),
     };
   }
@@ -2940,7 +3221,7 @@ class JavaScriptEmitter {
     returnFinal: boolean,
   ): string[] {
     const prefix = indent(depth);
-    if (item.kind === "ErrorItem") return [`${prefix}undefined;`];
+    if (item.kind === "ErrorItem") return [`${prefix}${this.#unit};`];
     if (item.kind === "TypeAlias") return [];
     if (item.kind === "Import") {
       // A synthesized prelude import is rendered after every item, because its
@@ -3021,7 +3302,12 @@ class JavaScriptEmitter {
         const source = symbol !== undefined && this.#constrainedImports.has(symbol)
           ? this.#importedInternalName(imported, item)
           : imported;
-        return source === local ? source : `${source} as ${local}`;
+        // The binding side takes rule 4's rename, matching what the references
+        // were seated with in construction. A name with no symbol is a name the
+        // resolver did not bind, on an already-errored module; there is no
+        // number to mint from and nothing that reads it.
+        const bound = symbol === undefined ? local : this.#identifier(symbol, local);
+        return source === bound ? source : `${source} as ${bound}`;
       })
         // The editions this module's call sites chose in the module this import
         // names (#440), after the bindings the source wrote. One line per
@@ -3075,7 +3361,7 @@ class JavaScriptEmitter {
           // would name the refusal at the call site instead of "not a function",
           // but diagnostics are the contract and running an errored module's
           // output is already off-book. §8.3 records the choice.
-          lines.push(`${prefix}const ${local} = undefined;`);
+          lines.push(`${prefix}const ${local} = ${this.#unit};`);
           if (declaration.exported) {
             this.#exports.push(
               local === declaration.localName
@@ -3217,7 +3503,7 @@ class JavaScriptEmitter {
           dictionaryEntries(member.binding.scheme),
           evidenceNames,
         );
-        const dictionary = dictionaries[0] ?? "undefined";
+        const dictionary = dictionaries[0] ?? this.#unit;
         const parameters = [...sourceParameters, ...dictionaries];
         if (item.exported) {
           // §6.5: the forwarder gains an ESM export, which an importing module
@@ -3442,7 +3728,7 @@ class JavaScriptEmitter {
           lines.push(`${prefix}}`);
         });
         lines.push(
-          `${prefix}else { throw new RangeError("Unexpected irrefutable pattern."); }`,
+          `${prefix}else { throw new ${this.#spell("RangeError")}("Unexpected irrefutable pattern."); }`,
         );
         return lines;
       }
@@ -3554,7 +3840,7 @@ class JavaScriptEmitter {
       if (this.#prelude.seq !== undefined && item.id === this.#prelude.seq) {
         return [
           `${prefix}const ${name} = __record => ` +
-          `({ ...__record, [Symbol.iterator]: ${this.#useHelper("seqIterate")} });`,
+          `({ ...__record, [${this.#spell("Symbol")}.iterator]: ${this.#useHelper("seqIterate")} });`,
         ];
       }
       return [`${prefix}const ${name} = __record => __record;`];
@@ -3967,10 +4253,10 @@ class JavaScriptEmitter {
         // caller inlines and not functions that exist anywhere. `() => undefined`
         // is what it has always answered there; the whole `Set` family that used
         // to share this arm went to `stdlib/Set.hex`.
-        return "() => undefined";
+        return `() => ${this.#unit}`;
       case "Unit":
       case "ErrorExpr":
-        return "undefined";
+        return this.#unit;
       case "Number": {
         const literal = cleanNumber(expression.decimal);
         return expression.representation === "Float" ? `${literal}.0` : literal;
@@ -3992,7 +4278,7 @@ class JavaScriptEmitter {
         // #159). Unreachable from source, where `()` parses as the `Unit`
         // expression above — but this is the representation rule's decision
         // point, so it carries the arity-0 clause.
-        if (expression.elements.length === 0) return "undefined";
+        if (expression.elements.length === 0) return this.#unit;
         return `[${expression.elements.map((element) =>
           this.#emitExpr(element, depth, evidenceNames)
         ).join(", ")}]`;
@@ -4127,9 +4413,9 @@ class JavaScriptEmitter {
           // module. Being *in* it is therefore the whole test.
           const runtimeIterate = this.#runtimeIterateHelper(expression.type);
           const face = this.#isSequence(expression.type)
-            ? `[Symbol.iterator]: ${this.#useHelper("seqIterate")}`
+            ? `[${this.#spell("Symbol")}.iterator]: ${this.#useHelper("seqIterate")}`
             : runtimeIterate !== undefined
-            ? `[Symbol.iterator]: ${this.#useHelper(runtimeIterate)}`
+            ? `[${this.#spell("Symbol")}.iterator]: ${this.#useHelper(runtimeIterate)}`
             : undefined;
           if (face === undefined) {
             return this.#emitExpr(constructed, depth, evidenceNames);
@@ -4259,7 +4545,7 @@ class JavaScriptEmitter {
     depth: number,
     evidenceNames: EvidenceNames,
   ): string[] {
-    if (items.length === 0) return [`${indent(depth)}return undefined;`];
+    if (items.length === 0) return [`${indent(depth)}return ${this.#unit};`];
 
     return items.flatMap((item, index) =>
       this.#emitItem(item, depth, evidenceNames, index === items.length - 1),
@@ -4515,10 +4801,10 @@ class JavaScriptEmitter {
       const arguments_ = expression.arguments.map((argument) =>
         this.#emitExpr(argument, depth, evidenceNames)
       );
-      const [node = "undefined", index = "undefined", value = "undefined"] = arguments_;
+      const [node = this.#unit, index = this.#unit, value = this.#unit] = arguments_;
       switch (expression.callee.operation) {
         case "empty":
-          return "new Array(32)";
+          return `new ${this.#spell("Array")}(32)`;
         case "get":
           return `(${node})[${index}]`;
         case "set":
@@ -5170,7 +5456,7 @@ class JavaScriptEmitter {
     if (expression.arms.every((arm) => arm.pattern.kind === "Constructor")) {
       lines.push(
         `${armIndent}default:`,
-        `${bodyIndent}throw new RangeError("Unexpected pattern.");`,
+        `${bodyIndent}throw new ${this.#spell("RangeError")}("Unexpected pattern.");`,
       );
     }
     lines.push(`${prefix}}`);
@@ -5237,7 +5523,7 @@ class JavaScriptEmitter {
         lines.push(`${prefix}}`);
       }
     }
-    lines.push(`${prefix}throw new RangeError("Unexpected pattern.");`);
+    lines.push(`${prefix}throw new ${this.#spell("RangeError")}("Unexpected pattern.");`);
     return lines;
   }
 
@@ -5440,7 +5726,7 @@ class JavaScriptEmitter {
         evidenceNames,
       );
     }
-    if (expression.evidence.kind !== "Dictionary") return "undefined";
+    if (expression.evidence.kind !== "Dictionary") return this.#unit;
     const dictionary = this.#dictionary(
       expression.evidence.variable,
       expression.evidence.constraint ?? "Num",
@@ -5459,7 +5745,7 @@ class JavaScriptEmitter {
     const value = this.#emitExpr(expression.value, depth, evidenceNames);
     const widened = primitiveInstance(expression.evidence);
     if (widened !== undefined) {
-      return widened === "BigInt" ? `BigInt(${value})` : value;
+      return widened === "BigInt" ? `${this.#spell("BigInt")}(${value})` : value;
     }
     if (expression.evidence.kind === "Dictionary") {
       const dictionary = this.#dictionary(
@@ -5481,7 +5767,7 @@ class JavaScriptEmitter {
         evidenceNames,
       );
     }
-    return "undefined";
+    return this.#unit;
   }
 
   #emitWidenInt(
@@ -5492,7 +5778,7 @@ class JavaScriptEmitter {
     const value = this.#emitExpr(expression.value, depth, evidenceNames);
     const widened = primitiveInstance(expression.evidence);
     if (widened !== undefined) {
-      return widened === "BigInt" ? `BigInt(${value})` : value;
+      return widened === "BigInt" ? `${this.#spell("BigInt")}(${value})` : value;
     }
     if (expression.evidence.kind === "Dictionary") {
       const dictionary = this.#dictionary(
@@ -5514,7 +5800,7 @@ class JavaScriptEmitter {
         evidenceNames,
       );
     }
-    return "undefined";
+    return this.#unit;
   }
 
   #emitString(
@@ -5548,7 +5834,7 @@ class JavaScriptEmitter {
             evidenceNames,
           );
         }
-        return `String(${value})`;
+        return `${this.#spell("String")}(${value})`;
       }
       if (part.evidence.kind === "Instance" || part.evidence.kind === "Structural") {
         return this.#emitMemberCall(
@@ -5583,7 +5869,7 @@ class JavaScriptEmitter {
       );
       return `${dictionary}.${expression.member}(${arguments_.join(", ")})`;
     }
-    if (expression.evidence.kind === "Error") return "undefined";
+    if (expression.evidence.kind === "Error") return this.#unit;
     // The operator faces at a primitive, inlined (Constraints §6.1's last
     // sentence; Primitive Types §7; Operators). The selection is the instance's
     // either way — a wired row for the companions still transitional, and
@@ -5628,7 +5914,7 @@ class JavaScriptEmitter {
       parenthesizeEqual = false,
     ): string =>
       argument === undefined
-        ? "undefined"
+        ? this.#unit
         : this.#emitOperand(
             argument,
             precedence,
@@ -5676,7 +5962,7 @@ class JavaScriptEmitter {
         // unparenthesized unary left operand, so a negated base gets its
         // parentheses here rather than from the precedence table.
         const left = leftExpression === undefined
-          ? "undefined"
+          ? this.#unit
           : expressionPrecedence(leftExpression) === Precedence.Unary
             ? `(${this.#emitExpr(leftExpression, depth, evidenceNames)})`
             : operand(leftExpression, Precedence.Exponentiation, true);
@@ -5887,7 +6173,7 @@ class JavaScriptEmitter {
       `missing \`${constraint}\` evidence during JavaScript emission`,
       span,
     );
-    return "undefined";
+    return this.#unit;
   }
 
   /** Selects direct Eq evidence or the nested Eq base constraint of Hash. */
@@ -6237,7 +6523,7 @@ class JavaScriptEmitter {
       const order = this.#generatedNames.fresh("order");
       const elementOrder = component("element", type.element, leftElement, rightElement);
       return "(() => { " +
-        `const ${iterator} = ${right}[Symbol.iterator](); ` +
+        `const ${iterator} = ${right}[${this.#spell("Symbol")}.iterator](); ` +
         `for (const ${leftElement} of ${left}) { ` +
         `const ${step} = ${iterator}.next(); ` +
         `if (${step}.done) return "Greater"; ` +
@@ -6420,7 +6706,7 @@ class JavaScriptEmitter {
       const step = this.#generatedNames.fresh("rightStep");
       const elementEquals = component("element", type.element, leftElement, rightElement);
       return `${this.#useVectorRuntime("size")}(${left}) === ${this.#useVectorRuntime("size")}(${right}) && ` +
-        `(() => { const ${step} = ${right}[Symbol.iterator](); ` +
+        `(() => { const ${step} = ${right}[${this.#spell("Symbol")}.iterator](); ` +
         `for (const ${leftElement} of ${left}) { ` +
         `const ${rightElement} = ${step}.next().value; ` +
         `if (!(${elementEquals})) return false; } return true; })()`;
@@ -6527,7 +6813,7 @@ class JavaScriptEmitter {
       );
     if (type.kind === "Primitive") {
       if (type.name === "String") return value;
-      return `String(${value})`;
+      return `${this.#spell("String")}(${value})`;
     }
     if (type.kind === "Variable") {
       return `${this.#dictionary(type.id, "Show", this.#module.span, evidenceNames)}.show(${value})`;
@@ -6886,7 +7172,7 @@ class JavaScriptEmitter {
             "and no wired instance exists to stand in for one",
         primary: span,
       });
-      return "undefined";
+      return this.#unit;
     }
     if (evidence.kind === "Structural") {
       // The direct structural use site — `v1 == v2` at `Vector(Metre)`, a tuple
@@ -6927,7 +7213,7 @@ class JavaScriptEmitter {
       if (self !== undefined) return self;
       return this.#hoistGroundEvidence(evidence, rendering, arguments_);
     }
-    return "undefined";
+    return this.#unit;
   }
 
   /**
@@ -6947,7 +7233,7 @@ class JavaScriptEmitter {
     if (!isGroundEvidence(evidence)) return rendering;
     // The `Primitive` defect path returns this after reporting; a tree built
     // over it is error evidence in §4's sense however it was spelled.
-    if (argumentRenderings.includes("undefined")) return rendering;
+    if (argumentRenderings.includes(this.#unit)) return rendering;
     const existing = this.#hoistedEvidence.get(rendering);
     if (existing !== undefined) return existing.name;
     // §5's spelling, through the same probe every other generated name takes:
@@ -7075,6 +7361,20 @@ class JavaScriptEmitter {
 
   #identifier(symbol: Resolved.SymbolId, sourceName: string): string {
     return isSafeIdentifier(sourceName) ? sourceName : `__binding${Number(symbol)}`;
+  }
+
+  /**
+   * How this module writes one global (FFI Part 7 §1.2): the bare spelling, or
+   * the reserved capture imported from the runtime module where the module's own
+   * bindings contest it.
+   *
+   * Every inline seat that names a global goes through here, and every helper
+   * body through the callback `renderHelper` takes. A seat that spells one bare
+   * is the defect itself, so the tripwire in
+   * `conformance/runtime-vocabulary.test.ts` scans for exactly that.
+   */
+  #spell(name: RuntimeSpelling): string {
+    return this.#runtimeVocabulary.spell(name);
   }
 
   /** The local a namespace alias is bound under here; see `namespaceAliasPlan`. */
@@ -7689,7 +7989,7 @@ class JavaScriptEmitter {
       case "bigIntCompare":
         return '(__a, __b) => __a < __b ? "Less" : __a > __b ? "Greater" : "Equal"';
       case "bigIntShow":
-        return "__a => String(__a)";
+        return `__a => ${this.#spell("String")}(__a)`;
       case "bigIntHash":
         return `__a => ${this.#useHelper("stableHash")}(__a)`;
       // The conversions (Primitive Types §6). `fromNat`/`fromInt` are exact and
@@ -7699,10 +7999,10 @@ class JavaScriptEmitter {
       // rounding `toFloat` documents is the host's and needs nothing here.
       case "bigIntFromNat":
       case "bigIntFromInt":
-        return "__a => BigInt(__a)";
+        return `__a => ${this.#spell("BigInt")}(__a)`;
       case "bigIntToIntUnchecked":
       case "bigIntToFloatUnchecked":
-        return "__a => Number(__a)";
+        return `__a => ${this.#spell("Number")}(__a)`;
       // `stdlib/Int.hex`'s and `stdlib/Nat.hex`'s natives (#344, the second
       // landing), in the same primop shape: a JavaScript operator or a one-call
       // conversion apiece, each a bare arrow with no helper behind it. Nothing
@@ -7726,7 +8026,7 @@ class JavaScriptEmitter {
       // remainder is `%`, which already truncates.
       case "intQuot":
       case "natQuot":
-        return "(__a, __b) => Math.trunc(__a / __b)";
+        return `(__a, __b) => ${this.#spell("Math")}.trunc(__a / __b)`;
       case "intRem":
       case "natRem":
         return "(__a, __b) => __a % __b";
@@ -7741,7 +8041,7 @@ class JavaScriptEmitter {
         return '(__a, __b) => __a < __b ? "Less" : __a > __b ? "Greater" : "Equal"';
       case "intShow":
       case "natShow":
-        return "__a => String(__a)";
+        return `__a => ${this.#spell("String")}(__a)`;
       case "intHash":
       case "natHash":
         return `__a => ${this.#useHelper("stableHash")}(__a)`;
@@ -7783,7 +8083,7 @@ class JavaScriptEmitter {
       case "floatCompare":
         return `(__a, __b) => ${this.#useHelper("ordering")}(${this.#useHelper("compareFloat")}(__a, __b))`;
       case "floatShow":
-        return "__a => String(__a)";
+        return `__a => ${this.#spell("String")}(__a)`;
       case "floatHash":
       case "stringHash":
         return `__a => ${this.#useHelper("stableHash")}(__a)`;
@@ -7925,7 +8225,7 @@ class JavaScriptEmitter {
             primary: span,
           });
         }
-        return "undefined";
+        return this.#unit;
     }
   }
 
@@ -9501,6 +9801,19 @@ function renderHelper(
    * module's and is spelled by the constants beside them.
    */
   identity: string,
+  /**
+   * How the emitting module spells the runtime vocabulary (FFI Part 7 §1.2).
+   *
+   * Threaded in rather than written bare, because a helper body is emitted
+   * *into the user's module* and its globals are captured by that module's own
+   * bindings — the defect this rule repairs, at its sharpest seat: `exception`'s
+   * `new Error(…)` beside an `export record Error` throws `TypeError: Error is
+   * not a constructor` on every raise. A helper relocated to a module of its own
+   * would need no parameter, and §14.7 records why that is not the repair: the
+   * inline seats — Unit's spelling in user function bodies, `String(…)` in
+   * interpolation and derived `show` — are written outside every helper.
+   */
+  spell: (name: RuntimeSpelling) => string,
 ): string[] {
   switch (helper) {
     // The HAMT's placement mix (#365). The seed is read **once**, when the
@@ -9520,8 +9833,8 @@ function renderHelper(
     case "hashTrieMix":
       return [
         `const ${name} = (() => {`,
-        "  const __seed = (Math.random() * 0x100000000) | 0;",
-        "  return __value => Math.imul(__value ^ __seed, 0x9e3779b1) | 0;",
+        `  const __seed = (${spell("Math")}.random() * 0x100000000) | 0;`,
+        `  return __value => ${spell("Math")}.imul(__value ^ __seed, 0x9e3779b1) | 0;`,
         "})();",
       ];
     // The debug probe (#407), and the sibling of the mix above in the one
@@ -9542,7 +9855,7 @@ function renderHelper(
     case "debugLog":
       return [
         `const ${name} = (() => {`,
-        "  const __sink = console.log.bind(console);",
+        `  const __sink = ${spell("console")}.log.bind(${spell("console")});`,
         "  return __message => { __sink(__message); };",
         "})();",
       ];
@@ -9556,13 +9869,13 @@ function renderHelper(
         "  let __value = __bitmap - ((__bitmap >> 1) & 0x55555555);",
         "  __value = (__value & 0x33333333) + ((__value >> 2) & 0x33333333);",
         "  __value = (__value + (__value >> 4)) & 0x0f0f0f0f;",
-        "  return Math.imul(__value, 0x01010101) >> 24;",
+        `  return ${spell("Math")}.imul(__value, 0x01010101) >> 24;`,
         "}",
       ];
     case "mixHash":
       return [
         `function ${name}(__seed, __value) {`,
-        "  return Math.imul(__seed ^ __value, 0x9e3779b1) | 0;",
+        `  return ${spell("Math")}.imul(__seed ^ __value, 0x9e3779b1) | 0;`,
         "}",
       ];
     // The public `hash` member (#356). Collections Part 2 §2.3 binds it to one
@@ -9591,10 +9904,18 @@ function renderHelper(
     case "stableHash":
       return [
         `function ${name}(__value) {`,
-        "  if (__value === undefined) return 0;",
+        `  if (__value === ${spell("undefined")}) return 0;`,
         "  if (typeof __value === \"boolean\") return __value ? 1 : 2;",
-        "  if (typeof __value === \"number\") { if (Number.isNaN(__value)) return 0x7fc00000; const __text = String(__value); let __hash = 0; for (let __index = 0; __index < __text.length; __index += 1) __hash = Math.imul(__hash, 31) + __text.charCodeAt(__index) | 0; return __hash; }",
-        "  const __text = String(__value); let __hash = 0; for (let __index = 0; __index < __text.length; __index += 1) __hash = Math.imul(__hash, 31) + __text.charCodeAt(__index) | 0; return __hash;",
+        `  if (typeof __value === "number") { if (${spell("Number")}.isNaN(__value)) return 0x7fc00000; const __text = ${
+          spell("String")
+        }(__value); let __hash = 0; for (let __index = 0; __index < __text.length; __index += 1) __hash = ${
+          spell("Math")
+        }.imul(__hash, 31) + __text.charCodeAt(__index) | 0; return __hash; }`,
+        `  const __text = ${
+          spell("String")
+        }(__value); let __hash = 0; for (let __index = 0; __index < __text.length; __index += 1) __hash = ${
+          spell("Math")
+        }.imul(__hash, 31) + __text.charCodeAt(__index) | 0; return __hash;`,
         "}",
       ];
     // Exceptions §7.2's construction helper. It is per-module precisely so the
@@ -9603,20 +9924,24 @@ function renderHelper(
     case "exception":
       return [
         `function ${name}(__name, __message, __fields) {`,
-        `  return Object.assign(new Error(__message), { $hex: ${JSON.stringify(identity)}, name: __name }, __fields);`,
+        `  return ${spell("Object")}.assign(new ${spell("Error")}(__message), { $hex: ${
+          JSON.stringify(identity)
+        }, name: __name }, __fields);`,
         "}",
       ];
     case "floatEquals":
       return [
         `function ${name}(__left, __right) {`,
-        "  return __left === __right || (Number.isNaN(__left) && Number.isNaN(__right));",
+        `  return __left === __right || (${spell("Number")}.isNaN(__left) && ${
+          spell("Number")
+        }.isNaN(__right));`,
         "}",
       ];
     case "compareFloat":
       return [
         `function ${name}(__left, __right) {`,
-        "  if (Number.isNaN(__left)) return Number.isNaN(__right) ? 0 : 1;",
-        "  if (Number.isNaN(__right)) return -1;",
+        `  if (${spell("Number")}.isNaN(__left)) return ${spell("Number")}.isNaN(__right) ? 0 : 1;`,
+        `  if (${spell("Number")}.isNaN(__right)) return -1;`,
         "  return __left < __right ? -1 : __left > __right ? 1 : 0;",
         "}",
       ];
@@ -9633,9 +9958,9 @@ function renderHelper(
     case "compareString":
       return [
         `function ${name}(__left, __right) {`,
-        "  const __leftPoints = Array.from(__left);",
-        "  const __rightPoints = Array.from(__right);",
-        "  const __length = Math.min(__leftPoints.length, __rightPoints.length);",
+        `  const __leftPoints = ${spell("Array")}.from(__left);`,
+        `  const __rightPoints = ${spell("Array")}.from(__right);`,
+        `  const __length = ${spell("Math")}.min(__leftPoints.length, __rightPoints.length);`,
         "  for (let __index = 0; __index < __length; __index += 1) {",
         "    const __leftPoint = __leftPoints[__index].codePointAt(0);",
         "    const __rightPoint = __rightPoints[__index].codePointAt(0);",
@@ -9649,7 +9974,7 @@ function renderHelper(
       return [
         `function ${name}(__start, __end) {`,
         "  return { start: __start, end: __end, descending: false,",
-        "    *[Symbol.iterator]() {",
+        `    *[${spell("Symbol")}.iterator]() {`,
         "      for (let __value = __start; __value <= __end; __value += 1) yield __value;",
         "    },",
         "  };",
@@ -9684,7 +10009,8 @@ function renderHelper(
       return [
         `function ${name}(__values, __index) {`,
         `  const __size = ${runtimeName("size")}(__values);`,
-        "  if (__index < 1 || __index > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
+        `  if (__index < 1 || __index > __size) { const __error = new ${spell("RangeError")}` +
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("get")}(__values, __index - 1);`,
         "}",
       ];
@@ -9693,7 +10019,8 @@ function renderHelper(
         `function ${name}(__values, __index) {`,
         `  const __size = ${runtimeName("size")}(__values);`,
         "  const __position = __index < 0 ? __size + __index + 1 : __index;",
-        "  if (__position < 1 || __position > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
+        `  if (__position < 1 || __position > __size) { const __error = new ${spell("RangeError")}` +
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("get")}(__values, __position - 1);`,
         "}",
       ];
@@ -9785,7 +10112,8 @@ function renderHelper(
         `function ${name}(__map, __key, __hash) {`,
         `  const __found = ${hashTrieName("get")}(__map, __key, __hash);`,
         '  if (__found.tag === "Some") return __found.value;',
-        "  const __error = new Error(`no value for key ${String(__key)}`);",
+        `  const __error = new ${spell("Error")}` + "(`no value for key ${" + spell("String") +
+        "(__key)}`);",
         '  __error.name = "KeyError";',
         '  __error.$hex = "Map";',
         "  throw __error;",
@@ -9888,7 +10216,8 @@ function renderHelper(
       return [
         `function ${name}(__values, __index, __value) {`,
         `  const __size = ${runtimeName("size")}(__values);`,
-        "  if (__index < 1 || __index > __size) { const __error = new RangeError(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
+        `  if (__index < 1 || __index > __size) { const __error = new ${spell("RangeError")}` +
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("set")}(__values, __index - 1, __value);`,
         "}",
       ];
@@ -9898,7 +10227,8 @@ function renderHelper(
       // "single call with zero guard code" the spec pins, modulo the offset.
       return [
         `function ${name}(__values, __range) {`,
-        "  if (__range.descending) { const __error = new RangeError(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = \"Vector\"; __error.start = __range.start; __error.end = __range.end; throw __error; }",
+        `  if (__range.descending) { const __error = new ${spell("RangeError")}` +
+        "(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = \"Vector\"; __error.start = __range.start; __error.end = __range.end; throw __error; }",
         `  return ${runtimeName("window")}(__values, __range.start - 1, __range.end);`,
         "}",
       ];
@@ -9914,16 +10244,22 @@ function renderHelper(
     case "stringIndex":
       return [
         `function ${name}(__text, __index) {`,
-        "  const __points = Array.from(__text);",
-        "  if (__index < 1 || __index > __points.length) { const __error = new RangeError(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __points.length; throw __error; }",
+        `  const __points = ${spell("Array")}.from(__text);`,
+        `  if (__index < 1 || __index > __points.length) { const __error = new ${
+          spell("RangeError")
+        }` +
+        "(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __points.length; throw __error; }",
         "  return __points[__index - 1];",
         "}",
       ];
     case "stringSlice":
       return [
         `function ${name}(__text, __range) {`,
-        "  if (__range.descending) { const __error = new RangeError(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = \"Vector\"; __error.start = __range.start; __error.end = __range.end; throw __error; }",
-        "  return Array.from(__text).slice(Math.max(0, __range.start - 1), Math.max(0, __range.end)).join(\"\");",
+        `  if (__range.descending) { const __error = new ${spell("RangeError")}` +
+        "(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = \"Vector\"; __error.start = __range.start; __error.end = __range.end; throw __error; }",
+        `  return ${spell("Array")}.from(__text).slice(${spell("Math")}.max(0, __range.start - 1), ${
+          spell("Math")
+        }.max(0, __range.end)).join("");`,
         "}",
       ];
     // ---------------------------------------------------------------------
@@ -10085,26 +10421,32 @@ function renderHelper(
       // handed straight back out to JavaScript must face it as an `Iterable`.
       return [
         `function ${name}(__source) {`,
-        "  let __iterator = undefined;",
+        `  let __iterator = ${spell("undefined")};`,
         "  let __forcing = false;",
         "  const __node = () => {",
-        "    let __step = undefined;",
-        "    let __failure = undefined;",
+        `    let __step = ${spell("undefined")};`,
+        `    let __failure = ${spell("undefined")};`,
         "    return {",
-        `      [Symbol.iterator]: ${dependencyName("seqIterate")},`,
+        `      [${spell("Symbol")}.iterator]: ${dependencyName("seqIterate")},`,
         "      pull: () => {",
-        "        if (__step === undefined && __failure === undefined) {",
+        `        if (__step === ${spell("undefined")} && __failure === ${spell("undefined")}) {`,
         "          if (__forcing) {",
-        '            throw Object.assign(new Error("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: "Seq", name: "ReentrancyError" });',
+        `            throw ${spell("Object")}.assign(new ${
+          spell("Error")
+        }("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: "Seq", name: "ReentrancyError" });`,
         "          }",
         "          __forcing = true;",
         "          try {",
-        "            if (__iterator === undefined) __iterator = __source[Symbol.iterator]();",
+        `            if (__iterator === ${spell("undefined")}) __iterator = __source[${
+          spell("Symbol")
+        }.iterator]();`,
         "            const __next = __iterator.next();",
         '            if (__next === null || (typeof __next !== "object" && typeof __next !== "function")) {',
-        '              throw new TypeError("Iterator result " + String(__next) + " is not an object");',
+        `              throw new ${spell("TypeError")}("Iterator result " + ${
+          spell("String")
+        }(__next) + " is not an object");`,
         "            }",
-        "            __step = Boolean(__next.done)",
+        `            __step = ${spell("Boolean")}(__next.done)`,
         '              ? { tag: "None" }',
         '              : { tag: "Some", value: [__next.value, __node()] };',
         "          } catch (__error) {",
@@ -10114,7 +10456,7 @@ function renderHelper(
         "            __forcing = false;",
         "          }",
         "        }",
-        "        if (__failure !== undefined) throw __failure.error;",
+        `        if (__failure !== ${spell("undefined")}) throw __failure.error;`,
         "        return __step;",
         "      },",
         "    };",
@@ -10197,14 +10539,14 @@ function renderHelper(
       // protocol calls it with the value as receiver.
       return [
         `const ${name} = (() => {`,
-        "  const __views = new WeakMap();",
+        `  const __views = new ${spell("WeakMap")}();`,
         "  return function () {",
         "    let __view = __views.get(this);",
-        "    if (__view === undefined) {",
+        `    if (__view === ${spell("undefined")}) {`,
         `      __view = ${dependencyName("seqFromIterable")}(${dependencyName("seqToIterable")}(this));`,
         "      __views.set(this, __view);",
         "    }",
-        `    return ${dependencyName("seqToIterable")}(__view)[Symbol.iterator]();`,
+        `    return ${dependencyName("seqToIterable")}(__view)[${spell("Symbol")}.iterator]();`,
         "  };",
         "})();",
       ];
@@ -10264,16 +10606,18 @@ function renderHelper(
       return [
         `function ${name}(__source) {`,
         "  const __iterator =",
-        '    __source != null && typeof __source[Symbol.iterator] === "function"',
-        "      ? __source[Symbol.iterator]()",
+        `    __source != null && typeof __source[${spell("Symbol")}.iterator] === "function"`,
+        `      ? __source[${spell("Symbol")}.iterator]()`,
         "      : __source;",
         "  return {",
         "    next: () => {",
         "      const __step = __iterator.next();",
         '      if (__step === null || (typeof __step !== "object" && typeof __step !== "function")) {',
-        '        throw new TypeError("Iterator result " + String(__step) + " is not an object");',
+        `        throw new ${spell("TypeError")}("Iterator result " + ${
+          spell("String")
+        }(__step) + " is not an object");`,
         "      }",
-        '      if (Boolean(__step.done)) return { tag: "None" };',
+        `      if (${spell("Boolean")}(__step.done)) return { tag: "None" };`,
         '      return { tag: "Some", value: __step.value };',
         "    },",
         "  };",
@@ -10294,7 +10638,7 @@ function renderHelper(
       return [
         `function ${name}(__sequence) {`,
         "  return {",
-        "    *[Symbol.iterator]() {",
+        `    *[${spell("Symbol")}.iterator]() {`,
         "      let __current = __sequence;",
         "      while (true) {",
         "        const __step = (__current.pull)();",
@@ -10610,7 +10954,12 @@ class GeneratedNames {
   readonly #used: Set<string>;
 
   constructor(existing: Iterable<string>) {
-    this.#used = new Set(existing);
+    // The reserved captures are seeded whether or not this module is contested
+    // (FFI Part 7 §1.2): in a contested one they are real `import` bindings a
+    // minted name would redeclare, and seeding them unconditionally keeps the
+    // mint's answers a function of the module's own names rather than of a
+    // condition settled elsewhere.
+    this.#used = new Set([...RESERVED_CAPTURES.map(reservedCapture), ...existing]);
   }
 
   /**
@@ -10634,13 +10983,26 @@ class GeneratedNames {
 
   /**
    * A **public** spelling this module wants to bind — a fundamental
-   * specialization's exported name, which is a source-level name rather than a
-   * reserved one (#440). The bare spelling when nothing here holds it, and the
-   * reserved probe when something does: the source's own binding owns the
-   * public name, and an imported edition is what moves aside.
+   * specialization's exported name, a §8.2 companion operation's local, which is
+   * a source-level name rather than a reserved one (#440, #585). The bare
+   * spelling when nothing here holds it, and the reserved probe when something
+   * does: the source's own binding owns the public name, and an imported edition
+   * is what moves aside.
+   *
+   * **The runtime vocabulary and JavaScript's reserved words move it aside too**
+   * (FFI Part 7 §1.2 rule 1, #666). This is the one seat at which a compiler-
+   * minted `.js` import local can mirror an export's spelling, so it is the whole
+   * population that could contest: a companion export named `undefined` or
+   * `await` is legal Hexagon, and a minted local under either spelling would
+   * capture the module's own runtime text or fail to parse at all. Nothing user-
+   * written is at stake here, which is why a minted local moves for *either*
+   * class where a source-written import local moves only for the second (rule 4)
+   * and the module qualifies around the first (rule 2).
    */
   claimPublic(name: string): string {
-    if (this.#used.has(name)) return this.#claim(name);
+    if (this.#used.has(name) || MINTED_LOCAL_HAZARDS.has(name) || reservedWords.has(name)) {
+      return this.#claim(name);
+    }
     this.#used.add(name);
     return name;
   }
@@ -11564,7 +11926,24 @@ function indent(depth: number): string {
   return "  ".repeat(depth);
 }
 
+/**
+ * The spellings JavaScript refuses as a binding name, which the emitter renames
+ * around (FFI Part 7 §1.2 rule 4): a `__binding`-prefixed local, with the source
+ * name restored at the export seat.
+ *
+ * `arguments` and `eval` are not keywords — they are the two names strict mode
+ * refuses to bind, and an emitted module is always strict. They are as fatal as
+ * the keywords are: the module never parses, so nothing in it runs.
+ *
+ * The rename is lawful at these seats and nowhere else, on a stated ground: an
+ * internal alias leaks into a consumer's diagnostics exactly when it names a
+ * *type* (measured, §14.7), every entry here is lowercase, and a Hexagon type
+ * name is parser-gated uppercase — so a `__binding` alias can carry a value's
+ * export seat but never a type's. An addition to this set must preserve that; it
+ * is the lowercase gate, not the seat, doing the protecting.
+ */
 const reservedWords = new Set([
+  "arguments",
   "await",
   "break",
   "case",
@@ -11578,6 +11957,7 @@ const reservedWords = new Set([
   "do",
   "else",
   "enum",
+  "eval",
   "export",
   "extends",
   "false",

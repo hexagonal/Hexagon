@@ -51,6 +51,11 @@ function compileWorkspace(
       // consumer an import of a path that is not there. Both compile clean and
       // fail at load, which is the failure mode this pane exists to catch.
       runtimes: module.runtimes,
+      // Carried for the same reason and with the same failure mode: only
+      // `compileProject` knows the source common root and the stem §8.3's probe
+      // settled there, so a re-emission that guessed would give a contested
+      // module an import of a path that is not there (FFI Part 7 §1.2).
+      runtimeGlobalsSpecifier: module.runtimeGlobalsSpecifier,
     }),
   }));
   const main = outputs.find(({ module }) => module.source.path === entryPath);
@@ -87,10 +92,22 @@ function compileWorkspace(
     kind: "compile-success",
     version,
     javascript: main.javascript.text,
-    executionModules: outputs.map(({ module, javascript }) => ({
-      path: module.source.path,
-      javascript: javascript.text,
-    })),
+    executionModules: [
+      // The program's runtime module leads the set (FFI Part 7 §1.2). It belongs
+      // to no source file, so nothing derived from `project.modules` can carry
+      // it — and unlike `hex.d.ts` it is *executable*: a contested program whose
+      // execution set is built from the compiled modules alone dies at its first
+      // import. Keyed by the `.hex` path `resolveModulePath` derives from the
+      // `./hex.js` specifier its importers spell, like every other entry here.
+      ...(project.runtimeGlobals === undefined ? [] : [{
+        path: project.runtimeGlobals.path.replace(/\.js$/u, ".hex"),
+        javascript: project.runtimeGlobals.text,
+      }]),
+      ...outputs.map(({ module, javascript }) => ({
+        path: module.source.path,
+        javascript: javascript.text,
+      })),
+    ],
     entryPath,
     generatedJavaScript: main.javascript.generatedSections,
     typeScriptPreview: preview.text,
