@@ -382,7 +382,46 @@ function moduleLevelBindings(
  * symbol table instead, filtered to the symbols this file declares: the imported
  * entries carry the *exporting* file's id, and a module that merely imports a
  * term named `undefined` through a namespace alias binds nothing under it.
+ *
+ * **The minted import locals are subtracted**, which is rule 1 and rule 2 read
+ * together: rule 2's trigger is the module's *source* bindings, and rule 1 has
+ * already decided that a minted local under a vocabulary spelling does not take
+ * it. Leaving them in makes the module import a capture it references nowhere —
+ * an import line that is no longer the manifest §1.2 says it is, and an
+ * uncontested module that is no longer byte-identical. `namespaceAliasPlan`
+ * subtracts `typeOnlyImportLocals` in the same shape and for the same kind of
+ * reason: `moduleLevelBindings` is deliberately an over-approximation, and each
+ * caller subtracts the part it must not over-count.
+ *
+ * Counted rather than collected, exactly as that plan counts: a module that
+ * declares `console` itself *and* imports a constraint member spelled `console`
+ * still contests, on the declaration's account.
+ *
+ * The reach is one spelling. A constraint member is a term, so it is
+ * non-uppercase-start and cannot be any of the eleven uppercase members; a
+ * synthesized prelude import contributes nothing here in the first place
+ * (`moduleLevelBindings` drops it); and `undefined` is settled by the symbol
+ * check above, which an imported member never reaches. `console` is what is
+ * left, and it was measured over-triggering.
  */
+function runtimeVocabularyTrigger(module: Core.Module): RuntimeVocabulary {
+  const bound = new Map<string, number>();
+  for (const name of moduleLevelBindings(module)) {
+    bound.set(name, (bound.get(name) ?? 0) + 1);
+  }
+  for (const local of mintedImportLocals(module)) {
+    const remaining = (bound.get(local) ?? 0) - 1;
+    if (remaining > 0) bound.set(local, remaining);
+    else bound.delete(local);
+  }
+  return new RuntimeVocabulary(
+    new Set(bound.keys()),
+    module.symbols.some(
+      (symbol) => symbol.name === UNIT_SPELLING && symbol.bindingSpan.fileId === module.fileId,
+    ),
+  );
+}
+
 /**
  * Whether one name on an `import` item is the *emitter's* to spell rather than
  * the source's — FFI Part 7 §1.2 rule 1's population, at the seat that decides
@@ -401,12 +440,19 @@ function mintedImportName(
   return item.synthesized === true || name.constraintMember === true;
 }
 
-function runtimeVocabularyTrigger(module: Core.Module): RuntimeVocabulary {
-  return new RuntimeVocabulary(
-    new Set(moduleLevelBindings(module)),
-    module.symbols.some(
-      (symbol) => symbol.name === UNIT_SPELLING && symbol.bindingSpan.fileId === module.fileId,
-    ),
+/**
+ * The locals `moduleLevelBindings` counts that the emitter, not the source,
+ * spelled — the half the trigger above subtracts.
+ *
+ * Named forms of written imports only, which is where the two lists meet: a
+ * synthesized item contributes no local to that set at all, and a namespace form
+ * contributes its alias rather than its names.
+ */
+function mintedImportLocals(module: Core.Module): readonly string[] {
+  return module.items.flatMap((item) =>
+    item.kind === "Import" && !item.synthesized && item.form.kind === "Named"
+      ? item.form.names.flatMap((name) => mintedImportName(item, name) ? [name.local] : [])
+      : []
   );
 }
 

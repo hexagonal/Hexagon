@@ -41,12 +41,22 @@ let runTag = 0;
 
 /** Executes one hand-written module, for the negative baselines. */
 async function runJavaScript(text: string): Promise<Record<string, unknown>> {
+  return (await import(/* @vite-ignore */ moduleUrl(text))) as Record<string, unknown>;
+}
+
+/**
+ * A `data:` URL for one hand-written module, tagged so two baselines whose text
+ * happens to coincide are still two module instances.
+ *
+ * Returned rather than imported for the baselines whose subject is the *import*
+ * itself: an aliased import local is the seat rule 4's missing leg was at, so
+ * those have to be a real two-module graph.
+ */
+function moduleUrl(text: string): string {
   runTag += 1;
-  return (await import(
-    /* @vite-ignore */ `data:text/javascript;charset=utf-8,${
-      encodeURIComponent(`${text}\n// baseline ${runTag}\n`)
-    }`
-  )) as Record<string, unknown>;
+  return `data:text/javascript;charset=utf-8,${
+    encodeURIComponent(`${text}\n// baseline ${runTag}\n`)
+  }`;
 }
 
 /** One module's emitted JavaScript, with the project's diagnostics asserted empty. */
@@ -471,6 +481,22 @@ describe("the minted-local negative — the trigger reads source bindings only",
     expect((exports["unit"] as () => unknown)()).toBeUndefined();
   });
 
+  test("the negative baseline: unaliased, every Unit in the importer is the forwarder", async () => {
+    // The pre-repair importer, executed: a real two-module graph, because the
+    // seat is the import local itself. The module loads clean, nothing throws,
+    // and `unit()` answers the forwarder function — the silent-wrong-value class
+    // again, one channel over from class 3's.
+    const library = moduleUrl(
+      "export const __undefined = (x, evidence) => evidence.undefined(x);\n",
+    );
+    const exports = await runJavaScript(
+      `import { __undefined as undefined } from ${JSON.stringify(library)};\n` +
+        "export const unit = () => undefined;\n",
+    );
+
+    expect(typeof (exports["unit"] as () => unknown)()).toBe("function");
+  });
+
   test("a constraint member named `eval`, on both sides of the import", async () => {
     const text = javascript(CONSTRAINT("eval"));
 
@@ -488,6 +514,18 @@ describe("the minted-local negative — the trigger reads source bindings only",
     expect(Object.keys(exports)).toContain("__twice");
   });
 
+  test("the negative baseline: unaliased, the importer is a `SyntaxError` at load", async () => {
+    // Strict mode refuses `eval` as a *binding* name, and an import specifier's
+    // local is one, so the importing module never parsed — nothing in it ran and
+    // no diagnostic preceded it.
+    const library = moduleUrl("export const __eval = (x, evidence) => evidence.eval(x);\n");
+
+    await expect(runJavaScript(
+      `import { __eval as eval } from ${JSON.stringify(library)};\n` +
+        "export const twice = (x, evidence) => eval(x, evidence) + eval(x, evidence);\n",
+    )).rejects.toThrow(SyntaxError);
+  });
+
   test("the declaring module of an `undefined` member contests on its own account", () => {
     // The forwarder is a *source*-derived top-level binding there — Constraints
     // §6.5's `const undefined = (x, evidence) => …` — so that module is
@@ -499,6 +537,107 @@ describe("the minted-local negative — the trigger reads source bindings only",
       "export let unit(): Unit = ()",
       "",
     ].join("\n")]])).toContain("const unit = () => void 0;");
+  });
+
+  test("a minted local is subtracted from the trigger, so the importer stays uncontested", () => {
+    // Rule 1 and rule 2 read together. A constraint member named `console` puts
+    // the spelling into `moduleLevelBindings` through the import line, but rule 1
+    // has already decided that the minted local does not take it — so the
+    // *source* quantity rule 2 reads does not contain it either, and the
+    // importing module owes the runtime module nothing.
+    //
+    // Left in, the module emitted `import { __console } from "./hex.js";` and
+    // referenced `__console` nowhere: an import line that is not the manifest
+    // §1.2 says it is, and an uncontested module that is no longer
+    // byte-identical. Measured, and the reach is `console` alone — a member is a
+    // term, so non-uppercase-start, and `undefined` is settled by the
+    // function-scope symbol check that an imported member never reaches.
+    const FILES = [
+      ["/lib.hex", [
+        "export constraint Boxy<a> =",
+        "    console(x: a): Int",
+        "",
+        "export record Box = {n: Int}",
+        "honor Boxy<Box> =",
+        "    console(x) = x.n",
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        'import { Boxy, Box } from "./lib"',
+        "export let use(b: Box): Int = console(b)",
+        "export let unit(): Unit = ()",
+        "",
+      ].join("\n")],
+    ] as const;
+    const text = javascript(FILES);
+
+    expect(text).not.toContain("hex.js");
+    expect(text).toBe(
+      'import { __Boxy_Box_console } from "./lib.js";\n' +
+        'import { Box } from "./lib.js";\n' +
+        'import { __Boxy_Box } from "./lib.js";\n' +
+        "const use = b => __Boxy_Box_console(b);\n" +
+        "const unit = () => undefined;\n" +
+        "export { __Boxy_Box };\n" +
+        "export { use };\n" +
+        "export { unit };\n",
+    );
+
+    // The *declaring* module still contests, and must: Constraints §6.5's
+    // forwarder is a source-derived `const console = …` there, so anything in it
+    // writing `console` bare would read the forwarder.
+    expect(javascript(FILES, "/lib.hex")).toContain('import { __console } from "./hex.js";');
+  });
+
+  test("a routed member seat declines the member's spelling for the same two classes", async () => {
+    // Dictionary Sharing §8 hands a routed seat the member's *source* spelling
+    // where nothing in the consumer contests it, which makes the seat a minted
+    // import local mirroring an export's — rule 1's population, at its third
+    // seat. A **namespace** import is what reaches it: the constraint's members
+    // then sit in the contest set under their internal locals rather than under
+    // their own spellings, so the earlier filters decline and this one decides.
+    //
+    // Measured reachable, in both classes: with the probe removed the importer
+    // emits `import { __Boxy_Box_undefined as undefined }` and every Unit in it
+    // reads the seat, and `… as eval` is a module that does not parse.
+    const namespaced = (member: string): readonly (readonly [string, string])[] => [
+      ["/lib.hex", [
+        "export constraint Boxy<a> =",
+        `    ${member}(x: a): Int`,
+        "",
+        "export record Box = {n: Int}",
+        "honor Boxy<Box> =",
+        `    ${member}(x) = x.n`,
+        "",
+      ].join("\n")],
+      ["/main.hex", [
+        'import module Lib from "./lib"',
+        `export let use(b: Lib.Box): Int = Lib.${member}(b)`,
+        "export let unit(): Unit = ()",
+        "",
+      ].join("\n")],
+    ];
+
+    for (const member of ["undefined", "eval"]) {
+      const text = javascript(namespaced(member));
+
+      expect(text).toContain(`import { __Boxy_Box_${member} } from "./lib.js";`);
+      expect(text).not.toContain(`as ${member} }`);
+      expect(text).toContain(`const use = b => __Boxy_Box_${member}(b);`);
+      // The importer binds neither spelling, so its own Unit is untouched.
+      expect(text).toContain("const unit = () => undefined;");
+    }
+
+    // The control that shows the seat really does take the source spelling when
+    // the member's name is not a hazard — without it the assertions above would
+    // hold in a compiler that never handed out a source spelling at all.
+    expect(javascript(namespaced("measure"))).toContain(
+      'import { __Boxy_Box_measure as measure } from "./lib.js";',
+    );
+
+    const exports = await runProject(namespaced("undefined"));
+    expect((exports["use"] as (b: { n: number }) => number)({ n: 5 })).toBe(5);
+    expect((exports["unit"] as () => unknown)()).toBeUndefined();
   });
 });
 
