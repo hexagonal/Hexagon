@@ -2531,7 +2531,7 @@ than settling a style question.
   restated and the non-pin union control carrying the factory specimen.
   The rewritten controls: the mints-none `Hash` binder asserts its seven
   editions; `declaration-name-sink`'s zero-edition specimen re-grounded
-  on the real §3.4 case. Suites at the close: compiler 3776 + 1 expected
+  on the real §3.4 case. Suites at the close: compiler 3777 + 1 expected
   fail, language-server 121, playground 229. Measured cost on a
   collections-using graph (§10, measure-no-cap): JS 107,196 → 157,072
   bytes, `.d.ts` 10,903 → 30,937; `Set.hex` forty-two editions,
