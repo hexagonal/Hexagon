@@ -347,6 +347,28 @@ describe("the declared-heads refusal", () => {
   });
 
   /**
+   * The refusal is the **knot's**, and §10 states it in the singular — "the
+   * refusal takes the SCC hint". Three headed members produce one collision that
+   * names two of them, and the third head is left for defaulting to bind to
+   * `Int` and the rigid-vs-concrete message to report as a body demand — on a
+   * program with no `Int` in it. `Eq` is what makes the leak reachable: the head
+   * has to carry a *defaultable* constraint for defaulting to take it at all.
+   */
+  test("a three-member knot is refused once, and leaves no head to default", () => {
+    expect(
+      projectDiagnostics(
+        "fun t1<a: Eq>(x: a, n: Int): Bool = if n <= 0 then True else t2(x, n - 1)\n" +
+          "fun t2<b: Eq>(x: b, n: Int): Bool = if n <= 0 then True else t3(x, n - 1)\n" +
+          "fun t3<c: Eq>(x: c, n: Int): Bool = if n <= 0 then True else t1(x, n - 1)\n",
+      ),
+    ).toEqual([
+      "`a` declared on `t1` and `b` declared on `t2` are distinct declared type variables, " +
+        "but members of a recursive knot are checked together at not-yet-general types; leave " +
+        "the heads off the knot, or move the contract to a non-recursive wrapper",
+    ]);
+  });
+
+  /**
    * Where two functions of one knot must export, Modules §4.1.1 requires a
    * complete signature on each and the headless knot is not a spelling either
    * can take — so the wrapper is the only one offered (Functions §7.4).
@@ -365,6 +387,73 @@ describe("the declared-heads refusal", () => {
         "types; both must declare their constraints to export, so move the contract to a " +
         "non-recursive wrapper over an unexported knot",
     ]);
+  });
+
+  /**
+   * One exporting member is the third arm, and the reason it exists is the
+   * Rewrite Rule: the headless knot is not a spelling this program can take, and
+   * offering it advised a repair that does not compile. What is legal is §7.4's
+   * middle spelling — the exporting member keeps its head, the sibling drops
+   * its own and reaches it generically — and the next test compiles exactly
+   * that, in both source orders.
+   */
+  test("one exporting member is offered the single-head spelling", () => {
+    const message = (source: string): readonly string[] => projectDiagnostics(source);
+    const expected = (plain: string, exporting: string): string =>
+      `\`a\` declared on \`isEven\` and \`a\` declared on \`isOdd\` are distinct declared type ` +
+      "variables, but members of a recursive knot are checked together at not-yet-general " +
+      `types; \`${exporting}\` must declare its constraints to export, so drop \`${plain}\`'s ` +
+      `head and let it reach \`${exporting}\` generically, or move the contract to a ` +
+      "non-recursive wrapper";
+
+    expect(
+      message(
+        "fun isEven<a: Eq>(x: a, n: Int): Bool =\n" +
+          "    if n <= 0 then True else isOdd(x, n - 1)\n" +
+          "export fun isOdd<a: Eq>(x: a, n: Int): Bool =\n" +
+          "    if n <= 0 then False else isEven(x, n - 1)\n",
+      ),
+    ).toEqual([expected("isEven", "isOdd")]);
+
+    expect(
+      message(
+        "export fun isEven<a: Eq>(x: a, n: Int): Bool =\n" +
+          "    if n <= 0 then True else isOdd(x, n - 1)\n" +
+          "fun isOdd<a: Eq>(x: a, n: Int): Bool =\n" +
+          "    if n <= 0 then False else isEven(x, n - 1)\n",
+      ),
+    ).toEqual([expected("isOdd", "isEven")]);
+  });
+
+  /**
+   * The Rewrite Rule made checkable: the spelling the message above names
+   * compiles, and the one it withholds does not.
+   */
+  test("the offered single-head repair compiles, and the headless one does not", () => {
+    expect(
+      projectDiagnostics(
+        "fun isEven(x, n: Int): Bool = if n <= 0 then True else isOdd(x, n - 1)\n" +
+          "export fun isOdd<a: Eq>(x: a, n: Int): Bool =\n" +
+          "    if n <= 0 then False else isEven(x, n - 1)\n",
+      ),
+    ).toEqual([]);
+
+    expect(
+      projectDiagnostics(
+        "export fun isEven<a: Eq>(x: a, n: Int): Bool =\n" +
+          "    if n <= 0 then True else isOdd(x, n - 1)\n" +
+          "fun isOdd(x, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
+      ),
+    ).toEqual([]);
+
+    expect(
+      projectDiagnostics(
+        "fun isEven(x, n: Int): Bool = if n <= 0 then True else isOdd(x, n - 1)\n" +
+          "export fun isOdd(x, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
+      ),
+    ).toContain(
+      "exported function `isOdd` requires a complete signature; add type for parameter `x`",
+    );
   });
 
   /**
@@ -388,10 +477,11 @@ describe("the declared-heads refusal", () => {
   });
 
   /**
-   * The refusal is the knot's, not every annotation's: two heads that meet
-   * outside one keep the general message, whose advice is apt there.
+   * The refusal is the knot's, not every annotation's: one member's own two
+   * heads meeting is an ordinary collision, and the general message's advice —
+   * one name in both annotations — is apt.
    */
-  test("two heads outside a knot keep the general message", () => {
+  test("one member's own two heads keep the general message", () => {
     expect(
       projectDiagnostics(
         "fun same<a>(x: a, y: a): Bool = True\n" +
@@ -399,6 +489,29 @@ describe("the declared-heads refusal", () => {
       ),
     ).toContain(
       "`b` and `c` are distinct declared type variables, but the body requires them to be " +
+        "the same; use one type variable name in both annotations, or remove an annotation " +
+        "to let the type be inferred",
+    );
+  });
+
+  /**
+   * And *different* members' heads meeting outside any one knot. Nesting is what
+   * makes this reachable: a `fun` group written inside another member's body puts
+   * two components on the stack at once, both with live heads, and the inner
+   * body can unify them. No recursion links `f` and `g`, they share no
+   * component, and the hint's account — "members of a recursive knot" — would be
+   * false of them. This is what the component test in `#knotHeadCollision`
+   * decides; the same-member guard above never reaches it.
+   */
+  test("different members' heads outside one component keep the general message", () => {
+    expect(
+      projectDiagnostics(
+        "fun f<a>(x: a): a =\n" +
+          "    fun g<b>(y: b): b = x\n" +
+          "    g(x)\n",
+      ),
+    ).toContain(
+      "`b` and `a` are distinct declared type variables, but the body requires them to be " +
         "the same; use one type variable name in both annotations, or remove an annotation " +
         "to let the type be inferred",
     );

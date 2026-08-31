@@ -11622,6 +11622,18 @@ class GeneratedNames {
   }
 }
 
+/**
+ * The definition's evidence parameters: one per constrained scheme variable, in
+ * FFI Part 9 §6.2's order — type-variable ordinal, then constraint name.
+ *
+ * **Two checker-side readers mint argument lists against this order**, and both
+ * have to move if it does: `#instantiate`'s `ordered` sort, which publishes an
+ * ordinary call's collected requirements, and `#knotEvidence`, which publishes
+ * Functions §7.4's identity suffix straight off `#publicScheme` — the producer
+ * this function consumes. Nothing downstream compares the lists (`Core.Evidence`
+ * carries no slot identity), so a divergence is a silently mis-slotted
+ * dictionary, not a build failure.
+ */
 function dictionaryEntries(scheme: Typed.Scheme): readonly {
   readonly constraint: Typed.ConstraintName;
   readonly variable: Typed.TypeVariableId;

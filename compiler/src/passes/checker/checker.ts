@@ -1119,7 +1119,9 @@ interface KnotMember {
   /**
    * Modules §4.1.1 requires a complete signature on an export, so "leave the
    * heads off" is not a spelling an exported member can take — which is what
-   * §7.4's refusal has to know before it offers one.
+   * §7.4's refusal has to know before it offers one. How many of the colliding
+   * members export decides which spellings are legal; `knotHeadCollisionMessage`
+   * has the three arms.
    */
   readonly exported: boolean;
 }
@@ -1140,6 +1142,14 @@ interface Knot {
     readonly host: Resolved.SymbolId;
     readonly target: Resolved.SymbolId;
   }[];
+  /**
+   * Whether §7.4's declared-heads refusal has fired on this component.
+   *
+   * The refusal is the knot's, so it reports once and errors every head the
+   * component has — including the heads of members whose bodies are not checked
+   * yet, which is why the flag outlives the collision that set it.
+   */
+  refused: boolean;
 }
 
 /** The module a receiver head's companion is addressed under (§4.1's table). */
@@ -1575,6 +1585,16 @@ class Checker {
     number,
     { readonly symbol: Resolved.SymbolId; readonly name: string }
   >();
+  /**
+   * The same attribution read the other way: a member's own declared heads.
+   *
+   * The refusal is the *knot's*, not one pair's — §10 says "the refusal takes
+   * the SCC hint", singular — so `#errorKnotHeads` has to reach every head in
+   * the component, including the ones no collision named. Without the inverse,
+   * at three headed members the third survives to be defaulted and reported as
+   * demanding an `Int` the program never writes.
+   */
+  readonly #memberHeadVariables = new Map<Resolved.SymbolId, Variable[]>();
   readonly #constraintNames = new Set<string>(PRE_REGISTERED_CONSTRAINTS);
   /**
    * What a module alias offers a bare name that failed to be a constraint
@@ -4158,6 +4178,7 @@ class Checker {
         })),
         host: undefined,
         references: [],
+        refused: false,
       };
       this.#knots.push(knot);
       for (const symbol of ordered) {
@@ -4171,6 +4192,9 @@ class Checker {
       }
       knot.host = undefined;
       this.#knots.pop();
+      // Every member's head exists only now, which is why §7.4's refusal
+      // discharges its fence here rather than where it reported.
+      if (knot.refused) this.#errorKnotHeads(knot);
       this.#pinUnreachableKnotEvidence(knot, recursiveTypes, level);
       for (const symbol of ordered) {
         this.#schemes.set(
@@ -4180,6 +4204,30 @@ class Checker {
       }
     }
     this.#funGroups.pop();
+  }
+
+  /**
+   * §10's fence on the rigid-vs-concrete family: once §7.4's refusal has fired,
+   * no head of the component may reach defaulting.
+   *
+   * A head no unification errors survives to the module deadline, where
+   * defaulting binds it to `Int` and the rigid-vs-concrete message reports that
+   * as a demand of a body with no `Int` in it. The pair that met is not the
+   * whole set — at three headed members the first collision names two, and the
+   * third is defaulted — nor even a subset the collision could reach: the third
+   * member's head is not written until its own body is checked.
+   *
+   * Hence one call site, at the component's end, where every head exists.
+   * Erroring them at the collision instead is measurably redundant: `#bind`
+   * errors the left side itself, `refused` silences the rest of the family, and
+   * the whole suite stays green without it.
+   */
+  #errorKnotHeads(knot: Knot): void {
+    for (const { symbol } of knot.members) {
+      for (const head of this.#memberHeadVariables.get(symbol) ?? []) {
+        head.instance = ERROR;
+      }
+    }
   }
 
   /**
@@ -4905,6 +4953,9 @@ class Checker {
           annotationVariables.set(parameter.name, variable);
           if (declaringMember !== undefined) {
             this.#declaredHeadOwners.set(variable.id, declaringMember);
+            const heads = this.#memberHeadVariables.get(declaringMember.symbol) ?? [];
+            heads.push(variable);
+            this.#memberHeadVariables.set(declaringMember.symbol, heads);
           }
           for (const constraint of parameter.constraints) {
             if (!this.#constraintNames.has(constraint)) {
@@ -8692,14 +8743,20 @@ class Checker {
    * variable (Functions §7.4), or `undefined` where the collision is any other
    * two annotations'.
    *
-   * Both sides must be heads of *different* members of one component under
+   * Both sides must be heads of *different* members of **one** component under
    * check. A single head colliding with a concrete type is the other family —
    * a sibling using the member at an instantiation — and keeps its own message.
+   *
+   * One component, and the frame walk is what tests it: nesting puts two knots
+   * on the stack at once, and a `fun g<b>` written inside `fun f<a>`'s body has
+   * both heads live and can unify them (`fun f<a>(x: a): a = fun g<b>(y: b): b =
+   * x …`). Those two members share no knot, no recursion links them, and the
+   * general message — one name in both annotations — is the apt advice there.
    */
   #knotHeadCollision(
     left: Variable,
     right: Variable,
-  ): { readonly left: KnotMember; readonly right: KnotMember } | undefined {
+  ): { readonly knot: Knot; readonly left: KnotMember; readonly right: KnotMember } | undefined {
     const leftOwner = this.#declaredHeadOwners.get(left.id);
     const rightOwner = this.#declaredHeadOwners.get(right.id);
     if (leftOwner === undefined || rightOwner === undefined) return undefined;
@@ -8708,7 +8765,7 @@ class Checker {
       const leftMember = knot.members.find(({ symbol }) => symbol === leftOwner.symbol);
       const rightMember = knot.members.find(({ symbol }) => symbol === rightOwner.symbol);
       if (leftMember !== undefined && rightMember !== undefined) {
-        return { left: leftMember, right: rightMember };
+        return { knot, left: leftMember, right: rightMember };
       }
     }
     return undefined;
@@ -8722,29 +8779,34 @@ class Checker {
       }
       if (type.kind === "Variable" && type.rigidName !== undefined) {
         const collision = this.#knotHeadCollision(variable, type);
-        this.#diagnostics.add({
-          severity: "error",
-          message: collision === undefined
-            ? `\`${variable.rigidName}\` and \`${type.rigidName}\` are distinct declared type variables, ` +
+        if (collision === undefined) {
+          this.#diagnostics.add({
+            severity: "error",
+            message:
+              `\`${variable.rigidName}\` and \`${type.rigidName}\` are distinct declared type variables, ` +
               "but the body requires them to be the same; use one type variable name in both " +
-              "annotations, or remove an annotation to let the type be inferred"
-            : knotHeadCollisionMessage(
-                variable.rigidName,
-                type.rigidName,
-                collision.left,
-                collision.right,
-              ),
-          primary: span,
-        });
-        if (collision !== undefined) {
-          // Functions §10's fence on the *other* family: the refusal has been
-          // made on both heads, so neither variable may reach defaulting, whose
-          // proposal of `Int` would then be reported as a demand of a body that
-          // never wrote one.
-          for (const requirement of [...variable.requirements, ...type.requirements]) {
-            requirement.reported = true;
-          }
-          type.instance = ERROR;
+              "annotations, or remove an annotation to let the type be inferred",
+            primary: span,
+          });
+        } else if (!collision.knot.refused) {
+          // §10 says "the refusal takes the SCC hint", singular: the knot is
+          // refused once, however many of its heads the component links, and
+          // the group's next collision belongs to a recompile of a program the
+          // author has actually repaired. The flag also carries the refusal to
+          // `#errorKnotHeads`, which runs at the component's end — the heads are
+          // deliberately left live until then, so a *concrete* use of one inside
+          // the knot still reports, that message being correct in kind.
+          collision.knot.refused = true;
+          this.#diagnostics.add({
+            severity: "error",
+            message: knotHeadCollisionMessage(
+              variable.rigidName,
+              type.rigidName,
+              collision.left,
+              collision.right,
+            ),
+            primary: span,
+          });
         }
       } else {
         const required = Typed.displayScheme({
@@ -15012,10 +15074,18 @@ function inferredTypeVariableName(index: number): string {
  * members spell the same variable name is the shape that produces this refusal
  * and an unqualified pair reads as "`a` and `a`". The advice the generic message
  * carries — one name in both annotations — is what the refused program already
- * writes, so it is not offered here; §7.4's spellings are. The headless knot is
- * offered unless **both** members export: Modules §4.1.1 requires a complete
- * signature on an exported function, so two exporting members leave only the
- * wrapper, while a knot exporting one member keeps the single-head spelling.
+ * writes, so it is not offered here; §7.4's three spellings are, and which of
+ * them are legal is what the export count decides (Modules §4.1.1 requires a
+ * complete signature on an exported function):
+ *
+ * - **Neither exports**: the headless knot, or the wrapper.
+ * - **One exports**: that member keeps its head — §7.4's "a single head that
+ *   every sibling reaches generically", and a knot exporting one function keeps
+ *   it — and the sibling drops its own. Or the wrapper. Never the headless
+ *   knot: it is the Rewrite Rule's own failure, an advised repair that does not
+ *   compile ("exported function requires a complete signature").
+ * - **Both export**: two heads cannot meet and neither may be dropped, so the
+ *   wrapper is the only spelling left.
  */
 function knotHeadCollisionMessage(
   leftName: string,
@@ -15026,10 +15096,18 @@ function knotHeadCollisionMessage(
   const heads = `\`${leftName}\` declared on \`${left.name}\` and \`${rightName}\` declared on ` +
     `\`${right.name}\` are distinct declared type variables, but members of a recursive knot ` +
     "are checked together at not-yet-general types";
-  return left.exported && right.exported
-    ? `${heads}; both must declare their constraints to export, so move the contract to a ` +
-      "non-recursive wrapper over an unexported knot"
-    : `${heads}; leave the heads off the knot, or move the contract to a non-recursive wrapper`;
+  const wrapper = "move the contract to a non-recursive wrapper";
+  if (left.exported && right.exported) {
+    return `${heads}; both must declare their constraints to export, so ${wrapper} over an ` +
+      "unexported knot";
+  }
+  if (!left.exported && !right.exported) {
+    return `${heads}; leave the heads off the knot, or ${wrapper}`;
+  }
+  const exporting = left.exported ? left : right;
+  const plain = left.exported ? right : left;
+  return `${heads}; \`${exporting.name}\` must declare its constraints to export, so drop ` +
+    `\`${plain.name}\`'s head and let it reach \`${exporting.name}\` generically, or ${wrapper}`;
 }
 
 /** Keeps the technical projection vocabulary out of source-facing diagnostics. */
