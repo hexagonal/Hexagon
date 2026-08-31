@@ -8,6 +8,7 @@ import { rat } from "./examples/rat";
 import { vectors } from "./examples/vectors";
 import { compileSource } from "./compile";
 import { linkModule } from "./module-execution";
+import type { GeneratedSection } from "./protocol";
 
 describe("compileSource", () => {
   test("compiles the canonical Vector module surface", () => {
@@ -349,6 +350,143 @@ describe("compileSource", () => {
     expect(response.typeScriptPreview).toContain(
       "declare function plusInt(x: number, y: number): number;",
     );
+    // The private half of §10's two-artefact accounting: `plus` is not
+    // exported, so the ordinary emission's declarations carry no face for any of
+    // these four bodies. The pane previews the bodies anyway, and the report
+    // says the faces are absent rather than weightless.
+    expect(response.generatedDeclarations).toEqual([]);
+    expect(response.zeroEntryPointExports).toEqual([]);
+  });
+
+  /**
+   * Zero-Cost Fundamental Exports §10's two obligations, as the Playground's
+   * generated-sections panel reads them: the `.d.ts` size beside the JS size for
+   * every edition, and §3.4's list of the exports that published no typed entry
+   * point.
+   */
+  describe("the build report's two obligations", () => {
+    /** §16(h)'s constraint: no fundamental type honors it, so no tuple is lawful. */
+    const weighty = "constraint Weighty<a> =\n    weight(subject: a): Float\n\n";
+    const heaviest = "export fun heaviest<a: Weighty>(x: a, y: a): Float =\n" +
+      "    if x.weight() > y.weight() then x.weight() else y.weight()\n";
+    const stamp = "export fun stamp<a: Hash>(x: a, salt: Int): Int = x.hash() + salt\n";
+
+    test("reports both artefacts' sizes and the zero-entry-point export beside them", () => {
+      const response = compileSource(40, `${weighty}${heaviest}\n${stamp}`);
+
+      expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (response.kind !== "compile-success") return;
+
+      // `stamp` mints one edition per fundamental — every one of the seven holds
+      // a lawful `Hash` — and `heaviest` mints none at all. One module, both
+      // halves of the report.
+      expect(response.generatedJavaScript.map(({ generatedName }) => generatedName)).toEqual([
+        "stampNat",
+        "stampInt",
+        "stampFloat",
+        "stampBigInt",
+        "stampBool",
+        "stampString",
+        "stampUnit",
+      ]);
+      expect(response.generatedDeclarations.map(({ generatedName }) => generatedName)).toEqual(
+        response.generatedJavaScript.map(({ generatedName }) => generatedName),
+      );
+      expect(response.zeroEntryPointExports).toEqual(["heaviest"]);
+
+      // The two lists are the same plan read twice and they disagree about size,
+      // which is why §10 asks for both rather than a total: `stampFloat` weighs
+      // more as a body than as a face. Every row of both carries a size.
+      const javaScriptBytes = response.generatedJavaScript.map(({ bytes }) => bytes);
+      const declarationBytes = response.generatedDeclarations.map(({ bytes }) => bytes);
+      expect(javaScriptBytes.every((bytes) => bytes > 0)).toBe(true);
+      expect(declarationBytes.every((bytes) => bytes > 0)).toBe(true);
+      expect(declarationBytes).not.toEqual(javaScriptBytes);
+    });
+
+    /**
+     * §16(h) exactly: legal, visible, and still a working Hexagon export. The
+     * module generates nothing, so a panel gated on the edition list would show
+     * the author nothing — in the one case where the absence is the whole news.
+     */
+    test("lists an export with no entry points even where nothing was generated", () => {
+      const response = compileSource(41, `${weighty}${heaviest}`);
+
+      expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (response.kind !== "compile-success") return;
+
+      expect(response.generatedJavaScript).toEqual([]);
+      expect(response.generatedDeclarations).toEqual([]);
+      expect(response.zeroEntryPointExports).toEqual(["heaviest"]);
+      // §3.4's second bullet: the typed surface is what the exception removes.
+      // The ESM still carries the evidence-taking form as plumbing, which is
+      // what keeps the export callable from another Hexagon module.
+      expect(response.javascript).toContain("heaviest");
+      expect(response.typeScriptPreview).not.toContain("heaviest");
+    });
+
+    test("reports nothing at all for a module whose exports are unconstrained", () => {
+      const response = compileSource(42, "export fun plain(x: Int): Int = x + 1\n");
+
+      expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (response.kind !== "compile-success") return;
+
+      // `plain` carries no constrained variable, so §3.1 never made it eligible.
+      // A list phrased on "published no face" alone would name it here.
+      expect(response.generatedJavaScript).toEqual([]);
+      expect(response.generatedDeclarations).toEqual([]);
+      expect(response.zeroEntryPointExports).toEqual([]);
+    });
+
+    /**
+     * `bytes` is UTF-8 and the offsets index the text as JavaScript does, so a
+     * panel that labelled a region with `endOffset - startOffset` would
+     * under-report the file on disk.
+     *
+     * Which artefact diverges is a property of where the author's non-ASCII text
+     * sits, not of either artefact, and the two sources below are measured
+     * against each other to say so. Neither list may be assumed to agree: an
+     * accented doc comment separates the `.d.ts` rows while the JavaScript rows
+     * match, and an accented string literal in the body does the reverse.
+     */
+    test("measures every edition in UTF-8 bytes, whichever artefact holds the prose", () => {
+      const documented = compileSource(
+        43,
+        "(** Mélange un sel — «précision» — pour séparer deux valeurs égales. *)\n" + stamp,
+      );
+      // No doc block at all, and the accents inside the body's own literal.
+      const accentedBody = compileSource(
+        44,
+        "export fun label<a: Show>(x: a): String = \"Mélange «précision» — ${x}\"\n",
+      );
+
+      expect(documented).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      expect(accentedBody).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (documented.kind !== "compile-success") return;
+      if (accentedBody.kind !== "compile-success") return;
+
+      const span = ({ startOffset, endOffset }: GeneratedSection): number =>
+        endOffset - startOffset;
+
+      // A `.d.ts` row spans the edition's own documentation block, so the
+      // author's prose is inside that measurement — 148 bytes across a
+      // 138-index span here — while the bodies beside it stay ASCII.
+      expect(documented.generatedDeclarations.every((s) => s.bytes > span(s))).toBe(true);
+      expect(documented.generatedJavaScript.every((s) => s.bytes === span(s))).toBe(true);
+
+      // The same two claims, exchanged. The `.d.ts` face renders the signature
+      // and not the literal, so it is the JavaScript that carries the accents:
+      // 77 bytes across a 71-index span, with the faces exact.
+      expect(accentedBody.generatedJavaScript.every((s) => s.bytes > span(s))).toBe(true);
+      expect(accentedBody.generatedDeclarations.every((s) => s.bytes === span(s))).toBe(true);
+
+      // What holds of both, and the only relation the panel may rely on.
+      for (const response of [documented, accentedBody]) {
+        for (const section of [...response.generatedJavaScript, ...response.generatedDeclarations]) {
+          expect(section.bytes).toBeGreaterThanOrEqual(span(section));
+        }
+      }
+    });
   });
 
   test("routes the specialization example's concrete calls through its editions", () => {

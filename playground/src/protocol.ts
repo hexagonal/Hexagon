@@ -25,7 +25,22 @@ export interface TypeOccurrence {
   readonly endOffset: number;
 }
 
-export interface GeneratedJavaScriptSection {
+/**
+ * One emitted edition of a constrained export, located in the artefact it was
+ * rendered into — `Emitted.GeneratedSection` crossing the worker boundary
+ * unchanged.
+ *
+ * One name for both artefacts because it is one shape and one plan read twice:
+ * a generated *body* in the JavaScript, a generated *face with its own
+ * documentation block* in the `.d.ts`. What differs between the two rows for an
+ * edition is `bytes`, which is the whole point of Zero-Cost Fundamental Exports
+ * §10 asking for two sizes rather than a total.
+ *
+ * `bytes` is UTF-8 — what the artefact weighs on disk — while the offsets index
+ * `text` the way JavaScript does. The two are not interchangeable, so a size is
+ * only ever read from `bytes` and never computed as `endOffset - startOffset`.
+ */
+export interface GeneratedSection {
   readonly kind: "FundamentalSpecialization";
   readonly sourceName: string;
   readonly generatedName: string;
@@ -46,7 +61,35 @@ export interface CompileSuccess {
   readonly javascript: string;
   readonly executionModules: readonly ExecutableModule[];
   readonly entryPath: string;
-  readonly generatedJavaScript: readonly GeneratedJavaScriptSection[];
+  readonly generatedJavaScript: readonly GeneratedSection[];
+  /**
+   * The `.d.ts` half of the same accounting (Zero-Cost Fundamental Exports §10):
+   * the main module's rendered edition faces, each spanning the face and the
+   * documentation block re-emitted above it.
+   *
+   * Not derivable from `generatedJavaScript`, which is why it travels: the two
+   * artefacts grow differently with the Cartesian product, and §10 asks for both
+   * sizes.
+   *
+   * The relation to `generatedJavaScript` is containment and not equality: this
+   * pane previews *private* editions and a private declaration reaches no
+   * `.d.ts` at all, so every row here has a JavaScript counterpart and the
+   * reverse fails for exactly the private ones. The two lists measure equal on a
+   * module whose constrained declarations are all exported, which is why nothing
+   * downstream may read either length as evidence about the other.
+   */
+  readonly generatedDeclarations: readonly GeneratedSection[];
+  /**
+   * The main module's exports that publish no typed entry point — Zero-Cost
+   * Fundamental Exports §3.4's list, the visibility half of that exception's
+   * bargain, so an author targeting JS consumers reads the absence here rather
+   * than discovering it from a missing import.
+   *
+   * Read off the *declarations*, where §3.4's absence is literal: the emitted
+   * ESM beside them may still carry the export's evidence-taking form as
+   * cross-module plumbing, and what the exception removes is the typed surface.
+   */
+  readonly zeroEntryPointExports: readonly string[];
   readonly typeScriptPreview: string;
   readonly types: readonly TypeOccurrence[];
   readonly diagnostics: readonly PlaygroundDiagnostic[];
