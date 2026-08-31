@@ -544,9 +544,14 @@ class Parser {
     const headSpan = spanFrom(funToken.span, this.#previous().span);
 
     // Head-export sugar is binned (Modules §4.1, Functions §7.3): the marker
-    // belongs on the line that names what crosses.
+    // belongs on the line that names what crosses. Below module level the
+    // per-member advice would be wrong twice over — an inner block's members
+    // take no marker either — so that seat takes §4.1's own refusal instead.
     if (exportToken !== undefined) {
-      this.#errorAt(exportToken.span, FUN_BLOCK_HEAD_EXPORT);
+      this.#errorAt(
+        exportToken.span,
+        moduleItems ? FUN_BLOCK_HEAD_EXPORT : EXPORT_BELOW_MODULE_LEVEL,
+      );
     }
     // Doc Comments §4.2: the head introduces no name, so a block before it
     // documents nothing and is refused rather than swallowed.

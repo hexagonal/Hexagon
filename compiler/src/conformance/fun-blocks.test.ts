@@ -178,6 +178,9 @@ describe("the head's variable is one rigid (§12.3)", () => {
    * member's own demand, never silently strengthening the head.
    */
   test("a member whose body exceeds the head's list is refused", () => {
+    // One list, stated once, checked **per member**: `left` uses the variable
+    // within the head's `Eq` and says nothing, `right` demands `Show` and is
+    // refused. The head is never silently strengthened.
     expect(
       projectDiagnostics(
         "fun<a: Eq>\n" +
@@ -185,10 +188,20 @@ describe("the head's variable is one rigid (§12.3)", () => {
           '        if n <= 0 then "" else right(x, n - 1)\n' +
           "    right(x: a, n: Int): String = show(x)\n",
       ),
-    ).toContain(
+    ).toEqual([
       "`a` is declared to honor `Eq`, but the body requires `Show`; write " +
         "`<a: (Eq, Show)>`, or remove the constraint annotation to let it be inferred",
-    );
+    ]);
+
+    // And the head's own list governs: widen it and the same block compiles.
+    expect(
+      projectDiagnostics(
+        "fun<a: (Eq, Show)>\n" +
+          "    left(x: a, n: Int): String =\n" +
+          '        if n <= 0 then "" else right(x, n - 1)\n' +
+          "    right(x: a, n: Int): String = show(x)\n",
+      ),
+    ).toEqual([]);
   });
 
   /**
@@ -294,9 +307,22 @@ describe("the exported constrained knot (§12.5)", () => {
     expect(module.javascript.text).toContain("export { countUp as __countUp };");
     expect(module.javascript.text).toContain("export { countDown as __countDown };");
 
+    // Complete, and complete in kind: the block does not cross, so each member
+    // publishes the faces an exported constrained function publishes — one per
+    // fundamental specialization, both members alike.
     const declarations = module.declarations.text;
-    expect(declarations).toContain("countUp");
-    expect(declarations).toContain("countDown");
+    expect(declarations).toContain(
+      "export declare function countUpInt(x: number, y: number, n: number): number;",
+    );
+    expect(declarations).toContain(
+      "export declare function countDownInt(x: number, y: number, n: number): number;",
+    );
+    expect(declarations).toContain(
+      "export declare function countUpString(x: string, y: string, n: number): number;",
+    );
+    expect(declarations).toContain(
+      "export declare function countDownString(x: string, y: string, n: number): number;",
+    );
   });
 
   test("the exported knot runs at a ground type", async () => {
@@ -487,6 +513,20 @@ describe("the diagnostics family (§12.6)", () => {
     expect(
       projectDiagnostics("export fun\n    f(n: Int): Int = n\n"),
     ).toContain("`export` marks members: put it on each member to export");
+
+    // Below module level the per-member advice would be wrong twice over — an
+    // inner block's members take no marker either — so that seat takes Modules
+    // §4.1's own refusal.
+    expect(
+      projectDiagnostics(
+        "export fun run(n: Int): Int =\n" +
+          "    export fun\n" +
+          "        helper(k: Int): Int = k\n" +
+          "    helper(n)\n",
+      ),
+    ).toContain(
+      "`export` marks module-level declarations; a local binding cannot be exported",
+    );
   });
 
   test("a binder list on a member line", () => {
@@ -576,14 +616,19 @@ describe("the diagnostics family (§12.6)", () => {
   });
 
   test("a doc comment on a member attaches to that member", () => {
-    expect(
-      projectDiagnostics(
-        "fun\n" +
-          "    (** Doubles. *)\n" +
-          "    up(n: Int): Int = n * 2\n" +
-          "export let answer: Int = up(1)\n",
-      ),
-    ).toEqual([]);
+    // Doc Comments §4.2: attachment is per member, through the `export` marker
+    // exactly as through a declaration's — and it reaches both emitted seats.
+    const module = compiled(
+      "fun\n" +
+        "    (** Doubles. *)\n" +
+        "    export up(n: Int): Int = n * 2\n" +
+        "    (** Halves. *)\n" +
+        "    export down(n: Int): Int = n + 2\n",
+    );
+    expect(module.javascript.text).toContain("/** Doubles. */\nfunction up(n) {");
+    expect(module.javascript.text).toContain("/** Halves. */\nfunction down(n) {");
+    expect(module.declarations.text).toContain("/** Doubles. */\nexport declare function up(");
+    expect(module.declarations.text).toContain("/** Halves. */\nexport declare function down(");
   });
 
   test("a dot call cannot target the caller's own block", () => {
