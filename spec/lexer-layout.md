@@ -67,6 +67,16 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | A `fun` head ending its logical item — the keyword alone, or with its binder list (`fun<a: Eq>`), no member on the line (Functions §7.3) | `fun` member block |
 | Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header — a `fun` block's member lines included) | Binding body block |
 
+*(#700 terminology.)* The right column sorts into three kinds, and the head
+decides which: **expression blocks** — bodies and binding blocks, item
+sequences whose final expression is the block's value (Statements §3) —
+**arm blocks** — a `match`'s or `catch`'s arms — and **member blocks** —
+the `constraint`, `honor`, `extern from`, and `fun` heads' bodies, plus the
+module's own implicit block: declaration sequences with no value and no
+final-expression law (Statements §3.1). A member block is not an expression —
+nothing assigns, passes, or returns one; what it binds is what gets used.
+Layout knows no difference: one mechanism serves all three kinds.
+
 **Every term binding opens a block.** A binding's indented RHS is a block whose
 value is its final expression, exactly as for a function body — the parameter
 list is irrelevant, so `let x =` and `let f(...) =` behave alike:
@@ -253,3 +263,4 @@ These are binding on the implementation, same status as the Functions spec's dia
 | `catch` continues a preceding `match` item exactly as it continues `try` — the match catch clause (Exceptions §5.4); attachment by column, no new layout machinery | §2 |
 | A scrutinee-less `match` head opens its arm block through the same inventory row — the match function (Pattern Matching §6.7) needs no new layout rule | §2.1 |
 | A `fun` head ending its logical item opens the member block; member lines are ordinary term-binding rows; the once-recorded §7.1 read-through exception retired with the `fun` RHS (#700) | §2.1 |
+| Block-kind terminology (#700): expression blocks (value), arm blocks, member blocks (`constraint`/`honor`/`extern from`/`fun`/module top level — declaration sequences, not expressions); one layout mechanism serves all three | §2.1 |

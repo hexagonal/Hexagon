@@ -29,7 +29,9 @@ let prepare(order: Order): Order =
 
 All three body items begin in the same column. The call to `log`, the `let` binding,
 and the final expression therefore belong to one block. As established earlier, the
-final expression supplies the block's value.
+final expression supplies the block's value — the law of *expression* blocks. A
+member block, like chapter 3's `fun` block or the top level of a source file,
+groups declarations under the same indentation rules and has no value to supply.
 
 Indenting farther opens a nested block. Returning to an earlier column closes it:
 
@@ -189,7 +191,8 @@ not start string parsing.
 
 ## Summary
 
-- indentation is Hexagon's only block syntax;
+- indentation is Hexagon's only block syntax, serving expression blocks and member
+  blocks alike;
 - lines at the same indentation belong to the same block, deeper indentation nests,
   and dedenting closes blocks;
 - a same-line body contains one expression;

@@ -50,7 +50,7 @@ A block (layout-delimited per Lexer & Layout, or the degenerate same-line single
 
 ### 3.1 Block-final bindings: the error, precisely
 
-The check is syntactic (is the final item a binding node?), applied after layout, before typechecking. It applies to every block: lambda bodies, term-binding RHS blocks (`let x =` with an indented body — Lexer & Layout §2.1), `if` branches, match arms, catch arms, `try` bodies. The module top-level block is exempt — a module *is* a sequence of declarations and need not end in an expression; module "value" is not a concept.
+The check is syntactic (is the final item a binding node?), applied after layout, before typechecking. It applies to every block: lambda bodies, term-binding RHS blocks (`let x =` with an indented body — Lexer & Layout §2.1), `if` branches, match arms, catch arms, `try` bodies. The module top-level block is exempt — a module *is* a sequence of declarations and need not end in an expression; module "value" is not a concept. *(#700 terminology.)* Every **member block** is exempt the same way — a `constraint`, `honor`, `extern from`, or `fun` head's body (Lexer & Layout §2.1) is a declaration sequence, not a value-producing block; this section's rules speak of expression blocks.
 
 ### 3.2 The discarded-value rule
 
