@@ -137,18 +137,21 @@ describe("check", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
-  test("known limitation: a mutually recursive pair with declared type variables is rejected", () => {
+  test("a mutually recursive pair with declared type variables is rejected", () => {
     // Within one strongly-connected component the shared type is monomorphic
-    // (standard HM); annotated distinct type variables then clash. Documented in
-    // #66 — annotation-first schemes are the eventual fix. Pinned so the behavior
-    // change would be a deliberate one, not a silent regression.
+    // (Functions §7.4); two declarations' rigids can never be one variable, and
+    // the acceptance that would make this legal — a member participating at its
+    // declared scheme — is rejected doctrine, not a gap (annotations decision
+    // §9.11). The report is §10's SCC hint; `conformance/recursion-knot.test.ts`
+    // owns the message's own fences.
     const module = checkSource(
       "fun f<a>(x: a): a = g(x)\n" +
         "fun g<a>(x: a): a = f(x)\n",
     );
     expect(module.diagnostics.map(({ message }) => message)).toContain(
-      "`a` and `a` are distinct declared type variables, but the body requires them to be the same; " +
-        "use one type variable name in both annotations, or remove an annotation to let the type be inferred",
+      "`a` declared on `f` and `a` declared on `g` are distinct declared type variables, but " +
+        "members of a recursive knot are checked together at not-yet-general types; leave the " +
+        "heads off the knot, or move the contract to a non-recursive wrapper",
     );
   });
 
