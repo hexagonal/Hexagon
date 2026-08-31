@@ -167,6 +167,43 @@ describe("generatedSectionsPanel", () => {
   });
 
   /**
+   * The pairing key, pinned on the only shape that can tell the two candidate
+   * keys apart: two constrained declarations where the private one's editions
+   * are rendered **first**. That is the default example's own shape, not a
+   * contrivance — this pane previews private editions and the `.d.ts` beside it
+   * has none of them, so the lists differ in membership and not merely in
+   * length.
+   *
+   * Pairing by position reads green on every other fixture in this file and
+   * inverts here: `secret` is credited with `stamp`'s faces and `stamp` reports
+   * having published none, which is the report saying the opposite of the truth
+   * about both declarations at once.
+   */
+  test("pairs an edition with its own face where a private export is rendered first", () => {
+    const panel = generatedSectionsPanel(
+      [
+        edition("secret", "secretNat", "Nat", 40),
+        edition("secret", "secretInt", "Int", 44),
+        edition("stamp", "stampNat", "Nat", 66),
+        edition("stamp", "stampFloat", "Float", 70),
+      ],
+      [edition("stamp", "stampNat", "Nat", 66), edition("stamp", "stampFloat", "Float", 68)],
+      [],
+    );
+
+    expect(panel.exports.map(({ sourceName }) => sourceName)).toEqual(["secret", "stamp"]);
+    expect(formatExportLabel(panel.exports[0]!)).toBe("secret (2, 84 B JS · no .d.ts faces)");
+    expect(formatExportLabel(panel.exports[1]!)).toBe("stamp (2, 136 B JS · 134 B .d.ts)");
+    expect(panel.exports[0]).toMatchObject({ declarationBytes: 0, facesMissing: 2 });
+    expect(panel.exports[1]).toMatchObject({ declarationBytes: 134, facesMissing: 0 });
+    // Each face lands on the edition that rendered it, not on the one that
+    // happens to sit at its index in the other artefact's list.
+    expect(formatEditionLabel(panel.exports[1]!.editions[1]!)).toBe(
+      "stampFloat · Float · 70 B JS · 68 B .d.ts",
+    );
+  });
+
+  /**
    * §16(h): `heaviest` is bound by a constraint no fundamental type honors, so
    * the lawful tuple product is empty and nothing is minted. The panel has to
    * render anyway — this is the one case where an author targeting JS consumers

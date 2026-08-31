@@ -81,11 +81,18 @@ export function generatedSectionsPanel(
  * Pairs the two artefacts' rows for the same edition, grouped by the declaration
  * they were minted from.
  *
- * The JavaScript list leads because it is the longer one, and the pairing key is
- * the generated name: both artefacts render from one plan, so a name identifies
- * an edition across them (Algorithm N, §6.1). Nothing pairs by position — the
- * `.d.ts` list omits every private edition, so the two lists' indexes do not
- * correspond.
+ * The JavaScript list leads because it is the containing one — every face has a
+ * body and the reverse fails for private editions — and the pairing key is the
+ * generated name: both artefacts render from one plan, so a name identifies an
+ * edition across them (Algorithm N, §6.1).
+ *
+ * Nothing pairs by position, and the difference is not merely one of length.
+ * The `.d.ts` list omits every private edition wherever it sits, so a private
+ * declaration rendered ahead of an exported one displaces every index after it
+ * — and a positional pairing then credits the private declaration with the
+ * exported one's faces while reporting the exported one as having published
+ * none. The two lists measure equal whenever no constrained declaration is
+ * private, which is why a length check is no guard at all.
  */
 export function reportGeneratedEditions(
   javaScriptSections: readonly GeneratedSection[],

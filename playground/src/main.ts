@@ -478,13 +478,21 @@ function renderResult(): void {
  * what would create an entry point. The wording is the exception's own — the
  * absence is legal, and the export keeps working for the audience `export`
  * exists to serve.
+ *
+ * §3.4 names two remedies and this names one. The other — evidence completing a
+ * §4.1 assignment, which would reach the export through Algorithm G — was driven
+ * through `compileSource` and changes nothing: Algorithm G is unimplemented, and
+ * whether its edition would carry a `.d.ts` face at all is #423's open question.
+ * A tooltip that offered it would be sending an author to do work that does not
+ * currently produce the entry point it promises. The sentence says nothing about
+ * why the second remedy is missing, because that is a compiler fact with an open
+ * issue attached and not something for this host to adjudicate.
  */
 const ZERO_ENTRY_POINT_EXPLANATION =
   "Zero-Cost Fundamental Exports §3.4: these exports publish no typed entry " +
   "point, which is legal, not an error. A lawful fundamental instance of the " +
-  "constraint, or evidence completing a §4.1 assignment, would create one. " +
-  "They remain working Hexagon exports that another module can import, honor " +
-  "the constraint for, and call.";
+  "constraint would create one. They remain working Hexagon exports that " +
+  "another module can import, honor the constraint for, and call.";
 
 /**
  * The generated-sections panel — Zero-Cost Fundamental Exports §10's report, as

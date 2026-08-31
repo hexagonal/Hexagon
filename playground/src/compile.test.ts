@@ -8,6 +8,7 @@ import { rat } from "./examples/rat";
 import { vectors } from "./examples/vectors";
 import { compileSource } from "./compile";
 import { linkModule } from "./module-execution";
+import type { GeneratedSection } from "./protocol";
 
 describe("compileSource", () => {
   test("compiles the canonical Vector module surface", () => {
@@ -438,29 +439,52 @@ describe("compileSource", () => {
     });
 
     /**
-     * A `.d.ts` row spans the edition's own documentation block, so an author's
-     * prose is inside the measurement — and prose is where the file stops being
-     * ASCII. `bytes` is UTF-8 and the offsets index the text as JavaScript does,
-     * so a panel that labelled a region with `endOffset - startOffset` would
-     * under-report every documented module written in a language with accents.
+     * `bytes` is UTF-8 and the offsets index the text as JavaScript does, so a
+     * panel that labelled a region with `endOffset - startOffset` would
+     * under-report the file on disk.
+     *
+     * Which artefact diverges is a property of where the author's non-ASCII text
+     * sits, not of either artefact, and the two sources below are measured
+     * against each other to say so. Neither list may be assumed to agree: an
+     * accented doc comment separates the `.d.ts` rows while the JavaScript rows
+     * match, and an accented string literal in the body does the reverse.
      */
-    test("measures a documented edition in UTF-8 bytes, not in string offsets", () => {
-      const response = compileSource(
+    test("measures every edition in UTF-8 bytes, whichever artefact holds the prose", () => {
+      const documented = compileSource(
         43,
         "(** Mélange un sel — «précision» — pour séparer deux valeurs égales. *)\n" + stamp,
       );
+      // No doc block at all, and the accents inside the body's own literal.
+      const accentedBody = compileSource(
+        44,
+        "export fun label<a: Show>(x: a): String = \"Mélange «précision» — ${x}\"\n",
+      );
 
-      expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
-      if (response.kind !== "compile-success") return;
+      expect(documented).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      expect(accentedBody).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (documented.kind !== "compile-success") return;
+      if (accentedBody.kind !== "compile-success") return;
 
-      for (const section of response.generatedDeclarations) {
-        expect(section.bytes).toBeGreaterThan(section.endOffset - section.startOffset);
-      }
-      // The JavaScript side is where the two agree, and it agrees for a reason
-      // rather than by luck: the item's documentation precedes the whole
-      // rendered block once there, so no edition's body carries any of it.
-      for (const section of response.generatedJavaScript) {
-        expect(section.bytes).toBe(section.endOffset - section.startOffset);
+      const span = ({ startOffset, endOffset }: GeneratedSection): number =>
+        endOffset - startOffset;
+
+      // A `.d.ts` row spans the edition's own documentation block, so the
+      // author's prose is inside that measurement — 148 bytes across a
+      // 138-index span here — while the bodies beside it stay ASCII.
+      expect(documented.generatedDeclarations.every((s) => s.bytes > span(s))).toBe(true);
+      expect(documented.generatedJavaScript.every((s) => s.bytes === span(s))).toBe(true);
+
+      // The same two claims, exchanged. The `.d.ts` face renders the signature
+      // and not the literal, so it is the JavaScript that carries the accents:
+      // 77 bytes across a 71-index span, with the faces exact.
+      expect(accentedBody.generatedJavaScript.every((s) => s.bytes > span(s))).toBe(true);
+      expect(accentedBody.generatedDeclarations.every((s) => s.bytes === span(s))).toBe(true);
+
+      // What holds of both, and the only relation the panel may rely on.
+      for (const response of [documented, accentedBody]) {
+        for (const section of [...response.generatedJavaScript, ...response.generatedDeclarations]) {
+          expect(section.bytes).toBeGreaterThanOrEqual(span(section));
+        }
       }
     });
   });

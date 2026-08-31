@@ -69,9 +69,14 @@ export interface CompileSuccess {
    *
    * Not derivable from `generatedJavaScript`, which is why it travels: the two
    * artefacts grow differently with the Cartesian product, and §10 asks for both
-   * sizes. It is also shorter here than the JavaScript list rather than equal to
-   * it — this pane previews *private* editions, and a private declaration
-   * reaches no `.d.ts` at all.
+   * sizes.
+   *
+   * The relation to `generatedJavaScript` is containment and not equality: this
+   * pane previews *private* editions and a private declaration reaches no
+   * `.d.ts` at all, so every row here has a JavaScript counterpart and the
+   * reverse fails for exactly the private ones. The two lists measure equal on a
+   * module whose constrained declarations are all exported, which is why nothing
+   * downstream may read either length as evidence about the other.
    */
   readonly generatedDeclarations: readonly GeneratedSection[];
   /**
