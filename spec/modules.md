@@ -76,7 +76,7 @@ A module-level declaration head has **one visibility slot, with three values** *
 
 ### 4.1 `export`
 
-`export` prefixes a module-level declaration and exports **everything that declaration introduces**:
+`export` prefixes a module-level declaration — and, since #700, also marks a member of a module-level `fun` block at the member's left margin (Functions §7.3) — exporting **everything that declaration or member introduces**:
 
 | Declaration | Exports |
 |---|---|
@@ -89,6 +89,8 @@ A module-level declaration head has **one visibility slot, with three values** *
 | `export exception ParseError(...)` | the exception constructor |
 | `export honor ...` | **hard error** — "instances are always visible; `export` does not apply" (§7) |
 | `export import ...` | **hard error** — re-exports deferred (§12.2) |
+
+**`export` is module-level only.** On anything below module level — a binding inside a function body, a member of an inner block's `fun` — it is a parse error: "`export` marks module-level declarations; a local binding cannot be exported" (§10).
 
 There are **no default exports**. `export default` is a parse error ("Hexagon has named exports only"). Inside `extern from`, `export default fun`/`let` instead means “bind an incoming JavaScript default export, then expose it as an ordinary named Hexagon export”; it never creates a Hexagon default export (FFI Part 4 §6). Rejected with reasons §9.5.
 
@@ -375,6 +377,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | Situation | Error / hint |
 |---|---|
 | `module Name` header | parse error: "Hexagon has no module headers; a file is a module" |
+| `export` below module level (a function-body binding; an inner `fun` block's member) | parse error: "`export` marks module-level declarations; a local binding cannot be exported" (§4.1, #700) |
 | Import inside a function/block | "declarations live at module level" family (Preamble §7.1) |
 | Importing an unexported name | "`helper` exists in `./geometry` but is not exported" (or plain unknown-export + near-miss) |
 | Import cycle | "import cycle: `./a` → `./b` → `./a`"; hint: "mutually recursive declarations can share one module" |

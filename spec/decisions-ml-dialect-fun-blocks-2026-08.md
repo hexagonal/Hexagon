@@ -195,7 +195,7 @@ Applied in this same change unless marked otherwise:
 - **Pattern Matching** — §6.7 (the `fun`-RHS clause removed; retirement noted), decisions-log row amended inline.
 - **Lexer & Layout** — §2.1 (block-head row; the §7.1 exception paragraph retired).
 - **Method Syntax** — §4.4/§9/§13/§14: "`fun` group" → "`fun` block" (rule, message, log, acceptance comment).
-- **Constraints** — §4.6's honor-member evaluation-freeness sentence re-anchored (the rule `fun` §7.1 once carried); the no-honor-dot-ban sentence: group → block.
+- **Constraints** — §4.1's member-RHS evaluation-freeness sentence re-anchored (the rule `fun` §7.1 once carried); §4.6's no-honor-dot-ban sentence: group → block.
 - **Effects §3.4** — knot wording: group → block.
 - **Declarations Preamble §7.2** — forward-visibility sentence: group → block.
 - **Doc Comments** — §4.2: members documentable; attachment per member; a doc comment on a block head is an error naming the member rule.
@@ -204,7 +204,7 @@ Applied in this same change unless marked otherwise:
 - **`notes/canonical-formatting-and-naming.md`** — v1 stance: fused and single-member block both legal; the formatter rewrites neither into the other.
 - **`notes/hexagon-for-typescript-coders.md`** — the recursion paragraph respelled to the block.
 - **README** — rule 3's closure-document list and the ownership map gain this document.
-- **Book** *(rider PR)* — chapters 3 (recursion sections), 6 (knot wording), 11 (the `fun size = match` example rewrites to scrutinee form), 15 (dot-call wording); FRONTMATTER bumps the title to **v1.2**.
+- **Book** *(rider PR)* — chapters 3 (recursion sections), 6 (knot wording), 11 (the `fun size = match` example rewrites to scrutinee form), 15 (dot-call wording), 16 (the `var` function-type ban); FRONTMATTER bumps the title to **v1.2**.
 
 ## 12. Conformance obligations
 
@@ -212,10 +212,10 @@ Pinned on parse/type verdicts, and on **emitted JS plus execution** wherever a k
 
 1. The block parses: bare head; binder head; members with annotations; `export` members; nested blocks; blocks in inner scopes.
 2. Mutual recursion through a block compiles and **runs** (the even/odd pair; a constrained knot under a binder head, run at a ground type).
-3. The head's variable is one rigid: two members writing `a` share it (a knot linking them compiles; the §4.2 contract refuses a member whose body exceeds the head's list, naming the member).
+3. The head's variable is one rigid: two members writing `a` share it (a knot linking them compiles; the §4.2 contract refuses a member whose body exceeds the head's list, naming the member). The converse is pinned too — under a **bare** head, two members writing one spelling share nothing, and a knot linking their variables is the rigid-vs-rigid refusal — the guard on §10.1's decisive rejection.
 4. Sharing is opt-in: a member not writing `a` generalizes independently; non-cross-referencing members do not restrict each other (the §7.3 "bounds visibility, not typing" pin, re-aimed at the block).
 5. An exported constrained knot: two `export` members under one binder head compile, emit complete `.d.ts`, and **run** — the spelling #700 filed as unwritable.
-6. Every §9 row fires with its wording: the three retired-RHS rewrites, the wrap rewrite on the retired run, head-export, member binder, empty block, the §4.1.1 block advice, the var ban at declaration **and** at pinning use (`var f = identity` shapes included), with function-in-data vars still legal.
+6. Every §9 row fires with its wording: the three retired-RHS rewrites, the wrap rewrite on the retired run, head-export, member binder, empty block, the inner-block member `export` refusal (Modules §4.1), the §4.1.1 block advice, the var ban at declaration **and** at pinning use (`var f = identity` shapes included), with function-in-data vars still legal.
 7. The fused/block identity: `fun f(…) = …` and the one-member block agree on inferred scheme, emitted JS, and self-recursion.
 8. Emission goldens: block members as `function` declarations in member order at the block's position; the retired forms produce no emission (parse errors).
 9. Existing §7.4 pins (identity suffix, concrete-use refusal) keep passing with knots respelled as blocks — the #701 substrate extends, unrebuilt.
