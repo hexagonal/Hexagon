@@ -7687,7 +7687,42 @@ class JavaScriptEmitter {
     return `structural:${this.#serializeEvidence(evidence, constraint)}`;
   }
 
-  /** One evidence tree, serialized for `#structuralEvidenceKey`. */
+  /**
+   * One evidence tree, serialized for `#structuralEvidenceKey`.
+   *
+   * Three of the five cases are live and two are defence. `isGroundEvidence`
+   * runs **before** this does (`#hoistStructuralEvidence`), a `Dictionary` and
+   * an `Error` node are both non-ground, and `Structural` and `Instance` are
+   * ground only when every child is — so a tree carrying either anywhere in it
+   * is never keyed at all. That is Dictionary Sharing §3.3/§4 read from the
+   * implementation, and the serializer recurses through exactly the children
+   * groundness recurses through — a `Structural` node's components and an
+   * `Instance` node's arguments — so the two walks cannot disagree about where
+   * in a tree a node is.
+   *
+   * Of the three live cases, two read a constraint **name** into the key: the
+   * `S|` structural case, and the `P|` fallback the `Primitive` case takes when
+   * no source instance answers. Both are collision-free for one reason — the
+   * only constraints they can be minted for are pre-registered, and §5.1.1
+   * makes a pre-registered name non-redeclarable, so within one program the
+   * name determines the declaration. `S|` because `#validate` marks a
+   * requirement structural only at `Eq`, `Ord`, `Show`, `Hash` and `Concat` —
+   * spellings its gates name outright — or for a provided `Iterable` row, which
+   * `#seedProvidedIterableRows` mints at `preRegisteredConstraintIdentity`, and
+   * because the planner's `Unit`/`Bool` arms sit behind
+   * `isPreRegisteredIdentity` (`editionEvidence`); `P|` because
+   * `Primitive` evidence has the two producers `#sourceInstanceDictionary`
+   * names and both are pre-registered.
+   *
+   * `conformance/evidence-key-identity.test.ts` is where those two invariants
+   * redden: it walks a representative compile and asserts that no requirement
+   * for a module-declared constraint is ever structural or evidenced by a bare
+   * primitive, and that the structural names form a closed pre-registered set.
+   * `edition-evidence-identity.test.ts` carries the planner half of the `P|`
+   * producers claim (#684) and is not rebuilt there.
+   *
+   * The `D|` case reads no name at all — see `serializeDictionaryEvidence`.
+   */
   #serializeEvidence(evidence: Core.Evidence, constraint: Typed.ConstraintName): string {
     switch (evidence.kind) {
       case "Primitive": {
@@ -7711,9 +7746,7 @@ class JavaScriptEmitter {
             .join(",")
         }`;
       case "Dictionary":
-        return `D|${evidence.constraint ?? constraint}|${Number(evidence.variable)}|${
-          (evidence.path ?? []).join(".")
-        }`;
+        return serializeDictionaryEvidence(evidence);
       case "Error":
         return "E";
     }
@@ -11236,6 +11269,34 @@ function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undef
 }
 
 /**
+ * One `Dictionary` node, serialized for `#structuralEvidenceKey`.
+ *
+ * **Defence, not live code.** No `Dictionary` node reaches the key path at all:
+ * `#hoistStructuralEvidence` asks `isGroundEvidence` first, a `Dictionary` node
+ * is not ground, and a `Structural` or `Instance` node is ground only when
+ * every child is — Dictionary Sharing §3.3/§4's rule that evidence containing a
+ * free dictionary parameter never hoists. So this changes no key the compiler
+ * mints, and cannot: there is none to change.
+ *
+ * It keys on the **identity** rather than on a spelling because a name is not a
+ * property of a constraint at a module border — two modules may each declare a
+ * `Describe`, and an import may rename one (#685). That is the sentence
+ * `Core.DictionaryEvidence.constraintIdentity` is carried for, and this case is
+ * the one place in the key that had a field of the right kind and read the
+ * wrong one. What it buys is a case that stays right for whoever makes it
+ * reachable, not a repair to anything running.
+ *
+ * Module-level and exported because the case has no public path to be driven
+ * through: with the ground gate in front of it, only a hand-built node reaches
+ * it, and only a direct call can hand it one.
+ */
+export function serializeDictionaryEvidence(evidence: Core.DictionaryEvidence): string {
+  return `D|${evidence.constraintIdentity}|${Number(evidence.variable)}|${
+    (evidence.path ?? []).join(".")
+  }`;
+}
+
+/**
  * Whether this evidence tree is **ground** — Dictionary Sharing §4's condition
  * for hoisting: an instance application whose leaves are named instances or
  * primitive dictionaries, with no free evidence parameter anywhere in it.
@@ -11256,8 +11317,15 @@ function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undef
  * parameter, in a module-level initializer. So the type must be variable-free
  * too, which is the invariant that actually holds the hoist up: a hoisted
  * initializer references only module-level names.
+ *
+ * Exported for `conformance/evidence-key-identity.test.ts`, which rests
+ * `serializeDictionaryEvidence`'s "defence, not live code" reading on it. That
+ * reading is exactly the claim that this answers `false` for every tree
+ * carrying a `Dictionary` node at any depth, and only a direct call can put one
+ * in front of it: no source program produces a hoistable tree with a free
+ * parameter in it, which is the fact being pinned.
  */
-function isGroundEvidence(evidence: Core.Evidence): boolean {
+export function isGroundEvidence(evidence: Core.Evidence): boolean {
   if (evidence.kind === "Primitive") return true;
   if (evidence.kind === "Structural") {
     return isGroundType(evidence.type) &&
