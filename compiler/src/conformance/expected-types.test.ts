@@ -99,16 +99,23 @@ describe("the supplying seats (§4.3)", () => {
     )).toEqual([]);
   });
 
-  test("an annotated `var`'s initializer, and every `:=` right-hand side", () => {
+  /**
+   * *(#700.)* The seat that left the list. An annotated `var` and every `:=`
+   * right-hand side supplied until the `var` function-type ban landed
+   * (Statements §6.1): the only lambda either could land is a function-typed
+   * `var`'s, which no longer exists — so the spelling this pin used to accept is
+   * now the ban's own refusal, and there is nothing left at the seat to supply.
+   */
+  test("the annotated `var`/`:=` seat is gone with the function-typed `var`", () => {
     expect(projectDiagnostics(
       "export let run(): String =\n" +
         "    var sign: (Int) -> String = match\n" +
         guardOnly("        ") +
-        "    sign := match\n" +
-        "        n when n > 0 => \"positive\"\n" +
-        "        _ => \"other\"\n" +
         "    sign(3)\n",
-    )).toEqual([]);
+    )).toContain(
+      "`sign` is a `var`, and a `var` cannot hold a function — vars accumulate data; " +
+        "model changing behavior as a union and `match` on it",
+    );
   });
 
   test("a constraint member's body, whose own expected type is a function", () => {

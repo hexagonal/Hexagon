@@ -272,11 +272,28 @@ describe("it is a `match`: exhaustiveness and reachability are demanded", () => 
   });
 });
 
-describe("it is a lambda literal for the written-form checks", () => {
-  test("`fun f = match` line-final is accepted, and recurses", async () => {
-    const exports = await runMain(
+describe("it is a lambda literal, and the `fun` seat is retired (#700)", () => {
+  /**
+   * *(#700.)* `fun f = match` is a parse error, and the rewrite names the
+   * parameter and the scrutinee. The recursion it used to spell is spelled by
+   * the header — which is the whole retirement: one `fun` shape, no exceptions.
+   */
+  test("`fun f = match` is refused with the header rewrite", () => {
+    expect(projectDiagnostics(
       "union Peano = Zero | Succ(Peano)\n" +
         "fun depth = match\n" +
+        "    Zero => 0\n" +
+        "    Succ(inner) => 1 + depth(inner)\n",
+    )).toContain(
+      "`fun` defines functions by header; write `fun depth(x) = match x …` — a match " +
+        "function stays legal on a `let` and at call sites",
+    );
+  });
+
+  test("the rewrite compiles and recurses", async () => {
+    const exports = await runMain(
+      "union Peano = Zero | Succ(Peano)\n" +
+        "fun depth(shape) = match shape\n" +
         "    Zero => 0\n" +
         "    Succ(inner) => 1 + depth(inner)\n" +
         "export let two: Int = depth(Succ(Succ(Zero)))\n",
@@ -285,18 +302,19 @@ describe("it is a lambda literal for the written-form checks", () => {
     expect(exports["two"]).toBe(2);
   });
 
-  test("`fun f =` with the `match` on the next line stays refused", () => {
-    // Functions §7.1 asks what the right-hand side *is*, and a wrapped arrival
-    // is the binding block's item rather than the written form — the same
-    // refusal a parenthesized or next-line lambda literal takes. #505 widens the
-    // set of literals, not the rule about where one may sit.
+  test("`fun f =` with the `match` on the next line is the same refusal", () => {
+    // The wrappers are read through, so the wrapped arrival is the same written
+    // spelling and takes the same rewrite rather than the catch-all.
     expect(projectDiagnostics(
       "union Peano = Zero | Succ(Peano)\n" +
         "fun depth =\n" +
         "    match\n" +
         "        Zero => 0\n" +
         "        Succ(inner) => 1 + depth(inner)\n",
-    )).toContain("`fun` requires a function header or lambda literal on its right-hand side");
+    )).toContain(
+      "`fun` defines functions by header; write `fun depth(x) = match x …` — a match " +
+        "function stays legal on a `let` and at call sites",
+    );
   });
 
   test("a match function is a syntactic value, so it generalizes", () => {

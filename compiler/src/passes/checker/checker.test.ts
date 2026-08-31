@@ -44,8 +44,9 @@ describe("check", () => {
       "type Coordinates = Point\n" +
         "record Point = {x: Int, y: Int}\n" +
         "type Pair(a) = (a, a)\n" +
-        "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
-        "fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
+        "fun\n" +
+        "    even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
+        "    odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
         "let origin: Coordinates = Point({x = 0, y = 0})\n" +
         "let flags: Pair(Bool) = (even(4), odd(3))",
     );
@@ -118,21 +119,28 @@ describe("check", () => {
     // A generic function used from another function's body is generalized before
     // its callers are checked (dependency order), so each use instantiates fresh —
     // whether the type variable is declared or inferred, and at differing types.
+    //
+    // *(#700.)* The forward reference is inside one block, which is the only
+    // place a forward reference among terms exists at all (§7.3).
     const module = checkSource(
       "fun wrap<a>(x: a): Vector(a) = [x]\n" +
         "fun rewrap<a>(x: a): Vector(a) = wrap(x)\n" +
         "fun useInt(): Vector(Int) = wrap(1)\n" +
         "fun useText(): Vector(String) = wrap(\"s\")\n" +
-        "fun idThrough(x) = through(x)\n" +
-        "fun through(x) = x\n", // forward reference, inferred generic
+        "fun\n" +
+        "    idThrough(x) = through(x)\n" +
+        "    through(x) = x\n", // forward reference, inferred generic
     );
     expect(module.diagnostics).toEqual([]);
   });
 
-  test("genuine mutual recursion still shares one monomorphic group", () => {
+  test("genuine mutual recursion still shares one monomorphic knot", () => {
+    // *(#700.)* Mutual recursion demands the `fun` block: two adjacent `fun`s
+    // are two blocks and would draw §7.3's wrap rewrite.
     const module = checkSource(
-      "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
-        "fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n",
+      "fun\n" +
+        "    even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
+        "    odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n",
     );
     expect(module.diagnostics).toEqual([]);
   });
@@ -145,13 +153,16 @@ describe("check", () => {
     // §9.11). The report is §10's SCC hint; `conformance/recursion-knot.test.ts`
     // owns the message's own fences.
     const module = checkSource(
-      "fun f<a>(x: a): a = g(x)\n" +
-        "fun g<a>(x: a): a = f(x)\n",
+      "fun\n" +
+        "    f(x: a): a = g(x)\n" +
+        "    g(x: a): a = f(x)\n",
     );
     expect(module.diagnostics.map(({ message }) => message)).toContain(
       "`a` declared on `f` and `a` declared on `g` are distinct declared type variables, but " +
-        "members of a recursive knot are checked together at not-yet-general types; leave the " +
-        "heads off the knot, or move the contract to a non-recursive wrapper",
+        "members of a recursive knot are checked together at not-yet-general types; declare " +
+        "one head on the `fun` block that both members write, drop the members' own variable " +
+        "annotations and let inference link the knot, or move the contract to a " +
+        "non-recursive wrapper",
     );
   });
 

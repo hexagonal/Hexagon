@@ -408,20 +408,22 @@ describe("module-wide is enforced the same way (§5.4's reservation, defect 2)",
     );
   });
 
-  test("a contiguous `fun` group still recurses together, and calls the local one", async () => {
-    // §7.3's mutual visibility is what the reservation leaves standing: the group
+  test("a `fun` block still recurses together, and calls the local one", async () => {
+    // §7.3's mutual visibility is what the reservation leaves standing: the block
     // binds every member before the first body is walked, so `early` resolves
-    // `show` to the group's own — never to the prelude's, which would have made
+    // `show` to the block's own — never to the prelude's, which would have made
     // this "1".
     expect(projectDiagnostics(
-      "fun early(x: Int): String = show(x)\n" +
-      "fun show(x: Int): String = \"custom ${x}\"\n" +
+      "fun\n" +
+      "    early(x: Int): String = show(x)\n" +
+      "    show(x: Int): String = \"custom ${x}\"\n" +
       "export let r: String = early(7)\n",
     )).toEqual([]);
 
     const exports = await runMain(
-      "fun early(x: Int): String = show(x)\n" +
-      "fun show(x: Int): String = \"custom ${x}\"\n" +
+      "fun\n" +
+      "    early(x: Int): String = show(x)\n" +
+      "    show(x: Int): String = \"custom ${x}\"\n" +
       "export let grouped: String = early(7)\n",
     );
 

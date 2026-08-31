@@ -417,13 +417,17 @@ describe("resolve", () => {
     );
   });
 
-  test("resolves forward and mutual function references as one recursive group", () => {
+  test("resolves forward and mutual references inside one `fun` block", () => {
     // `Int`, not `Bool`: since #147 `Bool` is a prelude declaration, and this
-    // harness resolves one module with no prelude. The recursion group is what
-    // is under test, and the annotation plays no part in forming it.
+    // harness resolves one module with no prelude. The block is what is under
+    // test, and the annotation plays no part in forming it.
+    //
+    // *(#700.)* Two adjacent `fun`s would be two blocks; the members share one
+    // head, which is what makes them see each other.
     const module = resolveSource(
-      "fun even(n: Int): Int = odd(n - 1)\n" +
-        "fun odd(n: Int): Int = even(n - 1)",
+      "fun\n" +
+        "    even(n: Int): Int = odd(n - 1)\n" +
+        "    odd(n: Int): Int = even(n - 1)\n",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -483,10 +487,13 @@ describe("resolve", () => {
     ]);
   });
 
-  test("a split `fun` group names the split as the repair", () => {
-    // The two `fun`s would have recursed together; the `let` between them ends
-    // the run (Functions §7.3), so the forward reference is reported with the
-    // rewrite that restores the group.
+  test("a cross-block mutual reference names the wrap as the repair", () => {
+    // *(#700.)* Adjacency retired: two separate `fun`s are two blocks whether or
+    // not an item stands between them, so both spellings draw one message — the
+    // mechanical wrap.
+    const wrap = "`odd` is declared later in this block; only members of one " +
+      "`fun` block recurse together; wrap both definitions as its members";
+
     expect(
       resolveSource(
         "fun even(n: Int): Int = odd(n - 1)\n" +
@@ -494,11 +501,15 @@ describe("resolve", () => {
           "fun odd(n: Int): Int = even(n - 1)\n" +
           "even(4)\n",
       ).diagnostics.map(({ message }) => message),
-    ).toEqual([
-      "`odd` is declared later in this block; only an unbroken run of `fun`s " +
-      "recurses together — move the intervening declaration out of the run, or " +
-      "move `odd`'s declaration above this use",
-    ]);
+    ).toEqual([wrap]);
+
+    expect(
+      resolveSource(
+        "fun even(n: Int): Int = odd(n - 1)\n" +
+          "fun odd(n: Int): Int = even(n - 1)\n" +
+          "even(4)\n",
+      ).diagnostics.map(({ message }) => message),
+    ).toEqual([wrap]);
   });
 
   test("the ordinary backward reference stays legal", () => {

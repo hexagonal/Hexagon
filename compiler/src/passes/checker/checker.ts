@@ -1112,7 +1112,7 @@ interface DotCallGoal {
   readonly level: number;
 }
 
-/** One member of a `fun` group's strongly-connected component (Functions §7.4). */
+/** One member of a `fun` block's strongly-connected component (Functions §7.4). */
 interface KnotMember {
   readonly symbol: Resolved.SymbolId;
   readonly name: string;
@@ -1127,13 +1127,40 @@ interface KnotMember {
 }
 
 /**
+ * Where a declared type variable was written — the two sites §10's rigid-vs-rigid
+ * message qualifies a side by (#700).
+ *
+ * A member's own annotations name the member; a `fun` block head binds no name,
+ * so it is located by its span instead. The distinction is not cosmetic: the
+ * head is the language's one **sharing** route, so a side declared there has a
+ * different repair from a side a member wrote for itself.
+ */
+type HeadOwner =
+  | {
+      readonly kind: "member";
+      readonly symbol: Resolved.SymbolId;
+      readonly name: string;
+    }
+  | {
+      readonly kind: "block";
+      /** Every member the head scopes over, for the knot-membership test. */
+      readonly members: readonly Resolved.SymbolId[];
+      readonly span: Source.Span;
+    };
+
+/** One side of §10's rigid-vs-rigid refusal, resolved against the live knot. */
+type HeadSite =
+  | { readonly kind: "member"; readonly member: KnotMember }
+  | { readonly kind: "block"; readonly span: Source.Span };
+
+/**
  * One monomorphic knot under check: the component's members, the member whose
  * body inference is currently inside it, and every reference that resolved to a
  * member from within it.
  *
  * `host` is the member the reference is *written in*, which is not the enclosing
  * `#declaringMember` — a reference may sit inside a nested lambda or a nested
- * `fun` group, and the dictionaries in scope there are still the host's.
+ * `fun` block, and the dictionaries in scope there are still the host's.
  */
 interface Knot {
   readonly members: readonly KnotMember[];
@@ -1542,7 +1569,7 @@ class Checker {
   readonly #failedWidens = new Set<string>();
   readonly #operationSpellings = new Map<Resolved.SymbolId, string>();
   /**
-   * The `fun` groups whose bodies are currently being checked, innermost last.
+   * The `fun` blocks whose bodies are currently being checked, innermost last.
    * A dot call inside one may not target any of their members (Method Syntax
    * §4.4): a call spelled through a dot is invisible to the reference graph the
    * resolver and `#inferFunGroup` both read, so allowing it would let dispatch
@@ -1555,7 +1582,7 @@ class Checker {
    * at their not-yet-generalized monotype (Functions §7.4).
    *
    * Narrower than `#funGroups`, which bounds *visibility* over the whole
-   * contiguous run. Only a component's own members are inside the knot, and only
+   * block. Only a component's own members are inside the knot, and only
    * they take the identity evidence suffix.
    */
   readonly #knots: Knot[] = [];
@@ -1573,18 +1600,26 @@ class Checker {
    */
   readonly #knotReferences = new WeakMap<Resolved.NameExpr, Resolved.SymbolId>();
   /**
-   * The `fun` group member whose declared head is about to be elaborated, and
+   * The `fun` block member whose declared head is about to be elaborated, and
    * the member each declared type variable's head belongs to.
    *
    * Read by one diagnostic: §7.4's declared-heads refusal names the member each
-   * rigid was declared on, and two members of one group habitually spell the
+   * rigid was declared on, and two members of one block habitually spell the
    * same variable name, so the name alone cannot tell them apart.
    */
   #declaringMember: { readonly symbol: Resolved.SymbolId; readonly name: string } | undefined;
-  readonly #declaredHeadOwners = new Map<
-    number,
-    { readonly symbol: Resolved.SymbolId; readonly name: string }
-  >();
+  readonly #declaredHeadOwners = new Map<number, HeadOwner>();
+  /**
+   * The site an annotation-introduced type variable minted right now belongs to
+   * — the `fun` member whose body is being checked, or `undefined` anywhere else
+   * (#700).
+   *
+   * Distinct from `#declaringMember`, which is consumed by the member's own
+   * lambda as it opens: this one stays set for the whole of the member's body,
+   * because a variable a nested annotation is the first to write is still that
+   * member's declaration (§4.1's scoped-to-the-declaration rule).
+   */
+  #annotationOwner: HeadOwner | undefined;
   /**
    * The same attribution read the other way: a member's own declared heads.
    *
@@ -1799,6 +1834,17 @@ class Checker {
    */
   readonly #uninferredInstanceMembers = new WeakSet<Resolved.HonorItem>();
   readonly #mutableSymbols = new Set<Resolved.SymbolId>();
+  /**
+   * The unsolved variable each `var`'s monotype *is*, by variable id, with the
+   * `var`'s name (Statements §6.1's function-type ban, #700).
+   *
+   * The ban's second arm is the **pinning use** — the use that settles an
+   * unsolved monotype to an arrow — and this is where `#bind` looks to know
+   * whether the variable it is about to settle belongs to a `var`. Keyed on the
+   * variable rather than the symbol because that is what unification holds, and
+   * the diagnostic wants the pinning use's span, which only unification has.
+   */
+  readonly #pinnedVars = new Map<number, string>();
   /**
    * Every symbol this module can name, imports included (the resolver puts both
    * in `module.symbols`). The syntactic-value test reads the *kind* here rather
@@ -2790,7 +2836,7 @@ class Checker {
    *
    * A dot call is legal exactly where its qualified spelling is (Method Syntax
    * §4.4): within the home module the callee must be declared above the call,
-   * and it is never a member of the caller's own `fun` group. Call sites in
+   * and it is never a member of the caller's own `fun` block. Call sites in
    * other files see the whole exported surface — same file, not same module,
    * because textual order is what the rule is about.
    */
@@ -2805,7 +2851,7 @@ class Checker {
         callee.receiver.kind === "Name" ? callee.receiver.text : "…",
         ...arguments_.map(() => "…"),
       ];
-      return "a dot call cannot target its own `fun` group; spell the call by " +
+      return "a dot call cannot target its own `fun` block; spell the call by " +
         `name: \`${operation.name}(${spelled.join(", ")})\``;
     }
     const call = callee.field.span;
@@ -3538,14 +3584,20 @@ class Checker {
       if (item === undefined) continue;
       if (enclosingVariableScope === undefined) this.#annotationVariableScope = new Map();
 
-      // A contiguous run of `fun`s is the one place a body may name a binding
+      // *(#700.)* A `fun` **block** is the one place a body may name a binding
       // written below it (Functions §7.3), so it is the one place inference
-      // cannot simply follow the text. The run is typed as a unit here and the
-      // walk resumes after it; everything outside a run is reached in source
-      // order, which is why every reference lands on a finished scheme.
+      // cannot simply follow the text. The block is typed as a unit here and the
+      // walk resumes after it; everything outside one is reached in source
+      // order, which is why every reference lands on a finished scheme. A fused
+      // `fun` is the one-member block and takes the same path.
       if (item.kind === "Fun") {
-        let end = index;
-        while (items[end]?.kind === "Fun") end += 1;
+        let end = index + 1;
+        const block = item.block;
+        while (block !== undefined) {
+          const next = items[end];
+          if (next?.kind !== "Fun" || next.block?.id !== block.id) break;
+          end += 1;
+        }
         this.#inferFunGroup(
           items.slice(index, end) as readonly Resolved.FunItem[],
           level,
@@ -3963,26 +4015,17 @@ class Checker {
       }
 
       if (item.kind === "Var") {
-        // §4.3: **an annotated `var`'s initializer** supplies, on the same terms
-        // as an annotated `let` — Statements §6.1's boundary, which Numeric
-        // Literals §5.1 already lists as a place a type is independently
-        // established. The unannotated `var` supplies nothing: first-use pinning
-        // has settled nothing yet at the initializer.
+        // *(#700.)* §4.3's supplying-seat list dropped its "annotated `var` and
+        // every `:=` right-hand side" entry when the function-type ban landed
+        // (Statements §6.1): the only lambda that seat could land is a
+        // function-typed `var`'s, which no longer exists. The **numeric**
+        // channel is untouched — it belongs to Numeric Literals §5.1's own list,
+        // and it rides `#unifyExpected` below, not this one.
         const annotation = item.annotation;
-        const suppliedFace = annotation !== undefined && expectationLands(item.value)
-          ? this.#inAnnotationPosition(annotation, () =>
-            this.#annotationType(
-              annotation,
-              level + 1,
-              new Map(),
-              this.#annotationVariableScope ?? new Map(),
-            ))
-          : undefined;
-        const inferredValueType = this.#inferExpr(item.value, level + 1, suppliedFace);
+        const inferredValueType = this.#inferExpr(item.value, level + 1);
         let valueType = inferredValueType;
         if (annotation !== undefined) {
-          const annotationType = suppliedFace ??
-            this.#inAnnotationPosition(annotation, () =>
+          const annotationType = this.#inAnnotationPosition(annotation, () =>
             this.#annotationType(
               annotation,
               level + 1,
@@ -4010,6 +4053,7 @@ class Checker {
         this.#lowerLevels(valueType, level);
         this.#schemes.set(item.binding.symbol, { variables: [], type: valueType });
         this.#mutableSymbols.add(item.binding.symbol);
+        this.#refuseFunctionTypedVar(item, valueType);
         continue;
       }
 
@@ -4133,22 +4177,121 @@ class Checker {
   }
 
   /**
-   * Types one contiguous `fun` group (Functions §7.3).
+   * A written `<...>` binder list, entered as the rigid variables it declares
+   * (Functions §4.1, §4.2).
    *
-   * Grouping bounds visibility, not typing: the monomorphic knot is still the
+   * One routine for both positions the restriction admits: a lambda's own list
+   * — the fused `fun`'s and the `let`'s — and *(#700)* a `fun` block head's,
+   * whose variables are one rigid each **scoped over every member**. `owner` is
+   * what §10's rigid-vs-rigid message later qualifies a side by, and the
+   * variables are recorded against every member the owner covers so §7.4's fence
+   * reaches the whole component.
+   */
+  /**
+   * Files a declared type variable under the site that declared it, for §10's
+   * rigid-vs-rigid message and §7.4's fence (#368, #700).
+   *
+   * Rigidity is independent of the binder (§4.2.1): a variable introduced by its
+   * first appearance in a member's annotation is as declared as one a `<...>`
+   * list names, and §7.4 refuses two of *those* meeting through a knot exactly
+   * as it refuses two binders'. So both mints come here, and the owner is what
+   * separates a member's own variable from the block head's.
+   */
+  #recordDeclaredHead(variable: Variable, owner: HeadOwner | undefined): void {
+    if (owner === undefined) return;
+    this.#declaredHeadOwners.set(variable.id, owner);
+    const covered = owner.kind === "member" ? [owner.symbol] : owner.members;
+    for (const symbol of covered) {
+      const heads = this.#memberHeadVariables.get(symbol) ?? [];
+      heads.push(variable);
+      this.#memberHeadVariables.set(symbol, heads);
+    }
+  }
+
+  #declareBinderVariables(
+    parameters: readonly Resolved.TypeParameter[],
+    level: number,
+    into: Map<string, Variable>,
+    owner: HeadOwner | undefined,
+  ): void {
+    for (const parameter of parameters) {
+      const declaredConstraints = parameter.constraints.filter((constraint) =>
+        this.#constraintNames.has(constraint) &&
+        !this.#bearsProjection(constraint)
+      );
+      const variable = this.#fresh(
+        level + 1,
+        false,
+        parameter.name,
+        declaredConstraints,
+      );
+      into.set(parameter.name, variable);
+      this.#recordDeclaredHead(variable, owner);
+      for (const constraint of parameter.constraints) {
+        if (!this.#constraintNames.has(constraint)) {
+          this.#diagnostics.add({
+            severity: "error",
+            ...this.#unknownConstraint(constraint),
+            primary: parameter.span,
+          });
+          continue;
+        }
+        if (this.#bearsProjection(constraint)) {
+          this.#diagnostics.add({
+            severity: "error",
+            message: impliedTypeBinderMessage(constraint),
+            primary: parameter.span,
+          });
+          continue;
+        }
+        this.#require(constraint, variable, parameter.span, "annotation");
+      }
+    }
+  }
+
+  /**
+   * Types one `fun` block (Functions §7.3) — the fused spelling arriving as the
+   * one-member block it is.
+   *
+   * The block bounds visibility, not typing: the monomorphic knot is still the
    * strongly-connected component of the references actually written, computed
-   * *within* the group and typed dependencies-first (§7.4). Two adjacent but
-   * independent members therefore keep their own generality — a member outside
-   * the current component is already generalized and instantiated fresh per use.
+   * *within* the block and typed dependencies-first (§7.4). Two independent
+   * members therefore keep their own generality — a member outside the current
+   * component is already generalized and instantiated fresh per use.
    *
-   * Members of the group are held on `#funGroups` while their bodies are checked,
-   * which is what lets a dot call inside one recognize a sibling as its own group
-   * and refuse it (Method Syntax §4.4). The component being checked is held on
+   * Members are held on `#funGroups` while their bodies are checked, which is
+   * what lets a dot call inside one recognize a sibling as its own block and
+   * refuse it (Method Syntax §4.4). The component being checked is held on
    * `#knots` over the same span, for the two things §7.4 says about references
    * that resolve inside it: their evidence is the identity suffix, and two
-   * members' declared heads cannot meet.
+   * declared heads cannot meet.
+   *
+   * *(#700.)* The head's binder list is declared **once, here**, and every
+   * member's annotation scope inherits it — which is the whole of "sharing is
+   * opt-in by placement": a member that writes `a` gets *the* block variable,
+   * and a member that writes a spelling the head does not declare gets its own
+   * rigid, minted inside that member's own lambda scope and shared with nobody.
    */
   #inferFunGroup(group: readonly Resolved.FunItem[], level: number): void {
+    const head = group[0]?.block;
+    const enclosingVariableScope = this.#annotationVariableScope;
+    if (head?.typeParameters !== undefined) {
+      const scope = new Map<string, Variable>(this.#annotationVariableScope);
+      this.#declareBinderVariables(head.typeParameters, level, scope, {
+        kind: "block",
+        members: group.map((item) => item.binding.symbol),
+        span: head.span,
+      });
+      this.#annotationVariableScope = scope;
+    }
+    try {
+      this.#inferFunBlockMembers(group, level);
+    } finally {
+      this.#annotationVariableScope = enclosingVariableScope;
+    }
+  }
+
+  #inferFunBlockMembers(group: readonly Resolved.FunItem[], level: number): void {
     const bySymbol = new Map(group.map((item) => [item.binding.symbol, item]));
     const members = new Set(bySymbol.keys());
     const references = new Map(
@@ -4184,10 +4327,19 @@ class Checker {
       for (const symbol of ordered) {
         const item = bySymbol.get(symbol)!;
         const enclosingMember = this.#declaringMember;
+        const enclosingAnnotationOwner = this.#annotationOwner;
         knot.host = symbol;
         this.#declaringMember = { symbol, name: item.binding.name };
+        // The member owns every variable its annotations are the first to
+        // write, binder or not (§7.3's member-scoped rule).
+        this.#annotationOwner = {
+          kind: "member",
+          symbol,
+          name: item.binding.name,
+        };
         const value = this.#inferExpr(item.value, level + 1);
         this.#declaringMember = enclosingMember;
+        this.#annotationOwner = enclosingAnnotationOwner;
         this.#unify(recursiveTypes.get(symbol)!, value, item.span);
       }
       knot.host = undefined;
@@ -4227,6 +4379,35 @@ class Checker {
    * `conformance/recursion-knot.test.ts`'s "a head errored by the refusal still
    * reports its own body's demand" fails if either of them is dropped.
    */
+  /**
+   * Statements §6.1's function-type ban, at the **declaration** (#700).
+   *
+   * Type-level, not a spelling ban: a lambda right-hand side is only the
+   * obvious case, and `var f = identity(x => x)` walks past a spelling check.
+   * What is read is the `var`'s own monotype — annotated or inferred — and only
+   * its top level: functions inside data are data, so `var handlers = [f, g]`
+   * is untouched.
+   *
+   * A monotype that is still an unsolved variable settles later, and is watched
+   * for by `#pinnedVars`: the ban's other arm fires at the pinning use.
+   */
+  #refuseFunctionTypedVar(item: Resolved.VarItem, valueType: Mono): void {
+    const resolved = this.#prune(valueType);
+    if (resolved.kind === "Function") {
+      this.#diagnostics.add({
+        severity: "error",
+        message: functionTypedVarMessage(item.binding.name),
+        primary: item.binding.span,
+      });
+      return;
+    }
+    // Only a bare variable can *become* an arrow: every other shape has a head
+    // already, and a `var` holds one value of one type for its whole scope.
+    if (resolved.kind === "Variable") {
+      this.#pinnedVars.set(resolved.id, item.binding.name);
+    }
+  }
+
   #errorKnotHeads(knot: Knot): void {
     for (const { symbol } of knot.members) {
       for (const head of this.#memberHeadVariables.get(symbol) ?? []) {
@@ -4944,49 +5125,14 @@ class Checker {
         // annotations may name them (lexical scoping); its own `<...>` binders below
         // shadow by overwriting.
         const annotationVariables = new Map<string, Variable>(this.#annotationVariableScope);
-        for (const parameter of expression.typeParameters ?? []) {
-          const declaredConstraints = parameter.constraints.filter((constraint) =>
-            this.#constraintNames.has(constraint) &&
-            !this.#bearsProjection(constraint)
-          );
-          const variable = this.#fresh(
-            level + 1,
-            false,
-            parameter.name,
-            declaredConstraints,
-          );
-          annotationVariables.set(parameter.name, variable);
-          if (declaringMember !== undefined) {
-            this.#declaredHeadOwners.set(variable.id, declaringMember);
-            const heads = this.#memberHeadVariables.get(declaringMember.symbol) ?? [];
-            heads.push(variable);
-            this.#memberHeadVariables.set(declaringMember.symbol, heads);
-          }
-          for (const constraint of parameter.constraints) {
-            if (!this.#constraintNames.has(constraint)) {
-              this.#diagnostics.add({
-                severity: "error",
-                ...this.#unknownConstraint(constraint),
-                primary: parameter.span,
-              });
-              continue;
-            }
-            if (this.#bearsProjection(constraint)) {
-              this.#diagnostics.add({
-                severity: "error",
-                message: impliedTypeBinderMessage(constraint),
-                primary: parameter.span,
-              });
-              continue;
-            }
-            this.#require(
-              constraint,
-              variable,
-              parameter.span,
-              "annotation",
-            );
-          }
-        }
+        this.#declareBinderVariables(
+          expression.typeParameters ?? [],
+          level,
+          annotationVariables,
+          declaringMember === undefined
+            ? undefined
+            : { kind: "member", ...declaringMember },
+        );
         // **The landing** (§4.3). An expectation does nothing until it reaches a
         // lambda literal — a match function included, being a lambda by desugar
         // (Pattern Matching §6.7). It lands only if it is a function type of
@@ -5685,12 +5831,13 @@ class Checker {
         break;
       }
       case "Assignment": {
-        // §4.3: **every `:=` assignment's right-hand side** is a supplying seat —
-        // the target's type, as annotated or as settled so far under first-use
-        // pinning, is the expectation. The target is elaborated first here as it
-        // always was, so nothing reorders; the expectation is simply read off it.
+        // *(#700.)* This seat left §4.3's supplying list with the `var`
+        // function-type ban (Statements §6.1): the only lambda it could land is
+        // a function-typed `var`'s. The target is still elaborated first, and
+        // the assignment boundary still establishes the *numeric* channel's
+        // expected type through `#unifyExpected` (Numeric Literals §5.1).
         const target = this.#inferExpr(expression.target, level);
-        const value = this.#inferExpr(expression.value, level, target);
+        const value = this.#inferExpr(expression.value, level);
         this.#unifyExpected(target, value, expression.value, expression.span, true);
         if (
           expression.target.kind !== "Name" ||
@@ -8761,16 +8908,26 @@ class Checker {
   #knotHeadCollision(
     left: Variable,
     right: Variable,
-  ): { readonly knot: Knot; readonly left: KnotMember; readonly right: KnotMember } | undefined {
+  ): { readonly knot: Knot; readonly left: HeadSite; readonly right: HeadSite } | undefined {
     const leftOwner = this.#declaredHeadOwners.get(left.id);
     const rightOwner = this.#declaredHeadOwners.get(right.id);
     if (leftOwner === undefined || rightOwner === undefined) return undefined;
-    if (leftOwner.symbol === rightOwner.symbol) return undefined;
+    // *(#700.)* One owner is one declaration: two variables of one member's
+    // head, or two of one **block** head, are the ordinary two-annotations case
+    // and keep the generic message — the block head is a sharing route between
+    // members, never between its own binders.
+    if (leftOwner === rightOwner) return undefined;
+    if (
+      leftOwner.kind === "member" && rightOwner.kind === "member" &&
+      leftOwner.symbol === rightOwner.symbol
+    ) {
+      return undefined;
+    }
     for (const knot of this.#knots) {
-      const leftMember = knot.members.find(({ symbol }) => symbol === leftOwner.symbol);
-      const rightMember = knot.members.find(({ symbol }) => symbol === rightOwner.symbol);
-      if (leftMember !== undefined && rightMember !== undefined) {
-        return { knot, left: leftMember, right: rightMember };
+      const leftSite = knotHeadSite(knot, leftOwner);
+      const rightSite = knotHeadSite(knot, rightOwner);
+      if (leftSite !== undefined && rightSite !== undefined) {
+        return { knot, left: leftSite, right: rightSite };
       }
     }
     return undefined;
@@ -8803,6 +8960,11 @@ class Checker {
           // concrete type is a demand that body really makes, and it still
           // reports, that message being correct in kind.
           collision.knot.refused = true;
+          // A side declared on a block head has no name to quote, so §10 says
+          // to locate it by its span — the label is that location (#700).
+          const headSpans = [collision.left, collision.right]
+            .filter((site) => site.kind === "block")
+            .map((site) => site.span);
           this.#diagnostics.add({
             severity: "error",
             message: knotHeadCollisionMessage(
@@ -8812,6 +8974,14 @@ class Checker {
               collision.right,
             ),
             primary: span,
+            ...(headSpans.length === 0
+              ? {}
+              : {
+                  labels: headSpans.map((headSpan) => ({
+                    span: headSpan,
+                    message: "declared on this `fun` block head",
+                  })),
+                }),
           });
         }
       } else {
@@ -8838,6 +9008,11 @@ class Checker {
       for (const requirement of variable.requirements) {
         this.#acceptRequirement(type, requirement);
       }
+      // A `var`'s unsolved monotype moves with it: the variable that will be
+      // settled is now the other one, and Statements §6.1's ban has to be
+      // watching *that* one when the arrow arrives (#700).
+      const owner = this.#pinnedVars.get(variable.id);
+      if (owner !== undefined) this.#pinnedVars.set(type.id, owner);
       variable.instance = type;
       return;
     }
@@ -8860,6 +9035,18 @@ class Checker {
     // (closure doc §2.2, conformance item (v)). It went unseen while the only
     // generalizable right-hand sides were lambdas and literals.
     this.#lowerLevels(type, variable.level);
+    // Statements §6.1's other arm (#700): the **pinning use** that settles a
+    // `var`'s unsolved monotype to an arrow. The span is the use's, which is
+    // where the author can act — the declaration said nothing about functions.
+    const pinnedVar = this.#pinnedVars.get(variable.id);
+    if (pinnedVar !== undefined && type.kind === "Function") {
+      this.#pinnedVars.delete(variable.id);
+      this.#diagnostics.add({
+        severity: "error",
+        message: functionTypedVarMessage(pinnedVar),
+        primary: span,
+      });
+    }
     variable.instance = type;
     for (const requirement of variable.requirements) this.#validate(requirement);
   }
@@ -11136,6 +11323,12 @@ class Checker {
           this.#ascribedTypeSpan,
         );
         typeParameters.set(annotation.name, variable);
+        // *(#700.)* A member's annotations declare their own variables, binder
+        // or no binder (§4.2.1's "rigidity is independent of the binder"), and
+        // §7.4 refuses two of them meeting through the knot with the same
+        // message it gives two written heads. `#annotationOwner` is set exactly
+        // while a `fun` member's body is being checked.
+        this.#recordDeclaredHead(variable, this.#annotationOwner);
         return variable;
       }
       return ERROR;
@@ -12883,18 +13076,32 @@ class Checker {
         const constraintList = required.length === 1
           ? required[0]!
           : `(${required.join(", ")})`;
+        const binder = `${variable.rigidName ?? inferredTypeVariableName(index)}: ${constraintList}`;
+        // *(#700.)* The advice follows the spelling (Modules §4.1.1): a member
+        // of a `fun` block writes its binders on the **head**, and a per-member
+        // binder is refused — so offering one here would be the Rewrite Rule's
+        // own failure, an advised repair the next compile rejects.
         this.#diagnostics.add({
           severity: "error",
           message:
             `exported function \`${item.binding.name}\` must declare every constraint in its signature; ` +
-            `write \`<${variable.rigidName ?? inferredTypeVariableName(index)}: ${constraintList}>\``,
+            (item.kind === "Fun" && item.block !== undefined
+              ? `declare the constraint on the block head: \`fun<${binder}>\``
+              : `write \`<${binder}>\``),
           primary: item.binding.span,
           incompleteSignature: true,
         });
       }
     });
 
-    for (const parameter of lambda.typeParameters ?? []) {
+    for (const parameter of [
+      ...(lambda.typeParameters ?? []),
+      // A block member's binders are the head's (Modules §4.1.1), so the head's
+      // list takes the maximality check every written list takes. Checked once
+      // per exporting member, which is where the report belongs: the head's
+      // list is what that member publishes.
+      ...(item.kind === "Fun" ? item.block?.typeParameters ?? [] : []),
+    ]) {
       const maximal = new Set(this.#maximalConstraintNames(parameter.constraints));
       for (const constraint of parameter.constraints) {
         if (maximal.has(constraint)) continue;
@@ -15074,46 +15281,92 @@ function inferredTypeVariableName(index: number): string {
 }
 
 /**
+ * The knot member a head owner sits inside, or the head's own site — the test
+ * that decides whether §10's rigid-vs-rigid refusal is this component's (#700).
+ *
+ * A block head is inside the knot when *any* member it scopes over is: the head
+ * is one declaration over several members, and a component that reaches one of
+ * them reaches the variable.
+ */
+/**
+ * Statements §9.3's row for the function-typed `var` (#700) — one wording for
+ * both arms, the declaration's and the pinning use's.
+ *
+ * The rewrite is the ruling's own: model changing behavior as data, which is
+ * what a `var` is for.
+ */
+function functionTypedVarMessage(name: string): string {
+  return `\`${name}\` is a \`var\`, and a \`var\` cannot hold a function — vars ` +
+    "accumulate data; model changing behavior as a union and `match` on it";
+}
+
+function knotHeadSite(knot: Knot, owner: HeadOwner): HeadSite | undefined {
+  if (owner.kind === "member") {
+    const member = knot.members.find(({ symbol }) => symbol === owner.symbol);
+    return member === undefined ? undefined : { kind: "member", member };
+  }
+  return knot.members.some(({ symbol }) => owner.members.includes(symbol))
+    ? { kind: "block", span: owner.span }
+    : undefined;
+}
+
+/**
  * Functions §10's SCC hint for two declared heads the knot links.
  *
- * Each side is qualified by the member that declared it, because a group whose
+ * Each side is qualified by its **declaring site**, because a block whose
  * members spell the same variable name is the shape that produces this refusal
- * and an unqualified pair reads as "`a` and `a`". The advice the generic message
- * carries — one name in both annotations — is what the refused program already
- * writes, so it is not offered here; §7.4's three spellings are, and which of
- * them are legal is what the export count decides (Modules §4.1.1 requires a
- * complete signature on an exported function):
+ * and an unqualified pair reads as "`a` and `a`". A member is named; *(#700)* a
+ * block head binds no name, so it is quoted as the head and located by the
+ * diagnostic's label.
  *
- * - **Neither exports**: the headless knot, or the wrapper.
- * - **One exports**: that member keeps its head — §7.4's "a single head that
- *   every sibling reaches generically", and a knot exporting one function keeps
- *   it — and the sibling drops its own. Or the wrapper. Never the headless
- *   knot: it is the Rewrite Rule's own failure, an advised repair that does not
- *   compile ("exported function requires a complete signature").
- * - **Both export**: two heads cannot meet and neither may be dropped, so the
- *   wrapper is the only spelling left.
+ * The advice the generic message carries — one name in both annotations — is
+ * what the refused program already writes, so it is not offered here. §7.4's
+ * spellings are, the block first: one head on the block, annotation-free members
+ * inference links, or the non-recursive wrapper. Which of the three are legal is
+ * what the export count decides (Modules §4.1.1 requires a complete signature on
+ * an exported function):
+ *
+ * - **A block head is one side**: the head is already the sharing route, so the
+ *   repair is to write *its* variable in both members — "one head on the block
+ *   both members write". Dropping annotations is not offered against a head that
+ *   is not the collision's fault, and the wrapper remains.
+ * - **Neither member exports**: drop the members' own variable annotations and
+ *   let inference link the knot, or take the head, or the wrapper.
+ * - **One exports**: the exporting member cannot drop annotations (§4.1.1), so
+ *   the sibling drops its own — or the head, or the wrapper.
+ * - **Both export**: neither may drop, so the head or the wrapper.
  */
 function knotHeadCollisionMessage(
   leftName: string,
   rightName: string,
-  left: KnotMember,
-  right: KnotMember,
+  left: HeadSite,
+  right: HeadSite,
 ): string {
-  const heads = `\`${leftName}\` declared on \`${left.name}\` and \`${rightName}\` declared on ` +
-    `\`${right.name}\` are distinct declared type variables, but members of a recursive knot ` +
-    "are checked together at not-yet-general types";
+  const qualify = (name: string, site: HeadSite): string =>
+    site.kind === "block"
+      ? `\`${name}\` declared on the \`fun\` block head`
+      : `\`${name}\` declared on \`${site.member.name}\``;
+  const heads = `${qualify(leftName, left)} and ${qualify(rightName, right)} are distinct ` +
+    "declared type variables, but members of a recursive knot are checked together at " +
+    "not-yet-general types";
+  const block = "declare one head on the `fun` block that both members write";
   const wrapper = "move the contract to a non-recursive wrapper";
-  if (left.exported && right.exported) {
-    return `${heads}; both must declare their constraints to export, so ${wrapper} over an ` +
-      "unexported knot";
+  if (left.kind === "block" || right.kind === "block") {
+    return `${heads}; ${block}, or ${wrapper}`;
   }
-  if (!left.exported && !right.exported) {
-    return `${heads}; leave the heads off the knot, or ${wrapper}`;
+  const leftMember = left.member;
+  const rightMember = right.member;
+  if (leftMember.exported && rightMember.exported) {
+    return `${heads}; ${block}, or ${wrapper} over an unexported knot`;
   }
-  const exporting = left.exported ? left : right;
-  const plain = left.exported ? right : left;
-  return `${heads}; \`${exporting.name}\` must declare its constraints to export, so drop ` +
-    `\`${plain.name}\`'s head and let it reach \`${exporting.name}\` generically, or ${wrapper}`;
+  if (!leftMember.exported && !rightMember.exported) {
+    return `${heads}; ${block}, drop the members' own variable annotations and let ` +
+      `inference link the knot, or ${wrapper}`;
+  }
+  const exporting = leftMember.exported ? leftMember : rightMember;
+  const plain = leftMember.exported ? rightMember : leftMember;
+  return `${heads}; ${block}, or drop \`${plain.name}\`'s own variable annotations and let ` +
+    `it reach \`${exporting.name}\` generically, or ${wrapper}`;
 }
 
 /** Keeps the technical projection vocabulary out of source-facing diagnostics. */

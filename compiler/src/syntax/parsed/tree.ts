@@ -180,11 +180,36 @@ export interface LetPatternItem {
   readonly span: Source.Span;
 }
 
+/**
+ * The head of a `fun` block — the keyword alone, or carrying its §4.2 binder
+ * list — shared by **reference** across every member the block declares
+ * (Functions §7.3, #700).
+ *
+ * The head binds no name, so `id` is what every later pass groups on: two
+ * adjacent blocks are two heads and never one group, which is the whole of the
+ * adjacency-run retirement. `typeParameters` is the block's binder list — one
+ * list, whose variables are one rigid each, scoped over every member — and is
+ * absent on a bare head.
+ */
+export interface FunBlockHead {
+  readonly id: number;
+  readonly typeParameters?: readonly TypeParameter[];
+  /** The head as written, for the diagnostics that must locate a nameless site. */
+  readonly span: Source.Span;
+}
+
 export interface FunItem {
   readonly kind: "Fun";
   readonly exported: boolean;
   readonly name: Name;
   readonly value: LambdaExpr;
+  /**
+   * The block this member was written in, absent on the fused spelling
+   * (Functions §7.3). A fused `fun f(…) = …` *is* the one-member block, so
+   * absence is a fact about the spelling and never about the semantics — only
+   * the diagnostics that name a repair read it.
+   */
+  readonly block?: FunBlockHead;
   readonly span: Source.Span;
 }
 

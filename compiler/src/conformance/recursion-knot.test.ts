@@ -2,7 +2,7 @@
  * Conformance for the **monomorphic knot's evidence and its two refusals**
  * (Functions §7.4 and §10's polymorphic-recursion row; #368).
  *
- * A reference that resolves inside a `fun` group's strongly-connected component
+ * A reference that resolves inside a `fun` block's strongly-connected component
  * sees the member at its not-yet-generalized monotype, so instantiating it
  * yields no requirements — and an empty requirement list is exactly what an
  * unconstrained call looks like. Every constrained recursive call therefore
@@ -127,10 +127,12 @@ describe("self-recursion carries the identity suffix", () => {
 });
 
 describe("mutual recursion carries it across the cross-calls", () => {
+  // *(#700.)* Mutual recursion is spelled by the block, and only by the block.
   const PING_PONG =
-    "fun ping(x, y, n: Int): Int =\n" +
-    "    if n <= 0 then 0 else if x == y then pong(x, y, n - 1) else 0\n" +
-    "fun pong(x, y, n: Int): Int = if n <= 0 then 1 else ping(x, y, n - 1)\n";
+    "fun\n" +
+    "    ping(x, y, n: Int): Int =\n" +
+    "        if n <= 0 then 0 else if x == y then pong(x, y, n - 1) else 0\n" +
+    "    pong(x, y, n: Int): Int = if n <= 0 then 1 else ping(x, y, n - 1)\n";
 
   /**
    * Unannotated on both sides: the `Eq` the knot accumulates is one variable's,
@@ -210,8 +212,9 @@ describe("a recursive occurrence in value position", () => {
  */
 describe("the asymmetric knot", () => {
   const ASYMMETRIC =
-    "fun outer(x, n: Int): Int =\n" +
-    "    if n <= 0 then 0 else if x == x then inner(n - 1) else 0\n";
+    "fun\n" +
+    "    outer(x, n: Int): Int =\n" +
+    "        if n <= 0 then 0 else if x == x then inner(n - 1) else 0\n";
 
   /**
    * Defaultable: `Eq` and `Num` both admit `Int` (Numeric Literals §4 as #344
@@ -222,7 +225,7 @@ describe("the asymmetric knot", () => {
   test("a defaultable callee-only variable compiles", () => {
     const javascript = emitted(
       ASYMMETRIC +
-        "fun inner(n: Int): Int = if n <= 0 then 1 else outer(0, n - 1)\n" +
+        "    inner(n: Int): Int = if n <= 0 then 1 else outer(0, n - 1)\n" +
         "export let answer: Int = outer(1, 3)\n",
     );
 
@@ -235,7 +238,7 @@ describe("the asymmetric knot", () => {
       [[
         "/main.hex",
         ASYMMETRIC +
-          "fun inner(n: Int): Int = if n <= 0 then 1 else outer(0, n - 1)\n" +
+          "    inner(n: Int): Int = if n <= 0 then 1 else outer(0, n - 1)\n" +
           "export let answer: Int = outer(1, 3)\n",
       ]],
       { transform: distinct("recursion knot: asymmetric defaultable") },
@@ -253,7 +256,7 @@ describe("the asymmetric knot", () => {
    */
   test("an unfixed element variable defaults, and the cross-call is not short", async () => {
     const source = ASYMMETRIC +
-      "fun inner(n: Int): Int = if n <= 0 then 1 else outer([], n - 1)\n" +
+      "    inner(n: Int): Int = if n <= 0 then 1 else outer([], n - 1)\n" +
       "export let answer: Int = outer([1], 3)\n";
     const javascript = emitted(source);
 
@@ -283,10 +286,11 @@ describe("the asymmetric knot", () => {
         "    blip(x) = 1\n" +
         "honor Blip<String> =\n" +
         "    blip(x) = 2\n" +
-        "fun outer(x, n: Int): Int =\n" +
-        "    if n <= 0 then 0 else if blip(x) > 0 then inner(n - 1) else 0\n" +
-        "fun inner(n: Int): Int =\n" +
-        "    if n <= 0 then 1 else outer(Crate({items = []}), n - 1)\n" +
+        "fun\n" +
+        "    outer(x, n: Int): Int =\n" +
+        "        if n <= 0 then 0 else if blip(x) > 0 then inner(n - 1) else 0\n" +
+        "    inner(n: Int): Int =\n" +
+        "        if n <= 0 then 1 else outer(Crate({items = []}), n - 1)\n" +
         "export let answer: Int = inner(3)\n",
     );
 
@@ -301,9 +305,16 @@ describe("the asymmetric knot", () => {
  * §10's polymorphic-recursion row, both message families and both their fences.
  */
 describe("the declared-heads refusal", () => {
+  /**
+   * *(#700.)* The two heads are the members' **own annotation variables** —
+   * rigidity is independent of the binder (§4.2.1), and a block's member lines
+   * take no binder list of their own (§7.3). `x == x` is what puts a defaultable
+   * `Eq` on each, which is what makes the fence below reachable at all.
+   */
   const TWO_HEADS =
-    "fun isEven<a: Eq>(x: a, n: Int): Bool = if n <= 0 then True else isOdd(x, n - 1)\n" +
-    "fun isOdd<a: Eq>(x: a, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n";
+    "fun\n" +
+    "    isEven(x: a, n: Int): Bool = if n <= 0 then x == x else isOdd(x, n - 1)\n" +
+    "    isOdd(x: a, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n";
 
   /**
    * The hint, and the fence on the *other* family in one assertion: exactly one
@@ -318,7 +329,9 @@ describe("the declared-heads refusal", () => {
     ).toEqual([
       "`a` declared on `isEven` and `a` declared on `isOdd` are distinct declared type " +
         "variables, but members of a recursive knot are checked together at not-yet-general " +
-        "types; leave the heads off the knot, or move the contract to a non-recursive wrapper",
+        "types; declare one head on the `fun` block that both members write, drop the " +
+        "members' own variable annotations and let inference link the knot, or move the " +
+        "contract to a non-recursive wrapper",
     ]);
   });
 
@@ -336,13 +349,36 @@ describe("the declared-heads refusal", () => {
   test("each side is qualified by its declaring member", () => {
     expect(
       projectDiagnostics(
-        "fun isEven<p: Eq>(x: p, n: Int): Bool = if n <= 0 then True else isOdd(x, n - 1)\n" +
-          "fun isOdd<q: Eq>(x: q, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
+        "fun\n" +
+          "    isEven(x: p, n: Int): Bool = if n <= 0 then x == x else isOdd(x, n - 1)\n" +
+          "    isOdd(x: q, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
       ),
     ).toEqual([
       "`p` declared on `isEven` and `q` declared on `isOdd` are distinct declared type " +
         "variables, but members of a recursive knot are checked together at not-yet-general " +
-        "types; leave the heads off the knot, or move the contract to a non-recursive wrapper",
+        "types; declare one head on the `fun` block that both members write, drop the " +
+        "members' own variable annotations and let inference link the knot, or move the " +
+        "contract to a non-recursive wrapper",
+    ]);
+  });
+
+  /**
+   * *(#700.)* And the side declared on the **block head** is qualified by the
+   * head, which binds no name: §10 says to locate it by its span, which the
+   * report's label does.
+   */
+  test("a side declared on the block head is qualified by the head", () => {
+    expect(
+      projectDiagnostics(
+        "fun<p: Eq>\n" +
+          "    isEven(x: p, n: Int): Bool = if n <= 0 then x == x else isOdd(x, n - 1)\n" +
+          "    isOdd(x: q, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
+      ),
+    ).toEqual([
+      "`p` declared on the `fun` block head and `q` declared on `isOdd` are distinct " +
+        "declared type variables, but members of a recursive knot are checked together at " +
+        "not-yet-general types; declare one head on the `fun` block that both members " +
+        "write, or move the contract to a non-recursive wrapper",
     ]);
   });
 
@@ -357,36 +393,58 @@ describe("the declared-heads refusal", () => {
   test("a three-member knot is refused once, and leaves no head to default", () => {
     expect(
       projectDiagnostics(
-        "fun t1<a: Eq>(x: a, n: Int): Bool = if n <= 0 then True else t2(x, n - 1)\n" +
-          "fun t2<b: Eq>(x: b, n: Int): Bool = if n <= 0 then True else t3(x, n - 1)\n" +
-          "fun t3<c: Eq>(x: c, n: Int): Bool = if n <= 0 then True else t1(x, n - 1)\n",
+        "fun\n" +
+          "    t1(x: a, n: Int): Bool = if n <= 0 then x == x else t2(x, n - 1)\n" +
+          "    t2(x: b, n: Int): Bool = if n <= 0 then x == x else t3(x, n - 1)\n" +
+          "    t3(x: c, n: Int): Bool = if n <= 0 then x == x else t1(x, n - 1)\n",
       ),
     ).toEqual([
       "`a` declared on `t1` and `b` declared on `t2` are distinct declared type variables, " +
-        "but members of a recursive knot are checked together at not-yet-general types; leave " +
-        "the heads off the knot, or move the contract to a non-recursive wrapper",
+        "but members of a recursive knot are checked together at not-yet-general types; " +
+        "declare one head on the `fun` block that both members write, drop the members' own " +
+        "variable annotations and let inference link the knot, or move the contract to a " +
+        "non-recursive wrapper",
     ]);
   });
 
   /**
    * Where two functions of one knot must export, Modules §4.1.1 requires a
-   * complete signature on each and the headless knot is not a spelling either
-   * can take — so the wrapper is the only one offered (Functions §7.4).
+   * complete signature on each, so neither may drop its annotations — and the
+   * two spellings left are the block head *(#700)* and the wrapper. The head is
+   * offered first, and it is the spelling #700 exists for: before the block, the
+   * wrapper was the only one, and the next test compiles the head.
    */
-  test("two exporting members are offered the wrapper alone", () => {
+  test("two exporting members are offered the head and the wrapper", () => {
     const messages = projectDiagnostics(
-      "export fun isEven<a: Eq>(x: a, n: Int): Bool =\n" +
-        "    if n <= 0 then True else isOdd(x, n - 1)\n" +
-        "export fun isOdd<a: Eq>(x: a, n: Int): Bool =\n" +
-        "    if n <= 0 then False else isEven(x, n - 1)\n",
+      "fun\n" +
+        "    export isEven(x: a, n: Int): Bool =\n" +
+        "        if n <= 0 then True else isOdd(x, n - 1)\n" +
+        "    export isOdd(x: a, n: Int): Bool =\n" +
+        "        if n <= 0 then False else isEven(x, n - 1)\n",
     );
 
     expect(messages).toEqual([
       "`a` declared on `isEven` and `a` declared on `isOdd` are distinct declared type " +
         "variables, but members of a recursive knot are checked together at not-yet-general " +
-        "types; both must declare their constraints to export, so move the contract to a " +
-        "non-recursive wrapper over an unexported knot",
+        "types; declare one head on the `fun` block that both members write, or move the " +
+        "contract to a non-recursive wrapper over an unexported knot",
     ]);
+  });
+
+  /**
+   * *(#700.)* And the offered head **compiles, and runs** — the spelling #700
+   * filed as unwritable, an exported constrained knot with no wrapper in sight.
+   */
+  test("the offered head spelling compiles for two exporting members", () => {
+    expect(
+      projectDiagnostics(
+        "fun<a: Eq>\n" +
+          "    export isEven(x: a, n: Int): Bool =\n" +
+          "        if n <= 0 then x == x else isOdd(x, n - 1)\n" +
+          "    export isOdd(x: a, n: Int): Bool =\n" +
+          "        if n <= 0 then False else isEven(x, n - 1)\n",
+      ),
+    ).toEqual([]);
   });
 
   /**
@@ -402,25 +460,27 @@ describe("the declared-heads refusal", () => {
     const expected = (plain: string, exporting: string): string =>
       `\`a\` declared on \`isEven\` and \`a\` declared on \`isOdd\` are distinct declared type ` +
       "variables, but members of a recursive knot are checked together at not-yet-general " +
-      `types; \`${exporting}\` must declare its constraints to export, so drop \`${plain}\`'s ` +
-      `head and let it reach \`${exporting}\` generically, or move the contract to a ` +
-      "non-recursive wrapper";
+      "types; declare one head on the `fun` block that both members write, or drop " +
+      `\`${plain}\`'s own variable annotations and let it reach \`${exporting}\` generically, ` +
+      "or move the contract to a non-recursive wrapper";
 
     expect(
       message(
-        "fun isEven<a: Eq>(x: a, n: Int): Bool =\n" +
-          "    if n <= 0 then True else isOdd(x, n - 1)\n" +
-          "export fun isOdd<a: Eq>(x: a, n: Int): Bool =\n" +
-          "    if n <= 0 then False else isEven(x, n - 1)\n",
+        "fun\n" +
+          "    isEven(x: a, n: Int): Bool =\n" +
+          "        if n <= 0 then True else isOdd(x, n - 1)\n" +
+          "    export isOdd(x: a, n: Int): Bool =\n" +
+          "        if n <= 0 then False else isEven(x, n - 1)\n",
       ),
     ).toEqual([expected("isEven", "isOdd")]);
 
     expect(
       message(
-        "export fun isEven<a: Eq>(x: a, n: Int): Bool =\n" +
-          "    if n <= 0 then True else isOdd(x, n - 1)\n" +
-          "fun isOdd<a: Eq>(x: a, n: Int): Bool =\n" +
-          "    if n <= 0 then False else isEven(x, n - 1)\n",
+        "fun\n" +
+          "    export isEven(x: a, n: Int): Bool =\n" +
+          "        if n <= 0 then True else isOdd(x, n - 1)\n" +
+          "    isOdd(x: a, n: Int): Bool =\n" +
+          "        if n <= 0 then False else isEven(x, n - 1)\n",
       ),
     ).toEqual([expected("isOdd", "isEven")]);
   });
@@ -429,27 +489,36 @@ describe("the declared-heads refusal", () => {
    * The Rewrite Rule made checkable: the spelling the message above names
    * compiles, and the one it withholds does not.
    */
-  test("the offered single-head repair compiles, and the headless one does not", () => {
+  test("both offered repairs compile, and the un-offered one does not", () => {
+    // Drop the plain member's own annotations: it reaches the exporting one
+    // generically, and the exporting member keeps the head it must write — which
+    // is the head on the block, since a member line takes no binder (#700).
     expect(
       projectDiagnostics(
-        "fun isEven(x, n: Int): Bool = if n <= 0 then True else isOdd(x, n - 1)\n" +
-          "export fun isOdd<a: Eq>(x: a, n: Int): Bool =\n" +
-          "    if n <= 0 then False else isEven(x, n - 1)\n",
+        "fun<a: Eq>\n" +
+          "    isEven(x, n: Int): Bool = if n <= 0 then True else isOdd(x, n - 1)\n" +
+          "    export isOdd(x: a, n: Int): Bool =\n" +
+          "        if n <= 0 then x == x else isEven(x, n - 1)\n",
       ),
     ).toEqual([]);
 
     expect(
       projectDiagnostics(
-        "export fun isEven<a: Eq>(x: a, n: Int): Bool =\n" +
-          "    if n <= 0 then True else isOdd(x, n - 1)\n" +
-          "fun isOdd(x, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
+        "fun<a: Eq>\n" +
+          "    export isEven(x: a, n: Int): Bool =\n" +
+          "        if n <= 0 then x == x else isOdd(x, n - 1)\n" +
+          "    isOdd(x, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
       ),
     ).toEqual([]);
 
+    // And the annotation-free knot is not a spelling an *export* can take: the
+    // Rewrite Rule's own failure is what the arm above exists to avoid.
     expect(
       projectDiagnostics(
-        "fun isEven(x, n: Int): Bool = if n <= 0 then True else isOdd(x, n - 1)\n" +
-          "export fun isOdd(x, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
+        "fun\n" +
+          "    isEven(x, n: Int): Bool = if n <= 0 then True else isOdd(x, n - 1)\n" +
+          "    export isOdd(x, n: Int): Bool =\n" +
+          "        if n <= 0 then False else isEven(x, n - 1)\n",
       ),
     ).toContain(
       "exported function `isOdd` requires a complete signature; add type for parameter `x`",
@@ -464,10 +533,11 @@ describe("the declared-heads refusal", () => {
   test("a concrete use of a headed member inside the knot keeps its own message", () => {
     expect(
       projectDiagnostics(
-        "fun alpha<a: Show>(x: a, n: Int): String =\n" +
-          "    if n <= 0 then show(x) else beta(x, n - 1)\n" +
-          "fun beta(x, n: Int): String =\n" +
-          '    if n <= 0 then "" else alpha("s", n - 1)\n' +
+        "fun<a: Show>\n" +
+          "    alpha(x: a, n: Int): String =\n" +
+          "        if n <= 0 then show(x) else beta(x, n - 1)\n" +
+          "    beta(x, n: Int): String =\n" +
+          '        if n <= 0 then "" else alpha("s", n - 1)\n' +
           "export let answer: String = alpha(1, 3)\n",
       ),
     ).toEqual([
@@ -490,18 +560,21 @@ describe("the declared-heads refusal", () => {
   test("a head errored by the refusal still reports its own body's demand", () => {
     expect(
       projectDiagnostics(
-        "fun r1<a: Show>(x: a, n: Int): String =\n" +
-          "    if n <= 0 then show(x) else r2(x, n - 1)\n" +
-          "fun r2<b: Show>(x: b, n: Int): String =\n" +
-          "    if n <= 0 then show(x) else r3(x, n - 1)\n" +
-          "fun r3(x, n: Int): String =\n" +
-          "    let z: String = x\n" +
-          '    if n <= 0 then "" else r1(x, n - 1)\n',
+        "fun\n" +
+          "    r1(x: a, n: Int): String =\n" +
+          "        if n <= 0 then show(x) else r2(x, n - 1)\n" +
+          "    r2(x: b, n: Int): String =\n" +
+          "        if n <= 0 then show(x) else r3(x, n - 1)\n" +
+          "    r3(x, n: Int): String =\n" +
+          "        let z: String = x\n" +
+          '        if n <= 0 then "" else r1(x, n - 1)\n',
       ),
     ).toEqual([
       "`a` declared on `r1` and `b` declared on `r2` are distinct declared type variables, " +
-        "but members of a recursive knot are checked together at not-yet-general types; leave " +
-        "the heads off the knot, or move the contract to a non-recursive wrapper",
+        "but members of a recursive knot are checked together at not-yet-general types; " +
+        "declare one head on the `fun` block that both members write, drop the members' own " +
+        "variable annotations and let inference link the knot, or move the contract to a " +
+        "non-recursive wrapper",
       "`b` is a declared type variable, but the body requires `String`; change the " +
         "annotation to `String`, or remove it to let the type be inferred",
     ]);
@@ -527,7 +600,7 @@ describe("the declared-heads refusal", () => {
 
   /**
    * And *different* members' heads meeting outside any one knot. Nesting is what
-   * makes this reachable: a `fun` group written inside another member's body puts
+   * makes this reachable: a `fun` block written inside another member's body puts
    * two components on the stack at once, both with live heads, and the inner
    * body can unify them. No recursion links `f` and `g`, they share no
    * component, and the hint's account — "members of a recursive knot" — would be
@@ -554,10 +627,11 @@ describe("the declared-heads refusal", () => {
       [[
         "/main.hex",
         BOX +
-          "fun alpha<a: Show>(x: a, n: Int): String =\n" +
-          "    if n <= 0 then show(x) else beta(x, n - 1)\n" +
-          "fun beta(x, n: Int): String =\n" +
-          '    if n <= 0 then "" else alpha(x, n - 1)\n' +
+          "fun<a: Show>\n" +
+          "    alpha(x: a, n: Int): String =\n" +
+          "        if n <= 0 then show(x) else beta(x, n - 1)\n" +
+          "    beta(x, n: Int): String =\n" +
+          '        if n <= 0 then "" else alpha(x, n - 1)\n' +
           "export let answer: String = alpha(Box({v = 7}), 2)\n",
       ]],
       { transform: distinct("recursion knot: single head") },
