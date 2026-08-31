@@ -275,6 +275,18 @@
       ],
       "patterns": [
         {
+          "//": [
+            "spec/functions.md §7.3's block **head** (#700): `fun` alone, or carrying its",
+            "binder list, and nothing else on the logical item. It introduces functions",
+            "exactly as the fused spelling does — its members are the following lines — so",
+            "it takes the same storage class rather than #keywords' generic one."
+          ],
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(fun)(?=[ \\t]*(?:<[^<>\\n]*>[ \\t]*$|$))",
+          "captures": {
+            "1": { "name": "storage.type.function.hexagon" }
+          }
+        },
+        {
           "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(fun)[ \\t]+((?![\\p{Uppercase}\\p{Lt}])(?!__)(?!(?:catch|else|finally|for|if|in|match|then|try|while|import|export|extern|constraint|derive|exception|fun|honor|let|record|type|var|and|iff|implies|not|or|true|false)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))[\\p{ID_Start}$_][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*)",
           "captures": {
             "1": { "name": "storage.type.function.hexagon" },
@@ -524,9 +536,18 @@
         "is not available here — `<a: (Num, Ord)>` needs them (spec/constraints.md §3).",
         "Second, the closing `>` must be followed by `(` (type arguments before a call),",
         "`=` (a constraint or function head), or an uppercase name (an `honor` head's",
-        "prefix binder, §4.3: `honor<a: Show> Show<Vector(a)>`)."
+        "prefix binder, §4.3: `honor<a: Show> Show<Vector(a)>`).",
+        "",
+        "*(#700.)* A `fun` **block head**'s list ends its logical item, so it has no such",
+        "tail at all (spec/functions.md §7.3). Its alternative leads the `begin` and",
+        "carries a third guard in the tail's place: the letters `fun` immediately",
+        "before the `<`. Nothing but the block head puts a tight `<...>` at the end of a",
+        "`fun` line, so no comparison chain reaches it. The lookbehind takes no boundary",
+        "guard because Oniguruma admits no lookaround inside one; a term whose name ends",
+        "in `fun` and is compared at line end would colour as a binder list, which is a",
+        "shape no Hexagon program has."
       ],
-      "begin": "<(?=[\\p{ID_Start}$_][^<>\\n]*>(?!=)[ \\t]*(?:\\(|=|[\\p{Uppercase}\\p{Lt}]))",
+      "begin": "(?:(?<=fun)<(?=[\\p{ID_Start}$_][^<>\\n]*>[ \\t]*$)|<(?=[\\p{ID_Start}$_][^<>\\n]*>(?!=)[ \\t]*(?:\\(|=|[\\p{Uppercase}\\p{Lt}])))",
       "beginCaptures": {
         "0": { "name": "keyword.operator.comparison.hexagon" }
       },

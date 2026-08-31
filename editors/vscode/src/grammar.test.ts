@@ -384,6 +384,46 @@ describe("declarations name what they declare", () => {
     );
   });
 
+  it("scopes a `fun` block head and its members (spec/functions.md §7.3, #700)", async () => {
+    // The head introduces functions exactly as the fused spelling does, so it
+    // takes the same storage class; the members are ordinary headers, and the
+    // `export` marker on one is the ordinary keyword.
+    const bare = await scopePairs(
+      "fun\n    even(n: Int): Bool = True\n    export odd(n: Int): Bool = False\n",
+    );
+    expect(bare.filter(([text]) => ["fun", "even", "export", "odd"].includes(text))).toEqual([
+      ["fun", "storage.type.function.hexagon"],
+      ["even", "entity.name.function.hexagon"],
+      ["export", "keyword.control.import.hexagon"],
+      ["odd", "entity.name.function.hexagon"],
+    ]);
+  });
+
+  it("scopes the block head's binder list, which ends its line", async () => {
+    // #type-parameters' ordinary guard is the closer's tail — `(`, `=`, or an
+    // uppercase name. A block head has none, so its own alternative is guarded
+    // by the keyword instead.
+    const head = await scopePairs("fun<a: Eq>\n    same(x: a, y: a): Bool = x == y\n");
+    expect(head.slice(0, 6)).toEqual([
+      ["fun", "storage.type.function.hexagon"],
+      ["<", "keyword.operator.comparison.hexagon"],
+      ["a", "entity.name.type.parameter.hexagon"],
+      [":", "punctuation.separator.colon.hexagon"],
+      ["Eq", "entity.name.type.constraint.hexagon"],
+      [">", "keyword.operator.comparison.hexagon"],
+    ]);
+  });
+
+  it("leaves a spaced comparison chain at line end alone", async () => {
+    // The head's alternative is tight-`<`-after-`fun` only, so the excluded
+    // shape #type-parameters' note names stays excluded.
+    const pairs = await scopePairs("let c = a <b and c >d\n");
+    expect(pairs.filter(([text]) => text === "<" || text === ">")).toEqual([
+      ["<", "keyword.operator.comparison.hexagon"],
+      [">", "keyword.operator.comparison.hexagon"],
+    ]);
+  });
+
   it("scopes an uppercase qualifier before `.` as a namespace", async () => {
     const source = "let n = Vector.length(values)";
     expect(await scope(source, "Vector")).toBe("entity.name.namespace.hexagon");
