@@ -290,19 +290,18 @@ compiler holds you to covering the type. The refusal above even says so:
 this pattern can fail: `None`; use `match` — for a match function, write `match` with arms
 ```
 
-Because it is a lambda, it satisfies the rule that a `fun` binding's right-hand side must
-be written as a function literal — which makes it the natural spelling for a recursive
-matcher:
+One seat it does not have: a `fun`. A `fun` always shows its header, so a recursive
+matcher names its parameter and scrutinizes it —
 
 ```hexagon
-fun size = match
+fun size(shape) = match shape
     Leaf => 0
     Node(left, _, right) => 1 + size(left) + size(right)
 ```
 
-Note the layout: the `match` ends the `fun` line. Moving it to the next line would make
-it the binding block's contents rather than the right-hand side as written, and `fun`
-asks for the written form.
+— the ordinary scrutinee form, the parameter named once in the header and once after
+`match`, and just as recursive. The match function belongs to expression seats: `let` bindings,
+call arguments, pipes.
 
 A match function's type is read off its patterns, and patterns do not always say enough.
 Arms that only guard a number constrain the parameter without settling it — nothing in

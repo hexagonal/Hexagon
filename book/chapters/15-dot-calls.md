@@ -86,7 +86,7 @@ call is legal exactly where a direct call to the operation would be, so the oper
 must be declared above the call that uses it, like every binding (chapter 3).
 
 One further rule keeps recursion visible: a dot call never targets a member of its own
-`fun` group. Consider a recursive operation in the home module of a recursive union:
+`fun` block. Consider a recursive operation in the home module of a recursive union:
 
 ```hexagon
 union Route =
@@ -101,8 +101,8 @@ export fun describe(route: Route): String =
 
 `describe` is subject-first and exported from `Route`'s home module, so elsewhere
 `rest.describe()` would be an ordinary dot call. Here it is the recursive call, and the
-compiler rejects it: a dot call cannot target its own `fun` group; spell the call by
-name — `describe(rest)`. The same rule covers every member of the group, so two
+compiler rejects it: a dot call cannot target its own `fun` block; spell the call by
+name — `describe(rest)`. The same rule covers every member of a block, so two
 mutually recursive operations call each other by name as well. Recursion is always
 visible as recursion, never hidden behind a dot.
 
