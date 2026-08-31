@@ -40,6 +40,10 @@ The written/unwritten axis previously operated per annotation slot: a parameter 
 
 There is no instrument that links two positions' types **without** claiming generality — a hypothetical "these two parameters have the same type, whatever it is." A written variable claims generality (§2.1); a hole claims no shape and links nothing (two holes are two independent metavariables; a constrained hole, §4.4, adds obligations to its one hole without linking it to anything). The gap is deliberate and permanent: inference already discovers equalities the body forces, and a linking-only annotation form is rejected in §9.6.
 
+### 2.4 Derivability: annotations refuse, they never enable
+
+Inference is complete on its own: delete every annotation from a legal program and it stays legal, with types at least as general. A written claim can hold a definition to more than its body proves — and refuse it; no written claim makes a program typecheck that inference alone would not. The written register's power is one-directional by design, and the direction is a fence, not an observation. The features that would reverse it — Haskell's signature rule for recursive groups (a signed member participating at its declared scheme), annotated polymorphic recursion generally, rank-≥2 claims — are rejected in §9.11: each makes typability depend on which annotations are present, and one admitted case is the thin edge of the wedge toward a second, annotation-driven type system standing beside the inferred one. Roc draws the same line for the same reason: decidable principal inference, under which no annotation can make a type more flexible than deleting it would. Two normative structures already lean on this principle — Functions §7.4's monomorphic knot (whose declared-heads consequence is written there) and dictionary-sharing §6.2's finiteness argument for hoisted evidence.
+
 ## 3. The Haskell characterization
 
 Hexagon's annotation system is **Haskell plus `PartialTypeSignatures`, with a different default**:
@@ -214,6 +218,7 @@ The filled type is surfaced by **hover, not diagnostics**. Hexagon has no warnin
 8. **Inline constraint attachment on named variables** — `(x: a : Num)` — and the full binder elimination it invites (inline replacing `<...>` on function headers and `honor` prefixes, angle brackets contracting to `constraint`/`honor` heads). Rejected on the name's power: a name states a constraint once for all occurrences, at the variable's own level; first-occurrence inline attachment relocates the statement whenever parameters reorder, per-occurrence attachment is restatement, and exports gather constraints as front-matter (Modules §4.1.1) — the same gathering pressure that produced `where` clauses elsewhere. The binder remains the one constraint home for named variables. `constraint` heads were never in question: their `<...>` is the application-form kind distinction (Constraints §1), not binder ceremony.
 9. **Constraint claims on written types** — `x: Int : Num`, `Vector(a : Show)`. Parse error. Where the claim is true it is redundant (a written type's instances are facts the checker already knows), and the named-variable spelling is item 8's rejection; a claim form that is either redundant or refused earns no grammar.
 10. **Cap semantics for the seeded list** (reading `_ : C` as a completeness contract on the fill). Rejected: completeness governs claimed schemes, and a fill is a monotype that honors whatever it honors. A cap would also make `_ : C` reject programs a bare `_` accepts — a form that *adds* rejections by claiming *less* than a binder does would be incoherent.
+11. **Annotation-enabled typability** — Haskell's signature rule for recursive definitions (a signed member of an SCC participates at its declared scheme), and with it annotated polymorphic recursion. It would make the two-headed mutual group legal (`fun isEven<a: Eq>` / `fun isOdd<a: Eq>`, refused by Functions §7.4 because two declarations' rigids can never be one variable) — but only by making an annotation load-bearing for typability, against §2.4's derivability principle, and by unbounding the recursive-demand family dictionary-sharing §6.2's soundness argument bounds. The refused spelling has legal neighbors of identical meaning (no heads; one head; a non-recursive wrapper carrying the contract), so the rule would buy expressiveness nobody lacks at the price of a second type system. Rejected permanently; the mutual-group presentation takes Functions §10's SCC hint, not a semantics change.
 
 ## 10. Edit-notes ledger
 
@@ -232,6 +237,12 @@ Applied in the #326 change:
 - **`notes/canonical-formatting-and-naming.md`**: S11 gains the not-inert clause for constrained holes; S12 gains the constrained-hole extension and the constraint-colon spacing.
 - **Book, Polymorphism chapter**: the constrained-holes section beside the type-holes section — `Vector(_ : Num)` on the established `padded` example, the claim-ladder, and the complementary split taught against a multi-occurrence binder.
 - **Book, Constraints chapter**: the contract sentence scoped to binder lists, with the constrained-hole floor noted as the deliberate contrast.
+
+Applied in the #368 change:
+
+- **§2.4** records the derivability principle; **§9.11** the annotation-enabled-typability rejection.
+- **Functions §7.4** gains the two knot corollaries (identity evidence suffix; declared heads cannot meet across the knot); **Functions §10**'s polymorphic-recursion row pins the SCC hint and fences out the generic declared-variable advice.
+- **Book**: no edit — the Polymorphism chapter's "Recursive calls keep one type" section already teaches the derivability ground ("without asking programmers for a special proof or a more powerful annotation language").
 
 To apply on next touch of the target:
 
