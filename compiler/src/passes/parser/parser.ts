@@ -609,9 +609,10 @@ class Parser {
     head: Parsed.FunBlockHead,
     moduleItems: boolean,
   ): Parsed.Item {
-    const first = this.#current();
+    // The member's own left margin, marker included: what a doc block attaches
+    // to, and what the item's span runs from.
+    const itemStart = this.#current().span;
     let exported = false;
-    let itemStart = first.span;
     if (this.#at("Export")) {
       const exportToken = this.#advance();
       // Modules §4.1: the marker is module-level only, and an inner block's

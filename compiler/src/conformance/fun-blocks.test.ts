@@ -175,9 +175,13 @@ describe("the head's variable is one rigid (§12.3)", () => {
   /**
    * The §4.2 contract, checked per member: the head's list is one list stated
    * once, and a member whose body demands more than it is refused — naming the
-   * member's own demand, never silently strengthening the head.
+   * member whose demand exceeded it, never silently strengthening the head.
+   *
+   * The refusal respells to the head, because that is where the repair goes: a
+   * member line takes no binder list (§7.3), so the fused row's `write <a: …>`
+   * would advise a spelling the next compile rejects.
    */
-  test("a member whose body exceeds the head's list is refused", () => {
+  test("a member whose body exceeds the head's list is refused, at the head", () => {
     // One list, stated once, checked **per member**: `left` uses the variable
     // within the head's `Eq` and says nothing, `right` demands `Show` and is
     // refused. The head is never silently strengthened.
@@ -189,11 +193,13 @@ describe("the head's variable is one rigid (§12.3)", () => {
           "    right(x: a, n: Int): String = show(x)\n",
       ),
     ).toEqual([
-      "`a` is declared to honor `Eq`, but the body requires `Show`; write " +
-        "`<a: (Eq, Show)>`, or remove the constraint annotation to let it be inferred",
+      "`a` is declared to honor `Eq` on the block head, but `right`'s body requires " +
+        "`Show`; widen the head: `fun<a: (Eq, Show)>`, or remove the head's constraint " +
+        "to let it be inferred",
     ]);
 
-    // And the head's own list governs: widen it and the same block compiles.
+    // And the head's own list governs: widen it as advised and the same block
+    // compiles — the Rewrite Rule made checkable.
     expect(
       projectDiagnostics(
         "fun<a: (Eq, Show)>\n" +
@@ -202,6 +208,43 @@ describe("the head's variable is one rigid (§12.3)", () => {
           "    right(x: a, n: Int): String = show(x)\n",
       ),
     ).toEqual([]);
+  });
+
+  /**
+   * The member name is what makes the report actionable: the head is shared, so
+   * "the body" would name nothing in a block of several. Two members under one
+   * head, each exceeding it in its own way, are told apart by name.
+   */
+  test("the report names which member exceeded the head", () => {
+    expect(
+      projectDiagnostics(
+        "fun<a: Eq>\n" +
+          "    shows(x: a, n: Int): String =\n" +
+          '        if n <= 0 then show(x) else hashes(x, n - 1)\n' +
+          "    hashes(x: a, n: Int): String =\n" +
+          '        if n <= 0 then "" else Int.show(hash(x))\n',
+      ),
+    ).toEqual([
+      "`a` is declared to honor `Eq` on the block head, but `shows`'s body requires " +
+        "`Show`; widen the head: `fun<a: (Eq, Show)>`, or remove the head's constraint " +
+        "to let it be inferred",
+      "`a` is declared to honor `Eq` on the block head, but `hashes`'s body requires " +
+        "`Hash`; widen the head: `fun<a: Hash>`, or remove the head's constraint to let " +
+        "it be inferred",
+    ]);
+  });
+
+  /**
+   * The fused spelling keeps its own wording: its binder *is* its head, so
+   * `write <a: …>` is the legal repair there and the respelling would be noise.
+   */
+  test("the fused spelling's refusal is untouched", () => {
+    expect(
+      projectDiagnostics("fun right<a: Eq>(x: a, n: Int): String = show(x)\n"),
+    ).toEqual([
+      "`a` is declared to honor `Eq`, but the body requires `Show`; write " +
+        "`<a: (Eq, Show)>`, or remove the constraint annotation to let it be inferred",
+    ]);
   });
 
   /**
@@ -288,6 +331,13 @@ describe("sharing is opt-in, and grouping bounds visibility only (§12.4)", () =
         "export let answer: Int = plain(1)\n",
     );
     expect(blocked).toEqual(fused);
+    // The agreement has to be an agreement about something: two empty lists
+    // would satisfy the line above and say nothing, and the shared verdict is
+    // §4.2's contract machinery reaching a binder no body mentions.
+    expect(blocked).toEqual([
+      "`a` is a declared type variable, but the body requires `Int`; change the annotation " +
+        "to `Int`, or remove it to let the type be inferred",
+    ]);
   });
 });
 
@@ -334,6 +384,34 @@ describe("the exported constrained knot (§12.5)", () => {
       { transform: distinct("fun block: exported knot") },
     );
     expect(exports["answer"]).toBe(3);
+  });
+
+  /**
+   * The head's list is one written thing at one span, so Modules §4.1.1's
+   * maximality check is asked of it **once per block** — not once per exporting
+   * member, which repeated the report word for word at the same characters, one
+   * copy per export.
+   */
+  test("a defective head list is reported once, however many members export", () => {
+    const defective = (members: string): readonly string[] =>
+      projectDiagnostics(`fun<a: (Eq, Hash)>\n${members}`);
+    const report = "exported function `first` must omit base constraint `Eq` from `a`; " +
+      "`Hash` already provides it";
+
+    expect(defective("    export first(x: a): Int = hash(x)\n")).toEqual([report]);
+    expect(
+      defective(
+        "    export first(x: a): Int = hash(x)\n" +
+          "    export second(x: a): Int = hash(x)\n",
+      ),
+    ).toEqual([report]);
+    expect(
+      defective(
+        "    export first(x: a): Int = hash(x)\n" +
+          "    export second(x: a): Int = hash(x)\n" +
+          "    export third(x: a): Int = hash(x)\n",
+      ),
+    ).toEqual([report]);
   });
 
   /**

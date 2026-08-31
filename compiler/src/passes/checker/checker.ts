@@ -556,6 +556,16 @@ interface Requirement {
    * discharged changes.
    */
   readonly origin: "annotation" | "literal" | "operation" | "interpolation" | "iteration";
+  /**
+   * The `fun` member whose body raised this requirement, where one did (#700).
+   *
+   * Read by one report: a variable declared on a **block head** is shared by
+   * every member that writes it, so §4.2's contract refusal has to say which
+   * member's body exceeded the head's list — the head itself is innocent, and
+   * "the body" names nothing in a block of several. Absent outside a member's
+   * body, where the report falls back to the unqualified phrasing.
+   */
+  readonly demandedBy?: string;
   /** The literal's digits, so §6's blocked-defaulting report can name it. */
   literal?: string;
   /**
@@ -1845,6 +1855,15 @@ class Checker {
    * the diagnostic wants the pinning use's span, which only unification has.
    */
   readonly #pinnedVars = new Map<number, string>();
+  /**
+   * The `fun` block heads whose binder list has already taken Modules §4.1.1's
+   * maximality check (#700).
+   *
+   * The check is the *list's*, and one block has one list however many members
+   * export under it — so it is asked once. Block ids are minted per file and a
+   * `Checker` is built per module, so the id is identity enough here.
+   */
+  readonly #checkedBlockHeads = new Set<number>();
   /**
    * Every symbol this module can name, imports included (the resolver puts both
    * in `module.symbols`). The syntactic-value test reads the *kind* here rather
@@ -9137,12 +9156,14 @@ class Checker {
     /** Only `#importScheme` passes this; see `Requirement.identity`. */
     identity: string = this.#constraintIdentity(name),
   ): Requirement {
+    const demandedBy = this.#annotationOwner;
     const requirement: Requirement = {
       name,
       identity,
       type,
       span,
       origin,
+      ...(demandedBy?.kind === "member" ? { demandedBy: demandedBy.name } : {}),
       ...(impliedTypes === undefined ? {} : { impliedTypes }),
       reported: false,
     };
@@ -9342,6 +9363,29 @@ class Checker {
           message:
             `${declaration}, but the body requires \`${requirement.name}\`; ` +
             `write \`<${variable.rigidName}: ${constraintList}>\` on the \`honor\` header`,
+          primary: requirement.span,
+        });
+        requirement.reported = true;
+        return;
+      }
+      // *(#700.)* A variable declared on a `fun` **block head** is one list over
+      // several members, so the refusal respells to the head and names the
+      // member whose body exceeded it. The fused spelling's wording is
+      // untouched: this arm keys on the *owner* being a head, which is the same
+      // attribution §10's rigid-vs-rigid message qualifies a side by.
+      if (this.#declaredHeadOwners.get(variable.id)?.kind === "block") {
+        const subject = requirement.demandedBy === undefined
+          ? "the body"
+          : `\`${requirement.demandedBy}\`'s body`;
+        const headRewrite = declared.length === 0
+          ? "remove the head's binder to let it be inferred"
+          : "remove the head's constraint to let it be inferred";
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `${declaration} on the block head, but ${subject} requires ` +
+            `\`${requirement.name}\`; widen the head: ` +
+            `\`fun<${variable.rigidName}: ${constraintList}>\`, or ${headRewrite}`,
           primary: requirement.span,
         });
         requirement.reported = true;
@@ -13094,14 +13138,17 @@ class Checker {
       }
     });
 
-    for (const parameter of [
-      ...(lambda.typeParameters ?? []),
-      // A block member's binders are the head's (Modules §4.1.1), so the head's
-      // list takes the maximality check every written list takes. Checked once
-      // per exporting member, which is where the report belongs: the head's
-      // list is what that member publishes.
-      ...(item.kind === "Fun" ? item.block?.typeParameters ?? [] : []),
-    ]) {
+    // A block member's binders are the head's (Modules §4.1.1), so the head's
+    // list takes the maximality check every written list takes — **once per
+    // block**, not once per exporting member. The list is one written thing at
+    // one span, so a second report would repeat the first word for word and
+    // caret the same characters; two exporting members produced two, three
+    // produced three.
+    const head = item.kind === "Fun" ? item.block : undefined;
+    const headBinders = head !== undefined && !this.#checkedBlockHeads.has(head.id)
+      ? (this.#checkedBlockHeads.add(head.id), head.typeParameters ?? [])
+      : [];
+    for (const parameter of [...(lambda.typeParameters ?? []), ...headBinders]) {
       const maximal = new Set(this.#maximalConstraintNames(parameter.constraints));
       for (const constraint of parameter.constraints) {
         if (maximal.has(constraint)) continue;
