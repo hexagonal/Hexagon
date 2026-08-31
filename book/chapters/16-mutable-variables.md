@@ -47,6 +47,13 @@ A `var` is legal only within a function body. It may appear inside a nested `if`
 `match`, or `try` block belonging to that function, but not at module level. Hexagon
 modules expose values and functions, never mutable cells.
 
+A `var` also never holds a function. Vars exist to accumulate data — counts, totals,
+best-candidates-so-far — and a "current behavior" slot is not data. When behavior
+genuinely changes over a computation, say it as data: declare a union of the modes,
+keep `var mode = Fast`, and `match` on it where the behavior is used. Functions inside
+data are still data — a `var` may hold a vector of handlers — but the var itself may
+not be one.
+
 Like every sequential binding, a `var` must introduce a fresh name. It does not provide
 another way to rebind an existing `let`:
 
@@ -185,7 +192,7 @@ immutable intermediate values, or a different algorithm entirely.
 
 ## Summary
 
-- `var` introduces one mutable name inside a function;
+- `var` introduces one mutable name inside a function, holding data, never a function;
 - `:=` assigns to that name and produces `Unit`;
 - a `var` is monomorphic and cannot change type;
 - parameters, `let` names, record fields, and tuple positions remain immutable;

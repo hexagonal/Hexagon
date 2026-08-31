@@ -357,13 +357,19 @@ constraints inline, and a binder list cannot name a hole.
 ## Recursive calls keep one type
 
 A recursive `fun` may be reusable at several types from the outside, just like another
-generalized function. Inside its own recursive group, however, every recursive call
+generalized function. Inside its own recursive knot, however, every recursive call
 uses one consistent type. It cannot call itself with an unrelated type on a later step.
 
 This rejects **polymorphic recursion**. The restriction is valuable because ordinary
 inference can determine recursive function types without asking programmers for a
 special proof or a more powerful annotation language. Generic recursive functions such
 as collection traversal still work; only the recursive knot itself stays at one type.
+
+The same one-consistent-type rule shapes how a mutually recursive pair writes a
+constraint. Members of a `fun` block that share a type variable share it through the
+block's head — `fun<a: Eq>` — where one binder scopes over every member that writes
+`a`. Two members could never each declare their own `a` and have the knot treat the
+two as one; the head says it once, for the block.
 
 ## Inferred types do not burden the JavaScript
 
@@ -403,7 +409,8 @@ the JavaScript boundary.
 - a hole may carry a written constraint — `Vector(_ : Num)` — a floor its filled type
   must satisfy: named variables take their constraints at the binder, holes take
   theirs inline, and each form lives exactly where the other cannot; and
-- recursive calls within one `fun` group keep one consistent type.
+- recursive calls within one recursive knot keep one consistent type, and a `fun`
+  block's members share type variables through the block head.
 
 With these rules in place, compound values can be introduced without stopping to label
 every component. Hexagon will infer their shapes and preserve the relationships that
