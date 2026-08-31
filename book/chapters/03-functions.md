@@ -335,8 +335,9 @@ familiar header form, minus the `fun` the block head already said — and a lone
 A word about "block": this is a **member block**, not the value-producing kind.
 Chapter 1's law — the final expression is the value of the block — governs
 *expression* blocks: function bodies, branches, a binding's indented right-hand
-side. A member block groups declarations instead, the way a source file's top
-level does. It has no value, cannot be assigned to a variable or passed
+side. A member block groups declarations instead — a sequence of items to work
+through, not an expression whose last line is its answer — the way a source
+file's top level does. It has no value, cannot be assigned to a variable or passed
 anywhere, and it ends with a binding by design, not by mistake. Later chapters
 bring more member blocks — `honor` blocks among them — and the same sentence
 covers them all.

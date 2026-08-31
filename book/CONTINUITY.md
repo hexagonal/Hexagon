@@ -467,7 +467,7 @@ late pedagogy pass, not a commitment to the current order.
 ### Expressions
 
 - Core formulation: **expressions produce values; bindings introduce names**.
-- Core block formulation: **the final expression is the value of the block**.
+- Core block formulation: **the final expression is the value of the block** — the law of *expression* blocks; the term is introduced and the law scoped in Functions.
 - `Unit` explains why effectful expressions may be sequenced before a block's result.
 - `ignore(auditOrder(order))` is the first intentional-discard example.
 - `orderTotal(subtotal, delivery)` is the first drafted explicit
