@@ -349,6 +349,120 @@ describe("compileSource", () => {
     expect(response.typeScriptPreview).toContain(
       "declare function plusInt(x: number, y: number): number;",
     );
+    // The private half of §10's two-artefact accounting: `plus` is not
+    // exported, so the ordinary emission's declarations carry no face for any of
+    // these four bodies. The pane previews the bodies anyway, and the report
+    // says the faces are absent rather than weightless.
+    expect(response.generatedDeclarations).toEqual([]);
+    expect(response.zeroEntryPointExports).toEqual([]);
+  });
+
+  /**
+   * Zero-Cost Fundamental Exports §10's two obligations, as the Playground's
+   * generated-sections panel reads them: the `.d.ts` size beside the JS size for
+   * every edition, and §3.4's list of the exports that published no typed entry
+   * point.
+   */
+  describe("the build report's two obligations", () => {
+    /** §16(h)'s constraint: no fundamental type honors it, so no tuple is lawful. */
+    const weighty = "constraint Weighty<a> =\n    weight(subject: a): Float\n\n";
+    const heaviest = "export fun heaviest<a: Weighty>(x: a, y: a): Float =\n" +
+      "    if x.weight() > y.weight() then x.weight() else y.weight()\n";
+    const stamp = "export fun stamp<a: Hash>(x: a, salt: Int): Int = x.hash() + salt\n";
+
+    test("reports both artefacts' sizes and the zero-entry-point export beside them", () => {
+      const response = compileSource(40, `${weighty}${heaviest}\n${stamp}`);
+
+      expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (response.kind !== "compile-success") return;
+
+      // `stamp` mints one edition per fundamental — every one of the seven holds
+      // a lawful `Hash` — and `heaviest` mints none at all. One module, both
+      // halves of the report.
+      expect(response.generatedJavaScript.map(({ generatedName }) => generatedName)).toEqual([
+        "stampNat",
+        "stampInt",
+        "stampFloat",
+        "stampBigInt",
+        "stampBool",
+        "stampString",
+        "stampUnit",
+      ]);
+      expect(response.generatedDeclarations.map(({ generatedName }) => generatedName)).toEqual(
+        response.generatedJavaScript.map(({ generatedName }) => generatedName),
+      );
+      expect(response.zeroEntryPointExports).toEqual(["heaviest"]);
+
+      // The two lists are the same plan read twice and they disagree about size,
+      // which is why §10 asks for both rather than a total: `stampFloat` weighs
+      // more as a body than as a face. Every row of both carries a size.
+      const javaScriptBytes = response.generatedJavaScript.map(({ bytes }) => bytes);
+      const declarationBytes = response.generatedDeclarations.map(({ bytes }) => bytes);
+      expect(javaScriptBytes.every((bytes) => bytes > 0)).toBe(true);
+      expect(declarationBytes.every((bytes) => bytes > 0)).toBe(true);
+      expect(declarationBytes).not.toEqual(javaScriptBytes);
+    });
+
+    /**
+     * §16(h) exactly: legal, visible, and still a working Hexagon export. The
+     * module generates nothing, so a panel gated on the edition list would show
+     * the author nothing — in the one case where the absence is the whole news.
+     */
+    test("lists an export with no entry points even where nothing was generated", () => {
+      const response = compileSource(41, `${weighty}${heaviest}`);
+
+      expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (response.kind !== "compile-success") return;
+
+      expect(response.generatedJavaScript).toEqual([]);
+      expect(response.generatedDeclarations).toEqual([]);
+      expect(response.zeroEntryPointExports).toEqual(["heaviest"]);
+      // §3.4's second bullet: the typed surface is what the exception removes.
+      // The ESM still carries the evidence-taking form as plumbing, which is
+      // what keeps the export callable from another Hexagon module.
+      expect(response.javascript).toContain("heaviest");
+      expect(response.typeScriptPreview).not.toContain("heaviest");
+    });
+
+    test("reports nothing at all for a module whose exports are unconstrained", () => {
+      const response = compileSource(42, "export fun plain(x: Int): Int = x + 1\n");
+
+      expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (response.kind !== "compile-success") return;
+
+      // `plain` carries no constrained variable, so §3.1 never made it eligible.
+      // A list phrased on "published no face" alone would name it here.
+      expect(response.generatedJavaScript).toEqual([]);
+      expect(response.generatedDeclarations).toEqual([]);
+      expect(response.zeroEntryPointExports).toEqual([]);
+    });
+
+    /**
+     * A `.d.ts` row spans the edition's own documentation block, so an author's
+     * prose is inside the measurement — and prose is where the file stops being
+     * ASCII. `bytes` is UTF-8 and the offsets index the text as JavaScript does,
+     * so a panel that labelled a region with `endOffset - startOffset` would
+     * under-report every documented module written in a language with accents.
+     */
+    test("measures a documented edition in UTF-8 bytes, not in string offsets", () => {
+      const response = compileSource(
+        43,
+        "(** Mélange un sel — «précision» — pour séparer deux valeurs égales. *)\n" + stamp,
+      );
+
+      expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (response.kind !== "compile-success") return;
+
+      for (const section of response.generatedDeclarations) {
+        expect(section.bytes).toBeGreaterThan(section.endOffset - section.startOffset);
+      }
+      // The JavaScript side is where the two agree, and it agrees for a reason
+      // rather than by luck: the item's documentation precedes the whole
+      // rendered block once there, so no edition's body carries any of it.
+      for (const section of response.generatedJavaScript) {
+        expect(section.bytes).toBe(section.endOffset - section.startOffset);
+      }
+    });
   });
 
   test("routes the specialization example's concrete calls through its editions", () => {

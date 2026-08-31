@@ -15,14 +15,19 @@ import {
   exampleById,
   playgroundExamples,
 } from "./examples";
-import { groupGeneratedSections, renderGeneratedCodeView } from "./generated-code";
+import {
+  formatEditionLabel,
+  formatExportLabel,
+  generatedSectionsPanel,
+  renderGeneratedCodeView,
+} from "./generated-code";
 import { helloWorld } from "./examples/hello-world";
 import { readStoredSource, writeStoredSource } from "./persistence";
 import { createLanguageServices } from "./language-services";
 import type {
   CompilerMessage,
   ExecutionEvent,
-  GeneratedJavaScriptSection,
+  GeneratedSection,
   TypeOccurrence,
   ExecutableModule,
 } from "./protocol";
@@ -51,7 +56,9 @@ interface PlaygroundState {
   javascript: string;
   executionModules: readonly ExecutableModule[];
   entryPath: string;
-  generatedJavaScript: readonly GeneratedJavaScriptSection[];
+  generatedJavaScript: readonly GeneratedSection[];
+  generatedDeclarations: readonly GeneratedSection[];
+  zeroEntryPointExports: readonly string[];
   javascriptView: string;
   typeScriptPreview: string;
   types: readonly TypeOccurrence[];
@@ -67,6 +74,8 @@ const state: PlaygroundState = {
   executionModules: [],
   entryPath: "/main.hex",
   generatedJavaScript: [],
+  generatedDeclarations: [],
+  zeroEntryPointExports: [],
   javascriptView: "source",
   typeScriptPreview: "// The TypeScript preview will appear after compilation.",
   types: [],
@@ -133,10 +142,13 @@ app.innerHTML = `
         <button role="tab" data-tab="javascript" aria-selected="true">JS</button>
         <button role="tab" data-tab="typeScriptPreview" aria-selected="false">.d.ts</button>
         <button role="tab" data-tab="types" aria-selected="false">Types</button>
-        <label class="js-view-control" hidden>
-          <span>View</span>
-          <select id="js-view-select" aria-label="JavaScript generated-code view"></select>
-        </label>
+        <div class="build-report" hidden>
+          <span id="zero-entry-points" class="zero-entry-points" hidden></span>
+          <label class="js-view-control" hidden>
+            <span>View</span>
+            <select id="js-view-select" aria-label="JavaScript generated-code view"></select>
+          </label>
+        </div>
       </div>
       <div id="result-view" role="tabpanel" tabindex="0">
         <div id="result-text"></div>
@@ -161,8 +173,10 @@ const themeSelect = requireElement<HTMLSelectElement>("#theme-select");
 const exampleSelect = requireElement<HTMLSelectElement>("#example-select");
 const shareButton = requireElement<HTMLButtonElement>("[data-action='share']");
 const runButton = requireElement<HTMLButtonElement>("[data-action='run']");
+const buildReportPanel = requireElement<HTMLElement>(".build-report");
 const javaScriptViewControl = requireElement<HTMLElement>(".js-view-control");
 const javaScriptViewSelect = requireElement<HTMLSelectElement>("#js-view-select");
+const zeroEntryPointNote = requireElement<HTMLElement>("#zero-entry-points");
 runButton.title = "Run the most recently compiled program.";
 const tabButtons = Array.from(app.querySelectorAll<HTMLButtonElement>("[data-tab]"));
 
@@ -235,6 +249,8 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>
     state.executionModules = response.executionModules;
     state.entryPath = response.entryPath;
     state.generatedJavaScript = response.generatedJavaScript;
+    state.generatedDeclarations = response.generatedDeclarations;
+    state.zeroEntryPointExports = response.zeroEntryPointExports;
     state.typeScriptPreview = response.typeScriptPreview;
     state.types = response.types;
     state.diagnostics = response.diagnostics.map((diagnostic) =>
@@ -248,6 +264,8 @@ compilerWorker.addEventListener("message", (event: MessageEvent<CompilerMessage>
     state.executionModules = [];
     state.entryPath = "/main.hex";
     state.generatedJavaScript = [];
+    state.generatedDeclarations = [];
+    state.zeroEntryPointExports = [];
     state.typeScriptPreview =
       "// No TypeScript preview emitted for the current source.";
     state.types = [];
@@ -273,6 +291,8 @@ function handleSourceChange(): void {
   state.diagnostics = [];
   state.types = [];
   state.generatedJavaScript = [];
+  state.generatedDeclarations = [];
+  state.zeroEntryPointExports = [];
   sourceEditor.publishDiagnostics([]);
   writeCurrentSource(sourceEditor.getSource());
   runButton.disabled = true;
@@ -408,7 +428,7 @@ function renderTabs(): void {
   if (errorBadge !== null) {
     errorBadge.textContent = String(state.diagnostics.length);
   }
-  renderJavaScriptViewControl();
+  renderBuildReport();
 }
 
 function renderResult(): void {
@@ -453,11 +473,46 @@ function renderResult(): void {
   resultText.textContent = content[state.activeTab];
 }
 
-function renderJavaScriptViewControl(): void {
-  const visible = state.activeTab === "javascript" &&
-    state.generatedJavaScript.length > 0;
-  javaScriptViewControl.hidden = !visible;
-  if (!visible) return;
+/**
+ * §3.4's other visibility obligation, which the list alone does not discharge:
+ * what would create an entry point. The wording is the exception's own — the
+ * absence is legal, and the export keeps working for the audience `export`
+ * exists to serve.
+ */
+const ZERO_ENTRY_POINT_EXPLANATION =
+  "Zero-Cost Fundamental Exports §3.4: these exports publish no typed entry " +
+  "point, which is legal, not an error. A lawful fundamental instance of the " +
+  "constraint, or evidence completing a §4.1 assignment, would create one. " +
+  "They remain working Hexagon exports that another module can import, honor " +
+  "the constraint for, and call.";
+
+/**
+ * The generated-sections panel — Zero-Cost Fundamental Exports §10's report, as
+ * much of it as one host shows.
+ *
+ * Its two halves are gated separately on purpose. The view select needs editions
+ * to select between; §3.4's list does not, and the case where a module minted
+ * nothing at all is exactly the case where its author most needs to be told why
+ * (§16(h)). A panel gated on the edition list alone would go dark there.
+ */
+function renderBuildReport(): void {
+  const report = generatedSectionsPanel(
+    state.generatedJavaScript,
+    state.generatedDeclarations,
+    state.zeroEntryPointExports,
+  );
+  const visible = state.activeTab === "javascript" && report.hasContent;
+  buildReportPanel.hidden = !visible;
+  zeroEntryPointNote.hidden = report.zeroEntryPointNote === undefined;
+  zeroEntryPointNote.textContent = report.zeroEntryPointNote ?? "";
+  // The line is elided where the list is long, so the title repeats it in full
+  // before saying what it means: a truncated §3.4 list would hide the very names
+  // the obligation exists to publish.
+  zeroEntryPointNote.title = report.zeroEntryPointNote === undefined
+    ? ""
+    : `${report.zeroEntryPointNote}\n\n${ZERO_ENTRY_POINT_EXPLANATION}`;
+  javaScriptViewControl.hidden = report.exports.length === 0;
+  if (!visible || report.exports.length === 0) return;
 
   const validViews = new Set([
     "source",
@@ -473,15 +528,13 @@ function renderJavaScriptViewControl(): void {
     createOption("source", "Source-shaped"),
     createOption("complete", "Complete emitted module"),
   );
-  const groups = groupGeneratedSections(state.generatedJavaScript);
-  for (const [sourceName, sections] of groups) {
-    const bytes = sections.reduce((total, section) => total + section.bytes, 0);
+  for (const entry of report.exports) {
     const group = document.createElement("optgroup");
-    group.label = `${sourceName} (${sections.length}, ${bytes} B)`;
-    for (const section of sections) {
+    group.label = formatExportLabel(entry);
+    for (const edition of entry.editions) {
       group.append(createOption(
-        `specialization:${section.generatedName}`,
-        `${section.generatedName} · ${section.typeArguments.join(", ")} · ${section.bytes} B`,
+        `specialization:${edition.section.generatedName}`,
+        formatEditionLabel(edition),
       ));
     }
     javaScriptViewSelect.append(group);

@@ -395,12 +395,43 @@ button:disabled {
   content: "";
 }
 
+/* The generated-sections panel: §3.4's list, then the per-edition view select. */
+.build-report {
+  display: flex;
+  min-height: 2.7rem;
+  align-items: center;
+  gap: 0.55rem;
+  margin-left: auto;
+}
+
+.build-report[hidden] {
+  display: none;
+}
+
+/*
+ * Zero-Cost Fundamental Exports §3.4's list is a statement of fact about the
+ * emitted surface, not a diagnostic: the export is legal and still works for
+ * Hexagon consumers. It reads in the panel's own muted voice for that reason,
+ * and takes no warning colour.
+ */
+.zero-entry-points {
+  max-width: 22rem;
+  overflow: hidden;
+  color: var(--muted-text);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zero-entry-points[hidden] {
+  display: none;
+}
+
 .js-view-control {
   display: flex;
   min-height: 2.7rem;
   align-items: center;
   gap: 0.35rem;
-  margin-left: auto;
   color: var(--muted-text);
   font-size: 0.7rem;
   white-space: nowrap;

@@ -120,6 +120,17 @@ function compileWorkspace(
     ],
     entryPath,
     generatedJavaScript: main.javascript.generatedSections,
+    // The `.d.ts` accounting and §3.4's list come from the project's own
+    // declarations rather than a re-emission: `compileProject` emitted them from
+    // the same `fundamentalInstances` this pane's JavaScript was re-emitted
+    // from, so the two halves of §10's report are the same plan read twice.
+    //
+    // They are the *ordinary* emission's declarations, so they carry no private
+    // editions — the JavaScript beside them does, because this pane asks for
+    // them. That asymmetry is a fact about the artefacts and is reported as one:
+    // a private edition weighs its bytes in the module and publishes no face.
+    generatedDeclarations: main.module.declarations.generatedSections,
+    zeroEntryPointExports: main.module.declarations.zeroEntryPointExports,
     typeScriptPreview: preview.text,
     // Type occurrences are for the editor's buffer, so they cover what the user
     // wrote: the hosted `/stdlib/` copies are out, and so is anything the
