@@ -9131,13 +9131,11 @@ class DeclarationEmitter {
           // A constrained binding has no single `.d.ts` declaration — its face
           // is one per specialization — so its documentation rides each, and so
           // does the Hexagon face, which is the specialization's own.
-          declarations.push(
-            ...this.#docs.lines(
-              item.span,
-              "",
-              hexagonFaceDoc(specialized.binding.scheme),
-              true,
-            ),
+          const doc = this.#docs.lines(
+            item.span,
+            "",
+            hexagonFaceDoc(specialized.binding.scheme),
+            true,
           );
           const face = renderFunctionDeclaration(
             specialization.name,
@@ -9146,11 +9144,26 @@ class DeclarationEmitter {
             true,
             this.#faces,
           );
-          // §10: recorded here, where the face is the text that goes into the
-          // file, rather than recovered afterwards by searching for a signature
-          // this would have to render a second time to know.
-          this.#generatedFaces.push({ specialization, text: face });
-          declarations.push(face);
+          // §10, and the block is the doc **and** the face rather than the face
+          // alone. The duplication is the measurement's subject, not noise
+          // around it: a documented constrained export's doc block is re-emitted
+          // once per edition, carrying the specialization's own Hexagon face, so
+          // it is text that exists only because the editions exist — "bytes
+          // attributable to generated specializations" in §10's own words, and
+          // the half that grows with the Cartesian product §12.2 has to see. On
+          // a two-export documented module the faces alone report 725 of 1828
+          // `.d.ts` bytes; the 1102 unreported ones are these blocks.
+          //
+          // The JavaScript side has no counterpart to add. There the item's
+          // documentation precedes the whole rendered block once, source binding
+          // and editions together, so no per-edition doc text exists to attribute.
+          //
+          // Recorded here, where the block is the text that goes into the file,
+          // rather than recovered afterwards by searching for a rendering this
+          // would have to perform a second time to know.
+          const block = [...doc, face];
+          this.#generatedFaces.push({ specialization, text: block.join("\n") });
+          declarations.push(...block);
         }
         isExternalModule ||= specializations.length > 0;
         continue;
@@ -9735,21 +9748,26 @@ function addSpecializationCollisionDiagnostics(
 /**
  * Zero-Cost Fundamental Exports §10's byte accounting, over whichever artefact's
  * editions are handed in: the JavaScript emitter's rendered bodies, or the
- * declaration emitter's rendered faces.
+ * declaration emitter's rendered doc-and-face blocks.
  *
  * One function for both because §10 asks for one measurement of two files, and
  * the two would drift apart the moment they were written twice. The rendered
  * text is *recorded as it was pushed* and then found in the finished file rather
  * than re-rendered here — that is what makes a row a report of the emission
- * instead of a second opinion about it, and it is why a face that stopped being
- * pushed loses its row rather than acquiring a stale one.
+ * instead of a second opinion about it, and it is why an edition that stopped
+ * being pushed loses its row rather than acquiring a stale one.
  *
- * The cursor advances past each located edition, so the scan is linear and an
- * edition can never be found inside one already accounted for. A row is dropped
- * where the text is not found at all, which no emission produces today: the
- * final file is the pushed strings joined, and every edition's rendering carries
- * its own generated name. Dropping beats guessing an offset that would make
- * `text.slice(start, end)` return something that is not the edition.
+ * The cursor advances past each located edition. That is a discipline rather
+ * than an observable property today — editions are pushed in the order they are
+ * rendered and each carries its own generated name, so a scan from zero would
+ * find the same offsets — and it is kept because the alternative is quadratic
+ * and because the property it guarantees, disjoint rows in file order, is what
+ * makes summing `bytes` meaningful.
+ *
+ * A row is dropped where the text is not found at all, which no emission
+ * produces today: the final file is the pushed strings joined. Dropping beats
+ * guessing an offset that would make `text.slice(start, end)` return something
+ * that is not the edition.
  */
 function generatedSections(
   text: string,

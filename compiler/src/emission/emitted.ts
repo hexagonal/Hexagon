@@ -106,8 +106,8 @@ export interface JavaScript extends Output {
 
 /**
  * One emitted edition of a constrained export, located in the file it was
- * rendered into: a generated *body* in `JavaScript`, a generated *face* in
- * `Declarations`.
+ * rendered into: a generated *body* in `JavaScript`, a generated *face* with its
+ * own documentation in `Declarations`.
  *
  * The §10 measurement in the shape §10 asks for — "the emitted JS size and
  * `.d.ts` size attributable to generated specializations (count and bytes), per
@@ -134,14 +134,23 @@ export interface Declarations extends Output {
   readonly kind: "Declarations";
   /**
    * `JavaScript.generatedSections`' `.d.ts` half (Zero-Cost Fundamental Exports
-   * §10): one row per edition **face** rendered into this file, in the order the
-   * faces appear in `text`.
+   * §10): one row per edition rendered into this file, in the order they appear
+   * in `text`.
+   *
+   * A row spans the edition's **documentation block and its face**, not the face
+   * alone. A constrained export has no single `.d.ts` declaration, so its doc
+   * block is re-emitted once per edition, each carrying that specialization's
+   * own Hexagon face — text that exists only because the editions exist, which
+   * is what "attributable to generated specializations" asks for and where most
+   * of a documented module's Cartesian growth actually sits. The JavaScript side
+   * has no counterpart: there the item's documentation precedes the whole
+   * rendered block once, source binding and editions together.
    *
    * The two artefacts' rows are the same plan read twice, so they agree on
    * count, `sourceName`, `generatedName` and `typeArguments` for every module
-   * that emits both; what differs is `bytes`, which is the point of measuring
-   * both — a face is one line and a body is a function, and §10 asks for the two
-   * sizes rather than their sum.
+   * that emits both. What differs is `bytes`, and that is the point of measuring
+   * both rather than summing them: the two artefacts grow differently with the
+   * product, and §10 asks for the two sizes.
    */
   readonly generatedSections: readonly GeneratedSection[];
   /**

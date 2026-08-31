@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { compileFiles } from "../support/test-project.js";
 import { planFundamentalSpecializations } from "../passes/emitter/specializations.js";
+import type * as Core from "../syntax/core/index.js";
 import type * as Emitted from "../emission/emitted.js";
 import type { CompiledModule } from "../project.js";
 
@@ -31,14 +32,32 @@ import type { CompiledModule } from "../project.js";
  * keeps the list truthful without this file adjudicating #423, which records
  * that FFI Part 7 §7 gives the generic edition no `.d.ts` face anyway.
  *
- * The distinction is not decorative. A list computed by re-deriving §3.4 would
- * be a second opinion about the module, and the first thing a second opinion
- * does is disagree — the retired `fundamentalSupports` table (#679) is this
- * repository's own demonstration, having silently emptied every `Hash`-bound
- * export's surface while the planner believed otherwise. The rows below
- * therefore compare the list against the *faces the module emitted*, not
- * against a recomputed plan: wire the list to a parallel planner invocation and
- * "a module's every listed export has no face" is the row that reddens.
+ * ## What the rows here can and cannot catch
+ *
+ * Stated precisely, because the first draft of this file overclaimed. A list
+ * wired to a *second invocation of the same planner over the same module* is
+ * not caught by anything below, and cannot be: `planFundamentalSpecializations`
+ * is deterministic in its inputs, so a same-module recomputation returns the
+ * identical answer and every row stays green. The reasons to write the row in
+ * the minting traversal are that it costs nothing, that it cannot drift as the
+ * two sides are edited, and that a recomputation is where a *different* input
+ * gets handed in by accident — which is the failure the retired
+ * `fundamentalSupports` table produced at library scale (#679), silently
+ * emptying every `Hash`-bound export's surface while the planner believed
+ * otherwise.
+ *
+ * What the rows do catch is a list computed from a different *predicate* or at a
+ * different *point*, which is where the reachable mistakes are:
+ *
+ * - the eligibility gate dropped, so "published no face" alone decides — caught
+ *   by the mixed module and by the constrained-alias row;
+ * - the row written from a plan reached across a module boundary, so every
+ *   consumer repeats the declarer's fact — caught by "is the declaring module's
+ *   alone", `planImportedSpecializations` being the recomputation that really
+ *   does run on a different module;
+ * - the row written after the collision filter, so a hard error reads as a legal
+ *   absence — caught by the fully-collided row;
+ * - `includePrivate` allowed to widen the list — caught by the private row.
  */
 
 function compile(files: readonly (readonly [string, string])[]): {
@@ -145,6 +164,43 @@ describe("the zero-entry-point list (§3.4)", () => {
     expect(module.declarations.generatedSections).toHaveLength(7);
   });
 
+  test("does not read a fully-collided export as a legal absence", () => {
+    // Every edition `plus` plans collides with an explicit export of the same
+    // name, so the plan's *surviving* set is empty — and this is the one empty
+    // set that is not §3.4's. §6's collisions are hard errors at an exported
+    // source, and listing `plus` here would tell an author their export is
+    // lawfully absent from the JavaScript surface when what the compiler is
+    // actually saying is "rename one of the exports".
+    //
+    // `compileFiles` directly, because this is the one source in the file that
+    // is *expected* to report. The ordering in `planFundamentalSpecializations`
+    // is what this pins and nothing else does: move the row-write below the
+    // collision filter and the whole suite stays green except for this row,
+    // which goes from `[]` to `["plus"]`.
+    const project = compileFiles([["/main.hex", [
+      "export fun plusNat(x: Nat, y: Nat): Nat = x + y",
+      "",
+      "export fun plusInt(x: Int, y: Int): Int = x + y",
+      "",
+      "export fun plusFloat(x: Float, y: Float): Float = x + y",
+      "",
+      "export fun plusBigInt(x: BigInt, y: BigInt): BigInt = x + y",
+      "",
+      "export fun plus<a: Num>(x: a, y: a): a = x + y",
+      "",
+    ].join("\n")]]);
+    const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
+
+    expect(project.diagnostics.map(({ message }) => message)).toContain(
+      "generated specialization `plusInt` conflicts with exported `plusInt`; rename one of the exports",
+    );
+    expect(project.diagnostics.every(({ severity }) => severity === "error")).toBe(true);
+    // Four editions, reported once by each emitter that plans them.
+    expect(project.diagnostics).toHaveLength(8);
+    expect(module.declarations.generatedSections).toEqual([]);
+    expect(module.declarations.zeroEntryPointExports).toEqual([]);
+  });
+
   test("does not list a private constrained function, in either planner mode", () => {
     const source = `${WEIGHTY}fun heaviest<a: Weighty>(x: a): Float = x.weight()\n` +
       "\n" +
@@ -174,17 +230,18 @@ describe("the zero-entry-point list (§3.4)", () => {
       "",
     ].join("\n"));
     const add = module.core.items.find(
-      (item) => (item.kind === "Let" || item.kind === "Fun") && item.binding.name === "add",
+      (item): item is Core.LetItem => item.kind === "Let" && item.binding.name === "add",
     );
 
-    // The row is only worth having if the alias is the shape §3.1 excludes, so
-    // that is asserted rather than assumed: an exported `Let` whose value is not
-    // a lambda and whose generalized scheme really does carry `Num`. A predicate
-    // reading "exported, constrained, published no face" — which is what a
-    // reader might reasonably expect the list to mean — would list it.
-    expect(add?.kind).toBe("Let");
-    expect((add as { readonly value: { readonly kind: string } }).value.kind)
-      .not.toBe("Lambda");
+    // The row is only worth having if the alias is the shape the planner
+    // excludes, so that is asserted rather than assumed: an exported `Let` whose
+    // value is not a lambda and whose generalized scheme really does carry
+    // `Num`. A predicate reading "exported, constrained, published no face" —
+    // which is what a reader might reasonably expect the list to mean — would
+    // list it.
+    expect(add).toBeDefined();
+    expect(add?.exported).toBe(true);
+    expect(add?.value.kind).not.toBe("Lambda");
     expect(add?.binding.scheme.constraints.map(({ name }) => name)).toEqual(["Num"]);
     expect(module.declarations.text).toBe("export {};\n");
     expect(module.declarations.zeroEntryPointExports).toEqual([]);
@@ -285,6 +342,66 @@ describe("`.d.ts` byte accounting (§10)", () => {
       ).toContain(`function ${section.generatedName}(`);
       expect(body.bytes).toBeGreaterThan(0);
     }
+  });
+
+  test("counts each edition's own documentation, which exists only because the editions do", () => {
+    // The gap this closes, measured: on this module the faces alone are 725 of
+    // the `.d.ts`'s bytes and its eleven doc blocks are the rest. A constrained
+    // export has no single `.d.ts` declaration, so its documentation is
+    // re-emitted per edition — carrying that specialization's own Hexagon face —
+    // and it grows with the Cartesian product exactly as the faces do. §10 asks
+    // for the bytes attributable to generated specializations, and per-edition
+    // JSDoc is attributable; an undocumented module shows no gap at all, which
+    // is why face-only accounting looked right until a documented one was
+    // measured.
+    const module = main([
+      "(** Hashes a value with a salt mixed in.",
+      "",
+      "    The salt keeps two structurally equal values apart. *)",
+      "export fun stamp<a: Hash>(x: a, salt: Int): Int = x.hash() + salt",
+      "",
+      "(** Adds two numbers of the same type. *)",
+      "export fun sum<a: Num>(x: a, y: a): a = x + y",
+      "",
+    ].join("\n"));
+    const { text, generatedSections } = module.declarations;
+
+    expect(generatedSections).toHaveLength(11);
+    let previous = -1;
+    let faceBytes = 0;
+    for (const section of generatedSections) {
+      const block = text.slice(section.startOffset, section.endOffset);
+      const face = `export declare function ${section.generatedName}(`;
+      // Doc block first, face last, and the section covering both — a JSDoc
+      // block binds to the declaration that immediately follows it, so a section
+      // that took the doc without the face, or the face without its doc, would
+      // be attributing text to the wrong side of a boundary.
+      expect(block.startsWith("/**")).toBe(true);
+      expect(block.slice(block.lastIndexOf("\n") + 1).startsWith(face)).toBe(true);
+      expect(section.bytes).toBe(block.length);
+      faceBytes += block.length - block.lastIndexOf("\n") - 1;
+      // Adjacent editions' sections stay disjoint and in file order, which is
+      // what lets the Playground leg collapse a run of them into one region
+      // labelled with their summed bytes without label and region disagreeing.
+      expect(section.startOffset).toBeGreaterThan(previous);
+      previous = section.endOffset;
+    }
+
+    // The accounting is the whole of what the editions cost: strike every
+    // section out of the file and only the newlines that separated them remain.
+    // That is the strong form of "no uncounted interleaved text", and it is what
+    // face-only accounting failed — it left 1102 bytes of doc block standing.
+    let residue = "";
+    let cursor = 0;
+    for (const section of generatedSections) {
+      residue += text.slice(cursor, section.startOffset);
+      cursor = section.endOffset;
+    }
+    residue += text.slice(cursor);
+    expect(residue).toMatch(/^\n*$/u);
+    expect(
+      generatedSections.reduce((sum, section) => sum + section.bytes, 0),
+    ).toBeGreaterThan(2 * faceBytes);
   });
 
   test("counts a face's bytes in UTF-8 rather than in code units", () => {

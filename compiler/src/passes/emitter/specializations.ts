@@ -51,16 +51,25 @@ export interface SpecializationPlan {
    * stated here — an eligible export with no edition — stays truthful whichever
    * way #423 resolves the generic edition's `.d.ts` face.
    *
-   * Three exclusions, each for its own reason. **Ineligible** items never
-   * appear: an unconstrained export, a non-function export, and a constrained
-   * non-function *value* alike, the last because §3.1 reserves it to §13.3
-   * rather than because it has no editions. **Private** items never appear
-   * whatever `includePrivate` asks for, because the report is about the module's
-   * real foreign surface and an inspection preview's extra rows are not on it.
-   * A **collision-dropped** export does not appear either: the row is written
-   * before the collision filter runs, so an export whose editions were all
-   * dropped is the hard error `addSpecializationCollisionDiagnostics` reports
-   * and not a legal §3.4 absence.
+   * Four exclusions, at three different gates — worth keeping straight, because
+   * a reader looking for all of them at one of them will conclude one is missing.
+   *
+   * - A **non-function** export and a constrained non-function *value* are
+   *   turned away by `isSpecializable`, in the loop below, before any scheme is
+   *   planned. §3.1 reserves the constrained value to §13.3, so it is out of
+   *   scope rather than inside it with nothing to show — and it is a shape that
+   *   really occurs, an alias like `export let add = plus` generalizing with its
+   *   constraint intact over a value that is not a lambda.
+   * - An **unconstrained** export is turned away by `planScheme`, which is what
+   *   `SchemePlan.eligible` reports: §3.1's own test, no specializing variable.
+   * - A **private** item is turned away by the `item.exported` gate below,
+   *   whatever `includePrivate` asks for, because the report is about the
+   *   module's real foreign surface and an inspection preview's extra rows are
+   *   not on it.
+   * - A **collision-dropped** export is turned away by *ordering*: the row is
+   *   written before the collision filter runs, so an export whose every edition
+   *   was dropped stays the hard error `addSpecializationCollisionDiagnostics`
+   *   reports and is not re-read as a legal §3.4 absence.
    */
   readonly zeroEntryPointExports: readonly string[];
 }
