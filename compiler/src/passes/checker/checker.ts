@@ -13123,11 +13123,19 @@ class Checker {
 
     const scheme = this.#scheme(item.binding.symbol);
     scheme.variables.forEach((variable, index) => {
-      // The whole list, absorbed members included: `#maximalConstraintNames` is
-      // the same sieve applied to the spellings the advice has to print, so
-      // pre-filtering the requirements would only ask the question twice.
+      // Absorption is decided identity-side, *then* the surviving spellings are
+      // sieved. `#maximalConstraintNames` cannot do both jobs: it reaches an
+      // identity through `#constraintIdentity`, which is this module's own
+      // resolution of the word, and a requirement copied out of an imported
+      // scheme may name a constraint this module cannot spell — or spells under
+      // an alias, or shadows with an unrelated declaration of its own. Such a
+      // name mints a fallback identity with no bases, so the sieve sees nothing
+      // absorbing anything, and the advice offers a binder listing a base
+      // constraint beside the one that provides it — which the very next
+      // compile refuses. The name-side pass still earns its keep for the
+      // spellings that *do* resolve here (§5.1.1).
       const required = this.#maximalConstraintNames(
-        variable.requirements.map(({ name }) => name),
+        this.#keptRequirements(variable).map(({ name }) => name),
       );
       if (required.length > 0 && variable.declaredConstraints === undefined) {
         const constraintList = required.length === 1

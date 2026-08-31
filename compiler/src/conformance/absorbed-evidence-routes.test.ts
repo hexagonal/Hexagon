@@ -29,6 +29,13 @@
  * that they still compile but that the derivation reproduces the projection
  * they already had, character for character.
  *
+ * The surviving set is asked for by three readers, and the third — the binder
+ * an exported signature is told to write — has a fence of its own, because a
+ * *name*-side answer passes every specimen whose constraints this module can
+ * spell and fails the moment one arrives inside an imported scheme. Its block
+ * carries the unspellable, the aliased and the shadowed case, and discharges
+ * the Rewrite Rule by compiling the binder the report offered.
+ *
  * Execution, not only text: the flagship casualty is Functions §3.3's own
  * unannotated factorial, and a suffix that is merely *written* can still be
  * written wrong. Emitted modules mount as `data:` URLs the registry caches by
@@ -50,8 +57,27 @@ function emitted(source: string): string {
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
+/** Every diagnostic a whole graph produced, for the cross-module specimens. */
+function graphDiagnostics(
+  files: readonly (readonly [string, string])[],
+): readonly string[] {
+  return compileFiles(files).diagnostics.map(({ message }) => message);
+}
+
 /** A user constraint whose subject is `Signed`, so `Loud` absorbs both. */
 const LOUD = "constraint Loud<a: Signed> =\n    loud(value: a): a\n";
+
+/**
+ * A constraint over `Num` in another module, and a function under it, so a
+ * caller's requirement list holds a constraint the caller may not be able to
+ * spell — and one that absorbs a `Num` the caller raised for itself.
+ */
+const HEFT_LIB = [
+  "export constraint Heft<a: Num> =",
+  "    heft(value: a): a",
+  "export let useHeft<a: Heft>(n: a): a = heft(n)",
+  "",
+].join("\n");
 
 /** Keeps a specimen module from being empty at the border. */
 const KEEP = "export let keep: Int = 0\n";
@@ -117,6 +143,46 @@ describe("an absorbed demand projects out of the surviving binder", () => {
       "const l4 = (n, stop, __Loud_a) => stop " +
         "? __Loud_a.signed.num.add(n, n) " +
         ": __Loud_a.signed.subtract(__Loud_a.signed.num.add(n, loud(n, __Loud_a)), n);",
+    );
+  });
+
+  test("a component of a structurally satisfied type routes too", () => {
+    // The demand reaches the route through `#publicComponents`, one recursion
+    // deeper than a demand the body wrote: `==` on a tuple is satisfied
+    // structurally, and each component raises its own `Eq` on the element
+    // variable — which `<=`'s `Ord` absorbs. The first component's `Eq` is the
+    // resident and the second is the dropped duplicate, so the tuple used to
+    // emit one working slot beside one `undefined.equals`.
+    expect(
+      emitted("let f(n, m, stop: Bool) = if stop then (n, n) == (m, m) else n <= m\n" + KEEP),
+    ).toContain(
+      "const f = (n, m, stop, __Ord_a) => stop ? ({ " +
+        "equals: (__left, __right) => __Ord_a.eq.equals(__left[0], __right[0]) && " +
+        "__Ord_a.eq.equals(__left[1], __right[1]), " +
+        "notEquals: (__left, __right) => !(__Ord_a.eq.equals(__left[0], __right[0]) && " +
+        "__Ord_a.eq.equals(__left[1], __right[1])) " +
+        '}).equals([n, n], [m, m]) : __Ord_a.compare(n, m) !== "Greater";',
+    );
+  });
+
+  test("either binding can be the one that raised the absorbed demand", () => {
+    // Two parameters unified into one variable, so the requirement list is
+    // assembled across both. Which of them the surviving binder came from must
+    // not matter, and both directions are pinned because they used to fail
+    // differently — two ICEs one way round, one the other.
+    expect(
+      emitted("let both(x, y, stop: Bool) = if stop then x + 0 else y - 1\n" + KEEP),
+    ).toContain(
+      "const both = (x, y, stop, __Signed_a) => stop " +
+        "? __Signed_a.num.add(x, __Signed_a.num.fromNat(0)) " +
+        ": __Signed_a.subtract(y, __Signed_a.num.fromNat(1));",
+    );
+    expect(
+      emitted("let both2(x, y, stop: Bool) = if stop then x - 1 else y + 0\n" + KEEP),
+    ).toContain(
+      "const both2 = (x, y, stop, __Signed_a) => stop " +
+        "? __Signed_a.subtract(x, __Signed_a.num.fromNat(1)) " +
+        ": __Signed_a.num.add(y, __Signed_a.num.fromNat(0));",
     );
   });
 
@@ -207,6 +273,61 @@ describe("the binder set an export is told to write", () => {
       "exported function `h1` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `h1` must declare every constraint in its signature; write `<a: Frac>`",
     ]);
+  });
+
+  test("absorbs by identity, so an unspellable absorber still absorbs", () => {
+    // The specimens above resolve every constraint they name in this module, so
+    // they cannot tell absorption decided identity-side from absorption decided
+    // on the printed spellings. This one can: `Heft` reaches the caller only
+    // inside an imported scheme's requirement, and asking *this* module for the
+    // bases of the word `Heft` answers nothing at all — under which `Num`
+    // survives into the advice and the offered binder is refused by the very
+    // next compile (`must omit base constraint \`Num\``).
+    const caller =
+      "export let caller(n, stop: Bool) = if stop then n + n else useHeft(n)\n";
+    expect(graphDiagnostics([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' + caller],
+    ])).toEqual([
+      "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
+      "exported function `caller` must declare every constraint in its signature; write `<a: Heft>`",
+    ]);
+    // Spellable, but not under the declaration's own word.
+    expect(graphDiagnostics([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", 'import { Heft as Weigh, useHeft } from "./lib.hex"\n' + caller],
+    ])).toEqual([
+      "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
+      "exported function `caller` must declare every constraint in its signature; write `<a: Heft>`",
+    ]);
+    // Spellable, and the word means something else here entirely (§5.1.1).
+    expect(graphDiagnostics([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
+        "constraint Heft<a> =\n    other(value: a): a\n" + caller],
+    ])).toEqual([
+      "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
+      "exported function `caller` must declare every constraint in its signature; write `<a: Heft>`",
+    ]);
+  });
+
+  test("and the advice it gives is one the next compile accepts", () => {
+    // The Rewrite Rule, discharged rather than asserted: the binder the report
+    // offered is written out and compiled, and the `Num` demand it no longer
+    // names is emitted as the projection off the binder it does.
+    const project = compileFiles([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", [
+        'import { Heft, useHeft } from "./lib.hex"',
+        "export let caller<a: Heft>(n: a, stop: Bool): a =",
+        "    if stop then n + n else useHeft(n)",
+        "",
+      ].join("\n")],
+    ]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    expect(
+      project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text,
+    ).toContain("return stop ? __Heft_a.num.add(n, n) : useHeft(n, __Heft_a);");
   });
 });
 
