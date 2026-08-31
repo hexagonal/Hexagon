@@ -135,6 +135,31 @@ export function isPreRegisteredConstraint(name: string): boolean {
 }
 
 /**
+ * The base constraints of the pre-registered constraints the compiler holds
+ * declarations for (Constraints §7, `spec/integral-constraint.md`), keyed by the
+ * one identity each of them has.
+ *
+ * A source `constraint Integral<a: (Num, Ord)>` lands on `hex:Integral` and so
+ * takes over this row rather than rivalling it — the name-only pre-registration
+ * of §5.1.1's third bullet. That is why the table is a fallback and not a floor.
+ *
+ * It sits beside the rest of the pre-registered inventory rather than inside the
+ * checker because it now answers for two readers: the checker's base walk, where
+ * it is that fallback, and `preRegisteredBaseSlots` below, which the emitter's
+ * wired-in `Hash` walks ask with no declaration in view.
+ */
+export const PRE_REGISTERED_BASE_CONSTRAINTS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "hex:Ord": ["Eq"],
+  "hex:Signed": ["Num"],
+  "hex:Frac": ["Signed"],
+  "hex:Pow": ["Num"],
+  "hex:Hash": ["Eq"],
+  "hex:Integral": ["Num", "Ord"],
+};
+
+/**
  * The uncontested dictionary slot a base constraint asks for
  * (`spec/constraints.md` §6.2).
  *
@@ -196,6 +221,35 @@ export function mintBaseConstraintSlots(
     taken.add(slot);
     return slot;
   });
+}
+
+/**
+ * §6.2's slots of a **pre-registered** constraint's base list, keyed by base
+ * name.
+ *
+ * The one form of the slot question answerable with no declaration in view,
+ * which is the form the emitter's wired-in walks have to ask: `#derivedEquals`
+ * and its neighbours read the equality out of a `Hash` dictionary at points
+ * where the `Hash` *declaration* is nowhere to hand, and they used to write the
+ * slot as a literal. A literal is the #718 defect in miniature — a spelling
+ * minted somewhere other than the minting seat — and it would have gone on
+ * reading `undefined` the moment the slot's case flips.
+ *
+ * That the table and the prelude's own `constraint Hash<a: Eq>` agree is a
+ * standing requirement of §5.1.1's third bullet, not an assumption made here,
+ * and it is *measured*: a real compile writes the slot from the declaration
+ * (through the checker's `#baseConstraintSlots`) and reads it back through this
+ * function, so the suite's pinned `{ eq: … }` dictionaries and `.hash.eq`
+ * projections would part company the moment the two disagreed.
+ */
+export function preRegisteredBaseSlots(
+  constraint: string,
+): ReadonlyMap<string, string> {
+  const bases = PRE_REGISTERED_BASE_CONSTRAINTS[
+    preRegisteredConstraintIdentity(constraint)
+  ] ?? [];
+  const slots = mintBaseConstraintSlots(bases);
+  return new Map(bases.map((base, index) => [base, slots[index]!]));
 }
 
 /** The identity of a pre-registered constraint: compiler-global, import-free. */

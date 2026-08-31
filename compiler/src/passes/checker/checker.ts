@@ -23,6 +23,7 @@ import {
   declaredConstraintIdentity,
   isPreRegisteredIdentity,
   mintBaseConstraintSlots,
+  PRE_REGISTERED_BASE_CONSTRAINTS,
   PRE_REGISTERED_CONSTRAINT_MEMBERS,
   PRE_REGISTERED_CONSTRAINTS,
   preRegisteredConstraintIdentity,
@@ -787,24 +788,6 @@ const DERIVABLE_IDENTITIES: ReadonlySet<string> = new Set(
  * of art for member-block provenance; it is no longer a phrase any message says.
  */
 const HASH_MUST_BE_DERIVED = "`Hash` instances must be derived";
-
-/**
- * The base constraints of the pre-registered constraints the compiler holds
- * declarations for (Constraints §7, `spec/integral-constraint.md`), keyed by the
- * one identity each of them has.
- *
- * A source `constraint Integral<a: (Num, Ord)>` lands on `hex:Integral` and so
- * takes over this row rather than rivalling it — the name-only pre-registration
- * of §5.1.1's third bullet. That is why the table is a fallback and not a floor.
- */
-const PRE_REGISTERED_BASE_CONSTRAINTS: Readonly<Record<string, readonly string[]>> = {
-  "hex:Ord": ["Eq"],
-  "hex:Signed": ["Num"],
-  "hex:Frac": ["Signed"],
-  "hex:Pow": ["Num"],
-  "hex:Hash": ["Eq"],
-  "hex:Integral": ["Num", "Ord"],
-};
 
 function primitive(name: Typed.PrimitiveName): Constructor {
   return { kind: "Constructor", name };
@@ -4823,6 +4806,12 @@ class Checker {
     // legal, and was refused before: no slot of that spelling exists.
     for (const base of bases) {
       if (declaration.members.some(({ binding }) => binding.name === base.slot)) {
+        // Left ambiguous under a contest on purpose: with two bases both
+        // declared `Tag`, a member `tag_1` reads as conflicting with "the `Tag`
+        // dictionary slot" without saying which `Tag`, and the honest repair
+        // needs the written position rather than the name. Not worth a better
+        // sentence for a refusal PR 2 deletes outright — the case flip resolves
+        // it by making the collision unreachable.
         this.#diagnostics.add({
           severity: "error",
           message: `member \`${base.slot}\` conflicts with the \`${base.name}\` ` +
@@ -13542,16 +13531,14 @@ class Checker {
    * can spell both under that one word, but one reaches both whenever their
    * imported schemes meet, and can spell both by aliasing an import.
    *
-   * Residue, recorded rather than hidden, and not the seat's: a **base
-   * constraint's dictionary slot** is still minted from a name, by lowercasing
-   * its first letter — and the two sides that mint it read different names. The
-   * write side (the honor block's base-evidence properties) canonicalizes, so
-   * it spells the base declaration's own word; the read side (the entailment
-   * path a projection is published with) takes the word the *referencing*
-   * declaration wrote. An alias between them separates the two: a module that
-   * imports `Weigh` as `Heft` and declares `constraint Both<a: Heft>` writes a
-   * `weigh:` slot and reads `.heft`. No collision is needed to reach it, and a
-   * collision makes the honor block emit one duplicated key.
+   * A **base constraint's dictionary slot** is a second question this function
+   * answers a part of, and it has one seat: `#baseConstraintSlots` canonicalizes
+   * each entry of a declaration's base list here and then mints the slots
+   * through `mintBaseConstraintSlots`, and both the honor block that writes a
+   * slot and the entailment path that reads one go through it (§6.2). Nothing
+   * else may lowercase a constraint name into a slot — the residue this comment
+   * used to record was exactly that: two sides minting from two names, parted by
+   * an importer's alias (#718).
    */
   #canonicalConstraintName(
     name: Typed.ConstraintName,
@@ -13926,8 +13913,12 @@ class Checker {
         // Both currencies cross, as they already do on an honor header's binder
         // constraints: the word written here, and the declaration it denoted
         // here. A reader holding the name alone can only re-derive the identity
-        // through its own scope, which is the miscompile §6.2 forbids — see
-        // `Typed.DeclaredBaseConstraint`.
+        // through its own scope, which is the miscompile §6.2 forbids.
+        //
+        // Published for completeness, not for a reader: the checker's own base
+        // walk takes the pairing off the *Resolved* declaration, which is what
+        // `visibleConstraints` carries across a module boundary. See
+        // `Typed.DeclaredBaseConstraint` for why it is published anyway.
         baseConstraints: item.baseConstraints.map((name, index) => ({
           name,
           identity: item.baseConstraintIdentities[index]!,

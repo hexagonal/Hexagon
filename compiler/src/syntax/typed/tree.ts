@@ -704,6 +704,16 @@ export interface ConstraintItem {
  * from the name. `Resolved.ConstraintItem` has carried the pairing since #276;
  * this closes the same gap on the Typed tree, where an honor header's binder
  * constraints already carry it (`HonorParameterConstraint`).
+ *
+ * **Completeness of the published tree, and currently unread.** The cross-module
+ * channel that carries the pairing in anger is the Resolved one — a declaration
+ * travels through `Module.visibleConstraints` and reaches the checker's
+ * `#constraintsByIdentity` as a `Resolved.ConstraintItem`, whose
+ * `baseConstraintIdentities` is what `#baseConstraintsOf` reads. The field here
+ * exists so that the Typed tree does not publish a base list a consumer could
+ * only re-derive an identity for; if one ever does read it, it reads the pairing
+ * rather than inventing it. Whoever finds it unused should confirm that is still
+ * true before deleting it, and should not "simplify" it back to a bare name.
  */
 export interface DeclaredBaseConstraint {
   readonly name: ConstraintName;

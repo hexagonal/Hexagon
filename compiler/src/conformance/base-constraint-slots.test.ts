@@ -51,7 +51,7 @@
 
 import { describe, expect, test } from "vitest";
 
-import { mintBaseConstraintSlots } from "../constraints.js";
+import { mintBaseConstraintSlots, preRegisteredBaseSlots } from "../constraints.js";
 import { compileFiles, runProject } from "../support/test-project.js";
 
 /** Makes a graph's modules byte-distinct, so the test gets its own instances. */
@@ -244,6 +244,80 @@ describe("two same-spelled bases both stay reachable", () => {
     expect(exports["r"]).toBe("first/second/both");
   });
 
+  test("the adversarial ordering compiles, and both sides agree on it", async () => {
+    // The assertion below is on the minting function; this one is on the
+    // compiler. Three libraries — `Tag`, `Tag`, `Tag_1` — composed in that
+    // written order, so the second must step *over* the third's own spelling.
+    // Pinned on the write side (the honor block's properties) and the read side
+    // (the projections the extending module's body takes) together, which is
+    // what makes "both sites consume one helper output positionally" a measured
+    // claim rather than a design intention.
+    function lib(constraint: string, member: string): string {
+      return [
+        `export constraint ${constraint}<a> =`,
+        `    ${member}(value: a): String`,
+        "",
+      ].join("\n");
+    }
+    const mid = [
+      'import { Tag } from "./lib1.hex"',
+      'import { Tag as Tag2 } from "./lib2.hex"',
+      'import { Tag_1 } from "./lib3.hex"',
+      "",
+      "export constraint Both<a: (Tag, Tag2, Tag_1)> =",
+      "    label(value: a): String",
+      "",
+      'export let use<a: Both>(n: a): String = "${one(n)}/${two(n)}/${three(n)}/${label(n)}"',
+      "",
+    ].join("\n");
+    const main = [
+      'import { Both, use } from "./mid.hex"',
+      'import { Tag } from "./lib1.hex"',
+      'import { Tag as Tag2 } from "./lib2.hex"',
+      'import { Tag_1 } from "./lib3.hex"',
+      "",
+      "record Wrap = {n: Int}",
+      "",
+      "honor Tag<Wrap> =",
+      '    one(value) = "first"',
+      "",
+      "honor Tag2<Wrap> =",
+      '    two(value) = "second"',
+      "",
+      "honor Tag_1<Wrap> =",
+      '    three(value) = "third"',
+      "",
+      "honor Both<Wrap> =",
+      '    label(value) = "both"',
+      "",
+      "export let r: String = use(Wrap({n = 1}))",
+      "",
+    ].join("\n");
+    const graph: readonly (readonly [string, string])[] = [
+      ["/lib1.hex", lib("Tag", "one")],
+      ["/lib2.hex", lib("Tag", "two")],
+      ["/lib3.hex", lib("Tag_1", "three")],
+      ["/mid.hex", mid],
+      ["/main.hex", main],
+    ];
+    // Write side: `tag`, then `tag_2` stepping over the third entry's claim,
+    // then `tag_1` kept by the base that is actually declared `Tag_1`.
+    expect(emitted(graph, "/main.hex")).toContain(
+      "const __Both_Wrap = { tag: __Tag_Wrap_1, tag_2: __Tag_Wrap_2, " +
+        "tag_1: __Tag_1_Wrap, label: __Both_Wrap_label };",
+    );
+    // Read side: the same three spellings, projected out of the one binder.
+    expect(emitted(graph, "/mid.hex")).toContain(
+      "const use = (n, __Both_a) => " +
+        'one(n, __Both_a.tag) + "/" + two(n, __Both_a.tag_2) + "/" + ' +
+        'three(n, __Both_a.tag_1) + "/" + label(n, __Both_a);',
+    );
+    const exports = await runProject([...graph], {
+      transform: distinct("base-slot-flattening"),
+    });
+    expect(exports["r"]).toBe("first/second/third/both");
+  });
+
   test("a base declared `Tag_1` keeps its own slot against a `Tag` collider", () => {
     // The adversarial ordering from the ruling's review, asked of the minting
     // function directly: the third entry's canonical spelling is reserved for
@@ -428,6 +502,12 @@ describe("the fence: an uncontested slot is spelled exactly as before", () => {
     ].join("\n");
     const text = emitted([["/main.hex", main]], "/main.hex");
     expect(text).toContain("const __Hash_Point = { eq: __Eq_Point,");
+    // The same slot from the other direction. The derived-equality walks read a
+    // component's equality off a `Hash` dictionary and used to append a literal
+    // `.eq`; they ask this instead, so the case flip reaches them. The two
+    // assertions together are the agreement: the dictionary above was written
+    // from the *declaration*, and this is what the reader will spell.
+    expect(preRegisteredBaseSlots("Hash").get("Eq")).toBe("eq");
   });
 
   test("a user constraint's own base is spelled from its declaration", () => {
