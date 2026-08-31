@@ -477,6 +477,37 @@ describe("the declared-heads refusal", () => {
   });
 
   /**
+   * And it keeps it *after* the refusal has fired, which is why the heads stay
+   * live until the component's end rather than being errored where the collision
+   * reported. `r1`/`r2` collide; `r3`'s `let z: String = x` then forces the type
+   * `r2`'s head still stands in, and `String` is a demand this body really makes
+   * — the fence is on defaulting's proposal, never on a body's.
+   *
+   * The two reports are what separates this from erroring the heads at the
+   * collision, which silences the second and leaves the author repairing the
+   * knot only to meet the annotation error on the next compile.
+   */
+  test("a head errored by the refusal still reports its own body's demand", () => {
+    expect(
+      projectDiagnostics(
+        "fun r1<a: Show>(x: a, n: Int): String =\n" +
+          "    if n <= 0 then show(x) else r2(x, n - 1)\n" +
+          "fun r2<b: Show>(x: b, n: Int): String =\n" +
+          "    if n <= 0 then show(x) else r3(x, n - 1)\n" +
+          "fun r3(x, n: Int): String =\n" +
+          "    let z: String = x\n" +
+          '    if n <= 0 then "" else r1(x, n - 1)\n',
+      ),
+    ).toEqual([
+      "`a` declared on `r1` and `b` declared on `r2` are distinct declared type variables, " +
+        "but members of a recursive knot are checked together at not-yet-general types; leave " +
+        "the heads off the knot, or move the contract to a non-recursive wrapper",
+      "`b` is a declared type variable, but the body requires `String`; change the " +
+        "annotation to `String`, or remove it to let the type be inferred",
+    ]);
+  });
+
+  /**
    * The refusal is the knot's, not every annotation's: one member's own two
    * heads meeting is an ordinary collision, and the general message's advice —
    * one name in both annotations — is apt.

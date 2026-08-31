@@ -4217,10 +4217,15 @@ class Checker {
    * third is defaulted — nor even a subset the collision could reach: the third
    * member's head is not written until its own body is checked.
    *
-   * Hence one call site, at the component's end, where every head exists.
-   * Erroring them at the collision instead is measurably redundant: `#bind`
-   * errors the left side itself, `refused` silences the rest of the family, and
-   * the whole suite stays green without it.
+   * Hence one call site, at the component's end, where every head exists — and
+   * the timing is a decision, not an implementation convenience. Erroring the
+   * heads where the collision reports costs a real diagnostic: a later member's
+   * body can force the type a surviving head stands in, and *that* `String` is a
+   * demand the body makes, which the fence is not for. The knot's refusal and
+   * the annotation error are two repairs the author owes, and reporting them
+   * together is what saves a compile.
+   * `conformance/recursion-knot.test.ts`'s "a head errored by the refusal still
+   * reports its own body's demand" fails if either of them is dropped.
    */
   #errorKnotHeads(knot: Knot): void {
     for (const { symbol } of knot.members) {
@@ -8793,9 +8798,10 @@ class Checker {
           // refused once, however many of its heads the component links, and
           // the group's next collision belongs to a recompile of a program the
           // author has actually repaired. The flag also carries the refusal to
-          // `#errorKnotHeads`, which runs at the component's end — the heads are
-          // deliberately left live until then, so a *concrete* use of one inside
-          // the knot still reports, that message being correct in kind.
+          // `#errorKnotHeads`, which discharges it at the component's end. The
+          // heads stay live until then on purpose: a later body forcing one to a
+          // concrete type is a demand that body really makes, and it still
+          // reports, that message being correct in kind.
           collision.knot.refused = true;
           this.#diagnostics.add({
             severity: "error",
