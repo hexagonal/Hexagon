@@ -576,10 +576,6 @@ interface Requirement {
    */
   useSpan?: Source.Span;
   readonly impliedTypes?: ReadonlyMap<string, Mono>;
-  evidenceConstraint?: Typed.ConstraintName;
-  /** The identity of `evidenceConstraint`; see `#canonicalConstraintName`. */
-  evidenceIdentity?: string;
-  evidencePath?: readonly string[];
   reported: boolean;
   dictionary?: string;
   structural?: boolean;
@@ -9275,32 +9271,51 @@ class Checker {
     }
   }
 
-  // Two requirements, so entailment is asked of the declarations they demand and
-  // never of their spellings: a requirement copied out of an imported scheme
-  // names a constraint this module may not be able to spell, and two that share
-  // a word may be unrelated declarations (§5.1.1).
+  /**
+   * Records one demand on a variable: it joins the list unless a constraint
+   * already there entails it, the same-identity duplicate being that test's
+   * degenerate case.
+   *
+   * Entailment is asked of the declarations the two requirements demand and
+   * never of their spellings: a requirement copied out of an imported scheme
+   * names a constraint this module may not be able to spell, and two that share
+   * a word may be unrelated declarations (§5.1.1).
+   *
+   * Nothing about *routing* is decided here, and deliberately so. A route says
+   * which surviving binder a demand projects out of, and the survivors are not
+   * known until the list stops growing: a `Num` demand that arrives before the
+   * `Signed` that will absorb it would be stamped with no provider at all, and
+   * a `Num` stamped through `Signed` is stale the moment a `Frac` arrives and
+   * absorbs `Signed` in turn. Every route is derived at the Typed boundary
+   * instead, off the final list, by `#keptRequirements`.
+   */
   #attachRequirement(variable: Variable, requirement: Requirement): void {
-    const provider = variable.requirements.find(
+    const entailed = variable.requirements.some(
       (candidate) =>
         this.#entailmentPath(candidate.identity, requirement.identity) !== undefined,
     );
-    if (provider !== undefined) {
-      if (provider.identity === requirement.identity) return;
-      const path = this.#entailmentPath(provider.identity, requirement.identity);
-      requirement.evidenceConstraint = provider.name;
-      requirement.evidenceIdentity = provider.identity;
-      if (path !== undefined) requirement.evidencePath = path;
-      return;
-    }
-    for (const existing of variable.requirements) {
-      const path = this.#entailmentPath(requirement.identity, existing.identity);
-      if (path !== undefined) {
-        existing.evidenceConstraint = requirement.name;
-        existing.evidenceIdentity = requirement.identity;
-        existing.evidencePath = path;
-      }
-    }
+    if (entailed) return;
     variable.requirements.push(requirement);
+  }
+
+  /**
+   * The requirements of a variable that keep an evidence seat: those maximal
+   * under entailment, in list order.
+   *
+   * The one place the ABI's binder set is decided, so the three readers of it —
+   * the published scheme's constraint list, the route a demand publishes, and
+   * the binder an exported signature is told to write — cannot disagree about
+   * which constraints a caller actually passes. Keyed by *identity*, because two
+   * distinct constraints can share a name (see `#canonicalConstraintName`) and
+   * neither absorbs the other.
+   */
+  #keptRequirements(variable: Variable): readonly Requirement[] {
+    return variable.requirements.filter((requirement) =>
+      !variable.requirements.some((other) =>
+        other.identity !== requirement.identity &&
+        this.#entailmentPath(other.identity, requirement.identity) !== undefined
+      )
+    );
   }
 
   #acceptRequirement(variable: Variable, requirement: Requirement): void {
@@ -13108,13 +13123,19 @@ class Checker {
 
     const scheme = this.#scheme(item.binding.symbol);
     scheme.variables.forEach((variable, index) => {
+      // Absorption is decided identity-side, *then* the surviving spellings are
+      // sieved. `#maximalConstraintNames` cannot do both jobs: it reaches an
+      // identity through `#constraintIdentity`, which is this module's own
+      // resolution of the word, and a requirement copied out of an imported
+      // scheme may name a constraint this module cannot spell — or spells under
+      // an alias, or shadows with an unrelated declaration of its own. Such a
+      // name mints a fallback identity with no bases, so the sieve sees nothing
+      // absorbing anything, and the advice offers a binder listing a base
+      // constraint beside the one that provides it — which the very next
+      // compile refuses. The name-side pass still earns its keep for the
+      // spellings that *do* resolve here (§5.1.1).
       const required = this.#maximalConstraintNames(
-        variable.requirements
-          .filter((requirement) =>
-            requirement.evidenceConstraint === undefined ||
-            requirement.evidenceConstraint === requirement.name
-          )
-          .map(({ name }) => name),
+        this.#keptRequirements(variable).map(({ name }) => name),
       );
       if (required.length > 0 && variable.declaredConstraints === undefined) {
         const constraintList = required.length === 1
@@ -13433,19 +13454,7 @@ class Checker {
       ...(requirement.reported && requirement.dictionary === undefined
         ? { unsatisfied: true }
         : {}),
-      ...(requirement.evidenceConstraint === undefined
-        ? {}
-        : {
-            evidenceConstraint: requirement.evidenceIdentity === undefined
-              ? requirement.evidenceConstraint
-              : this.#canonicalConstraintName(
-                  requirement.evidenceConstraint,
-                  requirement.evidenceIdentity,
-                ),
-          }),
-      ...(requirement.evidencePath === undefined
-        ? {}
-        : { evidencePath: requirement.evidencePath }),
+      ...this.#requirementRoute(requirement),
       ...(requirement.dictionaryArguments === undefined
         ? {}
         : { dictionaryArguments: requirement.dictionaryArguments.map((argument) =>
@@ -13456,6 +13465,51 @@ class Checker {
         ? {}
         : { components: this.#publicComponents(requirement.components) }),
     };
+  }
+
+  /**
+   * How a demand on a still-generic type reaches the evidence actually passed:
+   * the binder it projects out of, and the slot path down from that binder to
+   * the constraint demanded. Empty when the demand *is* a binder — it is then
+   * handed over whole — and empty when nothing in scope entails it, which only
+   * a module already carrying a diagnostic can reach; emission best-efforts
+   * there rather than compounding the report.
+   *
+   * Derived here and never earlier. Two demands for one constraint on one
+   * variable are one seat, so only the first of them joins the variable's list,
+   * and the surviving binders keep changing as later demands absorb earlier
+   * ones — a route worked out when a demand arrived would describe a binder set
+   * that no longer exists by the time the scheme closes. The requirement object
+   * an expression's elaboration is holding may be either the resident or one of
+   * the dropped duplicates, and both have to publish the same route.
+   *
+   * A satisfied requirement carries an instance instead, and a structural one
+   * carries its components; neither projects out of a binder.
+   */
+  #requirementRoute(
+    requirement: Requirement,
+  ): {
+    readonly evidenceConstraint?: Typed.ConstraintName;
+    readonly evidencePath?: readonly string[];
+  } {
+    if (requirement.dictionary !== undefined || requirement.structural === true) {
+      return {};
+    }
+    const variable = this.#prune(requirement.type);
+    if (variable.kind !== "Variable") return {};
+    const kept = this.#keptRequirements(variable);
+    if (kept.some(({ identity }) => identity === requirement.identity)) return {};
+    // List order, so a variable carrying two binders that both entail the demand
+    // — neither absorbing the other — routes through the same one every compile.
+    for (const member of kept) {
+      const path = this.#entailmentPath(member.identity, requirement.identity);
+      if (path === undefined) continue;
+      return {
+        evidenceConstraint: this.#canonicalConstraintName(member.name, member.identity),
+        evidencePath: path,
+      };
+    }
+    return {};
   }
 
   /** #278: the component selection, in the order the container enumerates it. */
@@ -13480,11 +13534,12 @@ class Checker {
    * must supply only those: passing both handed the `Num` dictionary to the
    * `Signed` slot and crashed at the first `.subtract` (defect 16).
    *
-   * Deliberately *not* the `evidenceConstraint` test `#publicScheme` uses. That
-   * test cannot tell a redundant sibling from a **projection** — `Same` reached
-   * as `__dictLabeled.same` from an enclosing dictionary also carries an
-   * `evidenceConstraint` of another name, and it is the callee's one real
-   * argument. Elimination has to be decided among siblings, not per requirement.
+   * Deliberately *not* `#keptRequirements`, the test `#publicScheme` uses.
+   * That one asks whether a requirement keeps a seat on **its variable**, and a
+   * projection loses that test while still being an argument — `Same` reached
+   * as `__dictLabeled.same` sits on a variable whose binder is `Labeled`, and it
+   * is nonetheless the callee's one real argument. Elimination here has to be
+   * decided among the *siblings a reference supplies*, not per requirement.
    *
    * Both decisions — which requirements are siblings, and which of the survivors
    * are the same argument — are made per ABI **slot** and never per resolved
@@ -13595,11 +13650,7 @@ class Checker {
       .filter((type): type is Variable => type.kind === "Variable");
     const constraints = new Map<string, Typed.Constraint>();
     for (const variable of variables) {
-      for (const requirement of variable.requirements) {
-        if (
-          requirement.evidenceConstraint !== undefined &&
-          requirement.evidenceConstraint !== requirement.name
-        ) continue;
+      for (const requirement of this.#keptRequirements(variable)) {
         const constraint = this.#publicRequirement(requirement);
         constraints.set(`${constraint.identity}:${variable.id}`, constraint);
       }
