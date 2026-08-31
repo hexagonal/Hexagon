@@ -8761,11 +8761,11 @@ class JavaScriptEmitter {
    * the wrong evidence. The same numbering discipline the dictionary family uses
    * settles it: probe `_1` upward. Distinct constraints on one variable usually
    * need no probe — `<a: (Num, Show)>` is `__Num_a` and `__Show_a` already —
-   * and the exception is two of them that genuinely share a word, which no
-   * module can spell but a caller can reach through two imported schemes
-   * (§5.1.1). Their seats are told apart by identity; here there is only the
-   * word, so the second takes the suffix and the two parameters differ by that
-   * alone.
+   * and the exception is two of them that genuinely share a word (§5.1.1). No
+   * module can spell both *under that one word*, but one can reach both through
+   * imported schemes, and can spell both by aliasing an import. Their seats are
+   * told apart by identity; here there is only the word, so the second takes the
+   * suffix and the two parameters differ by that alone.
    */
   #dictionaryParameterName(
     constraint: Typed.ConstraintName,
@@ -11342,17 +11342,24 @@ function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undef
  * It keys on the **identity** rather than on a spelling because a name is not a
  * property of a constraint at a module border — two modules may each declare a
  * `Describe`, and an import may rename one (#685). That is the sentence
- * `Core.DictionaryEvidence.constraintIdentity` is carried for, and this case is
+ * `Core.DictionaryEvidence`'s identity fields are carried for, and this case is
  * the one place in the key that had a field of the right kind and read the
  * wrong one. What it buys is a case that stays right for whoever makes it
  * reachable, not a repair to anything running.
+ *
+ * Which identity is `dictionaryIdentity`'s answer, not this function's, so the
+ * key names the same constraint an emission site would resolve the node to —
+ * the provider's where entailment supplied the demand. The two readings can
+ * only differ on a routed node, which the ground gate keeps out of here as
+ * surely as it keeps out every other kind; sharing the rule is what makes that
+ * a fact about the gate rather than a coincidence between two spellings of it.
  *
  * Module-level and exported because the case has no public path to be driven
  * through: with the ground gate in front of it, only a hand-built node reaches
  * it, and only a direct call can hand it one.
  */
 export function serializeDictionaryEvidence(evidence: Core.DictionaryEvidence): string {
-  return `D|${evidence.constraintIdentity}|${Number(evidence.variable)}|${
+  return `D|${dictionaryIdentity(evidence)}|${Number(evidence.variable)}|${
     (evidence.path ?? []).join(".")
   }`;
 }
@@ -11771,9 +11778,10 @@ function lexicographicComparison(comparisons: readonly string[]): string {
  * Keyed by the constraint's **declaration identity** (`spec/constraints.md`
  * §5.1.1), never by its spelling. A name is not a property of a constraint at a
  * module border: two modules may each declare a `Describe`, and a caller that
- * reaches both through imported schemes gets two evidence parameters — a
- * name-keyed seat hands every use site whichever of them registered last, which
- * type-checks, emits, and then calls the wrong dictionary at run time.
+ * reaches both — through their imported schemes, or by aliasing one import and
+ * writing the binders itself — gets two evidence parameters. A name-keyed seat
+ * hands every use site whichever of them registered last, which type-checks,
+ * emits, and then calls the wrong dictionary at run time.
  *
  * The *names* those parameters take are still spelled from the constraint, and
  * still probe `_1` upward when two of them want one word; that is cosmetics, and
@@ -11795,18 +11803,48 @@ interface ConstraintSeat {
   readonly identity: string;
 }
 
-/** The seat a pre-registered constraint occupies, named by a wired-in reader. */
+/**
+ * The seat a pre-registered constraint occupies, named by a wired-in reader.
+ *
+ * The `hex:` space is named outright because these callers carry a name and
+ * nothing else. That is sound rather than convenient: §5.1.1 makes a
+ * pre-registered name non-redeclarable, and a source declaration of one lands
+ * on the same compiler-global identity, so the word denotes one declaration in
+ * every module.
+ *
+ * **Defence, not live code.** Every caller is a components-blind arm of a
+ * derived walk — the four `Variable` leaves, `#equalityDictionary`, and
+ * `#subDictionary`'s fallback — and the walks became evidence-directed, so an
+ * accepted program renders the recorded selection instead. Measured, not
+ * assumed: making this helper throw leaves the whole conformance suite green,
+ * while the same throw in `dictionarySeat` fails every specimen that keys a
+ * seat. The identity handed out here is therefore unpinned, and a reader who
+ * changes it will get no signal from the tests. What it is kept for is
+ * best-effort emission into a module the checker **rejected**, where a walk may
+ * have no selection to read and the constraint's word is all that is left.
+ */
 function preRegisteredSeat(name: Typed.ConstraintName): ConstraintSeat {
   return { name, identity: preRegisteredConstraintIdentity(name) };
 }
 
 /**
- * The seat a `Dictionary` evidence node reads.
+ * Which constraint a `Dictionary` evidence node is keyed by.
  *
  * Where entailment supplied the demand the node carries its provider — the
- * binder it projects out of — and the seat is that binder's; otherwise the
- * demand is a binder of its own. `constraint` is the reader's fallback for the
- * name alone, for the sites whose evidence names its constraint elsewhere.
+ * binder it projects out of — and the answer is that binder's identity;
+ * otherwise the demand is a binder of its own and answers for itself. One rule,
+ * one home: `dictionarySeat` reads it for the emission sites, and
+ * `serializeDictionaryEvidence` for the CSE key, so the two cannot drift into
+ * disagreeing about what a node's constraint is.
+ */
+function dictionaryIdentity(evidence: Core.DictionaryEvidence): string {
+  return evidence.providerIdentity ?? evidence.constraintIdentity;
+}
+
+/**
+ * The seat a `Dictionary` evidence node reads: the identity above, beside the
+ * spelling a report or a parameter name shows. `constraint` is the fallback for
+ * the name alone, for the sites whose evidence names its constraint elsewhere.
  */
 function dictionarySeat(
   evidence: Core.DictionaryEvidence,
@@ -11814,7 +11852,7 @@ function dictionarySeat(
 ): ConstraintSeat {
   return {
     name: evidence.constraint ?? constraint,
-    identity: evidence.providerIdentity ?? evidence.constraintIdentity,
+    identity: dictionaryIdentity(evidence),
   };
 }
 

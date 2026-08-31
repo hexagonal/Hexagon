@@ -13431,12 +13431,22 @@ class Checker {
    * keeps the two sides spelling one parameter alike without putting the alias
    * into the output.
    *
-   * Which seat a demand reads is decided by identity and never by this word, so
-   * two distinct constraints sharing a name — reachable only through two
-   * imported schemes, since no module can spell both — take two seats, and the
-   * same word answering for each of them only collides the *display*: the
-   * parameter spellings then differ by a numeric suffix rather than by the
-   * constraint they carry.
+   * Which *evidence seat* a demand reads is decided by identity and never by
+   * this word, so two distinct constraints sharing a name take two seats and
+   * the parameters spelled for them differ by a numeric suffix alone. No module
+   * can spell both under that one word, but one reaches both whenever their
+   * imported schemes meet, and can spell both by aliasing an import.
+   *
+   * Residue, recorded rather than hidden, and not the seat's: a **base
+   * constraint's dictionary slot** is still minted from a name, by lowercasing
+   * its first letter — and the two sides that mint it read different names. The
+   * write side (the honor block's base-evidence properties) canonicalizes, so
+   * it spells the base declaration's own word; the read side (the entailment
+   * path a projection is published with) takes the word the *referencing*
+   * declaration wrote. An alias between them separates the two: a module that
+   * imports `Weigh` as `Heft` and declares `constraint Both<a: Heft>` writes a
+   * `weigh:` slot and reads `.heft`. No collision is needed to reach it, and a
+   * collision makes the honor block emit one duplicated key.
    */
   #canonicalConstraintName(
     name: Typed.ConstraintName,

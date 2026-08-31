@@ -28,11 +28,14 @@ import { typeVariableId } from "../syntax/typed/tree.js";
  * thread identities through the key the way `serializeDictionaryEvidence`
  * already does — a decision, taken deliberately, rather than a silent drift.
  *
- * The first block is the `D|` case itself, which #685 moved from
- * `evidence.constraint ?? constraint` to `evidence.constraintIdentity`. That
- * case is unreachable from the key path today (the ground gate, pinned in the
- * second block), so the change moves no key the compiler mints and is pinned
- * here by direct call rather than through emission.
+ * The first block is the `D|` case itself, which #685 moved off
+ * `evidence.constraint ?? constraint` and onto the node's identity — read
+ * through `dictionaryIdentity`, the same rule the emission sites resolve a
+ * `Dictionary` node's constraint by, so the key and a use site cannot name
+ * different constraints for one node. That case is unreachable from the key
+ * path today (the ground gate, pinned in the second block), so neither change
+ * moves a key the compiler mints, and it is pinned here by direct call rather
+ * than through emission.
  *
  * `edition-evidence-identity.test.ts` carries the planner half of the `P|`
  * producers claim — a declared constraint's edition takes `Instance` evidence

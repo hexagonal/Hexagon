@@ -4,14 +4,18 @@
  *
  * A constraint is its declaration (`spec/constraints.md` §5.1.1), and a name is
  * not a property of one at a module border: two modules may each declare a
- * `Describe`, and no third module can spell both — they meet only inside the
- * imported schemes of functions constrained by them. Everything upstream had
- * already been moved to identity — the instance table, the planner's editions,
- * the CSE key — and the evidence seat had not, so the two requirements minted
- * two parameters and every lookup in the body collapsed onto the one registered
- * last. The result was the worst class of defect: no diagnostic, an emission
- * that reads plausibly, and a `TypeError` at run time far from either import,
- * with `useOne` holding the other module's dictionary.
+ * `Describe`, and no third module can spell both *under that one word*. They
+ * meet in one scope two ways, and both are specimens below: inside the imported
+ * schemes of functions constrained by them, where the consumer names neither
+ * constraint, and under an alias, where it names both and can write the binder
+ * list itself.
+ *
+ * Everything upstream had already been moved to identity — the instance table,
+ * the planner's editions, the CSE key — and the evidence seat had not, so the
+ * two requirements minted two parameters and every lookup in the body collapsed
+ * onto the one registered last. The result was the worst class of defect: no
+ * diagnostic, an emission that reads plausibly, and a `TypeError` at run time
+ * far from either import, with `useOne` holding the other module's dictionary.
  *
  * The seat is keyed by identity now. The *names* are unchanged and still
  * spelled from the constraint, so the two parameters differ by the numeric
