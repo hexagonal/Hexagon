@@ -70,13 +70,14 @@ One rule, no special cases, and it decides every edge by itself: a doc comment b
 
 - **Module-level declarations**: `let`, `var`, `fun`; the Declarations Preamble §7.1 inventory (`record`, `union`, `type`, `constraint`, `honor`, `exception`).
 - **`extern from` block items** — every item form the block admits (FFI Part 4 §2.2), because every one introduces a name: `fun` and `let` bindings, `default` bindings, `type` declarations, `enum` declarations, `class` declarations, and `method`/`get`/`set` items — the latter documentable **wherever they appear**, standalone in the block or grouped in an `extern class` (FFI Part 5 §5 governs both positions). An `extern enum`'s members are documentable like union constructors.
-- **Members**: a union constructor (the doc block precedes the constructor's alternative — its leading `|`, or the constructor name where no `|` precedes); a record field; a constraint member — the `type` members among them, which Collections Part 2 §5.1 places among the ordinary members; a member implementation inside an `honor` block — the implied-type bindings (`type Item = a`) among them, which are the type members' implementations (Part 2 §5.3).
+- **Members**: a union constructor (the doc block precedes the constructor's alternative — its leading `|`, or the constructor name where no `|` precedes); a record field; a constraint member — the `type` members among them, which Collections Part 2 §5.1 places among the ordinary members; a member implementation inside an `honor` block — the implied-type bindings (`type Item = a`) among them, which are the type members' implementations (Part 2 §5.3); *(#700)* a `fun` block's member (Functions §7.3) — the doc block precedes the member line, attaching through its `export` marker exactly as through a declaration's.
 - **Block-local binders**: `let`, `var`, `fun` inside function bodies and blocks. Local docs never reach the `.d.ts` (locals are not exports); they exist for tooling (§8).
 
 Not documentable:
 
 - **`import` in any form**, including the effect-only `import "..."` and `extern import "..."` (FFI Part 4 §8 — it introduces no bindings). Imports introduce no API of this module; the error's message points at the module-docs deferral (§9.1), because a file-header doc above the import block is exactly that deferral's territory.
 - **The `extern from` block header** — it is a container; its *items* are the documented surface. Dedicated message: §5.
+- ***(#700.)* The `fun` block head** (Functions §7.3) — same doctrine: the head binds no name; the *members* are the documented surface. Dedicated message: §5.
 - **Module-level effect statements** (Modules §8.2): an expression is not a declaration; the generic §5 error applies.
 
 ### 4.3 Leading only
@@ -90,6 +91,7 @@ A doc comment must be **leading trivia**: on its physical line, nothing but whit
 | Doc block not followed by a documentable declaration (§4.1) — includes EOF, expression positions, mid-declaration positions | "documentation comment does not document anything — the next code is not a declaration. Move it directly above the declaration it describes, or make it an ordinary comment (`(* ... *)`)." |
 | Doc block before an `import` (including `extern import`) | as above, appending: "imports are not documentable; module-level documentation is not in v1." |
 | Doc block before an `extern from` block header | "documentation attaches to the items an `extern from` block introduces, not to the block — move it above the first item inside the block, or make it an ordinary comment (`(* ... *)`)." (The generic message would be false here — the header *does* begin a declaration form — so the Rewrite Rule gets its own row.) |
+| Doc block before a `fun` block head (#700) | the same family: "documentation attaches to a `fun` block's members, not to the block — move it above the member it describes, or make it an ordinary comment (`(* ... *)`)." |
 | Doc comment preceded by code on its line (§4.3) | "documentation comments precede what they document — move this above the declaration on its own line, or make it an ordinary comment (`(* ... *)`)." |
 | Unterminated `(**` at EOF | Comments §5's unterminated-block-comment error, unchanged (the doc form is a block comment) |
 
@@ -291,7 +293,7 @@ fun helper(s: String): Ast = ...         -- unexported: manifest is house style,
 | Content extraction: ordered procedure; dedent by longest common literal prefix, opener-line fragment exempt only when it exists | §3.1 |
 | Doc blocks merge across runs; blanks and ordinary comments invisible; empty docs legal | §3.2 |
 | Attachment: next-code-token-begins-declaration, one rule over physical tokens (virtual tokens invisible); leading-only; syntactic | §4 |
-| Documentable: module-level inventory + every `extern from` item form (`fun`/`let`/`default`/`type`/`enum`/`class` and members; enum members like constructors) + union constructors + record fields + constraint members (`type` members among them) + honor members (implied-type bindings among them) + local binders; not `import`/`extern import`, not the `extern from` header, not module-level effects | §4.2 |
+| Documentable: module-level inventory + every `extern from` item form (`fun`/`let`/`default`/`type`/`enum`/`class` and members; enum members like constructors) + union constructors + record fields + constraint members (`type` members among them) + honor members (implied-type bindings among them) + `fun` block members (#700) + local binders; not `import`/`extern import`, not the `extern from` header, not the `fun` block head, not module-level effects | §4.2 |
 | Dangling and trailing doc comments are hard errors with Rewrite-Rule redirects; the `extern from` header gets its own message | §5 |
 | Content is CommonMark, carried opaque; bare fences default to Hexagon; no tags, no link resolution in v1 | §6 |
 | Emission: JSDoc in both `.js` and `.d.ts` at every corresponding seat; `*/` → `*\/`; no seat → tooling-only | §7 |

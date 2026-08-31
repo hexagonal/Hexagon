@@ -63,7 +63,8 @@ declaration head in the table without changing it.
 | Bare `try` | Try body |
 | `else` or `catch` with no same-line body | Clause body / arm block |
 | `constraint ... =` or `honor ... =` | Member block |
-| Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header) | Binding body block |
+| A `fun` head ending its logical item — the keyword alone, or with its binder list glued (`fun<a: Eq>`), no member on the line (Functions §7.3) | `fun` member block |
+| Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header — a `fun` block's member lines included) | Binding body block |
 
 **Every term binding opens a block.** A binding's indented RHS is a block whose
 value is its final expression, exactly as for a function body — the parameter
@@ -81,10 +82,11 @@ rule that reads what a right-hand side *means*, not just its value: the one-item
 block is peeled before the value restriction, the exported-signature check, or
 evidence threading sees it, so moving a RHS to the next line cannot change what
 the binding means (Functions §8.2, which also rules on the multi-item case).
-The one exception is Functions §7.1, which asks what a `fun`'s right-hand side
-**is** — a check on the written form, which is what group binding's zero-evaluation
-guarantee rests on — and so refuses a lambda literal that arrives wrapped, in
-parentheses or on the next line alike.
+*(#700.)* No exception remains: the once-recorded one — Functions §7.1's
+written-form check on a `fun` right-hand side — retired with the `fun` RHS
+itself. `fun` is header-only, so the zero-evaluation guarantee block binding
+rests on is now the grammar's, and there is no `fun` RHS whose wrapping could
+matter.
 
 Type declarations are *not* term bindings:
 `record`, `union`, and `type` after `=` remain continuations, which is what keeps
@@ -249,3 +251,4 @@ These are binding on the implementation, same status as the Functions spec's dia
 | Module is an implicit block; clauses attach without VSEP | §2 |
 | `catch` continues a preceding `match` item exactly as it continues `try` — the match catch clause (Exceptions §5.4); attachment by column, no new layout machinery | §2 |
 | A scrutinee-less `match` head opens its arm block through the same inventory row — the match function (Pattern Matching §6.7) needs no new layout rule | §2.1 |
+| A `fun` head ending its logical item opens the member block; member lines are ordinary term-binding rows; the once-recorded §7.1 read-through exception retired with the `fun` RHS (#700) | §2.1 |

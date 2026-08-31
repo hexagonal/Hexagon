@@ -149,6 +149,11 @@ declarations through this list before considering the segment done.
   otherwise the multiline form. A nested false-branch conditional indents
   beneath `else`; `else if` only for a complete one-line conditional.
   (Operators §11.2–§11.3; canonical-formatting-plan §5 restates)
+- **F4 [canonical, v1 stance]** *(#700.)* The fused `fun f(…) = …` and the
+  single-member `fun` block are both legal, and the formatter rewrites
+  neither into the other — the fused spelling is idiomatic for one member,
+  the block earns its place at two, but neither is enforced. Revisit with
+  field evidence. (Functions §7.3)
 
 ---
 

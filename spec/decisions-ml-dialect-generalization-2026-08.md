@@ -114,7 +114,7 @@ Clause (a) reads *occurrence in the constraint's argument*, compound arguments i
 
 **Annotated expansive bindings.** An annotation's variables are rigid while the RHS is checked (Functions §4.1) and quantify at the binding (§4.2.1's composition); at an expansive binding the quantification step is item 7's, so a rigid variable is subject to the same three clauses. If every annotation variable passes, the binding generalizes and the annotation is satisfied — `let xs: Vector(a) = makeEmpty()` works exactly like its unannotated form. If any is **declined**, the binding is a **hard error at the declaration** — a rigid variable can neither be quantified nor pinned by a use — in Functions §4.1's existing diagnostic family, naming the clause that actually fired: "`a` is a declared type variable, but this right-hand side is a computation that cannot be generalized in `a` (`a` is constrained by `Num`)" — or, for clause (b), "(`a` occurs in argument position)" — "; bind where the type is known, or remove the annotation." The export consequence, since Modules §4.1.1 makes signatures mandatory there: an exported expansive binding whose variable item 7 declines has **no legal signature** — the same error fires, and its rewrite is the same two exits. Conformance items in §11.1.
 
-`fun` bindings are untouched — their RHSs are always lambdas (Functions §7.1), always values.
+`fun` bindings are untouched — a member is header syntax denoting a lambda (Functions §7.1, header-only since #700), always a value.
 
 ### 4.2 Soundness, and its three legs
 
