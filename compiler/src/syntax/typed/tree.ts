@@ -686,10 +686,28 @@ export interface ConstraintItem {
   /** This declaration's identity (`spec/constraints.md` §5.1.1). */
   readonly identity: string;
   readonly subject: TypeVariableId;
-  readonly baseConstraints: readonly ConstraintName[];
+  readonly baseConstraints: readonly DeclaredBaseConstraint[];
   readonly impliedTypes: readonly ConstraintImpliedType[];
   readonly members: readonly ConstraintMemberDeclaration[];
   readonly span: Source.Span;
+}
+
+/**
+ * One entry of a constraint declaration's base list, in both currencies
+ * (§5.1.1): the word this declaration's own module wrote, and the identity that
+ * word denoted **there**.
+ *
+ * A base constraint is a name in the declaring module's scope, so a reader that
+ * holds only the name can do nothing safe with it — `constraint Loud<a:
+ * Describe>` says nothing about what an importer spells `Describe`, and §6.2
+ * mints the base's dictionary slot from the *declaration* the name denoted, not
+ * from the name. `Resolved.ConstraintItem` has carried the pairing since #276;
+ * this closes the same gap on the Typed tree, where an honor header's binder
+ * constraints already carry it (`HonorParameterConstraint`).
+ */
+export interface DeclaredBaseConstraint {
+  readonly name: ConstraintName;
+  readonly identity: string;
 }
 
 export interface ConstraintImpliedType {
@@ -721,7 +739,7 @@ export interface HonorItem {
   readonly dictionary: string;
   /** Constraints §6.1's member seats, named in the resolver; see `Resolved.MemberSeat`. */
   readonly memberSeats: readonly Resolved.MemberSeat[];
-  readonly baseConstraints: readonly Constraint[];
+  readonly baseConstraints: readonly HonorBaseConstraint[];
   /**
    * For a derived instance, the constraint the checker resolved for each
    * component of the subject — the record's fields, or every constructor slot
@@ -785,6 +803,22 @@ export interface HonorTypeParameter {
 export interface HonorParameterConstraint {
   readonly name: ConstraintName;
   readonly identity: string;
+}
+
+/**
+ * One base-constraint obligation an instance discharges, paired with the
+ * **dictionary slot** it fills (Constraints §6.2).
+ *
+ * The slot rides here rather than being recomputed at the write side, because
+ * it is not a property of this requirement at all: it is minted from the
+ * *extending declaration's* base list, positionally, and the reader of the slot
+ * — an entailment projection in some other module — mints it from that same
+ * list. Handing emission a name to lowercase is exactly what let the two sides
+ * come apart, an importer's alias moving one and not the other (#718).
+ */
+export interface HonorBaseConstraint {
+  readonly slot: string;
+  readonly constraint: Constraint;
 }
 
 export interface HonorImpliedType {

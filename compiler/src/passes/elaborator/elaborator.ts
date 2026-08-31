@@ -76,7 +76,8 @@ function elaborateItem(item: Typed.Item): Core.Item {
     case "Honor":
       return {
         ...item,
-        baseConstraints: item.baseConstraints.map((constraint) => ({
+        baseConstraints: item.baseConstraints.map(({ slot, constraint }) => ({
+          slot,
           name: constraint.name,
           evidence: evidence(constraint),
         })),

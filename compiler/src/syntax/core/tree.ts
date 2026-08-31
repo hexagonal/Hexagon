@@ -424,6 +424,14 @@ export interface HonorItem {
 }
 
 export interface HonorBaseConstraint {
+  /**
+   * The dictionary slot this base fills (Constraints §6.2), minted by the
+   * checker from the extending declaration's base list and carried here
+   * verbatim. Emission writes it as the property key and derives nothing from
+   * `name`, which is a *report* spelling only — it labels the evidence being
+   * rendered, and the two are not the same currency (#718).
+   */
+  readonly slot: string;
   readonly name: Typed.ConstraintName;
   readonly evidence: Evidence;
 }

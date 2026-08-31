@@ -3707,16 +3707,20 @@ class JavaScriptEmitter {
       // also why it is the one position where a ground application must not
       // hoist — see `#eagerEvidenceDepth`.
       this.#eagerEvidenceDepth += 1;
-      const baseEvidence = item.baseConstraints.map(({ name, evidence }) => ({
-        name,
+      const baseEvidence = item.baseConstraints.map(({ slot, name, evidence }) => ({
+        slot,
         rendered: this.#emitEvidence(evidence, name, item.span, localEvidence),
       }));
       this.#eagerEvidenceDepth -= 1;
       if (parameters.length === 0) {
         this.#directEvidence.set(item, baseEvidence.map(({ rendered }) => rendered));
       }
-      const baseConstraints = baseEvidence.map(({ name, rendered }) =>
-        objectProperty((name[0]?.toLowerCase() ?? "") + name.slice(1), rendered)
+      // Constraints §6.2: the slot was minted from the extending declaration's
+      // base list, in the checker, by the one function the *reading* side mints
+      // through as well. Nothing is derived from a name here — a name is what
+      // an importer's alias moves.
+      const baseConstraints = baseEvidence.map(({ slot, rendered }) =>
+        objectProperty(slot, rendered)
       );
       const members: MemberImplementation[] = item.derived
         ? this.#derivedMembers(item, localEvidence)
