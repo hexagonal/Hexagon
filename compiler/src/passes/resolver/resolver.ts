@@ -1997,14 +1997,23 @@ class Resolver {
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
       if (item === undefined) continue;
-      // A contiguous run of `fun`s is one group (Functions §7.3): every member
+      // *(#700.)* A `fun` **block** is one group (Functions §7.3): every member
       // is bound before the first body is walked, so the bodies see each other
-      // in both directions. Any other item ends the run, and the next run binds
-      // where it starts — which is what makes forward visibility stop there.
+      // in both directions. Adjacency is no longer load-bearing — two blocks
+      // written back to back are two heads, and a fused `fun` is the one-member
+      // block — so the boundary is the head's identity and nothing else.
       if (item.kind === "Fun" && !this.#predeclaredBindings.has(item)) {
         for (let scan = index; scan < items.length; scan += 1) {
           const member = items[scan];
           if (member?.kind !== "Fun") break;
+          // A fused `fun` carries no head, so it is a group of one; a member of
+          // *another* block carries another head, and stops this one.
+          if (
+            scan !== index &&
+            (item.block === undefined || member.block?.id !== item.block.id)
+          ) {
+            break;
+          }
           // Rule 1, layered by Modules §5.4 exactly as the `Let` case below:
           // a module-level `fun` may occlude a prelude name, so the lookup
           // stops at the module's own layer there; in a block it walks out
@@ -2990,6 +2999,26 @@ class Resolver {
           exported: item.exported,
           binding,
           value,
+          // The head travels with every member (#700): the checker groups on
+          // its identity, scopes its binder variables over the block, and the
+          // §4.1.1 advice names the head's spelling.
+          ...(item.block === undefined
+            ? {}
+            : {
+                block: {
+                  id: item.block.id,
+                  ...(item.block.typeParameters === undefined
+                    ? {}
+                    : {
+                        typeParameters: item.block.typeParameters.map((parameter) => ({
+                          name: parameter.name.text,
+                          constraints: parameter.constraints.map(({ text }) => text),
+                          span: parameter.span,
+                        })),
+                      }),
+                  span: item.block.span,
+                },
+              }),
           span: item.span,
         };
       }
@@ -3920,9 +3949,8 @@ class Resolver {
             severity: "error",
             message: `\`${expression.name.text}\` is declared later in this block; ` +
               (later.split
-                ? "only an unbroken run of `fun`s recurses together — move the " +
-                  `intervening declaration out of the run, or move \`${expression.name.text}\`'s ` +
-                  "declaration above this use"
+                ? "only members of one `fun` block recurse together; wrap both " +
+                  "definitions as its members"
                 : "declarations are read top-down — move " +
                   `${later.move ?? "its declaration"} above this use`),
             primary: expression.span,
@@ -3936,9 +3964,10 @@ class Resolver {
   /**
    * The declaration of `name` further down an enclosing block, if there is one.
    *
-   * `split` marks the case §7.3 owns rather than §7.2: both sides are `fun`s of
-   * the same block, so they would have recursed together had an item not been
-   * written between them.
+   * *(#700.)* `split` marks the case §7.3 owns rather than §7.2: both sides are
+   * `fun`s of the same enclosing block, so they are two `fun` **blocks** and the
+   * repair is the mechanical wrap — adjacency is no longer load-bearing, and
+   * moving a declaration between them can no longer change what they mean.
    */
   #findLaterDeclaration(
     name: string,
@@ -4863,8 +4892,8 @@ class Resolver {
    * scope that declares the name over the prelude's binding of it, the prelude's
    * is invisible throughout, so this answers `undefined` above the declaration
    * and the ordinary top-down machinery takes over — Functions §7.2's
-   * declared-later error, or §7.3's legal mutual reference inside a contiguous
-   * `fun` group, which never reaches here because the group binds first. That is
+   * declared-later error, or §7.3's legal mutual reference inside a `fun`
+   * block, which never reaches here because the block binds first. That is
    * the whole of "resolves as if the prelude did not bind the name", and it is
    * why one identifier cannot carry two meanings in one scope: without it a use
    * above the binder silently kept the prelude's.

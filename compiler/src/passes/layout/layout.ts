@@ -276,6 +276,13 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
 
   const head = declarationStart(item);
   const first = item[head];
+  // *(#700.)* A `fun` head ending its logical item — the keyword alone, or with
+  // its binder list — opens the member block (§2.1's row). `export` may stand
+  // before it in the source; layout stays agnostic and the parser refuses it
+  // there, which is why `declarationStart` is what this reads past.
+  if (first?.kind === "Fun" && funBlockHeadEnds(item, head)) {
+    return true;
+  }
   if (
     first?.kind === "Extern" &&
     item.some((token) => token.kind === "NonUpperName" && token.text === "from") &&
@@ -352,6 +359,28 @@ function declarationStart(item: readonly Lexed.Token[]): number {
       : index;
   }
   return opensDeclaration.has(next.kind) ? index + 1 : index;
+}
+
+/**
+ * Whether a `fun` at `head` is a **block head** — nothing after it on the
+ * logical item but, optionally, a complete `<...>` binder list (Functions §7.3).
+ *
+ * `fun` followed by a name is the fused member and is unchanged; a head that
+ * runs on to anything else is not a head at all, and the parser reports what it
+ * actually is.
+ */
+function funBlockHeadEnds(item: readonly Lexed.Token[], head: number): boolean {
+  let index = head + 1;
+  if (index === item.length) return true;
+  if (item[index]?.kind !== "Less") return false;
+  let depth = 1;
+  index += 1;
+  while (index < item.length && depth > 0) {
+    if (item[index]?.kind === "Less") depth += 1;
+    else if (item[index]?.kind === "Greater") depth -= 1;
+    index += 1;
+  }
+  return depth === 0 && index === item.length;
 }
 
 function hasBindingParameterList(item: readonly Lexed.Token[]): boolean {

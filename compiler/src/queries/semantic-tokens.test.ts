@@ -77,6 +77,45 @@ describe("semantic tokens", () => {
     ]);
   });
 
+  /**
+   * *(#700.)* A `fun` block's members are items of the enclosing block, so
+   * every editor service reaches them the way it reaches a fused `fun`: the head
+   * binds no name and publishes no token, and the head's binder variable is the
+   * one declaration its members' annotations name.
+   */
+  test("a `fun` block's members are ordinary function declarations", () => {
+    const source = [
+      "record Box = {item: Int}",
+      "",
+      "honor Eq<Box> =",
+      "    equals(left, right) = left.item == right.item",
+      "",
+      "fun<a: Eq>",
+      "    isEven(x: a, n: Int): Bool = if n == 0 then x == x else isOdd(x, n - 1)",
+      "    export isOdd(x: a, n: Int): Bool = if n == 0 then False else isEven(x, n - 1)",
+      "",
+      "export let answer: Bool = isEven(Box({item = 1}), 4)",
+      "",
+    ].join("\n");
+    const session = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const tokens = render(source, session);
+    expect(tokens).toContain("isEven:function+declaration");
+    expect(tokens).toContain("isOdd:function+declaration");
+    // The forward reference inside the block resolves to the sibling, so it
+    // publishes as a reference rather than as an unknown name — and it stands
+    // *above* the declaration, which is the block's whole point.
+    expect(tokens.filter((token) => token.startsWith("isOdd:"))).toEqual([
+      "isOdd:function",
+      "isOdd:function+declaration",
+    ]);
+    expect(tokens.filter((token) => token.startsWith("isEven:"))).toEqual([
+      "isEven:function+declaration",
+      "isEven:function",
+      "isEven:function",
+    ]);
+  });
+
   test("a record's declaration is one token, not two at one range", () => {
     // The name is its type and its constructor at once, and the index publishes
     // both. The protocol's encoding admits one token per range, and two tokens

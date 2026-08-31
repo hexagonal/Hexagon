@@ -11,7 +11,7 @@
 import * as Diagnostics from "../../support/diagnostics.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
 import type * as Source from "../../support/source.js";
-import { syntheticParameterName } from "../../support/synthetic.js";
+import { displayParameterName, syntheticParameterName } from "../../support/synthetic.js";
 import type * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
 import * as Parsed from "../../syntax/parsed/index.js";
@@ -50,6 +50,38 @@ const infix = new Map<TokenKind, Infix>([
 ]);
 
 const itemEnds = new Set<TokenKind>(["VSep", "Semicolon", "VClose", "Eof"]);
+
+/**
+ * The lead of Functions §10's three retirement rows: `fun` has no `name = …`
+ * production, in a block or fused (#700). One sentence, three rewrites.
+ */
+const FUN_HEADER_ONLY = "`fun` defines functions by header";
+
+/** Functions §7.3's empty-block refusal (§10's row). */
+const EMPTY_FUN_BLOCK =
+  "a `fun` block needs at least one member; write one, or remove the head";
+
+/** Modules §4.1's head-export refusal — the marker belongs on each member. */
+const FUN_BLOCK_HEAD_EXPORT =
+  "`export` marks members: put it on each member to export";
+
+/** Modules §4.1/§10: `export` is module-level only (#700). */
+const EXPORT_BELOW_MODULE_LEVEL =
+  "`export` marks module-level declarations; a local binding cannot be exported";
+
+/** Doc Comments §5: the head binds no name, so it documents nothing (#700). */
+const FUN_BLOCK_HEAD_DOC =
+  "documentation attaches to a `fun` block's members, not to the block — move " +
+  "it above the member it describes, or make it an ordinary comment " +
+  "(`(* ... *)`).";
+
+/** A written binder as its author spelled it, for the member-binder advice. */
+function writtenTypeParameter(parameter: Parsed.TypeParameter): string {
+  const names = parameter.constraints.map(({ text }) => text);
+  if (names.length === 0) return parameter.name.text;
+  const list = names.length === 1 ? names[0]! : `(${names.join(", ")})`;
+  return `${parameter.name.text}: ${list}`;
+}
 
 /**
  * The declaration keywords a filled visibility slot may stand before (Modules
@@ -228,6 +260,20 @@ class Parser {
    * `-1` while no item is being parsed, so nothing can accidentally match.
    */
   #itemStart = -1;
+  /**
+   * The `fun` block heads seen so far, so each gets an identity (#700). The head
+   * binds no name, and identity is what replaces adjacency: two blocks written
+   * back to back are two heads, and nothing groups their members together.
+   */
+  #funBlockId = 0;
+  /**
+   * The lambdas a **match function** desugared to (Pattern Matching §6.7).
+   *
+   * Read by one diagnostic: §10's retired-`fun`-RHS rows split the lambda
+   * spelling from the match-function spelling, and after the desugar the two are
+   * the same node kind.
+   */
+  readonly #matchFunctions = new WeakSet<Parsed.Expr>();
 
   /**
    * The token index the most recently parsed match function's desugar ended at
@@ -310,10 +356,18 @@ class Parser {
       // (§4.1), and virtual tokens are invisible to that (§4).
       const start = this.#current().span.start.offset;
       this.#itemStart = this.#index;
-      const item = this.#parseItem(moduleItems);
+      // *(#700.)* A `fun` head opens a member block, and its members are items
+      // of the enclosing block: the head binds no name, and to code outside it
+      // a block is ordinary (Functions §7.3). So one head yields several items
+      // here, and every later pass reads the run it produced.
+      if (this.#atFunBlockHead()) {
+        items.push(...this.#parseFunBlock(moduleItems, start));
+      } else {
+        const item = this.#parseItem(moduleItems);
+        this.#documentItem(start, item);
+        items.push(item);
+      }
       this.#itemStart = enclosingItemStart;
-      this.#documentItem(start, item);
-      items.push(item);
 
       // A `catch` still standing here belongs to no construct: layout continued
       // it after this item, `try` and a line-initial `match` head both consume
@@ -444,6 +498,147 @@ class Parser {
     }
   }
 
+  /**
+   * Whether a `fun` **block head** stands here — the keyword alone, or carrying
+   * its binder list, and nothing else on the logical item (Functions §7.3).
+   *
+   * `export` before it is admitted so the refusal can carry the author's own
+   * line rather than let the head fall out of the item grammar as a nameless
+   * `fun` (Modules §4.1). `fun` followed by a name on the same line is the fused
+   * member and never reaches here.
+   */
+  #atFunBlockHead(): boolean {
+    let index = this.#index;
+    if (this.#tokens[index]?.kind === "Export") index += 1;
+    if (this.#tokens[index]?.kind !== "Fun") return false;
+    index += 1;
+    if (this.#tokens[index]?.kind === "Less") {
+      let depth = 1;
+      index += 1;
+      while (depth > 0) {
+        const kind = this.#tokens[index]?.kind;
+        if (kind === undefined || kind === "Eof") return false;
+        if (kind === "Less") depth += 1;
+        else if (kind === "Greater") depth -= 1;
+        index += 1;
+      }
+    }
+    const next = this.#tokens[index]?.kind;
+    return next === "VOpen" || next === "VSep" || next === "VClose" ||
+      next === "Semicolon" || next === "Eof";
+  }
+
+  /**
+   * One `fun` block: the head, then its member lines (Functions §7.3, #700).
+   *
+   * The members are returned as items of the enclosing block, because that is
+   * where their names bind. The head itself survives only on each member's
+   * `block` field, which is what the resolver groups on and what the block-head
+   * diagnostics locate themselves by.
+   */
+  #parseFunBlock(moduleItems: boolean, docStart: number): readonly Parsed.Item[] {
+    const exportToken = this.#at("Export") ? this.#advance() : undefined;
+    const funToken = this.#advance();
+    let typeParameters: readonly Parsed.TypeParameter[] | undefined;
+    if (this.#at("Less")) typeParameters = this.#parseTypeParameters();
+    const headSpan = spanFrom(funToken.span, this.#previous().span);
+
+    // Head-export sugar is binned (Modules §4.1, Functions §7.3): the marker
+    // belongs on the line that names what crosses. Below module level the
+    // per-member advice would be wrong twice over — an inner block's members
+    // take no marker either — so that seat takes §4.1's own refusal instead.
+    if (exportToken !== undefined) {
+      this.#errorAt(
+        exportToken.span,
+        moduleItems ? FUN_BLOCK_HEAD_EXPORT : EXPORT_BELOW_MODULE_LEVEL,
+      );
+    }
+    // Doc Comments §4.2: the head introduces no name, so a block before it
+    // documents nothing and is refused rather than swallowed.
+    this.#docs.refuse(docStart, FUN_BLOCK_HEAD_DOC);
+
+    this.#funBlockId += 1;
+    const head: Parsed.FunBlockHead = {
+      id: this.#funBlockId,
+      ...(typeParameters === undefined ? {} : { typeParameters }),
+      span: headSpan,
+    };
+
+    if (!this.#at("VOpen")) {
+      this.#errorAt(headSpan, EMPTY_FUN_BLOCK);
+      return [];
+    }
+    this.#advance();
+
+    const members: Parsed.Item[] = [];
+    const enclosingItemStart = this.#itemStart;
+    this.#skipSeparators();
+    while (!this.#at("VClose") && !this.#at("Eof")) {
+      const start = this.#current().span.start.offset;
+      this.#itemStart = this.#index;
+      const member = this.#parseFunMember(head, moduleItems);
+      this.#itemStart = enclosingItemStart;
+      this.#documentItem(start, member);
+      members.push(member);
+
+      if (this.#at("Catch")) {
+        this.#reportUnattachedCatch();
+        continue;
+      }
+      if (this.#at("VSep") || this.#at("Semicolon")) {
+        this.#skipSeparators();
+      } else if (!this.#at("VClose") && !this.#at("Eof")) {
+        this.#error("expected a newline or `;` between block items");
+        this.#synchronize(itemEnds);
+        this.#skipSeparators();
+      }
+    }
+    this.#itemStart = enclosingItemStart;
+    this.#expect("VClose", "expected the `fun` block to close");
+    if (members.length === 0) this.#errorAt(headSpan, EMPTY_FUN_BLOCK);
+    return members;
+  }
+
+  /**
+   * One member line: `[export] name(params)[: T] = body` (Functions §7.3).
+   *
+   * No `fun` repetition and no `name = lambda` line — the member grammar is the
+   * fused spelling's, minus the binder list §3.3 refuses.
+   */
+  #parseFunMember(
+    head: Parsed.FunBlockHead,
+    moduleItems: boolean,
+  ): Parsed.Item {
+    // The member's own left margin, marker included: what a doc block attaches
+    // to, and what the item's span runs from.
+    const itemStart = this.#current().span;
+    let exported = false;
+    if (this.#at("Export")) {
+      const exportToken = this.#advance();
+      // Modules §4.1: the marker is module-level only, and an inner block's
+      // member is below module level like any function-body binding.
+      if (moduleItems) exported = true;
+      else this.#errorAt(exportToken.span, EXPORT_BELOW_MODULE_LEVEL);
+    }
+    if (this.#at("Fun")) {
+      const repeated = this.#advance();
+      this.#errorAt(
+        repeated.span,
+        "a `fun` block's members repeat no `fun`; write the header alone: " +
+          "`name(params) = …`",
+      );
+    }
+    const nameToken = this.#takeName(
+      "NonUpperName",
+      "a `fun` block's members are function headers; write `name(params) = …`",
+    );
+    if (nameToken === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(itemStart, this.#previous().span) };
+    }
+    return this.#parseFunDefinition(nameToken, exported, itemStart, head);
+  }
+
   #parseItem(moduleItems: boolean): Parsed.Item {
     if (this.#at("Extern")) {
       if (!moduleItems) {
@@ -484,7 +679,9 @@ class Parser {
     if (this.#at("Export")) {
       const exportToken = this.#advance();
       if (!moduleItems) {
-        this.#errorAt(exportToken.span, "`export` is only allowed at module top level");
+        // Modules §4.1/§10's row (#700): one wording for every seat below
+        // module level — a function-body binding and an inner block's member.
+        this.#errorAt(exportToken.span, EXPORT_BELOW_MODULE_LEVEL);
         this.#synchronize(itemEnds);
         return {
           kind: "ErrorItem",
@@ -1679,6 +1876,19 @@ class Parser {
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
 
+    // *(#700.)* A fused `fun f(…) = …` **is** the one-member block, binder list
+    // and all (Functions §7.3), so one production serves it and a block's member
+    // lines — and the header-only rule is that production's shape rather than a
+    // test applied after the fact.
+    if (bindingKind === "Fun") {
+      return this.#parseFunDefinition(
+        nameToken,
+        exported,
+        itemStart ?? start.span,
+        undefined,
+      );
+    }
+
     let parameters: readonly Parsed.Parameter[] | undefined;
     let typeParameters: readonly Parsed.TypeParameter[] | undefined;
     let returnAnnotation: Parsed.TypeAnnotation | undefined;
@@ -1695,7 +1905,7 @@ class Parser {
         this.#advance();
         returnAnnotation = this.#parseTypeAnnotation();
       }
-    } else if (bindingKind === "Let" && this.#at("Colon")) {
+    } else if (this.#at("Colon")) {
       this.#advance();
       bindingAnnotation = this.#parseTypeAnnotation();
     }
@@ -1725,31 +1935,126 @@ class Parser {
           span: spanFrom(parameterStartSpan ?? nameToken.span, body.span),
         };
 
-    const common = {
+    return {
+      kind: "Let",
       exported,
       name: parsedName(nameToken),
       span: spanFrom(itemStart ?? start.span, value.span),
+      ...(bindingAnnotation === undefined ? {} : { annotation: bindingAnnotation }),
+      value,
     };
-    if (bindingKind === "Let") {
-      return {
-        kind: "Let",
-        ...common,
-        ...(bindingAnnotation === undefined
-          ? {}
-          : { annotation: bindingAnnotation }),
-        value,
-      };
-    }
-    if (value.kind === "Lambda") return { kind: "Fun", ...common, value };
+  }
 
-    this.#errorAt(
-      value.span,
-      "`fun` requires a function header or lambda literal on its right-hand side",
-    );
-    return {
-      kind: "ErrorItem",
-      span: spanFrom(itemStart ?? start.span, value.span),
+  /**
+   * A `fun` definition from its name on — the fused spelling and a block's
+   * member lines alike (Functions §7.1, §7.3; #700).
+   *
+   * `block` is the head the member stands under, and `undefined` for the fused
+   * spelling, whose own `<...>` list *is* its head's (§4.2's position
+   * restriction). A member line's binder list is refused with the head advice
+   * (§3.3) and then dropped, so recovery types the member as if it had been
+   * written the legal way.
+   */
+  #parseFunDefinition(
+    nameToken: Lexed.NameToken,
+    exported: boolean,
+    itemStart: Source.Span,
+    block: Parsed.FunBlockHead | undefined,
+  ): Parsed.Item {
+    let typeParameters: readonly Parsed.TypeParameter[] | undefined;
+    if (this.#at("Less")) {
+      const binderStart = this.#current().span;
+      const written = this.#parseTypeParameters();
+      if (block === undefined) {
+        typeParameters = written;
+      } else {
+        this.#errorAt(
+          spanFrom(binderStart, this.#previous().span),
+          "members take no binder lists; declare the variable on the block head: " +
+            `\`fun<${written.map(writtenTypeParameter).join(", ")}>\``,
+        );
+      }
+    }
+
+    let parameters: readonly Parsed.Parameter[] | undefined;
+    let returnAnnotation: Parsed.TypeAnnotation | undefined;
+    let parameterStartSpan: Source.Span | undefined;
+    let destructurings: readonly Destructuring[] = [];
+    if (this.#at("LeftParen")) {
+      parameterStartSpan = this.#current().span;
+      ({ parameters, destructurings } = this.#parseParameters());
+      if (this.#at("Colon")) {
+        this.#advance();
+        returnAnnotation = this.#parseTypeAnnotation();
+      }
+    }
+
+    if (this.#expect("Equal", "expected `=` in `fun` binding") === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(itemStart, this.#previous().span) };
+    }
+
+    const body: Parsed.Expr = this.#parseBodyExpression();
+    if (parameters === undefined) {
+      // *(#700.)* There is no `fun name =` production. Each retired right-hand
+      // side is a parse error carrying its own mechanical rewrite (§10's three
+      // rows); the pending `<...>` lambda is discharged first so the refused
+      // spelling draws one diagnostic rather than two.
+      this.#dischargeTypeParameterLambda(body);
+      this.#errorAt(
+        spanFrom(itemStart, body.span),
+        this.#retiredFunRightHandSide(nameToken.text, body),
+      );
+      return { kind: "ErrorItem", span: spanFrom(itemStart, body.span) };
+    }
+
+    const value: Parsed.LambdaExpr = {
+      kind: "Lambda",
+      parameters,
+      ...(typeParameters === undefined ? {} : { typeParameters }),
+      ...(returnAnnotation === undefined ? {} : { returnAnnotation }),
+      ...this.#lambdaDestructurings(destructurings),
+      body,
+      span: spanFrom(parameterStartSpan ?? nameToken.span, body.span),
     };
+    return {
+      kind: "Fun",
+      exported,
+      name: parsedName(nameToken),
+      value,
+      ...(block === undefined ? {} : { block }),
+      span: spanFrom(itemStart, value.span),
+    };
+  }
+
+  /**
+   * Functions §10's three retirement rows, chosen by what the refused
+   * right-hand side actually is (#700).
+   *
+   * The rewrites are mechanical where the source supplies the material — the
+   * lambda's own parameters — and name an invented binder where it does not: a
+   * match function has no parameter to read, which is exactly the "naming
+   * parameter and scrutinee" the row asks for.
+   *
+   * Read through the pure wrappers, because they change nothing about what the
+   * right-hand side is: `fun f = ((x) => x)` and a right-hand side written on
+   * the following line are the lambda spelling, and deserve its rewrite rather
+   * than the catch-all.
+   */
+  #retiredFunRightHandSide(name: string, body: Parsed.Expr): string {
+    const value = Parsed.unwrapSyntacticValue(body);
+    if (this.#matchFunctions.has(value)) {
+      return `${FUN_HEADER_ONLY}; write \`fun ${name}(x) = match x …\` — a match ` +
+        "function stays legal on a `let` and at call sites";
+    }
+    if (value.kind === "Lambda") {
+      const written = value.parameters
+        .map((parameter) => displayParameterName(parameter.name.text))
+        .join(", ");
+      return `${FUN_HEADER_ONLY}; write \`fun ${name}(${written}) = …\``;
+    }
+    return `${FUN_HEADER_ONLY}; write \`fun ${name}(params) = …\`, or bind the ` +
+      "value with `let`";
   }
 
   #parseTypeParameters(): readonly Parsed.TypeParameter[] {
@@ -3219,7 +3524,7 @@ class Parser {
     this.#matchFunctionEnd = this.#index;
 
     const span = spanFrom(start.span, end);
-    return {
+    const lambda: Parsed.Expr = {
       kind: "Lambda",
       parameters: [{ name, span: point }],
       body: {
@@ -3230,6 +3535,8 @@ class Parser {
       },
       span,
     };
+    this.#matchFunctions.add(lambda);
+    return lambda;
   }
 
   /**

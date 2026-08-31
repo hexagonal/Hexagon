@@ -1056,11 +1056,20 @@ export interface ConstructorPattern {
   readonly span: Source.Span;
 }
 
+/** See `Parsed.FunBlockHead`: the `fun` block's head (Functions §7.3, #700). */
+export interface FunBlockHead {
+  readonly id: number;
+  readonly typeParameters?: readonly TypeParameter[];
+  readonly span: Source.Span;
+}
+
 export interface FunItem {
   readonly kind: "Fun";
   readonly exported: boolean;
   readonly binding: Binding;
   readonly value: LambdaExpr;
+  /** The block this member was written in; absent on the fused spelling. */
+  readonly block?: FunBlockHead;
   readonly span: Source.Span;
 }
 

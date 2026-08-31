@@ -227,13 +227,13 @@ describe("the branches the split must leave alone", () => {
   test("effectful mutual recursion inside an SCC stays clean", () => {
     expect(
       diagnostics([["/world.js", ""], ["/main.hex", `${world}
-export fun ping(n: Int): Unit =
-    save!("ping")
-    if n == 0 then () else pong!(n - 1)
-
-export fun pong(n: Int): Unit =
-    save!("pong")
-    if n == 0 then () else ping!(n - 1)
+fun
+    export ping(n: Int): Unit =
+        save!("ping")
+        if n == 0 then () else pong!(n - 1)
+    export pong(n: Int): Unit =
+        save!("pong")
+        if n == 0 then () else ping!(n - 1)
 `]]),
     ).toEqual([]);
   });

@@ -18,10 +18,10 @@ const DECLARED_LATER = (name: string): string =>
   `\`${name}\` is declared later in this block; declarations are read ` +
   "top-down — move its declaration above this use";
 
-const SPLIT_GROUP = (name: string): string =>
-  `\`${name}\` is declared later in this block; only an unbroken run of ` +
-  "`fun`s recurses together — move the intervening declaration out of the run, " +
-  `or move \`${name}\`'s declaration above this use`;
+/** *(#700.)* §7.3's wrap rewrite: two separate `fun`s are two blocks. */
+const CROSS_BLOCK = (name: string): string =>
+  `\`${name}\` is declared later in this block; only members of one \`fun\` ` +
+  "block recurse together; wrap both definitions as its members";
 
 const DECLARED_BELOW = (type: string, name: string): string =>
   `\`${type}\`'s companion declares \`${name}\` below this call; declarations ` +
@@ -211,11 +211,12 @@ describe("a dot call cannot make a `let` recursive (Functions §6)", () => {
   });
 });
 
-describe("a contiguous `fun` run is one group (Functions §7.3)", () => {
-  test("mutual recursion inside the run compiles and runs", async () => {
+describe("a `fun` block is one group (Functions §7.3, #700)", () => {
+  test("mutual recursion inside the block compiles and runs", async () => {
     const main = await runProject([["/main.hex",
-      "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
-      "fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
+      "fun\n" +
+      "    even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
+      "    odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
       "export let fourIsEven: Bool = even(4)\n" +
       "export let threeIsEven: Bool = even(3)\n",
     ]]);
@@ -224,34 +225,44 @@ describe("a contiguous `fun` run is one group (Functions §7.3)", () => {
     expect(main["threeIsEven"]).toBe(false);
   });
 
-  test("an item between the members ends the run, and the report says so", () => {
+  test("two separate `fun`s are two blocks, adjacent or not", () => {
+    // Adjacency is no longer load-bearing: the same program draws the same
+    // wrap rewrite whether or not an item stands between the two `fun`s.
     expect(projectDiagnostics(
       "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
       "let gap: Int = 1\n" +
       "fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
       "export let fourIsEven: Bool = even(4)\n",
-    )).toEqual([SPLIT_GROUP("odd")]);
+    )).toEqual([CROSS_BLOCK("odd")]);
+
+    expect(projectDiagnostics(
+      "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
+      "fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
+      "export let fourIsEven: Bool = even(4)\n",
+    )).toEqual([CROSS_BLOCK("odd")]);
   });
 
-  test("a comment does not end the run", async () => {
+  test("a comment between members does not end the block", async () => {
     const main = await runProject([["/main.hex",
-      "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
-      "// the parity pair\n" +
-      "(** Answers whether `n` is odd. *)\n" +
-      "fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
+      "fun\n" +
+      "    even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
+      "    // the parity pair\n" +
+      "    (** Answers whether `n` is odd. *)\n" +
+      "    odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
       "export let fourIsEven: Bool = even(4)\n",
     ]]);
 
     expect(main["fourIsEven"]).toBe(true);
   });
 
-  test("adjacency does not monomorphize an independent member", async () => {
+  test("membership does not monomorphize an independent member", async () => {
     // §7.3: grouping bounds visibility, not typing. The knot is the SCC of the
     // references actually written, so `ident` generalizes before `atInt`'s body
     // is checked and its use at `Int` there costs it nothing.
     const main = await runProject([["/main.hex",
-      "fun ident(value) = value\n" +
-      "fun atInt(n: Int): Int = ident(n)\n" +
+      "fun\n" +
+      "    ident(value) = value\n" +
+      "    atInt(n: Int): Int = ident(n)\n" +
       "export let text: String = ident(\"hex\")\n" +
       "export let number: Int = atInt(7)\n",
     ]]);
@@ -260,7 +271,7 @@ describe("a contiguous `fun` run is one group (Functions §7.3)", () => {
     expect(main["number"]).toBe(7);
   });
 
-  test("a member outside the run is reachable by dot once declared", async () => {
+  test("a member outside the block is reachable by dot once declared", async () => {
     const main = await runProject([["/main.hex",
       BOX + TWICE_FUN +
       "export let out: Int = Box({value = 3}).twice()\n",
@@ -270,14 +281,17 @@ describe("a contiguous `fun` run is one group (Functions §7.3)", () => {
   });
 });
 
-describe("a dot call never targets its own `fun` group (§9 row 13)", () => {
+describe("a dot call never targets its own `fun` block (§9 row 13)", () => {
   test("a sibling member is refused with the name spelling", () => {
+    // *(#700.)* Siblings are members of **one block** now; two adjacent `fun`s
+    // are two blocks, and the ban does not reach across them.
     expect(projectDiagnostics(
       BOX +
-      TWICE_FUN +
-      "export fun quadruple(b: Box): Int = b.twice() * 2\n",
+      "fun\n" +
+      "    export twice(b: Box): Int = b.value * 2\n" +
+      "    export quadruple(b: Box): Int = b.twice() * 2\n",
     )).toEqual([
-      "a dot call cannot target its own `fun` group; spell the call by name: `twice(b)`",
+      "a dot call cannot target its own `fun` block; spell the call by name: `twice(b)`",
     ]);
   });
 
@@ -287,13 +301,13 @@ describe("a dot call never targets its own `fun` group (§9 row 13)", () => {
       "export fun countDown(b: Box): Int =\n" +
       "    if b.value == 0 then 0 else Box({value = b.value - 1}).countDown()\n",
     )).toEqual([
-      "a dot call cannot target its own `fun` group; spell the call by name: `countDown(…)`",
+      "a dot call cannot target its own `fun` block; spell the call by name: `countDown(…)`",
     ]);
   });
 
-  test("a `let` read from inside a group is not a group member", async () => {
-    // The ban is membership, not enclosure: a body inside the group may still
-    // dot-call anything declared above the group.
+  test("a `let` read from inside a block is not a block member", async () => {
+    // The ban is membership, not enclosure: a body inside the block may still
+    // dot-call anything declared above the block.
     const main = await runProject([["/main.hex",
       BOX + TWICE_LET +
       "export fun go(b: Box, n: Int): Int =\n" +
@@ -304,7 +318,7 @@ describe("a dot call never targets its own `fun` group (§9 row 13)", () => {
     expect(main["out"]).toBe(6);
   });
 
-  test("an earlier group is not the caller's own group", async () => {
+  test("an earlier block is not the caller's own block", async () => {
     const main = await runProject([["/main.hex",
       BOX +
       TWICE_FUN +

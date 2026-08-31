@@ -326,12 +326,15 @@ describe("what the peel must not license", () => {
     }
   });
 
-  test("`fun` still requires a lambda literal, wrappers included", () => {
-    // Functions §7.1 is a check on the written right-hand side, and hoisting
-    // rests on it; the peel happens after the parser and must leave it alone.
-    const message = "`fun` requires a function header or lambda literal on its right-hand side";
+  test("`fun` has no right-hand side at all, wrappers included (#700)", () => {
+    // Functions §7.1 is now the *grammar*: there is no `fun name =` production,
+    // so the peel has nothing here to leave alone. The wrappers are still read
+    // through — for the rewrite's sake, so a parenthesized or next-line lambda
+    // gets the header spelling of its own parameters rather than the catch-all.
+    const message = "`fun` defines functions by header; write `fun identity(x) = …`";
     expect(diagnostics("fun identity = ((x) => x)\n")).toContain(message);
     expect(diagnostics("fun identity =\n    (x) => x\n")).toContain(message);
+    expect(diagnostics("fun identity(x) = x\nexport let out: Int = identity(1)\n")).toEqual([]);
   });
 
   test("a block whose one item is a binding is still rejected", () => {

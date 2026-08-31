@@ -147,7 +147,7 @@ The retirement buys the reader a guarantee the run rule could not give: adjacenc
 
 ## 8. Emission
 
-The block is **invisible in JavaScript**. Each member emits as a `function` declaration at the block's textual position, in member order — exactly what the fused `fun` already emits — module-level or inside an enclosing function body alike. Exported members take the ordinary `export` emission. The soundness note transfers wholesale: header-only members are evaluation-free (§5), so every member exists before any member's body runs, which is what the block's mutual visibility needs; JavaScript hoists `function` declarations further than the language grants, and Functions §7.2's top-down law keeps the difference unobservable.
+The block is **invisible in JavaScript**. Each member emits as a `function` declaration at the block's textual position, in member order — exactly what the fused `fun` already emits — module-level or inside an enclosing function body alike. The one-member block and the fused spelling emit identically up to vertical separation: the head's source line becomes a blank line where items precede the block. Exported members take the ordinary `export` emission. The soundness note transfers wholesale: header-only members are evaluation-free (§5), so every member exists before any member's body runs, which is what the block's mutual visibility needs; JavaScript hoists `function` declarations further than the language grants, and Functions §7.2's top-down law keeps the difference unobservable.
 
 `.d.ts`: nothing new — exported members are exported functions; the block does not cross.
 
@@ -160,7 +160,8 @@ The family, all under the Rewrite Rule (Declarations Preamble §1.1):
 | Situation | Error |
 |---|---|
 | `fun f = (n) => …` (lambda RHS) | parse error: "`fun` defines functions by header; write `fun f(n) = …`" — the rewrite is mechanical from the lambda's own parameters |
-| `fun f = match …` | parse error: the header rewrite naming parameter and scrutinee: "write `fun f(x) = match x` — a match function stays legal on a `let` or at a call site" |
+| `fun f = match …` | parse error: the header rewrite naming parameter and scrutinee: "write `fun f(x) = match x` — a match function stays legal on a `let` and at call sites" |
+| §4.2 contract exceeded by a member under a block head | the advice respells to the head and names the member: "`a` is declared to honor `Eq` on the block head, but `containsAll`'s body requires `Hash`; widen the head: `fun<a: Hash>`, or remove the head's constraint to let it be inferred" — never a member binder, which the block refuses (ruled post-review; Functions §10's row carries both arms) |
 | `fun x = 5`, `fun fib = memoize(…)` — any other `fun name =` | parse error: "`fun` defines functions by header; write `fun fib(n) = …`, or bind the value with `let`" |
 | Mutual reference between two separate `fun`s (the retired run) | Functions §7.2's declared-later family, extended: "only members of one `fun` block recurse together; wrap both definitions as its members" |
 | `export` before a block head | parse error: "`export` marks members: put it on each member to export" |

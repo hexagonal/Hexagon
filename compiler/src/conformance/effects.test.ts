@@ -691,7 +691,15 @@ export let z: Int = 1
       effectDiagnostics([["/main.hex", `var h: () ->? String = () => "x"
 export let z: Int = 1
 `]]),
-    ).toEqual(["`var` is only allowed inside a function", clause]);
+    ).toEqual([
+      "`var` is only allowed inside a function",
+      // *(#700.)* And a `var` may not have a function type at all (Statements
+      // §6.1) — a second refusal on the same line, which does not disturb the
+      // one this test is about: the annotation is still read as a signature.
+      "`h` is a `var`, and a `var` cannot hold a function — vars accumulate data; " +
+        "model changing behavior as a union and `match` on it",
+      clause,
+    ]);
     // And the module-level function type *with* an inlet is a signature that has
     // one, so it opens and stays legal.
     expect(

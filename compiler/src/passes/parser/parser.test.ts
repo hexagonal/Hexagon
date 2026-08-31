@@ -213,10 +213,12 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
-  test("parses recursive fun headers and explicit lambda forms", () => {
+  test("parses recursive fun headers, fused and blocked", () => {
+    // *(#700.)* `fun` is header-only: the lambda right-hand side this test once
+    // read is a parse error, and the second spelling here is the block.
     const module = parseSource(
       "export fun fact(n: Int): Int = if n <= 1 then 1 else n * fact(n - 1)\n" +
-        "fun loop = value => loop(value)",
+        "fun\n    loop(value) = loop(value)\n",
     );
 
     expect(module.items).toMatchObject([
@@ -242,7 +244,9 @@ describe("parse", () => {
     expect(module.diagnostics).toEqual([]);
   });
 
-  test("rejects non-lambda fun bindings and recovers at the next item", () => {
+  test("rejects every `fun name =` right-hand side and recovers at the next item", () => {
+    // *(#700.)* There is no `fun name =` production at all; each retired
+    // spelling carries its own mechanical rewrite (Functions §10).
     const module = parseSource("fun answer = 42\nlet good = 1");
 
     expect(module.items).toMatchObject([
@@ -250,7 +254,14 @@ describe("parse", () => {
       { kind: "Let", name: { text: "good" } },
     ]);
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "`fun` requires a function header or lambda literal on its right-hand side",
+      "`fun` defines functions by header; write `fun answer(params) = …`, or bind the " +
+        "value with `let`",
+    ]);
+
+    expect(
+      parseSource("fun loop = value => loop(value)").diagnostics.map(({ message }) => message),
+    ).toEqual([
+      "`fun` defines functions by header; write `fun loop(value) = …`",
     ]);
   });
 
@@ -1296,8 +1307,15 @@ describe("parse", () => {
       ]);
     });
 
-    test("are accepted on a `fun` right-hand side", () => {
-      expect(parseSource("fun id = <a>(x: a): a => x").diagnostics).toEqual([]);
+    test("are refused on a `fun` right-hand side, which no longer exists", () => {
+      // *(#700.)* The position restriction now admits the `fun` **header** and
+      // the block head; the right-hand side it once admitted is retired, and the
+      // header rewrite is what the author is handed — once, not twice.
+      expect(
+        parseSource("fun id = <a>(x: a): a => x").diagnostics.map(({ message }) => message),
+      ).toEqual(["`fun` defines functions by header; write `fun id(x) = …`"]);
+      expect(parseSource("fun id<a>(x: a): a = x").diagnostics).toEqual([]);
+      expect(parseSource("fun<a>\n    id(x: a): a = x\n").diagnostics).toEqual([]);
     });
 
     test("are accepted when the right-hand side is written on its own line", () => {

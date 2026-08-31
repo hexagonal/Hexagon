@@ -703,12 +703,15 @@ describe("§13.2 nothing else may generalize a `var`'s type", () => {
     // parameter specimen could not tell the two builds apart.
     expect(
       projectDiagnostics(
+        // *(#700.)* The function sits **inside** the `var`'s data: a `var`
+        // may not itself have a function type (Statements §6.1), and the arm
+        // under test is the walk into a `Function`, which a field reaches.
         EMPTY + "fun makeMaker<a>(): (Int) -> a = (n) => throw(Empty)\n" +
           "export fun use(): Int =\n" +
-          "    var v = makeMaker()\n" +
+          "    var v = {make = makeMaker()}\n" +
           "    let e = v\n" +
-          "    let n: Int = e(1)\n" +
-          "    let s: String = e(1)\n" +
+          "    let n: Int = e.make(1)\n" +
+          "    let s: String = e.make(1)\n" +
           "    n\n",
       ),
     ).toEqual(["type mismatch: expected String, found Int"]);
