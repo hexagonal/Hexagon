@@ -66,7 +66,7 @@ Consequences, normative:
 
 ### 2.5 Provided instances (primitives and structural types)
 
-The following instances are **compiler/runtime-provided** (§4.4 wording; no source form) — with recorded exceptions: this table is the exhaustive **status map** of core-type `Hash`; since #147 the `Bool` row records a *derived* instance, not a provided one (§18), and since #344 the migrated primitive companions' rows (`Nat`, `Int`, `BigInt`) record *hand-written source* instances under the companion privilege carve-out (§4.4) *(lead-in amended 2026-07-29, #147; widened, #344)*:
+This table is the exhaustive **status map** of core-type `Hash`; each row records its own provenance. No row here is **compiler/runtime-provided** (§4.4 wording; no source form) any longer — that status now describes exactly the collection instances (Parts 3–4): every primitive's row records a *hand-written source* instance under the companion privilege carve-out (§4.4; Constraints §4.5), `Bool`'s records a *derived* instance through the ordinary §4.3 door (§18), and `Unit`'s records the *automatic structural* arity-0 derivation, which was never in the provided category (§4.4):
 
 | Type | Notes |
 |---|---|
@@ -76,7 +76,7 @@ The following instances are **compiler/runtime-provided** (§4.4 wording; no sou
 | `Hash<Bool>` | **no longer provided here** — `Bool` is the prelude union `False \| True` declared in real prelude source, and its `Hash` arrives through the ordinary §4.3 derivation door (`derives (Eq, Ord, Show, Hash)`, `Eq` derived in the same header); agreement with `Eq<Bool>` is §4.3's by-construction guarantee, and the derived hash operates over the pinned `boolean` representation (Unions §6.2/§8) *(provenance corrected 2026-07-29, #147 — record in §18; row retained so this table stays the exhaustive map of core-type `Hash` status)* |
 | `Hash<String>` | agrees with `Eq<String>` (JS `===` string equality); algorithm unspecified (runtime-owned) *(provenance corrected, #344: hand-written source in `stdlib/String.hex` under the §4.4 carve-out — row retained as the status map)* |
 | `Hash<BigInt>` | folds the arbitrary-precision value into `Int`; collisions inevitable and lawful *(provenance corrected, #344: hand-written source in `stdlib/BigInt.hex` under the §4.4 carve-out — row retained as the status map)* |
-| `Hash<Unit>` | constant |
+| `Hash<Unit>` | constant; the automatic structural arity-0 derivation — `Unit` is the empty tuple (Products §2.7), so this is the structural-types rule below at the vacuous arity, never a compiler/runtime-provided instance (§4.4) — row retained as the status map |
 
 **Structural types** follow the `Eq` pattern exactly (Products §2.5/§3.4 family): tuples and structural records receive **automatic compiler-derived `Hash`**, conditional on every component/field type having `Hash`. Users cannot honor structural types (Constraints §9.3 presumption, unchanged); their `Hash`, like their `Eq`, is exclusively compiler-derived — and therefore mutually consistent by construction.
 
