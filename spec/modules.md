@@ -81,6 +81,7 @@ A module-level declaration head has **one visibility slot, with three values** *
 | Declaration | Exports |
 |---|---|
 | `export let x = ...` / `export fun f(...) = ...` | the term |
+| `export` at a member's left margin inside a module-level `fun` block (Functions §7.3) | that member — the one export seat below a declaration head *(#700)*; the block head itself takes no `export` (parse error, per-member advice), and an inner block's members take none (the function-local refusal above applies) |
 | `export record Point = {...}` | `Point` the type **and** `Point` the constructor (the name-carried surface: construction, constructor patterns). Field access, update, and the bare copy are type-directed — they travel with the type, not the import (§4.2) |
 | `export union Shape = Circle(...) \| ...` | `Shape` the type **and** every constructor |
 | `export type UserName = String` | the alias name |
@@ -118,7 +119,11 @@ entailment, as above — and the member line itself takes no binder (Functions
 §7.3). The member still annotates every parameter and its result, as any
 exported function does. This is what makes an exported constrained knot
 spellable directly: the head is one binder shared by placement, where two
-per-member heads could never be one variable (Functions §7.4). The
+per-member heads could never be one variable (Functions §7.4). The head's
+list is published whole: a member that mentions the variable exports under
+every constraint the head writes, even where its own body demands fewer —
+Functions §4.2's deliberate-restriction reading; a member wanting a narrower
+face of its own spells it through a non-recursive wrapper. The
 completeness advice follows the spelling: when the incomplete-signature
 function is a member of a recursive knot, the advice names the block-head
 form — "declare the constraint on the block head: `fun<a: Eq>`" — never a

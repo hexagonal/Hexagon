@@ -55,6 +55,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Closure docs | `decisions-ml-dialect-comments-2026-07.md` | the `(* *)` block-comment ruling (#171) until hosted |
 | Closure docs | `decisions-ml-dialect-generalization-2026-08.md` | generalization relaxed (Steps 1+2), declared variance, the claim table (#205) until hosted |
 | Closure docs | `decisions-ml-dialect-annotations-2026-08.md` | the annotation doctrine record, type holes `_` (#317, carrying #315) until hosted |
+| Closure docs | `decisions-ml-dialect-fun-blocks-2026-08.md` | the `fun` block, header-only `fun`, the `var` function-type ban (#700) until hosted |
 | FFI | `ffi.md` | **FFI entry point**: index, terminology, invariants, conformance (Part 12) |
 | FFI | `ffi-part1-boundary.md` | boundary doctrine, categories, master type table |
 | FFI | `ffi-part2-nullable-array.md` | `Nullable`, `NullableCase`, borrowed `Array` |

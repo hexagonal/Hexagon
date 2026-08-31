@@ -21,7 +21,7 @@
 >
 > The block changes **no typing power**: it is pure scoping. The knot is still the strongly-connected component of actual references, still typed dependencies-first, still monomorphic (Functions §7.4); the derivability principle stands untouched (§3.4).
 
-James's frame, recorded as the ruling's spine: **the special-purpose keywords get more specialised** — `let` stays general (values, lambdas, match functions), `fun` always shows its header, `var` accumulates data.
+The ruling's spine: **the special-purpose keywords get more specialised** — `let` stays general (values, lambdas, match functions), `fun` always shows its header, `var` accumulates data.
 
 ---
 
@@ -39,7 +39,7 @@ fun<a: Eq>
     export containsAll(xs: Vector(a), ys: Vector(a)): Bool = ... contains(...) ...
 ```
 
-- **The head** is `fun`, optionally followed — glued, no space — by a binder list in Functions §4.2's form, and nothing else on the logical item. It opens a layout block (Lexer & Layout §2.1 gains the row). An empty block is a parse error.
+- **The head** is `fun`, optionally followed by a binder list in Functions §4.2's form, and nothing else on the logical item. It opens a layout block (Lexer & Layout §2.1 gains the row). An empty block is a parse error.
 - **Members** are header-syntax definitions, one per block item: `name(params)[: Result] = body`, each opening its ordinary binding-body block. No `fun` repetition on member lines, and no `name = lambda` member lines (§5). Doc comments attach per member (Doc Comments §4.2).
 - **Member names bind at the enclosing scope** — module level or the enclosing block — and are usable *after* the block per Functions §7.2. The block binds no name of its own; it scopes only the head's type variables. To code outside it, a block is ordinary.
 - **Inside the block, every member's body sees every member**, earlier and later alike — the language's only forward visibility among terms, and it exists because mutual recursion cannot be spelled without it.
@@ -61,11 +61,13 @@ Backward references need **nothing** (measured: mismatched head spellings across
 
 The head's type variables are declared type variables in Functions §4.1's sense — rigid while the block is checked — scoped over every member. A member that writes `a` in an annotation uses *the* block variable; two members that both write it thereby share one rigid, which is what makes a constrained knot spellable at all (two per-member binders could never be one variable — Functions §7.4). A member that does not write it is untouched by it.
 
+A variable a member's annotations write that the head does **not** declare is the member's own — rigid, scoped to that member, Functions §4.1's scoped-to-the-declaration rule with the member as the declaration. Two members coincidentally writing one spelling therefore share nothing (a knot linking their variables is the ordinary rigid-vs-rigid refusal, Functions §7.4/§10), and the head is the only sharing route — which is precisely what keeps alternative B's accidental capture (§10.1) structurally absent.
+
 ### 3.2 The contract
 
 The head's constraint list is the block-wide **§4.2 contract**: for every member that mentions the variable, every constraint the member's body demands on it must be entailed by the head's list, and the checker must not silently strengthen the list. One list, stated once, checked per member.
 
-A head variable that **no member mentions** draws exactly what the fused spelling's unused binder draws today (Functions §4.2's contract machinery); the block adds no new case.
+A head variable that **no member mentions** is governed by Functions §4.2's contract machinery exactly as on a fused `fun`; the block adds no new case.
 
 ### 3.3 Member-private binders: refused in v1 (non-foreclosing)
 
@@ -93,7 +95,7 @@ All-or-nothing head export was rejected: the common real shape is a public face 
 
 ### 4.1 Modules §4.1.1 is satisfied by the head
 
-An exported member writes every parameter and result annotation as any exported function does. Its **constraint binders are the head's**: the block head's list supplies the written, maximal-under-entailment constraint list Modules §4.1.1 requires, for every exported member that mentions the head's variables. This is how the wrapper-only rule of Functions §7.4 (written by #698) dissolves — and with it #700's diagnostic trap: the §4.1.1 advice for an incomplete signature on a knot member now names the block-head spelling, never a head the knot would refuse (§9).
+An exported member writes every parameter and result annotation as any exported function does. Its **constraint binders are the head's**: the block head's list supplies the written, maximal-under-entailment constraint list Modules §4.1.1 requires, for every exported member that mentions the head's variables. This is how the wrapper-only rule of Functions §7.4 (written by #698) dissolves — and with it #700's diagnostic trap: the §4.1.1 advice for an incomplete signature on a knot member now names the block-head spelling, never a head the knot would refuse (§9). The head's list is published whole: a member that mentions the variable exports under every constraint the head writes, even where its own body demands fewer — Functions §4.2's deliberate-restriction reading. A member wanting a narrower face of its own spells it through the wrapper — one reason the wrapper stays legal.
 
 ---
 
@@ -163,17 +165,17 @@ The family, all under the Rewrite Rule (Declarations Preamble §1.1):
 | Mutual reference between two separate `fun`s (the retired run) | Functions §7.2's declared-later family, extended: "only members of one `fun` block recurse together; wrap both definitions as its members" |
 | `export` before a block head | parse error: "`export` marks members: put it on each member to export" |
 | Binder list on a member line | parse error: "members take no binder lists; declare the variable on the block head: `fun<b: Show>`" (§3.3) |
-| Empty `fun` block | parse error: a block head with no members |
+| Empty `fun` block | parse error: "a `fun` block needs at least one member; write one, or remove the head" |
 | Incomplete exported signature on a member of a recursive knot (Modules §4.1.1) | the completeness advice names the block-head spelling — "declare the constraint on the block head: `fun<a: Eq>`" — never a per-member head (#700's carve-out, reshaped) |
 | Function-typed `var` (declaration or pinning use) | "`step` is a `var`, and a `var` cannot hold a function — vars accumulate data; model changing behavior as a union and `match` on it" (Statements §9.3) |
-| Knot-collision family (checker's message, three arms as of #701) | the wrapper advice respells to the block: "declare one head on the `fun` block" first, the wrapper as the remaining alternative; the rigid-vs-rigid arm now qualifies each side by its declaring block head (reachable only through *nested* blocks — one block has one head) |
+| Knot-collision family (checker's message, three arms as of #701) | the wrapper advice respells to the block: "declare one head on the `fun` block" first, the wrapper as the remaining alternative; the rigid-vs-rigid arm keeps per-member qualification, a side declared on a block head qualifying by the head's span (annotations doc §8 item 16, amended) |
 
 ---
 
 ## 10. Rejected alternatives (do not re-litigate)
 
-1. **B — same spelling in one SCC = one rigid, zero syntax.** Killed on two warts, the second decisive: (i) rename-locality — alpha-renaming one member's head variable, a no-op everywhere else in the language, turns a compiling knot into a refused one (Functions §4.1's rename-locality invariant breaks even with fixits); (ii) **accidental capture** — coincidentally same-spelled heads whose variables the knot never links would be identified anyway, silently strengthening each member's constraint list (§4.2 forbids) or refusing innocent code that compiles both headless and with distinct spellings. No fixit repairs intent. C2 is structurally immune to both: sharing is opt-in by placement, and the variable has one binding site.
-2. **C1 — `and`-joined group.** `and` is the boolean operator; a second job for the word cuts against the keyword stance (`hexagon-keyword-stance`: one word, one job).
+1. **B — same spelling in one SCC = one rigid, zero syntax.** Killed on two warts, the second decisive: (i) rename-locality — alpha-renaming one member's head variable, a no-op everywhere else in the language, turns a compiling knot into a refused one (the locality Functions §4.1's scoped-to-the-declaration rule gives is broken, even with fixits); (ii) **accidental capture** — coincidentally same-spelled heads whose variables the knot never links would be identified anyway, silently strengthening each member's constraint list (§4.2 forbids) or refusing innocent code that compiles both headless and with distinct spellings. No fixit repairs intent. C2 is structurally immune to both: sharing is opt-in by placement, and the variable has one binding site.
+2. **C1 — `and`-joined group.** `and` is the boolean operator, and one word takes one job; a second job for the word was rejected on that ground.
 3. **C3 — named group keyword.** Three grouping signals (keyword, block, adjacency) for one concept.
 4. **All-or-nothing head export.** Rejected for the public-face-plus-private-workers shape; §4.
 5. **Head-export sugar** (`export fun` distributing over members). Binned; the marker belongs on the line that names what crosses (#590).
@@ -187,20 +189,21 @@ The family, all under the Rewrite Rule (Declarations Preamble §1.1):
 
 Applied in this same change unless marked otherwise:
 
-- **Functions** — §3.1 (match-function bullet: written-form parenthetical respelled), §3.3 (header-only; block pointer), §4.3 (supplying seat list and conformance pins drop the `var`/`:=` entry), §7 (restructured: §7.1 header-only, §7.2 exception respelled, §7.3 the block, §7.4 block wording + the export paragraph superseded, §7.5 respelled), §8 items 2/3 (wrapper-reading sentence; `fun` value-ness via headers), §9 (emission rows + soundness note), §10 (rows per §9 here).
-- **Modules** — §4.1.1 (the head-satisfies paragraph + advice carve-out, §4.1 here); §5.2/§5.3 occlusion prose: "contiguous `fun` group" → "`fun` block".
-- **Statements & Mutability** — §2 table (`fun` row), §6.1 (the function-type ban), §6.2/§7.3 (corollary rewording), §9.3 (the ban's row), §11 log.
+- **Functions** — §3.1 (match-function bullet: written-form parenthetical respelled), §3.3 (header-only; block pointer), §4.2 (the position restriction admits the block head), §4.3 (supplying seat list and conformance pins drop the `var`/`:=` entry), §7 (restructured: §7.1 header-only, §7.2 exception respelled, §7.3 the block, §7.4 block wording + the export paragraph superseded, §7.5 respelled), §8 items 2/3 (wrapper-reading sentence; `fun` value-ness via headers), §9 (emission rows + soundness note), §10 (rows per §9 here).
+- **Modules** — §4.1 (the member marker's row — the one export seat below a declaration head); §4.1.1 (the head-satisfies paragraph, the published-whole sentence, and the advice carve-out — §4.1 here); §5.4 occlusion prose: "contiguous `fun` group" → "`fun` block".
+- **Statements & Mutability** — §2 table (`fun` row), §5.1/§5.2 (prelude-exemption prose: group → block), §6.1 (the function-type ban), §6.2/§7.3 (corollary rewording), §9.3 (the ban's row), §11 log.
 - **Pattern Matching** — §6.7 (the `fun`-RHS clause removed; retirement noted), decisions-log row amended inline.
 - **Lexer & Layout** — §2.1 (block-head row; the §7.1 exception paragraph retired).
-- **Method Syntax** — §4.4/§9/§10: "`fun` group" → "`fun` block" (rule and message).
-- **Effects §3.5** — knot wording: group → block.
+- **Method Syntax** — §4.4/§9/§13/§14: "`fun` group" → "`fun` block" (rule, message, log, acceptance comment).
+- **Constraints** — §4.6's honor-member evaluation-freeness sentence re-anchored (the rule `fun` §7.1 once carried); the no-honor-dot-ban sentence: group → block.
+- **Effects §3.4** — knot wording: group → block.
 - **Declarations Preamble §7.2** — forward-visibility sentence: group → block.
 - **Doc Comments** — §4.2: members documentable; attachment per member; a doc comment on a block head is an error naming the member rule.
-- **`decisions-ml-dialect-annotations-2026-08.md`** — §9.11's neighbor list and §10's Modules ledger item updated to the block world (the rejection itself unchanged).
-- **`decisions-ml-dialect-generalization-2026-08.md`** — §2.2's "`fun` RHSs are always lambdas (§7.1)" respelled to headers.
+- **`decisions-ml-dialect-annotations-2026-08.md`** — §8 item 16 amended (block-head qualification joins the pin), §9.11's neighbor list, §10's Modules ledger item, and §10's Functions-§7.4 line updated to the block world (the rejection itself unchanged).
+- **`decisions-ml-dialect-generalization-2026-08.md`** — §4.1's "`fun` RHSs are always lambdas (§7.1)" respelled to headers.
 - **`notes/canonical-formatting-and-naming.md`** — v1 stance: fused and single-member block both legal; the formatter rewrites neither into the other.
 - **`notes/hexagon-for-typescript-coders.md`** — the recursion paragraph respelled to the block.
-- **README** — rule 3's closure-document list gains this document.
+- **README** — rule 3's closure-document list and the ownership map gain this document.
 - **Book** *(rider PR)* — chapters 3 (recursion sections), 6 (knot wording), 11 (the `fun size = match` example rewrites to scrutinee form), 15 (dot-call wording); FRONTMATTER bumps the title to **v1.2**.
 
 ## 12. Conformance obligations

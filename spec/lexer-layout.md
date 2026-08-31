@@ -52,7 +52,8 @@ and VCLOSE immediately before EOF. Nested blocks use the same mechanics:
 
 Because deeper indentation means continuation unless a block is expected, the
 layout pass recognizes this closed set of block heads. `export` may prefix any
-declaration head in the table without changing it.
+declaration head in the table without changing it — the parser separately
+refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 
 | Block head at the end of a logical item | Opens on a following indented line |
 |---|---|
@@ -63,7 +64,7 @@ declaration head in the table without changing it.
 | Bare `try` | Try body |
 | `else` or `catch` with no same-line body | Clause body / arm block |
 | `constraint ... =` or `honor ... =` | Member block |
-| A `fun` head ending its logical item — the keyword alone, or with its binder list glued (`fun<a: Eq>`), no member on the line (Functions §7.3) | `fun` member block |
+| A `fun` head ending its logical item — the keyword alone, or with its binder list (`fun<a: Eq>`), no member on the line (Functions §7.3) | `fun` member block |
 | Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header — a `fun` block's member lines included) | Binding body block |
 
 **Every term binding opens a block.** A binding's indented RHS is a block whose
