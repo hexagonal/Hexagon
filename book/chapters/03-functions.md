@@ -332,6 +332,16 @@ recursion cannot be written without it. Member lines repeat no keyword — each 
 familiar header form, minus the `fun` the block head already said — and a lone
 `fun factorial(n) = ...` is simply the block with one member, fused onto the head line.
 
+A word about "block": this is a **member block**, not the value-producing kind.
+Chapter 1's law — the final expression is the value of the block — governs
+*expression* blocks: function bodies, branches, a binding's indented right-hand
+side. A member block groups declarations instead — a sequence of items to work
+through, not an expression whose last line is its answer — the way a source
+file's top level does. It has no value, cannot be assigned to a variable or passed
+anywhere, and it ends with a binding by design, not by mistake. Later chapters
+bring more member blocks — `honor` blocks among them — and the same sentence
+covers them all.
+
 The block is the *only* place mutual recursion lives. Two separate `fun` declarations,
 even adjacent ones, are two independent definitions: the earlier cannot name the later,
 and trying draws an error that says exactly what to do — only members of one `fun`

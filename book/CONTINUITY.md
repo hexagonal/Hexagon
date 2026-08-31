@@ -467,7 +467,7 @@ late pedagogy pass, not a commitment to the current order.
 ### Expressions
 
 - Core formulation: **expressions produce values; bindings introduce names**.
-- Core block formulation: **the final expression is the value of the block**.
+- Core block formulation: **the final expression is the value of the block** — the law of *expression* blocks; the term is introduced and the law scoped in Functions.
 - `Unit` explains why effectful expressions may be sequenced before a block's result.
 - `ignore(auditOrder(order))` is the first intentional-discard example.
 - `orderTotal(subtotal, delivery)` is the first drafted explicit
@@ -518,6 +518,11 @@ late pedagogy pass, not a commitment to the current order.
 - Core formulation: **ordinary functions use `let`; recursion uses `fun`**.
 - Header definitions and explicitly bound lambdas are equivalent — for `let`. A `fun`
   never takes a right-hand side of its own: header form only.
+- **Member block** is the ledgered term for a declaration-grouping block — the `fun`
+  block, later `honor` blocks, the top level of a source file — as against the
+  **expression block**, the value-producing kind. Chapter 1's final-expression law and
+  the block-ends-with-a-binding error are stated of expression blocks; a member block
+  has no value and cannot be assigned or passed. A `fun` block is a member block.
 - Mutual recursion is the **`fun` block**: a bare `fun` (or `fun<a: Eq>`) heading an
   indented block of members, written in header form without repeating the keyword.
   Members see each other; the block binds no name and leaves no trace in the
