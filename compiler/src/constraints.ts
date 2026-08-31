@@ -134,6 +134,124 @@ export function isPreRegisteredConstraint(name: string): boolean {
   return PRE_REGISTERED_CONSTRAINTS.includes(name);
 }
 
+/**
+ * The base constraints of the pre-registered constraints the compiler holds
+ * declarations for (Constraints §7, `spec/integral-constraint.md`), keyed by the
+ * one identity each of them has.
+ *
+ * A source `constraint Integral<a: (Num, Ord)>` lands on `hex:Integral` and so
+ * takes over this row rather than rivalling it — the name-only pre-registration
+ * of §5.1.1's third bullet. That is why the table is a fallback and not a floor.
+ *
+ * It sits beside the rest of the pre-registered inventory rather than inside the
+ * checker because it now answers for two readers: the checker's base walk, where
+ * it is that fallback, and `preRegisteredBaseSlots` below, which the emitter's
+ * wired-in `Hash` walks ask with no declaration in view.
+ */
+export const PRE_REGISTERED_BASE_CONSTRAINTS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  "hex:Ord": ["Eq"],
+  "hex:Signed": ["Num"],
+  "hex:Frac": ["Signed"],
+  "hex:Pow": ["Num"],
+  "hex:Hash": ["Eq"],
+  "hex:Integral": ["Num", "Ord"],
+};
+
+/**
+ * The uncontested dictionary slot a base constraint asks for
+ * (`spec/constraints.md` §6.2).
+ *
+ * **Transitional** — the ruled spelling is the base declaration's own name
+ * *verbatim*, and this lowercases its first letter, which is what the compiler
+ * has always written. The case flip is a separate landing; everything else in
+ * §6.2 — one currency, the contest, the duplicate refusal — is independent of
+ * it, and lands first under the spelling already on disk so that no emitted
+ * byte moves for a program with no alias, no qualified base and no collision.
+ *
+ * Fed the base declaration's **canonical** name, never a referencing spelling.
+ */
+export function baseConstraintSlot(canonicalName: string): string {
+  return (canonicalName[0]?.toLowerCase() ?? "") + canonicalName.slice(1);
+}
+
+/**
+ * §6.2's slot assignment for one constraint declaration's base list, in the
+ * written order of the conjunction and computed from that list alone.
+ *
+ * Two bases can *want* one spelling — two imported constraints each declared
+ * `Tag`, distinct by identity (§5.1.1), which no importer can rename apart.
+ * Refusing the meeting would wall off composing two libraries over a word their
+ * importer does not own, so the contest resolves positionally instead: an entry
+ * takes its canonical slot unless an earlier entry already holds it, and then
+ * probes `_1`, `_2`, … skipping any spelling an earlier entry holds *and* any
+ * spelling that is another entry's own canonical slot. The second clause is
+ * what lets a base declared `Tag_1` keep `tag_1` when a `Tag` collider stands
+ * ahead of it: `(Tag, Tag, Tag_1)` mints `tag`, `tag_2`, `tag_1`.
+ *
+ * The skip list applies only to *probed* spellings. An entry never yields its
+ * own canonical slot to a later entry's claim, which is what makes the
+ * assignment a function of the written order and nothing else.
+ *
+ * Deliberately not dictionary-sharing §5's jointly-assigned all-suffixed
+ * discipline: that rule answers contests across ranks the resolver assigns
+ * together, and a slot contest has one list, one order and no ranks. The
+ * written order is ABI-relevant (FFI Part 9 §11), so it is read here and
+ * nowhere else — both the module that *writes* the slots (an honor block's base
+ * evidence) and the module that *reads* one (an entailment projection) mint
+ * through this function, which is what keeps the two from drifting into
+ * separate name currencies again (#718).
+ */
+export function mintBaseConstraintSlots(
+  canonicalNames: readonly string[],
+): readonly string[] {
+  const wanted = canonicalNames.map(baseConstraintSlot);
+  const taken = new Set<string>();
+  return wanted.map((own, index) => {
+    let slot = own;
+    let suffix = 0;
+    while (
+      taken.has(slot) ||
+      (slot !== own && wanted.some((other, at) => at !== index && other === slot))
+    ) {
+      suffix += 1;
+      slot = `${own}_${suffix}`;
+    }
+    taken.add(slot);
+    return slot;
+  });
+}
+
+/**
+ * §6.2's slots of a **pre-registered** constraint's base list, keyed by base
+ * name.
+ *
+ * The one form of the slot question answerable with no declaration in view,
+ * which is the form the emitter's wired-in walks have to ask: `#derivedEquals`
+ * and its neighbours read the equality out of a `Hash` dictionary at points
+ * where the `Hash` *declaration* is nowhere to hand, and they used to write the
+ * slot as a literal. A literal is the #718 defect in miniature — a spelling
+ * minted somewhere other than the minting seat — and it would have gone on
+ * reading `undefined` the moment the slot's case flips.
+ *
+ * That the table and the prelude's own `constraint Hash<a: Eq>` agree is a
+ * standing requirement of §5.1.1's third bullet, not an assumption made here,
+ * and it is *measured*: a real compile writes the slot from the declaration
+ * (through the checker's `#baseConstraintSlots`) and reads it back through this
+ * function, so the suite's pinned `{ eq: … }` dictionaries and `.hash.eq`
+ * projections would part company the moment the two disagreed.
+ */
+export function preRegisteredBaseSlots(
+  constraint: string,
+): ReadonlyMap<string, string> {
+  const bases = PRE_REGISTERED_BASE_CONSTRAINTS[
+    preRegisteredConstraintIdentity(constraint)
+  ] ?? [];
+  const slots = mintBaseConstraintSlots(bases);
+  return new Map(bases.map((base, index) => [base, slots[index]!]));
+}
+
 /** The identity of a pre-registered constraint: compiler-global, import-free. */
 export function preRegisteredConstraintIdentity(name: string): string {
   return `hex:${name}`;

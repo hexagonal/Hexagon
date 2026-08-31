@@ -4,7 +4,10 @@
  */
 
 import * as Diagnostics from "../../support/diagnostics.js";
-import { preRegisteredConstraintIdentity } from "../../constraints.js";
+import {
+  preRegisteredBaseSlots,
+  preRegisteredConstraintIdentity,
+} from "../../constraints.js";
 import { INTRINSIC_INVENTORY, isIntrinsicScheme } from "../../intrinsics.js";
 import { PRIMITIVE_COMPANION_BASENAMES } from "../../prelude.js";
 import { type Documentation, throwsManifests } from "../../support/documentation.js";
@@ -3707,16 +3710,20 @@ class JavaScriptEmitter {
       // also why it is the one position where a ground application must not
       // hoist — see `#eagerEvidenceDepth`.
       this.#eagerEvidenceDepth += 1;
-      const baseEvidence = item.baseConstraints.map(({ name, evidence }) => ({
-        name,
+      const baseEvidence = item.baseConstraints.map(({ slot, name, evidence }) => ({
+        slot,
         rendered: this.#emitEvidence(evidence, name, item.span, localEvidence),
       }));
       this.#eagerEvidenceDepth -= 1;
       if (parameters.length === 0) {
         this.#directEvidence.set(item, baseEvidence.map(({ rendered }) => rendered));
       }
-      const baseConstraints = baseEvidence.map(({ name, rendered }) =>
-        objectProperty((name[0]?.toLowerCase() ?? "") + name.slice(1), rendered)
+      // Constraints §6.2: the slot was minted from the extending declaration's
+      // base list, in the checker, by the one function the *reading* side mints
+      // through as well. Nothing is derived from a name here — a name is what
+      // an importer's alias moves.
+      const baseConstraints = baseEvidence.map(({ slot, rendered }) =>
+        objectProperty(slot, rendered)
       );
       const members: MemberImplementation[] = item.derived
         ? this.#derivedMembers(item, localEvidence)
@@ -6371,7 +6378,7 @@ class JavaScriptEmitter {
     }
     return `${
       this.#dictionary(variable, preRegisteredSeat("Hash"), this.#module.span, evidenceNames)
-    }.eq`;
+    }.${HASH_EQUALITY_SLOT}`;
   }
 
   /**
@@ -6901,8 +6908,8 @@ class JavaScriptEmitter {
    * `hashBacked` changes which dictionary the component is asked for, never
    * whether it is asked (#609). The components of a `Hash` node were raised as
    * `Hash` requirements, so its evidence is keyed under `Hash` and the equality
-   * comes out of that dictionary's `eq` — asking for the same evidence under
-   * `Eq` would name a dictionary the checker never selected.
+   * comes out of that dictionary's `Eq` base slot — asking for the same
+   * evidence under `Eq` would name a dictionary the checker never selected.
    */
   #componentEquals(
     type: Typed.Type,
@@ -6914,7 +6921,9 @@ class JavaScriptEmitter {
   ): string {
     if (componentDispatch(evidence)) {
       const dictionary = hashBacked
-        ? `${this.#emitEvidence(evidence, "Hash", this.#module.span, evidenceNames)}.eq`
+        ? `${
+          this.#emitEvidence(evidence, "Hash", this.#module.span, evidenceNames)
+        }.${HASH_EQUALITY_SLOT}`
         : this.#emitEvidence(evidence, "Eq", this.#module.span, evidenceNames);
       return `${dictionary}.equals(${left}, ${right})`;
     }
@@ -6930,9 +6939,9 @@ class JavaScriptEmitter {
     right: string,
     evidenceNames: EvidenceNames,
     hashBacked = false,
-    // Carried in both modes (#609). When `hashBacked` this renders the `eq` slot
-    // of a *structural `Hash`* dictionary, whose components the checker raised
-    // as `Hash` rather than `Eq` — a difference in which dictionary each
+    // Carried in both modes (#609). When `hashBacked` this renders the `Eq`
+    // base slot of a *structural `Hash`* dictionary, whose components the
+    // checker raised as `Hash` rather than `Eq` — a difference in which dictionary each
     // component is named under, which `#componentEquals` reads, and not a reason
     // to drop the selection: dropping it fell back to a representation walk that
     // decides a reached tagged union by JavaScript `===`.
@@ -6966,7 +6975,7 @@ class JavaScriptEmitter {
             this.#module.span,
             evidenceNames,
           )
-        }.eq`
+        }.${HASH_EQUALITY_SLOT}`
         : this.#equalityDictionary(type.id, evidenceNames);
       return `${dictionary}.equals(${left}, ${right})`;
     }
@@ -7032,12 +7041,15 @@ class JavaScriptEmitter {
     if (type.kind === "Map") {
       const hash = this.#subDictionary(components, "key", "Hash", type.key, evidenceNames);
       // The `value` key again, under the constraint the enclosing node raised
-      // it as: `Hash` beneath a `Hash` node, where the equality is the
-      // dictionary's `eq`, and `Eq` beneath an `Eq` one. The suffix is written
-      // here rather than asked of the selection, because it names a slot of
-      // whatever dictionary the selection resolved to.
+      // it as: `Hash` beneath a `Hash` node, where the equality is the `Hash`
+      // dictionary's `Eq` base slot, and `Eq` beneath an `Eq` one. The slot is
+      // asked of the minting seat, not written here — it names a property of
+      // whatever dictionary the selection resolved to, and the spelling of that
+      // property is §6.2's to decide.
       const equals = hashBacked
-        ? `${this.#subDictionary(components, "value", "Hash", type.value, evidenceNames)}.eq`
+        ? `${
+          this.#subDictionary(components, "value", "Hash", type.value, evidenceNames)
+        }.${HASH_EQUALITY_SLOT}`
         : this.#subDictionary(components, "value", "Eq", type.value, evidenceNames);
       return `${this.#useHelper("mapEquals")}(${hash}, ${equals}, ${left}, ${right})`;
     }
@@ -7386,7 +7398,12 @@ class JavaScriptEmitter {
       const equals = this.#derivedEquals(type, "__left", "__right", evidenceNames, true, components);
       return [
         {
-          name: "eq",
+          // The **write** side of the same slot the walks above read: a derived
+          // or structural `Hash` fills its `Eq` base itself rather than taking
+          // evidence for it. Through the minting seat for that reason — a
+          // literal here and a minted spelling at the reads would be #718 with
+          // the two sides swapped.
+          name: HASH_EQUALITY_SLOT,
           rendered: `{ equals: (__left, __right) => ${equals}, notEquals: (__left, __right) => !(${equals}) }`,
         },
         derivedArrow(
@@ -11826,6 +11843,25 @@ interface ConstraintSeat {
 function preRegisteredSeat(name: Typed.ConstraintName): ConstraintSeat {
   return { name, identity: preRegisteredConstraintIdentity(name) };
 }
+
+/**
+ * The dictionary slot a `Hash` holds its `Eq` base in (Constraints §6.2).
+ *
+ * The derived-equality walks read a component's equality out of a `Hash`
+ * dictionary — the components of a `Hash` node were raised as `Hash`
+ * requirements, so its evidence is keyed under `Hash` and the equality is its
+ * base's slot. Four sites did that by appending a literal `.eq`, and
+ * `#derivedSlots` wrote the matching key by hand, minting a spelling outside
+ * the minting seat — which is the shape of the #718 defect itself: the side
+ * that *writes* the slot and the side that *reads* it had no shared source,
+ * and the flip to §6.2's verbatim spelling would have sent every read to
+ * `undefined` off a dictionary whose key had moved.
+ *
+ * Asked once, of the pre-registered table, through the same minting function
+ * the declaration-fed seat uses — so the flip reaches these sites without
+ * anyone remembering they exist.
+ */
+const HASH_EQUALITY_SLOT: string = preRegisteredBaseSlots("Hash").get("Eq")!;
 
 /**
  * Which constraint a `Dictionary` evidence node is keyed by.

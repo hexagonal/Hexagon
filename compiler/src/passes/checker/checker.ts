@@ -22,6 +22,8 @@ import {
 import {
   declaredConstraintIdentity,
   isPreRegisteredIdentity,
+  mintBaseConstraintSlots,
+  PRE_REGISTERED_BASE_CONSTRAINTS,
   PRE_REGISTERED_CONSTRAINT_MEMBERS,
   PRE_REGISTERED_CONSTRAINTS,
   preRegisteredConstraintIdentity,
@@ -786,24 +788,6 @@ const DERIVABLE_IDENTITIES: ReadonlySet<string> = new Set(
  * of art for member-block provenance; it is no longer a phrase any message says.
  */
 const HASH_MUST_BE_DERIVED = "`Hash` instances must be derived";
-
-/**
- * The base constraints of the pre-registered constraints the compiler holds
- * declarations for (Constraints §7, `spec/integral-constraint.md`), keyed by the
- * one identity each of them has.
- *
- * A source `constraint Integral<a: (Num, Ord)>` lands on `hex:Integral` and so
- * takes over this row rather than rivalling it — the name-only pre-registration
- * of §5.1.1's third bullet. That is why the table is a fallback and not a floor.
- */
-const PRE_REGISTERED_BASE_CONSTRAINTS: Readonly<Record<string, readonly string[]>> = {
-  "hex:Ord": ["Eq"],
-  "hex:Signed": ["Num"],
-  "hex:Frac": ["Signed"],
-  "hex:Pow": ["Num"],
-  "hex:Hash": ["Eq"],
-  "hex:Integral": ["Num", "Ord"],
-};
 
 function primitive(name: Typed.PrimitiveName): Constructor {
   return { kind: "Constructor", name };
@@ -4731,16 +4715,8 @@ class Checker {
             primary: declaration.span,
           });
         }
-        const reservedMember =
-          (baseConstraint[0]?.toLowerCase() ?? "") + baseConstraint.slice(1);
-        if (declaration.members.some(({ binding }) => binding.name === reservedMember)) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `member \`${reservedMember}\` conflicts with the \`${baseConstraint}\` dictionary slot; rename the member`,
-            primary: declaration.span,
-          });
-        }
       }
+      this.#checkBaseConstraintList(declaration);
     }
 
     const state = new Map<string, "visiting" | "visited">();
@@ -4766,6 +4742,102 @@ class Checker {
       state.set(name, "visited");
     };
     for (const name of this.#localConstraints.keys()) visit(name, []);
+  }
+
+  /**
+   * Constraints §6.2's two rules about one declaration's base **list**, both
+   * asked at the module that declares the extending constraint — which is the
+   * only module that can repair either, and the only one whose spans belong in
+   * the report.
+   *
+   * Local coverage is the whole requirement, not a limitation: an imported
+   * extender was refused where it was written. What local coverage has to see
+   * is every *spelling* an author can reach a declaration by — a bare import, an
+   * alias, a module-qualified name — and it does, because the list is read
+   * through `#baseConstraintSlots`, which is identity-keyed and so blind to
+   * which word stood in the source.
+   */
+  #checkBaseConstraintList(declaration: Resolved.ConstraintItem): void {
+    const bases = this.#baseConstraintSlots(declaration.identity);
+    // §6.2: a base list names each declaration **once**. Keyed by identity, so
+    // `(Weigh, Heft)` over an alias, `(Weigh, L.Weigh)` over the qualified form
+    // and the bare `(Show, Show)` are one refusal. A duplicate adds nothing a
+    // single entry does not, and the repair is deleting one entry of the
+    // author's own list — unlike the distinct-identity meeting below it, whose
+    // colliding spellings are foreign and cannot be renamed, and which the slot
+    // contest disambiguates instead.
+    const firstByIdentity = new Map<string, number>();
+    bases.forEach((base, index) => {
+      // An entry whose spelling resolves to no declaration is not half of a
+      // duplicate: the refusal is an identity claim, and it needs an identity
+      // to be about. `<a: (Bogus, Bogus)>` is the unknown-base row, once per
+      // entry, and nothing more — the two would otherwise agree on the identity
+      // the *name* mints and be reported as naming one declaration, which is
+      // both untrue and unrepairable in the terms the message offers.
+      //
+      // Per entry, deliberately, and asked with the same predicate the
+      // unknown-base row above asks with, so the two rows cannot disagree about
+      // what resolved: a resolved pair standing beside an unrelated unknown
+      // third entry is refused exactly as it would be without it.
+      if (!this.#constraintNames.has(declaration.baseConstraints[index]!)) return;
+      const first = firstByIdentity.get(base.identity);
+      if (first === undefined) {
+        firstByIdentity.set(base.identity, index);
+        return;
+      }
+      this.#diagnostics.add({
+        severity: "error",
+        message: `\`${declaration.baseConstraints[first]}\` and ` +
+          `\`${declaration.baseConstraints[index]}\` both name the constraint ` +
+          `declared \`${base.name}\`${this.#baseConstraintHomeClause(base.identity)}; ` +
+          "remove one",
+        primary: declaration.span,
+      });
+    });
+    // **Transitional** (#718). §6.2 retires this refusal outright: with the slot
+    // spelled verbatim it is uppercase-start and a function member is not, so
+    // the collision is impossible by start class and there is nothing left to
+    // check. Until the case flip lands, the two still share a spelling space —
+    // and the guard is aimed at the *minted* slot rather than at the local
+    // spelling it used to reserve, which is what let a member `weigh` sit
+    // beside a `weigh:` slot minted from an aliased base `Heft` and emit one
+    // object literal with the key written twice. The mirror of that move is
+    // that a member spelled like a local alias (`heft` under `<a: Heft>`) is
+    // legal, and was refused before: no slot of that spelling exists.
+    for (const base of bases) {
+      if (declaration.members.some(({ binding }) => binding.name === base.slot)) {
+        // Left ambiguous under a contest on purpose: with two bases both
+        // declared `Tag`, a member `tag_1` reads as conflicting with "the `Tag`
+        // dictionary slot" without saying which `Tag`, and the honest repair
+        // needs the written position rather than the name. Not worth a better
+        // sentence for a refusal PR 2 deletes outright — the case flip resolves
+        // it by making the collision unreachable.
+        this.#diagnostics.add({
+          severity: "error",
+          message: `member \`${base.slot}\` conflicts with the \`${base.name}\` ` +
+            "dictionary slot; rename the member",
+          primary: declaration.span,
+        });
+      }
+    }
+  }
+
+  /**
+   * ` in \`./lib.hex\`` for the duplicate-base refusal — the home module of the
+   * declaration both spellings named, by project-relative path.
+   *
+   * Empty where there is no path a reader could open: a pre-registered
+   * constraint's declaration is the prelude's, which §7.6 withholds for the same
+   * reason (`#constraintHome`), and a compilation with no paths at all — a bare
+   * `check` in a unit harness — has nothing to relativize against. The sentence
+   * reads correctly without the clause; both spellings and the declared name are
+   * already in it.
+   */
+  #baseConstraintHomeClause(identity: string): string {
+    if (isPreRegisteredIdentity(identity)) return "";
+    const home = this.#constraintsByIdentity.get(identity)?.declaringPath;
+    if (home === undefined || this.#modulePath === undefined) return "";
+    return ` in \`${relativeFilePath(this.#modulePath, home)}\``;
   }
 
   /**
@@ -9564,19 +9636,41 @@ class Checker {
     if (identity === target) return [];
     if (seen.has(identity)) return undefined;
     seen.add(identity);
-    for (const baseConstraint of this.#baseConstraintsOf(identity)) {
-      const suffix = this.#entailmentPath(baseConstraint.identity, target, seen);
-      if (suffix !== undefined) {
-        // The slot is the base's name **as its declaration spells it**, which is
-        // the name the home module emitted the slot under. An importer's own
-        // word for the same constraint — or its inability to spell it at all —
-        // must not move the slot.
-        const name = baseConstraint.name;
-        const slot = (name[0]?.toLowerCase() ?? "") + name.slice(1);
-        return [slot, ...suffix];
-      }
+    // Constraints §6.2: through the one minting function, so the slot this walk
+    // *reads* is the slot the honor block *wrote*. Reading the base's name here
+    // and lowercasing it was the second currency — it took whatever word the
+    // extending declaration happened to write, so an importer's alias, or the
+    // qualified form, silently projected a slot no dictionary had (#718).
+    for (const base of this.#baseConstraintSlots(identity)) {
+      const suffix = this.#entailmentPath(base.identity, target, seen);
+      if (suffix !== undefined) return [base.slot, ...suffix];
     }
     return undefined;
+  }
+
+  /**
+   * §6.2's base list of a constraint **declaration**, each entry carrying the
+   * dictionary slot it owns.
+   *
+   * The single source both sides of a base slot mint from: `#entailmentPath`
+   * above reads slots out of it, and `#honorBaseConstraints` writes them into
+   * the Typed tree for emission. Names are canonicalized first — the list holds
+   * the words the *extending* module wrote, and a slot follows the identity —
+   * and the contest is then a function of the resulting canonical list alone.
+   */
+  #baseConstraintSlots(
+    identity: string,
+  ): readonly {
+    readonly name: Typed.ConstraintName;
+    readonly identity: string;
+    readonly slot: string;
+  }[] {
+    const bases = this.#baseConstraintsOf(identity).map((base) => ({
+      identity: base.identity,
+      name: this.#canonicalConstraintName(base.name, base.identity),
+    }));
+    const slots = mintBaseConstraintSlots(bases.map(({ name }) => name));
+    return bases.map((base, index) => ({ ...base, slot: slots[index]! }));
   }
 
   /** The base constraints a constraint *named* here declares, by name. */
@@ -9593,12 +9687,12 @@ class Checker {
     if (declared !== undefined) {
       return declared.baseConstraints.map((name, index) => ({
         name,
-        // Positional, and minted where the declaration was written. Falling back
-        // to this module's view would be exactly the re-derivation the field
-        // exists to prevent; it is reached only for a tree built before the
-        // field existed.
-        identity: declared.baseConstraintIdentities[index] ??
-          this.#constraintIdentity(name),
+        // Positional, and minted where the declaration was written. The
+        // resolver builds both arrays in one walk of the written list, so the
+        // index is total; there is deliberately no fall back to this module's
+        // view, which would be exactly the re-derivation the field exists to
+        // prevent and which §6.2 now forbids by name (#718).
+        identity: declared.baseConstraintIdentities[index]!,
       }));
     }
     return (PRE_REGISTERED_BASE_CONSTRAINTS[identity] ?? []).map((name) => ({
@@ -13437,16 +13531,14 @@ class Checker {
    * can spell both under that one word, but one reaches both whenever their
    * imported schemes meet, and can spell both by aliasing an import.
    *
-   * Residue, recorded rather than hidden, and not the seat's: a **base
-   * constraint's dictionary slot** is still minted from a name, by lowercasing
-   * its first letter — and the two sides that mint it read different names. The
-   * write side (the honor block's base-evidence properties) canonicalizes, so
-   * it spells the base declaration's own word; the read side (the entailment
-   * path a projection is published with) takes the word the *referencing*
-   * declaration wrote. An alias between them separates the two: a module that
-   * imports `Weigh` as `Heft` and declares `constraint Both<a: Heft>` writes a
-   * `weigh:` slot and reads `.heft`. No collision is needed to reach it, and a
-   * collision makes the honor block emit one duplicated key.
+   * A **base constraint's dictionary slot** is a second question this function
+   * answers a part of, and it has one seat: `#baseConstraintSlots` canonicalizes
+   * each entry of a declaration's base list here and then mints the slots
+   * through `mintBaseConstraintSlots`, and both the honor block that writes a
+   * slot and the entailment path that reads one go through it (§6.2). Nothing
+   * else may lowercase a constraint name into a slot — the residue this comment
+   * used to record was exactly that: two sides minting from two names, parted by
+   * an importer's alias (#718).
    */
   #canonicalConstraintName(
     name: Typed.ConstraintName,
@@ -13659,6 +13751,38 @@ class Checker {
     return [...unique.values()];
   }
 
+  /**
+   * An instance's base-constraint obligations, each carrying the §6.2 slot the
+   * emitted dictionary writes it under.
+   *
+   * Positional against the declaration's base list, which is what
+   * `#instanceBaseRequirements` walked to raise these requirements in the first
+   * place — the two lists have one origin, and pairing them by index is what
+   * makes the slot the *declaration's* rather than a property of whichever word
+   * the requirement carries.
+   *
+   * Deliberately **not** through `#publicRequirements`: its dedup key is
+   * (identity, evidence slot), which silently collapses two entries of one base
+   * list onto one property and loses the positional alignment the pairing
+   * needs. §6.2 refuses that list outright now — `#checkBaseConstraintGraph`
+   * reports it — so the only thing dedup could still merge is a program already
+   * carrying a diagnostic, and one property per written entry is the honest
+   * rendering of it.
+   */
+  #honorBaseConstraints(
+    item: Resolved.HonorItem,
+  ): readonly Typed.HonorBaseConstraint[] {
+    const slots = this.#baseConstraintSlots(item.constraintIdentity);
+    return (this.#instanceBaseConstraints.get(item) ?? []).flatMap(
+      (requirement, index) => {
+        const base = slots[index];
+        return base === undefined
+          ? []
+          : [{ slot: base.slot, constraint: this.#publicRequirement(requirement) }];
+      },
+    );
+  }
+
   #publicScheme(scheme: Scheme): Typed.Scheme {
     const variables = scheme.variables
       .map((variable) => this.#prune(variable))
@@ -13786,7 +13910,19 @@ class Checker {
         name: item.name,
         identity: item.identity,
         subject: Typed.typeVariableId(subject.id),
-        baseConstraints: item.baseConstraints,
+        // Both currencies cross, as they already do on an honor header's binder
+        // constraints: the word written here, and the declaration it denoted
+        // here. A reader holding the name alone can only re-derive the identity
+        // through its own scope, which is the miscompile §6.2 forbids.
+        //
+        // Published for completeness, not for a reader: the checker's own base
+        // walk takes the pairing off the *Resolved* declaration, which is what
+        // `visibleConstraints` carries across a module boundary. See
+        // `Typed.DeclaredBaseConstraint` for why it is published anyway.
+        baseConstraints: item.baseConstraints.map((name, index) => ({
+          name,
+          identity: item.baseConstraintIdentities[index]!,
+        })),
         impliedTypes: item.impliedTypes.map((impliedType) => ({
           name: impliedType.name,
           type: this.#publicType(
@@ -13892,9 +14028,7 @@ class Checker {
           ? {}
           : { exportedDictionary: item.exportedDictionary }),
         memberSeats: item.memberSeats,
-        baseConstraints: this.#publicRequirements(
-          this.#instanceBaseConstraints.get(item) ?? [],
-        ),
+        baseConstraints: this.#honorBaseConstraints(item),
         components: this.#publicComponents(this.#instanceComponents.get(item) ?? []),
         impliedTypes: item.impliedTypes.map((impliedType) => ({
           name: impliedType.name,
