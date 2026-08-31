@@ -1,4 +1,4 @@
-# The Hexagon v1.1<br>Programming Language
+# The Hexagon v1.2<br>Programming Language
 
 Prompted by<br>
 **James McComb (Hexagonal)**

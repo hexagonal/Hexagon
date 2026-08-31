@@ -270,16 +270,15 @@ fun factorial(n: Int): Int =
     if n <= 1 then 1 else n * factorial(n - 1)
 ```
 
-The body must be a lambda, either through this header form or written directly:
-
-```hexagon
-fun factorial = (n: Int): Int =>
-    if n <= 1 then 1 else n * factorial(n - 1)
-```
-
-A non-function right-hand side is not legal under `fun`. Nor can an arbitrary function-
-producing call be placed there. This syntactic rule ensures that creating a recursive
-binding performs no computation before the function exists.
+Unlike `let`, `fun` never takes a right-hand side of its own. There is no
+`fun factorial = ...` — not with a lambda, not with any other expression. A `fun`
+shows its parameters in its header, and anything else is an error whose message
+hands you the header rewrite. The discipline is not arbitrary: a recursive binding
+must exist before its body can run, so creating it must involve no computation at
+all, and a header can only ever describe a function. `let` remains the general
+word — values, lambdas, whatever you like — while `fun` does one job and always
+shows its shape. The one variation on that shape, a bare `fun` heading a block of
+members, arrives with mutual recursion below.
 
 ### Declarations are read top-down
 
@@ -303,35 +302,61 @@ the order the compiler enforces in the source is the order the emitted module ru
 
 ### Mutual recursion
 
-Two `fun` declarations may refer to each other:
+Two functions that call each other are written as members of one **`fun` block**: the
+keyword alone on its line, then the members indented beneath it.
 
 ```hexagon
-fun isEven(n: Int): Bool =
-    if n == 0 then
-        True
-    else
-        if n > 0 then
-            isOdd(n - 1)
+fun
+    isEven(n: Int): Bool =
+        if n == 0 then
+            True
         else
-            isOdd(n + 1)
+            if n > 0 then
+                isOdd(n - 1)
+            else
+                isOdd(n + 1)
 
-fun isOdd(n: Int): Bool =
-    if n == 0 then
-        False
-    else
-        if n > 0 then
-            isEven(n - 1)
+    isOdd(n: Int): Bool =
+        if n == 0 then
+            False
         else
-            isEven(n + 1)
+            if n > 0 then
+                isEven(n - 1)
+            else
+                isEven(n + 1)
 ```
 
-The pair forms one recursive group: an **unbroken run of `fun` declarations**, whose
-bodies see every member of the run, earlier and later alike. This is the one place a
-name may be used above its declaration, and it exists because mutual recursion cannot
-be written without it. The run is what defines the group — placing any other
-declaration between two `fun`s splits them into separate groups, and a forward
-reference across the split is an error that says exactly that: only an unbroken run of
-`fun`s recurses together.
+Inside the block, every member's body sees every member, earlier and later alike. This
+is the one place a name may be used above its declaration, and it exists because mutual
+recursion cannot be written without it. Member lines repeat no keyword — each is the
+familiar header form, minus the `fun` the block head already said — and a lone
+`fun factorial(n) = ...` is simply the block with one member, fused onto the head line.
+
+A word about "block": this is a **member block**, not the value-producing kind.
+Chapter 1's law — the final expression is the value of the block — governs
+*expression* blocks: function bodies, branches, a binding's indented right-hand
+side. A member block groups declarations instead — a sequence of items to work
+through, not an expression whose last line is its answer — the way a source
+file's top level does. It has no value, cannot be assigned to a variable or passed
+anywhere, and it ends with a binding by design, not by mistake. Later chapters
+bring more member blocks — `honor` blocks among them — and the same sentence
+covers them all.
+
+The block is the *only* place mutual recursion lives. Two separate `fun` declarations,
+even adjacent ones, are two independent definitions: the earlier cannot name the later,
+and trying draws an error that says exactly what to do — only members of one `fun`
+block recurse together; wrap both definitions as its members.
+
+To everything outside it, the block is invisible: it binds no name of its own, and its
+members are ordinary functions of the module, usable below the block like any other
+declaration. When some members are implementation details, export only the ones that
+aren't — the `export` word goes on the member's own line:
+
+```hexagon
+fun
+    walk(order: String, depth: Int): Int = ...
+    export itemCount(order: String): Int = walk(order, 0)
+```
 
 ## The JavaScript remains direct
 
@@ -361,12 +386,15 @@ calls; no argument-packing, currying helper, or wrapper object appears.
 
 This output is not only pleasant to inspect. Its shape explains the source rules:
 `let` has sequential initialization, while the function-declaration form lets the
-members of a recursive group call each other.
+members of a `fun` block call each other. The block itself leaves no trace in the
+JavaScript — each member becomes its own `function` declaration, in order, right
+where the block stood.
 
 ## Summary
 
 - Ordinary named functions use `let`; recursive functions use `fun`.
-- Header syntax is convenient spelling for a lambda binding.
+- Header syntax is convenient spelling for a lambda binding — and a `fun` never takes
+  a right-hand side: it always shows its header.
 - Functions are values and may be passed, stored, and returned.
 - Calls require parentheses, and arity is checked exactly.
 - An incomplete call is an error; write an explicit lambda when a new adapted function
@@ -376,8 +404,8 @@ members of a recursive group call each other.
   polymorphism.
 - Subject-first parameter order prepares APIs for pipes and dot calls.
 - Declarations are read top-down: every binding is used after its declaration.
-- `fun` supports direct and mutual recursion; an unbroken run of `fun` declarations
-  forms the one scope where names are visible before their declarations.
+- `fun` supports direct and mutual recursion; the `fun` block is the one scope where
+  names are visible before their declarations, and each member exports individually.
 
 We can now write useful transformations, callbacks, and recursive definitions. A later
 chapter will explain more fully what Hexagon has already been doing in these examples:

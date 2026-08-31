@@ -467,7 +467,7 @@ late pedagogy pass, not a commitment to the current order.
 ### Expressions
 
 - Core formulation: **expressions produce values; bindings introduce names**.
-- Core block formulation: **the final expression is the value of the block**.
+- Core block formulation: **the final expression is the value of the block** — the law of *expression* blocks; the term is introduced and the law scoped in Functions.
 - `Unit` explains why effectful expressions may be sequenced before a block's result.
 - `ignore(auditOrder(order))` is the first intentional-discard example.
 - `orderTotal(subtotal, delivery)` is the first drafted explicit
@@ -516,7 +516,20 @@ late pedagogy pass, not a commitment to the current order.
 ### Functions
 
 - Core formulation: **ordinary functions use `let`; recursion uses `fun`**.
-- Header definitions and explicitly bound lambdas are equivalent.
+- Header definitions and explicitly bound lambdas are equivalent — for `let`. A `fun`
+  never takes a right-hand side of its own: header form only.
+- **Member block** is the ledgered term for a declaration-grouping block — the `fun`
+  block, later `honor` blocks, the top level of a source file — as against the
+  **expression block**, the value-producing kind. Chapter 1's final-expression law and
+  the block-ends-with-a-binding error are stated of expression blocks; a member block
+  has no value and cannot be assigned or passed. A `fun` block is a member block.
+- Mutual recursion is the **`fun` block**: a bare `fun` (or `fun<a: Eq>`) heading an
+  indented block of members, written in header form without repeating the keyword.
+  Members see each other; the block binds no name and leaves no trace in the
+  JavaScript (each member emits its own function declaration); `export` goes on the
+  member's own line; a lone `fun f(...) = ...` is the one-member block, fused. Two
+  separate `fun` declarations never recurse together — the error says to wrap both
+  as members of one block.
 - Functions are genuinely n-ary; calls require parentheses and supply the declared
   number of arguments. Incomplete calls are errors.
 - Define **arity** as the number of parts something takes and **n-ary** as “having *n*
@@ -724,8 +737,9 @@ late pedagogy pass, not a commitment to the current order.
   function matching its argument, taught as the answer to the irrefutability gate in
   callback position. It *means* `x => match x` with those arms; exhaustiveness is
   demanded over the parameter type; the disambiguation is one token; it is a lambda
-  literal, so `fun f = match` line-final is the recursive-matcher spelling; and it takes
-  no `catch` clause (Chapter 21 carries the one-line callback).
+  literal with every *expression* seat (`let` bindings, call arguments, pipes) and no
+  `fun` seat — a recursive matcher is written `fun size(shape) = match shape`; and it
+  takes no `catch` clause (Chapter 21 carries the one-line callback).
 - Vector patterns, loop patterns, and `catch` patterns are taught with collections,
   loops, and exceptions respectively as extensions of this same grammar.
 - A lowercase pattern name binds, `_` ignores, and a name cannot be bound twice within

@@ -50,7 +50,7 @@ A block (layout-delimited per Lexer & Layout, or the degenerate same-line single
 
 ### 3.1 Block-final bindings: the error, precisely
 
-The check is syntactic (is the final item a binding node?), applied after layout, before typechecking. It applies to every block: lambda bodies, term-binding RHS blocks (`let x =` with an indented body — Lexer & Layout §2.1), `if` branches, match arms, catch arms, `try` bodies. The module top-level block is exempt — a module *is* a sequence of declarations and need not end in an expression; module "value" is not a concept.
+The check is syntactic (is the final item a binding node?), applied after layout, before typechecking. It applies to every block: lambda bodies, term-binding RHS blocks (`let x =` with an indented body — Lexer & Layout §2.1), `if` branches, match arms, catch arms, `try` bodies. The module top-level block is exempt — a module *is* a sequence of declarations and need not end in an expression; module "value" is not a concept. *(#700 terminology.)* Every *other* **member block** is exempt the same way — a `constraint`, `honor`, `extern from`, or `fun` head's body (Lexer & Layout §2.1) is a declaration sequence, not a value-producing block. §3's block-typing rules — the final item, and the block's type — speak of expression blocks; §3.2's discarded-value rule still governs whatever expression items a member block admits (the module top level's, Modules §8.2).
 
 ### 3.2 The discarded-value rule
 
@@ -362,7 +362,7 @@ fun h() =
 
 ### 9.2 Edit notes to existing specs (apply on merge)
 
-1. **Lexer & Layout §1** ("A block's value is its final expression"): add the caveat "the final item must be an expression; a block-final binding is a compile error (Statements spec §3.1)."
+1. ~~**Lexer & Layout §1** ("A block's value is its final expression"): add the caveat "the final item must be an expression; a block-final binding is a compile error (Statements spec §3.1)."~~ *Discharged with the #700 block-kind taxonomy: §1 there now states the law of expression blocks with this caveat.*
 2. **Functions §8.4** ("`var` never generalizes"): add cross-reference "— see the Statements, Blocks & Mutability spec for `var` in full."
 3. **Functions §10** diagnostics table: add rows for the §9.3 entries owned jointly (uppercase rule etc. unaffected).
 

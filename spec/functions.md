@@ -446,7 +446,7 @@ Consequences:
 
 ### 7.3 Mutual recursion: the `fun` block *(#700)*
 
-A **`fun` head** — the keyword alone, or carrying a §4.2 binder list, `fun<a: Eq>` — ending its logical item opens a layout block of **members**. Inside the block, every member's body sees every member, earlier and later alike. This is the language's only forward visibility among terms, and it exists because mutual recursion cannot be spelled without it.
+A **`fun` head** — the keyword alone, or carrying a §4.2 binder list, `fun<a: Eq>` — ending its logical item opens a layout block of **members**: a **member block** (Lexer & Layout §2.1's kind), a declaration sequence with no value — the final-expression law belongs to expression blocks, and nothing assigns or passes a member block. Inside the block, every member's body sees every member, earlier and later alike. This is the language's only forward visibility among terms, and it exists because mutual recursion cannot be spelled without it.
 
 ```
 fun
