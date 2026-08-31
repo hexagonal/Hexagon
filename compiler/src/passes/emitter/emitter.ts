@@ -11840,27 +11840,28 @@ interface ConstraintSeat {
  * best-effort emission into a module the checker **rejected**, where a walk may
  * have no selection to read and the constraint's word is all that is left.
  */
+function preRegisteredSeat(name: Typed.ConstraintName): ConstraintSeat {
+  return { name, identity: preRegisteredConstraintIdentity(name) };
+}
+
 /**
  * The dictionary slot a `Hash` holds its `Eq` base in (Constraints §6.2).
  *
  * The derived-equality walks read a component's equality out of a `Hash`
  * dictionary — the components of a `Hash` node were raised as `Hash`
  * requirements, so its evidence is keyed under `Hash` and the equality is its
- * base's slot. Four sites did that by appending a literal `.eq`, minting a
- * spelling outside the minting seat, which is the shape of the #718 defect
- * itself: the honor block that *wrote* the slot and the walk that *reads* it
- * had no shared source, and the flip to §6.2's verbatim spelling would have
- * sent all four reading `undefined` off a dictionary whose key had moved.
+ * base's slot. Four sites did that by appending a literal `.eq`, and
+ * `#derivedSlots` wrote the matching key by hand, minting a spelling outside
+ * the minting seat — which is the shape of the #718 defect itself: the side
+ * that *writes* the slot and the side that *reads* it had no shared source,
+ * and the flip to §6.2's verbatim spelling would have sent every read to
+ * `undefined` off a dictionary whose key had moved.
  *
  * Asked once, of the pre-registered table, through the same minting function
  * the declaration-fed seat uses — so the flip reaches these sites without
  * anyone remembering they exist.
  */
 const HASH_EQUALITY_SLOT: string = preRegisteredBaseSlots("Hash").get("Eq")!;
-
-function preRegisteredSeat(name: Typed.ConstraintName): ConstraintSeat {
-  return { name, identity: preRegisteredConstraintIdentity(name) };
-}
 
 /**
  * Which constraint a `Dictionary` evidence node is keyed by.
