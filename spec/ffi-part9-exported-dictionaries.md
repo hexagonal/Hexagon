@@ -68,7 +68,7 @@ declare const signedDictionaryBrand: unique symbol;
 
 export interface Dictionary<a> {
   readonly [signedDictionaryBrand]: a;
-  readonly num: Num.Dictionary<a>;
+  readonly Num: Num.Dictionary<a>;
   readonly subtract: (x: a, y: a) => a;
   readonly negate: (x: a) => a;
   readonly fromInt: (value: number) => a;
@@ -246,7 +246,7 @@ Unspecified is not unstable. An implementation still places the whole suffix det
 
 ### 7.1 Nesting
 
-Base-constraint evidence is **nested in the extending constraint’s dictionary as slots** (Constraints §6.2 — slot name is the base constraint’s name, lowercased):
+Base-constraint evidence is **nested in the extending constraint’s dictionary as slots** (Constraints §6.2 — the slot is the base declaration’s own name, verbatim; #718):
 
 ```ts
 // ord.d.ts
@@ -254,7 +254,7 @@ import type * as Eq from "@hexagon/runtime/eq";
 
 export interface Dictionary<a> {
   readonly [ordDictionaryBrand]: a;
-  readonly eq: Eq.Dictionary<a>;
+  readonly Eq: Eq.Dictionary<a>;
   readonly compare: (x: a, y: a) => Ordering;
 }
 ```
@@ -267,7 +267,7 @@ When a declaration constrains one variable with both a constraint and its (trans
 
 > Per constrained variable, the evidence suffix contains dictionaries for the **maximal constraints** only — those that are not (transitive) base constraints of another constraint declared on the same variable. Elimination happens before the §6.2 ordering is applied; the eliminated constraint's members are reached through the retained dictionary's nested slot.
 
-So `<a: (Eq, Ord)>` produces one `Ord.Dictionary<a>` parameter, and the emitted body reaches `equals` as `ord.eq.equals`. Consequences, ABI-relevant: adding an extending constraint that newly subsumes a previously maximal constraint **changes the suffix** and is a breaking ABI event (§11); the internal Hexagon convention and the public edition apply the same canonicalization, which is what keeps §9’s direct export possible. Confirmed at review (§13.2).
+So `<a: (Eq, Ord)>` produces one `Ord.Dictionary<a>` parameter, and the emitted body reaches `equals` as `ord.Eq.equals` (the slot is the base declaration’s name verbatim — Constraints §6.2, #718). Consequences, ABI-relevant: adding an extending constraint that newly subsumes a previously maximal constraint **changes the suffix** and is a breaking ABI event (§11); the internal Hexagon convention and the public edition apply the same canonicalization, which is what keeps §9’s direct export possible. Confirmed at review (§13.2).
 
 ---
 
@@ -311,7 +311,7 @@ export function plus(x, y, num) {
 Public dictionaries from separately compiled Hexagon packages interoperate **only against a compatible `@hexagon/runtime` dictionary ABI version**. The ABI commitments:
 
 - constraint member names and callable signatures (the completed member set, §2.2);
-- base constraint slots and their names (§7.1);
+- base constraint slots and their names — the base declarations’ own names, contested slots numbered in the extending declaration’s written base-list order (§7.1; Constraints §6.2), which makes **reordering a contested base list** an ABI event;
 - evidence suffix ordering and duplicate-elimination canonicalization (§6.2, §7.2);
 - brand identity/recognition where present;
 - factory argument order (§4);
