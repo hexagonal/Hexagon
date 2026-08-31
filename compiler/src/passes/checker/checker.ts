@@ -13423,17 +13423,20 @@ class Checker {
    * every module agrees on.
    *
    * Diagnostics print the spelling the source used — that is what the reader
-   * wrote — but emission keys evidence by name, and the spelling is no longer a
-   * property of the constraint once modules can rename one at the border: a
-   * function under `<a: Heft>` receives its dictionary as `Heft`'s while the
-   * imported member it calls demands `Weigh`'s, and the two are one constraint.
-   * Canonicalizing here, at the Typed boundary, is what keeps the two sides
-   * naming the same seat without putting the alias into the output.
+   * wrote — but an evidence parameter is *named* after the constraint, and the
+   * spelling is no longer a property of the constraint once modules can rename
+   * one at the border: a function under `<a: Heft>` receives its dictionary as
+   * `Heft`'s while the imported member it calls demands `Weigh`'s, and the two
+   * are one constraint. Canonicalizing here, at the Typed boundary, is what
+   * keeps the two sides spelling one parameter alike without putting the alias
+   * into the output.
    *
-   * Residue, recorded rather than hidden: two *distinct* constraints that
-   * genuinely share a name — reachable only through two imported schemes, since
-   * no module can spell both — still meet in one evidence seat. Their
-   * identities differ and this returns the same word for each.
+   * Which seat a demand reads is decided by identity and never by this word, so
+   * two distinct constraints sharing a name — reachable only through two
+   * imported schemes, since no module can spell both — take two seats, and the
+   * same word answering for each of them only collides the *display*: the
+   * parameter spellings then differ by a numeric suffix rather than by the
+   * constraint they carry.
    */
   #canonicalConstraintName(
     name: Typed.ConstraintName,
@@ -13490,6 +13493,7 @@ class Checker {
     requirement: Requirement,
   ): {
     readonly evidenceConstraint?: Typed.ConstraintName;
+    readonly evidenceConstraintIdentity?: string;
     readonly evidencePath?: readonly string[];
   } {
     if (requirement.dictionary !== undefined || requirement.structural === true) {
@@ -13506,6 +13510,7 @@ class Checker {
       if (path === undefined) continue;
       return {
         evidenceConstraint: this.#canonicalConstraintName(member.name, member.identity),
+        evidenceConstraintIdentity: member.identity,
         evidencePath: path,
       };
     }
@@ -13857,13 +13862,17 @@ class Checker {
           variable: Typed.typeVariableId(typeParameters.get(parameter.name)?.id ?? -1),
           // Canonical, because these name the evidence *parameters* the instance
           // takes, and the requirements they must answer arrive under the
-          // declaration's own spelling (see `#canonicalConstraintName`).
-          constraints: parameter.constraints.map((constraint) =>
-            this.#canonicalConstraintName(
-              constraint,
-              this.#constraintIdentity(constraint),
-            )
-          ),
+          // declaration's own spelling (see `#canonicalConstraintName`). The
+          // identity travels beside it because that is what the parameter is
+          // *found* by; a header can only spell what is in scope here, so this
+          // module's resolution settles which declaration each word denotes.
+          constraints: parameter.constraints.map((constraint) => {
+            const identity = this.#constraintIdentity(constraint);
+            return {
+              name: this.#canonicalConstraintName(constraint, identity),
+              identity,
+            };
+          }),
           span: parameter.span,
         })),
         subject: this.#publicType(this.#instanceSubjects.get(item) ?? ERROR),

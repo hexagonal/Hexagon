@@ -209,6 +209,16 @@ export interface Constraint {
    */
   readonly unsatisfied?: boolean;
   readonly evidenceConstraint?: ConstraintName;
+  /**
+   * The same binder as `evidenceConstraint`, addressed by its declaration
+   * rather than by its spelling. Set and unset together with it.
+   *
+   * The name reaches a reader; the identity reaches the evidence parameter. A
+   * word is not a property of a constraint at a module border, so a route
+   * published as a name alone lands two unrelated declarations on one seat
+   * wherever a caller can see both.
+   */
+  readonly evidenceConstraintIdentity?: string;
   readonly evidencePath?: readonly string[];
   readonly dictionaryArguments?: readonly Constraint[];
   readonly structural?: boolean;
@@ -760,8 +770,21 @@ export interface InheritedDefault {
 export interface HonorTypeParameter {
   readonly name: string;
   readonly variable: TypeVariableId;
-  readonly constraints: readonly ConstraintName[];
+  readonly constraints: readonly HonorParameterConstraint[];
   readonly span: Source.Span;
+}
+
+/**
+ * One constraint written on an instance head's binder, carrying both currencies
+ * (§5.1.1): the declaration's own spelling, which names the evidence parameter,
+ * and the declaration's identity, which is what that parameter is found by.
+ *
+ * A header can only spell constraints in scope where it is written, so the
+ * declaring module's resolution is the authority for the pairing.
+ */
+export interface HonorParameterConstraint {
+  readonly name: ConstraintName;
+  readonly identity: string;
 }
 
 export interface HonorImpliedType {
