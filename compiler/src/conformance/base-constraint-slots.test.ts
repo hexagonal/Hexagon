@@ -314,6 +314,40 @@ describe("a base list names each declaration once", () => {
     ]);
   });
 
+  test("an entry that names no declaration is not half of a duplicate", () => {
+    // The refusal is an identity claim, so it needs an identity to be about.
+    // Two unknown spellings agree on the identity the *name* mints, which is
+    // not a shared declaration — reporting them as naming one would be untrue,
+    // and the repair it offers is not the repair the reader needs.
+    const mid = [
+      "export constraint Both<a: (Bogus, Bogus)> =",
+      "    label(value: a): String",
+      "",
+    ].join("\n");
+    expect(diagnostics([["/mid.hex", mid]])).toEqual([
+      "unknown base constraint `Bogus`",
+      "unknown base constraint `Bogus`",
+    ]);
+  });
+
+  test("but a resolved pair beside an unknown entry is refused as it would be alone", () => {
+    // The stand-down is per *entry*. An unrelated unknown third spelling neither
+    // suppresses the pair's refusal nor joins it.
+    const mid = [
+      'import { Weigh as Heft } from "./lib.hex"',
+      'import module L from "./lib.hex"',
+      "",
+      "export constraint Both<a: (Heft, L.Weigh, Bogus)> =",
+      "    label(value: a): String",
+      "",
+    ].join("\n");
+    expect(diagnostics([["/lib.hex", WEIGH_LIB], ["/mid.hex", mid]])).toEqual([
+      "unknown base constraint `Bogus`",
+      "`Heft` and `L.Weigh` both name the constraint declared `Weigh` in " +
+        "`./lib.hex`; remove one",
+    ]);
+  });
+
   test("two genuinely distinct bases of one spelling are not this refusal", () => {
     // The contest above, asked as a negative: identity is what the rule keys on,
     // so a same-*spelled* pair passes where a same-*declaration* pair does not.

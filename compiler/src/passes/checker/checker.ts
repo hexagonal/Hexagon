@@ -4785,6 +4785,18 @@ class Checker {
     // contest disambiguates instead.
     const firstByIdentity = new Map<string, number>();
     bases.forEach((base, index) => {
+      // An entry whose spelling resolves to no declaration is not half of a
+      // duplicate: the refusal is an identity claim, and it needs an identity
+      // to be about. `<a: (Bogus, Bogus)>` is the unknown-base row, once per
+      // entry, and nothing more — the two would otherwise agree on the identity
+      // the *name* mints and be reported as naming one declaration, which is
+      // both untrue and unrepairable in the terms the message offers.
+      //
+      // Per entry, deliberately, and asked with the same predicate the
+      // unknown-base row above asks with, so the two rows cannot disagree about
+      // what resolved: a resolved pair standing beside an unrelated unknown
+      // third entry is refused exactly as it would be without it.
+      if (!this.#constraintNames.has(declaration.baseConstraints[index]!)) return;
       const first = firstByIdentity.get(base.identity);
       if (first === undefined) {
         firstByIdentity.set(base.identity, index);
