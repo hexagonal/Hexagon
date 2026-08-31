@@ -111,7 +111,7 @@ The doctrine is fixed here; the normative surfaces live with their owners: `Vect
 - Their key/element constraint is **`Hash`**, which **ships in v1**, formally specified in Part 2. The load-bearing properties, fixed here:
   - `Hash` has `Eq` as a base constraint (`Hash` extends `Eq`).
   - `Hash` is **derivable-only for user code**: it joins the derivation whitelist; users cannot write `honor Hash<T>` by hand, and deriving `Hash<T>` additionally requires that the `Eq<T>` instance is itself compiler-derived (the Eq-agreement rule, Part 2 §4.3).
-  - Prelude and collection instances are compiler/runtime-provided — specified normatively by spec text, with no source form (Part 2 §2.5, §4.4; Part 4 §8). "Derivable-only" constrains users, not the specification.
+  - Collection instances are compiler/runtime-provided — specified normatively by spec text, with no source form (Part 2 §4.4; Part 4 §8). The core-type instances' provenance is Part 2 §2.5's status map: companion source under the carve-out for the primitives, `Bool`'s prelude derivation, `Unit`'s automatic structural instance. "Derivable-only" constrains users, not the specification.
   - `Hash<Float>` normalises consistently with `Eq<Float>`'s SameValueZero: `-0` hashes as `+0`, all `NaN` bit patterns hash to one value. The normative statement is Part 2 §2.3/§2.5.
 - Signatures follow the Set/Map sketch: `Map.get<k: Hash>(map: Map(k, v), key: k): Option(v)`, `Set.add<a: Hash>(set: Set(a), value: a): Set(a)`, etc.
 - Iteration order is **deterministic but unspecified** — not insertion order, not sorted, not stable across executions, and not a function of the collection's contents. The full contract is Part 2 §2.4 as instantiated by Part 4 §7.1; this document adds nothing to it.
