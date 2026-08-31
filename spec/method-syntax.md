@@ -198,9 +198,9 @@ identity(x: a): a                            -- excluded: bare type variable, no
 §4.2's candidate set is indexed from declarations and is order-independent — *what* is dot-callable never depends on where in the home module an operation sits. Whether a given call site may **reach** a candidate is a separate question, and it has the same answer as every other reference (Functions §7.2):
 
 - **A dot call is legal exactly where a reference to the operation is legal.** §1's rewrite makes this forced rather than chosen: `e.name(args…)` *is* a call of the companion operation — spelled qualified from other modules, bare in the home module, which cannot name itself — and that callee must be declared above the call site like any reference. Within the home module, then, a dot call may target only an operation declared **above** it. Call sites in other modules see the whole exported surface, as always — §4.2's import-insensitivity is untouched.
-- **A dot call never targets a member of the caller's own `fun` group** (Functions §7.3): calls within a group are spelled by name. "Within" reads textually and at any depth — a dot call anywhere inside a member's body, a nested lambda or inner `fun` included, never targets that group, because any such call is a group edge the reference graph cannot see. Recursion, direct or mutual, therefore never hides behind a dot — and dispatch can never create a reference-graph cycle the resolver cannot see, which is what keeps §4.2 a declaration-indexing operation with no type-directed feedback into dependency analysis.
+- **A dot call never targets a member of the caller's own `fun` block** (Functions §7.3): calls within a block are spelled by name. "Within" reads textually and at any depth — a dot call anywhere inside a member's body, a nested lambda or inner `fun` included, never targets that block, because any such call is a block edge the reference graph cannot see. Recursion, direct or mutual, therefore never hides behind a dot — and dispatch can never create a reference-graph cycle the resolver cannot see, which is what keeps §4.2 a declaration-indexing operation with no type-directed feedback into dependency analysis.
 
-**Member-resolved dot calls are exempt from both rules** *(#304/#335)*. A dot call that resolves to an honored constraint member is an **evidence route**: it names no binding — elaboration reads a dictionary slot at call time — so it creates no reference-graph edge, and the top-down law governs name references only (Constraints §4.6). A member-resolved dot call is therefore legal anywhere in the honoring module: below the honor block, inside a sibling member, and inside the member's **own body**, where it is the sanctioned recursion spelling (`kid.show()` — the own-name refusal, Constraints §4.6, is what forces recursion out of the bare form). No honor-block analogue of the `fun`-group dot ban exists, and the asymmetry is principled, not an oversight: the group ban protects the resolver's reference graph from edges dispatch would hide, and member dispatch never enters that graph — mutually referencing instances were already legal through interpolation for the same reason. The emission fault line for instance recursion (safe inside member lambdas, a fault before the instance's own `const` initializes) is Constraints' §6.3 territory and is unchanged by the spelling.
+**Member-resolved dot calls are exempt from both rules** *(#304/#335)*. A dot call that resolves to an honored constraint member is an **evidence route**: it names no binding — elaboration reads a dictionary slot at call time — so it creates no reference-graph edge, and the top-down law governs name references only (Constraints §4.6). A member-resolved dot call is therefore legal anywhere in the honoring module: below the honor block, inside a sibling member, and inside the member's **own body**, where it is the sanctioned recursion spelling (`kid.show()` — the own-name refusal, Constraints §4.6, is what forces recursion out of the bare form). No honor-block analogue of the `fun`-block dot ban exists, and the asymmetry is principled, not an oversight: the block's ban protects the resolver's reference graph from edges dispatch would hide, and member dispatch never enters that graph — mutually referencing instances were already legal through interpolation for the same reason. The emission fault line for instance recursion (safe inside member lambdas, a fault before the instance's own `const` initializes) is Constraints' §6.3 territory and is unchanged by the spelling.
 
 Neither rule disturbs §3's order-independence of *inference*: §14(d)'s "evidence anywhere in the region counts" is about where the receiver's **type** becomes known, and stands. Declaration order constrains which declarations a resolved call may name, not how the receiver's head is discovered.
 
@@ -321,7 +321,7 @@ Completion after `receiver.` must be driven by **the same resolution model**, at
 | 10 | Function-typed receiver | "functions have no fields or companion operations" |
 | 11 | Uppercase name after dot with an argument list where left side is not a module alias | existing Modules §5.1 resolution/errors, unchanged — not this feature |
 | 12 | Companion op exists but is declared below the call site (home module only) | "`Box`'s companion declares `twice` below this call; declarations are read top-down — move the declaration above this call" (§4.4; Functions §7.2 family). Never row 4's "no operation" |
-| 13 | Dot call targets a member of the caller's own `fun` group | "a dot call cannot target its own `fun` group; spell the call by name: `map(s, f)`" (§4.4; Functions §7.3) |
+| 13 | Dot call targets a member of the caller's own `fun` block | "a dot call cannot target its own `fun` block; spell the call by name: `map(s, f)`" (§4.4; Functions §7.3) |
 
 Vocabulary rules: diagnostics say **companion operation** and **constraint member** (never "method" — nothing method-like exists at runtime, and the noun would teach the wrong model) and never say "row" (Products §4 ban, still in force). "Dot call" is acceptable in hovers and docs.
 
@@ -371,7 +371,7 @@ Any future ergonomic feature that wants the inferencer to postpone a decision ci
 | Decision | Where |
 |---|---|
 | Semantics = one rewrite to companion call; static, erased, no runtime methods/`this`/prototypes | §1, §8 |
-| Home-module dot calls obey declaration order — legal exactly where the qualified spelling is; a dot call never targets the caller's own `fun` group | §4.4 |
+| Home-module dot calls obey declaration order — legal exactly where the qualified spelling is; a dot call never targets the caller's own `fun` block | §4.4 |
 | Type-directed, not lexical; lexical UFCS rejected with reasons | §1, §11.1 |
 | **Member names never nominate nominal types** (doctrine; the anti-overload-search guardrail) | §1, §3.5 |
 | Bare `e.name` is field access always; dispatch exists only in the fused call form; `(e.name)()` is the grammar-level opt-out | §2.1, §11.6 |
@@ -396,7 +396,7 @@ Any future ergonomic feature that wants the inferencer to postpone a decision ci
 | **Operation set unions honored subject-first members** (#304/#335); membership stays declaration-indexed via coherence; two claimants on one spelling refuse naming homes — no ranking | §4.2, §6, §16.2 |
 | **Declared type variables dispatch bound members** (`x.compare(y)` under `a: Ord`); bounds are the entire candidate set; no match refuses, never row-constrains; old blanket refusal reversed | §3.4, §7, §16.2 |
 | **Defaulting step precedes the row fallback** at the deadline (`42.show()` is `Show<Int>`'s member); reorders two boundary rules; reclassifies only guaranteed-error programs | §3.3, §3.5 |
-| **Member-resolved dot calls are evidence routes**: exempt from declaration order and the own-group ban; the sanctioned recursion spelling inside member bodies; no honor-block dot ban exists | §4.4; Constraints §4.6 |
+| **Member-resolved dot calls are evidence routes**: exempt from declaration order and the own-block ban; the sanctioned recursion spelling inside member bodies; no honor-block dot ban exists | §4.4; Constraints §4.6 |
 | Member dispatch emits what the bare member call emits; the dot adds no emission shape | §8.1 |
 | `Unit` retired from the Primitive rows to the tuple row (#344): the empty tuple (#159) takes the tuple story; no `Unit.hex` exists or ever will | §3.4, §5 |
 | Primitive companions become source per companion (#344): each migrated companion is the ordinary nominal case; the fixed migration order (`BigInt.hex`, then `Int.hex`+`Nat.hex`, then `Float.hex`+`String.hex`) is **complete** and no wired instance remains | §3.4, §5; Modules §5.3; Constraints §5.3 |
@@ -550,7 +550,7 @@ fun w(x) = x.make().run()          -- OK — both goals take the fallback at w's
 -- Reordered (twice above use): OK — and from any OTHER module, b.twice()
 -- is OK regardless of where twice sits in box.hex (§4.2 import-insensitivity).
 
--- (s) Own-group dispatch ban (§4.4): recursion is spelled by name
+-- (s) Own-block dispatch ban (§4.4): recursion is spelled by name
 -- seq.hex (home of Seq):
 -- export fun map(s: Seq(a), f: a -> b): Seq(b) =
 --     ... s.map(f) ...                               -- ERROR (row 13): a dot call

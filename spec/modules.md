@@ -76,11 +76,12 @@ A module-level declaration head has **one visibility slot, with three values** *
 
 ### 4.1 `export`
 
-`export` prefixes a module-level declaration and exports **everything that declaration introduces**:
+`export` prefixes a module-level declaration — and, since #700, also marks a member of a module-level `fun` block at the member's left margin (Functions §7.3) — exporting **everything that declaration or member introduces**:
 
 | Declaration | Exports |
 |---|---|
 | `export let x = ...` / `export fun f(...) = ...` | the term |
+| `export` at a member's left margin inside a module-level `fun` block (Functions §7.3) | that member — the one export seat below a declaration head *(#700)*; the block head itself takes no `export` (parse error, per-member advice), and an inner block's members take none (the function-local refusal above applies) |
 | `export record Point = {...}` | `Point` the type **and** `Point` the constructor (the name-carried surface: construction, constructor patterns). Field access, update, and the bare copy are type-directed — they travel with the type, not the import (§4.2) |
 | `export union Shape = Circle(...) \| ...` | `Shape` the type **and** every constructor |
 | `export type UserName = String` | the alias name |
@@ -88,6 +89,8 @@ A module-level declaration head has **one visibility slot, with three values** *
 | `export exception ParseError(...)` | the exception constructor |
 | `export honor ...` | **hard error** — "instances are always visible; `export` does not apply" (§7) |
 | `export import ...` | **hard error** — re-exports deferred (§12.2) |
+
+**`export` is module-level only.** On anything below module level — a binding inside a function body, a member of an inner block's `fun` — it is a parse error: "`export` marks module-level declarations; a local binding cannot be exported" (§10).
 
 There are **no default exports**. `export default` is a parse error ("Hexagon has named exports only"). Inside `extern from`, `export default fun`/`let` instead means “bind an incoming JavaScript default export, then expose it as an ordinary named Hexagon export”; it never creates a Hexagon default export (FFI Part 4 §6). Rejected with reasons §9.5.
 
@@ -110,6 +113,23 @@ An unconstrained type variable requires no binder: `export let id(x: a): a = x`
 is a complete exported signature as written. A bare `<a>` binder remains legal
 (Constraints §1) but is inert and not canonical; Functions §4.2.1 gives the full
 decision procedure.
+
+*(#700.)* **An exported member of a `fun` block writes its binders on the block
+head.** The head's list (`fun<a: Eq>`, Functions §7.3) is the written constraint
+list of every exported member that mentions the variable — maximal under
+entailment, as above — and the member line itself takes no binder (Functions
+§7.3). The member still annotates every parameter and its result, as any
+exported function does. This is what makes an exported constrained knot
+spellable directly: the head is one binder shared by placement, where two
+per-member heads could never be one variable (Functions §7.4). The head's
+list is published whole: a member that mentions the variable exports under
+every constraint the head writes, even where its own body demands fewer —
+Functions §4.2's deliberate-restriction reading; a member wanting a narrower
+face of its own spells it through a non-recursive wrapper. The
+completeness advice follows the spelling: when the incomplete-signature
+function is a member of a recursive knot, the advice names the block-head
+form — "declare the constraint on the block head: `fun<a: Eq>`" — never a
+per-member binder the knot would refuse.
 
 This rule applies only to exports. The boundary-first convention for private
 module-level functions remains a style rule: annotate parameters, infer the
@@ -229,7 +249,7 @@ The prelude's `Int.div`, `Map.get`, `Vector.map` are this exact pattern — auto
 
 The prelude enters every module's scope as a **distinct outermost layer**. The Head Binder Shadowing rule (Statements §5) keeps its statement for every layer the module writes itself — sequential binders never reuse a name from the module layer or any inner layer, nor one whose definition is in progress (Statements §5.1) — but the prelude layer is **shadowable at every binder position**, and shadowing it **reserves the name**:
 
-- A **module-level** `let`/`fun` (or import, or a constraint's member, or a type-namespace declaration such as `record Seq(a)`, or a declaration's **constructor names** — a union's, a record's, or an exception's) **may occlude a prelude name**. `fun show(x) = ...` at module level is legal; the local `show` wins unqualified **module-wide**, and the prelude's version remains reachable qualified (`String.show` etc. — §6.4 guarantees a qualified home exists). *Module-wide* is enforced by reservation: the occluding item makes the prelude's binding invisible throughout the module, and every reference — outside a shadowing `let`'s or `var`'s own RHS, the pending-clause seam (Statements §5.1) that the wrapper idiom depends on — resolves **as if the prelude did not bind the name**. A reference above the occluder therefore behaves exactly as the same shape behaves at a user-written name: the declared-later error (Functions §7.2) above a binding, a declaration, or an import item (§3's import-shaped fixit), or the legal mutual reference within a contiguous `fun` group (Functions §7.3) — never, in any case, the prelude's meaning. Outside that one RHS seam, one identifier never carries two meanings in one scope. Explicit imports enter the *same* layer as local bindings and fight under the full ban.
+- A **module-level** `let`/`fun` (or import, or a constraint's member, or a type-namespace declaration such as `record Seq(a)`, or a declaration's **constructor names** — a union's, a record's, or an exception's) **may occlude a prelude name**. `fun show(x) = ...` at module level is legal; the local `show` wins unqualified **module-wide**, and the prelude's version remains reachable qualified (`String.show` etc. — §6.4 guarantees a qualified home exists). *Module-wide* is enforced by reservation: the occluding item makes the prelude's binding invisible throughout the module, and every reference — outside a shadowing `let`'s or `var`'s own RHS, the pending-clause seam (Statements §5.1) that the wrapper idiom depends on — resolves **as if the prelude did not bind the name**. A reference above the occluder therefore behaves exactly as the same shape behaves at a user-written name: the declared-later error (Functions §7.2) above a binding, a declaration, or an import item (§3's import-shaped fixit), or the legal mutual reference within a `fun` block (Functions §7.3) — never, in any case, the prelude's meaning. Outside that one RHS seam, one identifier never carries two meanings in one scope. Explicit imports enter the *same* layer as local bindings and fight under the full ban.
 
   Constructor occlusion reads **pattern position and value position as one scope** — Functions §7.2 already governs both. A bare constructor pattern below the occluding declaration means the module's constructor; one above it draws §7.2's pattern-position declared-later error ("move the union's declaration above this use"); a module without an occluder keeps the prelude's constructor in patterns as everywhere else. The occluded prelude constructor stays reachable **qualified in both positions**: the §3.3 forms through a module alias, and the declaring prelude module's own name for prelude constructors — `Prelude.Less`, `Option.Some(v)`, in a pattern as in an expression. (`union Flag = True | Maybe` is therefore legal and occludes `True` module-wide; every context demanding `Bool` still demands it, so a strayed `Flag` constructor is a loud type error, and `Bool.True` remains spellable in both positions.)
 - A **function-local sequential binder may shadow a prelude name** — the same grant, one layer in. Statements §5.1 rule 1 exempts the prelude layer from its collision set, for all four sequential forms alike: `let`, `var`, `fun`, and `let`-destructuring (`let {show, hash} = record` is legal, its punned fields shadowing two prelude names the pattern's author never wrote). The shadowed name is **reserved for the whole enclosing block** (Statements §5.1): references outside the binder's own RHS resolve as if the prelude did not bind the name, so a use above the binder takes the declared-later error rather than the prelude's meaning — the same reservation as at module level, and the two levels must never diverge.
@@ -242,7 +262,7 @@ This section owns the module/prelude boundary referenced by Statements §5.2/§1
 Two adjacent facts, so the shadow grant is not overread:
 
 - **A wrapper captures the bare-name spelling only.** A binding over a constraint member's name — `let show = (v) => "«" ++ show(v) ++ "»"`, legal at either level, its RHS reaching the prelude through the pending-binder clause (Statements §5.1) — reroutes calls spelled `show(…)` and nothing else. Elaboration-internal dispatch keeps its own routes (Constraints §6.1): string interpolation still uses the honored `Show` instance, `+` the honored `Num`, comparison the honored `Ord`. A stray binding must not redefine `+`; the price is that wrapping is weakest at exactly the names most worth wrapping.
-- **`let` wraps; `fun` recurses.** `let show = (v) => "«" ++ show(v) ++ "»"` wraps the prelude's `show` once, because a `let`'s own name is absent for reference in its own RHS (Statements §5.1). `fun show(v) = "«" ++ show(v) ++ "»"` is a self-call — a `fun`'s own name is in scope in its own body (Functions §7.3) — and does not terminate. Same two words, opposite meanings, and no diagnostic distinguishes them; pre-existing for user-written names, reachable at prelude names wherever shadowing is.
+- **`let` wraps; `fun` recurses.** `let show = (v) => "«" ++ show(v) ++ "»"` wraps the prelude's `show` once, because a `let`'s own name is absent for reference in its own RHS (Statements §5.1). `fun show(v) = "«" ++ show(v) ++ "»"` is a self-call — a `fun` is the one-member block, its own name in scope in its own body (Functions §7.3) — and does not terminate. Same two words, opposite meanings, and no diagnostic distinguishes them; pre-existing for user-written names, reachable at prelude names wherever shadowing is.
 
 ### 5.5 The prelude is ordinary modules, in an ordered set *(added 2026-07-26)*
 
@@ -357,6 +377,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | Situation | Error / hint |
 |---|---|
 | `module Name` header | parse error: "Hexagon has no module headers; a file is a module" |
+| `export` below module level (a function-body binding; an inner `fun` block's member) | parse error: "`export` marks module-level declarations; a local binding cannot be exported" (§4.1, #700) |
 | Import inside a function/block | "declarations live at module level" family (Preamble §7.1) |
 | Importing an unexported name | "`helper` exists in `./geometry` but is not exported" (or plain unknown-export + near-miss) |
 | Import cycle | "import cycle: `./a` → `./b` → `./a`"; hint: "mutually recursive declarations can share one module" |
@@ -519,6 +540,7 @@ make(1.5).m                                  -- ERROR: Crate has fields n, not m
 | Module aliases: uppercase, not values; qualified access in term, type, and pattern position | §3.3 |
 | `export` = declaration prefix exporting everything introduced; no default exports; no re-exports (v1) | §4.1 |
 | Exported terms require complete annotations; constrained functions explicitly list maximal constraints and omit entailed bases; private module-level function guidance remains style | §4.1.1 |
+| An exported `fun`-block member's binders are the block head's; the completeness advice on a knot member names the block-head spelling (#700) | §4.1.1 |
 | One head visibility slot, three values — absent / `export` / `opaque`; `export opaque` refused with the required rewrite (#590). `opaque` on `record`/`union`: type name only; fields/constructors/matching private outside home; derives unaffected; home module unaffected | §4, §4.2 |
 | Transparent representation visibility travels with the type (sole-authority rule): field access, update, and the bare copy are import-insensitive; imports carry names (constructor and its pattern included); no intermediary or per-signature re-abstraction | §4.2 |
 | Private-in-public: hard error for the module's **own** nominal types at every exported face — `export`ed binding signatures, alias targets, record fields, union and exception payloads, constraint member signatures, never an `opaque` declaration's interior, never an elsewhere-declared type — reported once per type per carrier; a type carrier at the mention's seat, a binding at the binding, a constraint member at the member, a label at the private type's declaration; transparent aliases exempt (expansion used, and a private expansion refused the same); a private constraint *gating* an export is lawful (the sealing idiom — the gate, not the cargo) | §4.3 |
