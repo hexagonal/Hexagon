@@ -282,6 +282,13 @@ describe("the live name-reads see pre-registered names only", () => {
    *
    * Asserted as an equality rather than a subset: a seventh spelling reaching
    * this seat is a decision about the key, and it should have to be made here.
+   *
+   * Not because a gate losing its name check would otherwise go unnoticed —
+   * dropping the `Bool` pin's reddens eight rows elsewhere in the suite, and a
+   * tighter drift still reddened four. What this row buys is a failure that
+   * *names* what drifted: the diff of the closed set against the spellings
+   * actually reaching the seat, in the file whose subject is the key, rather
+   * than an unrelated emission row somewhere else.
    */
   test("every structural requirement names a pre-registered constraint", () => {
     const structural = rows.filter(({ structural: flag }) => flag);

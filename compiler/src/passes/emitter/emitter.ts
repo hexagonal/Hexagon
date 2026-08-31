@@ -7710,9 +7710,13 @@ class JavaScriptEmitter {
    * spellings its gates name outright — or for a provided `Iterable` row, which
    * `#seedProvidedIterableRows` mints at `preRegisteredConstraintIdentity`, and
    * because the planner's `Unit`/`Bool` arms sit behind
-   * `isPreRegisteredIdentity` (`editionEvidence`); `P|` because
-   * `Primitive` evidence has the two producers `#sourceInstanceDictionary`
-   * names and both are pre-registered.
+   * `isPreRegisteredIdentity` (`editionEvidence`); `P|` because `Primitive`
+   * evidence is minted in exactly two places and both are pre-registered —
+   * elaboration's `evidence`, for a requirement at a primitive that selected
+   * no instance, and `editionEvidence`'s tail, which a declared identity
+   * returns before ever reaching. Named here rather than deferred to
+   * `#sourceInstanceDictionary`: that is a *lookup*, and its `undefined` is
+   * what selects this fallback, not what limits who can arrive at it.
    *
    * `conformance/evidence-key-identity.test.ts` is where those two invariants
    * redden: it walks a representative compile and asserts that no requirement
