@@ -1112,6 +1112,36 @@ interface DotCallGoal {
   readonly level: number;
 }
 
+/** One member of a `fun` group's strongly-connected component (Functions §7.4). */
+interface KnotMember {
+  readonly symbol: Resolved.SymbolId;
+  readonly name: string;
+  /**
+   * Modules §4.1.1 requires a complete signature on an export, so "leave the
+   * heads off" is not a spelling an exported member can take — which is what
+   * §7.4's refusal has to know before it offers one.
+   */
+  readonly exported: boolean;
+}
+
+/**
+ * One monomorphic knot under check: the component's members, the member whose
+ * body inference is currently inside it, and every reference that resolved to a
+ * member from within it.
+ *
+ * `host` is the member the reference is *written in*, which is not the enclosing
+ * `#declaringMember` — a reference may sit inside a nested lambda or a nested
+ * `fun` group, and the dictionaries in scope there are still the host's.
+ */
+interface Knot {
+  readonly members: readonly KnotMember[];
+  host: Resolved.SymbolId | undefined;
+  readonly references: {
+    readonly host: Resolved.SymbolId;
+    readonly target: Resolved.SymbolId;
+  }[];
+}
+
 /** The module a receiver head's companion is addressed under (§4.1's table). */
 function companionHeadName(type: Mono): string | undefined {
   if (type.kind === "NominalRecord" || type.kind === "Union") return type.name;
@@ -1509,6 +1539,42 @@ class Checker {
    * close a cycle neither can see.
    */
   readonly #funGroups: Set<Resolved.SymbolId>[] = [];
+  /**
+   * The monomorphic knots whose bodies are currently being checked, innermost
+   * last: one frame per strongly-connected component, holding the members typed
+   * at their not-yet-generalized monotype (Functions §7.4).
+   *
+   * Narrower than `#funGroups`, which bounds *visibility* over the whole
+   * contiguous run. Only a component's own members are inside the knot, and only
+   * they take the identity evidence suffix.
+   */
+  readonly #knots: Knot[] = [];
+  /**
+   * Every reference that resolved *inside* a knot, and the member it named.
+   *
+   * A knot member's scheme is a bare monotype while the component is being
+   * checked, so instantiating it collects no requirements — and downstream an
+   * empty evidence list is exactly what an unconstrained call looks like, which
+   * is how a constrained recursive call came to be emitted with its dictionary
+   * suffix dropped (#368). The constraints are not knowable at the reference:
+   * they accumulate on the shared variables as the component's bodies are
+   * inferred. So the reference is recorded here and its evidence read off the
+   * member's finished scheme at materialization — `#knotEvidence`.
+   */
+  readonly #knotReferences = new WeakMap<Resolved.NameExpr, Resolved.SymbolId>();
+  /**
+   * The `fun` group member whose declared head is about to be elaborated, and
+   * the member each declared type variable's head belongs to.
+   *
+   * Read by one diagnostic: §7.4's declared-heads refusal names the member each
+   * rigid was declared on, and two members of one group habitually spell the
+   * same variable name, so the name alone cannot tell them apart.
+   */
+  #declaringMember: { readonly symbol: Resolved.SymbolId; readonly name: string } | undefined;
+  readonly #declaredHeadOwners = new Map<
+    number,
+    { readonly symbol: Resolved.SymbolId; readonly name: string }
+  >();
   readonly #constraintNames = new Set<string>(PRE_REGISTERED_CONSTRAINTS);
   /**
    * What a module alias offers a bare name that failed to be a constraint
@@ -4057,7 +4123,10 @@ class Checker {
    *
    * Members of the group are held on `#funGroups` while their bodies are checked,
    * which is what lets a dot call inside one recognize a sibling as its own group
-   * and refuse it (Method Syntax §4.4).
+   * and refuse it (Method Syntax §4.4). The component being checked is held on
+   * `#knots` over the same span, for the two things §7.4 says about references
+   * that resolve inside it: their evidence is the identity suffix, and two
+   * members' declared heads cannot meet.
    */
   #inferFunGroup(group: readonly Resolved.FunItem[], level: number): void {
     const bySymbol = new Map(group.map((item) => [item.binding.symbol, item]));
@@ -4081,14 +4150,28 @@ class Checker {
         recursiveTypes.set(symbol, recursiveType);
         this.#schemes.set(symbol, { variables: [], type: recursiveType });
       }
+      const knot: Knot = {
+        members: ordered.map((symbol) => ({
+          symbol,
+          name: bySymbol.get(symbol)!.binding.name,
+          exported: bySymbol.get(symbol)!.exported,
+        })),
+        host: undefined,
+        references: [],
+      };
+      this.#knots.push(knot);
       for (const symbol of ordered) {
         const item = bySymbol.get(symbol)!;
-        this.#unify(
-          recursiveTypes.get(symbol)!,
-          this.#inferExpr(item.value, level + 1),
-          item.span,
-        );
+        const enclosingMember = this.#declaringMember;
+        knot.host = symbol;
+        this.#declaringMember = { symbol, name: item.binding.name };
+        const value = this.#inferExpr(item.value, level + 1);
+        this.#declaringMember = enclosingMember;
+        this.#unify(recursiveTypes.get(symbol)!, value, item.span);
       }
+      knot.host = undefined;
+      this.#knots.pop();
+      this.#pinUnreachableKnotEvidence(knot, recursiveTypes, level);
       for (const symbol of ordered) {
         this.#schemes.set(
           symbol,
@@ -4097,6 +4180,60 @@ class Checker {
       }
     }
     this.#funGroups.pop();
+  }
+
+  /**
+   * Keeps the knot's evidence demand inside what the knot can supply, before the
+   * component generalizes.
+   *
+   * §7.4's identity suffix is the caller's *own* dictionary parameters, so it
+   * covers exactly the constrained variables caller and callee share. The knot
+   * can also put a constrained variable in one member's type and nowhere in
+   * another's — `outer(x, n)` comparing `x`, `inner(n)` calling `outer(0, …)` —
+   * and there the sibling's reference demands evidence no call site of *that*
+   * sibling could ever determine. Quantifying such a variable hands the caller a
+   * dictionary parameter it does not have; the emitter has nothing to name and
+   * the module dies with a missing-evidence report the author cannot act on.
+   *
+   * Demoting the variable to the enclosing level is the ordinary answer, not a
+   * new one: it is the state a variable no signature mentions is already in, and
+   * it lands on the same pinning-or-defaulting the deadline applies everywhere
+   * else. The variable is shared, so demoting it removes it from every member's
+   * scheme at once — which is right, because inside the knot every member holds
+   * it at the same identity.
+   */
+  #pinUnreachableKnotEvidence(
+    knot: Knot,
+    recursiveTypes: ReadonlyMap<Resolved.SymbolId, Variable>,
+    level: number,
+  ): void {
+    if (knot.references.length === 0) return;
+    const quantifiable = new Map<Resolved.SymbolId, ReadonlySet<number>>();
+    const own = (symbol: Resolved.SymbolId): ReadonlySet<number> => {
+      const cached = quantifiable.get(symbol);
+      if (cached !== undefined) return cached;
+      const type = recursiveTypes.get(symbol);
+      const ids = new Set(
+        type === undefined
+          ? []
+          : this.#collectVariables(type)
+              .filter((variable) => variable.level > level)
+              .map(({ id }) => id),
+      );
+      quantifiable.set(symbol, ids);
+      return ids;
+    };
+    for (const { host, target } of knot.references) {
+      const supplied = own(host);
+      const targetType = recursiveTypes.get(target);
+      if (targetType === undefined) continue;
+      for (const variable of this.#collectVariables(targetType)) {
+        if (variable.level <= level) continue;
+        if (variable.requirements.length === 0) continue;
+        if (supplied.has(variable.id)) continue;
+        variable.level = level;
+      }
+    }
   }
 
   /**
@@ -4493,6 +4630,18 @@ class Checker {
               ),
         );
         this.#nameRequirements.set(expression, requirements);
+        // Functions §7.4: inside the knot the scheme is a monotype, so the copy
+        // above collected nothing. What the reference owes is settled once the
+        // component generalizes; `#knotEvidence` reads it back there.
+        const knot = this.#knots.find((frame) =>
+          frame.members.some(({ symbol }) => symbol === expression.symbol)
+        );
+        if (knot !== undefined) {
+          this.#knotReferences.set(expression, expression.symbol);
+          if (knot.host !== undefined) {
+            knot.references.push({ host: knot.host, target: expression.symbol });
+          }
+        }
         break;
       case "Unit":
         type = UNIT;
@@ -4695,6 +4844,10 @@ class Checker {
         // then decides.
         const writtenOwn = this.#pendingOwnEffect;
         this.#pendingOwnEffect = undefined;
+        // A `fun` item's value *is* this lambda, so the pending attribution is
+        // this head's and no nested lambda's; taking it here is what scopes it.
+        const declaringMember = this.#declaringMember;
+        this.#declaringMember = undefined;
         // A lambda is a signature, wherever it stands: a `->?` refused inside
         // one is refused for want of an *inlet*, not for want of a signature,
         // and §4.4's clause has to say so even when the lambda sits in a
@@ -4750,6 +4903,9 @@ class Checker {
             declaredConstraints,
           );
           annotationVariables.set(parameter.name, variable);
+          if (declaringMember !== undefined) {
+            this.#declaredHeadOwners.set(variable.id, declaringMember);
+          }
           for (const constraint of parameter.constraints) {
             if (!this.#constraintNames.has(constraint)) {
               this.#diagnostics.add({
@@ -8531,6 +8687,33 @@ class Checker {
     variable.instance = ERROR;
   }
 
+  /**
+   * The two members whose declared heads a knot has just asked to be one
+   * variable (Functions §7.4), or `undefined` where the collision is any other
+   * two annotations'.
+   *
+   * Both sides must be heads of *different* members of one component under
+   * check. A single head colliding with a concrete type is the other family —
+   * a sibling using the member at an instantiation — and keeps its own message.
+   */
+  #knotHeadCollision(
+    left: Variable,
+    right: Variable,
+  ): { readonly left: KnotMember; readonly right: KnotMember } | undefined {
+    const leftOwner = this.#declaredHeadOwners.get(left.id);
+    const rightOwner = this.#declaredHeadOwners.get(right.id);
+    if (leftOwner === undefined || rightOwner === undefined) return undefined;
+    if (leftOwner.symbol === rightOwner.symbol) return undefined;
+    for (const knot of this.#knots) {
+      const leftMember = knot.members.find(({ symbol }) => symbol === leftOwner.symbol);
+      const rightMember = knot.members.find(({ symbol }) => symbol === rightOwner.symbol);
+      if (leftMember !== undefined && rightMember !== undefined) {
+        return { left: leftMember, right: rightMember };
+      }
+    }
+    return undefined;
+  }
+
   #bind(variable: Variable, type: Mono, span: Source.Span): void {
     if (variable.rigidName !== undefined) {
       if (type.kind === "Variable" && type.rigidName === undefined) {
@@ -8538,14 +8721,31 @@ class Checker {
         return;
       }
       if (type.kind === "Variable" && type.rigidName !== undefined) {
+        const collision = this.#knotHeadCollision(variable, type);
         this.#diagnostics.add({
           severity: "error",
-          message:
-            `\`${variable.rigidName}\` and \`${type.rigidName}\` are distinct declared type variables, ` +
-            "but the body requires them to be the same; use one type variable name in both " +
-            "annotations, or remove an annotation to let the type be inferred",
+          message: collision === undefined
+            ? `\`${variable.rigidName}\` and \`${type.rigidName}\` are distinct declared type variables, ` +
+              "but the body requires them to be the same; use one type variable name in both " +
+              "annotations, or remove an annotation to let the type be inferred"
+            : knotHeadCollisionMessage(
+                variable.rigidName,
+                type.rigidName,
+                collision.left,
+                collision.right,
+              ),
           primary: span,
         });
+        if (collision !== undefined) {
+          // Functions §10's fence on the *other* family: the refusal has been
+          // made on both heads, so neither variable may reach defaulting, whose
+          // proposal of `Int` would then be reported as a demand of a body that
+          // never wrote one.
+          for (const requirement of [...variable.requirements, ...type.requirements]) {
+            requirement.reported = true;
+          }
+          type.instance = ERROR;
+        }
       } else {
         const required = Typed.displayScheme({
           variables: [],
@@ -13027,6 +13227,37 @@ class Checker {
     return this.#display(this.#prune(requirement.type));
   }
 
+  /**
+   * Functions §7.4's identity suffix: the evidence one reference inside the
+   * monomorphic knot supplies — the member's **own** dictionary parameters,
+   * unchanged, in the order its parameter list has.
+   *
+   * Read off the finished scheme, and off the very producer whose reader mints
+   * those parameters: `#publicScheme`'s constraints are what `dictionaryEntries`
+   * turns into the definition's suffix, and the sort here is that reader's, key
+   * for key (FFI Part 9 §6.2's type-variable ordinal, then constraint name). So
+   * arity and order are not two agreements to keep but one — an SCC-internal
+   * reference is an ordinary call site whose instantiation is the identity, and
+   * the identity of a substitution is the substitution itself.
+   *
+   * Nothing is selected here. Every constraint lands on a quantified variable,
+   * which is a `Dictionary` node naming the enclosing definition's own
+   * parameter — the same evidence-in-scope shape a non-recursive sibling call
+   * takes (Constraints §6.1), and in value position the same eta-expansion.
+   */
+  #knotEvidence(symbol: Resolved.SymbolId): readonly Typed.Constraint[] {
+    const entries: { readonly ordinal: number; readonly constraint: Typed.Constraint }[] = [];
+    for (const constraint of this.#publicScheme(this.#scheme(symbol)).constraints) {
+      if (constraint.type.kind !== "Variable") continue;
+      entries.push({ ordinal: Number(constraint.type.id), constraint });
+    }
+    entries.sort((left, right) =>
+      left.ordinal - right.ordinal ||
+      left.constraint.name.localeCompare(right.constraint.name)
+    );
+    return entries.map(({ constraint }) => constraint);
+  }
+
   #publicRequirements(requirements: readonly Requirement[]): readonly Typed.Constraint[] {
     const unique = new Map<string, Typed.Constraint>();
     for (const requirement of requirements) {
@@ -13612,9 +13843,12 @@ class Checker {
         // so emission can close over the evidence (defect 4). A callee
         // reference carries none: the enclosing `Call` supplies it, and doing
         // both would apply it twice.
+        const knotTarget = this.#knotReferences.get(expression);
         const requirements = this.#calleeNames.has(expression)
           ? []
-          : this.#evidenceRequirements(this.#nameRequirements.get(expression) ?? []);
+          : knotTarget !== undefined
+            ? this.#knotEvidence(knotTarget)
+            : this.#evidenceRequirements(this.#nameRequirements.get(expression) ?? []);
         return requirements.length === 0
           ? { ...expression, type }
           : { ...expression, type, requirements };
@@ -13772,14 +14006,19 @@ class Checker {
             span: expression.span,
           };
         }
+        // The callee's own knot reference, where there is one: the call owns the
+        // evidence, and inside the knot that evidence is §7.4's identity suffix.
+        const knotCallee = expression.callee.kind === "Name"
+          ? this.#knotReferences.get(expression.callee)
+          : undefined;
         return {
           ...expression,
           type,
           callee: this.#materializeExpr(expression.callee),
           arguments: expression.arguments.map((argument) => this.#materializeExpr(argument)),
-          requirements: this.#evidenceRequirements(
-            this.#callRequirements.get(expression) ?? [],
-          ),
+          requirements: knotCallee === undefined
+            ? this.#evidenceRequirements(this.#callRequirements.get(expression) ?? [])
+            : this.#knotEvidence(knotCallee),
         };
       case "Access": {
         const tupleIndex = this.#tupleAccesses.get(expression);
@@ -14764,6 +15003,33 @@ function missingFieldMessage(
 
 function inferredTypeVariableName(index: number): string {
   return index < 26 ? String.fromCharCode("a".charCodeAt(0) + index) : `t${index + 1}`;
+}
+
+/**
+ * Functions §10's SCC hint for two declared heads the knot links.
+ *
+ * Each side is qualified by the member that declared it, because a group whose
+ * members spell the same variable name is the shape that produces this refusal
+ * and an unqualified pair reads as "`a` and `a`". The advice the generic message
+ * carries — one name in both annotations — is what the refused program already
+ * writes, so it is not offered here; §7.4's spellings are. The headless knot is
+ * offered unless **both** members export: Modules §4.1.1 requires a complete
+ * signature on an exported function, so two exporting members leave only the
+ * wrapper, while a knot exporting one member keeps the single-head spelling.
+ */
+function knotHeadCollisionMessage(
+  leftName: string,
+  rightName: string,
+  left: KnotMember,
+  right: KnotMember,
+): string {
+  const heads = `\`${leftName}\` declared on \`${left.name}\` and \`${rightName}\` declared on ` +
+    `\`${right.name}\` are distinct declared type variables, but members of a recursive knot ` +
+    "are checked together at not-yet-general types";
+  return left.exported && right.exported
+    ? `${heads}; both must declare their constraints to export, so move the contract to a ` +
+      "non-recursive wrapper over an unexported knot"
+    : `${heads}; leave the heads off the knot, or move the contract to a non-recursive wrapper`;
 }
 
 /** Keeps the technical projection vocabulary out of source-facing diagnostics. */
