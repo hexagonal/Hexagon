@@ -169,10 +169,13 @@ describe("generatedSectionsPanel", () => {
   /**
    * The pairing key, pinned on the only shape that can tell the two candidate
    * keys apart: two constrained declarations where the private one's editions
-   * are rendered **first**. That is the default example's own shape, not a
-   * contrivance — this pane previews private editions and the `.d.ts` beside it
-   * has none of them, so the lists differ in membership and not merely in
-   * length.
+   * are rendered **first**. Not a contrivance: the default example already
+   * carries a private constrained declaration and no exported one, so the
+   * membership difference is there in the pane's very first render, and a module
+   * that adds an exported declaration beside that one compiles clean and renders
+   * in exactly this order. This pane previews private editions and the `.d.ts`
+   * beside it has none of them, so the lists differ in membership and not merely
+   * in length.
    *
    * Pairing by position reads green on every other fixture in this file and
    * inverts here: `secret` is credited with `stamp`'s faces and `stamp` reports
