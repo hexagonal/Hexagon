@@ -50,7 +50,11 @@ import type { CompiledModule } from "../project.js";
  * different *point*, which is where the reachable mistakes are:
  *
  * - the eligibility gate dropped, so "published no face" alone decides — caught
- *   by the mixed module and by the constrained-alias row;
+ *   by every row whose module carries an unconstrained export, which is four of
+ *   them: the mixed module, the fully-collided, the private and the importer.
+ *   *Not* the constrained-alias row, which stays green: that alias never reaches
+ *   the eligibility test at all, being turned away one gate earlier by
+ *   `isSpecializable`, and it is the control for that gate instead;
  * - the row written from a plan reached across a module boundary, so every
  *   consumer repeats the declarer's fact — caught by "is the declaring module's
  *   alone", `planImportedSpecializations` being the recomputation that really

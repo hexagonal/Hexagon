@@ -9151,8 +9151,9 @@ class DeclarationEmitter {
           // it is text that exists only because the editions exist — "bytes
           // attributable to generated specializations" in §10's own words, and
           // the half that grows with the Cartesian product §12.2 has to see. On
-          // a two-export documented module the faces alone report 725 of 1828
-          // `.d.ts` bytes; the 1102 unreported ones are these blocks.
+          // a two-export documented module of 1828 `.d.ts` bytes, the faces
+          // alone report 725; 1092 of the rest are these blocks, and the last
+          // eleven are the newlines separating them.
           //
           // The JavaScript side has no counterpart to add. There the item's
           // documentation precedes the whole rendered block once, source binding
