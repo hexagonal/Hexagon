@@ -37,6 +37,41 @@ export interface SpecializationCollision {
 export interface SpecializationPlan {
   readonly specializations: readonly FundamentalSpecialization[];
   readonly collisions: readonly SpecializationCollision[];
+  /**
+   * The **exported** §3.1-eligible declarations this plan minted no edition for
+   * — Zero-Cost Fundamental Exports §3.4's zero-entry-point case, by source name
+   * in declaration order.
+   *
+   * A fact about *this* plan and not a second derivation of §3.4's trigger: the
+   * row is written where `planScheme` finds an empty `candidates(vi)` and
+   * returns the empty product, so the list and the editions are the same
+   * traversal's two halves and cannot disagree about what was published. §3.4's
+   * own condition conjoins the empty product with §4's trigger being unmet;
+   * Algorithm G is unimplemented, so the two coincide today, and the predicate
+   * stated here — an eligible export with no edition — stays truthful whichever
+   * way #423 resolves the generic edition's `.d.ts` face.
+   *
+   * Four exclusions, at three different gates — worth keeping straight, because
+   * a reader looking for all of them at one of them will conclude one is missing.
+   *
+   * - A **non-function** export and a constrained non-function *value* are
+   *   turned away by `isSpecializable`, in the loop below, before any scheme is
+   *   planned. §3.1 reserves the constrained value to §13.3, so it is out of
+   *   scope rather than inside it with nothing to show — and it is a shape that
+   *   really occurs, an alias like `export let add = plus` generalizing with its
+   *   constraint intact over a value that is not a lambda.
+   * - An **unconstrained** export is turned away by `planScheme`, which is what
+   *   `SchemePlan.eligible` reports: §3.1's own test, no specializing variable.
+   * - A **private** item is turned away by the `item.exported` gate below,
+   *   whatever `includePrivate` asks for, because the report is about the
+   *   module's real foreign surface and an inspection preview's extra rows are
+   *   not on it.
+   * - A **collision-dropped** export is turned away by *ordering*: the row is
+   *   written before the collision filter runs, so an export whose every edition
+   *   was dropped stays the hard error `addSpecializationCollisionDiagnostics`
+   *   reports and is not re-read as a legal §3.4 absence.
+   */
+  readonly zeroEntryPointExports: readonly string[];
 }
 
 /**
@@ -88,13 +123,21 @@ export function planFundamentalSpecializations(
   const generated = new Map<string, FundamentalSpecialization>();
   const specializations: FundamentalSpecialization[] = [];
   const collisions: SpecializationCollision[] = [];
+  const zeroEntryPointExports: string[] = [];
   const bool = preludeBoolUnion(module);
   const judgment = candidateJudgment(module, instances, bool);
 
   for (const item of module.items) {
     if (!isSpecializable(item) || (!includePrivate && !item.exported)) continue;
     const planned = planItem(item, judgment, bool);
-    for (const specialization of planned) {
+    // §3.4, and the two gates are the whole of `zeroEntryPointExports`' doc: the
+    // export half keeps an `includePrivate` preview's private rows off the
+    // module's reported surface, and reading `planned` before the collision
+    // filter below keeps a dropped edition from reading as a legal absence.
+    if (planned.eligible && item.exported && planned.specializations.length === 0) {
+      zeroEntryPointExports.push(item.binding.name);
+    }
+    for (const specialization of planned.specializations) {
       let collided = false;
       const explicit = explicitTerms.get(specialization.name);
       if (explicit !== undefined && explicit.name !== item.binding.name) {
@@ -121,7 +164,7 @@ export function planFundamentalSpecializations(
     }
   }
 
-  return { specializations, collisions };
+  return { specializations, collisions, zeroEntryPointExports };
 }
 
 /**
@@ -340,15 +383,33 @@ export function planImportedSpecializations(
     true,
     candidateJudgment(module, instances, bool),
     bool,
-  );
+  ).specializations;
 }
+
+/**
+ * One declaration's plan, with the distinction the caller's report needs: an
+ * empty edition list means two different things, and `[]` said both.
+ *
+ * `eligible` is Zero-Cost Fundamental Exports §3.1 exactly — a function
+ * declaration whose generalized scheme carries at least one *specializing* type
+ * variable. An ineligible declaration is outside the spec, not inside it with
+ * nothing to show; only an eligible one with no editions is §3.4's case, and
+ * telling the two apart is the whole of what `zeroEntryPointExports` needed and
+ * the planner used to discard.
+ */
+interface SchemePlan {
+  readonly eligible: boolean;
+  readonly specializations: readonly FundamentalSpecialization[];
+}
+
+const INELIGIBLE: SchemePlan = { eligible: false, specializations: [] };
 
 function planItem(
   item: SpecializableItem,
   judgment: CandidateJudgment,
   bool: Resolved.UnionId | undefined,
-): readonly FundamentalSpecialization[] {
-  if (item.kind === "Let" && item.value.kind !== "Lambda") return [];
+): SchemePlan {
+  if (item.kind === "Let" && item.value.kind !== "Lambda") return INELIGIBLE;
   return planScheme(
     item.binding.symbol,
     item.binding.name,
@@ -366,8 +427,8 @@ function planScheme(
   exported: boolean,
   judgment: CandidateJudgment,
   bool: Resolved.UnionId | undefined,
-): readonly FundamentalSpecialization[] {
-  if (scheme.constraints.length === 0) return [];
+): SchemePlan {
+  if (scheme.constraints.length === 0) return INELIGIBLE;
 
   // Keyed on each constraint's **identity** rather than its name (§5.1.1): the
   // judgment below asks about a declaration, and a scheme can carry two
@@ -380,16 +441,21 @@ function planScheme(
     constraints.set(requirement.type.id, demanded);
   }
   const specializing = scheme.variables.filter((variable) => constraints.has(variable));
-  if (specializing.length === 0) return [];
+  if (specializing.length === 0) return INELIGIBLE;
 
   const candidates = specializing.map((variable) =>
     fundamentalTypes.filter((type) =>
       [...(constraints.get(variable) ?? [])].every((identity) => judgment(identity, type))
     )
   );
-  if (candidates.some((types) => types.length === 0)) return [];
+  // §3.2 clause 3: one empty candidate set empties the product, however many
+  // variables are stocked (§16(k)). Eligible, and with nothing to publish —
+  // §3.4's case, which the caller reports rather than treats as an error.
+  if (candidates.some((types) => types.length === 0)) {
+    return { eligible: true, specializations: [] };
+  }
 
-  return cartesian(candidates).map((types) => {
+  const specializations = cartesian(candidates).map((types) => {
     const assignment = specializing.map((variable, index) => ({
       variable,
       type: types[index]!,
@@ -405,6 +471,7 @@ function planScheme(
       ), bool),
     };
   });
+  return { eligible: true, specializations };
 }
 
 function specializeScheme(

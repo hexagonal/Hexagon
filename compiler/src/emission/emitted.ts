@@ -104,7 +104,22 @@ export interface JavaScript extends Output {
   readonly importsRuntimeGlobals: boolean;
 }
 
-/** A generated body that an interactive host may present separately. */
+/**
+ * One emitted edition of a constrained export, located in the file it was
+ * rendered into: a generated *body* in `JavaScript`, a generated *face* with its
+ * own documentation in `Declarations`.
+ *
+ * The §10 measurement in the shape §10 asks for — "the emitted JS size and
+ * `.d.ts` size attributable to generated specializations (count and bytes), per
+ * emitted module" — with the count being the array's length and the bytes each
+ * row's own, so no artefact carries a total that could disagree with its rows.
+ * `bytes` is UTF-8, the encoding the file is written in; the offsets are into
+ * `text` as JavaScript indexes it, so `text.slice(startOffset, endOffset)` is
+ * the rendered edition and `bytes` is what it weighs on disk.
+ *
+ * The same row also lets an interactive host present a generated body
+ * separately from the source-derived text around it.
+ */
 export interface GeneratedSection {
   readonly kind: "FundamentalSpecialization";
   readonly sourceName: string;
@@ -117,6 +132,51 @@ export interface GeneratedSection {
 
 export interface Declarations extends Output {
   readonly kind: "Declarations";
+  /**
+   * `JavaScript.generatedSections`' `.d.ts` half (Zero-Cost Fundamental Exports
+   * §10): one row per edition rendered into this file, in the order they appear
+   * in `text`.
+   *
+   * A row spans the edition's **documentation block and its face**, not the face
+   * alone. A constrained export has no single `.d.ts` declaration, so its doc
+   * block is re-emitted once per edition, each carrying that specialization's
+   * own Hexagon face — text that exists only because the editions exist, which
+   * is what "attributable to generated specializations" asks for and where most
+   * of a documented module's Cartesian growth actually sits. The JavaScript side
+   * has no counterpart: there the item's documentation precedes the whole
+   * rendered block once, source binding and editions together.
+   *
+   * The two artefacts' rows are the same plan read twice, so they agree on
+   * count, `sourceName`, `generatedName` and `typeArguments` for every module
+   * that emits both. What differs is `bytes`, and that is the point of measuring
+   * both rather than summing them: the two artefacts grow differently with the
+   * product, and §10 asks for the two sizes.
+   */
+  readonly generatedSections: readonly GeneratedSection[];
+  /**
+   * The exported declarations this module publishes **no typed entry point** for
+   * — Zero-Cost Fundamental Exports §3.4's zero-entry-point case, by source
+   * name, and the list §10's report is required to carry beside the byte
+   * accounting above.
+   *
+   * The predicate is an emission fact rather than a re-derivation of §3.4's
+   * trigger: a §3.1-eligible export that published zero faces here. Nothing
+   * re-runs Algorithm S and nothing implements §4's trigger to ask whether the
+   * generic edition would have covered the export — Algorithm G is unimplemented
+   * and #423 has yet to settle whether it would carry a `.d.ts` face at all, and
+   * a predicate phrased on what was published stays true either way.
+   *
+   * It sits on the **declarations** and not on the JavaScript because that is
+   * where §3.4's absence is literal. The emitted ESM may still carry the
+   * export's evidence-taking form as cross-module plumbing (§3.4's second
+   * bullet, Modules §11.5); what the exception removes is the *typed, supported*
+   * surface, which is this file. A §10 report needs both artefacts anyway —
+   * `CompiledModule` carries them together — so one home is enough.
+   *
+   * See `SpecializationPlan.zeroEntryPointExports` for what is and is not
+   * listed; in particular private declarations never are.
+   */
+  readonly zeroEntryPointExports: readonly string[];
   /**
    * Whether this file imports the program's runtime declaration module — true
    * exactly when a `Hex.*` face was rendered into it (FFI Part 1 §8.3

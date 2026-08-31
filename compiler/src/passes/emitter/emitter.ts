@@ -3317,7 +3317,7 @@ class JavaScriptEmitter {
       kind: "JavaScript",
       fileId: this.#module.fileId,
       text,
-      generatedSections: this.#generatedSections(text),
+      generatedSections: generatedSections(text, this.#generatedBodies),
       preludeInstanceImports: [
         ...new Set(preludeInstanceImports.map(({ specifier }) => specifier)),
       ],
@@ -4272,25 +4272,6 @@ class JavaScriptEmitter {
     symbol: Resolved.SymbolId,
   ): readonly FundamentalSpecialization[] {
     return this.#specializations.filter(({ sourceSymbol }) => sourceSymbol === symbol);
-  }
-
-  #generatedSections(text: string): readonly Emitted.GeneratedSection[] {
-    let cursor = 0;
-    return this.#generatedBodies.flatMap(({ specialization, text: body }) => {
-      const startOffset = text.indexOf(body, cursor);
-      if (startOffset < 0) return [];
-      const endOffset = startOffset + body.length;
-      cursor = endOffset;
-      return [{
-        kind: "FundamentalSpecialization" as const,
-        sourceName: specialization.sourceName,
-        generatedName: specialization.name,
-        typeArguments: specialization.assignment.map(({ type }) => type),
-        startOffset,
-        endOffset,
-        bytes: utf8ByteLength(body),
-      }];
-    });
   }
 
   #emitBindingValue(
@@ -8872,6 +8853,17 @@ class DeclarationEmitter {
   readonly #diagnostics = new Diagnostics.Bag();
   readonly #module: Core.Module;
   readonly #specializations: readonly FundamentalSpecialization[];
+  /**
+   * Each edition **face** as it was rendered, for §10's byte accounting — the
+   * declaration side's `#generatedBodies`, recorded at the push so the report
+   * measures the text this file actually carries.
+   */
+  readonly #generatedFaces: {
+    readonly specialization: FundamentalSpecialization;
+    readonly text: string;
+  }[] = [];
+  /** §3.4's list, from the plan this file's faces were rendered from. */
+  readonly #zeroEntryPointExports: readonly string[];
   readonly #opaqueBrands: ReadonlyMap<string, string>;
   /** The prelude identities and runtime faces this `.d.ts` renders through. */
   readonly #faces: DeclarationFaces;
@@ -8888,6 +8880,7 @@ class DeclarationEmitter {
     // readily as at the end.
     const plan = planFundamentalSpecializations(module, options.fundamentalInstances);
     this.#specializations = plan.specializations;
+    this.#zeroEntryPointExports = plan.zeroEntryPointExports;
     // Every spelling below is settled **before** a single face is rendered, and
     // that is what §2.4's rung order rests on: the probe's universe is a property
     // of the module, so `reference` can return finished text and nothing has to
@@ -9138,23 +9131,40 @@ class DeclarationEmitter {
           // A constrained binding has no single `.d.ts` declaration — its face
           // is one per specialization — so its documentation rides each, and so
           // does the Hexagon face, which is the specialization's own.
-          declarations.push(
-            ...this.#docs.lines(
-              item.span,
-              "",
-              hexagonFaceDoc(specialized.binding.scheme),
-              true,
-            ),
+          const doc = this.#docs.lines(
+            item.span,
+            "",
+            hexagonFaceDoc(specialized.binding.scheme),
+            true,
           );
-          declarations.push(
-            renderFunctionDeclaration(
-              specialization.name,
-              specialized.binding.scheme,
-              specialized.value as Core.LambdaExpr,
-              true,
-              this.#faces,
-            ),
+          const face = renderFunctionDeclaration(
+            specialization.name,
+            specialized.binding.scheme,
+            specialized.value as Core.LambdaExpr,
+            true,
+            this.#faces,
           );
+          // §10, and the block is the doc **and** the face rather than the face
+          // alone. The duplication is the measurement's subject, not noise
+          // around it: a documented constrained export's doc block is re-emitted
+          // once per edition, carrying the specialization's own Hexagon face, so
+          // it is text that exists only because the editions exist — "bytes
+          // attributable to generated specializations" in §10's own words, and
+          // the half that grows with the Cartesian product §12.2 has to see. On
+          // a two-export documented module of 1828 `.d.ts` bytes, the faces
+          // alone report 725; 1092 of the rest are these blocks, and the last
+          // eleven are the newlines separating them.
+          //
+          // The JavaScript side has no counterpart to add. There the item's
+          // documentation precedes the whole rendered block once, source binding
+          // and editions together, so no per-edition doc text exists to attribute.
+          //
+          // Recorded here, where the block is the text that goes into the file,
+          // rather than recovered afterwards by searching for a rendering this
+          // would have to perform a second time to know.
+          const block = [...doc, face];
+          this.#generatedFaces.push({ specialization, text: block.join("\n") });
+          declarations.push(...block);
         }
         isExternalModule ||= specializations.length > 0;
         continue;
@@ -9237,10 +9247,13 @@ class DeclarationEmitter {
     }
     if (!isExternalModule) rendered.push("export {};");
 
+    const text = `${rendered.join("\n")}\n`;
     return {
       kind: "Declarations",
       fileId: this.#module.fileId,
-      text: `${rendered.join("\n")}\n`,
+      text,
+      generatedSections: generatedSections(text, this.#generatedFaces),
+      zeroEntryPointExports: this.#zeroEntryPointExports,
       importsRuntimeTypes: this.#faces.runtime.used,
       preludeTypeImports: [...new Set(preludeTypeLines.map(({ specifier }) => specifier))],
       mintedTypeImports: [...new Set(mintedTypeLines.map(({ specifier }) => specifier))],
@@ -9731,6 +9744,55 @@ function addSpecializationCollisionDiagnostics(
       )?.span ?? module.span,
     });
   }
+}
+
+/**
+ * Zero-Cost Fundamental Exports §10's byte accounting, over whichever artefact's
+ * editions are handed in: the JavaScript emitter's rendered bodies, or the
+ * declaration emitter's rendered doc-and-face blocks.
+ *
+ * One function for both because §10 asks for one measurement of two files, and
+ * the two would drift apart the moment they were written twice. The rendered
+ * text is *recorded as it was pushed* and then found in the finished file rather
+ * than re-rendered here — that is what makes a row a report of the emission
+ * instead of a second opinion about it, and it is why an edition that stopped
+ * being pushed loses its row rather than acquiring a stale one.
+ *
+ * The cursor advances past each located edition. That is a discipline rather
+ * than an observable property today — editions are pushed in the order they are
+ * rendered and each carries its own generated name, so a scan from zero would
+ * find the same offsets — and it is kept because the alternative is quadratic
+ * and because the property it guarantees, disjoint rows in file order, is what
+ * makes summing `bytes` meaningful.
+ *
+ * A row is dropped where the text is not found at all, which no emission
+ * produces today: the final file is the pushed strings joined. Dropping beats
+ * guessing an offset that would make `text.slice(start, end)` return something
+ * that is not the edition.
+ */
+function generatedSections(
+  text: string,
+  editions: readonly {
+    readonly specialization: FundamentalSpecialization;
+    readonly text: string;
+  }[],
+): readonly Emitted.GeneratedSection[] {
+  let cursor = 0;
+  return editions.flatMap(({ specialization, text: rendered }) => {
+    const startOffset = text.indexOf(rendered, cursor);
+    if (startOffset < 0) return [];
+    const endOffset = startOffset + rendered.length;
+    cursor = endOffset;
+    return [{
+      kind: "FundamentalSpecialization" as const,
+      sourceName: specialization.sourceName,
+      generatedName: specialization.name,
+      typeArguments: specialization.assignment.map(({ type }) => type),
+      startOffset,
+      endOffset,
+      bytes: utf8ByteLength(rendered),
+    }];
+  });
 }
 
 function utf8ByteLength(text: string): number {
