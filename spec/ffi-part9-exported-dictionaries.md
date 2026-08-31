@@ -311,7 +311,7 @@ export function plus(x, y, num) {
 Public dictionaries from separately compiled Hexagon packages interoperate **only against a compatible `@hexagon/runtime` dictionary ABI version**. The ABI commitments:
 
 - constraint member names and callable signatures (the completed member set, §2.2);
-- base constraint slots and their names (§7.1);
+- base constraint slots and their names — the base declarations’ own names, contested slots numbered in the extending declaration’s written base-list order (§7.1; Constraints §6.2), which makes **reordering a contested base list** an ABI event;
 - evidence suffix ordering and duplicate-elimination canonicalization (§6.2, §7.2);
 - brand identity/recognition where present;
 - factory argument order (§4);
