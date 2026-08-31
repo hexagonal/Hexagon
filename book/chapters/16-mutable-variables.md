@@ -52,7 +52,9 @@ best-candidates-so-far — and a "current behavior" slot is not data. When behav
 genuinely changes over a computation, say it as data: declare a union of the modes,
 keep `var mode = Fast`, and `match` on it where the behavior is used. Functions inside
 data are still data — a `var` may hold a vector of handlers — but the var itself may
-not be one.
+not be one. The compiler reads the type, not the spelling: a `var` whose type only
+later turns out to be a function — settled by a subsequent use, the way an
+undetermined `var` type is always settled — is refused at that point too.
 
 Like every sequential binding, a `var` must introduce a fresh name. It does not provide
 another way to rebind an existing `let`:

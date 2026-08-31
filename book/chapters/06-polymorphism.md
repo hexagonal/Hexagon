@@ -357,7 +357,8 @@ constraints inline, and a binder list cannot name a hole.
 ## Recursive calls keep one type
 
 A recursive `fun` may be reusable at several types from the outside, just like another
-generalized function. Inside its own recursive knot, however, every recursive call
+generalized function. Inside its own recursive knot — the definitions its recursion
+actually links, itself alone or its mutual partners — every recursive call
 uses one consistent type. It cannot call itself with an unrelated type on a later step.
 
 This rejects **polymorphic recursion**. The restriction is valuable because ordinary
@@ -367,9 +368,19 @@ as collection traversal still work; only the recursive knot itself stays at one 
 
 The same one-consistent-type rule shapes how a mutually recursive pair writes a
 constraint. Members of a `fun` block that share a type variable share it through the
-block's head — `fun<a: Eq>` — where one binder scopes over every member that writes
-`a`. Two members could never each declare their own `a` and have the knot treat the
-two as one; the head says it once, for the block.
+block's head, which carries the binder once, for the block:
+
+```hexagon
+fun<a: Eq>
+    contains(items: Vector(a), candidate: a): Bool = ...
+    export withoutDuplicates(items: Vector(a)): Vector(a) = ...
+```
+
+Both members write `a`, so both mean the head's `a` — one variable, one `Eq`
+obligation, stated once. Sharing is opt-in by placement: a member that never writes
+`a` is untouched by it, and a variable a member writes that the head does not declare
+is that member's own. Two members could never each declare their own `a` and have the
+knot treat the two as one; the head is the only way to say it.
 
 ## Inferred types do not burden the JavaScript
 

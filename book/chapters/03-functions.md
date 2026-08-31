@@ -270,14 +270,15 @@ fun factorial(n: Int): Int =
     if n <= 1 then 1 else n * factorial(n - 1)
 ```
 
-Unlike `let`, `fun` has exactly one spelling: the header form above. There is no
-`fun factorial = ...` — not with a lambda, not with any other right-hand side. A `fun`
-always shows its parameters on its own line, and anything else is an error whose
-message hands you the header rewrite. The discipline is not arbitrary: a recursive
-binding must exist before its body can run, so creating it must involve no
-computation at all, and a header can only ever describe a function. `let` remains
-the general word — values, lambdas, whatever you like — while `fun` does one job
-and always looks the same doing it.
+Unlike `let`, `fun` never takes a right-hand side of its own. There is no
+`fun factorial = ...` — not with a lambda, not with any other expression. A `fun`
+shows its parameters in its header, and anything else is an error whose message
+hands you the header rewrite. The discipline is not arbitrary: a recursive binding
+must exist before its body can run, so creating it must involve no computation at
+all, and a header can only ever describe a function. `let` remains the general
+word — values, lambdas, whatever you like — while `fun` does one job and always
+shows its shape. The one variation on that shape, a bare `fun` heading a block of
+members, arrives with mutual recursion below.
 
 ### Declarations are read top-down
 
@@ -343,8 +344,8 @@ aren't — the `export` word goes on the member's own line:
 
 ```hexagon
 fun
-    walk(order, depth: Int): Int = ...
-    export itemCount(order): Int = walk(order, 0)
+    walk(order: String, depth: Int): Int = ...
+    export itemCount(order: String): Int = walk(order, 0)
 ```
 
 ## The JavaScript remains direct
@@ -382,8 +383,8 @@ where the block stood.
 ## Summary
 
 - Ordinary named functions use `let`; recursive functions use `fun`.
-- Header syntax is convenient spelling for a lambda binding — and for `fun` it is the
-  only spelling: a `fun` always shows its header.
+- Header syntax is convenient spelling for a lambda binding — and a `fun` never takes
+  a right-hand side: it always shows its header.
 - Functions are values and may be passed, stored, and returned.
 - Calls require parentheses, and arity is checked exactly.
 - An incomplete call is an error; write an explicit lambda when a new adapted function

@@ -299,8 +299,8 @@ fun size(shape) = match shape
     Node(left, _, right) => 1 + size(left) + size(right)
 ```
 
-— the ordinary scrutinee form, one name longer than the scrutinee-less spelling and
-just as recursive. The match function belongs to expression seats: `let` bindings,
+— the ordinary scrutinee form, the parameter named once in the header and once after
+`match`, and just as recursive. The match function belongs to expression seats: `let` bindings,
 call arguments, pipes.
 
 A match function's type is read off its patterns, and patterns do not always say enough.
