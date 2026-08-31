@@ -574,9 +574,14 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
         // constraint the node answers, and the one an edition's substituted
         // parameter has to find an instance of (#679).
         constraintIdentity: requirement.identity,
+        // The provider, in both currencies: the word an emission report prints,
+        // and the identity the evidence parameter is selected by.
         ...(requirement.evidenceConstraint === undefined
           ? {}
           : { constraint: requirement.evidenceConstraint }),
+        ...(requirement.evidenceConstraintIdentity === undefined
+          ? {}
+          : { providerIdentity: requirement.evidenceConstraintIdentity }),
         ...(requirement.evidencePath === undefined
           ? {}
           : { path: requirement.evidencePath }),

@@ -38,6 +38,18 @@ export interface DictionaryEvidence {
    */
   readonly constraintIdentity: string;
   readonly constraint?: Typed.ConstraintName;
+  /**
+   * The identity of the constraint whose *binder* this evidence is read out of,
+   * where entailment supplied the demand — the provider `constraint` above
+   * spells. Absent exactly when `constraint` is, the demand then being a binder
+   * of its own and answered by its own identity.
+   *
+   * Both halves travel because they answer different questions. The name is
+   * what a report prints; the identity is what selects the evidence parameter,
+   * and only the identity can, two modules being free to spell one word over
+   * two unrelated declarations.
+   */
+  readonly providerIdentity?: string;
   readonly path?: readonly string[];
 }
 

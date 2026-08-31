@@ -653,6 +653,13 @@ export function emitTypeScriptPreview(
 
 type EvidenceNames = ReadonlyMap<string, string>;
 
+/** One binder an evidence parameter is minted for; see `#evidenceParameters`. */
+interface EvidenceParameter {
+  readonly constraint: Typed.ConstraintName;
+  readonly identity: string;
+  readonly variable: Typed.TypeVariableId;
+}
+
 /**
  * The checker's per-component evidence selection for one container, keyed by
  * component position (#278, `spec/products.md` §2.5's implementer note).
@@ -3652,8 +3659,9 @@ class JavaScriptEmitter {
       this.#noteHonorParameters(item.typeParameters);
       const { names: parameters, localEvidence } = this.#evidenceParameters(
         item.typeParameters.flatMap((parameter) =>
-          parameter.constraints.map((constraint) => ({
-            constraint,
+          parameter.constraints.map(({ name, identity }) => ({
+            constraint: name,
+            identity,
             variable: parameter.variable,
           }))
         ),
@@ -3669,7 +3677,7 @@ class JavaScriptEmitter {
       // construction with no evidence for it (§6.5, #276).
       if (item.constraintSubject !== undefined) {
         localEvidence.set(
-          evidenceKey(item.constraintSubject, item.constraint),
+          evidenceKey(item.constraintSubject, item.constraintIdentity),
           localDictionary,
         );
       }
@@ -4125,7 +4133,7 @@ class JavaScriptEmitter {
     const name = defaultHelperName(member.binding.name);
     const dictionary = `__dict`;
     const localEvidence = new Map(evidenceNames);
-    localEvidence.set(evidenceKey(item.subject, item.name), dictionary);
+    localEvidence.set(evidenceKey(item.subject, item.identity), dictionary);
     const parameters = [
       dictionary,
       ...member.defaultValue.parameters.map((parameter) =>
@@ -5878,7 +5886,7 @@ class JavaScriptEmitter {
     if (expression.evidence.kind !== "Dictionary") return this.#unit;
     const dictionary = this.#dictionary(
       expression.evidence.variable,
-      expression.evidence.constraint ?? "Num",
+      dictionarySeat(expression.evidence, "Num"),
       expression.span,
       evidenceNames,
       expression.evidence.path,
@@ -5899,7 +5907,7 @@ class JavaScriptEmitter {
     if (expression.evidence.kind === "Dictionary") {
       const dictionary = this.#dictionary(
         expression.evidence.variable,
-        expression.evidence.constraint ?? "Num",
+        dictionarySeat(expression.evidence, "Num"),
         expression.span,
         evidenceNames,
         expression.evidence.path,
@@ -5932,7 +5940,7 @@ class JavaScriptEmitter {
     if (expression.evidence.kind === "Dictionary") {
       const dictionary = this.#dictionary(
         expression.evidence.variable,
-        expression.evidence.constraint ?? "Signed",
+        dictionarySeat(expression.evidence, "Signed"),
         expression.span,
         evidenceNames,
         expression.evidence.path,
@@ -5963,7 +5971,7 @@ class JavaScriptEmitter {
       if (part.evidence.kind === "Dictionary") {
         const dictionary = this.#dictionary(
           part.evidence.variable,
-          part.evidence.constraint ?? "Show",
+          dictionarySeat(part.evidence, "Show"),
           part.span,
           evidenceNames,
           part.evidence.path,
@@ -6011,7 +6019,7 @@ class JavaScriptEmitter {
     if (expression.evidence.kind === "Dictionary") {
       const dictionary = this.#dictionary(
         expression.evidence.variable,
-        expression.evidence.constraint ?? expression.constraint,
+        dictionarySeat(expression.evidence, expression.constraint),
         expression.span,
         evidenceNames,
         expression.evidence.path,
@@ -6186,7 +6194,7 @@ class JavaScriptEmitter {
     if (step.evidence.kind === "Dictionary") {
       const dictionary = this.#dictionary(
         step.evidence.variable,
-        step.evidence.constraint ?? constraint,
+        dictionarySeat(step.evidence, constraint),
         step.span,
         evidenceNames,
         step.evidence.path,
@@ -6303,12 +6311,12 @@ class JavaScriptEmitter {
 
   #dictionary(
     variable: Typed.TypeVariableId,
-    constraint: Typed.ConstraintName,
+    constraint: ConstraintSeat,
     span: Core.Expr["span"],
     evidenceNames: EvidenceNames,
     path: readonly string[] = [],
   ): string {
-    const name = evidenceNames.get(evidenceKey(variable, constraint));
+    const name = evidenceNames.get(evidenceKey(variable, constraint.identity));
     if (name !== undefined) {
       return path.reduce((dictionary, slot) => `${dictionary}.${slot}`, name);
     }
@@ -6319,7 +6327,7 @@ class JavaScriptEmitter {
     // nothing and blamed a pass they cannot see. Emit best-effort into a module
     // the project has already rejected and say nothing.
     this.#reportUnreachableEvidence(
-      `missing \`${constraint}\` evidence during JavaScript emission`,
+      `missing \`${constraint.name}\` evidence during JavaScript emission`,
       span,
     );
     return this.#unit;
@@ -6357,10 +6365,13 @@ class JavaScriptEmitter {
     variable: Typed.TypeVariableId,
     evidenceNames: EvidenceNames,
   ): string {
-    if (evidenceNames.has(evidenceKey(variable, "Eq"))) {
-      return this.#dictionary(variable, "Eq", this.#module.span, evidenceNames);
+    const eq = preRegisteredSeat("Eq");
+    if (evidenceNames.has(evidenceKey(variable, eq.identity))) {
+      return this.#dictionary(variable, eq, this.#module.span, evidenceNames);
     }
-    return `${this.#dictionary(variable, "Hash", this.#module.span, evidenceNames)}.eq`;
+    return `${
+      this.#dictionary(variable, preRegisteredSeat("Hash"), this.#module.span, evidenceNames)
+    }.eq`;
   }
 
   /**
@@ -6497,7 +6508,13 @@ class JavaScriptEmitter {
       );
     if (type.kind === "Primitive") return `${this.#useHelper("stableHash")}(${value})`;
     if (type.kind === "Variable") {
-      return `${this.#dictionary(type.id, "Hash", this.#module.span, evidenceNames)}.hash(${value})`;
+      const hash = this.#dictionary(
+        type.id,
+        preRegisteredSeat("Hash"),
+        this.#module.span,
+        evidenceNames,
+      );
+      return `${hash}.hash(${value})`;
     }
     const combine = (parts: readonly string[]): string =>
       parts.reduce(
@@ -6692,7 +6709,13 @@ class JavaScriptEmitter {
       return `${left} < ${right} ? "Less" : ${left} > ${right} ? "Greater" : "Equal"`;
     }
     if (type.kind === "Variable") {
-      return `${this.#dictionary(type.id, "Ord", this.#module.span, evidenceNames)}.compare(${left}, ${right})`;
+      const ord = this.#dictionary(
+        type.id,
+        preRegisteredSeat("Ord"),
+        this.#module.span,
+        evidenceNames,
+      );
+      return `${ord}.compare(${left}, ${right})`;
     }
     if (type.kind === "Tuple") {
       return lexicographicComparison(type.elements.map((element, index) =>
@@ -6850,12 +6873,19 @@ class JavaScriptEmitter {
     // map that exists but lacks the key — on the defect path it names. Both want
     // the same answer: a variable's dictionary is the parameter itself, never a
     // literal wrapping its slots, and only a structural type has slots to build.
-    // `Eq` goes through the name-probe, the one thing blind mode has instead of
-    // a recorded path.
+    // `Eq` goes through the two-seat probe, the one thing blind mode has instead
+    // of a recorded path. Every constraint that reaches here is one of the four
+    // derivable ones, which are pre-registered and so non-redeclarable (§5.1.1):
+    // the seat their word denotes is the compiler's own, in every module.
     if (type.kind === "Variable") {
       return constraint === "Eq"
         ? this.#equalityDictionary(type.id, evidenceNames)
-        : this.#dictionary(type.id, constraint, this.#module.span, evidenceNames);
+        : this.#dictionary(
+          type.id,
+          preRegisteredSeat(constraint),
+          this.#module.span,
+          evidenceNames,
+        );
     }
     return this.#emitEvidence(
       { kind: "Structural", type, components: [] },
@@ -6929,7 +6959,14 @@ class JavaScriptEmitter {
     }
     if (type.kind === "Variable") {
       const dictionary = hashBacked
-        ? `${this.#dictionary(type.id, "Hash", this.#module.span, evidenceNames)}.eq`
+        ? `${
+          this.#dictionary(
+            type.id,
+            preRegisteredSeat("Hash"),
+            this.#module.span,
+            evidenceNames,
+          )
+        }.eq`
         : this.#equalityDictionary(type.id, evidenceNames);
       return `${dictionary}.equals(${left}, ${right})`;
     }
@@ -7085,7 +7122,13 @@ class JavaScriptEmitter {
       return `${this.#spell("String")}(${value})`;
     }
     if (type.kind === "Variable") {
-      return `${this.#dictionary(type.id, "Show", this.#module.span, evidenceNames)}.show(${value})`;
+      const show = this.#dictionary(
+        type.id,
+        preRegisteredSeat("Show"),
+        this.#module.span,
+        evidenceNames,
+      );
+      return `${show}.show(${value})`;
     }
     if (type.kind === "Tuple") {
       const elements = type.elements.map((element, index) =>
@@ -7497,7 +7540,7 @@ class JavaScriptEmitter {
     if (evidence.kind === "Dictionary") {
       return this.#dictionary(
         evidence.variable,
-        evidence.constraint ?? constraint,
+        dictionarySeat(evidence, constraint),
         span,
         evidenceNames,
         evidence.path,
@@ -8204,7 +8247,7 @@ class JavaScriptEmitter {
       if (value.kind === "Dictionary") {
         return this.#dictionary(
           value.variable,
-          value.constraint ?? constraint,
+          dictionarySeat(value, constraint),
           span,
           evidenceNames,
           value.path,
@@ -8268,7 +8311,9 @@ class JavaScriptEmitter {
       bindingRhs &&
       (expression.evidence ?? []).every(({ constraint, value }) =>
         value.kind === "Dictionary" &&
-        !evidenceNames.has(evidenceKey(value.variable, value.constraint ?? constraint))
+        !evidenceNames.has(
+          evidenceKey(value.variable, dictionarySeat(value, constraint).identity),
+        )
       )
     ) {
       return base;
@@ -8293,11 +8338,16 @@ class JavaScriptEmitter {
       ...new Map(
         (expression.evidence ?? []).flatMap(({ constraint, value }) => {
           if (value.kind !== "Dictionary") return [];
-          const name = value.constraint ?? constraint;
-          if (evidenceNames.has(evidenceKey(value.variable, name))) return [];
+          const seat = dictionarySeat(value, constraint);
+          const key = evidenceKey(value.variable, seat.identity);
+          if (evidenceNames.has(key)) return [];
           return [[
-            evidenceKey(value.variable, name),
-            { variable: value.variable, constraint: name },
+            key,
+            {
+              variable: value.variable,
+              constraint: seat.name,
+              identity: seat.identity,
+            },
           ] as const];
         }),
       ).values(),
@@ -8709,8 +8759,13 @@ class JavaScriptEmitter {
    * inner generic binding under a generic function may re-use `a`, and shadowing
    * the outer dictionary would leave the outer body's requirement answered by
    * the wrong evidence. The same numbering discipline the dictionary family uses
-   * settles it: probe `_1` upward. Distinct constraints on one variable need no
-   * probe — `<a: (Num, Show)>` is `__Num_a` and `__Show_a` already.
+   * settles it: probe `_1` upward. Distinct constraints on one variable usually
+   * need no probe — `<a: (Num, Show)>` is `__Num_a` and `__Show_a` already —
+   * and the exception is two of them that genuinely share a word (§5.1.1). No
+   * module can spell both *under that one word*, but one can reach both through
+   * imported schemes, and can spell both by aliasing an import. Their seats are
+   * told apart by identity; here there is only the word, so the second takes the
+   * suffix and the two parameters differ by that alone.
    */
   #dictionaryParameterName(
     constraint: Typed.ConstraintName,
@@ -8728,20 +8783,22 @@ class JavaScriptEmitter {
    * Mints the evidence parameters for one binder list, threading them into a
    * copy of the enclosing evidence map. One helper for the four sites that need
    * it, so the shadowing probe cannot be applied at three of them.
+   *
+   * Each entry carries both currencies, and they are spent on different things:
+   * the spelling names the parameter, and the identity is the seat it is
+   * registered under. Two binders whose constraints share a word are two seats
+   * whose parameters differ only by the probe's suffix.
    */
   #evidenceParameters(
-    entries: readonly {
-      readonly constraint: Typed.ConstraintName;
-      readonly variable: Typed.TypeVariableId;
-    }[],
+    entries: readonly EvidenceParameter[],
     evidenceNames: EvidenceNames,
   ): { readonly names: readonly string[]; readonly localEvidence: Map<string, string> } {
     const localEvidence = new Map(evidenceNames);
     const taken = new Set(evidenceNames.values());
-    const names = entries.map(({ constraint, variable }) => {
+    const names = entries.map(({ constraint, identity, variable }) => {
       const name = this.#dictionaryParameterName(constraint, variable, taken);
       taken.add(name);
-      localEvidence.set(evidenceKey(variable, constraint), name);
+      localEvidence.set(evidenceKey(variable, identity), name);
       return name;
     });
     return { names, localEvidence };
@@ -11285,17 +11342,24 @@ function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undef
  * It keys on the **identity** rather than on a spelling because a name is not a
  * property of a constraint at a module border — two modules may each declare a
  * `Describe`, and an import may rename one (#685). That is the sentence
- * `Core.DictionaryEvidence.constraintIdentity` is carried for, and this case is
+ * `Core.DictionaryEvidence`'s identity fields are carried for, and this case is
  * the one place in the key that had a field of the right kind and read the
  * wrong one. What it buys is a case that stays right for whoever makes it
  * reachable, not a repair to anything running.
+ *
+ * Which identity is `dictionaryIdentity`'s answer, not this function's, so the
+ * key names the same constraint an emission site would resolve the node to —
+ * the provider's where entailment supplied the demand. The two readings can
+ * only differ on a routed node, which the ground gate keeps out of here as
+ * surely as it keeps out every other kind; sharing the rule is what makes that
+ * a fact about the gate rather than a coincidence between two spellings of it.
  *
  * Module-level and exported because the case has no public path to be driven
  * through: with the ground gate in front of it, only a hand-built node reaches
  * it, and only a direct call can hand it one.
  */
 export function serializeDictionaryEvidence(evidence: Core.DictionaryEvidence): string {
-  return `D|${evidence.constraintIdentity}|${Number(evidence.variable)}|${
+  return `D|${dictionaryIdentity(evidence)}|${Number(evidence.variable)}|${
     (evidence.path ?? []).join(".")
   }`;
 }
@@ -11634,14 +11698,15 @@ class GeneratedNames {
  * carries no slot identity), so a divergence is a silently mis-slotted
  * dictionary, not a build failure.
  */
-function dictionaryEntries(scheme: Typed.Scheme): readonly {
-  readonly constraint: Typed.ConstraintName;
-  readonly variable: Typed.TypeVariableId;
-}[] {
+function dictionaryEntries(scheme: Typed.Scheme): readonly EvidenceParameter[] {
   return scheme.constraints
     .flatMap((constraint) =>
       constraint.type.kind === "Variable"
-        ? [{ constraint: constraint.name, variable: constraint.type.id }]
+        ? [{
+          constraint: constraint.name,
+          identity: constraint.identity,
+          variable: constraint.type.id,
+        }]
         : [],
     )
     .sort(
@@ -11707,11 +11772,88 @@ function lexicographicComparison(comparisons: readonly string[]): string {
 }
 
 
+/**
+ * The seat one constraint on one type variable occupies in `EvidenceNames`.
+ *
+ * Keyed by the constraint's **declaration identity** (`spec/constraints.md`
+ * §5.1.1), never by its spelling. A name is not a property of a constraint at a
+ * module border: two modules may each declare a `Describe`, and a caller that
+ * reaches both — through their imported schemes, or by aliasing one import and
+ * writing the binders itself — gets two evidence parameters. A name-keyed seat
+ * hands every use site whichever of them registered last, which type-checks,
+ * emits, and then calls the wrong dictionary at run time.
+ *
+ * The *names* those parameters take are still spelled from the constraint, and
+ * still probe `_1` upward when two of them want one word; that is cosmetics, and
+ * `#dictionaryParameterName` owns it.
+ */
 function evidenceKey(
   variable: Typed.TypeVariableId,
-  constraint: Typed.ConstraintName,
+  identity: string,
 ): string {
-  return `${Number(variable)}:${constraint}`;
+  return `${Number(variable)}:${identity}`;
+}
+
+/**
+ * A constraint as an evidence seat asks about it: the identity that selects the
+ * seat, beside the spelling a report or a parameter name shows.
+ */
+interface ConstraintSeat {
+  readonly name: Typed.ConstraintName;
+  readonly identity: string;
+}
+
+/**
+ * The seat a pre-registered constraint occupies, named by a wired-in reader.
+ *
+ * The `hex:` space is named outright because these callers carry a name and
+ * nothing else. That is sound rather than convenient: §5.1.1 makes a
+ * pre-registered name non-redeclarable, and a source declaration of one lands
+ * on the same compiler-global identity, so the word denotes one declaration in
+ * every module.
+ *
+ * **Defence, not live code.** Every caller is a components-blind arm of a
+ * derived walk — the four `Variable` leaves, `#equalityDictionary`, and
+ * `#subDictionary`'s fallback — and the walks became evidence-directed, so an
+ * accepted program renders the recorded selection instead. Measured, not
+ * assumed: making this helper throw leaves the whole conformance suite green,
+ * while the same throw in `dictionarySeat` fails every specimen that keys a
+ * seat. The identity handed out here is therefore unpinned, and a reader who
+ * changes it will get no signal from the tests. What it is kept for is
+ * best-effort emission into a module the checker **rejected**, where a walk may
+ * have no selection to read and the constraint's word is all that is left.
+ */
+function preRegisteredSeat(name: Typed.ConstraintName): ConstraintSeat {
+  return { name, identity: preRegisteredConstraintIdentity(name) };
+}
+
+/**
+ * Which constraint a `Dictionary` evidence node is keyed by.
+ *
+ * Where entailment supplied the demand the node carries its provider — the
+ * binder it projects out of — and the answer is that binder's identity;
+ * otherwise the demand is a binder of its own and answers for itself. One rule,
+ * one home: `dictionarySeat` reads it for the emission sites, and
+ * `serializeDictionaryEvidence` for the CSE key, so the two cannot drift into
+ * disagreeing about what a node's constraint is.
+ */
+function dictionaryIdentity(evidence: Core.DictionaryEvidence): string {
+  return evidence.providerIdentity ?? evidence.constraintIdentity;
+}
+
+/**
+ * The seat a `Dictionary` evidence node reads: the identity above, beside the
+ * spelling a report or a parameter name shows. `constraint` is the fallback for
+ * the name alone, for the sites whose evidence names its constraint elsewhere.
+ */
+function dictionarySeat(
+  evidence: Core.DictionaryEvidence,
+  constraint: Typed.ConstraintName,
+): ConstraintSeat {
+  return {
+    name: evidence.constraint ?? constraint,
+    identity: dictionaryIdentity(evidence),
+  };
 }
 
 /**
