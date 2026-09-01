@@ -1252,8 +1252,15 @@ interface PreludeIds {
  * its canonical injected name (`moduleBrandIdentity`) — so `owner === "JsError"`
  * says "this declaration is in the prelude's `JsError.hex`", which no user module
  * can say by choosing a name. A user's own `exception JsError` in `errors.hex`
- * brands `"errors"` and fails here; a project file *at* the injection path is the
- * prelude module, which is the stdlib-developing-itself path and the same seat.
+ * brands `"errors"` and fails here.
+ *
+ * The one file that does brand `"JsError"` without being `stdlib/JsError.hex` is
+ * a project file that *is* it: `injectEmbedded` captures an injected module at
+ * whichever project file carries its **basename**, wherever that file sits —
+ * `sub/JsError.hex` included, not only a file at the injection path. That is the
+ * stdlib-developing-itself path and the same seat, so the predicate is right
+ * either way; the capture rule is stated exactly because it is wider than it
+ * reads (the #745 class).
  *
  * The three seats that ask are the guard seats — the emitted `.is`, and the two
  * `.d.ts` renderers — and every one of them is inside the declaring module,
@@ -12611,11 +12618,29 @@ function renderType(
         case "BigInt":
           return "bigint";
         case "Exn":
-          // The brand carries the declaring module (#488), so the face that
-          // admits *any* Hexagon exception says `string` — the same shape
-          // `isHexError` narrows to (Exceptions §7.6).
-          return `${faces.vocabulary.spell("Error")} ` +
-            "& { readonly $hex: string; readonly name: string }";
+          // **`Exn` is `Error`, flat** — Exceptions §7.5's own sentence, and the
+          // conformance repair #509 made when the door landed (#746 review).
+          //
+          // The wider face this rendered before — `Error & { $hex: string; name:
+          // string }` — read as the honest one, since every *Hexagon-constructed*
+          // exception carries both fields (#488). It is not: an `Exn` position
+          // admits the foreign world too, and the `JsError` door (§6.2) means a
+          // caught value is as often `null`, `"oops"` or a `Symbol` as it is an
+          // `Error`. `Result.attempt`'s `Err` side carries exactly those. So the
+          // intersection promised a consumer two fields that are frequently
+          // absent — the typechecks-then-crashes class, which is the *larger*
+          // lie; §7.5 measured the smaller one and accepted it by name ("foreign
+          // non-`Error` throwables make this a white lie of the same size every
+          // TS `catch` clause tells; recorded, accepted").
+          //
+          // Two neighbouring intersections are not this one and stay: an
+          // *exported exception's own* face (§7.5's `ParseError` row) states one
+          // declaration's representation, where both fields are literal types
+          // and really are present; and `isHexError`'s predicate (§7.6), which
+          // spells this intersection because narrowing to it is that guard's
+          // whole job — it is what a consumer gets *after* testing, not what
+          // `Exn` claims before.
+          return faces.vocabulary.spell("Error");
       }
     case "Variable":
       return variables.get(type.id) ?? "unknown";

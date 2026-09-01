@@ -171,17 +171,32 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     }
   });
 
-  test("stage 1 is a class test: `Exn` faces any string brand", () => {
-    // §7.5's `Exn` position. The brand is data now, so the face that admits
-    // *any* Hexagon exception says `string` — the shape `isHexError` narrows to.
+  test("`Exn` faces `Error`, flat — the brand is not in that position", () => {
+    // §7.5's `Exn` row, in its own words: `Exn` where it appears in exported
+    // signatures "is `Error` in the `.d.ts`". This pin read the brand
+    // intersection until #509 landed the `JsError` door and made the difference
+    // observable: an `Exn` position admits the foreign world, so the value is as
+    // often `null` or `"oops"` as it is an `Error`, and promising `$hex`/`name`
+    // there is the typechecks-then-crashes lie rather than the accepted
+    // white one. The brand belongs to a *declaration's* face and to
+    // `isHexError`'s predicate, both pinned below.
     const files = [
       ["/main.hex",
         "export exception Boom(code: Int)\n" +
         "export fun rethrow(e: Exn): Exn = e\n"],
     ] as const;
 
-    expect(declarationsOf(files, "/main.hex")).toContain(
-      "readonly $hex: string; readonly name: string",
+    const declarations = declarationsOf(files, "/main.hex");
+    expect(declarations).toContain("export declare function rethrow(e: Error): Error;");
+    expect(declarations).not.toContain("e: Error & {");
+    // And the two seats that keep the intersection are untouched by that.
+    expect(declarations).toContain(
+      'export type Boom = Error & { readonly $hex: "main"; readonly name: "Boom"; ' +
+        "readonly code: number };",
+    );
+    expect(declarations).toContain(
+      "export declare function isHexError(__error: unknown): __error is Error & " +
+        "{ readonly $hex: string; readonly name: string };",
     );
   });
 });

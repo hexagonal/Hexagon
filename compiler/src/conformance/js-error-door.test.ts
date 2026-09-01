@@ -560,15 +560,23 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
     )).not.toEqual([]);
   });
 
-  test("`Exn` at the boundary is `Error` (§7.5)", () => {
+  /**
+   * §7.5's sentence, unabridged: `Exn` where it appears in an exported signature
+   * "is `Error` in the `.d.ts`". And `attempt`'s `Err` side is where that stops
+   * being a formality — the door means it really does carry `null`, `"oops"` and
+   * `Symbol`s, so the brand intersection this rendered before #509 promised a
+   * consumer two fields that are frequently absent. §7.5 weighed the smaller lie
+   * ("every TS `catch` clause tells" it) and took it; the wider face was the
+   * bigger one.
+   */
+  test("`Exn` at the boundary is `Error`, flat (§7.5)", () => {
     const text = declarationsOf(
       "let pure(): Int = 7\n" +
         "export let attempted(ignored: Int): Result(Int, Exn) = Result.attempt(pure)\n",
       "/main.hex",
     );
-    expect(text).toContain(
-      "Result<number, Error & { readonly $hex: string; readonly name: string }>",
-    );
+    expect(text).toContain("Result<number, Error>");
+    expect(text).not.toContain("readonly $hex: string");
   });
 });
 
