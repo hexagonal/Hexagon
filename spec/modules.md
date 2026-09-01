@@ -131,6 +131,43 @@ function is a member of a recursive knot, the advice names the block-head
 form — "declare the constraint on the block head: `fun<a: Eq>`" — never a
 per-member binder the knot would refuse.
 
+*(#715, #716.)* **The completeness advice spells each required constraint by
+its own declaration** — Constraints §5.1.1's advised-spelling law, applied at
+this rule's advice. The advised binder lists the entailment-maximal required
+set, decided between the declarations themselves before any spelling is chosen
+(a same-spelled shadow's bases absorb nothing — Constraints §5.1.1), and never
+prints one word for two declarations: each constraint takes the spelling that
+resolves here to the declaration required — bare, through an in-scope alias,
+or, where the module has no spelling for it, the module-route repair with the
+route clause appended (the law's tiers, Constraints §5.1.1). A local
+declaration shadowing an imported scheme's same-spelled constraint therefore
+routes the import rather than dropping a binder or advising the shadow —
+"write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib.hex`, and this
+module binds another `Heft`; `import module Lib from "./lib.hex"` and spell it
+`Lib.Heft`" — and of two distinct imported constraints sharing a spelling,
+each without a resolving spelling here takes the module route, one clause per
+declaring module, never the singular word that can declare at most one of
+them; one the module can already spell keeps its word (the contested-group
+rule, Constraints §5.1.1). A same-named pair's relative order in the advised
+conjunction is the implementation's own — unspecified but stable, FFI Part 9
+§6.2.1's terms — and once written it is the declared conjunction's order,
+fixing slots and suffix (Constraints §6.1, §6.2). The advised signature is one
+this section accepts as written — same-spelled conjunctions are declarable
+through the routes above. One tier lies past the routes, the law's fourth: a
+required constraint that is **not exported** — the §4.3 sealing gate — has no
+spelling and no route, and the advice offers no binder at all; the report
+names the gate and the real exits — "exported function `g` requires the
+constraint `Gate`, declared in `./lib.hex` and not exported; a complete
+signature cannot be written here — call `use` at a concrete type, keep `g`
+private, or export `Gate` from `./lib.hex`" — §7.6's unnameable branch, the
+demanding call named where the requirement carries one. A generic export over
+a gate is refused by the seal's design: that unreachability is what sealing
+means. Where the advice names an `import module` repair, it
+joins §10's applied-edit repair family *(#577)* with the gate pre-satisfied:
+the clause already names the one module, so no workspace search is needed —
+and a multi-exporter workspace, which suppresses the insert elsewhere in the
+family, suppresses nothing here.
+
 This rule applies only to exports. The boundary-first convention for private
 module-level functions remains a style rule: annotate parameters, infer the
 result and constraints. Local functions and lambdas remain inference-friendly.
@@ -195,7 +232,7 @@ One message family, the carrier's own noun in both seats — `` exported type al
 - A private **alias** in an exported face is fine: aliases are transparent (Preamble §4), so the exported face (and its `.d.ts`) simply uses the expansion; display stickiness (Preamble §6) yields to visibility. Transparency cuts both ways: a private alias whose *expansion* mentions a private nominal launders nothing — the expansion is the face, and the nominal in it is refused the same. The seat is still the carrier's own annotation — the one naming the alias — and the message still names the nominal the expansion reached; the alias is the route, not the fault, and takes no label of its own. The family's secondary label points, here as everywhere, at the private type's declaration — which is also what resolves the seat's spelling `Alias` against the message's `Hidden`.
 - Instances are exempt (they are not exports and can mention anything; §7.4).
 - An exported **constraint** is the family's sixth member, and its only non-carrier *(#626)*: no `.d.ts` row of its own rides Part 7's carrier list, and member signatures reach a declaration file only through Parts 8–9's **deliberate** surfaces — the public-evidence closure's `Constraint.Dictionary<a>` interface renders the member set with the members' boundary faces (FFI Part 9 §2.2; Modules §11.5). The refusal therefore stands on two legs. The one that never was the emitter's: the rationale above applies to a member signature verbatim — an honor abroad must produce what the signature names, a member call hands it back, and neither party can name or use the type. And the emitter's after all: wherever Part 9's surface renders the member set, a private nominal in it is exactly the #621 failure class, a published face naming what no file binds — guarded here before it can arise. A private nominal in an exported constraint's member signature is refused at the member, once per (constraint, type) at the first offending member, the label at the private type's declaration as everywhere. **Default bodies are bodies, not faces** — they stay free (a default may use its module's private bindings; Constraints §6.5), as instances are (§7.4). Without the refusal the private type would function abroad as *undeclared* opacity — nameable never, usable only through the members — which is the pattern `opaque` exists to spell honestly (§4.2); the message's "perhaps opaquely" is that exact recovery, and it preserves every lawful use of the shape. (F#'s accessibility-consistency error and OCaml's signature escape check refuse exactly this at exactly this seat; Rust diagnoses it at the same seat.)
-- **A private constraint gating an export is lawful — the sealing idiom, stated deliberately** *(#626)*. A private constraint in an exported binding's signature, or as a base constraint of an exported one, crosses nothing: the constraint is the gate, not the cargo. Nothing unnameable lands in a consumer's hands — a call passes with a type the constraint's home honors, or fails instance resolution, whose diagnostic §7.6 owns (naming the declaring module where the constraint is unnameable in the reporting module) — and no consumer can honor the constraint at a new type, which is the point: the author keeps the honored set closed, and the internal-organizing pattern — constraint private, public face of plain exported functions — is the same idiom's other face. The family reads private nominal **types** in signatures; a constraint in a binder's constraint list is not a type mention.
+- **A private constraint gating an export is lawful — the sealing idiom, stated deliberately** *(#626)*. A private constraint in an exported binding's signature, or as a base constraint of an exported one, crosses nothing: the constraint is the gate, not the cargo. Nothing unnameable lands in a consumer's hands — a call passes with a type the constraint's home honors, or fails instance resolution, whose diagnostic §7.6 owns (naming the declaring module where the constraint is unnameable in the reporting module) — and no consumer can honor the constraint at a new type, which is the point: the author keeps the honored set closed, and the internal-organizing pattern — constraint private, public face of plain exported functions — is the same idiom's other face. The seal's other cost stands beside the grant: no consumer can abstract over the gate either — a consumer's export requiring it cannot write a complete signature, and the completeness advice states that truth rather than a spelling that cannot exist (§4.1.1's fourth-tier report; Constraints §5.1.1) *(#715, #716)*. The family reads private nominal **types** in signatures; a constraint in a binder's constraint list is not a type mention.
 
 ---
 
@@ -396,7 +433,8 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | `export default` | "Hexagon has named exports only" |
 | Exported value without an annotation | "exported value `answer` requires a type annotation" |
 | Exported function with missing parameter/result annotations | "exported function `f` requires a complete signature; add …" |
-| Exported function with inferred but unwritten constraints | "exported function `f` must declare every constraint in its signature; write `<a: C>`" |
+| Exported function with inferred but unwritten constraints | "exported function `f` must declare every constraint in its signature; write `<a: C>`" — each constraint spelled per §4.1.1's advised-spelling paragraph (#715, #716): one the module cannot spell takes the derived-alias qualified form with the route clause appended — "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib.hex`, and this module binds another `Heft`; `import module Lib from "./lib.hex"` and spell it `Lib.Heft`" — and a same-spelled pair routes each member the module cannot already spell, one clause per declaring module |
+| Exported function requiring a constraint with no spelling and no route (the §4.3 gate; §6.5's private base) | no rewrite advised — Constraints §5.1.1's fourth tier (#715, #716): "exported function `g` requires the constraint `Gate`, declared in `./lib.hex` and not exported; a complete signature cannot be written here — call `use` at a concrete type, keep `g` private, or export `Gate` from `./lib.hex`" — the demanding call named where the requirement carries one; where it carries none, the first exit reads "use the constrained operation at a concrete type" |
 | Exported function restating an entailed base constraint | "exported function `f` must omit base constraint `Base` from `a`; `C` already provides it" |
 | `export opaque` | parse error, Rewrite Rule: "`opaque` already exports the type name; write `opaque record Point = …`" — the rewrite is required, not advisory, and echoes the user's own declaration (`opaque union Handle = …` at a union head). This row presupposes a lawful subject: a crossed head whose subject is unlawful (`export opaque let x = 1`) draws the subject's own redirect below instead — the pair's rewrite would still be ill-formed, and the subject is the fault (ruled on #590) (§4.2) |
 | `opaque` on `type` | "aliases are transparent; make it a `record` or single-constructor `union`" |
@@ -541,6 +579,7 @@ make(1.5).m                                  -- ERROR: Crate has fields n, not m
 | `export` = declaration prefix exporting everything introduced; no default exports; no re-exports (v1) | §4.1 |
 | Exported terms require complete annotations; constrained functions explicitly list maximal constraints and omit entailed bases; private module-level function guidance remains style | §4.1.1 |
 | An exported `fun`-block member's binders are the block head's; the completeness advice on a knot member names the block-head spelling (#700) | §4.1.1 |
+| The completeness advice spells each required constraint by its own declaration — module-routed where the module has no spelling, a contested group's unspellable members routed uniformly, no rewrite where no route exists (#715, #716) | §4.1.1; Constraints §5.1.1 |
 | One head visibility slot, three values — absent / `export` / `opaque`; `export opaque` refused with the required rewrite (#590). `opaque` on `record`/`union`: type name only; fields/constructors/matching private outside home; derives unaffected; home module unaffected | §4, §4.2 |
 | Transparent representation visibility travels with the type (sole-authority rule): field access, update, and the bare copy are import-insensitive; imports carry names (constructor and its pattern included); no intermediary or per-signature re-abstraction | §4.2 |
 | Private-in-public: hard error for the module's **own** nominal types at every exported face — `export`ed binding signatures, alias targets, record fields, union and exception payloads, constraint member signatures, never an `opaque` declaration's interior, never an elsewhere-declared type — reported once per type per carrier; a type carrier at the mention's seat, a binding at the binding, a constraint member at the member, a label at the private type's declaration; transparent aliases exempt (expansion used, and a private expansion refused the same); a private constraint *gating* an export is lawful (the sealing idiom — the gate, not the cargo) | §4.3 |
