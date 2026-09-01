@@ -52,6 +52,7 @@ const EMBEDDINGS = [
       "JsPathSegment.hex",
       "JsConversionReason.hex",
       "JsValue.hex",
+      "JsError.hex",
       "Debug.hex",
     ],
   },

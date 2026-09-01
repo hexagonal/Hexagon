@@ -2,3 +2,23 @@
 export union Result(a, e) =
     | Ok(value: a)
     | Err(error: e)
+
+(** Runs `action` and answers with what happened: `Ok(value)` when it returned,
+    `Err(thrown)` when it threw. This is the bridge from the exception world
+    back to the data world (`spec/exceptions.md` section 8.2), and it catches
+    everything — a declared Hexagon exception, and a foreign throwable, which
+    arrives as the raw value JavaScript threw and so reads back as
+    `Err(JsError(e))`.
+
+    Nothing here is compiler magic: it is a `try` with a catch-all arm, which is
+    all the construct ever needed to be.
+
+    The arrows are linked (Effects section 2.2). `attempt` is a conduit — its
+    body is one `?` call on `action` — so running it is exactly as effectful as
+    the thunk it is handed: pure in, pure and bare out; impure in, and the call
+    wears `!`. *)
+export let attempt(action: () ->? a): Result(a, Exn) =
+    try
+        Ok(action?())
+    catch
+        thrown => Err(thrown)

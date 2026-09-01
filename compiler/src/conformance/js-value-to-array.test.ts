@@ -24,10 +24,10 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  *    foreign control flow. A revoked proxy is the one input that tells them
  *    apart, and both are asked of it side by side below.
  *
- * The `JsError` door does not exist in the compiler yet, so claim 3's throw is
- * pinned where it is unambiguous today — as the raw foreign value leaving the
- * call, the way `stream-boundary.test.ts` pins its foreign throw. That door
- * will wrap this value; it will not change which values arrive here.
+ * Claim 3's throw travels the `JsError` door (Exceptions §6), which exists now
+ * (#509), so the pin is written at both ends: the value that leaves is still the
+ * raw foreign one — the door wraps nothing, and never changed which values
+ * arrive here — and a `JsError(e)` arm is where it arrives.
  *
  * The scalar decoders, `kind`'s inventory and the failure shape are
  * `js-value-decoding.test.ts`'s and are not restated.
@@ -37,6 +37,17 @@ const PROGRAM = "export let asArray(v: JsValue): Result(Array(JsValue), JsConver
   "    JsValue.toArray(v)\n" +
   "\n" +
   "export let kindOf(v: JsValue): JsKind = JsValue.kind(v)\n" +
+  "\n" +
+  "// The door the unguarded probe's throw travels (Exceptions section 6.2):\n" +
+  "// the arm binds the raw foreign value, so what comes back to a test *is*\n" +
+  "// what was thrown.\n" +
+  "export let arrayOrThrown(v: JsValue): JsValue =\n" +
+  "    try\n" +
+  "        match JsValue.toArray(v)\n" +
+  "            Ok(_) => JsValue.from(\"decoded\")\n" +
+  "            Err(_) => JsValue.from(\"refused\")\n" +
+  "    catch\n" +
+  "        JsError(e) => e\n" +
   "\n" +
   "// The borrow, held as a value: these take the view itself, so a test can\n" +
   "// keep one across a foreign mutation and ask it again.\n" +
@@ -224,9 +235,9 @@ describe("the probe is unguarded, and `kind`'s is not (§4.2 against §3)", () =
    * same value, in one test — because the claim *is* the contrast, and two
    * tests in two files would not state it.
    *
-   * `JsError` (Exceptions §6) is not in the compiler yet, so the throw is
-   * observed in its pre-door form: the raw foreign `TypeError`, unwrapped and
-   * unbranded, leaving the call. That is exactly what the door will wrap.
+   * The throw is the foreign `TypeError`, unwrapped and unbranded, leaving the
+   * call — which is what the `JsError` door carries, not what it replaces
+   * (§6.2's wrapping is virtual).
    */
   test("a revoked proxy throws out of `toArray` and classifies `Object` under `kind`", () => {
     const object = Proxy.revocable({}, {});
@@ -250,9 +261,9 @@ describe("the probe is unguarded, and `kind`'s is not (§4.2 against §3)", () =
   });
 
   /**
-   * The pre-door observation, stated precisely: the value that leaves is the
-   * foreign one. It is not converted into `Err(Shape)`, and it carries none of
-   * a Hexagon exception's identity — no `$hex` brand, no Hexagon `name`.
+   * The observation, stated precisely: the value that leaves is the foreign one.
+   * It is not converted into `Err(Shape)`, and it carries none of a Hexagon
+   * exception's identity — no `$hex` brand, no Hexagon `name`.
    */
   test("what leaves is the raw foreign value, not an `Err` and not a branded throw", () => {
     const object = Proxy.revocable({}, {});
@@ -265,6 +276,28 @@ describe("the probe is unguarded, and `kind`'s is not (§4.2 against §3)", () =
     }
     expect(thrown).toBeInstanceOf(TypeError);
     expect(thrown).not.toHaveProperty("$hex");
+  });
+
+  /**
+   * And the door it travels, named (#509). `JsError(e)` binds the very
+   * `TypeError` the probe threw — the same object the test above watched leave
+   * — which is §6.2's virtual wrapping and §4.3's channel split in one
+   * observation: a throw is control, so it comes through `catch`, and it comes
+   * through unchanged.
+   */
+  test("a `JsError(e)` arm catches that probe's throw, unbranded and unwrapped", () => {
+    const object = Proxy.revocable({}, {});
+    object.revoke();
+    const caught = (exports_["arrayOrThrown"] as (v: unknown) => unknown)(object.proxy);
+    // The engine's own `TypeError`, not a Hexagon exception carrying it: the
+    // wrapping is virtual, so there is no brand and no payload slot to unwrap.
+    expect(caught).toBeInstanceOf(TypeError);
+    expect(caught).not.toHaveProperty("$hex");
+    expect(caught).not.toHaveProperty("error");
+    // A value the probe answers about, rather than throwing over, never reaches
+    // the arm at all — the guard is the probe's, and only the probe's.
+    expect((exports_["arrayOrThrown"] as (v: unknown) => unknown)([1])).toBe("decoded");
+    expect((exports_["arrayOrThrown"] as (v: unknown) => unknown)(1)).toBe("refused");
   });
 
   /**

@@ -70,6 +70,40 @@ not compiler intrinsics.
   `Range`, `Cycle`, `Field`, `Index`, `MapKey`, `MapValue`, `SetElement`, or the
   ten kind names on a user's behalf. `JsKind` also derives `Eq` and `Show`, so
   `kind(v) == JsKind.Number` is the ordinary comparison it looks like.
+- `JsError.hex` is the door the whole foreign world enters through
+  (`spec/exceptions.md` §6): `exception JsError(error: JsValue)`, and FFI
+  Part 11 §7's two total conservative accessors over that payload, `message` and
+  `stack`. It is a module of its own for `JsKind.hex`'s reason — the accessors
+  are spelled `JsError.message` and `JsError.stack`, so the home has to be
+  addressable under that name — and it seats after `JsValue.hex`, whose type the
+  payload and both accessors name.
+
+  **The wrapping is virtual, and only in emission.** The declaration is an
+  ordinary exception and its typing and surface behaviour are ordinary; what the
+  emitter does with it is the special case (§6.2). A `JsError(e)` catch arm *is*
+  §7.4's foreign branch and binds the thrown value with nothing allocated;
+  `throw(JsError(e))` unwraps to `throw e`, so rethrow-after-inspection keeps the
+  original error's identity and stack; and the constructor ships no `.is` guard
+  (§7.6), because a JS consumer is never handed a branded `"JsError"` except by
+  §6.2's exotic first-class path. Every one of those gates keys on *this*
+  declaration, so a user module's own `exception JsError` — legal, since
+  `JsValue` is a bare type name — is an ordinary exception with its own brand.
+
+  Three rows cross the door, all unexported: two guarded property reads (one
+  read each, at `.message` and `.stack`, a throw suppressed to `undefined`) and
+  the safe rendering `String(value)` for a value that bears no properties. The
+  verdicts above them are ordinary Hexagon over `JsValue.toString`, so nothing
+  coerces and no thrown value's own `toString` is ever invoked.
+
+  The module spends two bare names, `message` and `stack`, and they are the most
+  collision-prone the boundary block mints. Its late seat is what keeps the
+  arithmetic honest: no prelude module sees them, so the weighing happens in user
+  code, where the whole prelude arrives at once (Modules §5.5).
+- `Result.hex` declares the success-or-error union and `attempt`, the bridge back
+  from the exception world (`spec/exceptions.md` §8.2): `Ok(value)` on return,
+  `Err(thrown)` on any throw, foreign included. It is ordinary Hexagon — a `try`
+  with a catch-all arm — and its arrows link (Effects §2.2), so running it is
+  exactly as effectful as the thunk it is handed.
 - `Debug.hex` holds the debugging probe: `log<a: Show>(value: a)` renders any
   showable value and writes it to the console through the door's one **species
   (a)** row (`spec/effects.md` §6.2), which stays at `String` and is unexported

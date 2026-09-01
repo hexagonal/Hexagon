@@ -30,12 +30,12 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
  * §7.2), and the class is deliberately minimal enough that a call always
  * declines.
  *
- * `JsError` has **no pin here**: the door of Exceptions §6 has no prelude
- * declaration in the compiler yet (the same gap `stream-boundary.test.ts`
- * records), so a `JsError(e)` arm cannot be written in either seat. What can be
- * checked today is the foreign *branch* the door will sit in, and it is: a
- * foreign throwable crossing a clause is caught by a `_` arm and rethrown
- * unchanged by a domestic-only one.
+ * The door of Exceptions §6 sits in this seat too (#509). The final group is
+ * the foreign branch under all three arms that can reach it — `_`, a
+ * domestic-only clause that must *not*, and `JsError(e)`, which binds the
+ * thrown object itself. The door's own conformance is `js-error-door.test.ts`'s;
+ * what this file owns is that the clause is in every respect §5.1's `catch`,
+ * that arm included.
  */
 
 /** A module that throws a declared exception, or does not, on demand. */
@@ -741,7 +741,7 @@ describe("emission (§7.4's narrowed `try`)", () => {
   });
 });
 
-describe("the foreign branch, where `JsError` will sit (§6, §7.4)", () => {
+describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
   /** Minimal ESM linker: compiler-owned relative imports become data-URL modules. */
   function resolveModulePath(importer: string, specifier: string): string | undefined {
     if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
@@ -849,5 +849,54 @@ describe("the foreign branch, where `JsError` will sit (§6, §7.4)", () => {
     }
     expect(caught).toBeInstanceOf(TypeError);
     expect((caught as Error).message).toBe("from JavaScript");
+  });
+
+  /**
+   * The door, in this seat (#509). The clause is §5.1's `catch` in every
+   * respect, so the arm that *is* §7.4's foreign branch is written here exactly
+   * as it is in a `try` — and it binds the thrown value itself, which is the
+   * claim the two tests above could only approach from outside.
+   */
+  test("a `JsError(e)` arm in the clause reaches the foreign throwable", async () => {
+    const exports = await run(
+      'extern from "thrower"\n' +
+        "    fun reading(): Option(Int)\n" +
+        "\n" +
+        "export let run(ignored: Int): String =\n" +
+        "    match reading!()\n" +
+        "        Some(n) => Int.show(n)\n" +
+        "        None => \"none\"\n" +
+        "    catch\n" +
+        "        JsError(e) => JsError.message(e)\n",
+      foreign,
+    );
+
+    expect((exports["run"] as (ignored: number) => string)(0)).toBe("from JavaScript");
+  });
+
+  /**
+   * And the arm changes nothing about the window. The stage-1 binding it needs
+   * sits in the JS `catch` beside the discrimination, so the `try` still wraps
+   * the scrutinee's evaluation and nothing else — §5.4's whole observable
+   * contract, re-checked against the one arm that adds a line to that block.
+   */
+  test("the arm adds nothing to the protected region", () => {
+    const project = compileMain(
+      preamble +
+        "export let run(fail: Bool): String =\n" +
+        "    match source(fail)\n" +
+        "        Some(n) => Int.show(n)\n" +
+        "        None => \"none\"\n" +
+        "    catch\n" +
+        "        JsError(e) => JsError.message(e)\n",
+    );
+
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
+    const tryBlock = text.slice(text.indexOf("try {"), text.indexOf("} catch ("));
+    expect(tryBlock).toBe("try {\n    __scrutinee = source(fail);\n  ");
+    expect(text).toContain(
+      'const __foreign = __error == null || typeof __error.$hex !== "string";',
+    );
   });
 });

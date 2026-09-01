@@ -170,6 +170,19 @@ export interface PreludeModule {
  * declaration site, so only these files and a user's own annotation can spell
  * it.
  *
+ * `JsError.hex` closes the FFI block (#509), and its seat is forced twice over.
+ * It sits after `JsValue.hex` because the exception's payload slot names
+ * `JsValue` and both accessors take one, and after `Result.hex` and
+ * `Option.hex` because `JsValue.toString` — which is what turns a guarded read
+ * into a verdict — answers with a `Result` and `stack` answers with an
+ * `Option`. It is a module of its own for the reason `JsKind.hex` is: FFI
+ * Part 11 §7 spells the accessors `JsError.message` and `JsError.stack`, and a
+ * qualified spelling needs a module addressable under the name (Modules §3.3).
+ * The seat is also what makes the two bare names it exports — `message` and
+ * `stack` — visible to no prelude module at all, so the collision arithmetic
+ * (Modules §5.5) is settled in user code, where the whole prelude arrives at
+ * once.
+ *
  * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: almost
  * no signature here forces it. Both members name `Show` and nothing else — `log`
  * since #419 widened it to `log<a: Show>(value: a)`, `trace` from the start — so
@@ -214,6 +227,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "JsPathSegment.hex",
   "JsConversionReason.hex",
   "JsValue.hex",
+  "JsError.hex",
   "Debug.hex",
 ].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));
 

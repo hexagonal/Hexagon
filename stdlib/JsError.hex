@@ -1,0 +1,99 @@
+// The one door the whole foreign world enters through (`spec/exceptions.md`
+// section 6). JavaScript may throw any value at all — a `TypeError`, a bare
+// string, `null`, a function — and every one of them arrives in Hexagon as a
+// `JsError` carrying the raw thrown value.
+//
+// The exception lives in a module named for itself because its two accessors
+// are spelled through that module: `JsError.message` and `JsError.stack` are
+// what FFI Part 11 section 7 writes, and a qualified spelling needs a module
+// addressable under the name (Modules section 3.3). The same reason seats
+// `JsKind`, `JsPathSegment` and `JsConversionReason` in modules of their own.
+//
+// **The wrapping is virtual, and only in emission** (section 6.2). Nothing
+// about the declaration below is unusual — it is an ordinary exception with an
+// ordinary payload — and its typing and surface behaviour are ordinary too.
+// What the emitter does with it is the special case: a `JsError(e)` catch arm
+// *is* the foreign branch of the two-stage discrimination and binds the raw
+// thrown value with nothing allocated, and `throw(JsError(e))` unwraps to
+// `throw e`, so the rethrow-after-inspection idiom preserves the original
+// error's identity and its stack. Only the exotic path — constructing a
+// `JsError` and throwing it later — materialises the branded wrapper, which is
+// section 6.2's recorded and accepted residue.
+//
+// The accessors are **total and conservative** (Part 11 section 7): every
+// thrown value has an answer, no value's `toString` is ever invoked, and a
+// property read that throws is swallowed rather than propagated — an accessor
+// whose purpose is describing one failure must not manufacture a second.
+
+(** A value JavaScript threw that Hexagon did not. `error` is that value,
+    unchanged and unclassified: JavaScript permits throwing anything, so no
+    structure is claimed about it and no decoding is attempted. Interrogate it
+    with `JsError.message` and `JsError.stack`, or with the ordinary `JsValue`
+    decoders when you want more than those two answer.
+
+    A `JsError(e)` catch arm allocates nothing — it is where a foreign
+    throwable arrives — and rethrowing one throws the original object, stack
+    intact. *)
+export exception JsError(error: JsValue)
+
+// The three crossings, and only the three. Each is one JavaScript expression
+// Hexagon has no spelling for, and each is unexported beneath the ordinary
+// Hexagon that earns it (`spec/intrinsics.md` section 3.2): the guarded read
+// has to be JavaScript because Hexagon has no way to catch a getter, and the
+// safe rendering has to be JavaScript because a `Symbol` and `undefined` have
+// no Hexagon decoder at all.
+extern from "hex:intrinsic"
+    // One property read of `.message`, guarded: a getter or proxy trap that
+    // throws yields `undefined` here rather than propagating, and an absent
+    // property yields `undefined` because that is what reading one gives. What
+    // comes back is the value as read, so the string verdict below is ordinary
+    // Hexagon over it and the value's own `toString` is never reached.
+    fun jsErrorReadMessage as readMessage(error: JsValue): JsValue
+
+    // The same single guarded read at `.stack`.
+    fun jsErrorReadStack as readStack(error: JsValue): JsValue
+
+    // The safe rendering of a value that bears no properties — the string
+    // itself for a string, and `String(value)` for the other six kinds, which
+    // is the one stringification that cannot throw on a `Symbol`. Asked only of
+    // a value `kind` has already placed outside `Object` and `Function`, so it
+    // never meets a `toString` of anyone's.
+    fun jsErrorRender as render(value: JsValue): String
+
+// The two verdicts, each ordinary Hexagon over one guarded read. A read that
+// answered with a string is that string; anything else — a throw suppressed to
+// `undefined`, an absent property, a non-string value — is the conservative
+// fallback. `JsValue.toString` is the strict decoder, so nothing here coerces:
+// a `.message` holding `42` is not `"42"`.
+
+let readString(value: JsValue): String = match JsValue.toString(value)
+    Ok(text) => text
+    Err(_) => ""
+
+let readOption(value: JsValue): Option(String) = match JsValue.toString(value)
+    Ok(text) => Some(text)
+    Err(_) => None
+
+(** What `error` says about itself, always. A thrown object or function gets one
+    guarded read of its `.message`, and a read that throws, is absent, or is not
+    a string yields `""`. Anything else — a string, a number, a bigint, a
+    boolean, a symbol, `undefined`, `null` — renders safely, so `throw "oops"`
+    reads back as `"oops"`.
+
+    The value's own `toString` is never invoked and no secondary failure ever
+    escapes: this function describes a failure and must not manufacture one. *)
+export let message(error: JsValue): String = match JsValue.kind(error)
+    JsKind.Object | JsKind.Function => readString(readMessage(error))
+    _ => render(error)
+
+(** `error`'s stack trace when it has one, `None` otherwise. A thrown object or
+    function gets one guarded read of its `.stack` and answers `Some(trace)`
+    only when that read succeeded with a string; a value that bears no
+    properties has no stack to read and answers `None`.
+
+    Conservative in the same way `message` is: a throwing read is swallowed, not
+    propagated. The read is fresh on every call, because `.stack` may be an
+    accessor. *)
+export let stack(error: JsValue): Option(String) = match JsValue.kind(error)
+    JsKind.Object | JsKind.Function => readOption(readStack(error))
+    _ => None
