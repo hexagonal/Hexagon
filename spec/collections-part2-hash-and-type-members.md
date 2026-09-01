@@ -42,7 +42,7 @@ Dictionary shape, per Constraints §6.2: `Hash_T = { Eq: Eq_T, hash: x => ... }`
 
 ### 2.3 The law
 
-> For all `x`, `y` of a type honoring `Hash`: **if `equals(x, y)`, then `hash(x) == hash(y)`.**
+> For all `x`, `y` of a type honoring `Hash`: **if `x == y`, then `x.hash() == y.hash()`.**
 
 Stated normatively even though §4.3 makes it hold by construction in v1 — this is the sentence any future instance-producing mechanism (v2 `derive via`, §11) must discharge. The converse is explicitly **not** a law: unequal values may collide, and collision handling is entirely the collections' business.
 
