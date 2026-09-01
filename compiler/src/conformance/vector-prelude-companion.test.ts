@@ -110,6 +110,17 @@ describe("the module", () => {
       // before it can name a `Stream`, because no pure module has business with
       // the impure sibling.
       "Stream.hex",
+      // #511: FFI Part 11's four. The first three each declare one union and
+      // exist as modules of their own because `spec/ffi.md` §12 (as extended
+      // for #511) makes every one of their constructors qualified-only, which
+      // needs the module addressable under the union's name. Only one edge
+      // among them is forced — `JsConversionReason.hex` names
+      // `Vector(JsPathSegment)` — and `JsValue.hex` then sits after all three
+      // plus `Result.hex` and `Vector.hex`, which its decoders' answers name.
+      "JsKind.hex",
+      "JsPathSegment.hex",
+      "JsConversionReason.hex",
+      "JsValue.hex",
       // #407 closes the list, and is the one member no signature places:
       // `log` names `String` and `Unit`, `trace` names `Show`, all of which
       // seat in the first dozen. It is last for what the seat denies — from

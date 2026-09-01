@@ -718,6 +718,15 @@ describe("code actions: infer return type", () => {
     expect(actions[0]!.disabled).toMatch(/^the body of `m` has an error to fix first: /);
   });
 
+  // Fourteen sessions, each a full project compile. Given an explicit budget
+  // with #511, for the reason the neighbour below was given one with #344's
+  // last landing — but not for the same cost. A prelude module compiles only
+  // where it is referenced, so the four FFI Part 11 modules leave a trivial
+  // project's compile where it was; what moved is the session work these tests
+  // do fourteen times over, measured at ~16% on this file. That is enough to
+  // leave a test of this shape without room in the default 5s under the full
+  // suite's parallel load. Explicit per test rather than a global testTimeout,
+  // so the rest of the file keeps the tight default.
   test("waits for a declaration the parser could not carry on past", () => {
     // The other way a declaration stops: nothing is left *open*, the parser
     // simply could not take what came next and abandoned it. `#parseItems`
@@ -761,7 +770,7 @@ describe("code actions: infer return type", () => {
         "the parser could not carry on past `m`, so its type is not settled yet",
       );
     }
-  });
+  }, 30_000);
 
   // Fourteen sessions, each a full project compile. Given an explicit budget with
   // #344's last landing: `Float.hex` and `String.hex` joined the prelude, so

@@ -265,6 +265,13 @@ describe("elaborate", () => {
   // test measures ~25s alone against the old 30s budget — passing in isolation
   // and failing under the full suite's parallel load, which is the same thin
   // margin the note above was written about, one prelude growth later.
+  //
+  // Raised again to 120s with #511: `JsKind.hex` and `JsValue.hex` joined the
+  // prelude, so each of these 250 compiles carries two more modules again. The
+  // test measures ~15s alone and still failed once under the full suite's
+  // parallel load, which is the same margin a third time — the budget is a
+  // guard against a hang, not a performance assertion, and the only number that
+  // has ever mattered here is the one the *load* produces.
   test("never leaks Typed-only surface nodes from arbitrary input", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {
@@ -275,7 +282,7 @@ describe("elaborate", () => {
       }),
       { numRuns: 250 },
     );
-  }, 60_000);
+  }, 120_000);
 });
 
 /**

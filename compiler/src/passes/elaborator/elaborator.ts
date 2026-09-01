@@ -597,6 +597,7 @@ function evidence(requirement: Typed.Constraint | undefined): Core.Evidence {
     case "Array":
     case "JsMap":
     case "JsSet":
+    case "JsValue":
     case "Node":
     case "Nullable":
     case "Union":

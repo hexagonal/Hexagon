@@ -82,6 +82,7 @@ type Mono =
   | ArrayMono
   | JsMapMono
   | JsSetMono
+  | JsValueMono
   | NodeMono
   | NullableMono
   | UnionMono
@@ -483,6 +484,15 @@ interface JsMapMono {
 interface JsSetMono {
   readonly kind: "JsSet";
   readonly element: Mono;
+}
+
+/**
+ * Any JavaScript value, asserted about by nothing (FFI Part 11 §2). The one
+ * nullary boundary type: no parameters, so no variance row and no element to
+ * substitute, and it unifies with itself and nothing else.
+ */
+interface JsValueMono {
+  readonly kind: "JsValue";
 }
 
 /** The hidden fixed-32 runtime trie node; see the persistent-collections note §4. */
@@ -975,6 +985,13 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
   ["Vector", "builtin:Vector"],
   ["Map", "builtin:Map"],
   ["Set", "builtin:Set"],
+  // `JsValue` (FFI Part 11 §2) joins them on exactly the same footing and for
+  // exactly the same reason: no `.hex` file declares the type, so `stdlib/
+  // JsValue.hex` is its companion by being the module addressable under the
+  // name. It is the first *boundary* type to have one — `kind` and the strict
+  // decoders (§3, §4.1) are that module's exports, reached qualified or as dot
+  // calls on a receiver.
+  ["JsValue", "builtin:JsValue"],
 ]);
 
 /**
@@ -1259,7 +1276,10 @@ interface Knot {
 /** The module a receiver head's companion is addressed under (§4.1's table). */
 function companionHeadName(type: Mono): string | undefined {
   if (type.kind === "NominalRecord" || type.kind === "Union") return type.name;
-  if (type.kind === "Vector" || type.kind === "Set" || type.kind === "Map") return type.kind;
+  if (
+    type.kind === "Vector" || type.kind === "Set" || type.kind === "Map" ||
+    type.kind === "JsValue"
+  ) return type.kind;
   if (type.kind === "Constructor") return type.name;
   return undefined;
 }
@@ -2997,7 +3017,17 @@ class Checker {
       actual.kind === "Union" ||
       actual.kind === "Vector" ||
       actual.kind === "Set" ||
-      actual.kind === "Map";
+      actual.kind === "Map" ||
+      // `JsValue` joins them because it has what this list is really asking
+      // about: a companion module addressable under its own name
+      // (`BUILTIN_COMPANIONS`, Method Syntax §4.1's "the fixed prelude companion
+      // of the same name"). `stdlib/JsValue.hex` is that module, so `v.kind()`
+      // and `v.toInt()` are ordinary companion dispatch and reach exactly what
+      // `JsValue.kind(v)` reaches. The other boundary types are absent because
+      // no module answers for them: `Array`, `Nullable`, `JsMap` and `JsSet`
+      // have no companion source yet, and an empty set here would only produce
+      // the row diagnostic below.
+      actual.kind === "JsValue";
     // Primitives join the table for the member clause alone (§3.4's Primitive
     // row): they have no fields and no companion module, so the wired instances
     // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.
@@ -7877,6 +7907,43 @@ class Checker {
     }
   }
 
+  /**
+   * The spelling an unreachable-arm report quotes for a constructor **already
+   * written in this module** — §7.3's tiers, read for a pattern rather than for
+   * a synthesized witness.
+   *
+   * The pattern's own `text` is the constructor half alone (`Resolved.
+   * ConstructorPattern`), so a qualified-only constructor was quoted as bare
+   * `Null` — a spelling `spec/ffi.md` §12 makes *unwritable*, in a message whose
+   * whole job is to name the arm above. Since the exhaustiveness report next
+   * door already prints `JsKind.Null` through `#constructorSpelling`, the two
+   * halves of one `match`'s diagnostics disagreed about how to say the same
+   * name.
+   *
+   * §7.3's **tiers 1 and 2 run here in full**, and tier 3's route does not: this
+   * constructor is *in this file*, so a route clause would have nothing to offer
+   * a name the reader has already written — only tier 3's bare fallback stands,
+   * as the last resort, and no route is stated with it.
+   *
+   * Tier 1 is **two** readings, and taking only the first is what went wrong.
+   * First the written half where a bare spelling in scope denotes this very
+   * symbol — which keeps `Prelude.Less` quoted as `Less`, since that is the
+   * barest lawful spelling and the pin on it is about identity rather than about
+   * spelling. Then the symbol's own bare spelling under whatever local name an
+   * import bound it — §7.3's "imported by name", which is what answers for a
+   * written `G.Red` in a module that imported `Red as Crimson`. Only after both
+   * does tier 2's module-alias qualification apply. Stop after the first reading
+   * and one `match` prints two spellings for constructors of one union: the
+   * missing-cases list says `Crimson` while the unreachable arm beside it says
+   * `G.Red`.
+   */
+  #writtenConstructorSpelling(pattern: Resolved.ConstructorPattern): string {
+    if (this.#bareNames.get(pattern.text) === pattern.symbol) return pattern.text;
+    const local = this.#bareSpellings.get(pattern.symbol);
+    if (local !== undefined) return local;
+    return this.#aliasQualifications.get(pattern.symbol) ?? pattern.text;
+  }
+
   /** Whether anything inside this pattern failed to type (§7.3's obligation). */
   #patternIsBroken(pattern: Resolved.Pattern): boolean {
     return this.#brokenPatterns.size > 0 &&
@@ -7919,7 +7986,7 @@ class Checker {
     ) {
       this.#diagnostics.add({
         severity: "error",
-        message: reports.constructor(alternative.text),
+        message: reports.constructor(this.#writtenConstructorSpelling(alternative)),
         primary: alternative.span,
       });
       return;
@@ -8940,10 +9007,90 @@ class Checker {
     return target;
   }
 
+  /**
+   * The **nullish-absorption collapse** (FFI Part 11 §8; Part 2 §2.1): whether
+   * `Nullable` stacking on this type is definitionally the type itself.
+   *
+   * The designated set is **explicit and closed** at two members — `Nullable(_)`
+   * itself and `JsValue` — and this predicate *is* the designation. There is no
+   * general structural "contains nullish" analysis: an opaque extern type whose
+   * values happen to include `undefined`, or a union an author reads as
+   * nullish-adjacent, does not collapse, because it is not on the list.
+   */
+  static #absorbsNullish(type: Mono): boolean {
+    return type.kind === "Nullable" || type.kind === "JsValue";
+  }
+
+  /**
+   * One resolution step, and the seat of the nullish-absorption collapse.
+   *
+   * `Nullable(Nullable(a)) ≡ Nullable(a)` and `Nullable(JsValue) ≡ JsValue` are
+   * **one idempotency principle** over the designated set above, and they are
+   * *definitional*: there is no distinct doubly-nullish type for the zero-wrapper
+   * representation to misrepresent. Collapsing here rather than at the
+   * constructors is what makes that true of every route into the type — an
+   * annotation, an alias body, and a generic substitution alike, since a binder
+   * standing under a `Nullable` is resolved by this same walk the moment it is
+   * bound. Every consumer that decides anything about a type prunes first, so
+   * none of them can see the uncollapsed spelling.
+   */
   #prune(type: Mono): Mono {
+    if (type.kind === "Nullable") {
+      const value = this.#prune(type.value);
+      return Checker.#absorbsNullish(value) ? value : type;
+    }
     if (type.kind !== "Variable" || type.instance === undefined) return type;
     type.instance = this.#prune(type.instance);
     return type.instance;
+  }
+
+  /**
+   * The collapse's **solving** half: `Nullable(?v) ≡ JsValue` forces
+   * `?v = JsValue`, so the unifier binds it rather than reporting a mismatch.
+   *
+   * `#prune` above collapses only what is already ground, which is enough for an
+   * annotation and not enough for inference. Without this arm the judgment
+   * depended on the *order* a call's arguments happened to solve in — `take(w:
+   * a, y: Nullable(a))` applied to a `JsValue` twice was accepted, because `w`
+   * ground `a` before `y` was looked at, while the same function with its
+   * parameters swapped was rejected. A type equation whose answer depends on
+   * parameter order is not a type system, so the equation is solved here, where
+   * every route into it passes.
+   *
+   * **It is the unique solution, not a guess.** The designated set is closed at
+   * two members (`#absorbsNullish`), so `Nullable(T) ≡ JsValue` holds exactly
+   * when `T` is `JsValue` — `Nullable(Nullable(…))` cannot be it, since that
+   * collapses to a `Nullable` and never to `JsValue`. Committing an unsolved
+   * variable here therefore rules out nothing a later constraint could have
+   * wanted.
+   *
+   * Three cases deliberately fall through to the ordinary walk:
+   *
+   * - `Nullable(v)` with `v` **already solved**, which `#prune` has already
+   *   collapsed if it collapses at all — `Nullable(Int)` against `JsValue` is a
+   *   real mismatch and keeps the report that names both written shapes;
+   * - `Nullable(v)` with `v` **rigid**, which is unsatisfiable for the same
+   *   reason any declared variable is: the caller chooses `a`, not the body.
+   *   Both orders reject, so the order-independence this arm exists for is
+   *   unaffected, and the mismatch keeps the shape the author wrote;
+   * - anything against a non-`JsValue` type, which this never looks at.
+   *
+   * Nesting needs no case of its own: `#prune` sends `Nullable(Nullable(?v))` to
+   * `Nullable(?v)` on the idempotency half, so it arrives here already flat.
+   *
+   * Answers whether it consumed the equation.
+   */
+  #absorbNullishVariable(left: Mono, right: Mono, span: Source.Span): boolean {
+    const nullable = left.kind === "Nullable" && right.kind === "JsValue"
+      ? left
+      : right.kind === "Nullable" && left.kind === "JsValue"
+      ? right
+      : undefined;
+    if (nullable === undefined) return false;
+    const inner = this.#prune(nullable.value);
+    if (inner.kind !== "Variable" || inner.rigidName !== undefined) return false;
+    this.#bind(inner, { kind: "JsValue" }, span);
+    return true;
   }
 
   /**
@@ -9017,6 +9164,7 @@ class Checker {
       this.#bind(actualRight, actualLeft, span);
       return;
     }
+    if (this.#absorbNullishVariable(actualLeft, actualRight, span)) return;
     if (actualLeft.kind === "Effect" || actualRight.kind === "Effect") {
       if (
         actualLeft.kind === "Effect" && actualRight.kind === "Effect" &&
@@ -9112,6 +9260,10 @@ class Checker {
     ) {
       if (actualLeft.externType === actualRight.externType) return;
     } else if (actualLeft.kind === "Range" && actualRight.kind === "Range") {
+      return;
+    // FFI Part 11 §2: `JsValue` unifies with itself and nothing else. It carries
+    // no arguments, so agreeing on the kind is the whole of the check.
+    } else if (actualLeft.kind === "JsValue" && actualRight.kind === "JsValue") {
       return;
     } else if (actualLeft.kind === "Vector" && actualRight.kind === "Vector") {
       this.#unify(actualLeft.element, actualRight.element, span);
@@ -11886,6 +12038,7 @@ class Checker {
       return annotation.name === "Unit" ? UNIT : primitive(annotation.name);
     }
     if (annotation.kind === "Range") return { kind: "Range" };
+    if (annotation.kind === "JsValue") return { kind: "JsValue" };
     if (annotation.kind === "Vector") {
       return {
         kind: "Vector",
@@ -12541,6 +12694,7 @@ class Checker {
         case "Set": return { kind: "Set", element: copy(type.element) };
         case "Array": return { kind: "Array", element: copy(type.element) };
         case "JsSet": return { kind: "JsSet", element: copy(type.element) };
+        case "JsValue": return { kind: "JsValue" };
         case "Node": return { kind: "Node", element: copy(type.element) };
         case "Nullable": return { kind: "Nullable", value: copy(type.value) };
         case "Map": return { kind: "Map", key: copy(type.key), value: copy(type.value) };
@@ -14030,6 +14184,7 @@ class Checker {
     if (actual.kind === "Set") return { kind: "Set", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "Array") return { kind: "Array", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "JsSet") return { kind: "JsSet", element: this.#publicType(actual.element, seen) };
+    if (actual.kind === "JsValue") return { kind: "JsValue" };
     if (actual.kind === "Node") return { kind: "Node", element: this.#publicType(actual.element, seen) };
     if (actual.kind === "Nullable") return { kind: "Nullable", value: this.#publicType(actual.value, seen) };
     if (actual.kind === "Map") {
@@ -15363,6 +15518,7 @@ class Checker {
     if (actual.kind === "Set") return `Set(${this.#render(actual.element, numbering)})`;
     if (actual.kind === "Array") return `Array(${this.#render(actual.element, numbering)})`;
     if (actual.kind === "JsSet") return `JsSet(${this.#render(actual.element, numbering)})`;
+    if (actual.kind === "JsValue") return "JsValue";
     if (actual.kind === "Node") return `Node(${this.#render(actual.element, numbering)})`;
     if (actual.kind === "Nullable") return `Nullable(${this.#render(actual.value, numbering)})`;
     if (actual.kind === "Map" || actual.kind === "JsMap") {
@@ -15781,6 +15937,7 @@ function typeAnnotationHoleNodes(
     case "ExternType":
     case "Primitive":
     case "Range":
+    case "JsValue":
     case "TypeVariable":
     case "ImpliedType":
     case "ErrorType":
@@ -15821,6 +15978,7 @@ function annotationHasTypeVariable(
     case "ExternType":
     case "Primitive":
     case "Range":
+    case "JsValue":
     case "ImpliedType":
     // A hole is not a type variable: it claims no generality (closure doc §2.3),
     // so it does not make a declaration generic. Every surface that reads this
@@ -15866,6 +16024,7 @@ function annotationMentionsNode(annotation: Resolved.TypeAnnotation): boolean {
       return annotation.arguments.some(annotationMentionsNode);
     case "Primitive":
     case "Range":
+    case "JsValue":
     case "ExternType":
     case "TypeVariable":
     case "ImpliedType":

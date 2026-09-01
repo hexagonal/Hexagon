@@ -1,0 +1,33 @@
+// `JsKind`'s home, and its only reason for being a module of its own: FFI
+// Part 11 section 3 makes all ten constructors qualified-only — `JsKind.Null`,
+// never a bare `Null` — and a qualified constructor is spelled through the
+// module that declares it (Modules section 3.3, the `Geo.Circle(r)` mechanism).
+// The union sits here so that home has the name the spec writes.
+
+(** What JavaScript itself says a value is: `typeof` widened by the two things
+    `typeof` cannot tell apart on its own — `null`, which `typeof` calls an
+    object, and an array, which it also calls an object.
+
+    This is JavaScript's classification and not Hexagon's. A `Number` may or may
+    not be a whole number an `Int` can hold — that is `JsValue.toInt`'s range
+    check — and there is no `Int` kind, because the `Int`/`Float` distinction is
+    a Hexagon refinement `typeof` cannot see. Every constructor is reached
+    qualified: `JsKind.Undefined`, `JsKind.Null`, and so on through
+    `JsKind.Object`, in expressions and in patterns alike.
+
+    `Eq` and `Show` are derived (section 3): the single-kind test
+    `kind(v) == JsKind.Number` is this surface's most common question, and both
+    instances are lawful and trivial on an all-nullary union. `JsValue` itself
+    still has no instances — a kind is ordinary domestic data *about* a foreign
+    value, not the value. *)
+export union JsKind derives (Eq, Show) =
+    | Undefined
+    | Null
+    | Bool
+    | Number
+    | BigInt
+    | String
+    | Symbol
+    | Function
+    | Array
+    | Object

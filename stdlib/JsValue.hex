@@ -1,0 +1,130 @@
+// The public companion of `JsValue` — the type of a JavaScript value about
+// which Hexagon asserts nothing (FFI Part 11 section 2).
+//
+// `JsValue` is compiler-owned: no `.hex` file declares it, because a value that
+// crosses by identity has no Hexagon declaration site, exactly as `Array(a)` has
+// none. This module is its companion by being the module addressable under the
+// name (Method Syntax section 4.1), the same way `Vector.hex` is `Vector`'s.
+//
+// `JsPathSegment` and `JsConversionReason` are declared next door, in modules
+// named for themselves, because section 12's extension makes their constructors
+// qualified-only too and a qualified constructor needs the module addressable
+// under the union's name. `JsConversionError` stays here: it is a record, its
+// constructor is its own type's spelling, and nothing about it is common user
+// vocabulary.
+//
+// Everything here is strict and non-coercing (section 1): a decoder succeeds if
+// and only if the value already *is* the target representation. Nothing is
+// parsed, truncated, rounded, `String()`-ed or `Number()`-ed. Coercion is a
+// foreign-side decision made in foreign code, never a Hexagon default.
+
+(** A checked conversion's failure — **ordinary data**, carried in `Err` like
+    any other value. Nothing here is an exception: no `Error` is allocated, no
+    stack is captured, and there is no brand. Checked wrongness is data; only a
+    foreign operation that *throws* is control flow, and that travels through
+    `JsError` instead.
+
+    An empty `path` means the decoded value itself, which is every scalar
+    decoder's failure. A caller who wants to abort on one matches it and throws
+    an exception of its own choosing, at its own site. *)
+export record JsConversionError = {
+    reason: JsConversionReason,
+    path: Vector(JsPathSegment),
+}
+
+// The two failures every decoder below answers with. Both have the empty path
+// (section 5.1): a scalar decoder inspects the value itself and descends into
+// nothing, so there is no segment to name. They are module-level constants
+// because they are constants — a `JsConversionError` is immutable, so one value
+// serves every failure of its class.
+//
+// The reasons are spelled qualified because that is the only way they can be
+// spelled: `spec/ffi.md` section 12's extension makes `JsConversionReason`'s
+// constructors qualified-only, and this module is an ordinary consumer of that
+// rule rather than an exception to it.
+let shapeFailure: JsConversionError =
+    JsConversionError({ reason = JsConversionReason.Shape, path = [] })
+
+let rangeFailure: JsConversionError =
+    JsConversionError({ reason = JsConversionReason.Range, path = [] })
+
+// The whole of this part's crossing. `kind` is the one operation with any
+// JavaScript to it; the rest are the representation-honest identity, and each
+// is unexported and unchecked precisely so that the check above it is ordinary
+// Hexagon in this file (`spec/intrinsics.md` section 3.2).
+extern from "hex:intrinsic"
+    (** What JavaScript says `value` is (section 3). Total and **property-free**:
+        it never reads a property, never invokes a getter, and never triggers a
+        proxy `get` or `has` trap. `typeof` and `Array.isArray` are the whole
+        implementation, and the one probe that can throw — `Array.isArray` on a
+        revoked proxy — is guarded, so a revoked proxy classifies as
+        `JsKind.Object` and no input whatsoever makes this throw. *)
+    export fun jsValueKind as kind(value: JsValue): JsKind
+
+    // The total injection (section 2). Every Hexagon value already *is* a
+    // JavaScript value, so this is the representation-honest identity — and it
+    // is **erased in emission**: `JsValue.from(x)` compiles to `x`, with no
+    // wrapper and no call. There is no checked path into `JsValue` because none
+    // is needed.
+    (** `value` seen as the JavaScript value it already is. *)
+    export fun jsValueFrom as from(value: a): JsValue
+
+    // `Number.isSafeInteger`, which is what separates `Shape` from `Range` at
+    // `toInt`. Asked only of a value `kind` has already called `JsKind.Number`,
+    // so it is a question about the number and never about the shape.
+    fun jsValueIsSafeInteger as isSafeInteger(value: JsValue): Bool
+
+    // The five representation crossings, each the identity over one shared
+    // representation: a JavaScript `number` *is* an `Int` and a `Float`, a
+    // `bigint` *is* a `BigInt`, a `boolean` *is* a `Bool`, a `string` *is* a
+    // `String`. Unexported and unchecked: the guard that earns each one is the
+    // exported decoder written over it below.
+    fun jsValueAsIntUnchecked as asIntUnchecked(value: JsValue): Int
+
+    fun jsValueAsFloatUnchecked as asFloatUnchecked(value: JsValue): Float
+
+    fun jsValueAsBigIntUnchecked as asBigIntUnchecked(value: JsValue): BigInt
+
+    fun jsValueAsBoolUnchecked as asBoolUnchecked(value: JsValue): Bool
+
+    fun jsValueAsStringUnchecked as asStringUnchecked(value: JsValue): String
+
+(** `value` as a `Float`, or `Err` with reason `Shape` when it is not a
+    JavaScript number. Every number succeeds — `NaN`, both infinities and `-0`
+    included — because every one of them is a `Float`. *)
+export let toFloat(value: JsValue): Result(Float, JsConversionError) = match kind(value)
+    JsKind.Number => Ok(asFloatUnchecked(value))
+    _ => Err(shapeFailure)
+
+(** `value` as an `Int`, or `Err` when it is not one. The two failures are
+    different mistakes with different repairs, so they carry different reasons:
+    a value that is not a number at all fails with `Shape`, and a number outside
+    the safe-integer range — `1.5`, `2^53`, `NaN` — fails with `Range`. Nothing
+    is rounded, truncated or parsed. *)
+export let toInt(value: JsValue): Result(Int, JsConversionError) = match kind(value)
+    JsKind.Number =>
+        if isSafeInteger(value) then
+            Ok(asIntUnchecked(value))
+        else
+            Err(rangeFailure)
+    _ => Err(shapeFailure)
+
+(** `value` as a `BigInt`, or `Err` with reason `Shape` when it is not a
+    JavaScript bigint. A number is not a bigint here, however whole it is. *)
+export let toBigInt(value: JsValue): Result(BigInt, JsConversionError) = match kind(value)
+    JsKind.BigInt => Ok(asBigIntUnchecked(value))
+    _ => Err(shapeFailure)
+
+(** `value` as a `Bool`, or `Err` with reason `Shape` when it is not a
+    JavaScript boolean. `1` is not `true`: truthiness is a foreign-side
+    decision, made in foreign code. *)
+export let toBool(value: JsValue): Result(Bool, JsConversionError) = match kind(value)
+    JsKind.Bool => Ok(asBoolUnchecked(value))
+    _ => Err(shapeFailure)
+
+(** `value` as a `String`, or `Err` with reason `Shape` when it is not a
+    JavaScript string. `42` is not `"42"`: nothing here calls `String()`, and no
+    `toString` of the value's is ever invoked. *)
+export let toString(value: JsValue): Result(String, JsConversionError) = match kind(value)
+    JsKind.String => Ok(asStringUnchecked(value))
+    _ => Err(shapeFailure)

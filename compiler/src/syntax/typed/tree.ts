@@ -37,6 +37,7 @@ export type Type =
   | ArrayType
   | JsMapType
   | JsSetType
+  | JsValueType
   | NodeType
   | NullableType
   | VariableType
@@ -93,6 +94,15 @@ export interface JsMapType {
 export interface JsSetType {
   readonly kind: "JsSet";
   readonly element: Type;
+}
+
+/**
+ * Any JavaScript value, about which Hexagon asserts nothing (FFI Part 11 §2):
+ * representation-direct, crossing by identity, faced `unknown` — never `any`.
+ * It has no type parameters, no instances, and unifies with itself alone.
+ */
+export interface JsValueType {
+  readonly kind: "JsValue";
 }
 
 /**

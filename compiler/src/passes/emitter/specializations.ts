@@ -545,6 +545,9 @@ function substituteType(
       };
     case "Node":
       return { ...type, element: substituteType(type.element, substitutions, bool) };
+    // No parameters, so nothing to substitute into (FFI Part 11 §2).
+    case "JsValue":
+      return type;
     case "Nullable":
       return { ...type, value: substituteType(type.value, substitutions, bool) };
     case "Record":
