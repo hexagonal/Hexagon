@@ -34,7 +34,7 @@ constraint Hash<a: Eq> =
 
 ### 2.2 The member
 
-`hash` is an ordinary constraint member: a module-scope term name (Constraints §2.2), callable wherever the constraint is discharged — `hash(42)`, `hash("key")`, and polymorphically inside `<a: Hash>` functions. Legitimate uses beyond the collections internals: memoization keys, sharding, debugging.
+`hash` is an ordinary constraint member: a module-scope term name (Constraints §2.2), reached wherever the constraint is discharged — `42.hash()`, `"key".hash()`, `Hash.hash(value)` — and polymorphically inside `<a: Hash>` functions (`value.hash()` through the binder's evidence); it is not seeded bare (Modules §5.5). Legitimate uses beyond the collections internals: memoization keys, sharding, debugging.
 
 **Codomain: `Int`.** The normative promise about the *value* is §2.3's law and §2.4's determinism — nothing else. *Informative, non-normative:* all provided and derived hashes in the v1 runtime land in signed 32-bit range (the Immutable.js smi lineage; the runtime folds with `| 0`-family operations). Code must not rely on the range; it may become normative later only under demonstrated interop pressure (§12.2).
 
@@ -225,7 +225,7 @@ What remains — and suffices for Part 1 §6.1's floor — is everything that ne
 
 - **Declaring** a projection-bearing constraint (user or prelude): legal. §5.1 grammar is fully general, not a prelude privilege (rejected alternative §10.4).
 - **Honoring** one at a lawful instance head: legal — `honor Iterable<Bag(a)>` per §5.3.
-- **Calling its function members at concrete types**: legal — `toSeq(myBag)` where `myBag : Bag(Int)` resolves by head-constructor lookup, the same monomorphic dispatch every constraint member already has. Zero inference changes.
+- **Calling its function members at concrete types**: legal — `myBag.toSeq()` where `myBag : Bag(Int)` resolves by head-constructor lookup (Method Syntax §7), and `Iterable.toSeq(myBag)` through the declaring module — the same monomorphic dispatch every constraint member already has. Zero inference changes.
 - **The `for..in` judgment consuming its instance table**: Part 5's business.
 
 Functions generic over "any iterable" remain unwritable in v1; `Seq(a)` parameters remain the idiom (Loops §7.1 seam, unchanged), and the ban's diagnostic points there (§9).
@@ -357,15 +357,15 @@ The v2 implied-types remainder is also routed here: deferred `Item(α)` goals, t
 ```
 -- (1) Derives Hash; usable as a key-shaped value
 record Point = {x: Float, y: Float} derives (Eq, Hash)
-let h = hash(Point({x = 1.0, y = 2.0}))            -- OK : Int
+let h = Point({x = 1.0, y = 2.0}).hash()           -- OK : Int
 
 -- (2) Law-relevant Float normalisation
-hash(-0.0) == hash(0.0)                          -- true
-hash(0.0 / 0.0) == hash(Float.nan)               -- true (all NaNs one value)
+(-0.0).hash() == (0.0).hash()                    -- true
+(0.0 / 0.0).hash() == Float.nan.hash()           -- true (all NaNs one value)
 
 -- (3) Structural types: automatic, conditional
-let t = hash((1, "a", true))                     -- OK (all components Hash)
-let u = hash((1, fn))                            -- ERROR: no Hash for Int -> Int (component)
+let t = (1, "a", true).hash()                    -- OK (all components Hash)
+let u = (1, fn).hash()                           -- ERROR: no Hash for Int -> Int (component)
 
 -- (4) Hand-written Hash: closed door, signposted
 honor Hash<UserId> =
@@ -413,7 +413,7 @@ let g(e: Item): Int = ...                        -- ERROR: `Item` is an implied 
                                                  --   expressions
 
 -- (12) Monomorphic member call: legal today
-let n = toSeq(MkBag(v))                          -- OK : Seq(Int)   (head constructor known)
+let n = MkBag(v).toSeq()                         -- OK : Seq(Int)   (head constructor known)
 
 -- (13) Owner-scoped identity (two user constraints, one module)
 constraint Source<c> =

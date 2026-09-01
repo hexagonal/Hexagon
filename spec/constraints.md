@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026). The keyword pair is **`constraint` / `honor`** (naming record and anti-relitigation anchors: §11; completed rename propagation record: §12). Section numbering §1–§10 is stable; §9 holds resolved anchors plus one open item, none blocking §1–§8.
 **Scope:** The `constraint` declaration (members, subjects, base constraints), the `honor` declaration (ground and parameterized instances, base constraint checking, coherence, orphan rule, instance-head restriction), the derivation mechanism (`honor C<T> = derive`, §4.5), constraint-member call style (§2.2), dictionary compilation, and the member lists of the constraints this spec owns (§7 — focused specs own the rest).
 **Not in scope:** derived structural instances' *semantics* (fixed in Products §2.5/§3.4 and Unions §7; the invocation mechanism is §4.5 here), the numeric-literal elaboration and defaulting machinery (Numeric Literals spec, authoritative), `Eq<Float>`/`Ord<Float>` semantics (decided — Decisions Batch §1, en route to Primitive Types; §9.5), display of constraints (resolved, §9.4 — Functions §5.1 owns the rule), modules and instance visibility (Modules; the orphan rule §5.3 constrains it), `Hash`/`Iterable`/`Integral` member semantics (their focused owners, §7).
-**Companions:** Functions spec (§4.2 angle-bracket type parameters — this doc reuses that grammar wholesale), Numeric Literals spec (`fromNat`, `fromInt`, defaulting, dictionary erasure), Primitive Types §7 (Show contract), Products/Unions specs (derived-instance semantics), Declarations Preamble (declaration inventory; `derives` header sugar §2.3; alias-instance rule §4; Rewrite Rule §1.1), Collections Part 2 (`Hash`, implied type members), Method Syntax §7 (constraint-member dot dispatch — through instances and bounds, never search; reversed for #304/#335, §16.2 there), `stdlib-roadmap.md` (hostile-specimen exercise; prelude inventory).
+**Companions:** Functions spec (§4.2 angle-bracket type parameters — this doc reuses that grammar wholesale), Numeric Literals spec (`fromNat`, `fromInt`, defaulting, dictionary erasure), Primitive Types §7 (Show contract), Products/Unions specs (derived-instance semantics), Declarations Preamble (declaration inventory; `derives` header sugar §2.3; alias-instance rule §4; Rewrite Rule §1.1), Modules §5.5 (the prelude's bare set; prelude inventory in `stdlib-roadmap.md`), Collections Part 2 (`Hash`, implied type members), Method Syntax §7 (constraint-member dot dispatch — through instances and bounds, never search; reversed for #304/#335, §16.2 there), `stdlib-roadmap.md` (hostile-specimen exercise; prelude inventory).
 
 **Vocabulary, fixed for docs and diagnostics:** the declared obligation is a **constraint**; the declaration that discharges it is an **`honor` declaration**; the thing an `honor` declaration produces is an **instance**. The words "implement"/"implementation" are avoided in user-facing diagnostics and reference material for this mechanism — they are generic, OO-flavored, and name nothing this design has. ("Implementation" remains fine as an ordinary English word for the compiler itself.)
 
@@ -93,7 +93,7 @@ Constraint members are module-scope term names (like constructors, Unions §2). 
 Unchanged from Functions §4.2; recorded here because this spec is where a reader will look:
 
 ```
-let plus<a: Num>(x: a, y: a): a = multiply(x, y)
+let plus<a: Num>(x: a, y: a): a = x * y
 let member<a: (Eq, Show)>(xs: Vector(a), x: a): Bool = ...
 ```
 

@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026). Cross-cutting closure document in the Decisions Batch style: it records seven resolutions arising from the second external review (Sol), plus the edit notes their host specs need. Authoritative for everything it decides until consolidated.
 **Scope:** qualified access to constraint members as ordinary idiom (A); the instance-discoverability diagnostic obligation, with the structural analysis that narrows it (B); pre-registered rejection of escape-analysis exceptions to the `var`/lambda boundary (C); acyclicity scope at the FFI boundary (D); the Rewrite Rule as stated doctrine (E); a kind-system caveat on "the type of a type" (F); a wording fix in the ranges spec (G).
-**Not in scope:** the hostile-specimen constraint-library test itself (pre-registered here, executed at the stdlib-listing session); `Int` overflow and the checked build mode (already acknowledged in the corpus; Sol endorsed the existing plan; no new decision); `Eq<Float>`/`Ord<Float>` (already closed — Decisions Batch 2026-07 §1; Sol independently arrived at the chosen option); the public-story starter subset (a guide-preface note, owed to the TS-coders guide, not a spec).
+**Not in scope:** the hostile-specimen constraint-library test itself (pre-registered here; since retired — the reversal record under §A); `Int` overflow and the checked build mode (already acknowledged in the corpus; Sol endorsed the existing plan; no new decision); `Eq<Float>`/`Ord<Float>` (already closed — Decisions Batch 2026-07 §1; Sol independently arrived at the chosen option); the public-story starter subset (a guide-preface note, owed to the TS-coders guide, not a spec).
 **Companions:** Constraints (§1, §2.2 touched; new doctrine line), Modules (§7 gains a diagnostic obligation; §13 example (i) annotated), Statements/Blocks/Mutability (§6.2 gains a rejected alternative), FFI agenda (item 8 added), Loops/Ranges/Iteration (wording fix), Declarations Preamble (hosts the Rewrite Rule on consolidation).
 
 Written against the existing `hexc` architecture: Algorithm J, union-find tyvars, level-based generalisation, constraints as dictionaries, whole-program compilation from an entry point, readable-JS emission with `.d.ts`.
@@ -147,7 +147,7 @@ No semantic change; the sentence as previously written implied a feature the lan
 | Bare member calls idiomatic when unambiguous; qualified access is ordinary resolution, not workaround; no new mechanism (module qualification + companion idiom) | §A.1–A.2 |
 | Guide never claims bare access is universal; prelude taught bare without caveat | §A.3 |
 | Stronger "qualified-as-default" position rejected with reasons; revisit only via specimen | §A.4 |
-| Hostile-specimen constraint-library test pre-registered for stdlib listing | §A.5 |
+| Hostile-specimen constraint-library test pre-registered for stdlib listing *(retired — #742; the reversal record under §A)* | §A.5 |
 | Invisible-instance scenario structurally narrowed by orphan rule + no re-exports; residual cases: unnamed-type values, isolated files | §B.1 |
 | Effect-import-for-instances noted as nearly vestigial in v1 (Modules §13(i) annotated) | §B.1 |
 | Unsatisfied constraint on nominal `T` must name the two legal instance homes (compiler, v1); workspace scan + activating-import suggestion (LSP, pre-1.0) | §B.2 |

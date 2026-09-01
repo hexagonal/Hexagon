@@ -26,7 +26,7 @@ The grammar/constraint groundwork the later parts consume. Two halves, one docum
 - Declaration shape; `Eq` base constraint; member surface (`hash : a -> Int`? — exact member and its codomain need deciding; note `Int`'s f64 invariant).
 - **Derivable-only wording**: joins the Decisions Batch §2 derivation whitelist; users cannot write `implement Hash<T>`; the *stdlib* may bless instances for its own types (needed by Part 4 for `Hash<Vector(...)>` etc.). The wording must make the user/stdlib asymmetry precise.
 - `Hash<Float>` per Decisions Batch §1.4 (activated by Part 1 §4.1); `Hash<Int>`, `Hash<String>`, `Hash<Bool>`, structural records/tuples via derivation.
-- Law: if `equals(a, b)`, then `hash(a) == hash(b)`; guaranteed by construction under derivable-only, stated anyway.
+- Law: if `a == b`, then `a.hash() == b.hash()`; guaranteed by construction under derivable-only, stated anyway.
 - Diagnostics: unsatisfied `Hash` (hint: `derives (Hash)`), attempted hand-written instance.
 **B. `type` members in `constraint` / `implement` bodies.**
 - The Loops §7.2 sketch, promoted: grammar for `type Elem` (declaration side) and `type Elem = a` (implement side); keyword sharing with the module-level alias, position-disambiguated (three positions, one keyword — the Rust precedent).

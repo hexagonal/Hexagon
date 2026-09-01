@@ -118,7 +118,7 @@ All other rows (get/set O(log₃₂ n), both ends O(1) amortized, `++` linear) s
 
 ### 5.1 The bracket
 
-- `xs[i]` with `xs : Vector(a)`, `i : Int` — **1-based**; yields the element; **throws `IndexError`** when `i < 1` or `i > length(xs)`. `xs[i]` asserts "element `i` exists" and fails loudly at the fault site.
+- `xs[i]` with `xs : Vector(a)`, `i : Int` — **1-based**; yields the element; **throws `IndexError`** when `i < 1` or `i > xs.length()`. `xs[i]` asserts "element `i` exists" and fails loudly at the fault site.
 - `[]` is **read-only** — it never appears in a write position (there is no assignment-to-index grammar in Hexagon at all; updates are `Vector.set`).
 - **Negative indices are absent — decided.** `xs[-1]` throws `IndexError` like any other out-of-bounds value. Reasoning recorded in §11.1 (silent-wrap drift hazard; the `0` dead zone is one value wide under 1-based indexing; slices cannot follow coherently). The end-relative want is served by `at` (§5.3), `last`, and `dropLast`.
 - Emission: monomorphic `xs[i]` emits a runtime indexed read with the bounds check that produces `IndexError`. JS returns `undefined` out of bounds, so a check exists either way; the throwing form wins on type cleanliness — `xs[i] : a` with no hole.
@@ -134,7 +134,7 @@ Vector.at : (Vector(a), Int) -> a
 ```
 
 - **Positive domain: `at` is `[]`, definitionally.** For `i ≥ 1`, `at(v, i) ≡ v[i]` — an equation, not a coincidence: `[]` on a vector *is* the runtime's positive lookup, and `at`'s positive branch is the same lookup. The two cannot drift.
-- **Negative domain: from-end addressing.** For `i ≤ -1`, `at(v, i) ≡ v[length(v) + i + 1]` — so `at(v, -1)` is the last element, `at(v, -length(v))` the first. Equivalent formulation for the docs: `at(v, -n) = v[length(v) - n + 1]`.
+- **Negative domain: from-end addressing.** For `i ≤ -1`, `v.at(i) ≡ v[v.length() + i + 1]` — so `v.at(-1)` is the last element, `v.at(-v.length())` the first. Equivalent formulation for the docs: `v.at(-n) = v[v.length() - n + 1]`.
 - **`at(v, 0)` always throws.** Zero is never an address in a 1-based world; the dead zone between the domains stays dead (and remains the guard rail where index drift lands first).
 - `at` **throws `IndexError`** whenever the resolved position doesn't exist — it is the bracket's signed sibling, an *assertion* with from-end power, not a third total accessor (`get` remains the only total one; a total-and-signed accessor is a v2-on-field-evidence question, §12.3).
 - The `IndexError` payload carries **the index as passed** (the `-4`, not the normalized position) — the payload describes what the caller said; fault-site honesty.
@@ -372,7 +372,7 @@ let sp = [x, ...ys]                   -- ERROR: spread is pattern syntax;
 match xs
     [] => 0
     [x] => x
-    [x, ...rest] => x + length(rest)      -- exhaustive: [] covers 0, [x] covers 1, third covers ≥1
+    [x, ...rest] => x + rest.length()     -- exhaustive: [] covers 0, [x] covers 1, third covers ≥1
 
 match pairs
     [(k, v), ...] => k                  -- nested tuple in element slot
