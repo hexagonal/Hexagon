@@ -226,9 +226,9 @@ export declare function inspect<a, b>(
 ): string;
 ```
 
-Suffix **positions** are the ABI; the `.d.ts` parameter names (`eqA`, `showA`, …) are representative documentation, generated as lowercase-constraint + variable for readability, and carry no contract.
+Suffix **positions** are the ABI; the `.d.ts` parameter names (`eqA`, `showA`, …) are representative documentation, generated as lowercase-constraint + variable for readability, and carry no contract — a same-named tie (the paragraph below) disambiguates the generated names, which stay representative either way.
 
-Within one variable the second key can tie: two **distinct declarations sharing a spelling** (Constraints §5.1.1). No module can declare such a pair, but an exported head can meet one through two imported schemes and spell it only through an alias (Modules §3.2) — `<u: (Fancy, Fancy2)>` over two imported `Fancy`s. Same-named entries order **positionally, by the written order of the declared conjunction** — the resolution the base-slot contest already takes (Constraints §6.2), and one every exported function can supply, Modules §4.1.1 refusing to export a function that leaves a constraint undeclared. An *inferred* same-named pair — possible only on a function no export accepts — takes no specified order, on §6.2.1's terms exactly *(#286)*.
+Within one variable the second key can tie: two **distinct declarations sharing a spelling** (Constraints §5.1.1). No module can declare such a pair, but a head meets one wherever two declarations' spellings converge — two imports, or the module's own declaration beside one — and spells it through the qualified form (`<u: (MA.Fancy, MB.Fancy)>`, Modules §3.3) or an alias (`<u: (Fancy, Fancy2)>`, Modules §3.2), the alias route open only where the two constraints' member spellings do not collide (Modules §3.1). Same-named entries order **positionally, by the written order of the declared conjunction** — the resolution the base-slot contest already takes (Constraints §6.2), and one every exported function can supply, Modules §4.1.1 refusing to export a function that leaves a constraint undeclared. An *inferred* same-named pair — possible only on a function no export accepts — takes no specified order, on §6.2.1's terms exactly *(#286)*.
 
 #### 6.2.1 The ordinal's extent
 
@@ -314,7 +314,7 @@ Public dictionaries from separately compiled Hexagon packages interoperate **onl
 
 - constraint member names and callable signatures (the completed member set, §2.2);
 - base constraint slots and their names — the base declarations’ own names, contested slots numbered in the extending declaration’s written base-list order (§7.1; Constraints §6.2), which makes **reordering a contested base list** an ABI event;
-- evidence suffix ordering and duplicate-elimination canonicalization (§6.2, §7.2);
+- evidence suffix ordering and duplicate-elimination canonicalization (§6.2, §7.2) — which makes **reordering a same-named conjunction** in an exported binder an ABI event, exactly as a contested base list's is *(#286)*;
 - brand identity/recognition where present;
 - factory argument order (§4);
 - runtime package major compatibility.
