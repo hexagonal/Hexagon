@@ -784,11 +784,17 @@ const STRUCTURAL_IDENTITIES: ReadonlySet<string> = new Set(
  * constraint was just written, and §5.1.1's ban makes the spelling decisive".
  * The premise is measured false: §5.1.1's ban bars a rival *declaration*, not a
  * second *spelling*, and the prelude's modules are ordinary modules at the source
- * common root — `import { Hash as H } from "./Hash.hex"` binds a second working
- * spelling of `hex:Hash` with no redeclaration anywhere, and `derives (Eq, H)`
- * was refused as underivable while the identical program spelled `Hash`
- * compiled. One declaration, one answer: every gate over this inventory reads
- * the identity, and only the *report* reads the word the source wrote.
+ * common root, reachable by **two** import channels —
+ * `import { Hash as H } from "./Hash.hex"` and `import module M from
+ * "./Hash.hex"`, binding `H` and `M.Hash`. Each is a working spelling of
+ * `hex:Hash` with no redeclaration anywhere, and `derives (Eq, H)` was refused
+ * as underivable while the identical program spelled `Hash` compiled. (The
+ * `derives` seat itself takes only the bare form by grammar, so the alias
+ * reaches it and the qualifier does not; `honor M.Hash<P> = derive` is where the
+ * second channel arrives at derivation.) One declaration, one answer: every gate
+ * over this inventory reads the identity, which is what makes it right for a
+ * channel nobody has thought of yet, and only the *report* reads the word the
+ * source wrote.
  */
 const DERIVABLE_IDENTITIES: ReadonlySet<string> = new Set(
   ["Eq", "Ord", "Show", "Hash"].map(preRegisteredConstraintIdentity),
@@ -3817,11 +3823,17 @@ class Checker {
         // The gate reads the **identity** (#727). It used to read the name, on
         // the premise that a constraint written here has nothing to occlude it —
         // and that premise was not what the gate needed. Nothing occludes `Hash`;
-        // an alias *adds* a spelling rather than taking one, and `import { Hash
-        // as H }` plus `honor H<P>` walked straight past the refusal and compiled
-        // a hand-written `Hash` with no diagnostic at all, while the same program
-        // spelled `Hash` was refused. Everything the renderer asks of the
-        // *subject* was already asked by identity; now the constraint is too.
+        // an import *adds* a spelling rather than taking one, and it does so
+        // through two channels, each of which walked straight past this refusal
+        // and compiled a hand-written `Hash` with no diagnostic at all:
+        //
+        //     import { Hash as H } from "./Hash.hex"   →  honor H<P>
+        //     import module M from "./Hash.hex"        →  honor M.Hash<P>
+        //
+        // The second needs no alias and leaves the word `Hash` untouched, which
+        // is what makes "the spelling here is not `Hash`" the wrong question to
+        // ask. Everything the renderer asks of the *subject* was already asked by
+        // identity; now the constraint is too.
         if (
           !item.derived && item.constraintIdentity === HASH_IDENTITY &&
           !this.#companionsPrimitive(item.subject)
@@ -3879,10 +3891,17 @@ class Checker {
             item,
             this.#instanceBaseRequirements(item, instanceSubject),
           );
-          // Collections Part 2 §4.3, by identity at both ends (#727): the pair
-          // is `hex:Hash` and `hex:Eq` whatever this module spells them, and
-          // this arm went live the moment the derivability gate above stopped
-          // refusing `derives (H)` first.
+          // Collections Part 2 §4.3, by identity at both ends (#727), and the
+          // two ends are not the same kind of change. The **gate** is a repair:
+          // it went live the moment the derivability gate above stopped refusing
+          // `derives (H)` and `honor M.Hash<P> = derive` first, and a name-keyed
+          // read of it lets a second spelling derive a hash beside a hand-written
+          // `Eq`. The **lookup** is hardening only — `Eq` names `hex:Eq` in every
+          // module, since an import may not bind a pre-registered word (`import
+          // { Ord as Eq }` is refused), so `#instanceKeyFor("Eq", …)` could not
+          // have been wrong. It reads the identity because the line beside it
+          // does, and a reader should not have to re-derive which of the two is
+          // load-bearing.
           if (item.constraintIdentity === HASH_IDENTITY) {
             const equality = this.#instances.get(
               this.#instanceKey(EQ_IDENTITY, instanceSubject),
@@ -4662,12 +4681,13 @@ class Checker {
    * constraint has no declaration in view, which in a real compile means the
    * program named nothing (`#unknownConstraint` follows).
    *
-   * Name-keyed on purpose, and #727 does not touch it: a second spelling of a
-   * pre-registered constraint arrives by importing the prelude module that
-   * declares it, and in a compile that reaches this arm there is no such module
-   * to import — the alias route and this fallback are mutually exclusive by
-   * construction. The identity would be the right key in any compile where one
-   * could exist, and in none of those does this run. `constraints.ts`'s
+   * Name-keyed on purpose, and #727 does not touch it: both second-spelling
+   * channels — a renaming named import and `import module`'s qualifier — go
+   * through importing the prelude module that declares the constraint, and in a
+   * compile that reaches this arm there is no such module to import. The two
+   * routes and this fallback are mutually exclusive by construction. The
+   * identity would be the right key in any compile where a second spelling could
+   * exist, and in none of those does this run. `constraints.ts`'s
    * `PRE_REGISTERED_CONSTRAINT_MEMBERS` is the resolver's half of the same
    * fallback, and it stays name-keyed for the same reason.
    */
@@ -9762,18 +9782,26 @@ class Checker {
     //
     // Every arm below asks which pre-registered constraint this requirement
     // demands, and every one of them asks by **identity** (#727). A requirement
-    // carries the spelling its demand site wrote, and `import { Show as S }`
-    // makes that `S` — a name-keyed arm declined, the requirement fell through
-    // to the instance table, and `show((1, 2))` was refused for want of an
-    // `S` instance no module can write.
+    // carries the spelling its demand site wrote — `S` under `import { Show as
+    // S }`, `M.Show` under `import module M` — and a name-keyed arm declined for
+    // both, letting the requirement fall through to the instance table so that
+    // `show((1, 2))` was refused for want of an instance no module can write.
     //
-    // The component demands the arms raise are a different question and stay in
-    // names. A container's are the *compiler's* choice of what to ask of the
-    // contents — always the canonical word, which `#constraintIdentities` seeds
-    // with the pre-registered eleven and which no import may rebind — while the
-    // structural walk asks the *same* constraint of each component and so
-    // forwards the identity it was given, the one currency an imported scheme's
-    // unspellable requirement can be re-raised in.
+    // Two questions per arm, and only the first is the gate. The second is what
+    // the arm then demands **of the contents**, and it is the one that fails
+    // silently: a wrong pick type-checks and emits a dictionary whose element
+    // evidence answers a different constraint, which throws at the first slot
+    // read. `Show` walks a map's keys and values; `Hash` and `Eq` walk them
+    // differently. So the picks read the identity too, and the conformance file
+    // discriminates them with element types that honor one side and not the
+    // other — an `Int` element satisfies all four and proves nothing.
+    //
+    // The canonical words the picks *spell* (`#require("Hash", …)`) are the
+    // compiler's own choice and stay names: `#constraintIdentities` seeds the
+    // pre-registered eleven and no import may rebind one. The structural walk is
+    // the exception, forwarding the identity it was given because it asks the
+    // *same* constraint of each component — hardening rather than a repair, and
+    // the currency an imported scheme's unspellable requirement would need.
     if (
       STRUCTURAL_IDENTITIES.has(requirement.identity) &&
       (type.kind === "Tuple" || type.kind === "Record" || type.kind === "Vector")
@@ -11153,11 +11181,17 @@ class Checker {
   }
 
   /**
-   * By identity in both halves (#727). The `Unit` half asked whether the
-   * requirement's *name* was one of the four structural constraints and the
-   * `Int` half re-derived an identity from the name, so a requirement written
-   * `S` under `import { Show as S }` answered "not satisfied at `Unit`" — the
-   * opposite of what `Show` answers — and settled a demanded `Unit` to `Int`.
+   * By identity in both halves (#727), as **currency hardening and not a
+   * repair** — said plainly because the difference is not visible from the code.
+   *
+   * A name-keyed `Unit` half does answer differently for a second spelling, but
+   * no program was found that reaches the difference, and neither keying kills a
+   * test: every route to this predicate carries a numeric literal, whose `Num`
+   * requirement is not satisfied at `Unit` under any spelling and so decides the
+   * `some(…)` on its own. The flip is here because the pair either side of it
+   * reads identities and a lone name-keyed neighbour is what the arc was about —
+   * not because a specimen was measured. If one is ever found, it belongs beside
+   * the container-pick specimens, which are the shape of a discriminating one.
    */
   #satisfiedAt(requirement: Requirement, subject: "Int" | "Unit"): boolean {
     if (subject === "Unit") return STRUCTURAL_IDENTITIES.has(requirement.identity);
