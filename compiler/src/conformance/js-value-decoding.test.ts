@@ -43,10 +43,12 @@ const PROGRAM = "export let kindOf(v: JsValue): JsKind = JsValue.kind(v)\n" +
   "\n" +
   "// The two projections of a failure a caller can make without naming a\n" +
   "// representation: which reason, and how long the path is.\n" +
+  "// The reasons are matched qualified because `spec/ffi.md` §12's extension\n" +
+  "// (#511) makes them qualified-only; the arms are the same arms.\n" +
   "let reasonOf(reason: JsConversionReason): String = match reason\n" +
-  "    Shape => \"Shape\"\n" +
-  "    Range => \"Range\"\n" +
-  "    Cycle(_) => \"Cycle\"\n" +
+  "    JsConversionReason.Shape => \"Shape\"\n" +
+  "    JsConversionReason.Range => \"Range\"\n" +
+  "    JsConversionReason.Cycle(_) => \"Cycle\"\n" +
   "\n" +
   "export let failure(result: Result(a, JsConversionError)): String = match result\n" +
   "    Ok(_) => \"Ok\"\n" +
@@ -423,15 +425,27 @@ describe("the failure type is ordinary data (§5.1)", () => {
    * three, so a program can name each of them today even though nothing in this
    * slice originates a non-empty path (§6.3: `Field` and `Index` originate from
    * conversions that traverse, and there are none in the v1 core surface).
+   *
+   * Each is named **qualified**, which since §12's extension (#511) is the only
+   * way any of the eight can be named at all; the bare refusals are
+   * `js-kind-qualification.test.ts`'s.
    */
   test("the whole path vocabulary and every reason class is nameable", () => {
     expect(projectDiagnostics(
-      "export let segments: Vector(JsPathSegment) =\n" +
-        "    [Field(\"name\"), Index(3), MapKey(2), MapValue(2), SetElement(1)]\n" +
-        "export let reasons: Vector(JsConversionReason) =\n" +
-        "    [Shape, Range, Cycle([Index(1)])]\n" +
+      "export let segments: Vector(JsPathSegment) = [\n" +
+        "    JsPathSegment.Field(\"name\"),\n" +
+        "    JsPathSegment.Index(3),\n" +
+        "    JsPathSegment.MapKey(2),\n" +
+        "    JsPathSegment.MapValue(2),\n" +
+        "    JsPathSegment.SetElement(1),\n" +
+        "]\n" +
+        "export let reasons: Vector(JsConversionReason) = [\n" +
+        "    JsConversionReason.Shape,\n" +
+        "    JsConversionReason.Range,\n" +
+        "    JsConversionReason.Cycle([JsPathSegment.Index(1)]),\n" +
+        "]\n" +
         "export let error: JsConversionError =\n" +
-        "    JsConversionError({ reason = Shape, path = [] })\n",
+        "    JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n",
     )).toEqual([]);
   });
 });

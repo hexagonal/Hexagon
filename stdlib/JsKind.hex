@@ -13,8 +13,14 @@
     check — and there is no `Int` kind, because the `Int`/`Float` distinction is
     a Hexagon refinement `typeof` cannot see. Every constructor is reached
     qualified: `JsKind.Undefined`, `JsKind.Null`, and so on through
-    `JsKind.Object`, in expressions and in patterns alike. *)
-export union JsKind =
+    `JsKind.Object`, in expressions and in patterns alike.
+
+    `Eq` and `Show` are derived (section 3): the single-kind test
+    `kind(v) == JsKind.Number` is this surface's most common question, and both
+    instances are lawful and trivial on an all-nullary union. `JsValue` itself
+    still has no instances — a kind is ordinary domestic data *about* a foreign
+    value, not the value. *)
+export union JsKind derives (Eq, Show) =
     | Undefined
     | Null
     | Bool

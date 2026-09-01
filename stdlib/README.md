@@ -25,17 +25,32 @@ not compiler intrinsics.
   (`runtime/VectorTrie.hex`, `runtime/HashTrie.hex`); everything above those
   declarations is ordinary Hexagon. `Seq.hex` declares `Seq(a)` itself and its
   combinator core.
-- `JsKind.hex` and `JsValue.hex` are FFI Part 11's pair. `JsValue.hex` is the
-  companion of the boundary type `JsValue` — the type of a JavaScript value
-  about which Hexagon asserts nothing — and holds the total injection `from`,
-  the total property-free classification `kind`, the five strict non-coercing
-  scalar decoders, and the ordinary `JsConversionError` data they fail with.
-  Only the classification and six representation-honest identities cross the
-  intrinsic door; every guard above them is ordinary Hexagon here, and the five
-  unchecked crossings are unexported, so §1's "no unsafe casts in v1" holds by
-  construction. `JsKind.hex` exists so that `JsKind`'s ten constructors have the
-  qualified home `spec/ffi.md` §12 requires of them: they are reached as
-  `JsKind.Null` and are not auto-imported as bare prelude terms.
+- `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex`, and
+  `JsValue.hex` are FFI Part 11's four. `JsValue.hex` is the companion of the
+  boundary type `JsValue` — the type of a JavaScript value about which Hexagon
+  asserts nothing — and holds the total injection `from`, the total
+  property-free classification `kind`, the five strict non-coercing scalar
+  decoders, and the ordinary `JsConversionError` data they fail with. Only the
+  classification and six representation-honest identities cross the intrinsic
+  door; every guard above them is ordinary Hexagon here, and the five unchecked
+  crossings are unexported.
+
+  That last sentence is the whole of what this module contributes to §1's "no
+  unsafe casts in v1", and it is worth stating the standing exactly: the claim
+  holds by the **prelude-injection privilege gate**, not by construction. A
+  `"hex:intrinsic"` block is legal only in privileged source (`spec/intrinsics.md`
+  §5.2's trust model), so ordinary user code cannot declare `asIntUnchecked` for
+  itself — the same standing every other door in the library has, and the same
+  standing `Vector.hex`'s trie rows have. Inside the gate the guarantee is the
+  reviewed decoder above each crossing, and nothing stronger.
+- The other three files each declare one union and exist so that its
+  constructors have the qualified home `spec/ffi.md` §12 requires (as extended
+  for #511): `JsKind.Null`, `JsPathSegment.Index(3)`,
+  `JsConversionReason.Shape`. None of the twenty-one constructors is
+  auto-imported as a bare prelude term, so the prelude spends none of `Shape`,
+  `Range`, `Cycle`, `Field`, `Index`, `MapKey`, `MapValue`, `SetElement`, or the
+  ten kind names on a user's behalf. `JsKind` also derives `Eq` and `Show`, so
+  `kind(v) == JsKind.Number` is the ordinary comparison it looks like.
 - `Debug.hex` holds the debugging probe: `log<a: Show>(value: a)` renders any
   showable value and writes it to the console through the door's one **species
   (a)** row (`spec/effects.md` §6.2), which stays at `String` and is unexported

@@ -1,0 +1,29 @@
+// `JsConversionReason`'s home, for the reason `JsPathSegment.hex` is
+// `JsPathSegment`'s: `spec/ffi.md` section 12's extension makes all three
+// constructors qualified-only — `JsConversionReason.Shape`, never a bare
+// `Shape` — and a qualified constructor is spelled through the module that
+// declares it (Modules section 3.3).
+//
+// `Shape` and `Range` are the two words this buys back. Both are ordinary names
+// for a user's own declaration, and `Range` is already a prelude *type*; a bare
+// prelude constructor under either spelling is occluded only by a user
+// declaration in the *constructor* namespace, so a user's `union Shape = Circle
+// | Square` would leave the prelude's `Shape` standing in term position and any
+// resulting message would name a union that appears nowhere in the program.
+
+(** Why a checked conversion failed.
+
+    `Shape` is "not the required kind of thing" — a wrong `typeof`, not an
+    array, not an object where one was required. `Range` is the right kind of
+    value outside the representable domain, which is why `toInt` on `2^53` is
+    not the same answer as `toInt` on `"12"`. `Cycle` is a traversal that had to
+    terminate meeting a back-edge; its payload is where the structure was first
+    seen, which together with the failure's own path names the back-edge.
+
+    Every constructor is reached qualified: `JsConversionReason.Shape`,
+    `JsConversionReason.Range`, `JsConversionReason.Cycle(firstSeen)`, in
+    expressions and in patterns alike. *)
+export union JsConversionReason =
+    | Shape
+    | Range
+    | Cycle(firstSeen: Vector(JsPathSegment))

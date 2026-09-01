@@ -132,18 +132,27 @@ export interface PreludeModule {
  * `Stream`, and nothing can — the type is `Seq`'s impure sibling and no pure
  * module has business with one.
  *
- * `JsKind.hex` and `JsValue.hex` are the FFI Part 11 pair, and the pair is the
- * seats-before-uses rule twice over. `JsKind.hex` declares one all-nullary
- * union, so its signature types name nothing and it could sit almost anywhere;
- * it sits immediately before `JsValue.hex` because that is the module that uses
- * it, and because a constructor of it is reachable only as `JsKind.Null`
- * (`spec/ffi.md` §12), which is a *qualified* spelling and so needs the module
- * addressable under the name. `JsValue.hex` then sits after everything its
- * headers name: `Result.hex`, because every decoder answers with one, and
- * `Vector.hex`, because the `JsConversionError` inside that `Err` carries a
- * `Vector` of path segments. Nothing before them names a `JsValue` — the type has
- * no Hexagon declaration site, so only these two files and a user's own
- * annotation can spell it.
+ * `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex` and `JsValue.hex`
+ * are FFI Part 11's four, and they are the seats-before-uses rule four times
+ * over. The first three each declare one union and nothing else, and each is a
+ * module of its own for the same reason: `spec/ffi.md` §12 (as extended for
+ * #511) makes every constructor of all three **qualified-only** — `JsKind.Null`,
+ * `JsPathSegment.Index(3)`, `JsConversionReason.Shape` — and a qualified
+ * constructor is spelled through the module that declares it (Modules §3.3), so
+ * the union's home must be addressable under the union's own name.
+ *
+ * Among the three, only one edge is forced: `JsConversionReason.hex` names
+ * `Vector(JsPathSegment)` in `Cycle`'s payload, so it sits after both
+ * `Vector.hex` and `JsPathSegment.hex`. `JsKind.hex` is all-nullary and names
+ * nothing at all, so its seat is convention — beside its siblings, before the
+ * module that uses it.
+ *
+ * `JsValue.hex` then sits after everything its headers name: all three unions
+ * above, `Result.hex`, because every decoder answers with one, and `Vector.hex`,
+ * because the `JsConversionError` inside that `Err` carries a `Vector` of path
+ * segments. Nothing before them names a `JsValue` — the type has no Hexagon
+ * declaration site, so only these files and a user's own annotation can spell
+ * it.
  *
  * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: almost
  * no signature here forces it. Both members name `Show` and nothing else — `log`
@@ -185,6 +194,8 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Set.hex",
   "Stream.hex",
   "JsKind.hex",
+  "JsPathSegment.hex",
+  "JsConversionReason.hex",
   "JsValue.hex",
   "Debug.hex",
 ].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));

@@ -3,28 +3,41 @@ import { describe, expect, test } from "vitest";
 import { compileFiles, projectDiagnostics, runMain } from "../support/test-project.js";
 
 /**
- * Conformance for the **qualified-only constructors** of `JsKind` — `spec/
- * ffi.md` §12's global naming audit, cited by FFI Part 11 §3 (issue #511).
+ * Conformance for the **qualified-only constructors** of Part 11's three
+ * utility unions — `spec/ffi.md` §12's global naming audit and its #511
+ * extension, cited by FFI Part 11 §3 and §5.1 (issue #511).
  *
- * §12's finding is one collision: `Undefined` and `Null` are constructors of
- * *both* `NullableCase(a)` (Part 2 §3) and `JsKind` (Part 11 §3), which the
- * prelude cannot auto-import unqualified (Modules §5.5). Its resolution is
- * wider than the collision — **all** constructors of both utility unions are
- * qualified-only, so each union's constructor surface stays one rule rather
- * than two.
+ * §12's original finding is one collision: `Undefined` and `Null` are
+ * constructors of *both* `NullableCase(a)` (Part 2 §3) and `JsKind` (Part 11
+ * §3), which the prelude cannot auto-import unqualified (Modules §5.5). Its
+ * resolution is wider than the collision — **all** constructors of the whole
+ * union are qualified-only, so a union's constructor surface stays one rule
+ * rather than two.
  *
- * That makes this the first exception to "every prelude export is in bare
- * scope", and the exception has to be exactly as narrow as §12 draws it. So the
- * file pins three things, and the third is the one a slip would take:
+ * §12's **extension** carries the same rule to `JsConversionReason` and
+ * `JsPathSegment` on different grounds: not collision but **user vocabulary**.
+ * `Shape`, `Range`, `Cycle`, `Field`, `Index`, `MapKey`, `MapValue` and
+ * `SetElement` are ordinary names for a user's own declarations, and occlusion
+ * does not save that user — it is per-namespace, so a `union Shape = Circle |
+ * Square` introduces no *constructor* `Shape` and would leave the prelude's
+ * standing in term position, where the message it draws names a union that
+ * appears nowhere in the program.
  *
- * - **the ten constructors are unreachable bare**, in expressions and in
+ * So this is the exception to "every prelude export is in bare scope", and it
+ * has to be exactly as wide as §12 draws it and no wider. The file pins:
+ *
+ * - **the twenty-one constructors are unreachable bare**, in expressions and in
  *   patterns alike, with the ordinary unknown-name refusals §12 leaves them to;
  * - **the qualified spelling works everywhere** a constructor can stand, which
  *   is Modules §3.3's existing `Geo.Circle(r)` door and nothing new;
- * - **nothing else is qualified.** `JsConversionReason` and `JsPathSegment`
- *   were audited and passed — §12 lists `Range` the type beside
- *   `JsConversionReason`'s `Range` constructor as *clean* cross-namespace
- *   coexistence — so their constructors stay ordinary bare prelude terms.
+ * - **the eight words are given back**, including the two occlusion shapes the
+ *   extension was argued from: a user's `record Shape` (which *does* declare a
+ *   same-spelled constructor) and a user's data-armed `union Shape` (which does
+ *   not) now behave identically, because there is no bare prelude constructor
+ *   for either to occlude;
+ * - **nothing else is qualified** — `JsConversionError` is a record whose
+ *   constructor is its own type's spelling, not common user vocabulary, and it
+ *   stays an ordinary bare prelude term.
  *
  * And the whole thing is a **source-namespace** rule: §12 says in as many words
  * that runtime representations are unchanged, so the emitted strings are pinned
@@ -50,6 +63,21 @@ const KINDS = [
   "Function",
   "Array",
   "Object",
+] as const;
+
+/**
+ * The eight words §12's extension gives back (#511) — `JsConversionReason`'s
+ * three and `JsPathSegment`'s five, which are the reason the extension exists.
+ */
+const UTILITY_CONSTRUCTORS = [
+  "Shape",
+  "Range",
+  "Cycle",
+  "Field",
+  "Index",
+  "MapKey",
+  "MapValue",
+  "SetElement",
 ] as const;
 
 describe("the ten constructors are not bare prelude terms (ffi.md §12)", () => {
@@ -129,11 +157,98 @@ describe("the qualified spelling works everywhere (Modules §3.3)", () => {
   });
 
   /**
+   * §7.2's *other* report has to agree with §7.1's above. A duplicate arm names
+   * the constructor already handled, and the pattern's own text is the
+   * constructor half alone — so this seat quoted a bare `Null`, a spelling §12
+   * makes unwritable, in the same `match` whose missing-cases report says
+   * `JsKind.Null`. One `match`, two reports, one way of saying a name (#511).
+   */
+  test("the duplicate-arm report names the constructor qualified too", () => {
+    expect(projectDiagnostics(
+      "export let name(k: JsKind): String = match k\n" +
+        "    JsKind.Null => \"a\"\n" +
+        "    JsKind.Null => \"b\"\n" +
+        "    _ => \"c\"\n",
+    )).toEqual(["this case is unreachable; `JsKind.Null` is already handled above"]);
+    // And for the two unions the extension added, payload and all.
+    expect(projectDiagnostics(
+      "export let depth(s: JsPathSegment): Int = match s\n" +
+        "    JsPathSegment.Index(i) => i\n" +
+        "    JsPathSegment.Index(j) => j\n" +
+        "    _ => 0\n",
+    )).toEqual([
+      "this case is unreachable; `JsPathSegment.Index` is already handled above",
+    ]);
+  });
+
+  /**
    * `JsKind` the *type* is an ordinary exported prelude union, so the bare type
    * spelling resolves — it is the constructors alone that §12 qualifies.
    */
   test("the type name itself is bare, as any prelude union's is", () => {
     expect(projectDiagnostics("export let f(k: JsKind): JsKind = k\n")).toEqual([]);
+  });
+});
+
+describe("`JsKind derives (Eq, Show)` (Part 11 §3)", () => {
+  /**
+   * §3's ruling, and the sentence it was ruled on: "the single-kind test
+   * `kind(v) == JsKind.Number` is the surface's most common question". Both
+   * instances are lawful and trivial on an all-nullary union, and neither
+   * touches `JsValue` — a kind is ordinary domestic data *about* a foreign
+   * value, which is why deriving here does not contradict §2's "no instances".
+   */
+  test("a kind compares and shows", () => {
+    expect(projectDiagnostics(
+      "export let isNumber(k: JsKind): Bool = k == JsKind.Number\n" +
+        "export let differs(k: JsKind): Bool = k != JsKind.Null\n" +
+        "export let rendered(k: JsKind): String = show(k)\n",
+    )).toEqual([]);
+  });
+
+  /** And the same three, run. */
+  test("the instances answer correctly at run time", async () => {
+    const main = await runMain(
+      "export let isNumber(v: JsValue): Bool = JsValue.kind(v) == JsKind.Number\n" +
+        "export let rendered(v: JsValue): String = show(JsValue.kind(v))\n",
+    );
+    const isNumber = main["isNumber"] as (v: unknown) => boolean;
+    const rendered = main["rendered"] as (v: unknown) => string;
+    expect(isNumber(1)).toBe(true);
+    expect(isNumber("1")).toBe(false);
+    expect(isNumber(null)).toBe(false);
+    // Derived `Show` on an all-nullary union renders the constructor name.
+    expect(rendered(1)).toBe("Number");
+    expect(rendered(null)).toBe("Null");
+    expect(rendered([])).toBe("Array");
+  });
+
+  /**
+   * §2 stands untouched: `JsValue` itself still has **no** instances, so the
+   * derivation on the kinds buys the foreign value nothing.
+   */
+  test("`JsValue` gains nothing from it", () => {
+    expect(projectDiagnostics("export let same(a: JsValue, b: JsValue): Bool = a == b\n")[0])
+      .toContain("JsValue");
+    expect(projectDiagnostics("export let s(v: JsValue): String = show(v)\n")[0])
+      .toContain("JsValue");
+  });
+
+  /**
+   * §3 again: "the string representation is unchanged". Deriving adds
+   * dictionaries, and a dictionary is not a representation — the emitted value
+   * is still the name-string and the `.d.ts` face is still the string union.
+   */
+  test("neither the emitted representation nor the `.d.ts` face moves", () => {
+    const compiled = compileFiles([["/main.hex",
+      "export let k(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
+    expect(compiled.diagnostics).toEqual([]);
+    const kindModule = compiled.modules
+      .find(({ source }) => source.path === "/JsKind.hex")!;
+    expect(kindModule.declarations.text).toContain(
+      'export type JsKind = "Undefined" | "Null" | "Bool" | "Number" | "BigInt" | ' +
+        '"String" | "Symbol" | "Function" | "Array" | "Object";',
+    );
   });
 });
 
@@ -166,35 +281,133 @@ describe("the runtime representation is unchanged (ffi.md §12, Unions §6.2)", 
   });
 });
 
-describe("the exception is exactly §12's, and no wider", () => {
+describe("the extension gives the eight words back (§12's extension, #511)", () => {
   /**
-   * §12's audit passed `JsConversionReason` and `JsPathSegment`: the only
-   * same-namespace collision it found was `Undefined`/`Null`, and `Range` the
-   * type beside `JsConversionReason`'s `Range` constructor is listed as *clean*
-   * cross-namespace coexistence. So these constructors are ordinary bare
-   * prelude terms, in expressions and in patterns.
+   * The bare refusals, expression position. Eight ordinary words that no longer
+   * stand in any program's way — which is the whole of what the extension buys,
+   * so it is asserted name by name.
    */
-  test("`JsConversionReason` and `JsPathSegment` constructors stay bare", () => {
+  test.each(UTILITY_CONSTRUCTORS)(
+    "bare `%s` in an expression is an unknown name",
+    (constructor) => {
+      expect(projectDiagnostics(`export let n: Int = ${constructor}\n`)[0])
+        .toBe(`unknown name \`${constructor}\``);
+    },
+  );
+
+  /** Pattern position, the seat where an unbound capitalized name is refused. */
+  test.each(["Shape", "Range", "Cycle"] as const)(
+    "bare `%s` in a pattern is an unknown constructor",
+    (constructor) => {
+      expect(projectDiagnostics(
+        "export let f(r: JsConversionReason): Int = match r\n" +
+          `    ${constructor} => 1\n` +
+          "    _ => 2\n",
+      )[0]).toBe(`unknown constructor \`${constructor}\``);
+    },
+  );
+
+  /** And they are reachable qualified, in expressions and in patterns. */
+  test("every constructor of both unions is reachable qualified", () => {
     expect(projectDiagnostics(
-      "export let reasons: Vector(JsConversionReason) = [Shape, Range, Cycle([])]\n" +
-        "export let segments: Vector(JsPathSegment) =\n" +
-        "    [Field(\"f\"), Index(1), MapKey(1), MapValue(1), SetElement(1)]\n" +
+      "export let reasons: Vector(JsConversionReason) = [\n" +
+        "    JsConversionReason.Shape,\n" +
+        "    JsConversionReason.Range,\n" +
+        "    JsConversionReason.Cycle([]),\n" +
+        "]\n" +
+        "export let segments: Vector(JsPathSegment) = [\n" +
+        "    JsPathSegment.Field(\"f\"),\n" +
+        "    JsPathSegment.Index(1),\n" +
+        "    JsPathSegment.MapKey(1),\n" +
+        "    JsPathSegment.MapValue(1),\n" +
+        "    JsPathSegment.SetElement(1),\n" +
+        "]\n" +
         "export let which(r: JsConversionReason): Int = match r\n" +
-        "    Shape => 0\n" +
-        "    Range => 1\n" +
-        "    Cycle(_) => 2\n",
+        "    JsConversionReason.Shape => 0\n" +
+        "    JsConversionReason.Range => 1\n" +
+        "    JsConversionReason.Cycle(_) => 2\n" +
+        "export let depth(s: JsPathSegment): Int = match s\n" +
+        "    JsPathSegment.Field(_) => 0\n" +
+        "    JsPathSegment.Index(i) => i\n" +
+        "    JsPathSegment.MapKey(p) => p\n" +
+        "    JsPathSegment.MapValue(p) => p\n" +
+        "    JsPathSegment.SetElement(p) => p\n",
     )).toEqual([]);
   });
 
   /**
+   * The occlusion argument the extension was made from, run in both of its
+   * shapes — and the point is that they now agree.
+   *
+   * A `record Shape` declares a same-spelled *constructor*, so before the
+   * extension it occluded the prelude's; a data-armed `union Shape = Circle |
+   * Square` declares none, so it did not, and a bare `Shape` in that author's
+   * own module still meant a prelude constructor of a union appearing nowhere in
+   * their program (Modules §5.4, read per namespace). With no bare prelude
+   * constructor left to occlude, both are ordinary declarations of an ordinary
+   * word.
+   */
+  test("a user's `record Shape` and a user's `union Shape` behave identically", () => {
+    expect(projectDiagnostics(
+      "export record Shape = {sides: Int}\n" +
+        "export let area(s: Shape): Int = s.sides\n" +
+        "export let unit: Shape = Shape({sides = 3})\n",
+    )).toEqual([]);
+    expect(projectDiagnostics(
+      "export union Shape = Circle | Square\n" +
+        "export let name(s: Shape): String = match s\n" +
+        "    Circle => \"circle\"\n" +
+        "    Square => \"square\"\n" +
+        "export let unit: Shape = Circle\n",
+    )).toEqual([]);
+  });
+
+  /**
+   * And the misuse each shape draws is the ordinary one, named against the
+   * user's own declaration. Before the extension the union case could not even
+   * get here: the bare `Shape` resolved to the prelude constructor and the
+   * mismatch named `JsConversionReason`.
+   */
+  test("misuse of either is refused against the user's own declaration", () => {
+    expect(projectDiagnostics(
+      "export union Shape = Circle | Square\n" +
+        "export let n: Int = Circle\n",
+    )).toEqual(["type mismatch: expected Int, found Shape"]);
+    // Rule 1's sentence (Modules §5.1) is reachable again for this spelling,
+    // which is the degraded-diagnostic half of the same restoration.
+    expect(projectDiagnostics(
+      "union Shape = Circle(Float)\n" +
+        "export let n: Float = Shape.area(1.0)\n",
+    )).toEqual([
+      "`Shape` is a type, not a module; import its home module with " +
+        "`import module` for qualified access, or import the constructor/function you need",
+    ]);
+  });
+
+  /**
+   * `JsConversionError` is a **record**, not one of the three unions, and its
+   * constructor is its own type's spelling rather than a common word. It stays
+   * an ordinary bare prelude term, which is the boundary of the extension.
+   */
+  test("`JsConversionError` stays a bare prelude term", () => {
+    expect(projectDiagnostics(
+      "export let e: JsConversionError =\n" +
+        "    JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n",
+    )).toEqual([]);
+  });
+});
+
+describe("the exception is exactly §12's, and no wider", () => {
+  /**
    * The `Range` row of §12's clean list, run: the *type* `Range` and the
-   * *constructor* `Range` coexist in one module because Hexagon's term and type
-   * namespaces are separate (Modules §5).
+   * qualified *constructor* `Range` coexist in one module because Hexagon's
+   * term and type namespaces are separate (Modules §5). The extension moved
+   * the constructor behind its companion, and the type is untouched by that.
    */
   test("the `Range` type and the `Range` constructor coexist", () => {
     expect(projectDiagnostics(
       "export let span: Range = 1..3\n" +
-        "export let reason: JsConversionReason = Range\n",
+        "export let reason: JsConversionReason = JsConversionReason.Range\n",
     )).toEqual([]);
   });
 

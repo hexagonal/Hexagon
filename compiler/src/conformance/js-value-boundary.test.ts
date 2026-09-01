@@ -171,24 +171,40 @@ describe("the `.d.ts` face is `unknown`, never `any` (§2)", () => {
   /**
    * §5.1: the error data are **ordinary** data, so their faces are Part 7 §3's
    * structural record and §4's tagged-POJO union — nothing error-flavoured, no
-   * brand, no stack. Checked on the companion's own declaration file.
+   * brand, no stack. Checked on the companions' own declaration files.
+   *
+   * The two unions have declaration files *of their own* since §12's extension
+   * (#511): a qualified-only constructor is spelled through the module that
+   * declares it, so each union has a module named for itself. That is a
+   * source-namespace fact and the faces are untouched by it — which is what
+   * these three assertions are for, one per file, and why they read the same
+   * tagged POJOs they always did.
    */
   test("the conversion-error data face as ordinary record and union", async () => {
     const compiled = compileFiles([["/main.hex",
       "export let e(x: JsConversionError): JsConversionError = x\n"]]);
     expect(compiled.diagnostics).toEqual([]);
-    const companion = compiled.modules.find(({ source }) => source.path === "/JsValue.hex")!;
-    const text = companion.declarations.text;
-    expect(text).toContain(
+    const faceOf = (path: string): string =>
+      compiled.modules.find(({ source }) => source.path === path)!.declarations.text;
+
+    const value = faceOf("/JsValue.hex");
+    expect(value).toContain(
       "export type JsConversionError = { reason: JsConversionReason; path: Hex.Vector<JsPathSegment> };",
     );
-    expect(text).toContain('{ tag: "Shape" }');
-    expect(text).toContain('{ tag: "Range" }');
-    expect(text).toContain('{ tag: "Cycle"; firstSeen: Hex.Vector<JsPathSegment> }');
-    expect(text).toContain('{ tag: "Field"; name: string }');
-    expect(text).toContain('{ tag: "Index"; index: number }');
-    expect(text).not.toContain("Error &");
-    expect(text).not.toContain("$hex");
+
+    const reason = faceOf("/JsConversionReason.hex");
+    expect(reason).toContain('{ tag: "Shape" }');
+    expect(reason).toContain('{ tag: "Range" }');
+    expect(reason).toContain('{ tag: "Cycle"; firstSeen: Hex.Vector<JsPathSegment> }');
+
+    const segment = faceOf("/JsPathSegment.hex");
+    expect(segment).toContain('{ tag: "Field"; name: string }');
+    expect(segment).toContain('{ tag: "Index"; index: number }');
+
+    for (const text of [value, reason, segment]) {
+      expect(text).not.toContain("Error &");
+      expect(text).not.toContain("$hex");
+    }
   });
 });
 
@@ -237,6 +253,127 @@ describe("nullish absorption (§8, §13.3)", () => {
       "let second(witness: a, value: Nullable(a)): Nullable(a) = value\n" +
         "export let viaSubstitution(v: JsValue): JsValue = second(v, v)\n",
     )).toContain("export declare const viaSubstitution: (v: unknown) => unknown;");
+  });
+
+  /**
+   * The substitution route again, with **the witness moved** — and this is the
+   * pin the one above could not make.
+   *
+   * A collapse that only fires once the `Nullable`'s argument is already ground
+   * answers `second(witness: a, value: Nullable(a))`, because the first argument
+   * grounds `a` before the second is looked at, and rejects the very same
+   * function with its two parameters swapped. A judgment that depends on
+   * parameter order is not a type system's, so both orders are asserted
+   * together, in one program, on one line each.
+   */
+  test("the collapse does not depend on the order the arguments solve in", () => {
+    expect(projectDiagnostics(
+      "let witnessFirst(witness: a, value: Nullable(a)): Nullable(a) = value\n" +
+        "let valueFirst(value: Nullable(a), witness: a): Nullable(a) = value\n" +
+        "export let before(v: JsValue): JsValue = witnessFirst(v, v)\n" +
+        "export let after(v: JsValue): JsValue = valueFirst(v, v)\n",
+    )).toEqual([]);
+    expect(declarations(
+      "let valueFirst(value: Nullable(a), witness: a): Nullable(a) = value\n" +
+        "export let after(v: JsValue): JsValue = valueFirst(v, v)\n",
+    )).toContain("export declare const after: (v: unknown) => unknown;");
+  });
+
+  /**
+   * The reviewer's own program, which is the collapse with **no witness at
+   * all**: nothing grounds `a` before the `JsValue` arrives, so `Nullable(?a)`
+   * meets `JsValue` with `?a` still unsolved. There is exactly one solution —
+   * the designated set is closed at two members, so `Nullable(T) ≡ JsValue`
+   * forces `T = JsValue` — and the unifier commits it rather than reporting a
+   * mismatch.
+   */
+  test("an unsolved variable under the `Nullable` is solved, not refused", () => {
+    expect(projectDiagnostics(
+      "let take(y: Nullable(a)): Int = 1\n" +
+        "export let go(v: JsValue): Int = take(v)\n",
+    )).toEqual([]);
+    // The **result** position too, and it is a distinct pin rather than a
+    // restatement: the equation arrives at the unifier with its two sides the
+    // other way round, so a collapse written for one orientation answers one of
+    // these two tests and not the other. `unconstrained` is a compile-time
+    // fixture — its result variable is named by nothing in its parameters, which
+    // is the only way to hand the unifier a `Nullable` whose argument no
+    // argument has already ground.
+    expect(projectDiagnostics(
+      "fun unconstrained(n: Int): Nullable(a) = unconstrained(n)\n" +
+        "export let out(n: Int): JsValue = unconstrained(n)\n",
+    )).toEqual([]);
+    // The same orientation reached through a collection element and through a
+    // conditional's two branches, so it is the *equation* that is pinned rather
+    // than one seat's argument order.
+    expect(projectDiagnostics(
+      "fun unconstrained(n: Int): Nullable(a) = unconstrained(n)\n" +
+        "fun anyValue(n: Int): JsValue = anyValue(n)\n" +
+        "export let xs(n: Int): Vector(JsValue) = [anyValue(n), unconstrained(n)]\n" +
+        "export let pick(c: Bool, n: Int): JsValue =\n" +
+        "    if c then anyValue(n) else unconstrained(n)\n",
+    )).toEqual([]);
+  });
+
+  /**
+   * And the collapse reaches **through nesting**, because `#prune`'s idempotency
+   * half flattens `Nullable(Nullable(?a))` to `Nullable(?a)` before the solving
+   * half ever sees it. Written as a separate pin because the two halves are
+   * separate code and a fix to one need not have reached the other.
+   */
+  test("a nested `Nullable` around an unsolved variable resolves too", () => {
+    expect(projectDiagnostics(
+      "let deep(y: Nullable(Nullable(a))): Int = 1\n" +
+        "export let go(v: JsValue): Int = deep(v)\n",
+    )).toEqual([]);
+  });
+
+  /**
+   * The solving half is `JsValue`'s alone, and this is the guard that says so.
+   * `Nullable(?a)` against any other type is the ordinary equation it has always
+   * been: `?a` is solved to what the `Nullable` actually wrapped, never
+   * unwrapped by fiat, and a bare unwrapped use is still refused.
+   */
+  test("nothing leaks into ordinary `Nullable(?a)` unification", () => {
+    // `?a` solves to `Int` because that is what the *wrapped* type says, not to
+    // `Nullable(Int)` and not to anything else.
+    expect(projectDiagnostics(
+      "let take(y: Nullable(a), witness: a): Int = 1\n" +
+        "export let go(v: Nullable(Int)): Int = take(v, 1)\n",
+    )).toEqual([]);
+    expect(projectDiagnostics(
+      "let take(y: Nullable(a), witness: a): Int = 1\n" +
+        "export let bad(v: Nullable(Int)): Int = take(v, \"s\")\n",
+    )).toEqual(["type mismatch: expected Int, found String"]);
+    // A non-`JsValue` argument meeting `Nullable(?a)` is still the mismatch it
+    // was: no other type absorbs the wrapper, and the report still names the
+    // `Nullable` shape the reader wrote.
+    expect(projectDiagnostics(
+      "let take(y: Nullable(a)): Int = 1\n" +
+        "export let n: Int = take(\"s\")\n",
+    )).toEqual(["type mismatch: expected Nullable(a), found String"]);
+    // And the unwrapping direction is refused as before.
+    expect(projectDiagnostics(
+      "export let unwrap(v: Nullable(Int)): Int = v\n",
+    )).toEqual(["type mismatch: expected Int, found Nullable(Int)"]);
+  });
+
+  /**
+   * A **declared** type variable under the `Nullable` is not solvable: the
+   * caller chooses `a`, not the body, so `Nullable(a) ≡ JsValue` is refused —
+   * in both orders, which is the property this whole section is about. The
+   * refusal keeps the shape the author wrote rather than reporting against the
+   * variable inside it.
+   */
+  test("a declared type variable under the `Nullable` is refused, both orders", () => {
+    expect(projectDiagnostics(
+      "let use(v: JsValue): Int = 1\n" +
+        "export let go<a>(v: Nullable(a)): Int = use(v)\n",
+    )).toEqual(["type mismatch: expected JsValue, found Nullable(a)"]);
+    expect(projectDiagnostics(
+      "let use<a>(v: Nullable(a)): Int = 1\n" +
+        "export let go(v: JsValue): Int = use(v)\n",
+    )).toEqual([]);
   });
 
   /**

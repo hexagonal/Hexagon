@@ -719,10 +719,10 @@ describe("code actions: infer return type", () => {
   });
 
   // Given an explicit budget with #511, for the reason the neighbour below was
-  // given one with #344's last landing: `JsKind.hex` and `JsValue.hex` joined
-  // the prelude, so every one of these sessions' compiles carries two more
-  // modules again, and at ~1s alone the test had no room left in the default 5s
-  // under the full suite's parallel load. Explicit per test rather than a global
+  // given one with #344's last landing: four more prelude modules joined for
+  // FFI Part 11, so every one of these sessions' compiles carries four more
+  // again, and at ~1s alone the test had no room left in the default 5s under
+  // the full suite's parallel load. Explicit per test rather than a global
   // testTimeout, so the rest of the file keeps the tight default.
   test("waits for a declaration the parser could not carry on past", () => {
     // The other way a declaration stops: nothing is left *open*, the parser
@@ -1114,25 +1114,25 @@ describe("code actions: the `import module` repair family (#577)", () => {
   /** A user constraint in its own module, unimported by anything below. */
   const SCALE = "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n";
   /** A union and a function over it: the type seat's exporter. */
-  const FIGURE = "export union Figure = Circle(Float) | Square(Float)\n" +
-    "export fun area(s: Figure): Float = 1.0\n";
+  const SHAPE = "export union Shape = Circle(Float) | Square(Float)\n" +
+    "export fun area(s: Shape): Float = 1.0\n";
 
   test("the type seat's insert lands beside the imports already there", () => {
     // The filing's own shape: the type came in by name, the author reached for
     // the module. The alias joins the import block, and the type import the
     // author already wrote is left exactly as it is — this action adds a line,
     // it does not rewrite one.
-    const main = 'import { Figure } from "./figure"\n\n' +
-      "export fun go(s: Figure): Float = Figure.area(s)\n";
-    const { session } = sessionOf({ "/figure.hex": FIGURE, "/main.hex": main });
-    const action = sole(actionsOn(session, "/main.hex", main, "Figure.area"));
-    expect(action.title).toBe("import module `Figure`");
+    const main = 'import { Shape } from "./shape"\n\n' +
+      "export fun go(s: Shape): Float = Shape.area(s)\n";
+    const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
+    const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
+    expect(action.title).toBe("import module `Shape`");
     expect(action.kind).toBe("quickfix");
     expect(action.disabled).toBeUndefined();
     expect(applied(main, action)).toBe(
-      'import { Figure } from "./figure"\n' +
-        'import module Figure from "./figure"\n\n' +
-        "export fun go(s: Figure): Float = Figure.area(s)\n",
+      'import { Shape } from "./shape"\n' +
+        'import module Shape from "./shape"\n\n' +
+        "export fun go(s: Shape): Float = Shape.area(s)\n",
     );
   });
 
@@ -1140,10 +1140,10 @@ describe("code actions: the `import module` repair family (#577)", () => {
     // The property that makes an *applied* edit honest: the file it produces
     // compiles. Asserted for the seat whose message the author cannot act on
     // without knowing the path.
-    const main = 'import { Figure } from "./figure"\n' +
-      "export fun go(s: Figure): Float = Figure.area(s)\n";
-    const { session } = sessionOf({ "/figure.hex": FIGURE, "/main.hex": main });
-    const action = sole(actionsOn(session, "/main.hex", main, "Figure.area"));
+    const main = 'import { Shape } from "./shape"\n' +
+      "export fun go(s: Shape): Float = Shape.area(s)\n";
+    const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
+    const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
     session.setFile("/main.hex", applied(main, action));
     expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
   });
@@ -1213,12 +1213,12 @@ describe("code actions: the `import module` repair family (#577)", () => {
   test("an import written below the use is not one the alias could sit under", () => {
     // §3's top-down half is the whole of the placement rule for term positions:
     // only imports the refused use is already *below* are candidates to join.
-    const main = "export fun go(s: Figure): Float = Figure.area(s)\n" +
-      'import { Figure } from "./figure"\n';
-    const { session } = sessionOf({ "/figure.hex": FIGURE, "/main.hex": main });
-    const actions = actionsOn(session, "/main.hex", main, "Figure.area");
-    const action = actions.find(({ title }) => title === "import module `Figure`")!;
-    expect(applied(main, action).startsWith('import module Figure from "./figure"\n'))
+    const main = "export fun go(s: Shape): Float = Shape.area(s)\n" +
+      'import { Shape } from "./shape"\n';
+    const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
+    const actions = actionsOn(session, "/main.hex", main, "Shape.area");
+    const action = actions.find(({ title }) => title === "import module `Shape`")!;
+    expect(applied(main, action).startsWith('import module Shape from "./shape"\n'))
       .toBe(true);
   });
 
@@ -1257,20 +1257,20 @@ describe("code actions: the `import module` repair family (#577)", () => {
     });
     expect(actionsOn(session, "/main.hex", main, "Scale>")).toEqual([]);
 
-    const qualified = "union Figure = Circle(Float)\n" +
-      "export let n: Float = Figure.area(1.0)\n";
-    session.setFile("/scale.hex", "export constraint Figure<a> =\n    area(value: a): Float\n");
+    const qualified = "union Shape = Circle(Float)\n" +
+      "export let n: Float = Shape.area(1.0)\n";
+    session.setFile("/scale.hex", "export constraint Shape<a> =\n    area(value: a): Float\n");
     session.setFile("/main.hex", qualified);
-    expect(actionsOn(session, "/main.hex", qualified, "Figure.area")).toEqual([]);
+    expect(actionsOn(session, "/main.hex", qualified, "Shape.area")).toEqual([]);
   });
 
   test("the module being fixed is never its own candidate", () => {
     // It exports the spelling and still cannot import itself; the repair for a
     // `Name.` seat over the module's own type is not an import at all.
-    const main = "export union Figure = Circle(Float)\n" +
-      "export let n: Float = Figure.area(1.0)\n";
+    const main = "export union Shape = Circle(Float)\n" +
+      "export let n: Float = Shape.area(1.0)\n";
     const { session } = sessionOf({ "/main.hex": main });
-    expect(actionsOn(session, "/main.hex", main, "Figure.area")).toEqual([]);
+    expect(actionsOn(session, "/main.hex", main, "Shape.area")).toEqual([]);
   });
 
   /**
@@ -1354,27 +1354,27 @@ describe("code actions: the `import module` repair family (#577)", () => {
     // one. Repairing the lower use seats the alias below the upper one, which
     // keeps its own refusal — now with a fixit of its own — rather than having
     // the author's own import line reordered under them.
-    const main = 'import { Figure } from "./figure"\n' +
-      "export fun a(s: Figure): Float = Figure.area(s)\n" +
+    const main = 'import { Shape } from "./shape"\n' +
+      "export fun a(s: Shape): Float = Shape.area(s)\n" +
       'import { z } from "./other"\n' +
-      "export fun b(s: Figure): Float = Figure.area(s)\n";
+      "export fun b(s: Shape): Float = Shape.area(s)\n";
     const { session } = sessionOf({
-      "/figure.hex": FIGURE,
+      "/shape.hex": SHAPE,
       "/other.hex": "export let z: Int = 1\n",
       "/main.hex": main,
     });
-    const lower = sole(actionsOn(session, "/main.hex", main, "Figure.area", 2));
+    const lower = sole(actionsOn(session, "/main.hex", main, "Shape.area", 2));
     expect(applied(main, lower)).toBe(
-      'import { Figure } from "./figure"\n' +
-        "export fun a(s: Figure): Float = Figure.area(s)\n" +
+      'import { Shape } from "./shape"\n' +
+        "export fun a(s: Shape): Float = Shape.area(s)\n" +
         'import { z } from "./other"\n' +
-        'import module Figure from "./figure"\n' +
-        "export fun b(s: Figure): Float = Figure.area(s)\n",
+        'import module Shape from "./shape"\n' +
+        "export fun b(s: Shape): Float = Shape.area(s)\n",
     );
     session.setFile("/main.hex", applied(main, lower));
     expect((session.allDiagnostics().get("/main.hex") ?? []).map(({ message }) => message))
       .toEqual([
-        "`Figure.area` is declared later in this block; declarations are read " +
+        "`Shape.area` is declared later in this block; declarations are read " +
           "top-down — move the import above this use",
       ]);
 
@@ -1383,7 +1383,7 @@ describe("code actions: the `import module` repair family (#577)", () => {
     // earliest use and repairs the file whole.
     session.setFile("/main.hex", main);
     const both = session.codeActions("/main.hex", { start: 0, end: main.length })
-      .filter(({ title }) => title === "import module `Figure`");
+      .filter(({ title }) => title === "import module `Shape`");
     expect(both).toHaveLength(1);
     session.setFile("/main.hex", applied(main, both[0]!));
     expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);

@@ -6109,17 +6109,37 @@ export const PROVIDED_ROW_ALIASES: ReadonlySet<string> = new Set([
  * and in patterns alike.
  *
  * The designation is the compiler's, because there is no source form for it and
- * there is deliberately none: §12 is a finding about *this inventory* — two
- * prelude unions sharing the constructor names `Undefined` and `Null`, which the
- * prelude cannot auto-import unqualified (Modules §5.5) — and its resolution
- * qualifies each whole union rather than the colliding pair, so that a union's
- * constructor surface stays one rule. A user's own union spelled `JsKind` is
- * untouched: this list is consulted only while seeding the prelude.
+ * there is deliberately none: §12 is a finding about *this inventory*, and its
+ * resolution qualifies each whole union rather than the offending constructors
+ * alone, so that a union's constructor surface stays one rule. A user's own
+ * union spelled `JsKind` is untouched: this list is consulted only while seeding
+ * the prelude.
  *
- * `NullableCase` is §12's other member and is not here, because it does not
+ * The four members enter on **two** grounds, and both are §12's:
+ *
+ * - **Collision.** `Undefined` and `Null` are constructors of both
+ *   `NullableCase(a)` (Part 2 §3) and `JsKind` (Part 11 §3), which the prelude
+ *   cannot auto-import unqualified (Modules §5.5).
+ * - **User vocabulary** *(§12's extension, #511).* `JsConversionReason` and
+ *   `JsPathSegment` collide with nothing, and are here because the prelude
+ *   should not *spend* `Shape`, `Range`, `Cycle`, `Field`, `Index`, `MapKey`,
+ *   `MapValue` and `SetElement` — eight ordinary words for a user's own
+ *   declarations. Occlusion would not save such a user either: it is
+ *   per-namespace, so a `union Shape = Circle | Square` introduces no
+ *   *constructor* named `Shape` and leaves the prelude's standing in term
+ *   position (Modules §5.4), where the message it draws names a union that
+ *   appears nowhere in the program. Boundary-error vocabulary is overwhelmingly
+ *   matched and rarely constructed, so the qualified spelling costs little
+ *   exactly where these names are used.
+ *
+ * `NullableCase` is §12's fourth member and is not here, because it does not
  * exist yet (FFI Part 2 §3 is unimplemented). Its entry lands with it.
  */
-const QUALIFIED_ONLY_PRELUDE_UNIONS: ReadonlySet<string> = new Set(["JsKind"]);
+const QUALIFIED_ONLY_PRELUDE_UNIONS: ReadonlySet<string> = new Set([
+  "JsKind",
+  "JsConversionReason",
+  "JsPathSegment",
+]);
 
 /**
  * The operations a primitive companion is asked for and deliberately does not

@@ -7907,6 +7907,31 @@ class Checker {
     }
   }
 
+  /**
+   * The spelling an unreachable-arm report quotes for a constructor **already
+   * written in this module** — §7.3's tiers, read for a pattern rather than for
+   * a synthesized witness.
+   *
+   * The pattern's own `text` is the constructor half alone (`Resolved.
+   * ConstructorPattern`), so a qualified-only constructor was quoted as bare
+   * `Null` — a spelling `spec/ffi.md` §12 makes *unwritable*, in a message whose
+   * whole job is to name the arm above. Since the exhaustiveness report next
+   * door already prints `JsKind.Null` through `#constructorSpelling`, the two
+   * halves of one `match`'s diagnostics disagreed about how to say the same
+   * name.
+   *
+   * The tiers are the same, minus tier 3: this constructor is *in this file*, so
+   * a route clause would have nothing to offer. Bare where the bare spelling in
+   * scope denotes this very symbol — which keeps `Prelude.Less` quoted as
+   * `Less`, since that is the barest lawful spelling and the pin on it is about
+   * identity rather than about spelling — then the module-alias qualification,
+   * then the written half as a last resort.
+   */
+  #writtenConstructorSpelling(pattern: Resolved.ConstructorPattern): string {
+    if (this.#bareNames.get(pattern.text) === pattern.symbol) return pattern.text;
+    return this.#aliasQualifications.get(pattern.symbol) ?? pattern.text;
+  }
+
   /** Whether anything inside this pattern failed to type (§7.3's obligation). */
   #patternIsBroken(pattern: Resolved.Pattern): boolean {
     return this.#brokenPatterns.size > 0 &&
@@ -7949,7 +7974,7 @@ class Checker {
     ) {
       this.#diagnostics.add({
         severity: "error",
-        message: reports.constructor(alternative.text),
+        message: reports.constructor(this.#writtenConstructorSpelling(alternative)),
         primary: alternative.span,
       });
       return;
@@ -9008,6 +9033,55 @@ class Checker {
   }
 
   /**
+   * The collapse's **solving** half: `Nullable(?v) ≡ JsValue` forces
+   * `?v = JsValue`, so the unifier binds it rather than reporting a mismatch.
+   *
+   * `#prune` above collapses only what is already ground, which is enough for an
+   * annotation and not enough for inference. Without this arm the judgment
+   * depended on the *order* a call's arguments happened to solve in — `take(w:
+   * a, y: Nullable(a))` applied to a `JsValue` twice was accepted, because `w`
+   * ground `a` before `y` was looked at, while the same function with its
+   * parameters swapped was rejected. A type equation whose answer depends on
+   * parameter order is not a type system, so the equation is solved here, where
+   * every route into it passes.
+   *
+   * **It is the unique solution, not a guess.** The designated set is closed at
+   * two members (`#absorbsNullish`), so `Nullable(T) ≡ JsValue` holds exactly
+   * when `T` is `JsValue` — `Nullable(Nullable(…))` cannot be it, since that
+   * collapses to a `Nullable` and never to `JsValue`. Committing an unsolved
+   * variable here therefore rules out nothing a later constraint could have
+   * wanted.
+   *
+   * Three cases deliberately fall through to the ordinary walk:
+   *
+   * - `Nullable(v)` with `v` **already solved**, which `#prune` has already
+   *   collapsed if it collapses at all — `Nullable(Int)` against `JsValue` is a
+   *   real mismatch and keeps the report that names both written shapes;
+   * - `Nullable(v)` with `v` **rigid**, which is unsatisfiable for the same
+   *   reason any declared variable is: the caller chooses `a`, not the body.
+   *   Both orders reject, so the order-independence this arm exists for is
+   *   unaffected, and the mismatch keeps the shape the author wrote;
+   * - anything against a non-`JsValue` type, which this never looks at.
+   *
+   * Nesting needs no case of its own: `#prune` sends `Nullable(Nullable(?v))` to
+   * `Nullable(?v)` on the idempotency half, so it arrives here already flat.
+   *
+   * Answers whether it consumed the equation.
+   */
+  #absorbNullishVariable(left: Mono, right: Mono, span: Source.Span): boolean {
+    const nullable = left.kind === "Nullable" && right.kind === "JsValue"
+      ? left
+      : right.kind === "Nullable" && left.kind === "JsValue"
+      ? right
+      : undefined;
+    if (nullable === undefined) return false;
+    const inner = this.#prune(nullable.value);
+    if (inner.kind !== "Variable" || inner.rigidName !== undefined) return false;
+    this.#bind(inner, { kind: "JsValue" }, span);
+    return true;
+  }
+
+  /**
    * A pattern's own shape unified against what its seat expects, recording the
    * verdict — Pattern Matching §7.3's error-program obligation needs to know
    * which patterns *failed to type*, and this is the only seat that knows.
@@ -9078,6 +9152,7 @@ class Checker {
       this.#bind(actualRight, actualLeft, span);
       return;
     }
+    if (this.#absorbNullishVariable(actualLeft, actualRight, span)) return;
     if (actualLeft.kind === "Effect" || actualRight.kind === "Effect") {
       if (
         actualLeft.kind === "Effect" && actualRight.kind === "Effect" &&

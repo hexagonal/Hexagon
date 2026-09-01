@@ -6,38 +6,17 @@
 // none. This module is its companion by being the module addressable under the
 // name (Method Syntax section 4.1), the same way `Vector.hex` is `Vector`'s.
 //
+// `JsPathSegment` and `JsConversionReason` are declared next door, in modules
+// named for themselves, because section 12's extension makes their constructors
+// qualified-only too and a qualified constructor needs the module addressable
+// under the union's name. `JsConversionError` stays here: it is a record, its
+// constructor is its own type's spelling, and nothing about it is common user
+// vocabulary.
+//
 // Everything here is strict and non-coercing (section 1): a decoder succeeds if
 // and only if the value already *is* the target representation. Nothing is
 // parsed, truncated, rounded, `String()`-ed or `Number()`-ed. Coercion is a
 // foreign-side decision made in foreign code, never a Hexagon default.
-
-(** Where inside a value a checked conversion failed. Segments read
-    root-outward, so the `name` field of the 3rd element of the value under the
-    2nd map key is `[MapKey(2), Index(3), Field("name")]`.
-
-    `Index` and the three entry positions are 1-based, like every other index in
-    the language: a path is a Hexagon diagnostic, not a JavaScript offset. A
-    foreign key cannot itself be carried here, so a collection entry is named by
-    its position in the source's own iteration order. *)
-export union JsPathSegment =
-    | Field(name: String)
-    | Index(index: Int)
-    | MapKey(position: Int)
-    | MapValue(position: Int)
-    | SetElement(position: Int)
-
-(** Why a checked conversion failed.
-
-    `Shape` is "not the required kind of thing" — a wrong `typeof`, not an
-    array, not an object where one was required. `Range` is the right kind of
-    value outside the representable domain, which is why `toInt` on `2^53` is
-    not the same answer as `toInt` on `"12"`. `Cycle` is a traversal that had to
-    terminate meeting a back-edge; its payload is where the structure was first
-    seen, which together with the failure's own path names the back-edge. *)
-export union JsConversionReason =
-    | Shape
-    | Range
-    | Cycle(firstSeen: Vector(JsPathSegment))
 
 (** A checked conversion's failure — **ordinary data**, carried in `Err` like
     any other value. Nothing here is an exception: no `Error` is allocated, no
@@ -58,9 +37,16 @@ export record JsConversionError = {
 // nothing, so there is no segment to name. They are module-level constants
 // because they are constants — a `JsConversionError` is immutable, so one value
 // serves every failure of its class.
-let shapeFailure: JsConversionError = JsConversionError({ reason = Shape, path = [] })
+//
+// The reasons are spelled qualified because that is the only way they can be
+// spelled: `spec/ffi.md` section 12's extension makes `JsConversionReason`'s
+// constructors qualified-only, and this module is an ordinary consumer of that
+// rule rather than an exception to it.
+let shapeFailure: JsConversionError =
+    JsConversionError({ reason = JsConversionReason.Shape, path = [] })
 
-let rangeFailure: JsConversionError = JsConversionError({ reason = Range, path = [] })
+let rangeFailure: JsConversionError =
+    JsConversionError({ reason = JsConversionReason.Range, path = [] })
 
 // The whole of this part's crossing. `kind` is the one operation with any
 // JavaScript to it; the rest are the representation-honest identity, and each
