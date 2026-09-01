@@ -1104,7 +1104,13 @@ export interface IndexExpr extends ExpressionFields {
   readonly kind: "Index";
   readonly receiver: Expr;
   readonly index: Expr;
-  readonly operation?: "VectorElement" | "VectorSlice" | "StringElement" | "StringSlice" | "MapElement";
+  readonly operation?:
+    | "VectorElement"
+    | "VectorSlice"
+    | "StringElement"
+    | "StringSlice"
+    | "MapElement"
+    | "ArrayElement";
   readonly requirements?: readonly Constraint[];
 }
 

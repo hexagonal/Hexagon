@@ -25,15 +25,34 @@ not compiler intrinsics.
   (`runtime/VectorTrie.hex`, `runtime/HashTrie.hex`); everything above those
   declarations is ordinary Hexagon. `Seq.hex` declares `Seq(a)` itself and its
   combinator core.
+- `Array.hex` is FFI Part 2's companion of the borrowed `Array(a)` — a
+  zero-copy readonly view of a JavaScript array that foreign code owns. It is
+  the companion for `JsValue.hex`'s reason: the type is compiler-owned and has
+  no Hexagon declaration site, so the module addressable under the name is what
+  answers for it. Its whole surface is the minimal decode loop: `length`
+  (§6.3's one door row, the native `.length` read), and `get`, which is
+  ordinary Hexagon over that row and the bracket. The asserting read `xs[i]` is
+  an *expression form* and so is the emitter's lowering rather than an export
+  here, exactly as `Vector`'s bracket and `Map`'s are; out of bounds it raises
+  `Vector.hex`'s `IndexError`, the one such declaration in the corpus. There is
+  no mutation surface and no `set`.
 - `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex`, and
   `JsValue.hex` are FFI Part 11's four. `JsValue.hex` is the companion of the
   boundary type `JsValue` — the type of a JavaScript value about which Hexagon
   asserts nothing — and holds the total injection `from`, the total
   property-free classification `kind`, the five strict non-coercing scalar
-  decoders, and the ordinary `JsConversionError` data they fail with. Only the
-  classification and six representation-honest identities cross the intrinsic
-  door; every guard above them is ordinary Hexagon here, and the five unchecked
+  decoders, the one structural decoder `toArray`, and the ordinary
+  `JsConversionError` data they fail with. Only the classification, two
+  predicates and seven representation-honest identities cross the intrinsic
+  door; every guard above them is ordinary Hexagon here, and the six unchecked
   crossings are unexported.
+
+  `toArray`'s probe is a door row of its own rather than a reuse of `kind`'s,
+  and the split is the specification's: §3 requires `kind` to guard its
+  `Array.isArray` so that no input makes the classification throw, and §4.2
+  requires `toArray` *not* to, because a throwing probe is foreign control flow
+  rather than a verdict about the data. A revoked proxy therefore classifies as
+  `JsKind.Object` and throws out of `toArray`.
 
   That last sentence is the whole of what this module contributes to §1's "no
   unsafe casts in v1", and it is worth stating the standing exactly: the claim

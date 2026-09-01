@@ -225,6 +225,27 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   source. It is *erased at its call sites*, so the module-level binding this
  *   key lowers is what a foreign caller reaching the export finds, and nothing
  *   a Hexagon call site pays for.
+ *
+ * *(#511, the `toArray` slice.)* Two more `jsValue*` rows and one `array*` row
+ * land together, and the cut is the same one twice over — the probe and the
+ * crossing are keyed, and the verdict between them is ordinary Hexagon.
+ *
+ * - **`jsValueIsArray` is `Array.isArray`, raw and unguarded**, and that is the
+ *   row's whole content. It is a *different key* from the probe inside
+ *   `jsValueKind` on purpose: FFI Part 11 §4.2 rules that `toArray` does not
+ *   suppress a throwing probe, where §3's totality clause requires `kind` to. A
+ *   revoked proxy therefore leaves `toArray` as a foreign throw and classifies
+ *   as `Object` under `kind`, and the asymmetry is spelled in the inventory
+ *   rather than in a flag on one key. `jsValueAsArrayUnchecked` is the sixth
+ *   **unexported** representation-honest identity, sitting beneath the verdict
+ *   that earns it exactly as its five siblings do — the borrowed view *is* the same
+ *   array (§4.2's zero-copy clause), so the crossing has nothing to do.
+ * - **`arrayLength` is `stdlib/Array.hex`'s one row** (FFI Part 2 §6.3), and it
+ *   lowers to the native `.length` read that §6.3's emission bullet names. Its
+ *   sibling accessors need no key: `get` is ordinary Hexagon over this row and
+ *   the bracket, and the bracket itself is an *expression form* — the emitter's
+ *   own lowering, like `Vector`'s and `Map`'s — so the bounds assertion that
+ *   throws `IndexError` is no companion operation and takes no key.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -324,6 +345,9 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["jsValueAsBigIntUnchecked", 1],
   ["jsValueAsBoolUnchecked", 1],
   ["jsValueAsStringUnchecked", 1],
+  ["jsValueIsArray", 1],
+  ["jsValueAsArrayUnchecked", 1],
+  ["arrayLength", 1],
 ]);
 
 /**

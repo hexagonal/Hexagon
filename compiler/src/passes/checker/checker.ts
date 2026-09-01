@@ -992,6 +992,12 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
   // decoders (§3, §4.1) are that module's exports, reached qualified or as dot
   // calls on a receiver.
   ["JsValue", "builtin:JsValue"],
+  // `Array` (FFI Part 2 §6) joins on the same footing again, and Method Syntax
+  // §4.1's boundary row is exactly this entry: `Array(a)` is an eligible dot-call
+  // receiver, and `xs.length()` *is* `Array.length(xs)` because `stdlib/Array.hex`
+  // is the module addressable under the name. Part 2 §13.1 turns on it — the
+  // fused call form "stopped being an error entirely" only where this tie exists.
+  ["Array", "builtin:Array"],
 ]);
 
 /**
@@ -1278,7 +1284,7 @@ function companionHeadName(type: Mono): string | undefined {
   if (type.kind === "NominalRecord" || type.kind === "Union") return type.name;
   if (
     type.kind === "Vector" || type.kind === "Set" || type.kind === "Map" ||
-    type.kind === "JsValue"
+    type.kind === "JsValue" || type.kind === "Array"
   ) return type.kind;
   if (type.kind === "Constructor") return type.name;
   return undefined;
@@ -3023,11 +3029,16 @@ class Checker {
       // (`BUILTIN_COMPANIONS`, Method Syntax §4.1's "the fixed prelude companion
       // of the same name"). `stdlib/JsValue.hex` is that module, so `v.kind()`
       // and `v.toInt()` are ordinary companion dispatch and reach exactly what
-      // `JsValue.kind(v)` reaches. The other boundary types are absent because
-      // no module answers for them: `Array`, `Nullable`, `JsMap` and `JsSet`
-      // have no companion source yet, and an empty set here would only produce
-      // the row diagnostic below.
-      actual.kind === "JsValue";
+      // `JsValue.kind(v)` reaches.
+      actual.kind === "JsValue" ||
+      // `Array` joins for the same reason, and settles Method Syntax §4.1's
+      // boundary row (#511): `stdlib/Array.hex` is the module addressable under
+      // the name, so `xs.length()` *is* `Array.length(xs)` — FFI Part 2 §13.1's
+      // "the call form stopped being an error entirely" is a fact about this
+      // line. `Nullable`, `JsMap` and `JsSet` remain absent because no module
+      // answers for them, and an empty set here would only produce the row
+      // diagnostic below.
+      actual.kind === "Array";
     // Primitives join the table for the member clause alone (§3.4's Primitive
     // row): they have no fields and no companion module, so the wired instances
     // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.
@@ -6096,6 +6107,15 @@ class Checker {
           );
           break;
         }
+        if (receiver.kind === "Array" && expression.field.text === "length") {
+          type = this.#unsupported(
+            expression.field.span,
+            arrayLengthReadMessage(
+              expression.receiver.kind === "Name" ? expression.receiver.text : "xs",
+            ),
+          );
+          break;
+        }
         if (receiver.kind === "NominalRecord") {
           if (!this.#recordRepresentationVisible(receiver.record)) {
             type = this.#unsupported(
@@ -6224,8 +6244,28 @@ class Checker {
           this.#requirements.set(expression, requirements);
           type = receiver.value;
           this.#indexOperations.set(expression, "MapElement");
+        } else if (receiver.kind === "Array") {
+          // FFI Part 2 §6.3's asserting read, and only the element read: the
+          // slice `xs[lo..hi]` is decided surface that has not shipped (#511
+          // scoped the door to the minimal decode loop), so a `Range` index
+          // falls to the refusal below rather than to a lowering that does not
+          // exist.
+          if (index.kind === "Range") {
+            type = this.#unsupported(
+              expression.index.span,
+              "slicing an `Array` is not available; `Array.get` and `xs[i]` read " +
+                "one element",
+            );
+          } else {
+            this.#unify(index, primitive("Int"), expression.index.span);
+            type = receiver.element;
+            this.#indexOperations.set(expression, "ArrayElement");
+          }
         } else {
-          type = this.#unsupported(expression.receiver.span, "indexing requires a Vector, String, or Map value");
+          type = this.#unsupported(
+            expression.receiver.span,
+            "indexing requires a Vector, String, Map, or Array value",
+          );
         }
         break;
       }
@@ -16191,6 +16231,43 @@ function find<T extends { readonly id: Id }, Id>(
     if (declaration.id === id) return declaration;
   }
   return undefined;
+}
+
+/**
+ * FFI Part 2 §6.3's specialized hard error: the bare property read `xs.length`
+ * on a borrowed `Array(a)`. It is the door's **one** new diagnostic (§10), kept
+ * specialized because `.length` is the single most-typed reflex the door meets.
+ *
+ * **The subject is grammar, not vocabulary** (§13.1's re-charactering, after the
+ * `Array.size` → `Array.length` rename). The word the author typed is the right
+ * word; what is wrong is that they spelled a *field read* against a nominal
+ * foreign view, which has no field surface and across which no property read
+ * travels. So the message says the type is not a record and that the companion
+ * call is the read, and it never suggests the name is wrong — the author who
+ * typed `length` typed the name the library uses.
+ *
+ * **Both legal spellings, canonical first** (§13.1's resolved consequence).
+ * `Array.length(xs)` leads because the qualified form is what everything
+ * elaborates to (Method Syntax §1) and leading with it keeps the message
+ * teaching what the dot form means; `xs.length()` follows as the minimal edit,
+ * which the Rewrite Rule will not let a message withhold. The fused call form is
+ * not this diagnostic's business at all — it is ordinary companion dispatch and
+ * it compiles.
+ *
+ * That `Array.length(xs)` *emits* `xs.length` (§6.3) is not an absurdity to be
+ * worded around: the rejected spelling is Hexagon property-read syntax against a
+ * nominal type, and the mandated one is a Hexagon companion call. The two
+ * meeting in the emitted JavaScript is the zero-cost door working.
+ *
+ * `receiver` is the author's own spelling where the receiver is a plain name, so
+ * the two rewrites are pasteable; anything else falls back to `xs`, which is how
+ * the spec writes them.
+ */
+function arrayLengthReadMessage(receiver: string): string {
+  return "`Array(a)` is a borrowed foreign view, not a record: it has no fields, " +
+    "and a property read does not cross the boundary — the companion call is the " +
+    `read. Write \`Array.length(${receiver})\`, or \`${receiver}.length()\` for the ` +
+    "smallest edit.";
 }
 
 /**

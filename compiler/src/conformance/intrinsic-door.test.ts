@@ -188,7 +188,8 @@ describe("verification replaces trust (§4.2)", () => {
       "`jsValueKind`, `jsValueFrom`, `jsValueIsSafeInteger`, " +
       "`jsValueAsIntUnchecked`, `jsValueAsFloatUnchecked`, " +
       "`jsValueAsBigIntUnchecked`, `jsValueAsBoolUnchecked`, " +
-      "`jsValueAsStringUnchecked`",
+      "`jsValueAsStringUnchecked`, `jsValueIsArray`, " +
+      "`jsValueAsArrayUnchecked`, `arrayLength`",
     ]);
   });
 

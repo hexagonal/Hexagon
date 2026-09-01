@@ -4475,6 +4475,12 @@ class JavaScriptEmitter {
           ? "vectorSlice"
           : expression.operation === "StringElement"
           ? "stringIndex"
+          // FFI Part 2 §6.3's asserting read of a borrowed array. It is the
+          // emitter's own lowering for the reason every bracket is: the bracket
+          // is an expression form, so `stdlib/Array.hex` owns the companion
+          // surface and never the bracket.
+          : expression.operation === "ArrayElement"
+          ? "arrayIndex"
           : "stringSlice";
         return `${this.#useHelper(helper)}(${receiver}, ${index})`;
       }
@@ -8790,7 +8796,22 @@ class JavaScriptEmitter {
       case "jsValueAsBigIntUnchecked":
       case "jsValueAsBoolUnchecked":
       case "jsValueAsStringUnchecked":
+      // The sixth unexported identity (§4.2): the borrowed view *is* the array. A
+      // lowering that copied would be a different operation with a different
+      // cost, and would break the aliasing the zero-copy clause promises.
+      case "jsValueAsArrayUnchecked":
         return "__a => __a";
+      // `Array.isArray`, **unguarded** — §4.2 against §3. `jsValueKind`'s helper
+      // wraps its own probe in a `try` so the classification is total; this one
+      // must not, because `toArray` promises a verdict about the data and a
+      // throwing probe is foreign control flow. A revoked proxy therefore leaves
+      // `JsValue.toArray` as a throw and leaves `JsValue.kind` as `Object`.
+      case "jsValueIsArray":
+        return `__a => ${this.#spell("Array")}.isArray(__a)`;
+      // `stdlib/Array.hex`'s one row (FFI Part 2 §6.3's emission bullet):
+      // `Array.length(xs)` is `xs.length`, the native read and nothing else.
+      case "arrayLength":
+        return "__a => __a.length";
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -10268,6 +10289,7 @@ type Helper =
   | "nodeSet"
   | "vectorAt"
   | "vectorIndex"
+  | "arrayIndex"
   | "vectorIterate"
   | "hashTrieIterate"
   | "hashSetIterate"
@@ -10319,6 +10341,7 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   nodeSet: [],
   vectorAt: [],
   vectorIndex: [],
+  arrayIndex: [],
   vectorIterate: [],
   // The hash trie's face drives the module's own lazy `entries` walk through
   // the `Seq` driver, so it owes that helper (#370).
@@ -10749,6 +10772,30 @@ function renderHelper(
         `  if (__index < 1 || __index > __size) { const __error = new ${spell("RangeError")}` +
         "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("get")}(__values, __index - 1);`,
+        "}",
+      ];
+    // The borrowed array's asserting read (FFI Part 2 §6.3), and the vector
+    // bracket's shape over a native array: the bounds check the assertion
+    // semantics require, then the 1-to-0 offset, then the native index read.
+    // The check is not optional and not an optimization to remove — a bare
+    // `xs[__index - 1]` answers `undefined` out of bounds instead of throwing,
+    // which is exactly the silent hole `Array(a)`'s non-nullable element
+    // contract (§6.4) says is not there.
+    //
+    // The `IndexError` it raises is **the** `IndexError` — `stdlib/Vector.hex`'s
+    // one declaration, Collections Part 3's — built here with the same payload
+    // and the same `"Vector"` brand the vector family builds, and for the same
+    // reason: the brand belongs to the declaring module, so a catch arm written
+    // `IndexError(index, size)` anywhere catches this throw too. `size` is the
+    // array's length at the fault, which is what the reader of the message
+    // needs and what a `Vector` fault reports.
+    case "arrayIndex":
+      return [
+        `function ${name}(__values, __index) {`,
+        "  const __size = __values.length;",
+        `  if (__index < 1 || __index > __size) { const __error = new ${spell("RangeError")}` +
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
+        "  return __values[__index - 1];",
         "}",
       ];
     case "vectorAt":
