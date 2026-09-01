@@ -167,6 +167,59 @@ describe("a module alias qualifies an imported union's constructors in patterns"
       "match is missing cases: `Lib.Square(_)`",
     ]);
   });
+
+  /**
+   * One `match`, one union, **one** way of saying each name — across the two
+   * halves of §7's reporting, when the module holds an alias *and* renaming
+   * imports and so has a different lawful spelling for each constructor.
+   *
+   * `Blue` was imported under no name, so §7.3 tier 2 qualifies it through the
+   * alias; `Red` and `Green` were, so tier 1's "imported by name" answers with
+   * the local spelling the import bound. The missing-cases witness has always
+   * read both of tier 1's halves. The unreachable-arm seat reads the same tiers
+   * for a name already written, and reading only the first half there made one
+   * `match` print `Crimson` in its missing-cases list and `G.Red` in the report
+   * beside it — the reader sent looking for two constructors where the file has
+   * one (#511).
+   */
+  test("the two reports agree, alias-qualified and aliased-bare alike", () => {
+    const COL = "export union Col = Red | Blue | Green\n";
+    const imports = "import module G from \"./g\"\n" +
+      "import { Col, Red as Crimson, Green as Emerald } from \"./g\"\n";
+
+    // The unspellable-bare constructor: no bare spelling exists for `Blue`, so
+    // both reports fall to tier 2 and both say `G.Blue`.
+    expect(compileFiles([
+      ["/g.hex", COL],
+      ["/main.hex",
+        imports +
+        "export fun name(c: Col): String =\n" +
+        "    match c\n" +
+        "        G.Blue => \"b\"\n" +
+        "        G.Blue => \"b again\"\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "match is missing cases: `Crimson`, `Emerald`",
+      "this case is unreachable; `G.Blue` is already handled above",
+    ]);
+
+    // And the seat the skipped reading broke. The duplicated arm is written
+    // qualified, but a bare spelling for this very symbol *is* in scope, so
+    // tier 1 answers and both reports say `Crimson` — never the `G.Red` the arm
+    // happens to be written as, which tier 2 would have produced beside a
+    // missing-cases list already saying `Emerald`.
+    expect(compileFiles([
+      ["/g.hex", COL],
+      ["/main.hex",
+        imports +
+        "export fun name(c: Col): String =\n" +
+        "    match c\n" +
+        "        G.Red => \"r\"\n" +
+        "        G.Red => \"r again\"\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "match is missing cases: `G.Blue`, `Emerald`",
+      "this case is unreachable; `Crimson` is already handled above",
+    ]);
+  });
 });
 
 describe("the hatch #466 depends on: an occluding module still reaches the prelude's", () => {

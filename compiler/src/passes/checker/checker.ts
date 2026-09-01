@@ -7920,15 +7920,27 @@ class Checker {
    * halves of one `match`'s diagnostics disagreed about how to say the same
    * name.
    *
-   * The tiers are the same, minus tier 3: this constructor is *in this file*, so
-   * a route clause would have nothing to offer. Bare where the bare spelling in
-   * scope denotes this very symbol — which keeps `Prelude.Less` quoted as
-   * `Less`, since that is the barest lawful spelling and the pin on it is about
-   * identity rather than about spelling — then the module-alias qualification,
-   * then the written half as a last resort.
+   * §7.3's **tiers 1 and 2 run here in full**, and tier 3's route does not: this
+   * constructor is *in this file*, so a route clause would have nothing to offer
+   * a name the reader has already written — only tier 3's bare fallback stands,
+   * as the last resort, and no route is stated with it.
+   *
+   * Tier 1 is **two** readings, and taking only the first is what went wrong.
+   * First the written half where a bare spelling in scope denotes this very
+   * symbol — which keeps `Prelude.Less` quoted as `Less`, since that is the
+   * barest lawful spelling and the pin on it is about identity rather than about
+   * spelling. Then the symbol's own bare spelling under whatever local name an
+   * import bound it — §7.3's "imported by name", which is what answers for a
+   * written `G.Red` in a module that imported `Red as Crimson`. Only after both
+   * does tier 2's module-alias qualification apply. Stop after the first reading
+   * and one `match` prints two spellings for constructors of one union: the
+   * missing-cases list says `Crimson` while the unreachable arm beside it says
+   * `G.Red`.
    */
   #writtenConstructorSpelling(pattern: Resolved.ConstructorPattern): string {
     if (this.#bareNames.get(pattern.text) === pattern.symbol) return pattern.text;
+    const local = this.#bareSpellings.get(pattern.symbol);
+    if (local !== undefined) return local;
     return this.#aliasQualifications.get(pattern.symbol) ?? pattern.text;
   }
 

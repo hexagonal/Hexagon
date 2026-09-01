@@ -515,3 +515,76 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
     expect(text).toContain(".isSafeInteger(__a)");
   });
 });
+
+/**
+ * What seating `JsValue.hex` in the prelude costs the **bare** namespace, which
+ * is the one thing this slice takes away rather than adds.
+ *
+ * `toInt` and `toFloat` were `BigInt.hex`'s alone, so bare `toInt(b)` at a
+ * `BigInt` resolved and compiled. `JsValue.hex` exports both spellings for its
+ * own type, and Modules §5.5 refuses a bare prelude name two members export
+ * rather than picking one — so that call is now the ambiguity error, naming
+ * both homes and both rewrites. This is the shape #373 already pinned for
+ * `empty` across four homes; the difference is that this one is a **change**,
+ * and the pin exists so it cannot happen again unnoticed.
+ *
+ * It pins current behaviour, not a settled design: whether a prelude module may
+ * be qualified-only for functions, the way `spec/ffi.md` §12 made `JsKind`'s
+ * constructors, is an open question filed separately. Nothing here anticipates
+ * an answer.
+ */
+describe("the bare namespace this slice narrows (Modules §5.5)", () => {
+  test("bare `toInt` and `toFloat` are refused, naming both homes", () => {
+    expect(projectDiagnostics("export let n(b: BigInt): Int = toInt(b)\n")).toEqual([
+      "the prelude name `toInt` is ambiguous: exported by `BigInt` and `JsValue`; " +
+      "write `BigInt.toInt` or `JsValue.toInt`",
+    ]);
+    expect(projectDiagnostics("export let f(b: BigInt): Float = toFloat(b)\n")).toEqual([
+      "the prelude name `toFloat` is ambiguous: exported by `BigInt` and `JsValue`; " +
+      "write `BigInt.toFloat` or `JsValue.toFloat`",
+    ]);
+  });
+
+  /**
+   * The refusal is about the *name*, not about the argument — §5.5 is a scoping
+   * rule and resolution has no type to consult. So a `JsValue` argument draws
+   * the same message, and the repair the message offers is the whole of what a
+   * reader has to do.
+   */
+  test("the argument's type does not change the refusal", () => {
+    expect(projectDiagnostics("export let n(v: JsValue): Int = toInt(v)\n")).toEqual([
+      "the prelude name `toInt` is ambiguous: exported by `BigInt` and `JsValue`; " +
+      "write `BigInt.toInt` or `JsValue.toInt`",
+    ]);
+  });
+
+  /** And both offered repairs answer, alongside the dot call §5.5 leaves alone. */
+  test("the qualified spelling and the dot call both compile", () => {
+    expect(projectDiagnostics(
+      "export let a(b: BigInt): Option(Int) = BigInt.toInt(b)\n" +
+        "export let b_(b: BigInt): Option(Int) = b.toInt()\n" +
+        "export let c(b: BigInt): Float = BigInt.toFloat(b)\n" +
+        "export let d(b: BigInt): Float = b.toFloat()\n" +
+        "export let e(v: JsValue): Result(Int, JsConversionError) = JsValue.toInt(v)\n" +
+        "export let f(v: JsValue): Result(Float, JsConversionError) = v.toFloat()\n",
+    )).toEqual([]);
+  });
+
+  /** Run, because "compiles" is not the claim — the two homes stay two answers. */
+  test("the two homes answer their own way at run time", async () => {
+    const main = await runMain(
+      "export let qualified: Option(Int) = BigInt.toInt(5n)\n" +
+        "export let dotted: Option(Int) = 5n.toInt()\n" +
+        "export let widened: Float = BigInt.toFloat(5n)\n" +
+        "export let dottedFloat: Float = 5n.toFloat()\n" +
+        "export let foreign(v: JsValue): Result(Int, JsConversionError) = JsValue.toInt(v)\n",
+    );
+    expect(main["qualified"]).toEqual({ tag: "Some", value: 5 });
+    expect(main["dotted"]).toEqual({ tag: "Some", value: 5 });
+    expect(main["widened"]).toBe(5);
+    expect(main["dottedFloat"]).toBe(5);
+    const foreign = main["foreign"] as (v: unknown) => { tag: string; value?: unknown };
+    expect(foreign(7)).toEqual({ tag: "Ok", value: 7 });
+    expect(foreign(7.5).tag).toBe("Err");
+  });
+});
