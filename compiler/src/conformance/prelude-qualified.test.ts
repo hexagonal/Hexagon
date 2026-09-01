@@ -354,13 +354,15 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     expect(fieldCall.diagnostics).toEqual([]);
     const fieldMain = fieldCall.modules
       .find((module) => module.source.path === "/main.hex")!;
-    // *Both* prelude members exporting the name, not the one the bare spelling
+    // *Every* prelude member exporting the name, not the one the bare spelling
     // resolves to. Dispatch is type-directed, so `Vector.hex`'s `length`
     // occluding `Seq.hex`'s in the prelude scope says nothing about which one a
     // receiver can reach; registering only the winner made the
     // over-approximation an under-approximation and emitted a bare name the
-    // other member's import had bound.
-    expect(synthesizedImportNames(fieldMain)).toEqual(["./Seq:length", "./Vector:length"]);
+    // other member's import had bound. `Array.hex` joined the exporters at #511
+    // and rides the same rule, which is the point of asserting the whole list.
+    expect(synthesizedImportNames(fieldMain))
+      .toEqual(["./Seq:length", "./Vector:length", "./Array:length"]);
     expect(fieldMain.javascript.text).not.toContain("Seq.js");
     expect(fieldMain.javascript.text).not.toContain("Vector.js");
   });

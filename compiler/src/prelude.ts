@@ -132,6 +132,22 @@ export interface PreludeModule {
  * `Stream`, and nothing can — the type is `Seq`'s impure sibling and no pure
  * module has business with one.
  *
+ * `Array.hex` opens the FFI block (#511). It is FFI Part 2's companion, not
+ * Part 11's, and it needs exactly one thing: `get` answers with an `Option`, so
+ * it sits after `Option.hex`. Everything else about the seat is deliberate
+ * rather than forced. It is **late** because its two exports are `length` and
+ * `get`, and a prelude module sees the members before it: seated early, every
+ * later companion that writes a bare `length(values)` or `get(m, k)` over its
+ * own declaration would be weighing that spelling against this file's, for no
+ * gain. From here it is visible to no prelude module that spells either word,
+ * and the collision arithmetic (Modules §5.5) is settled where it belongs —
+ * in user code, where the whole prelude arrives at once. Nothing forces it
+ * before `JsValue.hex` either: `Array(a)` is a compiler-owned type with no
+ * declaration site, so `JsValue.toArray`'s `Result(Array(JsValue), …)` spells
+ * the type through the fallback (Modules §5.5) and not through this module.
+ * It sits here because a reader meeting the boundary companions meets them
+ * together.
+ *
  * `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex` and `JsValue.hex`
  * are FFI Part 11's four, and they are the seats-before-uses rule four times
  * over. The first three each declare one union and nothing else, and each is a
@@ -193,6 +209,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Map.hex",
   "Set.hex",
   "Stream.hex",
+  "Array.hex",
   "JsKind.hex",
   "JsPathSegment.hex",
   "JsConversionReason.hex",

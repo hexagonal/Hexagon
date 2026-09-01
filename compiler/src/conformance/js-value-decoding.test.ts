@@ -135,8 +135,9 @@ describe("`kind` classifies ten ways (§3)", () => {
    * §3's totality clause, and the one input that makes it a real promise:
    * `Array.isArray` on a **revoked proxy** throws a `TypeError`. `kind` guards
    * that one probe and answers `Object`. Contrast `toArray` (§4.2), which does
-   * not guard — that asymmetry is §1's doctrine applied honestly, and `toArray`
-   * is a later slice.
+   * not guard — that asymmetry is §1's doctrine applied honestly, and the two
+   * halves are asked of one revoked proxy side by side in
+   * `js-value-to-array.test.ts`.
    */
   test("a revoked proxy classifies `Object` instead of throwing", () => {
     const object = Proxy.revocable({}, {});
@@ -468,12 +469,16 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
   });
 
   /**
-   * `toArray` (§4.2) is the next slice's, not this one's — recorded here so the
-   * boundary of what shipped is a test rather than a memory.
+   * `toArray` (§4.2) completed the surface, and its own conformance is
+   * `js-value-to-array.test.ts`'s. What is asserted here is only that it is on
+   * the module — the §4.1 list above plus this one is the whole v1 core, so a
+   * decoder that quietly left would be caught in the file that owns the list.
    */
-  test("`toArray` is not part of this surface yet", () => {
-    expect(projectDiagnostics("export let a(v: JsValue): Int = JsValue.toArray(v)\n"))
-      .toContain("module `JsValue` does not export `toArray`");
+  test("`toArray` completes the surface", () => {
+    expect(projectDiagnostics(
+      "export let a(v: JsValue): Result(Array(JsValue), JsConversionError) =\n" +
+        "    JsValue.toArray(v)\n",
+    )).toEqual([]);
   });
 
   /**

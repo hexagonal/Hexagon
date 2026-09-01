@@ -89,6 +89,20 @@ extern from "hex:intrinsic"
 
     fun jsValueAsStringUnchecked as asStringUnchecked(value: JsValue): String
 
+    // `Array.isArray`, raw — and raw is the point. `kind` guards this probe so
+    // that a revoked proxy classifies as `JsKind.Object` and nothing makes the
+    // classification throw; `toArray` must not, because section 4.2 rules that a
+    // throwing probe is foreign control flow rather than a verdict about the
+    // data. Two callers, two promises, so two rows: this one is asked only by
+    // `toArray` below.
+    fun jsValueIsArray as isArray(value: JsValue): Bool
+
+    // The sixth crossing, and the same identity as the five above it: a
+    // JavaScript array *is* an `Array(JsValue)`, whose elements are the same
+    // uncertain values they were. Zero-copy means exactly this — the borrowed
+    // view is the array, not a copy of it (section 4.2).
+    fun jsValueAsArrayUnchecked as asArrayUnchecked(value: JsValue): Array(JsValue)
+
 (** `value` as a `Float`, or `Err` with reason `Shape` when it is not a
     JavaScript number. Every number succeeds — `NaN`, both infinities and `-0`
     included — because every one of them is a `Float`. *)
@@ -128,3 +142,21 @@ export let toBool(value: JsValue): Result(Bool, JsConversionError) = match kind(
 export let toString(value: JsValue): Result(String, JsConversionError) = match kind(value)
     JsKind.String => Ok(asStringUnchecked(value))
     _ => Err(shapeFailure)
+
+(** `value` as a borrowed `Array` of the values it holds, or `Err` with reason
+    `Shape` when it is not a JavaScript array. The one structural decoder, and
+    the cheapest one: it copies nothing, reads no property and inspects no
+    element, so the result is a **borrowed view of the same array** and FFI
+    Part 2's stability contract governs it from here on. The elements stay
+    honestly uncertain — each is a `JsValue`, decoded one at a time by whoever
+    wants one.
+
+    An array-like is not an array: `arguments`, a `NodeList` and a
+    `{ length: 2 }` object all fail. A hostile value whose `Array.isArray` probe
+    *throws* — a revoked proxy is the one that does — is not converted into a
+    failure here; the throw is foreign control flow and travels as such. *)
+export let toArray(value: JsValue): Result(Array(JsValue), JsConversionError) =
+    if isArray(value) then
+        Ok(asArrayUnchecked(value))
+    else
+        Err(shapeFailure)

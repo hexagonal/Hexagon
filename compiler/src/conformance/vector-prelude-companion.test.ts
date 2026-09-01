@@ -110,6 +110,12 @@ describe("the module", () => {
       // before it can name a `Stream`, because no pure module has business with
       // the impure sibling.
       "Stream.hex",
+      // #511: FFI Part 2's companion of the borrowed `Array(a)`, opening the
+      // boundary block. One edge is forced — `get` answers with an `Option` —
+      // and the lateness is deliberate: its two exports are `length` and `get`,
+      // and from here they are visible to no prelude module that spells either
+      // word, so the Modules §5.5 arithmetic is settled in user code.
+      "Array.hex",
       // #511: FFI Part 11's four. The first three each declare one union and
       // exist as modules of their own because `spec/ffi.md` §12 (as extended
       // for #511) makes every one of their constructors qualified-only, which
@@ -379,7 +385,9 @@ describe("two prelude members exporting one bare name", () => {
    * `Map.hex`. `map` moved at #364: it was `Seq.hex`'s alone until
    * `Stream.hex` joined, and this test's own fixture is where that shows,
    * because the line was written to demonstrate a name staying bare. #373
-   * moved nothing and only lengthened three enumerations.
+   * moved nothing and only lengthened three enumerations, and #511's
+   * `Array.hex` moved nothing either — it lengthens `length`'s, and its other
+   * export `get` was already `Vector`'s and `Map`'s.
    */
   test("every collided name is refused, and only those", () => {
     expect(projectDiagnostics(
@@ -399,8 +407,8 @@ describe("two prelude members exporting one bare name", () => {
       "`Map.singleton`, or `Set.singleton`",
       "the prelude name `prepend` is ambiguous: exported by `Seq` and `Vector`; " +
       "write `Seq.prepend` or `Vector.prepend`",
-      "the prelude name `length` is ambiguous: exported by `Seq` and `Vector`; " +
-      "write `Seq.length` or `Vector.length`",
+      "the prelude name `length` is ambiguous: exported by `Seq`, `Vector`, and " +
+      "`Array`; write `Seq.length`, `Vector.length`, or `Array.length`",
       "the prelude name `isEmpty` is ambiguous: exported by `Vector`, `Map`, " +
       "and `Set`; write `Vector.isEmpty`, `Map.isEmpty`, or `Set.isEmpty`",
       "the prelude name `map` is ambiguous: exported by `Seq` and `Stream`; " +
