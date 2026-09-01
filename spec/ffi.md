@@ -176,7 +176,7 @@ Each row: the observable claim an implementation must satisfy, and the owner who
 6. **`spec-roadmap.md`** — the FFI milestone is complete; the planned v1 corpus consolidation precedes the stdlib listing.
 7. **`ffi-foreign-enums.md` §5.2 and `ffi-part11-js-value-errors.md` §4** — record §11.2's resolved boundary, one sentence each: generated closed-set membership projections (`fromJsT`) return `Option`; the composable decoder family uses `Result(_, JsConversionError)`; other explicitly owned partial projections may use `Option` where their specification says so.
 8. **`ffi-part2-nullable-array.md` §3 and `ffi-part11-js-value-errors.md` §3/§5.1** — one line each recording §12's resolution (as extended for #511): `NullableCase`, `JsKind`, `JsConversionReason`, and `JsPathSegment` constructors are qualified-only in the prelude inventory (no bare auto-import); representations unchanged.
-9. **Stdlib-listing ledger** — add §9.1's obligation 2 (qualified companion homes for both unions' constructors) alongside the decoder-family entry Part 11 already issued; §9.1's candidates 3–5 enter as ship-versus-defer rows with their revisit bars, not obligations.
+9. **Stdlib-listing ledger** — add §9.1's obligation 2 (qualified companion homes for all four unions' constructors) alongside the decoder-family entry Part 11 already issued; §9.1's candidates 3–5 enter as ship-versus-defer rows with their revisit bars, not obligations.
 
 ## 11. Review resolutions (closed at promotion)
 
@@ -204,7 +204,7 @@ Deliberately **not** claimed: that every single-reason check uses `Option`, or t
 
 Method: all public FFI-introduced names (types, constructors, exceptions, constraints, functions, companion modules, generated exports) checked across parts, per-namespace, accounting for Hexagon's separate term/type/constructor namespaces (Modules §5) and prelude occlusion (Modules §6).
 
-**Clean (cross-namespace coexistence, correct by rule):** `Array` type vs. `JsKind`'s `Array` constructor; `Range` type vs. `JsConversionReason`'s `Range` constructor; `String`/`Bool`/`BigInt` types vs. `JsKind` constructors; `Value` (`NullableCase`) unique among constructors; `KeyError`/`IndexError`/`SliceError`/`JsError`/`JsConversionError` distinct; generated specialization names collision-checked by Part 8 §6.2 at compile time by construction; companion-module names (`Nullable`, `JsValue`, `JsMap`, `JsSet`, `JsError`) unique in the module-alias namespace.
+**Clean (cross-namespace coexistence, correct by rule):** `Array` type vs. `JsKind`'s `Array` constructor; `Range` type vs. `JsConversionReason`'s `Range` constructor (the constructor is now qualified-only, on the extension's separate ground below); `String`/`Bool`/`BigInt` types vs. `JsKind` constructors; `Value` (`NullableCase`) unique among constructors; `KeyError`/`IndexError`/`SliceError`/`JsError`/`JsConversionError` distinct; generated specialization names collision-checked by Part 8 §6.2 at compile time by construction; companion-module names (`Nullable`, `JsValue`, `JsMap`, `JsSet`, `JsError`) unique in the module-alias namespace.
 
 **One genuine same-namespace collision, found and resolved:**
 
@@ -230,7 +230,7 @@ JsPathSegment.Field(name)     JsPathSegment.Index(index)      JsPathSegment.MapK
 JsPathSegment.MapValue(position)   JsPathSegment.SetElement(position)
 ```
 
-The audit above checked FFI-introduced names against each other; what it did not price is the prelude spending common user words. `Shape`, `Range`, `Field`, and `Index` are ordinary names for user declarations, and a bare prelude constructor under such a spelling — while occluded correctly by any user declaration — degrades the diagnostics around same-spelled user types: a message may end up naming a prelude union that appears nowhere in the user's program. Boundary-error vocabulary is overwhelmingly *matched*, rarely constructed, so the qualified spelling costs little exactly where these names are used. The rule that results is uniform: **every constructor of the four boundary utility unions (`NullableCase`, `JsKind`, `JsConversionReason`, `JsPathSegment`) is qualified-only; no boundary utility union spends bare prelude terms. The stdlib inventory must provide all four qualified homes** (§9.1's obligation 2).
+The audit above checked FFI-introduced names against each other; what it did not price is the prelude spending common user words. `Shape`, `Range`, `Field`, and `Index` are ordinary names for user declarations, and a bare prelude constructor under such a spelling is occluded only by a user declaration in the *constructor* namespace; a same-spelled user **type** leaves it standing (Modules §5.1 rule 3, §5.2), so a bare term-position `Shape` in that user's own module still means the prelude's constructor, and the resulting message names a union that appears nowhere in the program. Boundary-error vocabulary is overwhelmingly *matched*, rarely constructed, so the qualified spelling costs little exactly where these names are used. The rule that results is uniform: **every constructor of the four boundary utility unions (`NullableCase`, `JsKind`, `JsConversionReason`, `JsPathSegment`) is qualified-only; no boundary utility union spends bare prelude terms. The stdlib inventory must provide all four qualified homes** (§9.1's obligation 2).
 
 No other same-namespace collision was found.
 

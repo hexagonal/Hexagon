@@ -28,7 +28,7 @@ Fixed here, from the approved package:
 - **`JsValue` includes `null` and `undefined`.** A `JsValue`-typed position accepts every JS value including both nullish forms; APIs returning "anything or nothing" are declared as plain `JsValue`, not `Nullable(JsValue)`. Nullishness is one more thing `kind` reports (§3), not a separate wrapper layer. (The `Nullable(JsValue)` spelling itself: §13.3.)
 - **The injection is total and free:** `JsValue.from(value: a) -> JsValue` — every Hexagon value already is a JS value, so `from` is the representation-honest identity, erased in emission. There is no checked path *into* `JsValue` because none is needed. *(Approved at review, §12.4.)*
 
-`JsValue` is not iterable, not comparable, not showable — it has no instances. Everything one does with it goes through `kind`, a decoder, or a trusted re-declaration at a boundary.
+`JsValue` is not iterable, not comparable, not showable — it has no instances. Everything one does with it goes through `kind`, a decoder, or a trusted re-declaration at a boundary. The companion operations take the dot *(#511)*: `v.kind()` and `v.toInt()` are ordinary companion dispatch (Method Syntax §4.1's boundary row).
 
 ---
 
@@ -120,7 +120,7 @@ record JsConversionError = {
 }
 ```
 
-All constructors of both unions are qualified-only in the prelude inventory *(#511; Part 12 §12's rule, extended there)* — `JsConversionReason.Shape`, `JsConversionReason.Range`, `JsConversionReason.Cycle(first)`, `JsPathSegment.Field(name)`, `JsPathSegment.Index(3)`, and kin, in expressions and patterns alike. They are not auto-imported as bare prelude terms: `Shape`, `Range`, `Field`, and `Index` are ordinary user vocabulary, and the prelude does not spend them. This is ordinary companion qualification and leaves the runtime representations unchanged (Part 12 §12).
+All constructors of both unions are qualified-only in the prelude inventory *(#511; Part 12 §12's rule, extended there)* — `JsConversionReason.Shape`, `JsConversionReason.Range`, `JsConversionReason.Cycle(firstSeen)`, `JsPathSegment.Field(name)`, `JsPathSegment.Index(3)`, and kin, in expressions and patterns alike. They are not auto-imported as bare prelude terms: `Shape`, `Range`, `Field`, and `Index` are ordinary user vocabulary, and the prelude does not spend them. This is ordinary companion qualification and leaves the runtime representations unchanged (Part 12 §12).
 
 - **It is ordinary data** — a record over unions, carried in `Err` like any other value. The checked-failure path allocates no `Error`, captures no stack, and carries no brand; it is a described outcome, not an escape. This is the §1 doctrine made structural: **checked wrongness is ordinary data in `Err`; foreign thrown control flow travels through `JsError`** — the one exception-shaped thing in this part. A caller who wants to abort on `Err` matches and throws an exception of its own choosing, at its own site.
 - Its boundary faces follow Part 7's ordinary record and union rules (§3–§4 there): structural record face, tagged-POJO reason union — nothing error-flavored in the `.d.ts`.
