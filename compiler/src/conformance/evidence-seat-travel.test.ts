@@ -7,11 +7,13 @@
  * A **sibling** of `evidence-seat-identity.test.ts` rather than an extension of
  * it. That file pins where a seat is *seeded*: it names four doors into
  * `#evidenceParameters` and walks each one, and every one of its specimens
- * declares and consumes the scheme inside a single module. The claim here is the
- * one it leaves alone — that a scheme carrying two seats keyed to two
- * declarations survives *copying*. Every copy is a renumbering (`#instantiate`'s
- * freshening, `#importScheme`'s), and a renumbering is exactly where an identity
- * key can be dropped back onto a name without any seeding site being wrong. The
+ * declares and consumes *the two-seat scheme* inside a single module — its
+ * graphs do cross module borders, but only ever to import the one-seat halves a
+ * consuming module then seats itself. The claim here is the one it leaves
+ * alone — that a scheme already carrying two seats keyed to two declarations
+ * survives *copying*. Every copy is a renumbering (`#instantiate`'s freshening,
+ * `#importScheme`'s), and a renumbering is exactly where an identity key can be
+ * dropped back onto a name without any seeding site being wrong. The
  * two need different failure stories, so they get different files. These rows
  * come out of the #286 closing audit, which probed the travel shapes the #714
  * suite does not reach.
@@ -20,16 +22,22 @@
  * `Fancy`, honor it at `Int`, and export a function constrained by their own.
  * The words collide and the answers do not: one member prefixes `A`, the other
  * `B`, so a program that reads the wrong seat returns `"B7|A7"` rather than
- * throwing, and only an executed pin catches it. The importer aliases the second
- * (`Fancy as Fancy2`) and can therefore write the binder list itself — which is
- * what makes the ordering claim below spellable at all.
+ * throwing, and only an executed pin catches it. A head meets such a pair and
+ * spells it two ways (FFI Part 9 §6.2): the **qualified form** `<u: (MA.Fancy,
+ * MB.Fancy)>` (Modules §3.3), which is the unconditional route, or an alias
+ * (Modules §3.2), open only where the two constraints' member spellings do not
+ * collide (Modules §3.1). These members are `fancyA` and `fancyB` and so do not,
+ * which is why this file takes the alias — the importer writes `Fancy as
+ * Fancy2` and can then write the binder list itself. The choice is this file's
+ * convenience and not the rule; the ordering claim below is a claim about the
+ * written conjunction, under either spelling.
  *
  * The ordering claim is the second half. Constraints §6.1 orders the evidence
  * suffix by *(type-variable ordinal, constraint name)*, and two constraints that
  * spell one word tie on both components; the tie-break is the **written
- * conjunction's own order** — the same positional rule §5's base-slot contest
- * already runs on a declaration's base list, carried onto the suffix by the spec
- * change in #731. So `<u: (Fancy, Fancy2)>` and `<u: (Fancy2, Fancy)>` are two
+ * conjunction's own order** — the resolution §6.2's base-slot contest already
+ * takes on a declaration's base list, carried onto the suffix by #731. So `<u:
+ * (Fancy, Fancy2)>` and `<u: (Fancy2, Fancy)>` are two
  * different ABIs over one type, and both ends have to read the same one. Both
  * arrangements are emitted *and* executed here, and executed through a caller
  * that is itself generic, because a saturated call at `Int` is routed to a
@@ -37,7 +45,7 @@
  * routing from a swapped one.
  *
  * What must not change: nothing. Every row is additive — no emission is asked to
- * differ from what `d05c898` produced, and the two neighbouring files' pins on
+ * differ from what `13b86d0` produces, and the two neighbouring files' pins on
  * the seeding sites and on the suffix's sort key are untouched.
  *
  * Emitted modules mount as `data:` URLs the registry caches by text, so the
@@ -154,9 +162,11 @@ async function answer(
 
 describe("a two-seat scheme crosses a module border", () => {
   /**
-   * The border is the copy a same-module specimen cannot reach: `#importScheme`
-   * renumbers the imported scheme's variables, and the consumer keys on the
-   * numbers it just minted. `both` is defined where both constraints are
+   * What is new here is not `#importScheme` — the seeding file imports schemes
+   * too — but the **two-seat** copy through it: `#importScheme` renumbers the
+   * imported scheme's variables, the consumer keys on the numbers it just
+   * minted, and a pair that shares a word is where those numbers are the only
+   * thing keeping the two apart. `both` is defined where both constraints are
    * nameable and consumed where neither is.
    */
   const files = graph(DECLARED, CALLS_DIRECTLY);
@@ -218,6 +228,17 @@ describe("the written conjunction's order is the ABI", () => {
    * able to disagree: the caller hands the two `Int` dictionaries over in
    * mirrored orders, because the callee it is calling is a different ABI. A
    * build that dropped the tie-break would emit one argument list for both.
+   *
+   * Scope, for this row and the run below it: what is being read is `wrap`'s
+   * suffix, and `wrap` is *inferred* and module-private, so its own order is a
+   * same-named pair that took no declared position — which Constraints §6.1
+   * leaves unspecified, on FFI Part 9 §6.2.1's terms. That this implementation
+   * inherits it from `both`'s declared list is a fact about the implementation,
+   * not an obligation the spec imposes; the rows are load-bearing all the same,
+   * because both ends of the call have to agree whatever the order is. The
+   * spec-clean bearer of the ABI claim is the alias row two blocks down:
+   * `alias = both` emits as the bare name and appends `both`'s **own declared**
+   * suffix, which is the order §6.1 does specify.
    */
   test("the caller's argument list mirrors whichever list the callee wrote", () => {
     expect(emitted(graph(DECLARED, CALLS_THROUGH_WRAPPER))).toContain(
