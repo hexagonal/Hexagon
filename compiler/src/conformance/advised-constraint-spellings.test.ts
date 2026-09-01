@@ -130,6 +130,55 @@ describe("the completeness advice spells each constraint by its own declaration"
     ]);
   });
 
+  test("an in-scope module alias is the second tier: qualified, and no clause", () => {
+    // The alias is already a spelling this module holds, so there is nothing to
+    // repair and no route to state — the advice qualifies and stops. The
+    // resolver enters `L.Heft` into the name→identity map under that exact
+    // spelling (Modules §3.3), which is what the tier reads.
+    expect(graphDiagnostics([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
+        'import module L from "./lib"\n' + CALLER],
+    ])).toEqual([
+      INCOMPLETE_CALLER,
+      "exported function `caller` must declare every constraint in its signature; " +
+      "write `<a: (Ord, L.Heft)>`",
+    ]);
+  });
+
+  test("and the second tier survives a local shadow: the alias still resolves", () => {
+    // The shadow takes the *bare* word only. Tier 1 declines because `Heft`
+    // here is another declaration; tier 2 answers, and no route is minted for a
+    // module this file already has an alias for.
+    expect(graphDiagnostics([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
+        'import module L from "./lib"\n' +
+        "constraint Heft<a: Ord> =\n    other(value: a): a\n" + CALLER],
+    ])).toEqual([
+      INCOMPLETE_CALLER,
+      "exported function `caller` must declare every constraint in its signature; " +
+      "write `<a: (Ord, L.Heft)>`",
+    ]);
+  });
+
+  test("two aliases onto one module: the first written is the one advised", () => {
+    // Both spellings resolve, so the pick is the implementation's — and it is
+    // pinned rather than left to luck, since an advised spelling that moved
+    // between compiles would be a diff in every reader's error log. The
+    // resolver lists aliases in source order and the first entry wins.
+    expect(graphDiagnostics([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
+        'import module Second from "./lib"\n' +
+        'import module Zeroth from "./lib"\n' + CALLER],
+    ])).toEqual([
+      INCOMPLETE_CALLER,
+      "exported function `caller` must declare every constraint in its signature; " +
+      "write `<a: (Ord, Second.Heft)>`",
+    ]);
+  });
+
   test("with no shadow and no import the word resolves to nothing, so it routes", () => {
     // The shadow is not what makes `Heft` unspellable — an import that binds
     // only `useHeft` binds no constraint at all (Modules §3.1), and the bare
@@ -263,13 +312,16 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     ]);
   });
 
-  test("and the widened binder it offers compiles", () => {
+  test("and the widened binder it offers compiles, the body untouched", () => {
+    // Verbatim is the whole claim: the two edits the message named — the import
+    // line and the widened binder — and *nothing else*. A discharge that also
+    // rewrote the body would prove only that some program compiles.
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
         'import module Lib from "./lib"\n' +
         "constraint Heft<a> =\n    other(value: a): a\n" +
-        "let g<a: (Heft, Lib.Heft)>(x: a): a = useHeft(other(x))\n" + KEEP],
+        "let g<a: (Heft, Lib.Heft)>(x: a): a = useHeft(x)\n" + KEEP],
     ])).toEqual([]);
   });
 
@@ -350,6 +402,37 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     ]);
   });
 
+  test("the subject arm merges into the base list, and routes there too", () => {
+    // A default body reaches only its own constraint and that constraint's
+    // bases, so the rewrite merges into the *declared base list* — a constraint
+    // cannot list itself as a base. The law applies to that list exactly as it
+    // does to a binder: the demand is spelled by what resolves here, and the
+    // route clause rides the same message.
+    expect(graphDiagnostics([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
+        "constraint Labelled<a: Ord> =\n" +
+        "    label(value: a): a\n" +
+        "    shown(value: a): a = useHeft(value)\n" + KEEP],
+    ])).toEqual([
+      "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its base " +
+      "constraints, but it requires `Heft`; add `Heft` as a base constraint — write " +
+      "`constraint Labelled<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`; " +
+      "`import module Lib from \"./lib\"` and spell it `Lib.Heft`",
+    ]);
+  });
+
+  test("and the base list it advises compiles verbatim", () => {
+    expect(graphDiagnostics([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
+        'import module Lib from "./lib"\n' +
+        "constraint Labelled<a: (Ord, Lib.Heft)> =\n" +
+        "    label(value: a): a\n" +
+        "    shown(value: a): a = useHeft(value)\n" + KEEP],
+    ])).toEqual([]);
+  });
+
   test("a third same-spelled demand is a third refusal, not a swallowed one", () => {
     // The suppression that keeps one variable from reporting the same demand
     // twice is keyed on the **declaration** (#716). Keyed on the word, the
@@ -392,6 +475,32 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
     ]);
   });
 
+  test("a sealed fun-block member names no call — the sibling is not one", () => {
+    // The requirement carries the `fun` member whose *body* raised it (#700's
+    // field), which is either the function under report or a sibling under one
+    // head — never the operation that demanded the constraint. Naming it here
+    // would advise the author to call the very thing being refused, so the seat
+    // states the constrained operation and guesses at no name.
+    const messages = graphDiagnostics([
+      ["/lib.hex", GATE_LIB],
+      ["/main.hex", 'import { use } from "./lib.hex"\n' +
+        "fun\n" +
+        "    left(x, n: Int) = if n <= 0 then use(x) else right(x, n - 1)\n" +
+        "    export right(x, n: Int) = left(x, n - 1)\n"],
+    ]);
+    // Measured, not assumed: this requirement's `demandedBy` is `left`, so the
+    // deleted branch really did print "call `left` at a concrete type" here.
+    expect(messages).toEqual([
+      "exported function `right` requires a complete signature; add type for parameter `x` and a return type",
+      "exported function `right` requires the constraint `Gate`, declared in `./lib.hex` " +
+      "and not exported; a complete signature cannot be written here — use the " +
+      "constrained operation at a concrete type, keep `right` private, or export " +
+      "`Gate` from `./lib.hex`",
+    ]);
+    // The fence: no message in the report reaches for the sibling's name.
+    expect(messages.filter((message) => message.includes("`left`"))).toEqual([]);
+  });
+
   test("and the exits it names are real: the concrete call, and the private keep", () => {
     expect(graphDiagnostics([
       ["/lib.hex", GATE_LIB],
@@ -417,6 +526,22 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
       "`a` is declared to honor `Ord`, but the body requires the constraint `Gate`, " +
       "declared in `./lib.hex` and not exported; no constraint list here can name it " +
       "— remove the constraint annotation to let it be inferred",
+    ]);
+  });
+
+  test("a subject whose default body reaches a gate is offered no base either", () => {
+    // The subject arm's own fourth tier: the rewrite it would otherwise merge
+    // into the base list cannot be spelled, so the message stops at the gate.
+    expect(graphDiagnostics([
+      ["/lib.hex", GATE_LIB],
+      ["/main.hex", 'import { use } from "./lib.hex"\n' +
+        "constraint Labelled<a: Ord> =\n" +
+        "    label(value: a): a\n" +
+        "    shown(value: a): a = use(value)\n" + KEEP],
+    ])).toEqual([
+      "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its base " +
+      "constraints, but it requires the constraint `Gate`, declared in `./lib.hex` and " +
+      "not exported; no constraint list here can name it",
     ]);
   });
 

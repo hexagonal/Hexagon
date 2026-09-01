@@ -660,7 +660,17 @@ type ConstraintSpelling =
     readonly path: string;
     readonly alias: string;
   }
-  | { readonly kind: "sealed"; readonly name: string; readonly identity: string };
+  | {
+    readonly kind: "sealed";
+    readonly name: string;
+    readonly identity: string;
+    /**
+     * Whether the declaration itself says it is not exported. False for the
+     * other way into this tier — a declaration with no importable path — which
+     * establishes nothing about exporting, so no report may claim it.
+     */
+    readonly unexported: boolean;
+  };
 
 /**
  * The text a spelling contributes to an advised binder list. A sealed one
@@ -6905,10 +6915,14 @@ class Checker {
    *    could not take one (Modules §5.2 refuses the collision, and the renaming
    *    pair would have the advice coin constraint vocabulary), so the one repair
    *    is uniform over the group and over the singleton alike.
-   * 4. **Sealed** — the constraint is not exported (Modules §4.3's gate, §6.5's
-   *    private base) or has no path a reader could import, so there is no route
-   *    either. No spelling is returned at all, and the caller reports the gate
-   *    instead of advising a rewrite the next compile would refuse.
+   * 4. **Sealed** — no route either. Two ways in, and the reports tell them
+   *    apart: the constraint is *not exported* (Modules §4.3's gate, §6.5's
+   *    private base), which is a fact about the declaration and is stated as
+   *    one; or there is no path to write an import against — a declaration the
+   *    graph reached without one, a compilation with no paths at all — which
+   *    establishes nothing about exporting and so is reported without the
+   *    claim. Either way no spelling is returned and the caller offers no
+   *    rewrite; `unexported` is which sentence it may print.
    *
    * Contested groups need no branch of their own: tier 3 is the module route
    * whether one required constraint wants it or three do, so a member the
@@ -6929,7 +6943,16 @@ class Checker {
         declaration === undefined || !declaration.exported ||
         path === undefined || this.#modulePath === undefined
       ) {
-        return { kind: "sealed", name: declared, identity };
+        return {
+          kind: "sealed",
+          name: declared,
+          identity,
+          // The sealing gate is the *reported* one only where the declaration
+          // says so. A missing path is a different obstacle wearing the same
+          // outcome, and a message asserting "not exported" over it would state
+          // a fact nothing established.
+          unexported: declaration !== undefined && !declaration.exported,
+        };
       }
       let alias = minted.get(path);
       if (alias === undefined) {
@@ -7042,6 +7065,30 @@ class Checker {
     return home === undefined
       ? `this module's \`${name}\``
       : `the \`${name}\` declared in \`${home}\``;
+  }
+
+  /**
+   * The fourth tier's subject, as every report that reaches it names it: the
+   * constraint, its declaring module where there is one to open, and the gate
+   * itself where the declaration established it.
+   *
+   * Shared so the export seat and the four refusal arms cannot drift into
+   * saying different things about one specimen, and so the "not exported"
+   * clause appears in exactly one place — the only place that knows it is true.
+   */
+  #sealedConstraintMention(
+    sealed: Extract<ConstraintSpelling, { readonly kind: "sealed" }>,
+  ): string {
+    const home = this.#constraintHomePath(sealed.identity);
+    const subject = `the constraint \`${sealed.name}\``;
+    if (sealed.unexported) {
+      return home === undefined
+        ? `${subject}, which is not exported`
+        : `${subject}, declared in \`${home}\` and not exported`;
+    }
+    return home === undefined
+      ? `${subject}, which this module has no spelling for`
+      : `${subject} declared in \`${home}\`, which this module has no spelling for`;
   }
 
   /**
@@ -9713,12 +9760,9 @@ class Checker {
       // §5.1.1's fourth tier: no spelling and no route, so no rewrite. The
       // report names the gate and leaves the seat's own standing exit.
       const sealed = spellings.find((spelling) => spelling.kind === "sealed");
-      const sealedHome = sealed === undefined
-        ? undefined
-        : this.#constraintHomePath(sealed.identity);
-      const sealedDemand = sealed === undefined ? "" : `the constraint \`${sealed.name}\`` +
-        `${sealedHome === undefined ? "" : `, declared in \`${sealedHome}\``} and not exported; ` +
-        "no constraint list here can name it";
+      const sealedDemand = sealed === undefined
+        ? ""
+        : `${this.#sealedConstraintMention(sealed)}; no constraint list here can name it`;
       // The clause the routed spellings owe. The refusal arms have already named
       // the declaring module in their collision qualification, so the clause
       // drops its "declared in" half (§5.1.1's elision licence); with no
@@ -13684,20 +13728,37 @@ class Checker {
       // worse than none.
       const sealed = spellings.find((spelling) => spelling.kind === "sealed");
       if (sealed !== undefined) {
-        const call = required.find(({ identity }) => identity === sealed.identity)?.demandedBy;
         const home = this.#constraintHomePath(sealed.identity);
+        // The exits, in the order the reader can act on them. The first names
+        // no *call*: `demandedBy` holds the `fun` member whose body raised the
+        // demand — the function under report itself, or a sibling under one
+        // head — and never the operation that demanded it, so naming it would
+        // tell the author to call the very thing being refused. The constrained
+        // operation is what has to go concrete, and the message says so without
+        // guessing which one it was.
+        const exits = [
+          "use the constrained operation at a concrete type",
+          `keep \`${item.binding.name}\` private`,
+          // Only where the gate is a stated fact about a file that exists: the
+          // exit is an edit in that file, and there is none to offer otherwise.
+          ...(sealed.unexported && home !== undefined
+            ? [`export \`${sealed.name}\` from \`${home}\``]
+            : []),
+        ];
         this.#diagnostics.add({
           severity: "error",
           message:
-            `exported function \`${item.binding.name}\` requires the constraint ` +
-            `\`${sealed.name}\`${home === undefined ? "" : `, declared in \`${home}\``} ` +
-            "and not exported; a complete signature cannot be written here — " +
-            (call === undefined
-              ? "use the constrained operation at a concrete type"
-              : `call \`${call}\` at a concrete type`) +
-            `, keep \`${item.binding.name}\` private, or export \`${sealed.name}\`` +
-            `${home === undefined ? "" : ` from \`${home}\``}`,
+            `exported function \`${item.binding.name}\` requires ` +
+            `${this.#sealedConstraintMention(sealed)}; ` +
+            "a complete signature cannot be written here — " +
+            `${exits.slice(0, -1).join(", ")}, or ${exits.at(-1)}`,
           primary: item.binding.span,
+          // No `incompleteSignature` marker, deliberately. It exists so a
+          // signature-writing repair can tell the *absence* of what it writes
+          // from the reasons not to write it (`Diagnostics.Diagnostic`), and at
+          // this seat there is nothing to write: the fourth tier's whole claim
+          // is that no complete signature exists here. Marking it would offer
+          // the return-annotation action over a declaration it cannot complete.
         });
         return;
       }
