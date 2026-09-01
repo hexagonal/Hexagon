@@ -93,7 +93,7 @@ Constraint members are module-scope term names (like constructors, Unions §2). 
 Unchanged from Functions §4.2; recorded here because this spec is where a reader will look:
 
 ```
-let plus<a: Num>(x: a, y: a): a = x * y
+let plus<a: Num>(x: a, y: a): a = x + y
 let member<a: (Eq, Show)>(xs: Vector(a), x: a): Bool = ...
 ```
 

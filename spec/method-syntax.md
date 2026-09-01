@@ -473,7 +473,7 @@ v.empty()                          -- ERROR (row 5): `Vector` has no field `empt
 fun cmp<a: Ord>(x: a, y: a) =
     x.compare(y)                     -- OK : Ordering — `compare` dispatched through
                                    --   the binder's `Ord` evidence; same elaboration
-                                   --   as compare(x, y)
+                                   --   as the qualified call at that type
 
 -- (j2) Declared type variable, no matching member: the options message
 fun go(x: a) =
@@ -520,7 +520,7 @@ p.x                                -- ERROR: existing opacity error (Modules §4
 -- (n) Defaultable receiver + unknown name: the defaulting step reroutes the error
 --     [updated with #304 — was the row-vs-Num discharge error; the defaulting
 --      step now settles the receiver first, §3.5]
-fun m(x) = multiply(x, x.total(1)) -- x gets Num (from multiply); at the deadline the
+fun m(x) = Num.multiply(x, x.total(1)) -- x gets Num (from multiply); at the deadline the
                                    --   defaulting step settles x := Int, the goal
                                    --   re-fires, and `total` is no field, companion
                                    --   operation, or honored member of Int —

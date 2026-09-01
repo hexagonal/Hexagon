@@ -42,7 +42,7 @@ Dictionary shape, per Constraints §6.2: `Hash_T = { Eq: Eq_T, hash: x => ... }`
 
 ### 2.3 The law
 
-> For all `x`, `y` of a type honoring `Hash`: **if `x == y`, then `x.hash() == y.hash()`.**
+> For all `x`, `y` of a type honoring `Hash`: **if `x == y`, then `Hash.hash(x) == Hash.hash(y)`.** *(Spelled through the declaring module because the law ranges over structural instances too, and a tuple or structural record is no dot receiver — Method Syntax §5.)*
 
 Stated normatively even though §4.3 makes it hold by construction in v1 — this is the sentence any future instance-producing mechanism (v2 `derive via`, §11) must discharge. The converse is explicitly **not** a law: unequal values may collide, and collision handling is entirely the collections' business.
 
@@ -54,7 +54,7 @@ Two layers, deliberately split:
 
 **The `hash` member is deterministic and unseeded**: for a fixed compiler + `@hexagon/runtime` version, the same value hashes to the same `Int`, within and across program runs. This keeps A1 coherent (an observable member cannot keep a seed secret, so it must not have one), keeps the Immutable.js oracle valid for the *function*, and keeps `hash` useful for memo keys and sharding. Non-promises: not stable across compiler/runtime versions; **not a serialization format**.
 
-**Table placement is seeded.** Hash-backed stdlib collections (Part 4's `Map`/`Set`) do not place entries by `hash(k)` directly; they place by an internal mix of a **per-process random seed** with the public hash — `bucketHash = mix(processSeed, hash(k))`-shaped. The seed is not exposed as language surface: it is not readable, and it appears in no payload. The §2.3 law is untouched — equal values have equal public hashes, hence equal mixed hashes under the one process seed, hence land together.
+**Table placement is seeded.** *(This paragraph and Part 4's describe runtime internals in metalanguage — `hash(k)`, `mix` — naming operations, not surface spellings.)* Hash-backed stdlib collections (Part 4's `Map`/`Set`) do not place entries by `hash(k)` directly; they place by an internal mix of a **per-process random seed** with the public hash — `bucketHash = mix(processSeed, hash(k))`-shaped. The seed is not exposed as language surface: it is not readable, and it appears in no payload. The §2.3 law is untouched — equal values have equal public hashes, hence equal mixed hashes under the one process seed, hence land together.
 
 Consequences, normative:
 
@@ -364,8 +364,8 @@ let h = Point({x = 1.0, y = 2.0}).hash()           -- OK : Int
 (0.0 / 0.0).hash() == Float.nan.hash()           -- true (all NaNs one value)
 
 -- (3) Structural types: automatic, conditional
-let t = (1, "a", true).hash()                    -- OK (all components Hash)
-let u = (1, fn).hash()                           -- ERROR: no Hash for Int -> Int (component)
+let t = Hash.hash((1, "a", true))                -- OK (all components Hash)
+let u = Hash.hash((1, fn))                       -- ERROR: no Hash for Int -> Int (component)
 
 -- (4) Hand-written Hash: closed door, signposted
 honor Hash<UserId> =
