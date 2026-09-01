@@ -28,7 +28,7 @@ Fixed here, from the approved package:
 - **`JsValue` includes `null` and `undefined`.** A `JsValue`-typed position accepts every JS value including both nullish forms; APIs returning "anything or nothing" are declared as plain `JsValue`, not `Nullable(JsValue)`. Nullishness is one more thing `kind` reports (§3), not a separate wrapper layer. (The `Nullable(JsValue)` spelling itself: §13.3.)
 - **The injection is total and free:** `JsValue.from(value: a) -> JsValue` — every Hexagon value already is a JS value, so `from` is the representation-honest identity, erased in emission. There is no checked path *into* `JsValue` because none is needed. *(Approved at review, §12.4.)*
 
-`JsValue` is not iterable, not comparable, not showable — it has no instances. Everything one does with it goes through `kind`, a decoder, or a trusted re-declaration at a boundary.
+`JsValue` is not iterable, not comparable, not showable — it has no instances. Everything one does with it goes through `kind`, a decoder, or a trusted re-declaration at a boundary. The companion operations take the dot *(#511)*: `v.kind()` and `v.toInt()` are ordinary companion dispatch (Method Syntax §4.1's boundary row).
 
 ---
 
@@ -37,12 +37,12 @@ Fixed here, from the approved package:
 `JsValue.kind : JsValue -> JsKind` — **total and property-free**, per the approved package. The inventory, approved as drafted (§12.1):
 
 ```hexagon
-union JsKind =
+union JsKind derives (Eq, Show) =
     Undefined | Null | Bool | Number | BigInt
     | String | Symbol | Function | Array | Object
 ```
 
-All-nullary, so its JS representation is the string union — pleasant and free (Unions §6.2).
+All-nullary, so its JS representation is the string union — pleasant and free (Unions §6.2). It derives `Eq` and `Show` *(#511)*: the single-kind test `kind(v) == JsKind.Number` is the surface's most common question, and both instances are lawful and trivial on an all-nullary union. (`JsValue` itself still has no instances — §2; the kinds are ordinary domestic data about a foreign value, not the value.)
 
 All ten constructors are qualified-only in the prelude inventory (`JsKind.Undefined`, `JsKind.Null`, …, `JsKind.Object`) in expressions and patterns. They are not auto-imported as bare prelude terms. This ordinary companion qualification leaves the string representation unchanged (Part 12 §12).
 
@@ -119,6 +119,8 @@ record JsConversionError = {
     path: Vector(JsPathSegment),
 }
 ```
+
+All constructors of both unions are qualified-only in the prelude inventory *(#511; Part 12 §12's rule, extended there)* — `JsConversionReason.Shape`, `JsConversionReason.Range`, `JsConversionReason.Cycle(firstSeen)`, `JsPathSegment.Field(name)`, `JsPathSegment.Index(index)`, and kin, in expressions and patterns alike. They are not auto-imported as bare prelude terms: `Shape`, `Range`, `Field`, and `Index` are ordinary user vocabulary, and the prelude does not spend them. This is ordinary companion qualification and leaves the runtime representations unchanged (Part 12 §12).
 
 - **It is ordinary data** — a record over unions, carried in `Err` like any other value. The checked-failure path allocates no `Error`, captures no stack, and carries no brand; it is a described outcome, not an escape. This is the §1 doctrine made structural: **checked wrongness is ordinary data in `Err`; foreign thrown control flow travels through `JsError`** — the one exception-shaped thing in this part. A caller who wants to abort on `Err` matches and throws an exception of its own choosing, at its own site.
 - Its boundary faces follow Part 7's ordinary record and union rules (§3–§4 there): structural record face, tagged-POJO reason union — nothing error-flavored in the `.d.ts`.
@@ -276,7 +278,7 @@ The package fixed semantics; the draft supplied concrete spellings; review resol
 | `Err` = data wrongness (shape/range/cycle); `JsError` = foreign code throwing; never mixed, never synthesized across | §1, §4.3 |
 | `JsValue`: final name; any JS value by identity; faces `unknown` (never `any`); **includes `null`/`undefined`** — not `Nullable(JsValue)`; no instances; total identity injection `JsValue.from` | §2 |
 | `JsValue.kind`: total, property-free, ten-kind inventory; `typeof` + `null` + `Array.isArray`; hostile-input totality incl. revoked proxies → `Object` | §3 |
-| All `JsKind` constructors are qualified-only through the companion; no bare prelude auto-import; string representation unchanged | §3; Part 12 §12 |
+| All constructors of `JsKind`, `JsConversionReason`, and `JsPathSegment` are qualified-only through their companions *(the latter two: #511)*; no bare prelude auto-import; representations unchanged; `JsKind` derives `Eq` and `Show` *(#511)* | §3, §5.1; Part 12 §12 |
 | Strict non-coercing scalar decoders returning `Result`; `toInt` splits `Shape`/`Range` via `isSafeInteger`; `toArray` = realm-safe zero-copy borrowed `Array(JsValue)`; **`toArray` does not guard the `Array.isArray` probe — a revoked-proxy throw is `JsError`, never `Err(Shape)`** | §4 |
 | Failure-type ownership: this composable decoder surface uses `Result(_, JsConversionError)`; foreign-enum membership projection uses `Option`; other projections state their own type | §4.3; Part 12 §11.2 |
 | **`JsConversionError` is ordinary data**: `record {reason, path}` over `JsConversionReason = Shape \| Range \| Cycle(firstSeen)`; no `Error`, no stack capture, no brand, not throwable as-is; ordinary record/union boundary faces (Part 7); `path` vector, empty = the value itself; all-or-nothing; diagnostic rendering non-normative | §5, §12.2 |
