@@ -164,8 +164,8 @@ describe("an unexported constraint stays private", () => {
 /**
  * A two-level constraint hierarchy in one module, both levels exported. `Loud`
  * extends `Describe`, so a `Loud` dictionary carries the `Describe` one in its
- * `describe`-named slot (Constraints §6.2) and a function constrained `<a: Loud>`
- * reaches `describe` as `dict.describe.describe`.
+ * `Describe`-named slot (Constraints §6.2) and a function constrained `<a: Loud>`
+ * reaches `describe` as `dict.Describe.describe`.
  */
 const hierarchy = [
   "export constraint Describe<a> =",
@@ -205,7 +205,7 @@ describe("base-constraint entailment through an imported constraint", () => {
     // walk found no bases, and the slot-less `Loud` dictionary went to the
     // `Describe` seat — a miscompile with no diagnostic.
     expect(emitted(files, "/main.hex")).toMatch(
-      /describe\(subject, __Loud_a\.describe\)/u,
+      /describe\(subject, __Loud_a\.Describe\)/u,
     );
   });
 
@@ -381,7 +381,7 @@ describe("a base chain whose middle link the importer cannot name", () => {
     // reading `Small`'s own bases, and `Small` is private to `./scales`, so no
     // import of this module can ever have named it.
     expect(emitted(files, "/main.hex")).toMatch(
-      /weigh\(subject, __Big_a\.small\.tiny\)/u,
+      /weigh\(subject, __Big_a\.Small\.Tiny\)/u,
     );
   });
 

@@ -1277,7 +1277,7 @@ describe("emitJavaScript", () => {
     );
 
     expect(output.text).toMatch(
-      /const scale = \(count, value, (__Signed_a)\) => \1\.num\.multiply\(\1\.fromInt\(count\), value\);/u,
+      /const scale = \(count, value, (__Signed_a)\) => \1\.Num\.multiply\(\1\.fromInt\(count\), value\);/u,
     );
     expect(output.diagnostics).toEqual([]);
   });
@@ -1341,8 +1341,8 @@ describe("emitJavaScript", () => {
     expect(project.diagnostics).toEqual([]);
     const companion = project.modules
       .find(({ source }) => source.path.endsWith("Float.hex"))!.javascript.text;
-    expect(companion).toContain("eq:");
-    expect(companion).toContain("signed:");
+    expect(companion).toContain("Eq:");
+    expect(companion).toContain("Signed:");
     expect((await runProject(files))["result"]).toEqual([true, 4]);
   });
 
@@ -1474,8 +1474,8 @@ describe("emitJavaScript", () => {
     const companion = project.modules
       .find(({ source }) => source.path.endsWith("BigInt.hex"))!.javascript.text;
     expect(companion).toContain("gcd:");
-    expect(companion).toContain("ord:");
-    expect(companion).toContain("num:");
+    expect(companion).toContain("Ord:");
+    expect(companion).toContain("Num:");
     expect((await runProject(files))["result"]).toEqual([2n, 3n]);
   });
 
@@ -1963,12 +1963,12 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(module);
     expect(output.diagnostics).toEqual([]);
     expect(output.text).toContain(
-      "const __Labeled_Token = { same: __Same_Token, label: __Labeled_Token_label };",
+      "const __Labeled_Token = { Same: __Same_Token, label: __Labeled_Token_label };",
     );
     expect(output.text).toContain(
       'const __Labeled_Token_label = value => "token";',
     );
-    expect(output.text).toMatch(/same\(left, right, __Labeled_a\.same\)/u);
+    expect(output.text).toMatch(/same\(left, right, __Labeled_a\.Same\)/u);
     expect(output.diagnostics).toEqual([]);
   });
 

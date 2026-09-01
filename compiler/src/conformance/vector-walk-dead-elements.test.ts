@@ -111,7 +111,7 @@ describe("an operand-free element equality leaves only the size check", () => {
     ].join("\n");
     const emitted = javascript(source);
     expect(emitted).toContain(
-      "eq: { equals: (__left, __right) => __trieSize(__left) === __trieSize(__right), ",
+      "Eq: { equals: (__left, __right) => __trieSize(__left) === __trieSize(__right), ",
     );
     expect(emitted).not.toContain("if (!(true))");
     const module = await runMain(source);
