@@ -283,22 +283,30 @@ describe("the binder set an export is told to write", () => {
     // bases of the word `Heft` answers nothing at all — under which `Num`
     // survives into the advice and the offered binder is refused by the very
     // next compile (`must omit base constraint \`Num\``).
+    //
+    // What each of the three is *spelled* as is Constraints §5.1.1's law, and
+    // its own file pins the tiers (`advised-constraint-spellings.test.ts`).
+    // Absorption is the claim here, and it holds in all three: `Num` is gone.
     const caller =
       "export let caller(n, stop: Bool) = if stop then n + n else useHeft(n)\n";
+    // No spelling here at all: the law routes (#715).
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { useHeft } from "./lib.hex"\n' + caller],
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
-      "exported function `caller` must declare every constraint in its signature; write `<a: Heft>`",
+      "exported function `caller` must declare every constraint in its signature; " +
+      "write `<a: Lib.Heft>` — `Heft` is declared in `./lib`; " +
+      "`import module Lib from \"./lib\"` and spell it `Lib.Heft`",
     ]);
-    // Spellable, but not under the declaration's own word.
+    // Spellable, but not under the declaration's own word — the law's first
+    // tier is the word the renaming import bound, not the word lib.hex wrote.
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { Heft as Weigh, useHeft } from "./lib.hex"\n' + caller],
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
-      "exported function `caller` must declare every constraint in its signature; write `<a: Heft>`",
+      "exported function `caller` must declare every constraint in its signature; write `<a: Weigh>`",
     ]);
     // Spellable, and the word means something else here entirely (§5.1.1).
     expect(graphDiagnostics([
@@ -307,7 +315,9 @@ describe("the binder set an export is told to write", () => {
         "constraint Heft<a> =\n    other(value: a): a\n" + caller],
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
-      "exported function `caller` must declare every constraint in its signature; write `<a: Heft>`",
+      "exported function `caller` must declare every constraint in its signature; " +
+      "write `<a: Lib.Heft>` — `Heft` is declared in `./lib`, and this module binds " +
+      "another `Heft`; `import module Lib from \"./lib\"` and spell it `Lib.Heft`",
     ]);
   });
 

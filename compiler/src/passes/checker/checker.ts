@@ -120,7 +120,12 @@ interface Variable {
   instance?: Mono;
   literalOnly: boolean;
   readonly requirements: Requirement[];
-  readonly rejectedConstraints: Set<Typed.ConstraintName>;
+  /**
+   * The declarations this variable has already refused a demand for, keyed on
+   * **identity** (#716): two constraints sharing a word are two refusals, and a
+   * name-keyed set silently swallowed the second.
+   */
+  readonly rejectedConstraints: Set<string>;
 }
 
 interface Constructor {
@@ -635,6 +640,45 @@ interface CoverageHead {
    * which is what keeps the clause off the names a shallower tier spelled.
    */
   readonly route?: RouteNeed;
+}
+
+/**
+ * One required constraint as a diagnostic may spell it — Constraints §5.1.1's
+ * advised-spelling law, whose tiers `#constraintSpellings` walks.
+ *
+ * `sealed` is the fourth tier and carries no text on purpose: there is no
+ * spelling and no route, so the report that holds one of these offers no
+ * rewrite at all and names the gate instead.
+ */
+type ConstraintSpelling =
+  | { readonly kind: "spelled"; readonly text: string }
+  | {
+    readonly kind: "routed";
+    readonly text: string;
+    /** The declaration's own name — what the route clause lists and imports. */
+    readonly name: string;
+    readonly path: string;
+    readonly alias: string;
+  }
+  | {
+    readonly kind: "sealed";
+    readonly name: string;
+    readonly identity: string;
+    /**
+     * Whether the declaration itself says it is not exported. False for the
+     * other way into this tier — a declaration with no importable path — which
+     * establishes nothing about exporting, so no report may claim it.
+     */
+    readonly unexported: boolean;
+  };
+
+/**
+ * The text a spelling contributes to an advised binder list. A sealed one
+ * contributes its bare name, which no caller ever prints: every one of them
+ * checks for the fourth tier and reports the gate before it builds a list.
+ */
+function spellingText(spelling: ConstraintSpelling): string {
+  return spelling.kind === "sealed" ? spelling.name : spelling.text;
 }
 
 /** One constructor a witness named without a pastable spelling (§7.3 tier 3). */
@@ -6832,15 +6876,219 @@ class Checker {
    * spelling already bound here — as a module alias or as anything else — takes
    * a `_1`, `_2`… suffix, so the repair the clause prints is one the compiler
    * would accept (Modules §5.2 refuses a rebinding).
+   *
+   * `minted` carries the aliases **this message** has already coined, so the
+   * edits one report offers compose: two declaring modules with one basename
+   * (`/a/lib.hex` and `/b/lib.hex`) would otherwise both be advised as `Lib`,
+   * and applying the pair would rebind the alias (Constraints §5.1.1 — "the
+   * aliases one message binds are chosen mutually distinct, as well as distinct
+   * from every spelling in scope"). Empty for the witness-route caller, which
+   * groups by module before it asks and so never coins twice in one report.
    */
-  #derivedAlias(path: string): string {
+  #derivedAlias(path: string, minted: ReadonlySet<string> = new Set()): string {
     const base = moduleBaseName(path) ?? "M";
     const candidate = /^[A-Za-z]/u.test(base) ? base : `M${base}`;
-    if (!this.#aliasNames.has(candidate) && !this.#bareNames.has(candidate)) return candidate;
+    const taken = (name: string): boolean =>
+      this.#aliasNames.has(name) || this.#bareNames.has(name) || minted.has(name);
+    if (!taken(candidate)) return candidate;
     for (let suffix = 1;; suffix += 1) {
       const next = `${candidate}_${suffix}`;
-      if (!this.#aliasNames.has(next) && !this.#bareNames.has(next)) return next;
+      if (!taken(next)) return next;
     }
+  }
+
+  /**
+   * Constraints §5.1.1's **advised-spelling law**, for one report's required
+   * constraints: each is spelled by the form that resolves *here* to the
+   * declaration required, and the ones no form reaches carry the module route
+   * the report then states.
+   *
+   * The tiers, in order:
+   *
+   * 1. **Bare** — a name in scope denoting this declaration: its own word, or
+   *    the word a renaming import bound (Modules §3.2). The eleven
+   *    pre-registered identities always land here; they seed the map.
+   * 2. **Qualified** — `Alias.Name` through a module alias in scope, which the
+   *    resolver enters into the same map under that exact spelling (§3.3).
+   * 3. **Routed** — no spelling resolves, so the advice qualifies through an
+   *    alias its own clause binds. Never a *named* import: a same-spelled group
+   *    could not take one (Modules §5.2 refuses the collision, and the renaming
+   *    pair would have the advice coin constraint vocabulary), so the one repair
+   *    is uniform over the group and over the singleton alike.
+   * 4. **Sealed** — no route either. Two ways in, and the reports tell them
+   *    apart: the constraint is *not exported* (Modules §4.3's gate, §6.5's
+   *    private base), which is a fact about the declaration and is stated as
+   *    one; or there is no path to write an import against — a declaration the
+   *    graph reached without one, a compilation with no paths at all — which
+   *    establishes nothing about exporting and so is reported without the
+   *    claim. Either way no spelling is returned and the caller offers no
+   *    rewrite; `unexported` is which sentence it may print.
+   *
+   * Contested groups need no branch of their own: tier 3 is the module route
+   * whether one required constraint wants it or three do, so a member the
+   * module can already spell keeps its word and every other member routes.
+   */
+  #constraintSpellings(
+    required: readonly { readonly name: string; readonly identity: string }[],
+  ): readonly ConstraintSpelling[] {
+    const minted = new Map<string, string>();
+    const coined = new Set<string>();
+    return required.map(({ name, identity }): ConstraintSpelling => {
+      const declared = this.#canonicalConstraintName(name, identity);
+      const spelling = this.#spelledConstraint(identity, declared);
+      if (spelling !== undefined) return { kind: "spelled", text: spelling };
+      const declaration = this.#constraintsByIdentity.get(identity);
+      const path = declaration?.declaringPath;
+      if (
+        declaration === undefined || !declaration.exported ||
+        path === undefined || this.#modulePath === undefined
+      ) {
+        return {
+          kind: "sealed",
+          name: declared,
+          identity,
+          // The sealing gate is the *reported* one only where the declaration
+          // says so. A missing path is a different obstacle wearing the same
+          // outcome, and a message asserting "not exported" over it would state
+          // a fact nothing established.
+          unexported: declaration !== undefined && !declaration.exported,
+        };
+      }
+      let alias = minted.get(path);
+      if (alias === undefined) {
+        alias = this.#derivedAlias(path, coined);
+        minted.set(path, alias);
+        coined.add(alias);
+      }
+      return { kind: "routed", text: `${alias}.${declared}`, name: declared, path, alias };
+    });
+  }
+
+  /**
+   * Tiers 1 and 2 of the law: the barest spelling in scope denoting `identity`,
+   * or `undefined` where none does.
+   *
+   * `#constraintIdentities` is exactly "every constraint name this module can
+   * spell", qualified forms included, so the search is over it rather than over
+   * the program — a declaration the import graph reaches but this module has no
+   * word for must not be offered one.
+   */
+  #spelledConstraint(identity: string, declared: string): string | undefined {
+    if (this.#constraintIdentities.get(declared) === identity) return declared;
+    let qualified: string | undefined;
+    for (const [spelling, known] of this.#constraintIdentities) {
+      if (known !== identity) continue;
+      if (!spelling.includes(".")) return spelling;
+      qualified ??= spelling;
+    }
+    return qualified;
+  }
+
+  /**
+   * The route clauses one report owes for the spellings that took tier 3 — the
+   * witness grammar of Pattern Matching §7.3, one clause per declaring module.
+   *
+   * `home` is the law's **elision licence**: where the message has already named
+   * the declaring module — the refusal arms do, in their collision
+   * qualification — the clause drops its "declared in" half and states the edit
+   * alone; where it has not, as at the completeness advice, the clause stands
+   * whole.
+   */
+  #constraintRouteClauses(
+    spellings: readonly ConstraintSpelling[],
+    home: boolean,
+  ): string {
+    const byModule = new Map<
+      string,
+      { readonly alias: string; readonly names: string[] }
+    >();
+    for (const spelling of spellings) {
+      if (spelling.kind !== "routed") continue;
+      const group = byModule.get(spelling.path) ?? { alias: spelling.alias, names: [] };
+      if (!group.names.includes(spelling.name)) group.names.push(spelling.name);
+      byModule.set(spelling.path, group);
+    }
+    return [...byModule].map(([path, { alias, names }]) =>
+      ` — ${this.#constraintRouteClause(path, alias, names, home)}`
+    ).join("");
+  }
+
+  /** One declaring module's constraint route clause; see `#constraintRouteClauses`. */
+  #constraintRouteClause(
+    path: string,
+    alias: string,
+    names: readonly string[],
+    home: boolean,
+  ): string {
+    const specifier = relativeSpecifier(this.#modulePath!, path);
+    const plural = names.length > 1;
+    const spelled = englishList(names.map((name) => `\`${alias}.${name}\``));
+    const edit = `\`import module ${alias} from ${JSON.stringify(specifier)}\` and spell ` +
+      `${plural ? "them" : "it"} ${spelled}`;
+    if (!home) return edit;
+    const listed = englishList(names.map((name) => `\`${name}\``));
+    // The half the constructor clause states for the same reason: a word this
+    // module already binds is why the named import is not the repair, and the
+    // reader is owed that sentence rather than left to find it.
+    const taken = names.filter((name) => this.#constraintIdentities.has(name));
+    const binds = taken.length === 0
+      ? ""
+      : `, and this module binds ${englishList(taken.map((name) => `another \`${name}\``))}`;
+    return `${listed} ${plural ? "are" : "is"} declared in \`${specifier}\`${binds}; ${edit}`;
+  }
+
+  /**
+   * `./lib.hex` for a constraint a message must qualify by its home —
+   * Constraints §5.1.1's disambiguation bullet, whose two forms are "this
+   * module's" for a declaration written here and the relative path for one
+   * written elsewhere. `undefined` for both the local case and the case with no
+   * path a reader could open (a pre-registered constraint's prelude home, a
+   * compilation with no paths at all), which the sentences read correctly
+   * without.
+   */
+  #constraintHomePath(identity: string): string | undefined {
+    if (isPreRegisteredIdentity(identity)) return undefined;
+    const home = this.#constraintsByIdentity.get(identity)?.declaringPath;
+    if (home === undefined || this.#modulePath === undefined) return undefined;
+    if (home === this.#modulePath) return undefined;
+    return relativeFilePath(this.#modulePath, home);
+  }
+
+  /**
+   * The disambiguating qualification itself: `` this module's `Heft` `` or
+   * `` the `Heft` declared in `./lib.hex` ``. Collision-only by construction —
+   * every caller asks only after finding two declarations under one word, which
+   * is the resolution §5.1.1 reserves it for, never the default.
+   */
+  #qualifiedConstraintMention(name: string, identity: string): string {
+    const home = this.#constraintHomePath(identity);
+    return home === undefined
+      ? `this module's \`${name}\``
+      : `the \`${name}\` declared in \`${home}\``;
+  }
+
+  /**
+   * The fourth tier's subject, as every report that reaches it names it: the
+   * constraint, its declaring module where there is one to open, and the gate
+   * itself where the declaration established it.
+   *
+   * Shared so the export seat and the four refusal arms cannot drift into
+   * saying different things about one specimen, and so the "not exported"
+   * clause appears in exactly one place — the only place that knows it is true.
+   */
+  #sealedConstraintMention(
+    sealed: Extract<ConstraintSpelling, { readonly kind: "sealed" }>,
+  ): string {
+    const home = this.#constraintHomePath(sealed.identity);
+    const subject = `the constraint \`${sealed.name}\``;
+    if (sealed.unexported) {
+      return home === undefined
+        ? `${subject}, which is not exported`
+        : `${subject}, declared in \`${home}\` and not exported`;
+    }
+    return home === undefined
+      ? `${subject}, which this module has no spelling for`
+      : `${subject} declared in \`${home}\`, which this module has no spelling for`;
   }
 
   /**
@@ -9473,41 +9721,80 @@ class Checker {
         ) !== undefined
       )
     ) {
-      if (variable.rejectedConstraints.has(requirement.name)) {
+      // Keyed on the **declaration**, not the word (#716). A third demand for a
+      // third `Describe` is a third refusal, and suppressing it on the spelling
+      // would drop a report for a constraint nothing else in the family names.
+      if (variable.rejectedConstraints.has(requirement.identity)) {
         requirement.reported = true;
         return;
       }
-      variable.rejectedConstraints.add(requirement.name);
-      const canonical = this.#maximalConstraintNames([
-        ...declared,
+      variable.rejectedConstraints.add(requirement.identity);
+      // Maximality between the written list and the demand is a question about
+      // declarations (§5.1.1): a same-spelled shadow's bases absorb nothing,
+      // because they are not the required declaration's bases (#715). The
+      // written side keeps the word the author wrote — it is spellable by
+      // construction — and only the required side is spelled by the law.
+      const requiredName = this.#canonicalConstraintName(
         requirement.name,
-      ]);
-      const constraintList = canonical.length === 1
-        ? canonical[0]!
-        : `(${canonical.join(", ")})`;
+        requirement.identity,
+      );
+      const spellings = this.#refusalSpellings(declared, requirement, requiredName);
+      const constraintList = spellings.length === 1
+        ? spellingText(spellings[0]!)
+        : `(${spellings.map(spellingText).join(", ")})`;
+      // §5.1.1's collision resolution, and only that: the sides qualify when
+      // they share a word and not a declaration, and every other report keeps
+      // the bare name it always printed.
+      const collision = declared.some((constraint) =>
+        constraint === requiredName &&
+        this.#constraintIdentity(constraint) !== requirement.identity
+      );
+      const requiredMention = collision
+        ? this.#qualifiedConstraintMention(requiredName, requirement.identity)
+        : `\`${requirement.name}\``;
       const declaration = declared.length === 0
         ? `\`${variable.rigidName}\` is declared without constraints`
         : `\`${variable.rigidName}\` is declared to honor ${
-          this.#formatConstraintNames(declared)
+          this.#formatConstraintNames(declared, collision ? requiredName : undefined)
         }`;
+      // §5.1.1's fourth tier: no spelling and no route, so no rewrite. The
+      // report names the gate and leaves the seat's own standing exit.
+      const sealed = spellings.find((spelling) => spelling.kind === "sealed");
+      const sealedDemand = sealed === undefined
+        ? ""
+        : `${this.#sealedConstraintMention(sealed)}; no constraint list here can name it`;
+      // The clause the routed spellings owe. The refusal arms have already named
+      // the declaring module in their collision qualification, so the clause
+      // drops its "declared in" half (§5.1.1's elision licence); with no
+      // collision to qualify, nothing has named it and the clause stands whole.
+      const routes = this.#constraintRouteClauses(spellings, !collision);
       // Three binder positions share this rejection, and each names the rewrite
       // that is actually legal at its declaration site — a constraint cannot
       // list itself as a base, and an `honor` binder's constraints are written,
       // never inferred, so the function-binder wording misleads at both.
       if (this.#constraintSubjectVariables.has(variable.id)) {
         const constraint = declared[0]!;
-        const bases = this.#maximalConstraintNames([
-          ...this.#baseConstraints(constraint),
-          requirement.name,
-        ]).filter((name) => name !== constraint);
-        const baseList = bases.length === 1 ? bases[0]! : `(${bases.join(", ")})`;
+        const bases = this.#subjectBaseSpellings(constraint, requirement, requiredName);
+        const baseList = bases.length === 1
+          ? spellingText(bases[0]!)
+          : `(${bases.map(spellingText).join(", ")})`;
+        const head = `\`${variable.rigidName}\` is \`${constraint}\`'s subject, so the body reaches ` +
+          `only \`${constraint}\` and its base constraints, but it requires `;
         this.#diagnostics.add({
           severity: "error",
-          message:
-            `\`${variable.rigidName}\` is \`${constraint}\`'s subject, so the body reaches ` +
-            `only \`${constraint}\` and its base constraints, but it requires ` +
-            `\`${requirement.name}\`; add \`${requirement.name}\` as a base constraint — ` +
-            `write \`constraint ${constraint}<${variable.rigidName}: ${baseList}>\``,
+          message: sealed !== undefined
+            ? `${head}${sealedDemand}`
+            // The "add" clause carries the qualification the sentence has just
+            // minted, wherever there is one. Bare, it names the word this very
+            // declaration is written under — and the row's own rationale is
+            // that a constraint cannot list itself as a base, so the reader is
+            // handed a sentence that reads as self-reference. Non-collision
+            // messages keep the bare name they always printed.
+            : `${head}${requiredMention}; add ${
+              collision ? requiredMention : `\`${requiredName}\``
+            } as a base constraint — ` +
+              `write \`constraint ${constraint}<${variable.rigidName}: ${baseList}>\`` +
+              this.#constraintRouteClauses(bases, !collision),
           primary: requirement.span,
         });
         requirement.reported = true;
@@ -9516,9 +9803,13 @@ class Checker {
       if (this.#honorBinderVariables.has(variable.id)) {
         this.#diagnostics.add({
           severity: "error",
-          message:
-            `${declaration}, but the body requires \`${requirement.name}\`; ` +
-            `write \`<${variable.rigidName}: ${constraintList}>\` on the \`honor\` header`,
+          message: sealed !== undefined
+            ? `${declaration}, but the body requires ${sealedDemand}`
+            // The seat comes before the clause here, and only here: the seat
+            // names *where* the rewrite goes, and a route clause between the
+            // two would part the binder from its header.
+            : `${declaration}, but the body requires ${requiredMention}; ` +
+              `write \`<${variable.rigidName}: ${constraintList}>\` on the \`honor\` header${routes}`,
           primary: requirement.span,
         });
         requirement.reported = true;
@@ -9538,10 +9829,11 @@ class Checker {
           : "remove the head's constraint to let it be inferred";
         this.#diagnostics.add({
           severity: "error",
-          message:
-            `${declaration} on the block head, but ${subject} requires ` +
-            `\`${requirement.name}\`; widen the head: ` +
-            `\`fun<${variable.rigidName}: ${constraintList}>\`, or ${headRewrite}`,
+          message: sealed !== undefined
+            ? `${declaration} on the block head, but ${subject} requires ${sealedDemand} — ${headRewrite}`
+            : `${declaration} on the block head, but ${subject} requires ` +
+              `${requiredMention}; widen the head: ` +
+              `\`fun<${variable.rigidName}: ${constraintList}>\`${routes}, or ${headRewrite}`,
           primary: requirement.span,
         });
         requirement.reported = true;
@@ -9552,16 +9844,93 @@ class Checker {
         : "remove the constraint annotation to let it be inferred";
       this.#diagnostics.add({
         severity: "error",
-        message:
-          `${declaration}, but the body requires ` +
-          `\`${requirement.name}\`; write \`<${variable.rigidName}: ${constraintList}>\`, ` +
-          `or ${inferenceRewrite}`,
+        message: sealed !== undefined
+          ? `${declaration}, but the body requires ${sealedDemand} — ${inferenceRewrite}`
+          : `${declaration}, but the body requires ` +
+            `${requiredMention}; write \`<${variable.rigidName}: ${constraintList}>\`${routes}, ` +
+            `or ${inferenceRewrite}`,
         primary: requirement.span,
       });
       requirement.reported = true;
       return;
     }
     this.#attachRequirement(variable, requirement);
+  }
+
+  /**
+   * The refusal family's advised list: the written constraints and the demand
+   * they do not entail, sieved by **identity** and spelled by §5.1.1's law.
+   *
+   * The written entries keep the words the author wrote — a spelling in the
+   * source resolves here by definition, and respelling it would move the
+   * author's own text — so only the demand walks the tiers.
+   */
+  #refusalSpellings(
+    declared: readonly Typed.ConstraintName[],
+    requirement: Requirement,
+    requiredName: string,
+  ): readonly ConstraintSpelling[] {
+    return this.#maximalAdvisedSpellings(
+      declared.map((constraint) => ({
+        written: constraint,
+        identity: this.#constraintIdentity(constraint),
+      })),
+      requirement,
+      requiredName,
+    );
+  }
+
+  /**
+   * The same sieve for the subject arm, whose written side is the declaration's
+   * **base list** and whose result drops the declaration itself (a constraint
+   * cannot list itself as a base).
+   */
+  #subjectBaseSpellings(
+    constraint: string,
+    requirement: Requirement,
+    requiredName: string,
+  ): readonly ConstraintSpelling[] {
+    const identity = this.#constraintIdentity(constraint);
+    return this.#maximalAdvisedSpellings(
+      this.#baseConstraintsOf(identity).map((base) => ({
+        written: base.name,
+        identity: base.identity,
+      })),
+      requirement,
+      requiredName,
+    ).filter((spelling) => spelling.kind !== "spelled" || spelling.text !== constraint);
+  }
+
+  /**
+   * One advised list: written entries plus the demand, entailment-maximal by
+   * identity, deduplicated by identity, in written order with the demand last.
+   */
+  #maximalAdvisedSpellings(
+    written: readonly { readonly written: string; readonly identity: string }[],
+    requirement: Requirement,
+    requiredName: string,
+  ): readonly ConstraintSpelling[] {
+    const entries = [
+      ...written,
+      { written: undefined, identity: requirement.identity },
+    ];
+    const kept = entries.filter((entry, index) =>
+      entries.findIndex(({ identity }) => identity === entry.identity) === index &&
+      !entries.some((other) =>
+        other.identity !== entry.identity &&
+        this.#entailmentPath(other.identity, entry.identity) !== undefined
+      )
+    );
+    const advised = this.#constraintSpellings(
+      kept.filter((entry) => entry.written === undefined)
+        .map(({ identity }) => ({ name: requiredName, identity })),
+    );
+    let next = 0;
+    return kept.map((entry) =>
+      entry.written === undefined
+        ? advised[next++]!
+        : { kind: "spelled", text: entry.written } as const
+    );
   }
 
   #maximalConstraintNames(
@@ -9576,10 +9945,23 @@ class Checker {
     );
   }
 
+  /**
+   * The written constraint list as a report reads it back.
+   *
+   * `qualify` names the one word a demand collides with — same spelling, other
+   * declaration — and only that word takes §5.1.1's home qualification. Every
+   * other entry, and every list asked without one, keeps the bare name: the
+   * bullet makes qualification the collision's resolution, never the default.
+   */
   #formatConstraintNames(
     constraints: readonly Typed.ConstraintName[],
+    qualify?: string,
   ): string {
-    return constraints.map((constraint) => `\`${constraint}\``).join(" and ");
+    return constraints.map((constraint) =>
+      constraint === qualify
+        ? this.#qualifiedConstraintMention(constraint, this.#constraintIdentity(constraint))
+        : `\`${constraint}\``
+    ).join(" and ");
   }
 
   /**
@@ -9740,12 +10122,6 @@ class Checker {
     }));
     const slots = mintBaseConstraintSlots(bases.map(({ name }) => name));
     return bases.map((base, index) => ({ ...base, slot: slots[index]! }));
-  }
-
-  /** The base constraints a constraint *named* here declares, by name. */
-  #baseConstraints(constraint: string): readonly string[] {
-    return this.#baseConstraintsOf(this.#constraintIdentity(constraint))
-      .map(({ name }) => name);
   }
 
   /** The base constraints of a constraint **declaration**, name and identity. */
@@ -13340,40 +13716,81 @@ class Checker {
 
     const scheme = this.#scheme(item.binding.symbol);
     scheme.variables.forEach((variable, index) => {
-      // Absorption is decided identity-side, *then* the surviving spellings are
-      // sieved. `#maximalConstraintNames` cannot do both jobs: it reaches an
-      // identity through `#constraintIdentity`, which is this module's own
-      // resolution of the word, and a requirement copied out of an imported
-      // scheme may name a constraint this module cannot spell — or spells under
-      // an alias, or shadows with an unrelated declaration of its own. Such a
-      // name mints a fallback identity with no bases, so the sieve sees nothing
-      // absorbing anything, and the advice offers a binder listing a base
-      // constraint beside the one that provides it — which the very next
-      // compile refuses. The name-side pass still earns its keep for the
-      // spellings that *do* resolve here (§5.1.1).
-      const required = this.#maximalConstraintNames(
-        this.#keptRequirements(variable).map(({ name }) => name),
-      );
-      if (required.length > 0 && variable.declaredConstraints === undefined) {
-        const constraintList = required.length === 1
-          ? required[0]!
-          : `(${required.join(", ")})`;
-        const binder = `${variable.rigidName ?? inferredTypeVariableName(index)}: ${constraintList}`;
-        // *(#700.)* The advice follows the spelling (Modules §4.1.1): a member
-        // of a `fun` block writes its binders on the **head**, and a per-member
-        // binder is refused — so offering one here would be the Rewrite Rule's
-        // own failure, an advised repair the next compile rejects.
+      // Absorption is decided identity-side, and so is *every* step after it:
+      // `#keptRequirements` returns the entailment-maximal set keyed on
+      // declarations, and each survivor is then spelled by the form that
+      // resolves here to the declaration it names (§5.1.1's advised-spelling
+      // law, Modules §4.1.1). The name-side sieve used to run over the result
+      // and did two things wrong at once (#715, #716): it resolved each *word*
+      // through this module's scope, so a same-spelled local shadow's bases
+      // absorbed a genuine binder, and it deduplicated by word, so two distinct
+      // declarations sharing one printed as one — a binder no author could
+      // write, for a pair one word cannot declare.
+      const required = this.#keptRequirements(variable);
+      if (required.length === 0 || variable.declaredConstraints !== undefined) return;
+      const spellings = this.#constraintSpellings(required);
+      // §5.1.1's fourth tier, Modules §4.1.1's own paragraph: a required
+      // constraint with no spelling and no route is the §4.3 sealing gate seen
+      // from outside, and no complete signature exists to advise. The report
+      // states the gate and the exits instead — an impossible fixit would be
+      // worse than none.
+      const sealed = spellings.find((spelling) => spelling.kind === "sealed");
+      if (sealed !== undefined) {
+        const home = this.#constraintHomePath(sealed.identity);
+        // The exits, in the order the reader can act on them. The first names
+        // no *call*: `demandedBy` holds the `fun` member whose body raised the
+        // demand — the function under report itself, or a sibling under one
+        // head — and never the operation that demanded it, so naming it would
+        // tell the author to call the very thing being refused. The constrained
+        // operation is what has to go concrete, and the message says so without
+        // guessing which one it was.
+        const exits = [
+          "use the constrained operation at a concrete type",
+          `keep \`${item.binding.name}\` private`,
+          // Only where the gate is a stated fact about a file that exists: the
+          // exit is an edit in that file, and there is none to offer otherwise.
+          ...(sealed.unexported && home !== undefined
+            ? [`export \`${sealed.name}\` from \`${home}\``]
+            : []),
+        ];
         this.#diagnostics.add({
           severity: "error",
           message:
-            `exported function \`${item.binding.name}\` must declare every constraint in its signature; ` +
-            (item.kind === "Fun" && item.block !== undefined
-              ? `declare the constraint on the block head: \`fun<${binder}>\``
-              : `write \`<${binder}>\``),
+            `exported function \`${item.binding.name}\` requires ` +
+            `${this.#sealedConstraintMention(sealed)}; ` +
+            "a complete signature cannot be written here — " +
+            `${exits.slice(0, -1).join(", ")}, or ${exits.at(-1)}`,
           primary: item.binding.span,
-          incompleteSignature: true,
+          // No `incompleteSignature` marker, deliberately. It exists so a
+          // signature-writing repair can tell the *absence* of what it writes
+          // from the reasons not to write it (`Diagnostics.Diagnostic`), and at
+          // this seat there is nothing to write: the fourth tier's whole claim
+          // is that no complete signature exists here. Marking it would offer
+          // the return-annotation action over a declaration it cannot complete.
         });
+        return;
       }
+      const constraintList = spellings.length === 1
+        ? spellingText(spellings[0]!)
+        : `(${spellings.map(spellingText).join(", ")})`;
+      const binder = `${variable.rigidName ?? inferredTypeVariableName(index)}: ${constraintList}`;
+      // *(#700.)* The advice follows the spelling (Modules §4.1.1): a member
+      // of a `fun` block writes its binders on the **head**, and a per-member
+      // binder is refused — so offering one here would be the Rewrite Rule's
+      // own failure, an advised repair the next compile rejects.
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `exported function \`${item.binding.name}\` must declare every constraint in its signature; ` +
+          (item.kind === "Fun" && item.block !== undefined
+            ? `declare the constraint on the block head: \`fun<${binder}>\``
+            : `write \`<${binder}>\``) +
+          // This message has named no declaring module, so the clauses stand
+          // whole (§5.1.1's elision licence, read the other way).
+          this.#constraintRouteClauses(spellings, true),
+        primary: item.binding.span,
+        incompleteSignature: true,
+      });
     });
 
     // A block member's binders are the head's (Modules §4.1.1), so the head's
