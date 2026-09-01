@@ -132,6 +132,19 @@ export interface PreludeModule {
  * `Stream`, and nothing can — the type is `Seq`'s impure sibling and no pure
  * module has business with one.
  *
+ * `JsKind.hex` and `JsValue.hex` are the FFI Part 11 pair, and the pair is the
+ * seats-before-uses rule twice over. `JsKind.hex` declares one all-nullary
+ * union, so its signature types name nothing and it could sit almost anywhere;
+ * it sits immediately before `JsValue.hex` because that is the module that uses
+ * it, and because a constructor of it is reachable only as `JsKind.Null`
+ * (`spec/ffi.md` §12), which is a *qualified* spelling and so needs the module
+ * addressable under the name. `JsValue.hex` then sits after everything its
+ * headers name: `Result.hex`, because every decoder answers with one, and
+ * `Vector.hex`, because the `JsConversionError` inside that `Err` carries a
+ * `Vector` of path segments. Nothing before them names a `JsValue` — the type has
+ * no Hexagon declaration site, so only these two files and a user's own
+ * annotation can spell it.
+ *
  * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: almost
  * no signature here forces it. Both members name `Show` and nothing else — `log`
  * since #419 widened it to `log<a: Show>(value: a)`, `trace` from the start — so
@@ -171,6 +184,8 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Map.hex",
   "Set.hex",
   "Stream.hex",
+  "JsKind.hex",
+  "JsValue.hex",
   "Debug.hex",
 ].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));
 

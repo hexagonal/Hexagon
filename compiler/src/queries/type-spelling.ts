@@ -392,6 +392,8 @@ export function spellType(
       return builtIn(type.name);
     case "Range":
       return builtIn("Range");
+    case "JsValue":
+      return builtIn("JsValue");
     case "Variable":
       return { text: variables.nameOf(type.id) };
     case "Error":

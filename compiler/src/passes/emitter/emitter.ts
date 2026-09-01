@@ -1228,37 +1228,52 @@ interface PreludeIds {
   readonly stream: Resolved.RecordId | undefined;
   readonly bool: Resolved.UnionId | undefined;
   readonly ignore: Resolved.SymbolId | undefined;
+  readonly jsValueFrom: Resolved.SymbolId | undefined;
+}
+
+/**
+ * One prelude module's named export as this module reached it, or nothing when
+ * it never did.
+ *
+ * **The resolved binding, never the spelling.** A module may declare its own
+ * `ignore` or its own `from` (Modules §5.4), and calls to *those* must emit as
+ * ordinary calls — erasing them would drop a user's function body on the floor.
+ * The symbol is read off the synthesized prelude import, which is where the
+ * resolver records the identity a bare or qualified reference landed on: both
+ * spellings resolve to the one symbol (Modules §6.4), so one check covers both,
+ * and an occluding module's own binding has a different symbol and never
+ * matches.
+ *
+ * Absent inside the declaring module itself, which has no import of its own to
+ * read — the self-blindness `preludeIds` documents for `seq` and `bool`, here
+ * with no fallback because none is owed: neither `stdlib/Prelude.hex` nor
+ * `stdlib/JsValue.hex` calls the name it declares, and a missing entry costs an
+ * un-erased call rather than a wrong one.
+ */
+function preludeExportSymbol(
+  module: Core.Module,
+  basename: string,
+  exported: string,
+): Resolved.SymbolId | undefined {
+  for (const item of module.items) {
+    if (item.kind !== "Import" || !item.synthesized) continue;
+    if (item.form.kind !== "Named") continue;
+    if (item.specifier.slice(item.specifier.lastIndexOf("/") + 1) !== basename) continue;
+    for (const name of item.form.names) {
+      if (name.imported === exported && name.typeOnly !== true) return name.symbol;
+    }
+  }
+  return undefined;
 }
 
 /**
  * `stdlib/Prelude.hex`'s `ignore` as this module sees it, or nothing when the
- * module never reached the name (#313).
- *
- * **The resolved binding, never the spelling.** A module may declare its own
- * `ignore` (Modules §5.4), and calls to *that* one must emit as ordinary calls —
- * erasing them would drop a user's function body on the floor. The symbol is read
- * off the synthesized prelude import, which is where the resolver records the
- * identity a bare or `Prelude.`-qualified reference landed on: both spellings
- * resolve to this one symbol (Modules §6.4), so one check covers both, and an
- * occluding module's own binding has a different symbol and is never matched.
- *
- * Absent inside `stdlib/Prelude.hex` itself, which imports nothing and so has no
- * entry to read — the self-blindness `preludeIds` documents for `seq` and `bool`,
- * here with no fallback because none is owed: `Prelude.hex` is the first module
- * of the prelude that could call `ignore` and it does not, and a missing entry
- * costs an un-erased call rather than a wrong one.
+ * module never reached the name (#313) — `preludeExportSymbol` above states the
+ * properties, of which the load-bearing one is that this is the resolved
+ * binding and not the spelling.
  */
 function preludeIgnoreSymbol(module: Core.Module): Resolved.SymbolId | undefined {
-  for (const item of module.items) {
-    if (item.kind !== "Import" || !item.synthesized) continue;
-    if (item.form.kind !== "Named") continue;
-    const basename = item.specifier.slice(item.specifier.lastIndexOf("/") + 1);
-    if (basename !== "Prelude") continue;
-    for (const name of item.form.names) {
-      if (name.imported === "ignore" && name.typeOnly !== true) return name.symbol;
-    }
-  }
-  return undefined;
+  return preludeExportSymbol(module, "Prelude", "ignore");
 }
 
 function preludeIds(module: Core.Module): PreludeIds {
@@ -1319,6 +1334,14 @@ function preludeIds(module: Core.Module): PreludeIds {
     // is a claim better held by there being one reading than by two that match.
     bool: preludeBoolUnion(module),
     ignore: preludeIgnoreSymbol(module),
+    // The second term in this list, and the second erasure (FFI Part 11 §2).
+    // `JsValue.from` is the total identity injection, so a call to it has
+    // nothing to do: `JsValue.from(x)` emits as `x`, with no wrapper and no call
+    // in the output. Unlike `ignore` this one *does* have a door key — a Hexagon
+    // body for `a -> JsValue` typechecks through nothing — so the module-level
+    // binding exists for a foreign caller reaching the export, and this entry is
+    // what keeps a Hexagon call site from paying for it.
+    jsValueFrom: preludeExportSymbol(module, "JsValue", "from"),
   };
 }
 
@@ -4510,6 +4533,11 @@ class JavaScriptEmitter {
       case "Try":
         return this.#emitTry(expression, depth, evidenceNames);
       case "Call": {
+        // FFI Part 11 §2's erased injection, before anything else looks at the
+        // call: `JsValue.from(x)` *is* `x`, so there is no wrapper and no call
+        // in the output.
+        const injected = this.#jsValueFromOperand(expression);
+        if (injected !== undefined) return this.#emitExpr(injected, depth, evidenceNames);
         const constructed = expression.callee.kind === "Name" &&
           this.#recordConstructors.has(expression.callee.symbol) &&
           expression.arguments.length === 1
@@ -4596,14 +4624,9 @@ class JavaScriptEmitter {
     parenthesizeEqual = false,
   ): string {
     const emitted = this.#emitExpr(expression, depth, evidenceNames);
-    // An erased `ignore` call is a `void` expression, not a call (#313), so its
-    // precedence is the operator's and not `Precedence.Call`. `expressionPrecedence`
-    // reads the Core node alone and cannot know; asking here keeps the table
-    // honest instead of relying on "nothing binds tighter than a call around a
-    // `Unit`", which is true today and is not a rule anything states.
-    const precedence = this.#ignoreOperand(expression) === undefined
-      ? expressionPrecedence(expression)
-      : Precedence.Unary;
+    // What the expression *emits as*, which an erasure can move: see
+    // `#emittedPrecedence`.
+    const precedence = this.#emittedPrecedence(expression);
     return precedence < parentPrecedence ||
       (parenthesizeEqual && precedence === parentPrecedence)
       ? `(${emitted})`
@@ -4717,6 +4740,46 @@ class JavaScriptEmitter {
     if (expression.callee.symbol !== this.#prelude.ignore) return undefined;
     if (expression.arguments.length !== 1 || expression.evidence.length > 0) return undefined;
     return expression.arguments[0];
+  }
+
+  /**
+   * The argument of an applied call to `JsValue.from`, or nothing (FFI Part 11
+   * §2).
+   *
+   * The injection is the representation-honest identity — every Hexagon value
+   * already *is* a JavaScript value — and §2 makes it **erased in emission**, so
+   * a call to it has nothing left to do and emits as its argument alone. The
+   * gate is `#ignoreOperand`'s exactly, one symbol over: the callee resolves to
+   * the binding `preludeIds` pinned, so an occluding module's own `from`
+   * (Modules §5.4) fails here and emits as the ordinary call it is, and the
+   * arity and evidence guards are belt-and-braces against a shape `a ->
+   * JsValue` cannot take.
+   */
+  #jsValueFromOperand(expression: Core.Expr): Core.Expr | undefined {
+    if (this.#prelude.jsValueFrom === undefined || expression.kind !== "Call") return undefined;
+    if (expression.callee.kind !== "Name") return undefined;
+    if (expression.callee.symbol !== this.#prelude.jsValueFrom) return undefined;
+    if (expression.arguments.length !== 1 || expression.evidence.length > 0) return undefined;
+    return expression.arguments[0];
+  }
+
+  /**
+   * The precedence of what an expression actually *emits as* — which is not
+   * `expressionPrecedence` wherever a call is erased.
+   *
+   * `expressionPrecedence` reads the Core node alone and cannot know that an
+   * erased `ignore` lowers to a `void` expression (#313), or that an erased
+   * `JsValue.from` lowers to its argument and so inherits that argument's
+   * precedence, however deeply the two nest. Asking here keeps the table honest
+   * instead of resting on "nothing binds tighter than a call", which is true of
+   * a call and false of what replaces one.
+   */
+  #emittedPrecedence(expression: Core.Expr): Precedence {
+    const injected = this.#jsValueFromOperand(expression);
+    if (injected !== undefined) return this.#emittedPrecedence(injected);
+    return this.#ignoreOperand(expression) === undefined
+      ? expressionPrecedence(expression)
+      : Precedence.Unary;
   }
 
   /**
@@ -8707,6 +8770,27 @@ class JavaScriptEmitter {
       // the emitted code and of nothing else.
       case "debugLog":
         return this.#useHelper("debugLog");
+      // `stdlib/JsValue.hex`'s eight (FFI Part 11). `kind` is the only one with
+      // any JavaScript to it — a `typeof` ladder and one guarded probe, which is
+      // statements and therefore a helper. The other seven are one expression
+      // each, and six of those are the identity.
+      case "jsValueKind":
+        return this.#useHelper("jsValueKind");
+      // `Number.isSafeInteger` and nothing else: §4.1's `toInt` succeeds iff
+      // `kind` is `Number` **and** this holds, and the two halves are asked
+      // separately precisely so the failure can say which one failed.
+      case "jsValueIsSafeInteger":
+        return `__a => ${this.#spell("Number")}.isSafeInteger(__a)`;
+      // The representation-honest identities (§2, §4.1). `from` is here for
+      // completeness of the module's exported surface — a Hexagon call site
+      // never reaches it, because `#jsValueFromOperand` erases the call.
+      case "jsValueFrom":
+      case "jsValueAsIntUnchecked":
+      case "jsValueAsFloatUnchecked":
+      case "jsValueAsBigIntUnchecked":
+      case "jsValueAsBoolUnchecked":
+      case "jsValueAsStringUnchecked":
+        return "__a => __a";
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -10180,6 +10264,7 @@ type Helper =
   | "streamFromSeq"
   | "streamInbound"
   | "debugLog"
+  | "jsValueKind"
   | "nodeSet"
   | "vectorAt"
   | "vectorIndex"
@@ -10230,6 +10315,7 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   // no adapter, no memo, no driver — one foreign step per pull.
   streamInbound: [],
   debugLog: [],
+  jsValueKind: [],
   nodeSet: [],
   vectorAt: [],
   vectorIndex: [],
@@ -10470,6 +10556,45 @@ function renderHelper(
         `  const __sink = ${spell("console")}.log.bind(${spell("console")});`,
         "  return __message => { __sink(__message); };",
         "})();",
+      ];
+    // `JsValue.kind` (FFI Part 11 §3), and the whole of what the classification
+    // is: `undefined` and `null` by direct comparison, six kinds by `typeof`,
+    // `Array` by `Array.isArray`, everything else `Object`. `JsKind` is
+    // all-nullary, so a kind *is* its name-string (Unions §6.2) and the ladder
+    // answers the representation directly.
+    //
+    // Two properties are load-bearing and both are visible here. It is
+    // **property-free**: `typeof` and `Array.isArray` consult no user-observable
+    // trap, and nothing below reads a property, so a proxy with throwing `get`
+    // and `has` traps is classified without being touched. And it is **total**:
+    // `Array.isArray` on a *revoked* proxy throws a `TypeError`, which is the one
+    // probe that can fail, so it is guarded and a revoked proxy classifies as
+    // `Object`. `toArray` deliberately does not guard (§4.2) — `kind` promises a
+    // classification of any value and must absorb the probe to keep that
+    // promise. The `try` covers the probe alone; nothing else in the body can
+    // throw.
+    //
+    // Order matters at one place: a revoked proxy whose target was a function
+    // has `typeof` `"function"`, so it is answered by the ladder and never
+    // reaches the probe at all.
+    case "jsValueKind":
+      return [
+        `function ${name}(__value) {`,
+        '  if (__value === undefined) return "Undefined";',
+        '  if (__value === null) return "Null";',
+        "  const __type = typeof __value;",
+        '  if (__type === "boolean") return "Bool";',
+        '  if (__type === "number") return "Number";',
+        '  if (__type === "bigint") return "BigInt";',
+        '  if (__type === "string") return "String";',
+        '  if (__type === "symbol") return "Symbol";',
+        '  if (__type === "function") return "Function";',
+        "  try {",
+        `    return ${spell("Array")}.isArray(__value) ? "Array" : "Object";`,
+        "  } catch {",
+        '    return "Object";',
+        "  }",
+        "}",
       ];
     // Population count of a 32-bit word, the SWAR form: pairs, then nibbles,
     // then bytes, then one multiply that sums the four byte counts into the top
@@ -11437,6 +11562,7 @@ function isGroundType(type: Typed.Type): boolean {
       return false;
     case "Primitive":
     case "Range":
+    case "JsValue":
     case "ExternType":
       return true;
     case "Vector":
@@ -11469,6 +11595,8 @@ function serializeType(type: Typed.Type): string {
       return type.name;
     case "Range":
       return "Range";
+    case "JsValue":
+      return "JsValue";
     case "Vector":
     case "Set":
     case "Array":
@@ -11525,6 +11653,8 @@ function flattenTypeSpelling(type: Typed.Type): readonly string[] {
       return [type.name];
     case "Range":
       return ["Range"];
+    case "JsValue":
+      return ["JsValue"];
     case "Vector":
     case "Set":
     case "Array":
@@ -12287,6 +12417,13 @@ function renderType(
         : `${faces.vocabulary.spell("ReadonlyMap")}<${
           renderType(type.key, variables, faces, false)
         }, ${renderType(type.value, variables, faces, false)}>`;
+    case "JsValue":
+      // FFI Part 11 §2: `unknown`, and **never** `any` — TypeScript's own type
+      // for "some value, asserted about by nothing" forces the foreign consumer
+      // through the same narrowing discipline Hexagon imposes on itself, which
+      // `any` would silently discard. Nothing is imported and nothing is
+      // branded: the value crossing is the foreign value, unchanged.
+      return "unknown";
     case "Node":
       // The hidden trie node never appears in a public `.d.ts`; its honest JS
       // shape is a fixed-length mutable array of the slot type.

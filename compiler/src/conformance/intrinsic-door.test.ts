@@ -57,13 +57,16 @@ describe("the gate (§5)", () => {
    * — the loader already lets a project-supplied file win over the embedded copy,
    * and that is the stdlib-developing-itself path.
    *
-   * `Result.hex` is used because it is last in the prelude order, so `Seq(a)` is
-   * in scope in it (Modules §5.5).
+   * `Debug.hex` is used because it is **last** in the prelude order: `Seq(a)`
+   * is in scope in it (Modules §5.5), and replacing it with a door-only module
+   * takes nothing out from under a later member. `Result.hex` served until
+   * `JsValue.hex` seated after it and started answering with a `Result`
+   * (FFI Part 11 §4.1).
    */
   test("the same text at a prelude injection path is legal", () => {
     expect(diagnostics([
       ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Result.hex", DOOR],
+      ["/Debug.hex", DOOR],
     ])).toEqual([]);
   });
 
@@ -101,7 +104,7 @@ describe("the gate (§5)", () => {
   test("another `hex:` member is refused even in privileged source", () => {
     expect(diagnostics([
       ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Result.hex",
+      ["/Debug.hex",
         'extern from "hex:magic"\n' +
         "    export fun seqMemoize as memoized<a>(source: Seq(a)): Seq(a)\n"],
     ])).toEqual([
@@ -124,7 +127,7 @@ describe("the gate (§5)", () => {
     ]);
     expect(diagnostics([
       ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Result.hex", 'extern import "hex:intrinsic"\n'],
+      ["/Debug.hex", 'extern import "hex:intrinsic"\n'],
     ])).toEqual([
       "the intrinsic door has no foreign module to import; " +
       'declare the operations you need in an `extern from "hex:intrinsic"` block',
@@ -137,7 +140,7 @@ describe("verification replaces trust (§4.2)", () => {
   function privileged(block: string): readonly string[] {
     return diagnostics([
       ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Result.hex", block],
+      ["/Debug.hex", block],
     ]);
   }
 
@@ -181,7 +184,11 @@ describe("verification replaces trust (§4.2)", () => {
       "`hashTrieNodeInsertAt`, `hashTrieNodeRemoveAt`, `mapEmpty`, " +
       "`mapSingleton`, `mapSize`, `mapGet`, `mapSet`, `mapRemove`, " +
       "`mapEntries`, `setEmpty`, `setSingleton`, `setSize`, `setContains`, " +
-      "`setAdd`, `setRemove`, `setElements`, `setLookup`, `debugLog`",
+      "`setAdd`, `setRemove`, `setElements`, `setLookup`, `debugLog`, " +
+      "`jsValueKind`, `jsValueFrom`, `jsValueIsSafeInteger`, " +
+      "`jsValueAsIntUnchecked`, `jsValueAsFloatUnchecked`, " +
+      "`jsValueAsBigIntUnchecked`, `jsValueAsBoolUnchecked`, " +
+      "`jsValueAsStringUnchecked`",
     ]);
   });
 
@@ -215,7 +222,7 @@ describe("what the block admits (§3.3)", () => {
   function privileged(block: string): readonly string[] {
     return diagnostics([
       ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Result.hex", block],
+      ["/Debug.hex", block],
     ]);
   }
 
@@ -310,7 +317,7 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
   test("an intrinsic declaration may be generic", () => {
     expect(diagnostics([
       ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Result.hex", DOOR],
+      ["/Debug.hex", DOOR],
     ])).toEqual([]);
   });
 
@@ -353,9 +360,9 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
   test("a result-only type variable generalizes, so consumers instantiate it independently", () => {
     expect(diagnostics([
       ["/main.hex",
-        "export let asInt: Int = Result.produce(1)\n" +
-        "export let asText: String = Result.produce(2)\n"],
-      ["/Result.hex",
+        "export let asInt: Int = Debug.produce(1)\n" +
+        "export let asText: String = Debug.produce(2)\n"],
+      ["/Debug.hex",
         'extern from "hex:intrinsic"\n' +
         "    export fun seqMemoize as produce<a>(source: Int): a\n"],
     ])).toEqual([]);

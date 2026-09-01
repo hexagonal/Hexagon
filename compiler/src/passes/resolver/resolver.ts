@@ -1359,6 +1359,26 @@ class Resolver {
     // the same name is a module-level binding and wins, per §5.4.
     const moduleName = specifier.slice(specifier.lastIndexOf("/") + 1).replace(/\.js$/u, "");
     if (moduleName !== "") this.#preludeModuleAliases.set(moduleName, prelude);
+    // The **qualified-only unions** of the prelude inventory (`spec/ffi.md`
+    // §12). Their constructors reach a consumer through the companion module
+    // alone — `JsKind.Null`, never a bare `Null` — so they take no bare-scope
+    // binding and count for nothing in §5.5's collision arithmetic, exactly as a
+    // `widens` binding does one loop below.
+    //
+    // Every other registration in the terms loop they keep, and that is what
+    // makes the qualified spelling work: `#preludeTermsByName` is the dot-call
+    // channel, and `#preludeTerms`/`#importedSymbols` are what let
+    // `#qualifiedConstructor` — the same `Geo.Circle(r)` door a user union uses,
+    // in expressions and in patterns alike — resolve and synthesize its import.
+    // Runtime representations are untouched: a `JsKind` is still its
+    // name-string.
+    const qualifiedOnlyConstructors = new Set<string>();
+    for (const [name, union] of prelude.unions) {
+      if (!QUALIFIED_ONLY_PRELUDE_UNIONS.has(name)) continue;
+      for (const constructor of union.constructors) {
+        qualifiedOnlyConstructors.add(constructor.binding.name);
+      }
+    }
     for (const [name, symbol] of prelude.terms) {
       // A **`widens` binding** is qualifiable, not a bare export (Constraints
       // §4.7, Modules §5.3): it inherits the visibility rule of the member it widens,
@@ -1369,7 +1389,7 @@ class Resolver {
       // own: `#preludeTermsByName` is the *dot-call* channel and nothing else
       // (`#noteCompanionCandidate`), and the last three are what let the
       // qualified spelling resolve and its import be synthesized.
-      if (!prelude.widensBindings.has(name)) {
+      if (!prelude.widensBindings.has(name) && !qualifiedOnlyConstructors.has(name)) {
         this.#preludeScope.define(name, symbol.id);
         // The home a refused bare reference is rewritten to. `moduleName` is the
         // same string `#preludeModuleAliases` was keyed by just above, so the
@@ -4342,6 +4362,10 @@ class Resolver {
         const argument = annotation.arguments[0] === undefined
           ? { kind: "ErrorType" as const, span: annotation.span }
           : this.#resolveTypeAnnotation(annotation.arguments[0], typeParameters, impliedContext, substitutions);
+        // Written as spelled. The nullish-absorption collapse (FFI Part 11 §8;
+        // Part 2 §2.1) is the checker's one seat — `Checker#prune` — because
+        // the equation has to hold of a type however it arrives, and an
+        // annotation is only one of the ways.
         if (name === "Nullable") return { kind: "Nullable", value: argument, span: annotation.span };
         if (name === "Vector") return { kind: "Vector", element: argument, span: annotation.span };
         if (name === "Set") return { kind: "Set", element: argument, span: annotation.span };
@@ -4372,6 +4396,18 @@ class Resolver {
         name, annotation, typeParameters, impliedContext, substitutions,
       );
       if (companion !== undefined) return companion;
+      // `JsValue` takes no parameters (FFI Part 11 §2), so an applied spelling
+      // gets the boundary family's arity diagnostic rather than the
+      // unknown-generic-type refusal, and resolves to the type anyway — the
+      // author plainly meant it.
+      if (name === "JsValue") {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `type \`JsValue\` expects 0 arguments, but ${annotation.arguments.length} were provided`,
+          primary: annotation.span,
+        });
+        return { kind: "JsValue", span: annotation.span };
+      }
       this.#diagnostics.add({
         severity: "error",
         message: `unknown generic type \`${name}\``,
@@ -4413,6 +4449,12 @@ class Resolver {
       name, annotation, typeParameters, impliedContext, substitutions,
     );
     if (companion !== undefined) return companion;
+    // `JsValue` (FFI Part 11 §2) is a compiler-owned boundary type and the only
+    // nullary one, so it answers exactly where `Array` and `Nullable` do in the
+    // applied path: **last**, after every declaration and after rule 2's
+    // companion fallback (Modules §5.1 rule 2, §5.5). The compiler holds no
+    // resolution claim that outranks a user's own `JsValue`.
+    if (name === "JsValue") return { kind: "JsValue", span: annotation.span };
     // The fallback declined — the alias exports no type of its own spelling — so
     // the refusal stands, naming the repairs the exported inventory actually
     // offers (Modules §10's row).
@@ -6062,6 +6104,24 @@ export const PROVIDED_ROW_ALIASES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The prelude unions whose constructors are **qualified-only** (`spec/ffi.md`
+ * §12): reachable as `JsKind.Null` and never as a bare `Null`, in expressions
+ * and in patterns alike.
+ *
+ * The designation is the compiler's, because there is no source form for it and
+ * there is deliberately none: §12 is a finding about *this inventory* — two
+ * prelude unions sharing the constructor names `Undefined` and `Null`, which the
+ * prelude cannot auto-import unqualified (Modules §5.5) — and its resolution
+ * qualifies each whole union rather than the colliding pair, so that a union's
+ * constructor surface stays one rule. A user's own union spelled `JsKind` is
+ * untouched: this list is consulted only while seeding the prelude.
+ *
+ * `NullableCase` is §12's other member and is not here, because it does not
+ * exist yet (FFI Part 2 §3 is unimplemented). Its entry lands with it.
+ */
+const QUALIFIED_ONLY_PRELUDE_UNIONS: ReadonlySet<string> = new Set(["JsKind"]);
+
+/**
  * The operations a primitive companion is asked for and deliberately does not
  * have, with the sentence that says why (Integral §8's diagnostics row).
  *
@@ -6106,6 +6166,7 @@ function annotationHeadName(annotation: Resolved.TypeAnnotation): string {
     case "Array": return "Array";
     case "JsMap": return "JsMap";
     case "JsSet": return "JsSet";
+    case "JsValue": return "JsValue";
     case "Node": return "Node";
     case "Nullable": return "Nullable";
     case "Function": return "Function";
@@ -6149,6 +6210,7 @@ function annotationTypeVariables(annotation: Resolved.TypeAnnotation): readonly 
     case "ExternType":
     case "Primitive":
     case "Range":
+    case "JsValue":
     case "ImpliedType":
     // A hole names no variable: it claims no shape and links nothing (closure
     // doc §2.3), so it contributes no name to any declaration head's inventory.

@@ -32,9 +32,13 @@ describe("the inventory and its lowerings agree", () => {
       const diagnostics = compileProject([
         new Source.File(Source.fileId(0), "/main.hex", "export let ok: Int = 1\n"),
         // A prelude injection path, so the module is privileged (§5.2).
+        // `Debug.hex` and not another: it is **last** in the prelude order, so
+        // replacing it with a door-only module takes nothing out from under a
+        // later member. `Result.hex` served until `JsValue.hex` seated after
+        // it and started answering with a `Result` (FFI Part 11 §4.1).
         new Source.File(
           Source.fileId(1),
-          "/Result.hex",
+          "/Debug.hex",
           'extern from "hex:intrinsic"\n' +
           `    export fun ${key} as declared(${parameters}): Int\n`,
         ),

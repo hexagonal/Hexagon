@@ -47,6 +47,8 @@ const EMBEDDINGS = [
       "Map.hex",
       "Set.hex",
       "Stream.hex",
+      "JsKind.hex",
+      "JsValue.hex",
       "Debug.hex",
     ],
   },

@@ -200,6 +200,31 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * dereferenced per call is a global a program could replace and then read the
  * probe back through. `trace` takes no key: it is ordinary Hexagon over this
  * row, interpolating its label and value and answering the value.
+ *
+ * The `jsValue*` family is `stdlib/JsValue.hex`'s (FFI Part 11), in the same
+ * primop shape the primitive companions took: the door carries what the
+ * language cannot say, and every guard above it is ordinary Hexagon in that
+ * file. Three things about the cut are worth stating where the keys are.
+ *
+ * - **Five of the eight are the identity, and all five are unexported.**
+ *   `jsValueAsIntUnchecked` and its four siblings each cross one shared
+ *   representation — a JavaScript `number` *is* an `Int` and a `Float`, a
+ *   `bigint` *is* a `BigInt`, a `boolean` *is* a `Bool`, a `string` *is* a
+ *   `String` — and each sits beneath the exported decoder whose `kind` test
+ *   earns it, exactly as `bigIntToIntUnchecked` sits beneath `BigInt.toInt`'s
+ *   range check. `jsValueIsSafeInteger` is the one predicate, and it is what
+ *   splits `Shape` from `Range` at `toInt` (§4.1).
+ * - **`jsValueKind` is the only row with any JavaScript to it**, and it is a
+ *   helper rather than a bare arrow because the classification is statements: a
+ *   `typeof` ladder, and then one `Array.isArray` probe that must be **guarded**
+ *   so a revoked proxy classifies as `Object` rather than throwing (§3's
+ *   totality clause). No row in the family reads a property.
+ * - **`jsValueFrom` is keyed for what Hexagon cannot write.** The injection is
+ *   the representation-honest identity (§2), and `value` at `a -> JsValue`
+ *   typechecks through nothing, so the strictly-simpler law cannot send it to
+ *   source. It is *erased at its call sites*, so the module-level binding this
+ *   key lowers is what a foreign caller reaching the export finds, and nothing
+ *   a Hexagon call site pays for.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -291,6 +316,14 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["setElements", 1],
   ["setLookup", 2],
   ["debugLog", 1],
+  ["jsValueKind", 1],
+  ["jsValueFrom", 1],
+  ["jsValueIsSafeInteger", 1],
+  ["jsValueAsIntUnchecked", 1],
+  ["jsValueAsFloatUnchecked", 1],
+  ["jsValueAsBigIntUnchecked", 1],
+  ["jsValueAsBoolUnchecked", 1],
+  ["jsValueAsStringUnchecked", 1],
 ]);
 
 /**

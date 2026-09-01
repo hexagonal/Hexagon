@@ -312,6 +312,7 @@ function variablesOf(
       return variablesOf(type.result, found);
     case "Primitive":
     case "Range":
+    case "JsValue":
     case "ExternType":
     case "Error":
       return found;

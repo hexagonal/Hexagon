@@ -10,7 +10,7 @@ import { resolveSpecifier, specifierFor } from "../project.js";
  *
  * One shape, three refusals. An author reaches for a name through a route the
  * language spells with an import line, the name resolves nowhere, and before
- * this the three seats said only that: `` unknown name `Shape` ``,
+ * this the three seats said only that: `` unknown name `Figure` ``,
  * `` unknown module `Scale` ``, `` unknown constraint `Scale` ``. Each is true
  * about the namespace it consulted and silent about the one line that would
  * have made the program work — and rule 1's sentence, promised verbatim in
@@ -18,7 +18,7 @@ import { resolveSpecifier, specifierFor } from "../project.js";
  *
  * **v1 is the failed-resolution shape and no more** (the #577 ruling). Where the
  * spelling resolves as a *term* — a record import binds its constructor, so
- * `Shape.make` is a field access on a constructor-typed head — nothing here
+ * `Figure.make` is a field access on a constructor-typed head — nothing here
  * fires, and the inverted mismatch that writer meets is #642's. The suite below
  * pins both halves of that line: the messages at the seats that owe them, and
  * the untouched behaviour just past the boundary.
@@ -35,15 +35,15 @@ function messages(files: readonly (readonly [string, string])[]): readonly strin
 }
 
 /** Rule 1's sentence, as §5.1 and §10 both write it. */
-const TYPE_NOT_A_MODULE = "`Shape` is a type, not a module; import its home " +
+const TYPE_NOT_A_MODULE = "`Figure` is a type, not a module; import its home " +
   "module with `import module` for qualified access, or import the " +
   "constructor/function you need";
 
 /** A union and an ordinary function over it: the type-only import's fixture. */
-const SHAPE = [
-  "/shape.hex",
-  "export union Shape = Circle(Float) | Square(Float)\n" +
-    "export fun area(s: Shape): Float = 1.0\n",
+const FIGURE = [
+  "/figure.hex",
+  "export union Figure = Circle(Float) | Square(Float)\n" +
+    "export fun area(s: Figure): Float = 1.0\n",
 ] as const;
 
 /** A user constraint, unimported: the arrival state both constraint seats own. */
@@ -54,22 +54,22 @@ const SCALE = [
 
 describe("the type seat (Modules §5.1 rule 1)", () => {
   test("a type-only import qualified as a module is told which namespace it is in", () => {
-    // The filing's own probe. `import { Shape }` of a *union* binds the type and
-    // no term, so `Shape.` finds no module alias, no term, and a type — which is
+    // The filing's own probe. `import { Figure }` of a *union* binds the type and
+    // no term, so `Figure.` finds no module alias, no term, and a type — which is
     // exactly the state rule 1's sentence is written about.
     expect(messages([
-      SHAPE,
+      FIGURE,
       ["/main.hex",
-        'import { Shape } from "./shape"\n' +
-        "export fun go(s: Shape): Float = Shape.area(s)\n"],
+        'import { Figure } from "./figure"\n' +
+        "export fun go(s: Figure): Float = Figure.area(s)\n"],
     ])).toEqual([TYPE_NOT_A_MODULE]);
   });
 
   test("the module's own type reads the same — the seat is the namespace, not the import", () => {
     expect(messages([
       ["/main.hex",
-        "union Shape = Circle(Float)\n" +
-        "export let n: Float = Shape.area(1.0)\n"],
+        "union Figure = Circle(Float)\n" +
+        "export let n: Float = Figure.area(1.0)\n"],
     ])).toEqual([TYPE_NOT_A_MODULE]);
   });
 
@@ -90,10 +90,10 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // name does, so the checker sees a poisoned callee rather than a second
     // fault to describe.
     expect(messages([
-      SHAPE,
+      FIGURE,
       ["/main.hex",
-        'import { Shape } from "./shape"\n' +
-        "export fun go(s: Shape): Float = Shape.area(s) + Shape.area(s)\n"],
+        'import { Figure } from "./figure"\n' +
+        "export fun go(s: Figure): Float = Figure.area(s) + Figure.area(s)\n"],
     ])).toEqual([TYPE_NOT_A_MODULE, TYPE_NOT_A_MODULE]);
   });
 
@@ -102,8 +102,8 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // one exists". With no type there is nothing to mention, and claiming one
     // would be false.
     expect(messages([
-      ["/main.hex", "export let n: Float = Shape.area(1.0)\n"],
-    ])).toEqual(["unknown name `Shape`"]);
+      ["/main.hex", "export let n: Float = Figure.area(1.0)\n"],
+    ])).toEqual(["unknown name `Figure`"]);
   });
 
   test("a non-uppercase receiver is not rule 1's at all", () => {
@@ -111,7 +111,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // an ordinary value, and its miss is an ordinary unknown name.
     expect(messages([
       ["/main.hex",
-        "export union Shape = Circle(Float)\n" +
+        "export union Figure = Circle(Float)\n" +
         "export let n: Float = shape.area(1.0)\n"],
     ])).toEqual(["unknown name `shape`"]);
   });
@@ -141,39 +141,39 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
   });
 
   test("a declaration below the use keeps the truer sentence", () => {
-    // A record binds its constructor, so `Shape` *is* a term — one declared
+    // A record binds its constructor, so `Figure` *is* a term — one declared
     // below this line. "Declared later" names the fix; "is a type, not a module"
     // would be a false classification of a name that resolves fine one line down.
     expect(messages([
       ["/main.hex",
-        "export let n: Int = Shape.make(3)\n" +
-        "export record Shape = {n: Int}\n"],
+        "export let n: Int = Figure.make(3)\n" +
+        "export record Figure = {n: Int}\n"],
     ])).toEqual([
-      "`Shape` is declared later in this block; declarations are read top-down " +
+      "`Figure` is declared later in this block; declarations are read top-down " +
         "— move its declaration above this use",
     ]);
   });
 
   test("the constructor-bound shape is untouched — v1 is failed resolution only", () => {
     // The #577 ruling's carve-out, pinned so the boundary is visible rather than
-    // implied: a record import binds the constructor, `Shape` resolves as a
+    // implied: a record import binds the constructor, `Figure` resolves as a
     // term, and `.make` is a field access against it. The inverted mismatch that
     // results is #642's, not this one's — what this test asserts is that nothing
     // here reclassified it.
     const reported = messages([
-      ["/shape.hex",
-        "export record Shape = {n: Int}\n" +
-        "export fun make(n: Int): Shape = Shape({n = n})\n"],
+      ["/figure.hex",
+        "export record Figure = {n: Int}\n" +
+        "export fun make(n: Int): Figure = Figure({n = n})\n"],
       ["/main.hex",
-        'import { Shape } from "./shape"\n' +
-        "export let s: Shape = Shape.make(3)\n"],
+        'import { Figure } from "./figure"\n' +
+        "export let s: Figure = Figure.make(3)\n"],
     ]);
     // The claim is that the writer is shown a *mismatch*, with the constructor
     // on the expected side. The field's type is an unsolved variable, which
     // #649 spells `a` rather than the allocation counter this pin used to have
     // to match.
     expect(reported).toEqual([
-      "type mismatch: expected ({n: Int}) -> Shape, found {make: a, ...}",
+      "type mismatch: expected ({n: Int}) -> Figure, found {make: a, ...}",
     ]);
   });
 });
