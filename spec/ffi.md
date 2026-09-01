@@ -1,6 +1,6 @@
 # Hexagon FFI: Consolidation and Conformance (Part 12)
 
-**Status:** Decided and promoted after Sol review (July 2026). Drafted per `spec/notes/ffi-roadmap.md` Part 12; the draft's two bounded open questions and the naming-audit finding were resolved at promotion review and are recorded closed in §§11–12: the generated `Hex` alias uses **first-free numeric suffix probing** against every top-level identifier a module's items can put in its `.d.ts` (§11.1); Foreign Enums' `fromJsT` **keeps `Option`**, with the precise `Option`-versus-`Result` boundary stated (§11.2); and the `NullableCase`/`JsKind` constructor collision is resolved by **qualified-only prelude exposure of both unions' constructors** (§12). Reconciliation corrections applied in place: the ESM invariant admits inbound `default fun`/`default let` bindings (§5.8); the checked-failure invariant permits explicitly owned `Option` projections (§5.10); Part 6's deferral is callback-*visible* `this` (§2, §9.2); stdlib obligations are split from ship-versus-defer candidates (§9.1); the `.d.ts` conformance row scopes the `Hex` import to need (§8). This document remains an **index, reconciliation layer, and conformance matrix — not a redesign and not a concatenation**.
+**Status:** Decided and promoted after Sol review (July 2026). Drafted per `spec/notes/ffi-roadmap.md` Part 12; the draft's two bounded open questions and the naming-audit finding were resolved at promotion review and are recorded closed in §§11–12: the generated `Hex` alias uses **first-free numeric suffix probing** against every top-level identifier a module's items can put in its `.d.ts` (§11.1); Foreign Enums' `fromJsT` **keeps `Option`**, with the precise `Option`-versus-`Result` boundary stated (§11.2); and the `NullableCase`/`JsKind` constructor collision is resolved by **qualified-only prelude exposure of both unions' constructors** (§12; extended for #511 to Part 11's other two utility unions). Reconciliation corrections applied in place: the ESM invariant admits inbound `default fun`/`default let` bindings (§5.8); the checked-failure invariant permits explicitly owned `Option` projections (§5.10); Part 6's deferral is callback-*visible* `this` (§2, §9.2); stdlib obligations are split from ship-versus-defer candidates (§9.1); the `.d.ts` conformance row scopes the `Hex` import to need (§8). This document remains an **index, reconciliation layer, and conformance matrix — not a redesign and not a concatenation**.
 **Scope:** Authority and reading model; component index; consolidated terminology; surface ownership router; cross-part invariants; master representation/face summary; the assembled diagnostic and acceptance matrices; consolidated deferrals; companion discharges; the closed review resolutions; the global naming audit.
 **Not in scope:** any new FFI semantics (Parts 1–11 and Foreign Enums own everything); corpus-wide archival/removal of drafting history (`spec/notes/v1-spec-consolidation-plan.md`'s later consolidation, not this closeout); the stdlib listing (debts routed there are enumerated in §9.1, not designed here).
 
@@ -144,7 +144,7 @@ Each row: the observable claim an implementation must satisfy, and the owner who
 **Obligations — the stdlib listing must deliver these:**
 
 1. **The composable `JsValue` decoder family** — field/record traversal, element-wise decoders, `nullable`/`oneOf`/defaults, and map/set decoders, built over Part 11's primitives, error structure, and path vocabulary. A real v1 stdlib debt; ledger entry issued by Part 11 §10.
-2. **Qualified companion homes for `NullableCase.*` and `JsKind.*` constructors** (§12's resolution) — the prelude inventory must provide both.
+2. **Qualified companion homes for `NullableCase.*`, `JsKind.*`, `JsConversionReason.*`, and `JsPathSegment.*` constructors** (§12's resolution, extended for #511) — the prelude inventory must provide all four.
 
 **Candidates — ship-versus-defer decisions the listing owns, each with its recorded revisit bar; none is a mandatory v1 surface:**
 
@@ -175,8 +175,8 @@ Each row: the observable claim an implementation must satisfy, and the owner who
 5. **Verify applied** (issued earlier, listed for closure): Part 11 §10's four notes (Part 1 row; Exceptions §6.1; Part 2 nullability propagation; stdlib ledger entry); Part 7 §10's three (Modules §11.4; Unions §6.5; Exceptions §7.5); Part 5 §9's Method Syntax coverage extension; Part 10 §10's three (Part 1 row; Collections Part 4 §10.4; Collections Part 5 §4 rows).
 6. **`spec-roadmap.md`** — the FFI milestone is complete; the planned v1 corpus consolidation precedes the stdlib listing.
 7. **`ffi-foreign-enums.md` §5.2 and `ffi-part11-js-value-errors.md` §4** — record §11.2's resolved boundary, one sentence each: generated closed-set membership projections (`fromJsT`) return `Option`; the composable decoder family uses `Result(_, JsConversionError)`; other explicitly owned partial projections may use `Option` where their specification says so.
-8. **`ffi-part2-nullable-array.md` §3 and `ffi-part11-js-value-errors.md` §3** — one line each recording §12's resolution: `NullableCase` and `JsKind` constructors are qualified-only in the prelude inventory (no bare auto-import); representations unchanged.
-9. **Stdlib-listing ledger** — add §9.1's obligation 2 (qualified companion homes for both unions' constructors) alongside the decoder-family entry Part 11 already issued; §9.1's candidates 3–5 enter as ship-versus-defer rows with their revisit bars, not obligations.
+8. **`ffi-part2-nullable-array.md` §3 and `ffi-part11-js-value-errors.md` §3/§5.1** — one line each recording §12's resolution (as extended for #511): `NullableCase`, `JsKind`, `JsConversionReason`, and `JsPathSegment` constructors are qualified-only in the prelude inventory (no bare auto-import); representations unchanged.
+9. **Stdlib-listing ledger** — add §9.1's obligation 2 (qualified companion homes for all four unions' constructors) alongside the decoder-family entry Part 11 already issued; §9.1's candidates 3–5 enter as ship-versus-defer rows with their revisit bars, not obligations.
 
 ## 11. Review resolutions (closed at promotion)
 
@@ -202,9 +202,9 @@ Deliberately **not** claimed: that every single-reason check uses `Option`, or t
 
 ## 12. Global naming audit (finding resolved at promotion)
 
-Method: all public FFI-introduced names (types, constructors, exceptions, constraints, functions, companion modules, generated exports) checked across parts, per-namespace, accounting for Hexagon's separate term/type/constructor namespaces (Modules §5) and prelude occlusion (Modules §6).
+Method: all public FFI-introduced names (types, constructors, exceptions, constraints, functions, companion modules, generated exports) checked across parts, per-namespace, accounting for Hexagon's separate term/type/constructor namespaces (Modules §5) and prelude occlusion (Modules §5.4).
 
-**Clean (cross-namespace coexistence, correct by rule):** `Array` type vs. `JsKind`'s `Array` constructor; `Range` type vs. `JsConversionReason`'s `Range` constructor; `String`/`Bool`/`BigInt` types vs. `JsKind` constructors; `Value` (`NullableCase`) unique among constructors; `KeyError`/`IndexError`/`SliceError`/`JsError`/`JsConversionError` distinct; generated specialization names collision-checked by Part 8 §6.2 at compile time by construction; companion-module names (`Nullable`, `JsValue`, `JsMap`, `JsSet`, `JsError`) unique in the module-alias namespace.
+**Clean (cross-namespace coexistence, correct by rule):** `Array` type vs. `JsKind`'s `Array` constructor; `Range` type vs. `JsConversionReason`'s `Range` constructor (the constructor is now qualified-only, on the extension's separate ground below); `String`/`Bool`/`BigInt` types vs. `JsKind` constructors (all `JsKind` constructors are qualified-only per the resolution below); `Value` (`NullableCase`) unique among constructors; `KeyError`/`IndexError`/`SliceError`/`JsError`/`JsConversionError` distinct; generated specialization names collision-checked by Part 8 §6.2 at compile time by construction; companion-module names (`Nullable`, `JsValue`, `JsMap`, `JsSet`, `JsError`) unique in the module-alias namespace.
 
 **One genuine same-namespace collision, found and resolved:**
 
@@ -219,7 +219,18 @@ Method: all public FFI-introduced names (types, constructors, exceptions, constr
 > JsKind.String      JsKind.Symbol JsKind.Function JsKind.Array    JsKind.Object
 > ```
 >
-> This is ordinary companion-module qualification (Modules §5.3) — the constructors are simply **not auto-imported as bare prelude terms**; qualified constructor use in expressions and patterns is the existing `Geo.Circle(r)` mechanism, nothing new. Runtime representations are unchanged. Uniform qualification for both whole unions (rather than the colliding pair alone) keeps each union's constructor surface one-rule. **The stdlib inventory must provide both qualified homes** (§9.1's obligation 2).
+> This is ordinary companion-module qualification (Modules §5.3) — the constructors are simply **not auto-imported as bare prelude terms**; qualified constructor use in expressions and patterns is the existing `Geo.Circle(r)` mechanism, nothing new. Runtime representations are unchanged. Uniform qualification for both whole unions (rather than the colliding pair alone) keeps each union's constructor surface one-rule.
+
+**Extension *(#511)*: the same rule covers Part 11's other two utility unions, on user-vocabulary grounds rather than collision grounds.** `JsConversionReason`'s and `JsPathSegment`'s constructors are qualified-only in the prelude inventory:
+
+```text
+JsConversionReason.Shape   JsConversionReason.Range   JsConversionReason.Cycle(firstSeen)
+
+JsPathSegment.Field(name)     JsPathSegment.Index(index)      JsPathSegment.MapKey(position)
+JsPathSegment.MapValue(position)   JsPathSegment.SetElement(position)
+```
+
+The audit above checked FFI-introduced names against each other; what it did not price is the prelude spending common user words. `Shape`, `Range`, `Field`, and `Index` are ordinary names for user declarations, and a bare prelude constructor under such a spelling is occluded only by a user declaration in the *constructor* namespace; a same-spelled user declaration that introduces no such constructor — `union Shape = Circle | Square`, or a type alias — leaves it standing (Modules §5.4's occlusion list, read per namespace; §5.1 rule 3), so a bare term-position `Shape` in that user's own module still means the prelude's constructor, and the resulting message names a union that appears nowhere in the program. Boundary-error vocabulary is overwhelmingly *matched*, rarely constructed, so the qualified spelling costs little exactly where these names are used. The rule that results is uniform: **every constructor of the four boundary utility unions (`NullableCase`, `JsKind`, `JsConversionReason`, `JsPathSegment`) is qualified-only; no boundary utility union spends bare prelude terms. The stdlib inventory must provide all four qualified homes** (§9.1's obligation 2).
 
 No other same-namespace collision was found.
 
