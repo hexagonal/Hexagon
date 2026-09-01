@@ -81,10 +81,10 @@ Constraint members are module-scope term names (like constructors, Unions §2). 
 
 **Call style (doctrine, absorbed from the July 2026 review closures §A):**
 
-- **Bare constraint-member calls are the idiom when unambiguous**: `show(x)`, `compare(a, b)`, `x |> show`. Members are ordinary module-scope terms; nothing about being a constraint member demands ceremony.
+- **A prelude member is reached by the dot and by qualification; bare, only `show`** *(#742 — Modules §5.5's bare set; this bullet previously read "bare member calls are the idiom when unambiguous")*. Members are ordinary module-scope terms, and a prelude module's exports are not seeded bare: the everyday spelling of a subject-first member is the dot (`x.show()`, `a.compare(b)`, `n.mod(2)` — Method Syntax §7), and every member is reachable qualified — through an honoring companion (`Int.compare(a, b)`, `Rat.fromInt(n)`) or through the declaring constraint's module (`Ord.compare(a, b)`; `Num.fromNat(1)`, the polymorphic spelling of a member with no receiver, which Numeric Literals §5.1 makes rare by elaborating literals through it). `show(x)` alone keeps its bare spelling, seeded for teachability and on no other ground; `"${x}"` and `x.show()` mean the same call. A bare reference to any other prelude member is refused naming both routes (Modules §10). **A user's own constraint is untouched**: its members are ordinary bindings, bare in the declaring module and carried by a named import (Modules §3.1).
 - **Qualification is the ordinary collision resolution, not an apology.** When two in-scope constraints share a member name, the qualified spelling (`Ord.compare(a, b)`) resolves it through **normal module aliases** (Modules §5) — the same machinery as any other name collision. **There is no constraint-specific member namespace** and no special qualification syntax.
 - **Constraint members are reachable through dot-call syntax on known types and bounded variables** *(reversed for #304/#335 — Method Syntax §7/§16.2 own the mechanism, its limits, and the reversal record)*: `r1.add(r2)` is `Num`'s member at `Rat`; `x.compare(y)` under `a: Ord` dispatches through the binder's evidence. The dot never *discovers* a member — flexible receivers take Method Syntax §3.5's defaulting step and fallback, and no member name ever nominates a type. Inside a member's own body the dot spelling is the sanctioned recursion form (§4.6).
-- The revisit bar for qualified-as-default — the **hostile-specimen exercise** (ten unrelated user constraints; collision-pressure measurement) — is a stdlib-listing obligation, routed through `stdlib-roadmap.md` §2, not restated here. If collisions prove constant in practice, the qualified-as-default position returns there.
+- The **hostile-specimen exercise** that once gated qualified-as-default for prelude members is retired: the position was adopted on vocabulary grounds (Modules §5.5's selection test), not on measured collision pressure, and no measurement reopens it.
 
 ---
 
@@ -399,6 +399,7 @@ Numbers are kept because companion specs cite them; §§9.1–9.5 and 9.7 are **
 | Decision | Where |
 |---|---|
 | One binder grammar everywhere: `<a: C>` / `<a: (C1, C2)>` / bare `<a>`; Rust-reading (dictionaries never user-visible) | §1 |
+| Prelude members reached by the dot and by qualification; bare `show` alone (teachability, not precedent); the hostile-specimen revisit bar retired; user constraints untouched (#742) | §2.2; Modules §5.5 |
 | Parameterized `honor` heads introduce their own binders; the `<...>` prefix attaches constraints only; partial prefixes legal; declared binders must appear in the head; bare binders legal, never canonical; refusing bare binders rejected (redundancy is canonicalization's concern, not legality's) | §5.4 |
 | `constraint Name<a>` head; subject binder mandatory; bare `<a>` load-bearing here | §2 |
 | Base constraints as subject obligations: `Ord<a: Eq>`; left-to-right extension; no `=>` spelling | §1, §2 |

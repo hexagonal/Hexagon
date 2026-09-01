@@ -237,9 +237,9 @@ family, and the bound checks. Representation-sensitive length and end updates,
 signed indexed access, persistent indexed update, and the eager/lazy bridge used
 by `toSeq` and `fromSeq` cross the narrow boundary as intrinsic-door declarations
 (`spec/intrinsics.md` §3.2). Dot calls on `Vector`-typed receivers dispatch to
-this module (Method Syntax §4.2). The bare names it shares with `Seq.hex` —
-`empty`, `singleton`, `prepend`, `length` — are qualified-only under Modules
-§5.5's collided-name rule; the dot call needs no qualifier.
+this module (Method Syntax §4.2). Every function it exports is qualified-only
+(Modules §5.5's bare set) — `Vector.empty`, `Vector.length(values)` — and the
+dot call needs no qualifier.
 
 ### 7.1 `dropFirst`/`dropLast` on empty: total
 
