@@ -755,25 +755,62 @@ const UNIT: TupleMono = { kind: "Tuple", elements: [] };
 
 /**
  * The constraints every structural product satisfies componentwise (Constraints
- * §4.5). Held in `constraints.ts` since the specialization planner reads the
- * same inventory as `Unit`'s candidate rows (#679); see `STRUCTURAL_CONSTRAINTS`.
+ * §4.5), **as identities**. Held in `constraints.ts` since the specialization
+ * planner reads the same inventory as `Unit`'s candidate rows (#679); see
+ * `STRUCTURAL_CONSTRAINTS`.
+ *
+ * The planner asks in names because it works from a fixed table of prelude rows
+ * and never sees a written spelling. `#validate` does see one, so it asks here
+ * — a requirement raised under `import { Show as S }` carries the name `S` and
+ * the identity `hex:Show`, and a name-keyed membership test answered "not
+ * structural" and refused `show((1, 2))` (#727).
  */
-const structuralConstraints = STRUCTURAL_CONSTRAINTS;
+const STRUCTURAL_IDENTITIES: ReadonlySet<string> = new Set(
+  STRUCTURAL_CONSTRAINTS.map(preRegisteredConstraintIdentity),
+);
 
 /**
  * The four constraints a `derives` clause may name (Constraints §4.5), **as
  * identities** — the channel Modules §7.6's derivation-fixit bullet pins in so
  * many words (#644): "read by identity, never spelling".
  *
- * Spelling would be answerable by shadowing, which is the failure mode §5.1.1's
- * identity rule exists to close; all four are pre-registered and non-redeclarable,
- * so no rival declaration can occupy the name and the set is exactly these four
- * `hex:` rows forever. The name-keyed test at the `derives` seat itself is a
- * different question — there the constraint has just been *written*, and §5.1.1's
- * ban makes the spelling decisive — and it is deliberately left where it is.
+ * Spelling would be answerable by an importer's alias, which is the failure mode
+ * §5.1.1's identity rule exists to close; all four are pre-registered and
+ * non-redeclarable, so no rival declaration can occupy the name and the set is
+ * exactly these four `hex:` rows forever.
+ *
+ * This set is the key at the `derives` seat **as well** (#727). The comment here
+ * used to reserve that seat for a name-keyed test, on the premise that "the
+ * constraint was just written, and §5.1.1's ban makes the spelling decisive".
+ * The premise is measured false: §5.1.1's ban bars a rival *declaration*, not a
+ * second *spelling*, and the prelude's modules are ordinary modules at the source
+ * common root — `import { Hash as H } from "./Hash.hex"` binds a second working
+ * spelling of `hex:Hash` with no redeclaration anywhere, and `derives (Eq, H)`
+ * was refused as underivable while the identical program spelled `Hash`
+ * compiled. One declaration, one answer: every gate over this inventory reads
+ * the identity, and only the *report* reads the word the source wrote.
  */
 const DERIVABLE_IDENTITIES: ReadonlySet<string> = new Set(
   ["Eq", "Ord", "Show", "Hash"].map(preRegisteredConstraintIdentity),
+);
+
+/**
+ * The four pre-registered identities the gates below name **one at a time**,
+ * rather than as a membership test. Bound once here so no seat re-mints one from
+ * a word it happens to be holding, which is the shape the whole of #727 was.
+ */
+const HASH_IDENTITY: string = preRegisteredConstraintIdentity("Hash");
+const EQ_IDENTITY: string = preRegisteredConstraintIdentity("Eq");
+const SHOW_IDENTITY: string = preRegisteredConstraintIdentity("Show");
+const CONCAT_IDENTITY: string = preRegisteredConstraintIdentity("Concat");
+
+/**
+ * The three constraints a hashed container answers from its contents
+ * (Collections Part 2 §2.5), as identities. `Ord` is absent because a `Set` and
+ * a `Map` are unordered, so there is no componentwise comparison to walk.
+ */
+const HASHED_CONTAINER_IDENTITIES: ReadonlySet<string> = new Set(
+  ["Eq", "Show", "Hash"].map(preRegisteredConstraintIdentity),
 );
 
 /**
@@ -2107,7 +2144,7 @@ class Checker {
             if (this.#bearsProjection(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                message: impliedTypeBinderMessage(constraint),
+                message: impliedTypeBinderMessage(constraint, this.#constraintIdentity(constraint)),
                 primary: parameter.span,
               });
               continue;
@@ -2373,7 +2410,7 @@ class Checker {
               if (this.#bearsProjection(constraint)) {
                 this.#diagnostics.add({
                   severity: "error",
-                  message: impliedTypeBinderMessage(constraint),
+                  message: impliedTypeBinderMessage(constraint, this.#constraintIdentity(constraint)),
                   primary: parameter.span,
                 });
                 continue;
@@ -3751,7 +3788,11 @@ class Checker {
         // imported one this module reaches under an alias or through a module
         // namespace (§6.5's "a reference to its declaration").
         const declaration = this.#constraintsByIdentity.get(item.constraintIdentity);
-        if (item.derived && !["Eq", "Ord", "Show", "Hash"].includes(item.constraint)) {
+        // By identity, like the seat above it (#727): a `derives` entry is a
+        // reference to a declaration, and an importer's alias for one of the
+        // four is one of the four. The *report* still names the word the source
+        // wrote, which is the one the reader can see.
+        if (item.derived && !DERIVABLE_IDENTITIES.has(item.constraintIdentity)) {
           this.#diagnostics.add({
             severity: "error",
             message: `\`${item.constraint}\` cannot be derived; only \`Eq\`, \`Ord\`, \`Show\`, and \`Hash\` have derivable forms`,
@@ -3772,11 +3813,17 @@ class Checker {
         // §9's five-row law (#647), rendered by `#handWrittenHashRefusal` — the
         // seat joins #644's advice family, so the advice offered is the advice
         // the subject can actually take, and one of the five rows is silence.
-        // The gate stays name-keyed on purpose (§5.1.1: the constraint was just
-        // written here, so there is nothing to occlude it), while everything the
-        // renderer asks of the *subject* is asked by identity.
+        //
+        // The gate reads the **identity** (#727). It used to read the name, on
+        // the premise that a constraint written here has nothing to occlude it —
+        // and that premise was not what the gate needed. Nothing occludes `Hash`;
+        // an alias *adds* a spelling rather than taking one, and `import { Hash
+        // as H }` plus `honor H<P>` walked straight past the refusal and compiled
+        // a hand-written `Hash` with no diagnostic at all, while the same program
+        // spelled `Hash` was refused. Everything the renderer asks of the
+        // *subject* was already asked by identity; now the constraint is too.
         if (
-          !item.derived && item.constraint === "Hash" &&
+          !item.derived && item.constraintIdentity === HASH_IDENTITY &&
           !this.#companionsPrimitive(item.subject)
         ) {
           const message = this.#handWrittenHashRefusal(item);
@@ -3832,8 +3879,14 @@ class Checker {
             item,
             this.#instanceBaseRequirements(item, instanceSubject),
           );
-          if (item.constraint === "Hash") {
-            const equality = this.#instances.get(this.#instanceKeyFor("Eq", instanceSubject));
+          // Collections Part 2 §4.3, by identity at both ends (#727): the pair
+          // is `hex:Hash` and `hex:Eq` whatever this module spells them, and
+          // this arm went live the moment the derivability gate above stopped
+          // refusing `derives (H)` first.
+          if (item.constraintIdentity === HASH_IDENTITY) {
+            const equality = this.#instances.get(
+              this.#instanceKey(EQ_IDENTITY, instanceSubject),
+            );
             if (equality !== undefined && !equality.derived) {
               this.#diagnostics.add({
                 severity: "error",
@@ -4238,7 +4291,7 @@ class Checker {
         if (this.#bearsProjection(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            message: impliedTypeBinderMessage(constraint),
+            message: impliedTypeBinderMessage(constraint, this.#constraintIdentity(constraint)),
             primary: parameter.span,
           });
           continue;
@@ -4602,6 +4655,22 @@ class Checker {
     return { kind: "Union", union: this.#boolUnion, name: "Bool", arguments: [] };
   }
 
+  /**
+   * The wired-in signatures of the pre-registered constraints, for a compile
+   * with **no prelude at all** — the pass-level unit harnesses, which assemble a
+   * module by calling the passes directly. It is reached only where the honored
+   * constraint has no declaration in view, which in a real compile means the
+   * program named nothing (`#unknownConstraint` follows).
+   *
+   * Name-keyed on purpose, and #727 does not touch it: a second spelling of a
+   * pre-registered constraint arrives by importing the prelude module that
+   * declares it, and in a compile that reaches this arm there is no such module
+   * to import — the alias route and this fallback are mutually exclusive by
+   * construction. The identity would be the right key in any compile where one
+   * could exist, and in none of those does this run. `constraints.ts`'s
+   * `PRE_REGISTERED_CONSTRAINT_MEMBERS` is the resolver's half of the same
+   * fallback, and it stays name-keyed for the same reason.
+   */
   #checkPreludeHonor(item: Resolved.HonorItem, level: number): boolean {
     const subject = this.#instanceSubjects.get(item) ?? ERROR;
     const members = new Map<string, { parameters: readonly Mono[]; result: Mono; optional?: boolean }>();
@@ -4711,7 +4780,7 @@ class Checker {
         if (this.#bearsProjection(baseConstraint)) {
           this.#diagnostics.add({
             severity: "error",
-            message: impliedTypeBinderMessage(baseConstraint),
+            message: impliedTypeBinderMessage(baseConstraint, this.#constraintIdentity(baseConstraint)),
             primary: declaration.span,
           });
         }
@@ -9690,8 +9759,23 @@ class Checker {
     // a nominal type does — this line used to answer first, from the wired
     // table, and answering was what left the requirement without the
     // dictionary emission needs.
+    //
+    // Every arm below asks which pre-registered constraint this requirement
+    // demands, and every one of them asks by **identity** (#727). A requirement
+    // carries the spelling its demand site wrote, and `import { Show as S }`
+    // makes that `S` — a name-keyed arm declined, the requirement fell through
+    // to the instance table, and `show((1, 2))` was refused for want of an
+    // `S` instance no module can write.
+    //
+    // The component demands the arms raise are a different question and stay in
+    // names. A container's are the *compiler's* choice of what to ask of the
+    // contents — always the canonical word, which `#constraintIdentities` seeds
+    // with the pre-registered eleven and which no import may rebind — while the
+    // structural walk asks the *same* constraint of each component and so
+    // forwards the identity it was given, the one currency an imported scheme's
+    // unspellable requirement can be re-raised in.
     if (
-      structuralConstraints.includes(requirement.name) &&
+      STRUCTURAL_IDENTITIES.has(requirement.identity) &&
       (type.kind === "Tuple" || type.kind === "Record" || type.kind === "Vector")
     ) {
       // The component requirements are *kept* (#278). Each one names the
@@ -9705,22 +9789,29 @@ class Checker {
         : [["element", type.element] as const];
       requirement.components = components.map(([key, component]) => ({
         key,
-        requirement: this.#require(requirement.name, component, requirement.span),
+        requirement: this.#require(
+          requirement.name,
+          component,
+          requirement.span,
+          "operation",
+          undefined,
+          requirement.identity,
+        ),
       }));
       requirement.structural = true;
       return;
     }
-    if (requirement.name === "Concat" && type.kind === "Vector") {
+    if (requirement.identity === CONCAT_IDENTITY && type.kind === "Vector") {
       // No component demand: concatenation is on the spine alone.
       requirement.components = [];
       requirement.structural = true;
       return;
     }
-    if (["Eq", "Show", "Hash"].includes(requirement.name) && type.kind === "Set") {
+    if (HASHED_CONTAINER_IDENTITIES.has(requirement.identity) && type.kind === "Set") {
       requirement.components = [{
         key: "element",
         requirement: this.#require(
-          requirement.name === "Show" ? "Show" : "Hash",
+          requirement.identity === SHOW_IDENTITY ? "Show" : "Hash",
           type.element,
           requirement.span,
         ),
@@ -9728,8 +9819,8 @@ class Checker {
       requirement.structural = true;
       return;
     }
-    if (["Eq", "Show", "Hash"].includes(requirement.name) && type.kind === "Map") {
-      requirement.components = requirement.name === "Show"
+    if (HASHED_CONTAINER_IDENTITIES.has(requirement.identity) && type.kind === "Map") {
+      requirement.components = requirement.identity === SHOW_IDENTITY
         ? [
             { key: "key", requirement: this.#require("Show", type.key, requirement.span) },
             { key: "value", requirement: this.#require("Show", type.value, requirement.span) },
@@ -9739,7 +9830,7 @@ class Checker {
             {
               key: "value",
               requirement: this.#require(
-                requirement.name === "Hash" ? "Hash" : "Eq",
+                requirement.identity === HASH_IDENTITY ? "Hash" : "Eq",
                 type.value,
                 requirement.span,
               ),
@@ -9770,7 +9861,7 @@ class Checker {
       this.#boolUnion !== undefined &&
       type.kind === "Union" &&
       type.union === this.#boolUnion &&
-      ["Eq", "Ord", "Show", "Hash"].includes(requirement.name)
+      DERIVABLE_IDENTITIES.has(requirement.identity)
     ) {
       // No component demand: the pin satisfies the constraint outright, and
       // emission's `Bool` arms are the licensed inline shortcut (#278).
@@ -11057,13 +11148,22 @@ class Checker {
     // just invented, naming a rewrite that repairs nothing.
     return variable.rigidName === undefined &&
       variable.requirements.length > 0 &&
-      variable.requirements.every(({ name }) => this.#satisfiedAt(name, "Int")) &&
-      variable.requirements.some(({ name }) => !this.#satisfiedAt(name, "Unit"));
+      variable.requirements.every((requirement) => this.#satisfiedAt(requirement, "Int")) &&
+      variable.requirements.some((requirement) => !this.#satisfiedAt(requirement, "Unit"));
   }
 
-  #satisfiedAt(name: Typed.ConstraintName, subject: "Int" | "Unit"): boolean {
-    if (subject === "Unit") return structuralConstraints.includes(name);
-    return this.#instances.has(this.#instanceKeyFor(name, primitive(subject)));
+  /**
+   * By identity in both halves (#727). The `Unit` half asked whether the
+   * requirement's *name* was one of the four structural constraints and the
+   * `Int` half re-derived an identity from the name, so a requirement written
+   * `S` under `import { Show as S }` answered "not satisfied at `Unit`" — the
+   * opposite of what `Show` answers — and settled a demanded `Unit` to `Int`.
+   */
+  #satisfiedAt(requirement: Requirement, subject: "Int" | "Unit"): boolean {
+    if (subject === "Unit") return STRUCTURAL_IDENTITIES.has(requirement.identity);
+    return this.#instances.has(
+      this.#instanceKey(requirement.identity, primitive(subject)),
+    );
   }
 
   /**
@@ -11101,9 +11201,18 @@ class Checker {
    * Whether this requirement's constraint is one the prelude honors at `Int`,
    * read from the one channel a primitive instance now takes (#344) and gated
    * on the constraint being pre-registered.
+   *
+   * The gate asks that of the **identity** and of nothing else (#727). It used
+   * to mint `hex:<the written name>` and compare, which is the same question
+   * only while every spelling of a pre-registered constraint is its own: a
+   * requirement written `S` under `import { Show as S }` carries `hex:Show`,
+   * failed a comparison against `hex:S`, and reported ``\`S\` is not a
+   * defaultable constraint`` at a literal the `Show` spelling defaults happily.
+   * The identity is already in hand and answers the real question — is this
+   * declaration the compiler's? — which is exactly `isPreRegisteredIdentity`.
    */
   #defaultableAtInt(requirement: Requirement): boolean {
-    if (requirement.identity !== preRegisteredConstraintIdentity(requirement.name)) return false;
+    if (!isPreRegisteredIdentity(requirement.identity)) return false;
     return this.#instances.has(this.#instanceKey(requirement.identity, primitive("Int")));
   }
 
@@ -11501,7 +11610,7 @@ class Checker {
         if (this.#bearsProjection(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            message: impliedTypeBinderMessage(constraint),
+            message: impliedTypeBinderMessage(constraint, this.#constraintIdentity(constraint)),
             primary: annotation.span,
           });
           continue;
@@ -15600,10 +15709,21 @@ function knotHeadCollisionMessage(
     `it reach \`${exporting.name}\` generically, or ${wrapper}`;
 }
 
-/** Keeps the technical projection vocabulary out of source-facing diagnostics. */
-function impliedTypeBinderMessage(constraint: string): string {
+/**
+ * Keeps the technical projection vocabulary out of source-facing diagnostics.
+ *
+ * The **name** states the refusal, because that is the word the reader wrote;
+ * the **identity** chooses the repair, because `Seq` is the way around one
+ * particular declaration and not around a word (#727). The pair used to be one
+ * argument, so `import { Iterable as I }` plus `<c: I>` lost the repair clause
+ * from the message that carried it while the very next diagnostic — raised from
+ * the loop head, where the compiler spells the constraint itself — still
+ * printed it. The gate beside every call site (`#bearsProjection`) already asks
+ * by identity, and this now asks the same question the same way.
+ */
+function impliedTypeBinderMessage(constraint: string, identity: string): string {
   const reason = `\`${constraint}\` declares an implied type and cannot constrain a type variable in v1`;
-  return constraint === "Iterable"
+  return identity === preRegisteredConstraintIdentity("Iterable")
     ? `${reason}; take a \`Seq(a)\` parameter instead`
     : reason;
 }

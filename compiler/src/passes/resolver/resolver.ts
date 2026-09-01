@@ -2164,7 +2164,15 @@ class Resolver {
       })),
       subject,
       derived: true,
-      dictionary: dictionaryName(constraint, item.name),
+      // The constraint's *declared* name, exactly as the `honor` arm spells it
+      // (#727): `derives (H)` under `import { Hash as H }` is the pre-registered
+      // `Hash` reached by an importer's word, and the dictionary it emits is
+      // `__Hash_P` — the same binding the canonical spelling of the same program
+      // emits, since a spelling is not a property of a constraint at a border.
+      dictionary: dictionaryName(
+        this.#namedConstraint(constraint)?.name ?? constraint,
+        item.name,
+      ),
       memberSeats: [],
       impliedTypes: [],
       members: [],
@@ -5120,6 +5128,13 @@ class Resolver {
    * table for a pre-registered name. A defaulted member of an *imported* user
    * constraint is the residue, and it can only under-report — never refuse a
    * program §4.6 permits.
+   *
+   * A pre-registered constraint reached under an importer's alias joins that
+   * same residue (#727): the index is built from *parsed* items, before any
+   * import is resolved, so `derives (H)` has no identity to look the member
+   * table up by and contributes nothing. Under-reporting again, and for the
+   * structural reason rather than by choice — there is no identity in existence
+   * at this point in the pass to key on.
    */
   #indexHonoredMemberLines(items: readonly Parsed.Item[]): void {
     const declared = new Map<string, readonly string[]>();
