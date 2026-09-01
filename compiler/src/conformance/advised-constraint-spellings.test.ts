@@ -433,6 +433,37 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     ])).toEqual([]);
   });
 
+  test("the subject arm's collision form carries the qualification into `add`", () => {
+    // The declaration being written is itself a `Heft`, so a bare "add `Heft`"
+    // reads as the one thing this row exists to forbid — a constraint listing
+    // itself as a base. The clause takes the qualification the sentence has
+    // just minted, and the reader can tell the two `Heft`s apart in both halves.
+    expect(graphDiagnostics([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
+        "constraint Heft<a: Ord> =\n" +
+        "    other(value: a): a\n" +
+        "    shown(value: a): a = useHeft(value)\n" + KEEP],
+    ])).toEqual([
+      "`a` is `Heft`'s subject, so the body reaches only `Heft` and its base " +
+      "constraints, but it requires the `Heft` declared in `./lib.hex`; add the " +
+      "`Heft` declared in `./lib.hex` as a base constraint — write " +
+      "`constraint Heft<a: (Ord, Lib.Heft)>` — `import module Lib from \"./lib\"` " +
+      "and spell it `Lib.Heft`",
+    ]);
+  });
+
+  test("and that self-named base list compiles verbatim too", () => {
+    expect(graphDiagnostics([
+      ["/lib.hex", HEFT_LIB],
+      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
+        'import module Lib from "./lib"\n' +
+        "constraint Heft<a: (Ord, Lib.Heft)> =\n" +
+        "    other(value: a): a\n" +
+        "    shown(value: a): a = useHeft(value)\n" + KEEP],
+    ])).toEqual([]);
+  });
+
   test("a third same-spelled demand is a third refusal, not a swallowed one", () => {
     // The suppression that keeps one variable from reporting the same demand
     // twice is keyed on the **declaration** (#716). Keyed on the word, the

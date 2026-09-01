@@ -9784,7 +9784,15 @@ class Checker {
           severity: "error",
           message: sealed !== undefined
             ? `${head}${sealedDemand}`
-            : `${head}${requiredMention}; add \`${requiredName}\` as a base constraint — ` +
+            // The "add" clause carries the qualification the sentence has just
+            // minted, wherever there is one. Bare, it names the word this very
+            // declaration is written under — and the row's own rationale is
+            // that a constraint cannot list itself as a base, so the reader is
+            // handed a sentence that reads as self-reference. Non-collision
+            // messages keep the bare name they always printed.
+            : `${head}${requiredMention}; add ${
+              collision ? requiredMention : `\`${requiredName}\``
+            } as a base constraint — ` +
               `write \`constraint ${constraint}<${variable.rigidName}: ${baseList}>\`` +
               this.#constraintRouteClauses(bases, !collision),
           primary: requirement.span,
