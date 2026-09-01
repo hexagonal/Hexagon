@@ -228,6 +228,8 @@ export declare function inspect<a, b>(
 
 Suffix **positions** are the ABI; the `.d.ts` parameter names (`eqA`, `showA`, …) are representative documentation, generated as lowercase-constraint + variable for readability, and carry no contract.
 
+Within one variable the second key can tie: two **distinct declarations sharing a spelling** (Constraints §5.1.1). No module can declare such a pair, but an exported head can meet one through two imported schemes and spell it only through an alias (Modules §3.2) — `<u: (Fancy, Fancy2)>` over two imported `Fancy`s. Same-named entries order **positionally, by the written order of the declared conjunction** — the resolution the base-slot contest already takes (Constraints §6.2), and one every exported function can supply, Modules §4.1.1 refusing to export a function that leaves a constraint undeclared. An *inferred* same-named pair — possible only on a function no export accepts — takes no specified order, on §6.2.1's terms exactly *(#286)*.
+
 #### 6.2.1 The ordinal's extent
 
 The ordinal is a position in the **declared** type-parameter list, so it is defined exactly where such a list exists. Functions §4.2.1 makes a second introduction form canonical — a type variable is introduced by its first appearance in a parameter or return annotation — and a private function may mix the two:
@@ -361,7 +363,7 @@ Public dictionaries from separately compiled Hexagon packages interoperate **onl
 | Public handles force dictionary materialization: module-level constants, stable ESM identity, frozen where practical | §3.4 |
 | Parameterized evidence is a real companion factory (`Vector.show(Show.string)`); argument order = instance-head parameter order (ABI); memoization licensed by coherence, identity of results unpromised | §4 |
 | Public-evidence closure: nameability (4 conditions), never consumption; generated, never written (`export honor` stays illegal); feeds Part 8 §4.1's "publicly obtainable" | §5 |
-| Two-ended elaboration doctrine; suffix ordered by (type-variable ordinal, constraint name); positions are ABI, parameter names representative; the ordinal reaches exactly the declared variables, and a first-use constrained variable — never exportable — takes no public position | §6, §6.2.1 |
+| Two-ended elaboration doctrine; suffix ordered by (type-variable ordinal, constraint name), a same-named tie — two declarations, one spelling — by the declared conjunction's written order; positions are ABI, parameter names representative; the ordinal reaches exactly the declared variables, and a first-use constrained variable — never exportable — takes no public position | §6, §6.2.1 |
 | Base constraint evidence nested (Constraints §6.2); callers pass the most specific dictionary; **suffix contains maximal constraints only**, eliminated before ordering, same rule internally and publicly (confirmed at review) | §7, §13.2 |
 | Part 8 relationship by reference: Algorithm G trigger, base-name reservation, additive/breaking ABI events; specializations are not wrappers; handles independent of specializations | §8 |
 | **Direct export of the internal trailing-evidence function when conventions match; stable wrapper only for ABI plumbing** (Part 7 correction preserved); wrapper discipline unchanged where one exists | §9 |
