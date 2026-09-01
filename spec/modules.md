@@ -142,9 +142,11 @@ or, where the module has no spelling for it, the module-route repair with the
 route clause appended (the law's tiers, Constraints §5.1.1). A local
 declaration shadowing an imported scheme's same-spelled constraint therefore
 routes the import rather than dropping a binder or advising the shadow —
-"write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib.hex`, and this
-module binds another `Heft`; `import module Lib from "./lib.hex"` and spell it
-`Lib.Heft`" — and of two distinct imported constraints sharing a spelling,
+"write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`, and this
+module binds another `Heft`; `import module Lib from "./lib"` and spell it
+`Lib.Heft`" — the clause rendering the pastable specifier, Pattern Matching
+§7.3's own convention, where a file mention keeps `.hex` — and of two
+distinct imported constraints sharing a spelling,
 each without a resolving spelling here takes the module route, one clause per
 declaring module, never the singular word that can declare at most one of
 them; one the module can already spell keeps its word (the contested-group
@@ -158,9 +160,9 @@ required constraint that is **not exported** — the §4.3 sealing gate — has 
 spelling and no route, and the advice offers no binder at all; the report
 names the gate and the real exits — "exported function `g` requires the
 constraint `Gate`, declared in `./lib.hex` and not exported; a complete
-signature cannot be written here — call `use` at a concrete type, keep `g`
-private, or export `Gate` from `./lib.hex`" — §7.6's unnameable branch, the
-demanding call named where the requirement carries one. A generic export over
+signature cannot be written here — use the constrained operation at a
+concrete type, keep `g` private, or export `Gate` from `./lib.hex`" — §7.6's
+unnameable branch. A generic export over
 a gate is refused by the seal's design: that unreachability is what sealing
 means. Where the advice names an `import module` repair, it
 joins §10's applied-edit repair family *(#577)* with the gate pre-satisfied:
@@ -433,8 +435,8 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | `export default` | "Hexagon has named exports only" |
 | Exported value without an annotation | "exported value `answer` requires a type annotation" |
 | Exported function with missing parameter/result annotations | "exported function `f` requires a complete signature; add …" |
-| Exported function with inferred but unwritten constraints | "exported function `f` must declare every constraint in its signature; write `<a: C>`" — each constraint spelled per §4.1.1's advised-spelling paragraph (#715, #716): one the module cannot spell takes the derived-alias qualified form with the route clause appended — "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib.hex`, and this module binds another `Heft`; `import module Lib from "./lib.hex"` and spell it `Lib.Heft`" — and a same-spelled pair routes each member the module cannot already spell, one clause per declaring module |
-| Exported function requiring a constraint with no spelling and no route (the §4.3 gate; §6.5's private base) | no rewrite advised — Constraints §5.1.1's fourth tier (#715, #716): "exported function `g` requires the constraint `Gate`, declared in `./lib.hex` and not exported; a complete signature cannot be written here — call `use` at a concrete type, keep `g` private, or export `Gate` from `./lib.hex`" — the demanding call named where the requirement carries one; where it carries none, the first exit reads "use the constrained operation at a concrete type" |
+| Exported function with inferred but unwritten constraints | "exported function `f` must declare every constraint in its signature; write `<a: C>`" — each constraint spelled per §4.1.1's advised-spelling paragraph (#715, #716): one the module cannot spell takes the derived-alias qualified form with the route clause appended — "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`, and this module binds another `Heft`; `import module Lib from "./lib"` and spell it `Lib.Heft`" — the route clause rendering the pastable specifier (Pattern Matching §7.3), a file mention keeping `.hex` — and a same-spelled pair routes each member the module cannot already spell, one clause per declaring module |
+| Exported function requiring a constraint with no spelling and no route (the §4.3 gate; §6.5's private base) | no rewrite advised — Constraints §5.1.1's fourth tier (#715, #716): "exported function `g` requires the constraint `Gate`, declared in `./lib.hex` and not exported; a complete signature cannot be written here — use the constrained operation at a concrete type, keep `g` private, or export `Gate` from `./lib.hex`" — the first exit names no call: no fact the checker holds attributes the demand to one, and a worked attribution that can name the wrong call is the Rewrite Rule's own failure |
 | Exported function restating an entailed base constraint | "exported function `f` must omit base constraint `Base` from `a`; `C` already provides it" |
 | `export opaque` | parse error, Rewrite Rule: "`opaque` already exports the type name; write `opaque record Point = …`" — the rewrite is required, not advisory, and echoes the user's own declaration (`opaque union Handle = …` at a union head). This row presupposes a lawful subject: a crossed head whose subject is unlawful (`export opaque let x = 1`) draws the subject's own redirect below instead — the pair's rewrite would still be ill-formed, and the subject is the fault (ruled on #590) (§4.2) |
 | `opaque` on `type` | "aliases are transparent; make it a `record` or single-constructor `union`" |
