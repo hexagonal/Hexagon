@@ -11186,9 +11186,9 @@ class Checker {
    *
    * A name-keyed `Unit` half does answer differently for a second spelling, but
    * no program was found that reaches the difference, and neither keying kills a
-   * test: every route to this predicate carries a numeric literal, whose `Num`
-   * requirement is not satisfied at `Unit` under any spelling and so decides the
-   * `some(…)` on its own. The flip is here because the pair either side of it
+   * test: every route found carries a numeric literal, whose `Num` requirement
+   * is not satisfied at `Unit` under any spelling and so decides the `some(…)`
+   * on its own — an observation about the routes tried, not a proved bound. The flip is here because the pair either side of it
    * reads identities and a lone name-keyed neighbour is what the arc was about —
    * not because a specimen was measured. If one is ever found, it belongs beside
    * the container-pick specimens, which are the shape of a discriminating one.
