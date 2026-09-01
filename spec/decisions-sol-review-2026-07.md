@@ -11,6 +11,8 @@ Written against the existing `hexc` architecture: Algorithm J, union-find tyvars
 
 ## A. Qualified member access is ordinary, not apologetic
 
+*(Reversal record, #742 — Modules §5.5, Constraints §2.2: the prelude seeds no constraint member bare but `show`, so the dot and the qualified spelling are the prelude's ordinary member spellings. §A.1's stance sentence, §A.3's "forever, without caveat", and §A.4's rejection of qualified-as-default are superseded for prelude members; §A.2's mechanism claim stands unchanged; §A.5's exercise is retired. User-declared constraints are untouched — their members are ordinary bindings, bare in the declaring module.)*
+
 *Amends Constraints §1 (doctrine) and §2.2; sets the guide's presentation stance.*
 
 ### A.1 The decision
@@ -173,6 +175,6 @@ No semantic change; the sentence as previously written implied a feature the lan
 
 ## Hanging questions (recorded, not decided)
 
-1. **Hostile-specimen outcome** (§A.5) — if collisions prove constant, the qualified-as-default position returns, at the stdlib-listing session, with evidence.
+1. **Hostile-specimen outcome** (§A.5) — closed: qualified-as-default was adopted for prelude members on other grounds (#742; the reversal record under §A); the exercise is retired.
 2. **LSP workspace-scan scope** (§B.2) — whole workspace vs. configured roots; performance story; owed to the tooling design, pre-1.0.
 3. **Starter-subset preface** for the TS-coders guide — a writing task, not a spec question; queued with the guide's next revision.

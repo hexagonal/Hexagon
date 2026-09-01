@@ -239,7 +239,8 @@ by `toSeq` and `fromSeq` cross the narrow boundary as intrinsic-door declaration
 (`spec/intrinsics.md` §3.2). Dot calls on `Vector`-typed receivers dispatch to
 this module (Method Syntax §4.2). Every function it exports is qualified-only
 (Modules §5.5's bare set) — `Vector.empty`, `Vector.length(values)` — and the
-dot call needs no qualifier.
+dot call needs no qualifier; its two exceptions, `IndexError` and `SliceError`,
+are the bare names the module spends, as every prelude exception is.
 
 ### 7.1 `dropFirst`/`dropLast` on empty: total
 

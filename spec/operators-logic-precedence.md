@@ -159,10 +159,10 @@ Consequently `Bool` is the **sole exception** to Unions §1's "`match` is the on
 
 | Source | Elaboration |
 |---|---|
-| `a < b` | `compare(a, b) == Less` |
-| `a > b` | `compare(a, b) == Greater` |
-| `a <= b` | `compare(a, b) != Greater` |
-| `a >= b` | `compare(a, b) != Less` |
+| `a < b` | `compare(a, b) == Ordering.Less` |
+| `a > b` | `compare(a, b) == Ordering.Greater` |
+| `a <= b` | `compare(a, b) != Ordering.Greater` |
+| `a >= b` | `compare(a, b) != Ordering.Less` |
 
 *(Correction: the table's constructor names originally read `LT`/`GT` — the Haskell spelling Decisions Batch §3 rejected; corrected to the pinned `Less`/`Equal`/`Greater`. See #275.)*
 

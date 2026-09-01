@@ -289,11 +289,11 @@ record Handler = {f: Int -> Int} derives Eq
    --        which has no `Eq` instance
 
 -- (f) Ordering spelling and emission
-compare(1, 2)                  -- Less;  runtime value the string "Less"
-match compare(a, b)
-    Less => ...
-    Equal => ...
-    Greater => ...               -- exhaustive, no wildcard needed
+Int.compare(1, 2)              -- Ordering.Less;  runtime value the string "Less"
+match a.compare(b)
+    Ordering.Less => ...
+    Ordering.Equal => ...
+    Ordering.Greater => ...      -- exhaustive, no wildcard needed
 
 -- (g) Tabs
 <TAB>print("hi")               -- LEX ERROR: tab character in indentation;

@@ -234,7 +234,7 @@ The audit above checked FFI-introduced names against each other; what it did not
 
 No other same-namespace collision was found.
 
-**Subsumed by the prelude's default** *(#742)*. Modules §5.5 now seeds no union constructor bare unless the union is one of the three open unions (`Bool`, `Option`, `Result`), so the four boundary utility unions are qualified-only by the default rather than by this section's list, which the inventory no longer carries. The resolution above stands as the record of the first case and of the user-vocabulary ground that Modules §5.5 generalised into its selection test; nothing here is weakened, and the qualified homes remain §9.1's obligation.
+**Subsumed by the prelude's default** *(#742)*. Modules §5.5 now seeds no union constructor bare unless the union is one of the three open unions (`Bool`, `Option`, `Result`), so the four boundary utility unions are qualified-only by the default rather than by a list of their own — the inventory records them as such (`stdlib-roadmap.md` §1), and the compiler carries no manifest for them. The resolution above stands as the record of the first case and of the user-vocabulary ground that Modules §5.5 generalised into its selection test; nothing here is weakened, and the qualified homes remain §9.1's obligation.
 
 ---
 

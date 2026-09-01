@@ -71,7 +71,7 @@ Non-final expression items unify with `Unit`. Consequences:
 ignore : a -> Unit
 ```
 
-A **prelude function**, not a keyword: it takes anything, returns `()`. It is first-class like any function (`map(xs, ignore)` is legal, if useless). Idiomatic uses:
+A **prelude function**, not a keyword: it takes anything, returns `()`. It is first-class like any function (`Seq.map(xs, ignore)` is legal, if useless). Idiomatic uses:
 
 ```
 ignore(validateAll(items))
@@ -92,7 +92,7 @@ The call's **position** is defined on source, inductively: a **non-final block i
 
 - **Discarding position**: `ignore(e)` erases — emission is `e` as its own statement, serialized grammatically (the operand inherits the position whole: an operand with a statement form of its own, an `if` or an assignment, takes that form; a brace-initial operand is parenthesized, since bare `{` opens a JavaScript block). The erasure is mandatory, for the reason Operators §5.1's fast paths are: the language's one sanctioned discard idiom must cost nothing.
 - **Value position**: the erasure may not leak the operand — emission must evaluate `e` exactly once and yield `Unit`'s representation (`undefined`, Primitive Types §9), never `e`'s value. `void e` is the inline spelling; a call to the prelude binding is equally valid where it reads better (Operators §5.1's helper latitude).
-- **Referenced as a value** (`map(xs, ignore)`): the ordinary ESM export of `Prelude.hex`, imported like any other prelude function. A bare pipe stage is *not* this case — it desugars to the applied call above and leaves no reference behind. This retires the on-demand materialisation this section previously specified, which dated from before `Prelude.hex` had source to import.
+- **Referenced as a value** (`Seq.map(xs, ignore)`): the ordinary ESM export of `Prelude.hex`, imported like any other prelude function. A bare pipe stage is *not* this case — it desugars to the applied call above and leaves no reference behind. This retires the on-demand materialisation this section previously specified, which dated from before `Prelude.hex` had source to import.
 
 `let _ = e` is **not** a discard idiom in Hexagon — `_` is a pattern wildcard (Products §2.4), not a bindable name in `let name = ...` position, and blessing it would create a second discard spelling. One idiom: `ignore`.
 

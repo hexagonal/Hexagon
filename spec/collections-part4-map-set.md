@@ -462,7 +462,7 @@ for [k, v] in m
     ...                                      -- ERROR: this pattern can fail; use match
 
 -- (h) Order contract (property-shaped, not golden-output)
--- toSeq(m) traversed twice in one run: identical order.
+-- m.toSeq() traversed twice in one run: identical order.
 -- entries(m) pairs keys(m) with values(m) positionally.
 -- No test may assert a concrete order across runs.
 
@@ -473,7 +473,7 @@ Set.fromVector([1, 2]) < Set.fromVector([1, 2, 3])
                                            -- ERROR: no Ord instance for Set(Int)
 show(Set.fromVector([1, 2]))               -- "Set.fromVector([1, 2])"  (some order)
 show(Map.empty)                            -- "Map.empty"
-hash(Set.fromVector([1, 2])) == hash(Set.fromVector([2, 1]))
+Set.fromVector([1, 2]).hash() == Set.fromVector([2, 1]).hash()
                                            -- True   (permutation-invariant)
 let nested = Set.fromVector([Set.fromVector([1]), Set.fromVector([2])])
                                            -- OK: Set(Set(Int)) — Hash<Set> provided

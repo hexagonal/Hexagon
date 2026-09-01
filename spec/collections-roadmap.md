@@ -99,4 +99,4 @@ The full type spec for the workhorse sequence.
 - Decisions Batch §5 partiality restatement → Part 3.
 - Loops §3.6 `Range` `Eq`/`Show` → **not** collections; stays with the Stdlib listing.
 - Decisions Batch §1.4 `Hash<Float>` → Part 2 (activated).
-- Modules §5.1 prelude qualified-home invariant → binds the Stdlib listing; Parts 3–4 must give every bare prelude collection name (if any) a companion-module home.
+- Modules §5.1 prelude qualified-home invariant → binds the Stdlib listing; Parts 3–4 must give every prelude collection name a companion-module home (the qualified spelling being its ordinary one — Modules §5.5).

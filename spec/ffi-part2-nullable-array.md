@@ -93,7 +93,7 @@ Nullable.toCase : Nullable(a) -> NullableCase(a)
 
 `toCase` preserves the `null`/`undefined` distinction and supports exhaustive ordinary `match`; the `Value(value)` arm extracts an `a`. `NullableCase` is a plain prelude union with no special typing — it follows Unions §6 for representation (mixed union: tagged POJOs, shared nullary constants) and Unions §4 for matching. Nothing about it is boundary magic; only `toCase` itself touches the foreign representation.
 
-All three constructors are qualified-only in the prelude inventory: `NullableCase.Undefined`, `NullableCase.Null`, and `NullableCase.Value(value)` in expressions and patterns. They are not auto-imported as bare prelude terms. This is ordinary companion qualification and does not change their runtime representations (Part 12 §12).
+All three constructors are qualified-only in the prelude inventory: `NullableCase.Undefined`, `NullableCase.Null`, and `NullableCase.Value(value)` in expressions and patterns. They are not auto-imported as bare prelude terms — the prelude's default for every union but the three open ones (Modules §5.5); `ffi.md` §12 records the first case. This is ordinary companion qualification and does not change their runtime representations (Part 12 §12).
 
 ---
 
@@ -323,7 +323,7 @@ None. The three blockers this draft originally recorded were resolved by James a
 | `Nullable.null` / `Nullable.undefined` — qualified, typed, `Nullable(a)`-only | §2.2 |
 | `isNullish`/`isNull`/`isUndefined` return `Bool`; no flow narrowing; narrowing reserved for a type-system deep dive with `toCase` as the comparison datum | §2.3, §2.5 |
 | `NullableCase(a) = Undefined \| Null \| Value(value: a)`; `toCase` is the exact exhaustive reading | §3 |
-| All `NullableCase` constructors are qualified-only through the companion; no bare prelude auto-import; representations unchanged | §3; FFI Part 12 §12 |
+| All `NullableCase` constructors are qualified-only through the companion (the prelude's default — Modules §5.5); no bare prelude auto-import; representations unchanged | §3; FFI Part 12 §12 |
 | `toOption` collapses both absences to `None`; `fromOption` → `undefined`; `fromOptionOrNull` → `null` | §4 |
 | Supersedes Unions §8's `Option.fromNullable`/`Option.toNullable`; edit note issued | §5 |
 | `Array(a)` = zero-copy readonly borrowed view; `ReadonlyArray<a>` face; no mutation surface | §6.1 |

@@ -29,7 +29,7 @@ let ys = e.prepend(42n)
 let xs = e.prepend("Briar")       -- accepted after Step 1
 ```
 
-*(Restated 2026-08-02 in the renamed surface — `Seq.cons` became the subject-first `Seq.prepend(rest, value)`, Collections Part 1 §10.1. Restated again under Modules §5.5's collided-name rule: `empty` and `prepend` gained a second prelude exporter with `Vector.hex`, so the bare spellings are qualified-only, and the dot call — dispatched on the receiver's type, no qualifier needed — is the surface a day-one program reaches for. What the program tests is unchanged: `Seq.empty` is Step 1's module-qualified reference, and `e` generalizes exactly as before. James's original programs, in era syntax with their observed diagnostics, are preserved in the provenance note.)*
+*(Restated 2026-08-02 in the renamed surface — `Seq.cons` became the subject-first `Seq.prepend(rest, value)`, Collections Part 1 §10.1. Restated again under Modules §5.5's bare set: no prelude function is seeded bare, so `empty` and `prepend` are reached qualified, and the dot call — dispatched on the receiver's type, no qualifier needed — is the surface a day-one program reaches for. What the program tests is unchanged: `Seq.empty` is Step 1's module-qualified reference, and `e` generalizes exactly as before. James's original programs, in era syntax with their observed diagnostics, are preserved in the provenance note.)*
 
 ### 1.2 Provenance, and what the review corrected
 
@@ -51,7 +51,7 @@ Functions §8.2's syntactic-value list becomes (normative text, applied to the h
 
 > a lambda literal, a literal, a **reference — possibly module-qualified — to an immutable term binding** (a `let`, a `fun`, a parameter, a pattern binder, or an import; never a `var` read, §2.3), a constructor application of values, a **record literal whose field values are values**, or a tuple of values.
 
-"Possibly module-qualified" is load-bearing: SML's non-expansive category is the *long* identifier, and `let e = Seq.empty` must generalize exactly as a bare reference to the same binding would (that bare spelling is now qualified-only — Modules §5.5's collided-name rule — which changes nothing here). A qualified reference resolves through Modules §5.1 to the same imported binding; the value test reads the resolution, not the punctuation — the same posture as §8.2's existing read-through rule for parentheses and layout.
+"Possibly module-qualified" is load-bearing: SML's non-expansive category is the *long* identifier, and `let e = Seq.empty` must generalize exactly as a bare reference to the same binding would (that bare spelling is qualified-only — Modules §5.5's bare set — which changes nothing here). A qualified reference resolves through Modules §5.1 to the same imported binding; the value test reads the resolution, not the punctuation — the same posture as §8.2's existing read-through rule for parentheses and layout.
 
 ### 2.2 Why this is sound, including for constrained bindings
 
