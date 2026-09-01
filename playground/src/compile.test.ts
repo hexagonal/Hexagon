@@ -550,7 +550,7 @@ describe("compileSource", () => {
     expect(ratModule?.javascript).toContain("DivideByZeroError(\"Rat.create: bottom is zero\")");
     expect(ratModule?.javascript).toContain('from "../Integral.js"');
     expect(ratModule?.javascript).toContain(
-      "const __Frac_Rat = { signed: __Signed_Rat, divide:",
+      "const __Frac_Rat = { Signed: __Signed_Rat, divide:",
     );
     expect(ratModule?.javascript).toContain("export { __Frac_Rat };");
     expect(response.types).toContainEqual(expect.objectContaining({
