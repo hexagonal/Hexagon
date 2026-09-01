@@ -1148,8 +1148,15 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
   /**
    * The #123 ruling, 2026-08-02. A forcing that asks the same spine for the
    * position it is computing is asking for the value it is in the middle of
-   * producing; §7.3 makes that a `TypeError`, observed in Hexagon through
-   * `JsError`, and leaves everything else about the traversal alone.
+   * producing; §7.3 makes that the domestic `Seq.ReentrancyError` — the tests
+   * below read its `name` — and leaves everything else about the traversal
+   * alone. (The sentence here read "a `TypeError`, observed through `JsError`"
+   * until #509 landed the door and made the difference checkable; §7.3 records
+   * that spelling as *rejected*, on three grounds, the second being that a
+   * `JsError` refusal could not be told from any other foreign `TypeError`.
+   * Passing back out through foreign frames rebrands nothing either — the door
+   * is virtual, so a refusal that escapes a foreign call is still
+   * `ReentrancyError` to the `catch` that receives it.)
    *
    * **The shape is an ordinary program, not a contrived one**, which is what
    * the issue got wrong when it recorded this as unreachable from the harness

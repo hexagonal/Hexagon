@@ -1222,6 +1222,16 @@ function jsDocBlock(content: string, indent: string): string[] {
  *   position emits the bare statement `e;`, and in value position `void e`.
  *   Everything else about the binding is ordinary ESM, which is what makes
  *   `map(xs, ignore)` need nothing from this file.
+ * - `jsError` (#509, Exceptions §6.2): the only **exception** in this list, and
+ *   the only declaration whose special case is three-sided. Its wrapping is
+ *   virtual and *only* in emission — typing and surface behaviour are an
+ *   ordinary exception's — so everything the door does is here: a `JsError(e)`
+ *   arm is also the foreign branch of §7.4's discrimination and binds the raw
+ *   throwable, `throw(JsError(e))` unwraps to `throw e`, and the constructor
+ *   ships no `.is` guard (§7.6). Keyed by the resolved symbol like `ignore` and
+ *   `jsValueFrom`, so a module's own `exception JsError` — legal, since
+ *   `JsValue` is a bare type name anyone may spell — is an ordinary exception
+ *   with its own module's brand and none of the three.
  */
 interface PreludeIds {
   readonly seq: Resolved.RecordId | undefined;
@@ -1229,6 +1239,30 @@ interface PreludeIds {
   readonly bool: Resolved.UnionId | undefined;
   readonly ignore: Resolved.SymbolId | undefined;
   readonly jsValueFrom: Resolved.SymbolId | undefined;
+  readonly jsError: Resolved.SymbolId | undefined;
+}
+
+/**
+ * Whether a declaration **is** the prelude `JsError` (Exceptions §6.2, #509),
+ * asked of the declaration itself rather than of a reference to it.
+ *
+ * Exceptions §7.1 fixes runtime identity as the **(module, name) pair**, and
+ * this is that pair. `owner` is the declaring module's brand, stamped at the
+ * declaration site from how the module is *compiled* — an injected module brands
+ * its canonical injected name (`moduleBrandIdentity`) — so `owner === "JsError"`
+ * says "this declaration is in the prelude's `JsError.hex`", which no user module
+ * can say by choosing a name. A user's own `exception JsError` in `errors.hex`
+ * brands `"errors"` and fails here; a project file *at* the injection path is the
+ * prelude module, which is the stdlib-developing-itself path and the same seat.
+ *
+ * The three seats that ask are the guard seats — the emitted `.is`, and the two
+ * `.d.ts` renderers — and every one of them is inside the declaring module,
+ * where the resolved symbol `preludeIds` pins is unavailable by construction:
+ * a module has no import of itself to read. The reference seats ask by symbol
+ * instead (`PreludeIds.jsError`), which is the sharper key where it exists.
+ */
+function isVirtualJsError(item: Typed.ExceptionItem): boolean {
+  return item.owner === "JsError" && item.binding.name === "JsError";
 }
 
 /**
@@ -1342,6 +1376,26 @@ function preludeIds(module: Core.Module): PreludeIds {
     // binding exists for a foreign caller reaching the export, and this entry is
     // what keeps a Hexagon call site from paying for it.
     jsValueFrom: preludeExportSymbol(module, "JsValue", "from"),
+    // The exception door (Exceptions §6.2, #509). Read off `visibleExceptions`
+    // rather than off the synthesized import the two entries above read, and the
+    // difference is load-bearing: an exception reaches a module as a *pattern*
+    // as often as as a term, and a constructor named only in a catch arm is not
+    // among the names emission imports. `visibleExceptions` is the declarations
+    // themselves — #469's seat, the same one the arms resolve through — so the
+    // symbol is there whichever way the module spelled it.
+    //
+    // Either way it is the resolved binding and not the name: a module declaring
+    // its own `exception JsError` occludes the prelude's (Modules §5.4), so its
+    // arms and its throws carry a different symbol and take the ordinary
+    // treatment — its own module's brand, a real wrapper, a `.is` guard.
+    //
+    // The fallback reaches exactly `stdlib/JsError.hex`, which is visible to
+    // itself through nothing and is where the guard suppression fires; its
+    // condition is the module's own brand, not a name in hand.
+    jsError: module.visibleExceptions.find(isVirtualJsError)?.binding.symbol
+      ?? module.items.find((item): item is Core.ExceptionItem =>
+        item.kind === "Exception" && isVirtualJsError(item)
+      )?.binding.symbol,
   };
 }
 
@@ -4033,7 +4087,15 @@ class JavaScriptEmitter {
       // export is function-shaped for JavaScript (Part 7 §6) — and the property
       // seat is collision-free by §7.6: no Hexagon surface can occupy a
       // property of an exception constructor.
-      const guard = item.exported && depth === 0
+      //
+      // **`JsError` ships none** (§7.6, #509). Its wrapping is virtual, so
+      // outside §6.2's exotic first-class residue what a JS consumer receives
+      // from Hexagon is never a branded `"JsError"` — it is the original foreign
+      // throwable — and a guard matching only the residue would mislead
+      // everywhere else. The foreign branch a consumer wants is
+      // `!isHexError(err)`, which this module exports like any other
+      // exception-exporting one.
+      const guard = item.exported && depth === 0 && !isVirtualJsError(item)
         ? [
           `${prefix}${name}.is = (${GUARD_PARAMETER}) => ${
             guardTest(GUARD_PARAMETER, item.owner, item.binding.name)
@@ -4534,8 +4596,17 @@ class JavaScriptEmitter {
       }
       case "Match":
         return this.#emitMatch(expression, depth, evidenceNames);
-      case "Throw":
-        return `(() => { throw ${this.#emitExpr(expression.exception, depth, evidenceNames)}; })()`;
+      case "Throw": {
+        // Exceptions §6.2's unwrapping: `throw(JsError(e))` throws `e`. The rule
+        // is **syntactic** — throw applied directly to a `JsError` construction —
+        // which is what makes the rethrow-after-inspection idiom preserve the
+        // original error's identity and its stack, and what leaves a `JsError`
+        // constructed elsewhere and thrown later as the ordinary branded wrapper
+        // §6.2 records as residue.
+        const thrown = this.#jsErrorConstructionOperand(expression.exception) ??
+          expression.exception;
+        return `(() => { throw ${this.#emitExpr(thrown, depth, evidenceNames)}; })()`;
+      }
       case "Try":
         return this.#emitTry(expression, depth, evidenceNames);
       case "Call": {
@@ -4765,6 +4836,29 @@ class JavaScriptEmitter {
     if (this.#prelude.jsValueFrom === undefined || expression.kind !== "Call") return undefined;
     if (expression.callee.kind !== "Name") return undefined;
     if (expression.callee.symbol !== this.#prelude.jsValueFrom) return undefined;
+    if (expression.arguments.length !== 1 || expression.evidence.length > 0) return undefined;
+    return expression.arguments[0];
+  }
+
+  /**
+   * The payload of a **direct `JsError` construction**, or nothing when the
+   * expression is not one (Exceptions §6.2, #509).
+   *
+   * The gate is `#jsValueFromOperand`'s, one symbol over: the callee resolves to
+   * the binding `preludeIds` pinned, so a module's own `exception JsError`
+   * (legal — `JsValue` is a bare type name anyone may spell) fails here and its
+   * construction emits as the ordinary branded wrapper it is.
+   *
+   * Syntactic, and only syntactic. §6.2 draws the line at the *form* rather than
+   * at the value, so a construction bound and thrown later is not recognized
+   * here and throws the wrapper — the residue that section records and accepts,
+   * against which the dominant idioms (catch, rethrow-in-arm) stay zero-cost and
+   * identity-preserving.
+   */
+  #jsErrorConstructionOperand(expression: Core.Expr): Core.Expr | undefined {
+    if (this.#prelude.jsError === undefined || expression.kind !== "Call") return undefined;
+    if (expression.callee.kind !== "Name") return undefined;
+    if (expression.callee.symbol !== this.#prelude.jsError) return undefined;
     if (expression.arguments.length !== 1 || expression.evidence.length > 0) return undefined;
     return expression.arguments[0];
   }
@@ -5539,6 +5633,15 @@ class JavaScriptEmitter {
    * The implicit rethrow is the caller's `throw error;` after these lines, so
    * both of `catch`'s seats — `try`'s clause and the match catch clause
    * (Exceptions §5.1, §5.4) — emit one block of arms from one place.
+   *
+   * **Stage 1 becomes visible exactly when a `JsError` arm is present** (§6.2,
+   * #509). Every other arm's brand comparison subsumes the class test, so no
+   * catch has needed the test written out until now; a `JsError` arm needs it
+   * twice over — once as the foreign branch's own condition, and once to decide
+   * whether the binder takes the raw throwable or the branded wrapper's payload
+   * slot. Binding it once at the top of the block keeps that one question
+   * asked once, and keeps every catch without such an arm emitting exactly the
+   * text it emitted before.
    */
   #emitCatchArms(
     arms: readonly Core.MatchArm[],
@@ -5548,9 +5651,21 @@ class JavaScriptEmitter {
   ): string[] {
     const armIndent = indent(depth);
     const lines: string[] = [];
-    for (const arm of arms) {
-      for (const alternative of expandOrPatterns(arm.pattern)) {
-        const plan = this.#emitPatternPlan(alternative, error, true);
+    const alternatives = arms.map((arm) => expandOrPatterns(arm.pattern));
+    const foreign = alternatives.some((expanded) => expanded.some((p) => this.#catchesForeign(p)))
+      ? this.#generatedNames.fresh("foreign")
+      : undefined;
+    if (foreign !== undefined) {
+      // §7.4's stage 1, negated: the `!= null` guard is load-bearing, because
+      // `throw null` and `throw "oops"` are legal JavaScript and must reach the
+      // foreign branch rather than crash the discriminator.
+      lines.push(
+        `${armIndent}const ${foreign} = ${error} == null || typeof ${error}.$hex !== "string";`,
+      );
+    }
+    for (const [index, arm] of arms.entries()) {
+      for (const alternative of alternatives[index]!) {
+        const plan = this.#emitPatternPlan(alternative, error, true, foreign);
         const condition = plan.tests.length === 0
           ? "true"
           : plan.tests.join(" && ");
@@ -5777,10 +5892,26 @@ class JavaScriptEmitter {
     return exits(lines) ? lines : [...lines, `${bodyIndent}return;`];
   }
 
+  /**
+   * Whether this catch-arm alternative is the prelude `JsError`'s — the arm
+   * that is also §7.4's foreign branch (Exceptions §6.2, #509).
+   *
+   * `As` is walked through because `JsError(e) as whole` is one arm, not two.
+   * Nothing deeper is: a `JsError` pattern can only stand at the top of a catch
+   * arm, its payload being a `JsValue`, which has no constructors to nest under.
+   */
+  #catchesForeign(pattern: Core.Pattern): boolean {
+    if (this.#prelude.jsError === undefined) return false;
+    if (pattern.kind === "As") return this.#catchesForeign(pattern.pattern);
+    if (pattern.kind === "Or") return pattern.alternatives.some((p) => this.#catchesForeign(p));
+    return pattern.kind === "Constructor" && pattern.symbol === this.#prelude.jsError;
+  }
+
   #emitPatternPlan(
     pattern: Core.Pattern,
     value: string,
     exceptionPatterns = false,
+    foreign?: string,
   ): PatternPlan {
     switch (pattern.kind) {
       case "Wildcard":
@@ -5792,6 +5923,7 @@ class JavaScriptEmitter {
           pattern.pattern,
           value,
           exceptionPatterns,
+          foreign,
         );
         const name = this.#identifier(pattern.binding.symbol, pattern.binding.name);
         return {
@@ -5801,7 +5933,7 @@ class JavaScriptEmitter {
       }
       case "Or": {
         const alternatives = pattern.alternatives.map((alternative) =>
-          this.#emitPatternPlan(alternative, value, exceptionPatterns)
+          this.#emitPatternPlan(alternative, value, exceptionPatterns, foreign)
         );
         if (alternatives.some(({ bindings }) => bindings.length > 0)) {
           return { tests: ["false"], bindings: [] };
@@ -5914,8 +6046,21 @@ class JavaScriptEmitter {
         // the chain, including any hoist of the owner across a module's arms,
         // to the emitter. Testing `name` alone is what let module `A`'s `Boom`
         // through an arm written `B.Boom(tag)`, binding `tag` to `undefined`.
-        const test = exception !== undefined
-          ? `${value} != null && ${value}.$hex === ${JSON.stringify(exception.owner)} && ${value}.name === ${JSON.stringify(pattern.tag)}`
+        // §6.2's virtual wrapping, and the whole of it on the catch side (#509).
+        // A `JsError` arm allocates nothing: it *is* the foreign branch, so it
+        // takes stage 1's negation as an alternative to the pair above, and its
+        // binder takes the raw throwable there. On the domestic side it stays
+        // merely ordinary — the branded wrapper §6.2's first-class path
+        // materialises carries the pair `("JsError", "JsError")` like any other
+        // exception's, and this same arm is the one that names it, so the binder
+        // takes the payload slot. One arm, both readings, which is what makes
+        // the implicit rethrow of an unmatched foreign error rethrow the
+        // original object with nothing buried under a wrapper.
+        const virtual = foreign !== undefined && exception !== undefined &&
+          pattern.symbol === this.#prelude.jsError;
+        const domestic = exception === undefined ? undefined : `${value} != null && ${value}.$hex === ${JSON.stringify(exception.owner)} && ${value}.name === ${JSON.stringify(pattern.tag)}`;
+        const test = domestic !== undefined
+          ? (virtual ? `${foreign} || (${domestic})` : domestic)
           : pinned !== undefined
           // The pin again: a `Bool` pattern tests the boolean it actually is.
           ? `${value} === ${pinned}`
@@ -5926,9 +6071,16 @@ class JavaScriptEmitter {
           const field = exception?.slots[index]?.field ??
             metadata?.constructor.slots[index]?.field ??
             `item${index + 1}`;
+          // The virtual arm's payload is whichever value the branch it matched
+          // on carries: the raw throwable on the foreign side, where the value
+          // *is* the payload and nothing was ever wrapped, and the slot on the
+          // domestic side, where §6.2's first-class residue put it.
+          const payload = virtual
+            ? `${foreign} ? ${value} : ${value}.${field}`
+            : `${value}.${field}`;
           return this.#emitPatternPlan(
             argument,
-            `${value}.${field}`,
+            payload,
             exceptionPatterns,
           );
         });
@@ -8812,6 +8964,24 @@ class JavaScriptEmitter {
       // `Array.length(xs)` is `xs.length`, the native read and nothing else.
       case "arrayLength":
         return "__a => __a.length";
+      // `stdlib/JsError.hex`'s three rows (FFI Part 11 §7). The two reads share
+      // one helper because they *are* one operation at two property names — the
+      // `try` is what neither can be written without, and duplicating it would
+      // be duplicating the only thing here that is not the property name. Each
+      // reads exactly one property, exactly once, and answers with what it read
+      // or `undefined` when the read threw; the string verdict over that is
+      // ordinary Hexagon in the module, so no `toString` of the value's is ever
+      // reached.
+      case "jsErrorReadMessage":
+        return `__a => ${this.#useHelper("jsErrorRead")}(__a, "message")`;
+      case "jsErrorReadStack":
+        return `__a => ${this.#useHelper("jsErrorRead")}(__a, "stack")`;
+      // §7's safe rendering, asked only of a value `kind` has already placed
+      // outside `Object` and `Function`. `String(value)` is the stringification
+      // that survives a `Symbol`, where interpolation would throw, and it is the
+      // identity on a string.
+      case "jsErrorRender":
+        return `__a => ${this.#spell("String")}(__a)`;
       default:
         if (INTRINSIC_INVENTORY.has(key)) {
           this.#diagnostics.add({
@@ -9324,7 +9494,12 @@ class DeclarationEmitter {
         if (!item.exported) continue;
         declarations.push(...this.#docs.lines(item.span, "", [], true));
         declarations.push(
-          ...renderExceptionDeclarations(item, "export ", this.#faces),
+          ...renderExceptionDeclarations(
+            item,
+            "export ",
+            this.#faces,
+            !isVirtualJsError(item),
+          ),
         );
         isExternalModule = true;
         continue;
@@ -9723,6 +9898,7 @@ class TypeScriptPreviewEmitter {
             item,
             item.exported ? "export " : "",
             this.#faces,
+            !isVirtualJsError(item),
           ),
         );
         isExternalModule ||= item.exported;
@@ -10286,6 +10462,7 @@ type Helper =
   | "streamInbound"
   | "debugLog"
   | "jsValueKind"
+  | "jsErrorRead"
   | "nodeSet"
   | "vectorAt"
   | "vectorIndex"
@@ -10338,6 +10515,7 @@ const HELPER_DEPENDENCIES: Readonly<Record<Helper, readonly Helper[]>> = {
   streamInbound: [],
   debugLog: [],
   jsValueKind: [],
+  jsErrorRead: [],
   nodeSet: [],
   vectorAt: [],
   vectorIndex: [],
@@ -10616,6 +10794,24 @@ function renderHelper(
         `    return ${spell("Array")}.isArray(__value) ? "Array" : "Object";`,
         "  } catch {",
         '    return "Object";',
+        "  }",
+        "}",
+      ];
+    // FFI Part 11 §7's one guarded read, shared by both accessors (#509). A
+    // property read is all it is — one, on the named property, fresh on every
+    // call because the property may be an accessor — and the `try` is the whole
+    // reason it cannot be Hexagon: a getter or proxy trap that throws is
+    // swallowed here, never propagated, because an accessor whose purpose is
+    // describing one failure must not manufacture a second. It answers with
+    // what it read, so a value that is absent and a read that threw are both
+    // `undefined` and the string verdict above it is ordinary Hexagon.
+    case "jsErrorRead":
+      return [
+        `function ${name}(__value, __property) {`,
+        "  try {",
+        "    return __value[__property];",
+        "  } catch {",
+        "    return undefined;",
         "  }",
         "}",
       ];
@@ -12640,11 +12836,18 @@ function renderUnionDeclaration(
  * The brand literal is the declaring module's identity (#488) — the exact string
  * a JS constructor-writer copies, which is the reason §7.5 puts it in the face
  * at all.
+ *
+ * `guarded` is false for the prelude `JsError` alone (§7.6, #509): its wrapping
+ * is virtual, so a JS consumer receives a branded `"JsError"` only from §6.2's
+ * exotic first-class residue and a declared guard would mislead everywhere else.
+ * The type and the constructor still ship — that residue is a real value, and a
+ * JS caller may still construct one.
  */
 function renderExceptionDeclarations(
   item: Core.ExceptionItem,
   prefix: string,
   faces: DeclarationFaces,
+  guarded: boolean,
 ): readonly string[] {
   const name = item.binding.name;
   const slot = (slot: Typed.ConstructorSlot): string =>
@@ -12661,7 +12864,7 @@ function renderExceptionDeclarations(
     `${prefix}type ${name} = ${face};`,
     `${prefix}declare function ${name}(${item.slots.map(slot).join(", ")}): ${name};`,
   ];
-  if (prefix === "") return rows;
+  if (prefix === "" || !guarded) return rows;
   return [
     ...rows,
     `${prefix}declare namespace ${name} {`,

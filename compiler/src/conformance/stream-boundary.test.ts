@@ -269,11 +269,11 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
   });
 
   /**
-   * The `JsError` **door** (Exceptions §6) is not in the compiler yet — no
-   * prelude declares the constructor — so the observation is made where it is
-   * unambiguous today: the throw leaves the pull as the foreign value it was,
-   * which is exactly what that door will wrap when it lands. What §14.1 owns,
-   * and what is checked here, is the other half: the shim remembers nothing.
+   * The throw leaves the pull as the foreign value it was, and the `JsError`
+   * **door** (Exceptions §6, #509) is what carries it: §6.2's wrapping is
+   * virtual, so a `JsError(e)` arm binds that value rather than a wrapper over
+   * it — pinned in the test below this one. What §14.1 owns, and what is checked
+   * here, is the other half: the shim remembers nothing.
    */
   test("a foreign throw propagates out of the pull, and is not memoized", async () => {
     const exports = await run(
@@ -306,6 +306,46 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
     // adapter's spine, and the shim has no position to hang one on, so the
     // source is simply asked again.
     expect(pull(0)).toBe(3);
+  });
+
+  /**
+   * The same fault, named at the door (#509). §14.1 says the shim manufactures
+   * nothing, and this is the strongest form of that claim: the value a
+   * `JsError(e)` arm binds is the source's own `Error`, message and all — no
+   * `$hex`, no payload slot, nothing the shim put there.
+   */
+  test("that throw arrives at a `JsError(e)` arm as the source's own value", async () => {
+    const exports = await run(
+      'extern from "source"\n' +
+      "    fun readings(): Stream(Int)\n" +
+      "\n" +
+      "let stream: Stream(Int) = readings!()\n" +
+      "\n" +
+      "export let pull(ignored: Int): String =\n" +
+      "    try\n" +
+      "        match Stream.next!(stream)\n" +
+      "            None => \"none\"\n" +
+      "            Some(value) => Int.show(value)\n" +
+      "    catch\n" +
+      "        JsError(e) => JsError.message(e)\n",
+      {
+        source: [
+          "let step = 0;",
+          "const cursor = { next: () => {",
+          "  step += 1;",
+          "  if (step === 2) throw new Error('sensor fault');",
+          "  return { value: step, done: false };",
+          "} };",
+          "export function readings() { return cursor; }",
+        ].join("\n"),
+      },
+    );
+    const pull = exports["pull"] as (i: number) => string;
+    expect(pull(0)).toBe("1");
+    expect(pull(0)).toBe("sensor fault");
+    // Unmemoized here too: the arm caught the fault, and the next pull asks the
+    // source again rather than replaying it.
+    expect(pull(0)).toBe("3");
   });
 
   test("a malformed iterator result is the §7.2 TypeError, and nothing more", async () => {

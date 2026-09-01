@@ -127,6 +127,14 @@ describe("the module", () => {
       "JsPathSegment.hex",
       "JsConversionReason.hex",
       "JsValue.hex",
+      // #509: the `JsError` door closes the boundary block. Its seat is forced
+      // twice — the payload slot and both accessors name `JsValue`, and the
+      // verdicts over the guarded reads name `Result` and `Option` — and it is a
+      // module of its own for `JsKind.hex`'s reason: FFI Part 11 §7 spells the
+      // accessors `JsError.message` and `JsError.stack`, so the home has to be
+      // addressable under that name. From here the two bare words it exports,
+      // `message` and `stack`, are visible to no prelude module at all.
+      "JsError.hex",
       // #407 closes the list, and is the one member no signature places:
       // `log` names `String` and `Unit`, `trace` names `Show`, all of which
       // seat in the first dozen. It is last for what the seat denies — from

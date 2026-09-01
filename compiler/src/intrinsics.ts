@@ -246,6 +246,29 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   the bracket, and the bracket itself is an *expression form* — the emitter's
  *   own lowering, like `Vector`'s and `Map`'s — so the bounds assertion that
  *   throws `IndexError` is no companion operation and takes no key.
+ *
+ * *(#509, the `JsError` door.)* The `jsError*` family is `stdlib/JsError.hex`'s
+ * (FFI Part 11 §7), three rows for the two total conservative accessors, and
+ * the cut is §3.2's standard one: what only JavaScript can say is keyed, and
+ * the verdict over it is ordinary Hexagon.
+ *
+ * - **`jsErrorReadMessage` and `jsErrorReadStack` are the guarded reads**, and
+ *   guarded is the whole content: Hexagon has no way to catch a getter or a
+ *   proxy trap, so a `.message` that throws could not be swallowed in source at
+ *   all. Each performs **one** property read and answers with what it read, or
+ *   `undefined` when the read threw — so the string verdict above them
+ *   (`JsValue.toString`, strict and non-coercing) is Hexagon's, and the value's
+ *   own `toString` is reached by nothing. Two keys rather than one property
+ *   name in a parameter, because the accessors are two operations and the
+ *   inventory names operations.
+ * - **`jsErrorRender` is the safe stringification** §7's first bullet requires
+ *   of a value that bears no properties. It is not Hexagon-expressible for the
+ *   reason the family exists: a `Symbol`, `undefined` and `null` have no
+ *   decoder in FFI Part 11 §4 at all, and `String(value)` is the one rendering
+ *   that cannot throw on any of them. It is asked only of a value `kind` has
+ *   already placed outside `Object` and `Function`, so it never meets a
+ *   `toString` of anyone's — the guard is the Hexagon above it, exactly as
+ *   `jsValueIsSafeInteger`'s caller is.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -348,6 +371,9 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["jsValueIsArray", 1],
   ["jsValueAsArrayUnchecked", 1],
   ["arrayLength", 1],
+  ["jsErrorReadMessage", 1],
+  ["jsErrorReadStack", 1],
+  ["jsErrorRender", 1],
 ]);
 
 /**
