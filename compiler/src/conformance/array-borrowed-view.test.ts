@@ -288,6 +288,39 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
   });
 
   /**
+   * **A receiver with no name gets no name**, and this is the row that makes
+   * that a rule rather than a detail.
+   *
+   * The rewrite is advice the reader will paste, so a manufactured subject is
+   * not merely vague — it is a wrong rewrite that can *compile*. In the program
+   * below the faulting receiver is `xss[1]`, an expression with no spelling of
+   * its own, while an unrelated `xs: Vector(Int)` is in scope: advising
+   * `xs.length()` would hand back a working program that answers a different
+   * question, silently. The neutral `…` cannot, because it resolves to nothing
+   * and the reader has to edit it — the corpus's existing convention at
+   * `#dotCallReachability` and at the `Iterable` binder refusal, for exactly
+   * this reason.
+   */
+  test("a receiver with no name is spelled neutrally, never manufactured", () => {
+    const messages = projectDiagnostics(
+      "export let n(xs: Vector(Int), xss: Array(Array(Int))): Int = xss[1].length\n",
+    );
+    expect(messages).toEqual([
+      "`Array(a)` is a borrowed foreign view, not a record: it has no fields, and " +
+      "a property read does not cross the boundary — the companion call is the " +
+      "read. Write `Array.length(…)`, or `….length()` for the smallest edit.",
+    ]);
+    // The measured failure, asserted directly: no rewrite in this message names
+    // the `xs` that happens to be in scope.
+    expect(messages[0]).not.toContain("xs");
+    // And the premise, so the row cannot pass vacuously: `xs.length()` really
+    // would have compiled, against the wrong receiver.
+    expect(projectDiagnostics(
+      "export let n(xs: Vector(Int), xss: Array(Array(Int))): Int = xs.length()\n",
+    )).toEqual([]);
+  });
+
+  /**
    * The diagnostic's domain is *exactly* the bare read (§6.3's last sentence).
    * Any other field on an `Array` receiver is the ordinary refusal — this door
    * gets one tuned message, for the one reflex that earns it.
@@ -375,6 +408,21 @@ describe("what this slice does not ship is absent, not stubbed (§9.1)", () => {
       .toEqual([
         "slicing an `Array` is not available; `Array.get` and `xs[i]` read one element",
       ]);
+  });
+
+  /**
+   * And it obeys the same naming rule as the `.length` diagnostic, for the same
+   * reason: the element read it points at is spelled at the author's receiver,
+   * or neutrally where that receiver has no name. Advising `xs[i]` at a
+   * nameless receiver would name whatever `xs` is in scope — here a `Vector`,
+   * whose bracket compiles.
+   */
+  test("its element read is spelled at the author's receiver, or not at all", () => {
+    expect(projectDiagnostics(
+      "export let a(xs: Vector(Int), xss: Array(Array(Int))): Array(Int) = xss[1][1..2]\n",
+    )).toEqual([
+      "slicing an `Array` is not available; `Array.get` and `…[i]` read one element",
+    ]);
   });
 
   /**

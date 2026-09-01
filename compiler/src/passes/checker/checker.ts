@@ -6110,9 +6110,7 @@ class Checker {
         if (receiver.kind === "Array" && expression.field.text === "length") {
           type = this.#unsupported(
             expression.field.span,
-            arrayLengthReadMessage(
-              expression.receiver.kind === "Name" ? expression.receiver.text : "xs",
-            ),
+            arrayLengthReadMessage(receiverSpelling(expression.receiver)),
           );
           break;
         }
@@ -6251,10 +6249,15 @@ class Checker {
           // falls to the refusal below rather than to a lowering that does not
           // exist.
           if (index.kind === "Range") {
+            // The element read it names is spelled at the receiver the author
+            // wrote, or neutrally where that is not a bare reference —
+            // `receiverSpelling`'s rule, for its reason: an advised spelling
+            // that names some *other* binding is worse than one that names
+            // none.
             type = this.#unsupported(
               expression.index.span,
-              "slicing an `Array` is not available; `Array.get` and `xs[i]` read " +
-                "one element",
+              "slicing an `Array` is not available; `Array.get` and " +
+                `\`${receiverSpelling(expression.receiver)}[i]\` read one element`,
             );
           } else {
             this.#unify(index, primitive("Int"), expression.index.span);
@@ -16234,6 +16237,27 @@ function find<T extends { readonly id: Id }, Id>(
 }
 
 /**
+ * How a receiver is spelled inside an advised rewrite: **the author's own name,
+ * or nothing at all** — never a manufactured one.
+ *
+ * This is the corpus's standing convention, and it is one rule with one reason.
+ * `#dotCallReachability` spells a `fun`-block receiver `…` when it is not a bare
+ * reference; the `Iterable` binder refusal calls such a head "this value" rather
+ * than naming it. The reason is the same in both places and is sharper here: a
+ * manufactured name is not merely vague, it is a **wrong rewrite that can
+ * compile**. Told `xss[1].length`, a message that advised `xs.length()` would
+ * name whatever `xs` the module happens to bind — a `Vector` in the measured
+ * case — and hand back a working program answering a different question. The
+ * neutral spelling cannot do that: it does not resolve, so the reader edits it.
+ *
+ * A `Name` receiver keeps its own text, which is what makes the ordinary case
+ * pasteable and is the half the Rewrite Rule is served by.
+ */
+function receiverSpelling(receiver: Resolved.Expr): string {
+  return receiver.kind === "Name" ? receiver.text : "…";
+}
+
+/**
  * FFI Part 2 §6.3's specialized hard error: the bare property read `xs.length`
  * on a borrowed `Array(a)`. It is the door's **one** new diagnostic (§10), kept
  * specialized because `.length` is the single most-typed reflex the door meets.
@@ -16259,9 +16283,8 @@ function find<T extends { readonly id: Id }, Id>(
  * nominal type, and the mandated one is a Hexagon companion call. The two
  * meeting in the emitted JavaScript is the zero-cost door working.
  *
- * `receiver` is the author's own spelling where the receiver is a plain name, so
- * the two rewrites are pasteable; anything else falls back to `xs`, which is how
- * the spec writes them.
+ * `receiver` comes from `receiverSpelling`, so the two rewrites are pasteable
+ * where the receiver has a name and neutral where it has none.
  */
 function arrayLengthReadMessage(receiver: string): string {
   return "`Array(a)` is a borrowed foreign view, not a record: it has no fields, " +
