@@ -16,9 +16,9 @@
  *
  * Both sides now mint through one function over the extending declaration's
  * recorded base list, keyed by identity. That single currency is what the
- * specimens here are about, and it is deliberately not observable from a name:
- * the slot spelling for an uncontested base is exactly what it always was, so
- * the fence at the bottom pins an unaliased emission character for character.
+ * specimens here are about, and the spelling it mints is the base declaration's
+ * own name **verbatim** — `{ Eq: … }`, `dict.Num.add` — which the block at the
+ * bottom pins on an unaliased emission from both directions at once.
  *
  * Three further rules ride the same list, and each has a specimen:
  *
@@ -33,12 +33,12 @@
  *   through any pair of spellings — is a hard error at the extending
  *   declaration. Before the refusal, `<a: (Weigh, L.Weigh)>` emitted a module
  *   with the same `import { __weigh }` line twice: a load-time `SyntaxError`.
- * - **A member may not take a minted slot.** *Transitional.* §6.2 spells the
- *   slot verbatim, which makes the collision impossible by start class and
- *   retires this refusal entirely; until the case flip lands the two share a
- *   spelling space, and the guard is aimed at the minted slot rather than at the
- *   local word it used to reserve. Its mirror is that a member spelled like a
- *   local *alias* is legal now, and was refused before.
+ * - **A member cannot take a minted slot.** §6.2 spells the slot verbatim, so it
+ *   is uppercase-start and a function member's name is not: the two spelling
+ *   spaces are disjoint by start class, there is no rule left to check, and the
+ *   specimen that used to be a refusal — a member `weigh` under an aliased base
+ *   `Heft` — is a positive that runs, `weigh` and `Weigh` answering separately
+ *   out of one dictionary literal.
  *
  * Every runnable specimen runs, and the strings are chosen so a wrong slot is a
  * wrong answer rather than a lucky one: each honored dictionary reports a
@@ -51,7 +51,17 @@
 
 import { describe, expect, test } from "vitest";
 
-import { mintBaseConstraintSlots, preRegisteredBaseSlots } from "../constraints.js";
+import {
+  mintBaseConstraintSlots,
+  PRE_REGISTERED_BASE_CONSTRAINTS,
+  preRegisteredBaseSlots,
+  preRegisteredConstraintIdentity,
+} from "../constraints.js";
+import { applyLayout } from "../passes/layout/layout.js";
+import { lex } from "../passes/lexer/lexer.js";
+import { parse } from "../passes/parser/parser.js";
+import { PRELUDE_MODULES } from "../prelude.js";
+import * as Source from "../support/source.js";
 import { compileFiles, runProject } from "../support/test-project.js";
 
 /** Makes a graph's modules byte-distinct, so the test gets its own instances. */
@@ -130,7 +140,7 @@ describe("a base constraint's slot follows its declaration, not the spelling", (
     // wrote `weigh:` — no diagnostic, and `Cannot read properties of undefined`
     // at run time from a module that spells neither word.
     expect(emitted(weighGraph(ALIASED), "/mid.hex")).toContain(
-      'const use = (n, __Both_a) => weigh(n, __Both_a.weigh) + "/" + label(n, __Both_a);',
+      'const use = (n, __Both_a) => weigh(n, __Both_a.Weigh) + "/" + label(n, __Both_a);',
     );
   });
 
@@ -156,9 +166,9 @@ describe("a base constraint's slot follows its declaration, not the spelling", (
     // for the name. Nothing in the dictionary was ever one level deeper.
     const text = emitted(weighGraph(QUALIFIED), "/mid.hex");
     expect(text).toContain(
-      'const use = (n, __Both_a) => __weigh(n, __Both_a.weigh) + "/" + label(n, __Both_a);',
+      'const use = (n, __Both_a) => __weigh(n, __Both_a.Weigh) + "/" + label(n, __Both_a);',
     );
-    expect(text).not.toContain(".l.Weigh");
+    expect(text).not.toContain(".L.Weigh");
   });
 
   test("and the qualified program runs", async () => {
@@ -224,16 +234,16 @@ describe("two same-spelled bases both stay reachable", () => {
 
   test("the second numbers around the first, in written order", () => {
     // One dictionary, two `Tag` bases, two distinct properties. Before the
-    // contest the honor block wrote `tag:` twice and the second silently won.
+    // contest the honor block wrote `Tag:` twice and the second silently won.
     expect(emitted(GRAPH, "/main.hex")).toContain(
-      "const __Both_Wrap = { tag: __Tag_Wrap_1, tag_1: __Tag_Wrap_2, label: __Both_Wrap_label };",
+      "const __Both_Wrap = { Tag: __Tag_Wrap_1, Tag_1: __Tag_Wrap_2, label: __Both_Wrap_label };",
     );
   });
 
   test("and each base's demand reads its own slot", () => {
     expect(emitted(GRAPH, "/mid.hex")).toContain(
       "const use = (n, __Both_a) => " +
-        'one(n, __Both_a.tag) + "/" + two(n, __Both_a.tag_1) + "/" + label(n, __Both_a);',
+        'one(n, __Both_a.Tag) + "/" + two(n, __Both_a.Tag_1) + "/" + label(n, __Both_a);',
     );
   });
 
@@ -300,17 +310,17 @@ describe("two same-spelled bases both stay reachable", () => {
       ["/mid.hex", mid],
       ["/main.hex", main],
     ];
-    // Write side: `tag`, then `tag_2` stepping over the third entry's claim,
-    // then `tag_1` kept by the base that is actually declared `Tag_1`.
+    // Write side: `Tag`, then `Tag_2` stepping over the third entry's claim,
+    // then `Tag_1` kept by the base that is actually declared `Tag_1`.
     expect(emitted(graph, "/main.hex")).toContain(
-      "const __Both_Wrap = { tag: __Tag_Wrap_1, tag_2: __Tag_Wrap_2, " +
-        "tag_1: __Tag_1_Wrap, label: __Both_Wrap_label };",
+      "const __Both_Wrap = { Tag: __Tag_Wrap_1, Tag_2: __Tag_Wrap_2, " +
+        "Tag_1: __Tag_1_Wrap, label: __Both_Wrap_label };",
     );
     // Read side: the same three spellings, projected out of the one binder.
     expect(emitted(graph, "/mid.hex")).toContain(
       "const use = (n, __Both_a) => " +
-        'one(n, __Both_a.tag) + "/" + two(n, __Both_a.tag_2) + "/" + ' +
-        'three(n, __Both_a.tag_1) + "/" + label(n, __Both_a);',
+        'one(n, __Both_a.Tag) + "/" + two(n, __Both_a.Tag_2) + "/" + ' +
+        'three(n, __Both_a.Tag_1) + "/" + label(n, __Both_a);',
     );
     const exports = await runProject([...graph], {
       transform: distinct("base-slot-flattening"),
@@ -321,18 +331,18 @@ describe("two same-spelled bases both stay reachable", () => {
   test("a base declared `Tag_1` keeps its own slot against a `Tag` collider", () => {
     // The adversarial ordering from the ruling's review, asked of the minting
     // function directly: the third entry's canonical spelling is reserved for
-    // it, so the second entry's probe steps over `tag_1` rather than taking it.
+    // it, so the second entry's probe steps over `Tag_1` rather than taking it.
     expect(mintBaseConstraintSlots(["Tag", "Tag", "Tag_1"]))
-      .toEqual(["tag", "tag_2", "tag_1"]);
+      .toEqual(["Tag", "Tag_2", "Tag_1"]);
     // The same three in a different written order, which is the whole input.
     expect(mintBaseConstraintSlots(["Tag_1", "Tag", "Tag"]))
-      .toEqual(["tag_1", "tag", "tag_2"]);
+      .toEqual(["Tag_1", "Tag", "Tag_2"]);
     expect(mintBaseConstraintSlots(["Tag", "Tag_1", "Tag"]))
-      .toEqual(["tag", "tag_1", "tag_2"]);
-    // An uncontested list is untouched, which is the byte-identity bar in
-    // miniature.
-    expect(mintBaseConstraintSlots(["Eq"])).toEqual(["eq"]);
-    expect(mintBaseConstraintSlots(["Num", "Ord"])).toEqual(["num", "ord"]);
+      .toEqual(["Tag", "Tag_1", "Tag_2"]);
+    // An uncontested list is the declaration's own names and nothing else,
+    // which is the shape of every base list in the prelude.
+    expect(mintBaseConstraintSlots(["Eq"])).toEqual(["Eq"]);
+    expect(mintBaseConstraintSlots(["Num", "Ord"])).toEqual(["Num", "Ord"]);
   });
 });
 
@@ -446,12 +456,12 @@ describe("a base list names each declaration once", () => {
   });
 });
 
-describe("a member may not take a minted slot (transitional)", () => {
-  // Deleted by the case flip: a verbatim slot is uppercase-start and a function
-  // member is not, so §6.2 says there is nothing left to check. Until then the
-  // guard has to read the *minted* slot — reserving the local spelling is what
-  // let this program compile clean and emit one object literal with `weigh`
-  // written twice, the second key silently winning.
+describe("a member cannot take a minted slot, and needs no rule saying so", () => {
+  // A slot is uppercase-start and a function member's name is not (§2), so the
+  // two spelling spaces are disjoint and the refusal that used to police them is
+  // gone. The specimen that was that refusal is the interesting one, so it is
+  // kept and run: `weigh` the member and `Weigh` the slot differ by one letter's
+  // case, sit in one object literal, and must both answer.
   const LIB = [
     "export constraint Weigh<a> =",
     "    heaviness(value: a): String",
@@ -461,22 +471,64 @@ describe("a member may not take a minted slot (transitional)", () => {
     "",
   ].join("\n");
 
-  test("a member spelled like the base declaration's slot is refused", () => {
-    const mid = [
-      'import { Weigh as Heft } from "./lib.hex"',
-      "",
-      "export constraint Both<a: Heft> =",
-      "    weigh(value: a): String",
-      "",
-    ].join("\n");
-    expect(diagnostics([["/lib.hex", LIB], ["/mid.hex", mid]])).toEqual([
-      "member `weigh` conflicts with the `Weigh` dictionary slot; rename the member",
-    ]);
+  const MID = [
+    'import { Weigh as Heft } from "./lib.hex"',
+    "",
+    "export constraint Both<a: Heft> =",
+    "    weigh(value: a): String",
+    "",
+    'export let use<a: Both>(n: a): String = "${heaviness(n)}/${weigh(n)}"',
+    "",
+  ].join("\n");
+
+  const MAIN = [
+    'import { Both, use } from "./mid.hex"',
+    'import { Weigh } from "./lib.hex"',
+    "",
+    "record Wrap = {n: Int}",
+    "",
+    "honor Weigh<Wrap> =",
+    '    heaviness(value) = "base"',
+    "",
+    "honor Both<Wrap> =",
+    '    weigh(value) = "member"',
+    "",
+    "export let r: String = use(Wrap({n = 1}))",
+    "",
+  ].join("\n");
+
+  const GRAPH: readonly (readonly [string, string])[] = [
+    ["/lib.hex", LIB],
+    ["/mid.hex", MID],
+    ["/main.hex", MAIN],
+  ];
+
+  test("a member spelled like the base declaration's name is legal", () => {
+    expect(diagnostics(GRAPH)).toEqual([]);
   });
 
-  test("a member spelled like the local alias is legal", () => {
-    // The mirror, and a behaviour change: `heft` was refused before, and no slot
-    // of that spelling has ever existed.
+  test("and the two keys are distinct in the one dictionary literal", () => {
+    // The whole rule, on one line. `Weigh` is the base slot, minted from the
+    // declaration through the alias; `weigh` is this constraint's own member.
+    expect(emitted(GRAPH, "/main.hex")).toContain(
+      "const __Both_Wrap = { Weigh: __Weigh_Wrap, weigh: __Both_Wrap_weigh };",
+    );
+  });
+
+  test("and both are reachable, each answering for itself", async () => {
+    // Text is not enough here: a literal with two keys one case apart is exactly
+    // the shape that collapses if anything downstream folds case, and the answer
+    // would then be one word twice. `"base"` comes through the slot, `"member"`
+    // off the member seat.
+    const exports = await runProject([...GRAPH], {
+      transform: distinct("base-slot-member-neighbour"),
+    });
+    expect(exports["r"]).toBe("base/member");
+  });
+
+  test("a member spelled like the local alias is legal too", () => {
+    // The mirror, and a behaviour change from before #719: `heft` was refused,
+    // and no slot of that spelling has ever existed.
     const mid = [
       'import { Weigh as Heft } from "./lib.hex"',
       "",
@@ -488,12 +540,12 @@ describe("a member may not take a minted slot (transitional)", () => {
   });
 });
 
-describe("the fence: an uncontested slot is spelled exactly as before", () => {
-  test("`Hash`'s `Eq` base is still `eq`, on its emitted line", () => {
-    // Every program with no alias, no qualified base, no same-spelled meeting
-    // and no duplicate is unmoved by this change — which is all of stdlib, the
+describe("an uncontested slot is the base declaration's name, verbatim", () => {
+  test("`Hash`'s `Eq` base is `Eq`, on its emitted line", () => {
+    // The write side, on a program with no alias, no qualified base, no
+    // same-spelled meeting and no duplicate — the shape of all of stdlib, the
     // prelude, and the rest of this suite. `Hash` extends `Eq`, both canonical,
-    // so the derived walk's projection is the byte it always was.
+    // so the derived walk's projection is the declaration's own word unchanged.
     const main = [
       "record Point derives (Eq, Hash) = {x: Int, y: Int}",
       "",
@@ -501,13 +553,13 @@ describe("the fence: an uncontested slot is spelled exactly as before", () => {
       "",
     ].join("\n");
     const text = emitted([["/main.hex", main]], "/main.hex");
-    expect(text).toContain("const __Hash_Point = { eq: __Eq_Point,");
+    expect(text).toContain("const __Hash_Point = { Eq: __Eq_Point,");
     // The same slot from the other direction. The derived-equality walks read a
-    // component's equality off a `Hash` dictionary and used to append a literal
-    // `.eq`; they ask this instead, so the case flip reaches them. The two
+    // component's equality off a `Hash` dictionary with no `Hash` declaration in
+    // view, and used to append a literal; they ask this instead. The two
     // assertions together are the agreement: the dictionary above was written
     // from the *declaration*, and this is what the reader will spell.
-    expect(preRegisteredBaseSlots("Hash").get("Eq")).toBe("eq");
+    expect(preRegisteredBaseSlots("Hash").get("Eq")).toBe("Eq");
   });
 
   test("a user constraint's own base is spelled from its declaration", () => {
@@ -531,7 +583,71 @@ describe("the fence: an uncontested slot is spelled exactly as before", () => {
       "",
     ].join("\n");
     expect(emitted([["/main.hex", main]], "/main.hex")).toContain(
-      "const __Both_Wrap = { weigh: __Weigh_Wrap, label: __Both_Wrap_label };",
+      "const __Both_Wrap = { Weigh: __Weigh_Wrap, label: __Both_Wrap_label };",
     );
+  });
+});
+
+describe("the pre-registered base table agrees with the prelude it stands in for", () => {
+  /**
+   * Every base list the prelude's own constraint declarations write, keyed by
+   * the identity each of them takes, read out of the stdlib sources themselves.
+   *
+   * The compiler's own front end rather than a regex: `PRELUDE_MODULES` carries
+   * embedded copies of `stdlib/*.hex` (a conformance test of its own pins them
+   * against the originals), and each is lexed, laid out and parsed here exactly
+   * as a compile would. A base list is `Parsed.ConstraintItem.baseConstraints`,
+   * and a prelude declaration writes its bases as bare names in its own module's
+   * scope — the currency `PRE_REGISTERED_BASE_CONSTRAINTS` is written in.
+   *
+   * Not read off a compiled project: `CompiledProject.modules` is an emission
+   * set, so which prelude modules appear there depends on what the specimen
+   * program happens to reach, and a row could go unguarded for that reason
+   * alone. The sources are always all of them.
+   */
+  function preludeBaseConstraints(): ReadonlyMap<string, readonly string[]> {
+    const declared = new Map<string, readonly string[]>();
+    PRELUDE_MODULES.forEach(({ basename, source }, index) => {
+      const file = new Source.File(Source.fileId(index), `/${basename}`, source);
+      const module = parse(applyLayout(lex(file)));
+      expect(module.diagnostics.map(({ message }) => message), basename).toEqual([]);
+      for (const item of module.items) {
+        if (item.kind !== "ConstraintDeclaration") continue;
+        declared.set(
+          preRegisteredConstraintIdentity(item.name.text),
+          item.baseConstraints.map(({ text }) => text),
+        );
+      }
+    });
+    return declared;
+  }
+
+  test("each row is the base list of the declaration it fronts for", () => {
+    // `PRE_REGISTERED_BASE_CONSTRAINTS` is the answer for readers that hold no
+    // declaration — `preRegisteredBaseSlots`, which the emitter's wired-in
+    // `Hash` walks ask, and the checker's base walk where a prelude constraint
+    // has not been resolved from source. Only the `Hash` row had a guard, and it
+    // was incidental: the suite's derived-`Hash` pins would part company with
+    // the emitted dictionaries if that one drifted. The other five rows could be
+    // edited to anything at all and nothing would notice, so they are measured
+    // here against what the prelude actually declares.
+    const declared = preludeBaseConstraints();
+    for (const [identity, bases] of Object.entries(PRE_REGISTERED_BASE_CONSTRAINTS)) {
+      expect(declared.get(identity), `${identity} is declared by the prelude`)
+        .toBeDefined();
+      expect(declared.get(identity), `${identity}'s base list`).toEqual(bases);
+    }
+  });
+
+  test("and every prelude constraint that has bases has a row", () => {
+    // The other direction, which is the one a *new* prelude constraint trips: a
+    // declaration gaining a base with no row here leaves the declaration-free
+    // readers answering "no bases", which is a wrong answer rather than a
+    // missing one.
+    const withBases = [...preludeBaseConstraints()]
+      .filter(([, bases]) => bases.length > 0)
+      .map(([identity]) => identity)
+      .sort();
+    expect(withBases).toEqual(Object.keys(PRE_REGISTERED_BASE_CONSTRAINTS).sort());
   });
 });

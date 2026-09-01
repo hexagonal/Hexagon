@@ -117,7 +117,7 @@ describe("two imported constraints sharing a word take two seats", () => {
     // `lib2`'s dictionary — `__Describe_a.one is not a function`.
     expect(emittedMain(files(INFERRED))).toContain(
       "const both = (v, __Describe_a, __Describe_a_1) => " +
-        "__Describe_a.num.add(useOne(v, __Describe_a), useTwo(v, __Describe_a_1));",
+        "__Describe_a.Num.add(useOne(v, __Describe_a), useTwo(v, __Describe_a_1));",
     );
   });
 
@@ -149,7 +149,7 @@ describe("two imported constraints sharing a word take two seats", () => {
     ].join("\n");
     expect(emittedMain(files(main))).toContain(
       "const sum = (v, __Describe_a, __Describe_a_1) => " +
-        "__Describe_a.num.add(__Describe_a.num.add(" +
+        "__Describe_a.Num.add(__Describe_a.Num.add(" +
         "useOne(v, __Describe_a), useTwo(v, __Describe_a_1)), v);",
     );
     const exports = await runProject([...files(main)], {
@@ -178,7 +178,7 @@ describe("two imported constraints sharing a word take two seats", () => {
     ] as const;
     expect(emittedMain(graph)).toContain(
       "const all = (v, __Describe_a, __Describe_a_1, __Describe_a_2) => " +
-        "__Describe_a.num.add(__Describe_a.num.add(" +
+        "__Describe_a.Num.add(__Describe_a.Num.add(" +
         "useOne(v, __Describe_a), useTwo(v, __Describe_a_1)), " +
         "useThree(v, __Describe_a_2));",
     );
@@ -216,7 +216,7 @@ describe("the binders a signature writes down seat the same way", () => {
     // takes the probe's suffix.
     expect(emittedMain(files(WRITTEN))).toContain(
       "const both = (n, __Describe_a, __Describe_a_1) => " +
-        "__Describe_a.num.add(useOne(n, __Describe_a), useTwo(n, __Describe_a_1));",
+        "__Describe_a.Num.add(useOne(n, __Describe_a), useTwo(n, __Describe_a_1));",
     );
   });
 
@@ -283,9 +283,9 @@ describe("a program whose constraint names are unambiguous is unmoved", () => {
       project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text,
     ).toContain(
       "const d1 = (n, __Ord_a, __Signed_a) => " +
-        '__Ord_a.compare(n, __Signed_a.num.fromNat(0)) !== "Greater" ' +
-        "? __Signed_a.num.fromNat(0) " +
-        ": __Signed_a.subtract(n, __Signed_a.num.fromNat(1));",
+        '__Ord_a.compare(n, __Signed_a.Num.fromNat(0)) !== "Greater" ' +
+        "? __Signed_a.Num.fromNat(0) " +
+        ": __Signed_a.subtract(n, __Signed_a.Num.fromNat(1));",
     );
   });
 
@@ -304,7 +304,7 @@ describe("a program whose constraint names are unambiguous is unmoved", () => {
         ].join("\n")],
       ]),
     ).toContain(
-      "const once = (v, __Describe_a) => __Describe_a.num.add(useOne(v, __Describe_a), v);",
+      "const once = (v, __Describe_a) => __Describe_a.Num.add(useOne(v, __Describe_a), v);",
     );
   });
 });

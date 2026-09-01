@@ -6,7 +6,7 @@
  * A variable's binders are the constraints maximal under entailment (Modules
  * §4.1.1 read ABI-side), so `Num` beside `Signed` on one variable is one
  * parameter, `__Signed_a`, and every `Num` demand has to be written as the
- * projection `__Signed_a.num`. Which constraints survive is not knowable while
+ * projection `__Signed_a.Num`. Which constraints survive is not knowable while
  * the demands are still arriving — the last one may absorb everything before it
  * — so the route is derived once, at the Typed boundary, off the finished
  * requirement list. It used to be *stamped* on each requirement as it arrived,
@@ -88,23 +88,23 @@ describe("an absorbed demand projects out of the surviving binder", () => {
     // `Num` a second time; `-` raises `Signed` last and swallows both.
     expect(emitted("let d1(n) = if n <= 0 then 0 else n - 1\n" + KEEP)).toContain(
       "const d1 = (n, __Ord_a, __Signed_a) => " +
-        '__Ord_a.compare(n, __Signed_a.num.fromNat(0)) !== "Greater" ' +
-        "? __Signed_a.num.fromNat(0) " +
-        ": __Signed_a.subtract(n, __Signed_a.num.fromNat(1));",
+        '__Ord_a.compare(n, __Signed_a.Num.fromNat(0)) !== "Greater" ' +
+        "? __Signed_a.Num.fromNat(0) " +
+        ": __Signed_a.subtract(n, __Signed_a.Num.fromNat(1));",
     );
   });
 
   test("a duplicate dropped after the absorber arrives still routes", () => {
     expect(emitted("let d3(n, stop: Bool) = if stop then n + 0 else n - 1\n" + KEEP)).toContain(
       "const d3 = (n, stop, __Signed_a) => stop " +
-        "? __Signed_a.num.add(n, __Signed_a.num.fromNat(0)) " +
-        ": __Signed_a.subtract(n, __Signed_a.num.fromNat(1));",
+        "? __Signed_a.Num.add(n, __Signed_a.Num.fromNat(0)) " +
+        ": __Signed_a.subtract(n, __Signed_a.Num.fromNat(1));",
     );
     // The mirror ordering, which reached the same ICE by the other door.
     expect(emitted("let d4(n, stop: Bool) = if stop then n - 1 else n + 0\n" + KEEP)).toContain(
       "const d4 = (n, stop, __Signed_a) => stop " +
-        "? __Signed_a.subtract(n, __Signed_a.num.fromNat(1)) " +
-        ": __Signed_a.num.add(n, __Signed_a.num.fromNat(0));",
+        "? __Signed_a.subtract(n, __Signed_a.Num.fromNat(1)) " +
+        ": __Signed_a.Num.add(n, __Signed_a.Num.fromNat(0));",
     );
   });
 
@@ -116,9 +116,9 @@ describe("an absorbed demand projects out of the surviving binder", () => {
       emitted("let h1(n, stop: Bool) = if stop then (n - 1) + 0 else n / n\n" + KEEP),
     ).toContain(
       "const h1 = (n, stop, __Frac_a) => stop " +
-        "? __Frac_a.signed.num.add(" +
-        "__Frac_a.signed.subtract(n, __Frac_a.signed.num.fromNat(1)), " +
-        "__Frac_a.signed.num.fromNat(0)) " +
+        "? __Frac_a.Signed.Num.add(" +
+        "__Frac_a.Signed.subtract(n, __Frac_a.Signed.Num.fromNat(1)), " +
+        "__Frac_a.Signed.Num.fromNat(0)) " +
         ": __Frac_a.divide(n, n);",
     );
     expect(
@@ -126,9 +126,9 @@ describe("an absorbed demand projects out of the surviving binder", () => {
     ).toContain(
       "const h2 = (n, stop, __Frac_a) => stop " +
         "? __Frac_a.divide(n, n) " +
-        ": __Frac_a.signed.num.add(" +
-        "__Frac_a.signed.subtract(n, __Frac_a.signed.num.fromNat(1)), " +
-        "__Frac_a.signed.num.fromNat(0));",
+        ": __Frac_a.Signed.Num.add(" +
+        "__Frac_a.Signed.subtract(n, __Frac_a.Signed.Num.fromNat(1)), " +
+        "__Frac_a.Signed.Num.fromNat(0));",
     );
   });
 
@@ -141,8 +141,8 @@ describe("an absorbed demand projects out of the surviving binder", () => {
     );
     expect(javascript).toContain(
       "const l4 = (n, stop, __Loud_a) => stop " +
-        "? __Loud_a.signed.num.add(n, n) " +
-        ": __Loud_a.signed.subtract(__Loud_a.signed.num.add(n, loud(n, __Loud_a)), n);",
+        "? __Loud_a.Signed.Num.add(n, n) " +
+        ": __Loud_a.Signed.subtract(__Loud_a.Signed.Num.add(n, loud(n, __Loud_a)), n);",
     );
   });
 
@@ -157,10 +157,10 @@ describe("an absorbed demand projects out of the surviving binder", () => {
       emitted("let f(n, m, stop: Bool) = if stop then (n, n) == (m, m) else n <= m\n" + KEEP),
     ).toContain(
       "const f = (n, m, stop, __Ord_a) => stop ? ({ " +
-        "equals: (__left, __right) => __Ord_a.eq.equals(__left[0], __right[0]) && " +
-        "__Ord_a.eq.equals(__left[1], __right[1]), " +
-        "notEquals: (__left, __right) => !(__Ord_a.eq.equals(__left[0], __right[0]) && " +
-        "__Ord_a.eq.equals(__left[1], __right[1])) " +
+        "equals: (__left, __right) => __Ord_a.Eq.equals(__left[0], __right[0]) && " +
+        "__Ord_a.Eq.equals(__left[1], __right[1]), " +
+        "notEquals: (__left, __right) => !(__Ord_a.Eq.equals(__left[0], __right[0]) && " +
+        "__Ord_a.Eq.equals(__left[1], __right[1])) " +
         '}).equals([n, n], [m, m]) : __Ord_a.compare(n, m) !== "Greater";',
     );
   });
@@ -174,15 +174,15 @@ describe("an absorbed demand projects out of the surviving binder", () => {
       emitted("let both(x, y, stop: Bool) = if stop then x + 0 else y - 1\n" + KEEP),
     ).toContain(
       "const both = (x, y, stop, __Signed_a) => stop " +
-        "? __Signed_a.num.add(x, __Signed_a.num.fromNat(0)) " +
-        ": __Signed_a.subtract(y, __Signed_a.num.fromNat(1));",
+        "? __Signed_a.Num.add(x, __Signed_a.Num.fromNat(0)) " +
+        ": __Signed_a.subtract(y, __Signed_a.Num.fromNat(1));",
     );
     expect(
       emitted("let both2(x, y, stop: Bool) = if stop then x - 1 else y + 0\n" + KEEP),
     ).toContain(
       "const both2 = (x, y, stop, __Signed_a) => stop " +
-        "? __Signed_a.subtract(x, __Signed_a.num.fromNat(1)) " +
-        ": __Signed_a.num.add(y, __Signed_a.num.fromNat(0));",
+        "? __Signed_a.subtract(x, __Signed_a.Num.fromNat(1)) " +
+        ": __Signed_a.Num.add(y, __Signed_a.Num.fromNat(0));",
     );
   });
 
@@ -196,10 +196,10 @@ describe("an absorbed demand projects out of the surviving binder", () => {
     // and every `Num` inside the body is a projection off `__Signed_a`.
     expect(javascript).toContain("function fact(n, __Ord_a, __Signed_a) {");
     expect(javascript).toContain(
-      'return __Ord_a.compare(n, __Signed_a.num.fromNat(1)) !== "Greater" ' +
-        "? __Signed_a.num.fromNat(1) " +
-        ": __Signed_a.num.multiply(n, fact(" +
-        "__Signed_a.subtract(n, __Signed_a.num.fromNat(1)), __Ord_a, __Signed_a));",
+      'return __Ord_a.compare(n, __Signed_a.Num.fromNat(1)) !== "Greater" ' +
+        "? __Signed_a.Num.fromNat(1) " +
+        ": __Signed_a.Num.multiply(n, fact(" +
+        "__Signed_a.subtract(n, __Signed_a.Num.fromNat(1)), __Ord_a, __Signed_a));",
     );
   });
 });
@@ -207,7 +207,7 @@ describe("an absorbed demand projects out of the surviving binder", () => {
 describe("the neighbours that already routed correctly are unmoved", () => {
   test("a lone `Signed` still reaches its own base projection", () => {
     expect(emitted("let a1(n) = n - 1\n" + KEEP)).toContain(
-      "const a1 = (n, __Signed_a) => __Signed_a.subtract(n, __Signed_a.num.fromNat(1));",
+      "const a1 = (n, __Signed_a) => __Signed_a.subtract(n, __Signed_a.Num.fromNat(1));",
     );
   });
 
@@ -232,7 +232,7 @@ describe("the neighbours that already routed correctly are unmoved", () => {
   test("a two-step projection through `Frac` is unchanged", () => {
     expect(emitted("let h3(n) = (n - 1) / n\n" + KEEP)).toContain(
       "const h3 = (n, __Frac_a) => __Frac_a.divide(" +
-        "__Frac_a.signed.subtract(n, __Frac_a.signed.num.fromNat(1)), n);",
+        "__Frac_a.Signed.subtract(n, __Frac_a.Signed.Num.fromNat(1)), n);",
     );
   });
 });
@@ -252,7 +252,7 @@ describe("two binders that both provide the demand", () => {
     );
     expect(javascript).toContain(
       "const w = (n, s1, s2, __Alpha_a, __Beta_a) => s1 " +
-        "? __Alpha_a.num.add(n, n) " +
+        "? __Alpha_a.Num.add(n, n) " +
         ": s2 ? alpha(n, __Alpha_a) : beta(n, __Beta_a);",
     );
   });
@@ -327,7 +327,7 @@ describe("the binder set an export is told to write", () => {
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(
       project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text,
-    ).toContain("return stop ? __Heft_a.num.add(n, n) : useHeft(n, __Heft_a);");
+    ).toContain("return stop ? __Heft_a.Num.add(n, n) : useHeft(n, __Heft_a);");
   });
 });
 

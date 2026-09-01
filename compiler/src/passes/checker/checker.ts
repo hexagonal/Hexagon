@@ -4745,10 +4745,10 @@ class Checker {
   }
 
   /**
-   * Constraints §6.2's two rules about one declaration's base **list**, both
-   * asked at the module that declares the extending constraint — which is the
-   * only module that can repair either, and the only one whose spans belong in
-   * the report.
+   * Constraints §6.2's rule about one declaration's base **list** — that it
+   * names each declaration once — asked at the module that declares the
+   * extending constraint, which is the only module that can repair it, and the
+   * only one whose spans belong in the report.
    *
    * Local coverage is the whole requirement, not a limitation: an imported
    * extender was refused where it was written. What local coverage has to see
@@ -4794,32 +4794,12 @@ class Checker {
         primary: declaration.span,
       });
     });
-    // **Transitional** (#718). §6.2 retires this refusal outright: with the slot
-    // spelled verbatim it is uppercase-start and a function member is not, so
-    // the collision is impossible by start class and there is nothing left to
-    // check. Until the case flip lands, the two still share a spelling space —
-    // and the guard is aimed at the *minted* slot rather than at the local
-    // spelling it used to reserve, which is what let a member `weigh` sit
-    // beside a `weigh:` slot minted from an aliased base `Heft` and emit one
-    // object literal with the key written twice. The mirror of that move is
-    // that a member spelled like a local alias (`heft` under `<a: Heft>`) is
-    // legal, and was refused before: no slot of that spelling exists.
-    for (const base of bases) {
-      if (declaration.members.some(({ binding }) => binding.name === base.slot)) {
-        // Left ambiguous under a contest on purpose: with two bases both
-        // declared `Tag`, a member `tag_1` reads as conflicting with "the `Tag`
-        // dictionary slot" without saying which `Tag`, and the honest repair
-        // needs the written position rather than the name. Not worth a better
-        // sentence for a refusal PR 2 deletes outright — the case flip resolves
-        // it by making the collision unreachable.
-        this.#diagnostics.add({
-          severity: "error",
-          message: `member \`${base.slot}\` conflicts with the \`${base.name}\` ` +
-            "dictionary slot; rename the member",
-          primary: declaration.span,
-        });
-      }
-    }
+    // §6.2's other rule about this list — that no member may take a minted slot
+    // — is *not* checked, and has no check to make: a slot is the base
+    // declaration's name verbatim, so it is uppercase-start, and a function
+    // member's name is not (§2). The two spelling spaces are disjoint by start
+    // class. An implied type member is uppercase-start but claims no slot, so it
+    // enters no contest either.
   }
 
   /**
@@ -9637,8 +9617,8 @@ class Checker {
     if (seen.has(identity)) return undefined;
     seen.add(identity);
     // Constraints §6.2: through the one minting function, so the slot this walk
-    // *reads* is the slot the honor block *wrote*. Reading the base's name here
-    // and lowercasing it was the second currency — it took whatever word the
+    // *reads* is the slot the honor block *wrote*. Minting from the base's name
+    // as written here was the second currency — it took whatever word the
     // extending declaration happened to write, so an importer's alias, or the
     // qualified form, silently projected a slot no dictionary had (#718).
     for (const base of this.#baseConstraintSlots(identity)) {
@@ -13536,9 +13516,9 @@ class Checker {
    * each entry of a declaration's base list here and then mints the slots
    * through `mintBaseConstraintSlots`, and both the honor block that writes a
    * slot and the entailment path that reads one go through it (§6.2). Nothing
-   * else may lowercase a constraint name into a slot — the residue this comment
-   * used to record was exactly that: two sides minting from two names, parted by
-   * an importer's alias (#718).
+   * else may turn a constraint name into a slot — the residue this comment used
+   * to record was exactly that: two sides minting from two names, parted by an
+   * importer's alias (#718).
    */
   #canonicalConstraintName(
     name: Typed.ConstraintName,

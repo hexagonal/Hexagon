@@ -550,7 +550,7 @@ describe("nothing outside the editions moves", () => {
     ].join("\n"));
     // The generic body is unmoved: still an evidence parameter, still the walk.
     expect(emitted).toContain("__Hash_a.hash(__value[0])");
-    expect(emitted).toContain("__Hash_a.eq.equals(__left[0], __right[0])");
+    expect(emitted).toContain("__Hash_a.Eq.equals(__left[0], __right[0])");
     // And each edition is ground — the `(a, Int)` element's dictionary is the
     // hoisted one a hand-written program at that element type emits, not a walk
     // over a variable the edition no longer binds (#675's property, at the seat

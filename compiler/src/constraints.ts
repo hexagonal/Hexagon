@@ -163,17 +163,27 @@ export const PRE_REGISTERED_BASE_CONSTRAINTS: Readonly<
  * The uncontested dictionary slot a base constraint asks for
  * (`spec/constraints.md` §6.2).
  *
- * **Transitional** — the ruled spelling is the base declaration's own name
- * *verbatim*, and this lowercases its first letter, which is what the compiler
- * has always written. The case flip is a separate landing; everything else in
- * §6.2 — one currency, the contest, the duplicate refusal — is independent of
- * it, and lands first under the spelling already on disk so that no emitted
- * byte moves for a program with no alias, no qualified base and no collision.
+ * The base declaration's own name **verbatim** — `Ord_Int = { Eq: Eq_Int,
+ * compare: … }`, and a `<a: Signed>` body reaching addition as `dict.Num.add`.
  *
- * Fed the base declaration's **canonical** name, never a referencing spelling.
+ * Identity, not spelling: fed the base declaration's **canonical** name, never
+ * a referencing one, so an importer's alias and the qualified form mint the
+ * slot the home declaration mints.
+ *
+ * Verbatim is what makes a slot and a **function** member unable to collide: a
+ * constraint name is uppercase-start and a function member name is not (§2),
+ * so the two occupy disjoint spelling spaces by start class and the checker has
+ * nothing left to check. (An implied type member is uppercase-start but claims
+ * no slot, so it enters no contest either.) The former spelling lowercased the
+ * first letter, which put slots and members in one space and cost a hard error
+ * to police — a hard error that could still be walked around by an alias.
+ *
+ * A function of the name alone, deliberately: the contest in
+ * `mintBaseConstraintSlots` is the only thing that ever moves a slot off this
+ * answer, and it moves it by suffix, never by case.
  */
 export function baseConstraintSlot(canonicalName: string): string {
-  return (canonicalName[0]?.toLowerCase() ?? "") + canonicalName.slice(1);
+  return canonicalName;
 }
 
 /**
@@ -187,8 +197,8 @@ export function baseConstraintSlot(canonicalName: string): string {
  * takes its canonical slot unless an earlier entry already holds it, and then
  * probes `_1`, `_2`, … skipping any spelling an earlier entry holds *and* any
  * spelling that is another entry's own canonical slot. The second clause is
- * what lets a base declared `Tag_1` keep `tag_1` when a `Tag` collider stands
- * ahead of it: `(Tag, Tag, Tag_1)` mints `tag`, `tag_2`, `tag_1`.
+ * what lets a base declared `Tag_1` keep `Tag_1` when a `Tag` collider stands
+ * ahead of it: `(Tag, Tag, Tag_1)` mints `Tag`, `Tag_2`, `Tag_1`.
  *
  * The skip list applies only to *probed* spellings. An entry never yields its
  * own canonical slot to a later entry's claim, which is what makes the
@@ -239,7 +249,7 @@ export function mintBaseConstraintSlots(
  * standing requirement of §5.1.1's third bullet, not an assumption made here,
  * and it is *measured*: a real compile writes the slot from the declaration
  * (through the checker's `#baseConstraintSlots`) and reads it back through this
- * function, so the suite's pinned `{ eq: … }` dictionaries and `.hash.eq`
+ * function, so the suite's pinned `{ Eq: … }` dictionaries and `.Hash.Eq`
  * projections would part company the moment the two disagreed.
  */
 export function preRegisteredBaseSlots(

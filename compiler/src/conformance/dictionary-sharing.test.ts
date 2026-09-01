@@ -730,7 +730,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     expect(occurrences(text, "__Hash_Int_Int")).toBe(4);
     // One binding, three references: the literal survives only as the
     // initializer, at no use site.
-    expect(occurrences(text, "({ eq: {")).toBe(1);
+    expect(occurrences(text, "({ Eq: {")).toBe(1);
 
     const main = await runMain(source);
     // The behavioral half: one binding for three demands must still hash and
@@ -761,7 +761,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     // The walk names the body's evidence parameter, so the dictionary stays
     // where it is written and no module-level binding mentions `__Hash_a`.
     expect(text).toContain("const nest = (s, __Hash_a) => {");
-    expect(text).toContain("return add(empty, s, ({ eq: {");
+    expect(text).toContain("return add(empty, s, ({ Eq: {");
     expect(text).not.toMatch(/^const __\w+ = .*__Hash_a/mu);
   });
 
@@ -776,7 +776,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
    * honor block (#441), so `Ord<Bool>`'s and `Hash<Bool>`'s inherited `eq` slots
    * — base constraints, filled at construction — are `Eq<Bool>` structural
    * literals. They are ground, and hoisting them would emit
-   * `const __Ord_Bool = { eq: __Eq_Bool_1, … }` above the `const __Eq_Bool_1`
+   * `const __Ord_Bool = { Eq: __Eq_Bool_1, … }` above the `const __Eq_Bool_1`
    * it names: a `ReferenceError` on the first import of the module.
    *
    * Compiling the stdlib itself is the one way to reach `Bool.hex`'s emitted
@@ -802,10 +802,10 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     const text = emittedFrom(files, "/Bool.hex");
 
     expect(text).toContain(
-      "const __Ord_Bool = { eq: ({ equals: (__left, __right) => __left === __right,",
+      "const __Ord_Bool = { Eq: ({ equals: (__left, __right) => __left === __right,",
     );
     expect(text).toContain(
-      "const __Hash_Bool = { eq: ({ equals: (__left, __right) => __left === __right,",
+      "const __Hash_Bool = { Eq: ({ equals: (__left, __right) => __left === __right,",
     );
     // The invariant behind the pin, stated so a future reader sees what broke:
     // no `const` in this module names a binding declared after it.

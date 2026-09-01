@@ -9,11 +9,11 @@ import { compileMain, runMain } from "../support/test-project.js";
  * A binder may demand a constraint it reaches only *through* another. Constraints
  * §2 makes base constraints user-declarable, so `constraint Wide<a: Hash>` gives
  * a `Wide` binder a `Hash` at the dictionary slot `hash`, and an `Eq` at
- * `hash.eq`. The checker folds the narrower demand into the wider binder's
+ * `Hash.Eq`. The checker folds the narrower demand into the wider binder's
  * requirement and records the path; the elaborator carries it on the component's
  * `Dictionary` evidence node; `#emitEvidence` renders it. Direct expression seats
  * have always read it — `x == y` at plain `a` under `Wide` emits
- * `__Wide_a.hash.eq.equals(x, y)`.
+ * `__Wide_a.Hash.Eq.equals(x, y)`.
  *
  * The four derived walks did not. Two seat families re-derived the reference from
  * the component's *type kind* instead:
@@ -86,7 +86,7 @@ describe("the `Set` and `Map` component seats read the recorded path", () => {
       "export let different: Bool = same(first, altered)\n";
     // `setEquals` takes the element's *whole* `Hash` dictionary, so the path is
     // visible in the argument rather than buried under a member read.
-    expect(javascript(source)).toContain("__setEquals(__Wide_a.hash, x, y)");
+    expect(javascript(source)).toContain("__setEquals(__Wide_a.Hash, x, y)");
     const module = await runMain(source);
     expect(module.unordered).toBe(true);
     expect(module.different).toBe(false);
@@ -107,8 +107,8 @@ describe("the `Set` and `Map` component seats read the recorded path", () => {
     // A `Set(Set(a))` builds its element's dictionary here, and both slots reach
     // the inner element's: the `eq` slot's `setEquals` and the `hash` slot's
     // `setHash`.
-    expect(emitted).toContain("__setEquals(__Wide_a.hash,");
-    expect(emitted).toContain("__setHash(__Wide_a.hash,");
+    expect(emitted).toContain("__setEquals(__Wide_a.Hash,");
+    expect(emitted).toContain("__setHash(__Wide_a.Hash,");
     const module = await runMain(source);
     // One member, not two: equal sets must hash and compare equal through the
     // reached dictionary, which is the membership question `Set.size` answers.
@@ -129,7 +129,7 @@ describe("the `Set` and `Map` component seats read the recorded path", () => {
       "export let rekeyed: Bool = alike(entries, shifted)\n";
     // The key's `Hash` through the path; the value's `Eq` is `Int`'s own
     // instance and must be untouched.
-    expect(javascript(source)).toContain("__mapEquals(__Wide_a.hash, __Eq_Int, x, y)");
+    expect(javascript(source)).toContain("__mapEquals(__Wide_a.Hash, __Eq_Int, x, y)");
     const module = await runMain(source);
     expect(module.regrouped).toBe(true);
     expect(module.rekeyed).toBe(false);
@@ -146,11 +146,11 @@ describe("the `Set` and `Map` component seats read the recorded path", () => {
       "\n" +
       "export let agreeing: Bool = matching(held, copied)\n" +
       "export let differing: Bool = matching(held, changed)\n";
-    // `hash.eq`, not `hash`: an `Eq` demand on a `Wide` binder walks `Wide`'s
+    // `Hash.Eq`, not `Hash`: an `Eq` demand on a `Wide` binder walks `Wide`'s
     // base `Hash` and then that dictionary's own base `Eq`. This is the deepest
     // path in the file, and the one `#equalityDictionary`'s name-probe — `Eq`,
-    // else `Hash.eq` — could not spell at all.
-    expect(javascript(source)).toContain("__mapEquals(__Hash_Int, __Wide_a.hash.eq, x, y)");
+    // else `Hash.Eq` — could not spell at all.
+    expect(javascript(source)).toContain("__mapEquals(__Hash_Int, __Wide_a.Hash.Eq, x, y)");
     const module = await runMain(source);
     expect(module.agreeing).toBe(true);
     expect(module.differing).toBe(false);
@@ -172,8 +172,8 @@ describe("the `Set` and `Map` component seats read the recorded path", () => {
     // Under a `Hash` node the components were raised as `Hash`, so the value's
     // equality is that dictionary's `eq` slot — a suffix written on whatever the
     // selection resolved to, never a second entailment walk.
-    expect(emitted).toContain("__mapEquals(__Wide_a.hash, __Wide_a.hash.eq,");
-    expect(emitted).toContain("__mapHash(__Wide_a.hash, __Wide_a.hash, __value)");
+    expect(emitted).toContain("__mapEquals(__Wide_a.Hash, __Wide_a.Hash.Eq,");
+    expect(emitted).toContain("__mapHash(__Wide_a.Hash, __Wide_a.Hash, __value)");
     const module = await runMain(source);
     expect(module.oneEntry).toBe(1);
     expect(module.twoEntries).toBe(2);
@@ -192,7 +192,7 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
       "\n" +
       "export let identical: Bool = both(head, twin)\n" +
       "export let headsApart: Bool = both(head, other)\n";
-    expect(javascript(source)).toContain("__Wide_a.hash.eq.equals(__left[0], __right[0])");
+    expect(javascript(source)).toContain("__Wide_a.Hash.Eq.equals(__left[0], __right[0])");
     const module = await runMain(source);
     expect(module.identical).toBe(true);
     expect(module.headsApart).toBe(false);
@@ -218,7 +218,7 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
       "",
     ].join("\n");
     // `Ord` is `Sorted`'s own declared base, so the path is one slot: `ord`.
-    expect(javascript(source)).toContain("__Sorted_a.ord.compare(__left[0], __right[0])");
+    expect(javascript(source)).toContain("__Sorted_a.Ord.compare(__left[0], __right[0])");
     const module = await runMain(source);
     expect(module.byTail).toBe(true);
     expect(module.byHead).toBe(false);
@@ -240,7 +240,7 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
       "export let shown: String = render(point)",
       "",
     ].join("\n");
-    expect(javascript(source)).toContain("__Pretty_a.show.show(__value[0])");
+    expect(javascript(source)).toContain("__Pretty_a.Show.show(__value[0])");
     const module = await runMain(source);
     expect(module.shown).toBe("(4, 5)");
   });
@@ -259,8 +259,8 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
       "export let separate: Int = Set.size(insert(insert(none, eight), flipped))\n";
     const emitted = javascript(source);
     // Both members of the dictionary `Set.add` receives, each through the path.
-    expect(emitted).toContain("__Wide_a.hash.hash(__value[0])");
-    expect(emitted).toContain("__Wide_a.hash.eq.equals(__left[0], __right[0])");
+    expect(emitted).toContain("__Wide_a.Hash.hash(__value[0])");
+    expect(emitted).toContain("__Wide_a.Hash.Eq.equals(__left[0], __right[0])");
     const module = await runMain(source);
     expect(module.repeated).toBe(1);
     expect(module.separate).toBe(2);
@@ -284,8 +284,8 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
     const emitted = javascript(source);
     // Outer element's `Hash` is built here; its own element's is the tuple's,
     // whose head reaches `__Wide_a` by the same path at every depth.
-    expect(emitted).toContain("__Wide_a.hash.hash(__value[0])");
-    expect(emitted).toContain("__Wide_a.hash.eq.equals(__left[0], __right[0])");
+    expect(emitted).toContain("__Wide_a.Hash.hash(__value[0])");
+    expect(emitted).toContain("__Wide_a.Hash.Eq.equals(__left[0], __right[0])");
     const module = await runMain(source);
     expect(module.merged).toBe(1);
     expect(module.split).toBe(2);
@@ -303,7 +303,7 @@ describe("a planner edition's `Map` value, the seat #669's repair cured first", 
    * This one seat escaped that, and it escaped because of the repair this file
    * measures: `#subDictionary` renders whatever node is recorded at a variable
    * component, and `Primitive` is a node like any other, so the `Map` value seat
-   * got each edition's own dictionary where it used to get `undefined.eq`. The
+   * got each edition's own dictionary where it used to get `undefined.Eq`. The
    * cure was a consequence of the shape rather than an aim of it, which is why
    * it is pinned here — nothing else in the suite would notice it going away.
    *
@@ -314,7 +314,7 @@ describe("a planner edition's `Map` value, the seat #669's repair cured first", 
    * substitution had nothing left to change here. Every expectation below is the
    * one written before that repair landed.
    */
-  test("each edition gets its own `Eq` dictionary where base emitted `undefined.eq`", async () => {
+  test("each edition gets its own `Eq` dictionary where base emitted `undefined.Eq`", async () => {
     const source = [
       "export let alike<a: Eq>(x: Map(Int, a), y: Map(Int, a)): Bool =",
       "    x == y",
@@ -335,7 +335,7 @@ describe("a planner edition's `Map` value, the seat #669's repair cured first", 
     for (const primitive of ["Nat", "Int", "Float", "BigInt", "Bool", "String", "Unit"]) {
       expect(emitted).toContain(`__mapEquals(__Hash_Int, __Eq_${primitive}, x, y)`);
     }
-    expect(emitted).not.toContain("undefined.eq");
+    expect(emitted).not.toContain("undefined.Eq");
     // The consumer is bound at `String`, so the assertions below run *through*
     // one of the cured editions rather than through the generic body.
     expect(emitted).toContain("alikeString(held, copy)");
@@ -360,7 +360,7 @@ describe("a direct binder emits exactly what it always did", () => {
       "export let held<a: Hash>(s: Set((a, Int)), x: (a, Int)): Set((a, Int)) =\n" +
         "    Set.add(s, x)\n",
     );
-    expect(emitted).toContain("__Hash_a.eq.equals(__left[0], __right[0])");
+    expect(emitted).toContain("__Hash_a.Eq.equals(__left[0], __right[0])");
     expect(emitted).toContain("__Hash_a.hash(__value[0])");
   });
 
