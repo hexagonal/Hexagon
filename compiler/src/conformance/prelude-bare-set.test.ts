@@ -372,6 +372,45 @@ describe("the function channel: none, and `ignore`", () => {
   });
 });
 
+/**
+ * **Every exemplar the section spells out, run.** Modules §5.5 and §10 quote nine
+ * messages between them; a message shape can drift from its own specification
+ * one clause at a time, and each of these is a sentence the spec's reader is
+ * entitled to see in their editor character for character.
+ *
+ * Kept as one table rather than scattered through the channels above, so that a
+ * spec edit has one place to land — and so that "the message matches the spec"
+ * is a claim something checks rather than one somebody made.
+ */
+describe("§5.5 and §10's exemplars, character for character", () => {
+  test.each([
+    ["§5.5, §10: a multi-homed dot-callable function",
+      "export let f(things: Seq(Int), f: Int -> Int): Seq(Int) = map(things, f)\n",
+      "no bare `map`; write `things.map(f)`, `Seq.map(things, f)`, " +
+      "or `Stream.map(things, f)`"],
+    ["§10: single-homed and dot-callable",
+      "export let b(reading: Float): Bool = isNan(reading)\n",
+      "no bare `isNan`; write `reading.isNan()` or `Float.isNan(reading)`"],
+    ["§10: not dot-callable",
+      "export let s(pairs: Seq(String)): String = fromSeq(pairs)\n",
+      "no bare `fromSeq`; write `String.fromSeq(pairs)`, `Vector.fromSeq(pairs)`, " +
+      "`Map.fromSeq(pairs)`, `Set.fromSeq(pairs)`, or `Stream.fromSeq(pairs)`"],
+    ["§10: a reference that is not a call", "export let e: Vector(Int) = empty\n",
+      "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
+      "or `Set.empty`"],
+    ["§5.5, §10: a receiver the grammar would misread", "export let n: Int = div(-7, 2)\n",
+      "no bare `div`; write `(-7).div(2)` or `Integral.div(-7, 2)`"],
+    ["§5.5: a receiver with no companion", "export let n: Int = hash((1, 2))\n",
+      "no bare `hash`; write `Hash.hash((1, 2))`"],
+    ["§10: the member row", "export let o(a: Int, b: Int): Ordering = compare(a, b)\n",
+      "no bare `compare`; write `a.compare(b)` or `Ord.compare(a, b)`"],
+    ["§10: the constructor row", "export let a: Ordering = Less\n",
+      "no bare `Less`; write `Ordering.Less`"],
+  ])("%s", (_seat, source, message) => {
+    expect(projectDiagnostics(source)[0]).toBe(message);
+  });
+});
+
 describe("the constructor channel: the open unions only", () => {
   test("the six open constructors are bare in an expression and a pattern", async () => {
     expect(projectDiagnostics(
