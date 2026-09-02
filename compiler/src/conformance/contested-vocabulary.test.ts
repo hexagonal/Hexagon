@@ -363,7 +363,7 @@ describe("the universe decides — per file, per spelling", () => {
     // — and the face therefore emits the bare text it always emitted.
     const text = declarations(project({
       "/lib.hex": "export record Point = {x: Int}\nexport let zero: Int = 0\n",
-      "/main.hex": 'import module Iterable from "./lib"\n' +
+      "/main.hex": 'import Iterable from "./lib"\n' +
         "export let n: Int = Iterable.zero\n" + SEQ_FACE,
     }));
 
@@ -382,7 +382,7 @@ describe("the universe decides — per file, per spelling", () => {
     // own source spelling, which is the half a yielding rule would have moved.
     const compiled = project({
       "/lib.hex": "export record Point = {x: Int}\n",
-      "/main.hex": 'import module Iterable from "./lib"\n' +
+      "/main.hex": 'import Iterable from "./lib"\n' +
         "export let f(p: Iterable.Point): Int = p.x\n" + SEQ_FACE,
     });
     const text = declarations(compiled);

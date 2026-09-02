@@ -418,7 +418,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
       "",
     ]],
     ["a qualified `import module`", [
-      "import module Describe from \"./describe\"",
+      "import Describe from \"./describe\"",
       "",
       "export fun tell<a: Describe.Describe>(x: a): String = Describe.describe(x)",
       "",
@@ -458,7 +458,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
       ].join("\n")],
       ["/main.hex", [
         "import { Describe } from \"./describe\"",
-        "import module Portray from \"./portray\"",
+        "import Portray from \"./portray\"",
         "",
         "export fun tell<a: Describe>(x: a): String = describe(x)",
         "export fun other<a: Portray.Describe>(x: a): String = Portray.portray(x)",

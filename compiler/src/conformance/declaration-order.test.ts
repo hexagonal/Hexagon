@@ -163,7 +163,7 @@ describe("a dot call reads top-down too (Method Syntax §4.4)", () => {
     // so where `twice` sits in its home file is not the importer's business.
     const main = await runProject([
       ["/main.hex",
-        "import module Boxes from \"./boxes\"\n" +
+        "import Boxes from \"./boxes\"\n" +
         "export let out: Int = Boxes.Box({value = 3}).twice()\n",
       ],
       ["/boxes.hex",
@@ -405,15 +405,18 @@ describe("the term names a type declaration binds read top-down (§7.2)", () => 
   });
 });
 
-describe("an import straddles the reading laws it imports (Modules §3, #465)", () => {
+describe("an import straddles the reading laws it imports (Modules §3, #465, #762)", () => {
   /**
-   * Modules §3: no import exemption from the reading laws exists. Each name an
-   * import binds obeys **the same namespace split as the declaration it
-   * imports** (Declarations Preamble §7.2's straddle rule) — the types and
-   * constraint names it binds are order-insensitive, its term-namespace names
-   * are read top-down at the item. The repair a term reference above the line
-   * gets is the import's own, because the name is not declared there: the line
-   * that brings it is what moves.
+   * Modules §3: no import exemption from the reading laws exists. An import
+   * binds only its module alias (#762) — nothing enters either namespace
+   * directly — but what the alias *reaches* obeys **the same namespace split
+   * as the declaration it qualifies** (Declarations Preamble §7.2's straddle
+   * rule): a type or constraint reached through the alias (`Geo.Point`,
+   * `Geo.Walk`) is order-insensitive, a term reached through it (`Geo.area`,
+   * a qualified constructor call, a constraint member) is read top-down at the
+   * item. The repair a term reference above the line gets is the import's
+   * own, because the alias is not bound there: the line that brings it is
+   * what moves.
    *
    * Every ordering pin carries its control — the same source with the import at
    * the top, compiled and *run*, so that "read top-down" is a statement about
@@ -431,166 +434,83 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
   ] as const;
 
   describe("the term half reads top-down", () => {
+    // #762 deleted the named import, so nothing is bound bare any more; what
+    // is left to pin is that a reference reached *through the alias* — a
+    // function, a record constructor called as a value — still reads
+    // top-down from the `import` line, same as any other term-namespace use.
+    // The pattern-position half of this (`Geo.Circle(r)` in a `match` arm)
+    // and the constraint-member half (`Geo.step(1)`) are pinned already,
+    // below, at "the alias straddles too" and "a member of a constraint the
+    // exporter declares does read top-down" — this block does not repeat them.
     test("a value reference above the import that binds it", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export let early: Int = area(Point({x = 2, y = 3}))\n" +
-        "import { Point, area } from \"./geometry\"\n",
-      ]])).toEqual([MOVE_IMPORT("area"), MOVE_IMPORT("Point")]);
+        "export let early: Int = Geometry.area(Geometry.Point({x = 2, y = 3}))\n" +
+        "import Geometry from \"./geometry\"\n",
+      ]])).toEqual([MOVE_IMPORT("Geometry.area"), MOVE_IMPORT("Geometry.Point")]);
     });
 
     test("...and the control below the import runs", async () => {
       const exports = await runProject([GEOMETRY, ["/main.hex",
-        "import { Point, area } from \"./geometry\"\n" +
-        "export let below: Int = area(Point({x = 2, y = 3}))\n",
+        "import Geometry from \"./geometry\"\n" +
+        "export let below: Int = Geometry.area(Geometry.Point({x = 2, y = 3}))\n",
       ]]);
 
       expect(exports.below).toBe(6);
     });
 
-    test("an imported union constructor, in value position", () => {
+    test("a qualified union constructor, in value position", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export let early: Shape = Circle(4)\n" +
-        "import { Shape, Circle, Square } from \"./geometry\"\n",
-      ]])).toEqual([MOVE_IMPORT("Circle")]);
-    });
-
-    test("...and in pattern position, where the repair is still the import's", () => {
-      // §5.4 reads pattern and value position as one scope, and the fixit
-      // follows the *movable item*, not the position: an imported constructor
-      // has no declaration in this module to move, so the union wording a
-      // locally declared one gets would name nothing the reader can act on.
-      expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export fun radius(s: Shape): Int =\n" +
-        "    match s\n" +
-        "        Circle(r) => r\n" +
-        "        _ => 0\n" +
-        "import { Shape, Circle, Square } from \"./geometry\"\n",
-      ]])[0]).toBe(MOVE_IMPORT("Circle"));
-    });
-
-    test("...and the pattern control below the import runs", async () => {
-      const exports = await runProject([GEOMETRY, ["/main.hex",
-        "import { Shape, Circle, Square } from \"./geometry\"\n" +
-        "export fun radius(s: Shape): Int =\n" +
-        "    match s\n" +
-        "        Circle(r) => r\n" +
-        "        Square(side) => side\n" +
-        "export let round: Int = radius(Circle(9))\n",
-      ]]);
-
-      expect(exports.round).toBe(9);
-    });
-
-    test("a constraint's member above the import that brings it", () => {
-      // §3.1: members are not importable severally, so the constraint's name is
-      // the only spelling on the line — and every member it brings reads
-      // top-down from it, exactly as an imported function does.
-      expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export let early: Int = step(1)\n" +
-        "import { Walk } from \"./geometry\"\n",
-      ]])).toEqual([MOVE_IMPORT("step")]);
-    });
-  });
-
-  describe("only what binds reads top-down", () => {
-    /**
-     * An import that binds nothing is not a later declaration. The exporter
-     * exporting the name is half the test; the other half is that the name
-     * survived its collision contest *here*. A constraint whose spelling the
-     * module had already declared brings no members, so neither position may
-     * claim its members are one line away — "move the import above this use"
-     * would be a lie above the line, and pointing at a line already above the
-     * reference would be a lie below it.
-     *
-     * Its own exporter, so the contest is the only thing these pins vary.
-     */
-    const PACES = [
-      "/paces.hex",
-      "export constraint Walk<a> =\n" +
-      "    step(subject: a): Int\n" +
-      "honor Walk<Int> =\n" +
-      "    step(n) = n * 3\n",
-    ] as const;
-
-    /** Takes the word `Walk` first, so the import below loses it. */
-    const CONTEST =
-      "constraint Walk<a> =\n" +
-      "    stride(subject: a): Int\n";
-
-    const REFUSED = "constraint `Walk` is already declared or imported";
-
-    test("a refused constraint import brings no members, below the line", () => {
-      expect(diagnostics([PACES, ["/main.hex",
-        CONTEST +
-        "import { Walk } from \"./paces\"\n" +
-        "let pace: Int = 2\n" +
-        "export let below: Int = step(pace)\n",
-      ]])).toEqual([REFUSED, "unknown name `step`"]);
-    });
-
-    test("...nor above it, where the import-shaped repair would be a lie", () => {
-      expect(diagnostics([PACES, ["/main.hex",
-        CONTEST +
-        "let pace: Int = 2\n" +
-        "export let above: Int = step(pace)\n" +
-        "import { Walk } from \"./paces\"\n",
-      ]])).toEqual(["unknown name `step`", REFUSED]);
-    });
-
-    test("the control is the same source without the contest: above reads top-down", () => {
-      expect(diagnostics([PACES, ["/main.hex",
-        "let pace: Int = 2\n" +
-        "export let above: Int = step(pace)\n" +
-        "import { Walk } from \"./paces\"\n",
-      ]])).toEqual([MOVE_IMPORT("step")]);
-    });
-
-    test("...and below it the member is the import's, and runs", async () => {
-      const exports = await runProject([PACES, ["/main.hex",
-        "import { Walk } from \"./paces\"\n" +
-        "let pace: Int = 2\n" +
-        "export let below: Int = step(pace)\n",
-      ]]);
-
-      expect(exports.below).toBe(6);
+        "export let early: Geometry.Shape = Geometry.Circle(4)\n" +
+        "import Geometry from \"./geometry\"\n",
+      ]])).toEqual([MOVE_IMPORT("Geometry.Circle")]);
     });
   });
 
   describe("the type half is order-insensitive", () => {
+    // #762: a named import that only *renamed the winner of a collision*
+    // (§3's old "only what binds reads top-down" pin, PACES/CONTEST above)
+    // has no seat left — a module alias never collides with a same-spelled
+    // local constraint, they live in different namespaces, so there is no
+    // longer a contest whose loser's members might or might not be one line
+    // away. What remains is the property below: a type or constraint reached
+    // through the alias resolves the same whether the `import` line sits
+    // above or below the reference.
     test("a record, a union, and an alias, all named above their import", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export fun across(p: Point): Int = p.x\n" +
-        "export fun sides(s: Shape): Int = 4\n" +
-        "export let width: Span = 3\n" +
-        "import { Point, Shape, Span } from \"./geometry\"\n",
+        "export fun across(p: Geometry.Point): Int = p.x\n" +
+        "export fun sides(s: Geometry.Shape): Int = 4\n" +
+        "export let width: Geometry.Span = 3\n" +
+        "import Geometry from \"./geometry\"\n",
       ]])).toEqual([]);
     });
 
     test("a local record whose field type is imported, the import at the bottom", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export record Placed = {at: Point, label: String}\n" +
+        "export record Placed = {at: Geometry.Point, label: String}\n" +
         "export fun where(p: Placed): Int = p.at.x\n" +
-        "import { Point } from \"./geometry\"\n",
+        "import Geometry from \"./geometry\"\n",
       ]])).toEqual([]);
     });
 
     test("a constraint name in a binder above its import", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export fun pace<a: Walk>(x: a, fallback: Int): Int = fallback\n" +
-        "import { Walk } from \"./geometry\"\n",
+        "export fun pace<a: Geometry.Walk>(x: a, fallback: Int): Int = fallback\n" +
+        "import Geometry from \"./geometry\"\n",
       ]])).toEqual([]);
     });
 
     test("an `honor` above its import discharges against the *imported* declaration", async () => {
       // The identity pin, and the one the old behaviour failed loudest: before
       // #465 this reported `unknown constraint \`Walk\``, the name having been
-      // minted file-scoped because the import had not been walked yet.
+      // minted file-scoped because the import had not been walked yet. The
+      // member is reached by dispatch (`.step()`), since #762 leaves nothing
+      // bare for a bare `step(…)` call to name.
       const exports = await runProject([GEOMETRY, ["/main.hex",
         "record Leg = {count: Int}\n" +
-        "honor Walk<Leg> =\n" +
+        "honor Geometry.Walk<Leg> =\n" +
         "    step(l) = l.count + 40\n" +
-        "import { Walk } from \"./geometry\"\n" +
-        "export let paces: Int = step(Leg({count = 2}))\n",
+        "import Geometry from \"./geometry\"\n" +
+        "export let paces: Int = Leg({count = 2}).step()\n",
       ]]);
 
       expect(exports.paces).toBe(42);
@@ -601,14 +521,14 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
     test("`Geo.Point` in an annotation is free above the item", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
         "export fun across(p: Geo.Point): Int = p.x\n" +
-        "import module Geo from \"./geometry\"\n",
+        "import Geo from \"./geometry\"\n",
       ]])).toEqual([]);
     });
 
     test("...but `Geo.area(p)` is a term the line binds, and reads top-down", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
         "export fun size(p: Geo.Point): Int = Geo.area(p)\n" +
-        "import module Geo from \"./geometry\"\n",
+        "import Geo from \"./geometry\"\n",
       ]])).toEqual([MOVE_IMPORT("Geo.area")]);
     });
 
@@ -618,13 +538,13 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         "    match s\n" +
         "        Geo.Circle(r) => r\n" +
         "        _ => 0\n" +
-        "import module Geo from \"./geometry\"\n",
+        "import Geo from \"./geometry\"\n",
       ]])[0]).toBe(MOVE_IMPORT("Geo.Circle"));
     });
 
     test("...and both controls below the item run", async () => {
       const exports = await runProject([GEOMETRY, ["/main.hex",
-        "import module Geo from \"./geometry\"\n" +
+        "import Geo from \"./geometry\"\n" +
         "export fun size(p: Geo.Point): Int = Geo.area(p)\n" +
         "export fun radius(s: Geo.Shape): Int =\n" +
         "    match s\n" +
@@ -662,14 +582,14 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
     test("a field the exporter never offers reports what moving the import would", () => {
       const above = diagnostics([GEOMETRY, ["/main.hex",
         "export let early: Int = Geo.zork(1)\n" +
-        "import module Geo from \"./geometry\"\n",
+        "import Geo from \"./geometry\"\n",
       ]]);
 
       expect(above).toEqual([NOT_EXPORTED("Geo", "zork")]);
       // The proposed repair, carried out: an identical report is the proof that
       // the declared-later wording would have sent the reader nowhere.
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "import module Geo from \"./geometry\"\n" +
+        "import Geo from \"./geometry\"\n" +
         "export let early: Int = Geo.zork(1)\n",
       ]])).toEqual(above);
     });
@@ -680,7 +600,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         "    match s\n" +
         "        Geo.Zork(r) => r\n" +
         "        _ => 0\n" +
-        "import module Geo from \"./geometry\"\n",
+        "import Geo from \"./geometry\"\n",
       ]]);
 
       // The whole list, cascades included: a repair that leaves the diagnostics
@@ -691,7 +611,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         "this match arm is unreachable; an earlier pattern matches everything",
       ]);
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "import module Geo from \"./geometry\"\n" +
+        "import Geo from \"./geometry\"\n" +
         "export fun radius(s: Geo.Shape): Int =\n" +
         "    match s\n" +
         "        Geo.Zork(r) => r\n" +
@@ -704,49 +624,44 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       // ordinary terms, so the line binds `Geo.step` and moving it is the repair.
       expect(diagnostics([GEOMETRY, ["/main.hex",
         "export let early: Int = Geo.step(1)\n" +
-        "import module Geo from \"./geometry\"\n",
+        "import Geo from \"./geometry\"\n",
       ]])).toEqual([MOVE_IMPORT("Geo.step")]);
     });
 
-    test("...as does a member the exporter only honors (§5.3's uniform access)", () => {
+    test("...as does a member a prelude constraint's honor supplies (§5.3's uniform access)", () => {
       // The honored-member read is the widest of §3.3's surfaces and the one an
-      // exporter's `terms` alone would miss: `Boxed` declares no constraint and
-      // exports no `size`, and `B.size` still resolves below the item.
-      const SIZED = ["/sized.hex",
-        "export constraint Sized<a> =\n" +
-        "    size(subject: a): Int\n",
-      ] as const;
+      // exporter's `terms` alone would miss: `Boxed` exports no `show`, and
+      // `B.show` still resolves below the item. #762 narrows *which* honors
+      // this surface reaches, though: the spelling it emits has to be one the
+      // honoring module can reach with no import — and #762 leaves no import
+      // smaller than a module for a project constraint's member to ride, so
+      // only a prelude constraint's honor (reachable without any import at
+      // all) still answers here; a project-declared constraint's honor does
+      // not (`resolver.ts`'s `#honoredMemberAccess`, reading `#reachPreludeTerm`).
       const BOXED = ["/boxed.hex",
-        "import { Sized } from \"./sized\"\n" +
         "export record Box = {n: Int}\n" +
-        "honor Sized<Box> =\n" +
-        "    size(b) = b.n\n",
+        "honor Show<Box> =\n" +
+        "    show(b) = \"Box(${b.n})\"\n",
       ] as const;
 
-      expect(diagnostics([SIZED, BOXED, ["/main.hex",
-        "import { Sized } from \"./sized\"\n" +
-        "export let early: Int = B.size(B.Box({n = 7}))\n" +
-        "import module B from \"./boxed\"\n",
-      ]])).toEqual([MOVE_IMPORT("B.size"), MOVE_IMPORT("B.Box")]);
+      expect(diagnostics([BOXED, ["/main.hex",
+        "export let early: String = B.show(B.Box({n = 7}))\n" +
+        "import B from \"./boxed\"\n",
+      ]])).toEqual([MOVE_IMPORT("B.show"), MOVE_IMPORT("B.Box")]);
     });
 
     test("...and the control below the item runs", async () => {
       const exports = await runProject([
-        ["/sized.hex",
-          "export constraint Sized<a> =\n" +
-          "    size(subject: a): Int\n"],
         ["/boxed.hex",
-          "import { Sized } from \"./sized\"\n" +
           "export record Box = {n: Int}\n" +
-          "honor Sized<Box> =\n" +
-          "    size(b) = b.n + 30\n"],
+          "honor Show<Box> =\n" +
+          "    show(b) = \"Box(${b.n})\"\n"],
         ["/main.hex",
-          "import { Sized } from \"./sized\"\n" +
-          "import module B from \"./boxed\"\n" +
-          "export let boxed: Int = B.size(B.Box({n = 4}))\n"],
+          "import B from \"./boxed\"\n" +
+          "export let boxed: String = B.show(B.Box({n = 4}))\n"],
       ]);
 
-      expect(exports.boxed).toBe(34);
+      expect(exports.boxed).toBe("Box(4)");
     });
 
     test("...and so does a provided row, which no source `honor` backs", () => {
@@ -761,7 +676,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         ["/Vector.hex", PRELUDE_SOURCES["Vector.hex"]!],
         ["/main.hex",
           "export let n: Int = Vector.toSeq([1, 2]).length()\n" +
-          "import module Vector from \"./Vector\"\n"],
+          "import Vector from \"./Vector\"\n"],
       ])).toEqual([MOVE_IMPORT("Vector.toSeq")]);
     });
 
@@ -777,11 +692,11 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       for (const alias of ["Int", "Debug"]) {
         const above = diagnostics([seated(alias), ["/main.hex",
           `export let n: Int = ${alias}.toSeq(1)\n` +
-          `import module ${alias} from "./${alias}"\n`]]);
+          `import ${alias} from "./${alias}"\n`]]);
 
         expect(above).toEqual([NOT_EXPORTED(alias, "toSeq")]);
         expect(diagnostics([seated(alias), ["/main.hex",
-          `import module ${alias} from "./${alias}"\n` +
+          `import ${alias} from "./${alias}"\n` +
           `export let n: Int = ${alias}.toSeq(1)\n`]])).toEqual(above);
       }
 
@@ -789,7 +704,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       // row to seat there fails here rather than in somebody's error message.
       for (const alias of PROVIDED_ROW_ALIASES) {
         const use = `export let n: Int = ${alias}.toSeq(subject).length()\n`;
-        const item = `import module ${alias} from "./${alias}"\n`;
+        const item = `import ${alias} from "./${alias}"\n`;
 
         expect(diagnostics([seated(alias), ["/main.hex", use + item]]))
           .toContain(MOVE_IMPORT(`${alias}.toSeq`));
@@ -798,7 +713,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         expect(diagnostics([seated(alias), ["/main.hex", item + use]]))
           .not.toContain(NOT_EXPORTED(alias, "toSeq"));
       }
-    });
+    }, 20000);
 
     test("an exporter with errors of its own still answers what it binds", () => {
       // The interface a failed compilation leaves is what this read has, and it
@@ -812,11 +727,11 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
 
       expect(diagnostics([BROKEN, ["/main.hex",
         "export let early: Int = Lib.zork(1)\n" +
-        "import module Lib from \"./broken\"\n",
+        "import Lib from \"./broken\"\n",
       ]])).toEqual(["unknown name `nope`", NOT_EXPORTED("Lib", "zork")]);
       expect(diagnostics([BROKEN, ["/main.hex",
         "export let early: Int = Lib.ok(1)\n" +
-        "import module Lib from \"./broken\"\n",
+        "import Lib from \"./broken\"\n",
       ]])).toEqual(["unknown name `nope`", MOVE_IMPORT("Lib.ok")]);
     });
 
@@ -826,7 +741,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       // enter. The item's own report is the one that names the repair.
       expect(diagnostics([["/main.hex",
         "export let early: Int = Nope.zork(1)\n" +
-        "import module Nope from \"./nowhere\"\n",
+        "import Nope from \"./nowhere\"\n",
       ]])).toEqual([
         "unknown name `Nope`",
         "cannot resolve module `./nowhere` from `/main.hex`",
@@ -837,121 +752,27 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
         "    match s\n" +
         "        Nope.Zork(x) => x\n" +
         "        _ => 0\n" +
-        "import module Nope from \"./nowhere\"\n",
+        "import Nope from \"./nowhere\"\n",
       ]])[0]).toBe("unknown module alias `Nope`");
     });
   });
 
-  describe("one span, two reports: the type contest is settled first", () => {
-    /**
-     * A name an import brings in **both** namespaces can lose both contests, and
-     * both reports land on the one import name. Their order is the only thing
-     * about them a host can observe that the messages and spans do not already
-     * fix, and it is not free to drift: the type half is order-insensitive, so
-     * it is decided for the whole module before the walk begins, and the term
-     * rebinding is found by the walk that follows. Type report first, therefore.
-     *
-     * Erroneous programs only. What each report *says* is pinned elsewhere;
-     * these fail only if the two are produced in the other order.
-     */
-
-    const OTHER = ["/other.hex", "export record Point = {z: Int}\n"] as const;
-
-    const TYPE_TAKEN = "type `Point` is already declared or imported";
-    const REBOUND = "`Point` is already bound (line 1); Hexagon does not allow " +
-      "rebinding — choose a different name.";
-
-    /** Messages beside their primary spans, so a same-span claim is checkable. */
-    function reports(
-      files: readonly (readonly [string, string])[],
-    ): readonly (readonly [string, string])[] {
-      return compileFiles(files).diagnostics.map(({ message, primary }) =>
-        [message, JSON.stringify(primary)] as const);
-    }
-
-    /** Asserts the given messages in order, all at one and the same span. */
-    function expectAtOneSpan(
-      reported: readonly (readonly [string, string])[],
-      messages: readonly string[],
-    ): void {
-      expect(reported.map(([message]) => message)).toEqual(messages);
-      expect(new Set(reported.map(([, span]) => span)).size).toBe(1);
-    }
-
-    test("a local declaration, then the import that collides with it", () => {
-      expectAtOneSpan(reports([GEOMETRY, ["/main.hex",
-        "record Point = {q: Int}\n" +
-        "import { Point } from \"./geometry\"\n",
-      ]]), [TYPE_TAKEN, REBOUND]);
-    });
-
-    test("two imports of the same name", () => {
-      expectAtOneSpan(reports([GEOMETRY, OTHER, ["/main.hex",
-        "import { Point } from \"./geometry\"\n" +
-        "import { Point } from \"./other\"\n",
-      ]]), [TYPE_TAKEN, REBOUND]);
-    });
-
-    test("a missing export ahead of the collision on one line", () => {
-      // Two spans now, so source order decides the outer arrangement and the
-      // pair's own order is what remains pinned.
-      const reported = reports([GEOMETRY, ["/main.hex",
-        "record Point = {q: Int}\n" +
-        "import { zork, Point } from \"./geometry\"\n",
-      ]]);
-
-      expect(reported.map(([message]) => message)).toEqual([
-        "module `./geometry` does not export `zork`",
-        TYPE_TAKEN,
-        REBOUND,
-      ]);
-      expectAtOneSpan(reported.slice(1), [TYPE_TAKEN, REBOUND]);
-    });
-
-    test("...and behind it, where only the missing export moves", () => {
-      const reported = reports([GEOMETRY, ["/main.hex",
-        "record Point = {q: Int}\n" +
-        "import { Point, zork } from \"./geometry\"\n",
-      ]]);
-
-      expect(reported.map(([message]) => message)).toEqual([
-        TYPE_TAKEN,
-        REBOUND,
-        "module `./geometry` does not export `zork`",
-      ]);
-      expectAtOneSpan(reported.slice(0, 2), [TYPE_TAKEN, REBOUND]);
-    });
-
-    test("the last import's type wins module-wide, not from its line down", () => {
-      // The type half never reads top-down, so the winner of a type contest
-      // cannot depend on where the losing use sits: `Point` is `/other.hex`'s
-      // for the whole module, above the first import as much as below the last.
-      expect(diagnostics([GEOMETRY, OTHER, ["/main.hex",
-        "export fun ex(p: Point): Int = p.z\n" +
-        "import { Point } from \"./geometry\"\n" +
-        "import { Point } from \"./other\"\n",
-      ]])).toEqual([TYPE_TAKEN, REBOUND]);
-    });
-
-    test("...so a use between the two takes the winner, and may cascade", () => {
-      // The cost of the module-wide reading, and the reason it is worth pinning:
-      // a use written against the first import's type reports against the
-      // second's. A winner that took effect from its own line down would spare
-      // this one error and reintroduce the order sensitivity §3 removed.
-      expect(diagnostics([GEOMETRY, OTHER, ["/main.hex",
-        "import { Point } from \"./geometry\"\n" +
-        "export fun ex(p: Point): Int = p.x\n" +
-        "import { Point } from \"./other\"\n",
-      ]])).toEqual(["`Point` has fields `z`, not `x`", TYPE_TAKEN, REBOUND]);
-    });
-  });
+  // #762 retired this describe block wholesale. "one span, two reports" pinned
+  // a name a named import bound in *both* namespaces at once — one span
+  // producing a type-collision report and a term-rebinding report together,
+  // type first. A module alias is bound in neither namespace a declaration
+  // occupies (it is its own namespace, per Modules §3.2), so a same-spelled
+  // local declaration never contests it — there is no longer a shape that
+  // produces two reports at one span this way. Alias-vs-alias and
+  // alias-vs-local collisions are `namespace-alias-collision.test.ts`'s
+  // subject, and they are single reports, not this pin's paired kind.
 
   describe("load order and emission are untouched (§8.2)", () => {
     test("a module whose imports sit at the bottom still loads them first", () => {
       const project = compileFiles([GEOMETRY, ["/main.hex",
-        "export fun corner(p: Point): Int = p.y\n" +
+        "export fun corner(p: Geometry.Point): Int = p.y\n" +
         "export let origin: Int = 0\n" +
-        "import { Point } from \"./geometry\"\n",
+        "import Geometry from \"./geometry\"\n",
       ]]);
 
       expect(project.diagnostics).toEqual([]);
@@ -969,13 +790,13 @@ describe("an import straddles the reading laws it imports (Modules §3, #465)", 
       // emission — what is pinned is that the program links and runs, not where
       // the statement landed in the text.
       const files = [GEOMETRY, ["/main.hex",
-        "export fun corner(p: Point): Int = p.y + 1\n" +
-        "import { Point } from \"./geometry\"\n" +
-        "export let high: Int = corner(Point({x = 1, y = 8}))\n",
+        "export fun corner(p: Geometry.Point): Int = p.y + 1\n" +
+        "import Geometry from \"./geometry\"\n" +
+        "export let high: Int = corner(Geometry.Point({x = 1, y = 8}))\n",
       ]] as const;
 
       expect(compileFiles(files).modules.at(-1)!.javascript.text).toContain(
-        'import { Point } from "./geometry.js";',
+        'import * as Geometry from "./geometry.js";',
       );
       expect((await runProject(files)).high).toBe(9);
     });

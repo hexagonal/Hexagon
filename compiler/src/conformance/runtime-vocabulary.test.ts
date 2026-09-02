@@ -327,62 +327,39 @@ describe("the two `SyntaxError` classes — the module never parsed at all", () 
     expect(exports["arguments"]).toBe(8);
   });
 
-  test("`import { await }` aliases its local, and every reference follows", async () => {
-    // The rename's missing leg (§1.2 rule 4): the export seat already renamed,
-    // so `export let await` emitted correctly while `import { await }` emitted
-    // the spelling verbatim and the *importer* failed to parse.
-    const FILES = [
-      ["/lib.hex", "export let await: Int = 4\n"],
-      ["/main.hex", 'import { await } from "./lib"\nexport let n: Int = await + 1\n'],
-    ] as const;
-
-    expect(javascript(FILES)).toBe(
-      'import { await as __binding0 } from "./lib.js";\n' +
-        "const n = __binding0 + 1;\n" +
-        "export { n };\n",
-    );
-
-    const exports = await runProject(FILES);
-    expect(exports["n"]).toBe(5);
-  });
+  // `import { await }` — the rename's former missing leg (§1.2 rule 4) — is
+  // retired outright by #762 rather than re-aimable: the sole import form
+  // binds a mandatory uppercase-start module alias, which by Lexer §3.2's own
+  // case split can never collide with a lowercase JavaScript reserved word,
+  // so no import can introduce a hazardous local again. The Modules §3.2
+  // respelling that reaches `await` bare — `let await = Lib.await` — is not a
+  // new leg either: it is an ordinary declaration binding the name `await`,
+  // the same rename path `export let eval` and `export let arguments` already
+  // pin below.
 });
 
-describe("the trigger's two cross-module legs", () => {
-  test("a named import's local contests, and the importer qualifies", async () => {
-    // Import locals capture exactly like declarations: `import { Error }` binds
-    // `Error` in the *importing* module, where the helper lives. The import
-    // itself keeps working — Part 1 §10 again — and the exporting module
-    // qualifies on its own account.
-    const FILES = [
-      ["/lib.hex", "export record Error = {code: Int}\n"],
-      ["/main.hex", 'import { Error } from "./lib"\n' +
-        "exception Boom(value: Int)\n" +
-        "export let raise(): Int = throw(Boom(3))\n" +
-        "export let mine: Int = 1\n"],
-    ] as const;
-    const text = javascript(FILES);
-
-    expect(text).toContain('import { __Error } from "./hex.js";');
-    expect(text).toContain("new __Error(__message)");
-    expect(text).toContain('import { Error } from "./lib.js";');
-
-    const exports = await runProject(FILES);
-    expect(thrown(exports["raise"] as () => number)).toMatchObject({
-      name: "Boom",
-      isError: true,
-    });
-  });
-
-  test("a namespace alias contests too — the leg on which the two rules diverge", async () => {
+// Pre-#762 this held two legs — a named import's local (`import { Error }`,
+// binding `Error` verbatim) and a namespace alias (`import module Error`,
+// lowering to `import * as Error`) — because the two forms landed in
+// JavaScript differently and only one of them read as a TypeScript namespace
+// import. #762 leaves exactly the second shape: every import is a module
+// alias, always `import * as Alias`, so the two legs are one. The alias
+// remains a live trigger leg in its own right, because an alias's spelling is
+// the module's own uppercase-start choice and can still land on a vocabulary
+// word — that is what the surviving test below measures. A named import's
+// distinct JavaScript shape has no seat left to re-aim: nothing in the
+// grammar emits `import { X }` for a user-chosen local any more.
+describe("the trigger's cross-module leg", () => {
+  test("an alias contests too — the leg a namespace import sits on", async () => {
     // Named in §1.2's trigger deliberately, against §1.1's grain: `import
-    // module Error` lowers to `import * as Error`, which occupies JavaScript's
-    // value-name space like any binding, where a TypeScript namespace import
-    // leaves the plain type-name space alone (§1.1's measured control). The
-    // alias keeps its own spelling; what steps aside is the compiler's
-    // reference.
+    // Error from "./lib"` lowers to `import * as Error`, which occupies
+    // JavaScript's value-name space like any binding, where a TypeScript
+    // namespace import leaves the plain type-name space alone (§1.1's
+    // measured control). The alias keeps its own spelling; what steps aside
+    // is the compiler's reference.
     const FILES = [
       ["/lib.hex", "export let zero: Int = 0\n"],
-      ["/main.hex", 'import module Error from "./lib"\n' +
+      ["/main.hex", 'import Error from "./lib"\n' +
         "exception Boom(value: Int)\n" +
         "export let raise(): Int = throw(Boom(3))\n" +
         "export let z: Int = Error.zero\n"],
@@ -611,7 +588,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import module Lib from "./lib"',
+        'import Lib from "./lib"',
         `export let use(b: Lib.Box): Int = Lib.${member}(b)`,
         "export let unit(): Unit = ()",
         "",

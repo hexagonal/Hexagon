@@ -205,9 +205,10 @@ describe("an implied type binding sees the head's binders and nothing more", () 
 });
 
 describe("the binder-less instance crosses the module boundary", () => {
-  // Only the record is imported: `Iterable` by name would collide with the
-  // name-only pre-registration, and the instance travels with its subject
-  // regardless — which is exactly the seeding path under test.
+  // The module alias reaches `Bag`; no import binds a bare name at all now
+  // (#762), so there is no question of `Iterable` colliding with the
+  // name-only pre-registration — and the instance travels with its subject
+  // regardless, which is exactly the seeding path under test.
   const library = ["/bags.hex", iterable.replace("constraint", "export constraint") +
     "export record Bag(a) = {items: Vector(a)}\n" +
     "\n" +
@@ -218,11 +219,11 @@ describe("the binder-less instance crosses the module boundary", () => {
   test("an importer's `for` over Bag(String) discharges against the imported instance", async () => {
     const main = await runProject([
       library,
-      ["/main.hex", "import { Bag } from \"./bags\"\n" +
+      ["/main.hex", "import Bags from \"./bags\"\n" +
         "\n" +
         "export fun run(ignored: Int): String =\n" +
         "    var out = \"\"\n" +
-        "    for word in Bag({items = [\"x\", \"y\"]})\n" +
+        "    for word in Bags.Bag({items = [\"x\", \"y\"]})\n" +
         "        out := out ++ word\n" +
         "    out\n"],
     ]);
@@ -232,9 +233,9 @@ describe("the binder-less instance crosses the module boundary", () => {
   test("the imported projection at Bag(String) is String, not defaulted", () => {
     expect(messagesOf([
       library,
-      ["/main.hex", "import { Bag } from \"./bags\"\n" +
+      ["/main.hex", "import Bags from \"./bags\"\n" +
         "\n" +
-        "fun total(bag: Bag(String)): Int =\n" +
+        "fun total(bag: Bags.Bag(String)): Int =\n" +
         "    var sum = 0\n" +
         "    for number in bag\n" +
         "        sum := sum + number\n" +
@@ -248,9 +249,9 @@ describe("the binder-less instance crosses the module boundary", () => {
     // project is silent, not merely free of the messages this file names.
     expect(messagesOf([
       library,
-      ["/main.hex", "import { Bag } from \"./bags\"\n" +
+      ["/main.hex", "import Bags from \"./bags\"\n" +
         "\n" +
-        "export fun joined(bag: Bag(String)): String =\n" +
+        "export fun joined(bag: Bags.Bag(String)): String =\n" +
         "    var out = \"\"\n" +
         "    for word in bag\n" +
         "        out := out ++ word\n" +

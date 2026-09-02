@@ -338,10 +338,10 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     // header word to the injection below and the import head's word to the
     // shared grammar, and the two must not reach for each other's line. Here the
     // word is mid-line, where no header can begin.
-    expect(await tokenOf('import module Geo from "./geometry"', "module")).toBe(
+    expect(await tokenOf('import Geo from "./geometry"', "module")).toBe(
       "keyword.other.module.hexagon",
     );
-    expect(await tokenOf('import module Geo from "./geometry"', "import")).toBe(
+    expect(await tokenOf('import Geo from "./geometry"', "import")).toBe(
       "keyword.control.import.hexagon",
     );
   });
@@ -408,7 +408,7 @@ describe("the Playground-only module notation (injection)", () => {
     // column zero and the whole rest of the line as one name, and an import head
     // is neither. The shared grammar's rule demands an `import` before the word,
     // which a header line does not have.
-    const source = ['import module Geo from "./geometry"', "module Numbers"].join("\n");
+    const source = ['import Geo from "./geometry"', "module Numbers"].join("\n");
     expect(await allTokensFor(source, "module")).toEqual([
       "keyword.other.module.hexagon",
       control,

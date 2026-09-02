@@ -30,7 +30,7 @@ import seqSource from "../../../stdlib/Seq.hex?raw";
  * The module is still mounted explicitly at `/Seq.hex` and imported by name.
  * That is not redundant with the prelude: a project file at a prelude basename
  * *is* the member (the embedded fallback stands down), so this also pins that an
- * explicit `import module Seq` of a prelude module still works — the qualified
+ * explicit `import Seq` of a prelude module still works — the qualified
  * path Modules §5.4 depends on, exercised against a real one.
  */
 
@@ -63,7 +63,7 @@ function docAbove(emitted: string, declaration: string): string | undefined {
     .join("\n");
 }
 
-const IMPORT = "import module Seq from \"./Seq\"\n";
+const IMPORT = "import Seq from \"./Seq\"\n";
 
 describe("stdlib/Seq.hex compiles and serves its own surface", () => {
   test("the module compiles clean", () => {

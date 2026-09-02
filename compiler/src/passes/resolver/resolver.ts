@@ -1631,7 +1631,7 @@ class Resolver {
     if (this.#honoredMemberCandidates(iface, field.text).length > 0) return true;
     if (field.text !== "toSeq" || !PROVIDED_ROW_ALIASES.has(alias)) return false;
     // The seating test `#providedRowMemberAccess` makes, and for its reason: a
-    // project's own `import module Vector from "./mine"` is not the companion, and
+    // project's own `import Vector from "./mine"` is not the companion, and
     // the same file reached two ways yields two interfaces, so the comparison is
     // by `fileId`. The alias filter above it is what keeps this from claiming
     // `Int.toSeq` — every prelude basename a project file may take is seated,
@@ -2074,7 +2074,7 @@ class Resolver {
         body: open.body,
       })),
       // Explicit aliases first, so a reader taking the first entry for a name
-      // gets the one that wins: an `import module Vector` is a module-level
+      // gets the one that wins: an `import Vector` is a module-level
       // binding and outranks the prelude companion of the same name (§5.4).
       moduleAliases: [...this.#moduleAliases, ...this.#preludeModuleAliases]
         .map(([alias, reached]) => ({
@@ -5666,12 +5666,12 @@ class Resolver {
     // this admitted would be the drift the shared constant exists to prevent.
     if (!PROVIDED_ROW_ALIASES.has(alias)) return undefined;
     // Keyed on the *module*, never on the spelling: a user's own
-    // `import module Vector from "./mine"` shadows the prelude alias, and the row
+    // `import Vector from "./mine"` shadows the prelude alias, and the row
     // belongs to the prelude companion or to nothing.
     //
     // Compared by `fileId` rather than by object identity, because reaching the
     // same module two ways yields two interfaces. An explicit
-    // `import module Vector from "./stdlib/Vector"` of the very file the prelude
+    // `import Vector from "./stdlib/Vector"` of the very file the prelude
     // seated — what the Playground's hosted equipment does — resolves through
     // `#moduleAliases`, and identity would reject the module it is *about*.
     const companion = this.#preludeModuleAliases.get(alias);

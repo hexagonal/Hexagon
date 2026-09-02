@@ -839,7 +839,7 @@ const STRUCTURAL_IDENTITIES: ReadonlySet<string> = new Set(
  * The premise is measured false: §5.1.1's ban bars a rival *declaration*, not a
  * second *spelling*, and the prelude's modules are ordinary modules at the source
  * common root, reachable by **two** import channels —
- * `import { Hash as H } from "./Hash.hex"` and `import module M from
+ * `import { Hash as H } from "./Hash.hex"` and `import M from
  * "./Hash.hex"`, binding `H` and `M.Hash`. Each is a working spelling of
  * `hex:Hash` with no redeclaration anywhere, and `derives (Eq, H)` was refused
  * as underivable while the identical program spelled `Hash` compiled. (The
@@ -3926,7 +3926,7 @@ class Checker {
         // and compiled a hand-written `Hash` with no diagnostic at all:
         //
         //     import { Hash as H } from "./Hash.hex"   →  honor H<P>
-        //     import module M from "./Hash.hex"        →  honor M.Hash<P>
+        //     import M from "./Hash.hex"        →  honor M.Hash<P>
         //
         // The second needs no alias and leaves the word `Hash` untouched, which
         // is what makes "the spelling here is not `Hash`" the wrong question to
@@ -7047,23 +7047,34 @@ class Checker {
    * "each constructor name in a witness prints in the spelling the reporting
    * module can lawfully write, preferring the barest one."
    *
-   * 1. **Bare**, where a bare spelling in scope denotes *this* constructor —
-   *    declared here, imported by name (under whatever local name the import
-   *    bound), or the prelude's unshadowed name. The ordinary case, byte for
-   *    byte what the witness said before this rule.
-   * 2. **Qualified**, where bare would be wrong or absent but a module alias
-   *    reaches it — `Bool.True` past an occluding local `True`, `A.Off` through
-   *    an `import module` alias.
-   * 3. **Bare, with the route stated**, where neither exists. The witness keeps
-   *    the bare name and the message says where it lives; the route itself is
-   *    rendered once per declaring module by `#routeClause`, and only for the
-   *    witnesses a report actually lists.
+   * 1. **Bare**, where the bare spelling pastes back as this constructor —
+   *    in scope and denoting it (declared here, or the prelude's unshadowed
+   *    name), **or**, scope having nothing for the spelling, reachable through
+   *    §2.2's door (#763): a witness is a pattern, and the door is every
+   *    constructor of the scrutinee's own type and of the declared slot types
+   *    beneath it — which is exactly the constructor a coverage column names.
+   *    The ordinary case, and since the door nearly the whole of it.
+   * 2. **Qualified**, where bare would be wrong but a module alias reaches it —
+   *    `Bool.True` past an occluding local `True`, `A.Off` through an import
+   *    alias.
+   * 3. **Bare, with the route stated**, where neither exists — the
+   *    taken-spelling case, and since the door the only one left: this module
+   *    binds another `Off`, so the door (which reads scope first) does not
+   *    open, and no alias reaches the real one. The route is the module import
+   *    alone (#762), rendered once per declaring module by `#routeClause` and
+   *    only for the witnesses a report actually lists.
    */
   #constructorSpelling(
     binding: Resolved.Binding,
     home: { readonly path: string | undefined; readonly prelude: boolean },
   ): { readonly text: string; readonly route?: RouteNeed } {
     if (this.#bareNames.get(binding.name) === binding.symbol) return { text: binding.name };
+    // The door's half of tier 1. Scope holding *nothing* for the spelling is
+    // the whole test: the constructor is this column's type's own, so the
+    // expected type at the witness's position holds it by construction, and a
+    // spelling scope does bind is a different constructor, which is tier 2's
+    // case and tier 3's.
+    if (!this.#bareNames.has(binding.name)) return { text: binding.name };
     const local = this.#bareSpellings.get(binding.symbol);
     if (local !== undefined) return { text: local };
     const qualified = this.#aliasQualifications.get(binding.symbol);
@@ -8187,9 +8198,10 @@ class Checker {
    * `G.Red`.
    */
   #writtenConstructorSpelling(pattern: Resolved.ConstructorPattern): string {
-    // A head the door refused has no symbol, so no tier can be judged: the
-    // spelling the reader wrote is the only honest one to quote back.
-    if (pattern.symbol === undefined) return pattern.text;
+    // A head the door answered — or refused — was written bare, and the bare
+    // spelling is what the reader is looking at: no tier can improve on it, and
+    // a head with no symbol has no tier to judge at all.
+    if (pattern.open === true) return pattern.text;
     if (this.#bareNames.get(pattern.text) === pattern.symbol) return pattern.text;
     const local = this.#bareSpellings.get(pattern.symbol);
     if (local !== undefined) return local;
@@ -10561,7 +10573,7 @@ class Checker {
     // Every arm below asks which pre-registered constraint this requirement
     // demands, and every one of them asks by **identity** (#727). A requirement
     // carries the spelling its demand site wrote — `S` under `import { Show as
-    // S }`, `M.Show` under `import module M` — and a name-keyed arm declined for
+    // S }`, `M.Show` under `import M` — and a name-keyed arm declined for
     // both, letting the requirement fall through to the instance table so that
     // `show((1, 2))` was refused for want of an instance no module can write.
     //

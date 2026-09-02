@@ -21,8 +21,9 @@ import { compileFiles, runProject } from "../support/test-project.js";
  * - It is **last but one.** Only the compiler-owned boundary types sit behind
  *   it (§5.5's parenthetical), which is the one place it re-means a program
  *   that already resolved.
- * - It **carries no members.** The named import remains the members-carrying
- *   idiom (§3.1); the constraint half brings the name and nothing else.
+ * - It **carries no members.** A constraint's members are reached through the
+ *   alias or by the dot (§3.2, #762); the constraint half brings the name and
+ *   nothing else.
  *
  * The *other* spelling of a constraint an alias reaches — the qualified
  * `honor D.Describe<Box>`, admitted by Constraints §4.1 (#567) — is pinned by
@@ -55,7 +56,7 @@ describe("type position: §5.3's consumer, compiling", () => {
     expect(messages([
       POINT,
       ["/main.hex",
-        'import module Point from "./point"\n' +
+        'import Point from "./point"\n' +
         "export fun norm(p: Point): Float = Point.getX(p)\n"],
     ])).toEqual([]);
   });
@@ -68,7 +69,7 @@ describe("type position: §5.3's consumer, compiling", () => {
     const module = await runProject([
       POINT,
       ["/main.hex",
-        'import module Point from "./point"\n' +
+        'import Point from "./point"\n' +
         "export fun norm(p: Point): Float = Point.getX(p)\n" +
         "export let answer: Float = norm(Point.make(3.0, 4.0))\n"],
     ]);
@@ -79,7 +80,7 @@ describe("type position: §5.3's consumer, compiling", () => {
     expect(messages([
       POINT,
       ["/main.hex",
-        'import module Point from "./point"\n' +
+        'import Point from "./point"\n' +
         "export fun leak(p: Point): Float = p.x\n"],
     ])).toEqual([
       "cannot access field `x` of opaque record `Point`; " +
@@ -91,7 +92,7 @@ describe("type position: §5.3's consumer, compiling", () => {
     expect(messages([
       ["/box.hex", "export record Box(a) = {item: a}\n"],
       ["/main.hex",
-        'import module Box from "./box"\n' +
+        'import Box from "./box"\n' +
         "export fun unwrap(b: Box(Int)): Int = b.item\n"],
     ])).toEqual([]);
   });
@@ -100,7 +101,7 @@ describe("type position: §5.3's consumer, compiling", () => {
     expect(messages([
       ["/box.hex", "export record Box(a) = {item: a}\n"],
       ["/main.hex",
-        'import module Box from "./box"\n' +
+        'import Box from "./box"\n' +
         "export fun unwrap(b: Box): Int = 1\n"],
     ])).toEqual(["type `Box` expects 1 argument, but 0 were provided"]);
   });
@@ -109,13 +110,13 @@ describe("type position: §5.3's consumer, compiling", () => {
     expect(messages([
       ["/name.hex", "export type Name = String\n"],
       ["/main.hex",
-        'import module Name from "./name"\n' +
+        'import Name from "./name"\n' +
         "export fun greet(n: Name): String = n\n"],
     ])).toEqual([]);
     expect(messages([
       ["/shape.hex", "export union Shape = Dot | Line(Int)\n"],
       ["/main.hex",
-        'import module Shape from "./shape"\n' +
+        'import Shape from "./shape"\n' +
         "export fun width(s: Shape): Int = 0\n"],
     ])).toEqual([]);
   });
@@ -127,7 +128,7 @@ describe("type position: §5.3's consumer, compiling", () => {
         "    export type Host\n" +
         "    export fun make(): Host\n"],
       ["/main.hex",
-        'import module Host from "./host"\n' +
+        'import Host from "./host"\n' +
         "export fun pass(h: Host): Host = h\n" +
         "export let one: Host = Host.make!()\n"],
     ])).toEqual([]);
@@ -137,7 +138,7 @@ describe("type position: §5.3's consumer, compiling", () => {
     expect(messages([
       POINT,
       ["/main.hex",
-        'import module Point from "./point"\n' +
+        'import Point from "./point"\n' +
         "export fun norm(p: Point.Point): Float = Point.getX(p)\n"],
     ])).toEqual([]);
   });
@@ -149,7 +150,7 @@ describe("type position: §5.3's consumer, compiling", () => {
       POINT,
       ["/main.hex",
         "export fun norm(p: Point): Float = 0.0\n" +
-        'import module Point from "./point"\n'],
+        'import Point from "./point"\n'],
     ])).toEqual([]);
   });
 });
@@ -171,21 +172,24 @@ describe("occlusion: the fallback answers only where the namespace is empty", ()
     expect(messages([
       POINT,
       ["/main.hex",
-        'import module Point from "./point"\n' +
+        'import Point from "./point"\n' +
         "export record Point = {n: Int}\n" +
         "export fun mine(p: Point): Int = p.n\n" +
         "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n"],
     ])).toEqual([]);
   });
 
-  test("a named import of a differently-spelled type wins the same way", () => {
+  test("a declaration of the same spelling wins the same way", () => {
+    // What stands where the named import stood (§3.2, #762): a name wanted bare
+    // in the importer is an ordinary declaration, and it wins outright.
     expect(messages([
       ["/other.hex", "export record Point = {n: Int}\n"],
       POINT,
       ["/main.hex",
-        'import module Point from "./point"\n' +
-        'import { Point } from "./other"\n' +
-        "export fun mine(p: Point): Int = p.n\n"],
+        'import Point from "./point"\n' +
+        'import Other from "./other"\n' +
+        "type Mine = Other.Point\n" +
+        "export fun mine(p: Mine): Int = p.n\n"],
     ])).toEqual([]);
   });
 
@@ -195,7 +199,7 @@ describe("occlusion: the fallback answers only where the namespace is empty", ()
     expect(messages([
       ["/option.hex", "export record Option = {n: Int}\n"],
       ["/main.hex",
-        'import module Option from "./option"\n' +
+        'import Option from "./option"\n' +
         "export fun mine(o: Option(Int)): Int = 1\n"],
     ])).toEqual([]);
   });
@@ -206,7 +210,7 @@ describe("constraint position: the same reading, one namespace over", () => {
     expect(messages([
       RENDER,
       ["/main.hex",
-        'import module Render from "./render"\n' +
+        'import Render from "./render"\n' +
         "export fun label<a: Render>(x: a): String = Render.render(x)\n"],
     ])).toEqual([]);
   });
@@ -215,7 +219,7 @@ describe("constraint position: the same reading, one namespace over", () => {
     expect(messages([
       RENDER,
       ["/main.hex",
-        'import module Render from "./render"\n' +
+        'import Render from "./render"\n' +
         "export record Box = {n: Int}\n" +
         "honor Render<Box> =\n    render(value) = \"box\"\n"],
     ])).toEqual([]);
@@ -225,7 +229,7 @@ describe("constraint position: the same reading, one namespace over", () => {
     const module = await runProject([
       RENDER,
       ["/main.hex",
-        'import module Render from "./render"\n' +
+        'import Render from "./render"\n' +
         "export record Box = {n: Int}\n" +
         "honor Render<Box> =\n    render(value) = \"box ${value.n}\"\n" +
         "export fun label<a: Render>(x: a): String = Render.render(x)\n" +
@@ -240,7 +244,7 @@ describe("constraint position: the same reading, one namespace over", () => {
     expect(messages([
       RENDER,
       ["/main.hex",
-        'import module Render from "./render"\n' +
+        'import Render from "./render"\n' +
         "export fun label<a: Render>(x: a): String = render(x)\n"],
     ])).toEqual(["unknown name `render`"]);
   });
@@ -255,7 +259,7 @@ describe("constraint position: the same reading, one namespace over", () => {
       ["/scale.hex",
         "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n"],
       ["/main.hex",
-        'import module Scale from "./scale"\n' +
+        'import Scale from "./scale"\n' +
         "export record Matrix = {n: Float}\n" +
         "widens Scale.scale(value: Matrix, factor: Float): Matrix = " +
         "Matrix({n = value.n * factor})\n" +
@@ -268,7 +272,7 @@ describe("constraint position: the same reading, one namespace over", () => {
     expect(messages([
       RENDER,
       ["/main.hex",
-        'import module Render from "./render"\n' +
+        'import Render from "./render"\n' +
         "export constraint Render<a> =\n    draw(value: a): Int\n" +
         "export fun size<a: Render>(x: a): Int = draw(x)\n"],
     ])).toEqual([]);
@@ -285,29 +289,28 @@ describe("constraint position: the same reading, one namespace over", () => {
       RENDER,
       ["/main.hex",
         "export constraint Render<a> =\n    draw(value: a): Int\n" +
-        'import module Render from "./render"\n' +
+        'import Render from "./render"\n' +
         "export fun size<a: Render>(x: a): Int = draw(x)\n"],
     ])).toEqual([]);
   });
 
-  test("a named import of the same spelling wins, silently", () => {
+  test("the module's own declaration wins over a second alias, silently", () => {
+    // The constraint half's occlusion case, respelt for #762: no import binds a
+    // constraint name, so the only rival a bare spelling can have here is a
+    // declaration of this module's own — and it wins outright, above the alias
+    // line and below it alike.
     expect(messages([
-      ["/other.hex", "export constraint Render<a> =\n    draw(value: a): Int\n"],
       RENDER,
       ["/main.hex",
-        'import module Render from "./render"\n' +
-        'import { Render } from "./other"\n' +
+        'import Render from "./render"\n' +
+        "constraint Render<a> =\n    draw(value: a): Int\n" +
         "export fun size<a: Render>(x: a): Int = draw(x)\n"],
     ])).toEqual([]);
-  });
-
-  test("— and the named import wins from above the namespace line too", () => {
     expect(messages([
-      ["/other.hex", "export constraint Render<a> =\n    draw(value: a): Int\n"],
       RENDER,
       ["/main.hex",
-        'import { Render } from "./other"\n' +
-        'import module Render from "./render"\n' +
+        "constraint Render<a> =\n    draw(value: a): Int\n" +
+        'import Render from "./render"\n' +
         "export fun size<a: Render>(x: a): Int = draw(x)\n"],
     ])).toEqual([]);
   });
@@ -319,55 +322,48 @@ describe("constraint position: the same reading, one namespace over", () => {
     expect(messages([
       ["/show.hex", "export constraint Show<a> =\n    show(value: a): Int\n"],
       ["/main.hex",
-        'import module Show from "./show"\n' +
+        'import Show from "./show"\n' +
         "export fun size<a: Show>(x: a): String = show(x)\n"],
     ])).toEqual(["constraint `Show` is pre-registered and cannot be redeclared"]);
   });
 
-  test("a renamed alias over one exported constraint names all three repairs", () => {
+  test("a renamed alias over one exported constraint names both repairs", () => {
     // A renamed alias answers no bare spelling at all: neither the constraint's
     // own name (nothing binds it) nor the alias's (the module exports no `R`).
     // The first has no *alias* repairs to name — no alias of that spelling is
     // standing there — so it takes the family signpost instead (#577), whose
-    // `import module Render` is the realias the second arm spells out in full.
+    // alias-bearing import is the realias the second arm spells out in full.
     expect(messages([
       RENDER,
       ["/main.hex",
-        'import module R from "./render"\n' +
+        'import R from "./render"\n' +
         "export fun label<a: Render>(x: a): String = R.render(x)\n"],
     ])).toContain(
-      "unknown constraint `Render`; import its home module with " +
-        "`import module Render` for qualified access, or import the constraint by name",
+      "unknown constraint `Render`; import its home module under the alias " +
+        "`Render` for qualified access",
     );
     expect(messages([
       RENDER,
       ["/main.hex",
-        'import module R from "./render"\n' +
+        'import R from "./render"\n' +
         "export fun label<a: R>(x: a): String = R.render(x)\n"],
     ])).toContain(
       "unknown constraint `R`; `R` is a module alias — write `R.Render` for the constraint " +
-        'it exports, name it bare with `import { Render } from "./render"`, ' +
-        "or realias as `import module Render`",
+        'it exports, or realias as `import Render from "./render"`',
     );
   });
 
-  test("all three repairs the constraint message names compile", () => {
+  test("both repairs the constraint message names compile", () => {
     expect(messages([
       RENDER,
       ["/main.hex",
-        'import module R from "./render"\n' +
+        'import R from "./render"\n' +
         "export fun label<a: R.Render>(x: a): String = R.render(x)\n"],
     ])).toEqual([]);
     expect(messages([
       RENDER,
       ["/main.hex",
-        'import { Render } from "./render"\n' +
-        "export fun label<a: Render>(x: a): String = render(x)\n"],
-    ])).toEqual([]);
-    expect(messages([
-      RENDER,
-      ["/main.hex",
-        'import module Render from "./render"\n' +
+        'import Render from "./render"\n' +
         "export fun label<a: Render>(x: a): String = Render.render(x)\n"],
     ])).toEqual([]);
   });
@@ -378,7 +374,7 @@ describe("constraint position: the same reading, one namespace over", () => {
         "export constraint One<a> =\n    one(value: a): Int\n" +
         "export constraint Two<a> =\n    two(value: a): Int\n"],
       ["/main.hex",
-        'import module Lib from "./lib"\n' +
+        'import Lib from "./lib"\n' +
         "export fun size<a: Lib>(x: a): Int = 1\n"],
     ])).toContain(
       "unknown constraint `Lib`; `Lib` is a module alias — the constraints it exports " +
@@ -393,8 +389,8 @@ describe("constraint position: the same reading, one namespace over", () => {
     expect(messages([
       ["/main.hex", "export fun size<a: Nope>(x: a): Int = 1\n"],
     ])).toContain(
-      "unknown constraint `Nope`; import its home module with " +
-        "`import module Nope` for qualified access, or import the constraint by name",
+      "unknown constraint `Nope`; import its home module under the alias " +
+        "`Nope` for qualified access",
     );
   });
 });

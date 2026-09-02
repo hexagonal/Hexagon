@@ -297,7 +297,7 @@ describe("the binder set an export is told to write", () => {
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `caller` must declare every constraint in its signature; " +
       "write `<a: Lib.Heft>` — `Heft` is declared in `./lib`; " +
-      "`import module Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "`import Lib from \"./lib\"` and spell it `Lib.Heft`",
     ]);
     // Spellable, but not under the declaration's own word — the law's first
     // tier is the word the renaming import bound, not the word lib.hex wrote.
@@ -317,7 +317,7 @@ describe("the binder set an export is told to write", () => {
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `caller` must declare every constraint in its signature; " +
       "write `<a: Lib.Heft>` — `Heft` is declared in `./lib`, and this module binds " +
-      "another `Heft`; `import module Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "another `Heft`; `import Lib from \"./lib\"` and spell it `Lib.Heft`",
     ]);
   });
 

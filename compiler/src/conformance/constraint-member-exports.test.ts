@@ -339,7 +339,7 @@ describe("`Hash` stays derivable-only with its declaration in view", () => {
 describe("Rat after the fold-in", () => {
   const project = [
     ["/main.hex", [
-      "import module Rat from \"./Rat\"",
+      "import Rat from \"./Rat\"",
       "",
       "let half: Rat.Rat = Rat.create(1n, 2n)",
       "let third: Rat.Rat = Rat.create(1n, 3n)",
@@ -373,7 +373,7 @@ describe("Rat after the fold-in", () => {
   test("`divide`'s zero check moved with its body", async () => {
     const exports = await runProject([
       ["/main.hex", [
-        "import module Rat from \"./Rat\"",
+        "import Rat from \"./Rat\"",
         "",
         "export fun attempt(): String =",
         "    \"${Rat.create(1n, 2n) / Rat.create(0n, 5n)}\"",
@@ -401,7 +401,7 @@ describe("Rat after the fold-in", () => {
   test("`Num.add` at `Rat` reaches the honored member through the prelude export", async () => {
     const exports = await runProject([
       ["/main.hex", [
-        "import module Rat from \"./Rat\"",
+        "import Rat from \"./Rat\"",
         "",
         "export let bare: String =",
         "    \"${Num.add(Rat.create(1n, 2n), Rat.create(1n, 3n))}\"",

@@ -600,12 +600,18 @@ describe("`fromInt` gained a second exporter", () => {
   });
 
 
-  /** A user module's own `fromInt` is unaffected — it is not a prelude name. */
+  /**
+   * A user module's own `fromInt` is unaffected — it is not a prelude name.
+   * What stands where the named import stood (§3.2, #762): the ordinary
+   * declaration `let fromInt = Ids.fromInt` is what wants the spelling bare,
+   * and it wins outright, above the prelude layer's own refusal.
+   */
   test("a module exporting its own `fromInt` still works", async () => {
     const exports = await runProject([
       ["/ids.hex", "export let fromInt(value: Int): String = \"id-${value}\"\n"],
       ["/main.hex",
-        'import { fromInt } from "./ids"\n' +
+        'import Ids from "./ids"\n' +
+        "let fromInt = Ids.fromInt\n" +
         "export let label: String = fromInt(7)\n"],
     ]);
 

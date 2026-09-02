@@ -420,7 +420,7 @@ function moduleLevelBindings(
  * than as a live case: the named-import route is refused before it reaches here
  * — "`console` is already bound; it arrived with `import { Boxy }`, and a named
  * constraint import brings its members" (Modules §5.3's generalisation law) —
- * and the route that diagnostic offers instead, `import module …`, contributes
+ * and the route that diagnostic offers instead, `import …`, contributes
  * an alias rather than member names, so it subtracts nothing. Measured, both
  * halves. The counting is what the rule would want if that collision rule ever
  * relaxed along the route its own diagnostic names, and it costs nothing now;
@@ -490,9 +490,9 @@ function mintedImportLocals(module: Core.Module): readonly string[] {
  * only for an alias one of the module's own bindings contests (#569).
  *
  * The `* as` head is JavaScript's and survives only in emission (§11.2, #565);
- * the source line this plan renames the local of is `import module Point`.
+ * the source line this plan renames the local of is `import Point`.
  *
- * Modules §5.2 makes `import module Point from "./point"` beside a declared
+ * Modules §5.2 makes `import Point from "./point"` beside a declared
  * `Point` legal and load-bearing — it is the companion idiom — and the checker
  * reports nothing, so the two Hexagon namespaces must reach JavaScript as two
  * bindings. §11.2 already says whose problem that is: "emitted-name collisions
@@ -1691,7 +1691,7 @@ const MINTED_LOCAL_HAZARDS: ReadonlySet<string> = new Set<string>(RUNTIME_VOCABU
  * byte-identically.
  *
  * The namespace alias is in that quantity deliberately, against §1.1's grain: a
- * source `import module String …` lowers to `import * as String`, which occupies
+ * source `import String …` lowers to `import * as String`, which occupies
  * JavaScript's value-name space like any binding, where a TypeScript namespace
  * import leaves the plain type-name space alone (§1.1's measured control). The
  * two sections' triggers diverge on exactly this binding form.
@@ -2535,7 +2535,7 @@ function qualifyingAliases(
  * **Where the alias is contested, the alias yields the bare spelling to the
  * declaration** (FFI Part 7 §2.4; Modules §11.2).
  *
- * Modules §5.2 makes `import module Point from "./point"` beside a declared
+ * Modules §5.2 makes `import Point from "./point"` beside a declared
  * `Point` legal — it is the companion idiom, not an accident — so rung 3's
  * `Point.Point` can meet a top-level `Point` this same file emits. The
  * declaration is, or may become, the module's public face; the alias is internal
@@ -2571,11 +2571,11 @@ function qualifyingAliases(
  * the yield *decision*. The two are different questions asked of one set here:
  * a yielding alias must not land on a lib spelling a face needs (half 1, which
  * is why it is in `taken`), but a namespace binding does not occupy the plain
- * type-name space — measured with a control (#662) — so `import module Iterable`
+ * type-name space — measured with a control (#662) — so `import Iterable`
  * captures nothing and is not a reason for the source alias to step aside.
  * Making it one would be worse than idle: the alias would leave the universe as
  * `Iterable_1` and the file's genuinely-owed qualification would stop firing.
- * §14.6 states the outcome directly — a carried `import module Iterable`
+ * §14.6 states the outcome directly — a carried `import Iterable`
  * triggers only the licensed harmless qualification, never a yield.
  */
 function declarationAliasPlan(
@@ -8337,7 +8337,7 @@ class JavaScriptEmitter {
    * The local a namespace import binds one internal constrained export under.
    *
    * Minted rather than taken from the exporter, because the exported spelling is
-   * a function of the member's *name*: `import module Loud` and `import module Soft`
+   * a function of the member's *name*: `import Loud` and `import Soft`
    * over two modules that each declare `volume` both bring `__volume` home, and
    * binding both is `SyntaxError: Identifier has already been declared` at load,
    * after a clean compile. The exported names stay as they are — moving one to

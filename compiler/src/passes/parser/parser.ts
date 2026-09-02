@@ -1024,24 +1024,28 @@ class Parser {
       // is recognised here only to redirect. Recognition is unconditional
       // rather than gated on an uppercase name ahead, because the position
       // admits no name at all — which is what makes it total, and what makes
-      // `import module module` die in the alias seat by start class rather
+      // `import module` die in the alias seat by start class rather
       // than by a special case of its own.
       staleHead = this.#advance().span;
     }
-    // A non-uppercase-start alias is *taken*, not refused at the token: its
-    // rewrite names the specifier, which is three tokens further on, so the
-    // seat reads the word and the report waits for the path.
-    const aliasToken = this.#at("NonUpperName")
-      ? (this.#advance() as Lexed.NameToken)
-      : this.#takeName("UpperName", "module aliases must be uppercase-start names");
+    // The alias seat is *read*, not refused at the token: every message this
+    // head can give names the specifier, which is two tokens further on, so
+    // the seat takes whatever name stands in it and the report waits for the
+    // path. Two spellings are declined rather than taken — `from` standing
+    // immediately before the path, which is the head's own word and not an
+    // alias, and anything that is no name at all — and each leaves the seat
+    // empty, which the one refusal below names.
+    const takeable = this.#at("UpperName") ||
+      (this.#at("NonUpperName") &&
+        !(this.#atContextual("from") && this.#peek(1).kind === "String"));
+    const aliasToken = takeable ? (this.#advance() as Lexed.NameToken) : undefined;
+    const written = aliasToken?.kind === "UpperName";
     const alias: Parsed.Name = aliasToken === undefined
       ? { text: "Invalid", startClass: "upper" as const, span: this.#current().span }
       : parsedName(aliasToken);
     this.#expectContextual("from", "expected `from` before the module path");
     const specifier = this.#parseImportSpecifier();
-    const rewriteAlias = aliasToken === undefined || aliasToken.kind !== "UpperName"
-      ? derivedAlias(specifier.value)
-      : alias.text;
+    const rewriteAlias = written ? alias.text : derivedAlias(specifier.value);
     const rewrite = `import ${rewriteAlias} from ${JSON.stringify(specifier.value)}`;
     const staleSpan = glob ?? staleHead;
     if (staleSpan !== undefined) {
@@ -1054,8 +1058,11 @@ class Parser {
         primary: staleSpan,
         fixes: [{ message: "write `import`", edits: [{ span: staleSpan, replacement: "" }] }],
       });
-    } else if (aliasToken !== undefined && aliasToken.kind !== "UpperName") {
-      this.#refuseLowercaseAlias(alias, specifier.value);
+    } else if (!written) {
+      // The seat's own rule, which settles every degenerate spelling by start
+      // class alone — an empty seat included, since a head with no alias is a
+      // head whose alias is not uppercase-start.
+      this.#refuseAliasSeat(alias, specifier.value, aliasToken !== undefined);
     }
     return {
       kind: "Import",
@@ -1113,19 +1120,23 @@ class Parser {
    * derivation the refused heads use — the specifier's own basename, which is
    * what the author was naming the module after anyway.
    */
-  #refuseLowercaseAlias(alias: Parsed.Name, specifier: string): void {
-    const written = derivedAlias(specifier);
+  #refuseAliasSeat(alias: Parsed.Name, specifier: string, occupied: boolean): void {
+    const derived = derivedAlias(specifier);
     this.#diagnostics.add({
       severity: "error",
       message: "a module alias is uppercase-start; write " +
-        `\`import ${written} from ${JSON.stringify(specifier)}\``,
+        `\`import ${derived} from ${JSON.stringify(specifier)}\``,
       primary: alias.span,
-      ...(written === ALIAS_SLOT
+      // The fix-it needs a word to replace. An *empty* seat has none — the span
+      // is the next token's, which the edit must not eat — so the message
+      // stands alone there, the restraint every other seat in this parser keeps
+      // when it has no text to rewrite.
+      ...(!occupied || derived === ALIAS_SLOT
         ? {}
         : {
             fixes: [{
-              message: `write \`${written}\``,
-              edits: [{ span: alias.span, replacement: written }],
+              message: `write \`${derived}\``,
+              edits: [{ span: alias.span, replacement: derived }],
             }],
           }),
     });

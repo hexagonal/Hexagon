@@ -583,7 +583,7 @@ describe("§8.13 grammar boundaries", () => {
     expect(projectDiagnostics(`let f(x: _ : Nope) = x\n${TAIL}`))
       .toContain(
         "unknown constraint `Nope`; import its home module with " +
-          "`import module Nope` for qualified access, or import the constraint by name",
+          "`import Nope` for qualified access, or import the constraint by name",
       );
   });
 

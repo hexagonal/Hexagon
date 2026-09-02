@@ -712,7 +712,7 @@ export class AnalysisSession {
    * defensive: `compileProject` returns every module the program *reached*, and
    * a program that reaches `Prelude.hex` — one mention of a prelude name does
    * it — puts a compiler-injected module in the inventory. Offering it would
-   * write `import module Ordering from "./Prelude"` into the user's source,
+   * write `import Ordering from "./Prelude"` into the user's source,
    * which repairs nothing (`` module `Ordering` does not export `rank` ``) and
    * emits `import * as Ordering from "./Prelude.js"` into their JavaScript.
    * Injected sources are not what the user wrote (`isInjectedModule`'s own

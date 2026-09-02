@@ -56,18 +56,18 @@ describe("a record's derived `Hash` over a reached union component", () => {
       ["/flag.hex", "export union Flag derives (Eq, Hash) = On | Off\n"],
       [
         "/flagalias.hex",
-        "import { Flag, On, Off } from \"./flag\"\n" +
+        "import Flag from \"./flag\"\n" +
         "export type F = Flag\n" +
-        "export fun on(): F = On\n" +
-        "export fun off(): F = Off\n",
+        "export fun on(): F = Flag.On\n" +
+        "export fun off(): F = Flag.Off\n",
       ],
       [
         "/main.hex",
-        "import { F, on, off } from \"./flagalias\"\n" +
+        "import F from \"./flagalias\"\n" +
         "export record Box derives (Eq, Hash) = {f: F}\n" +
-        "export let onHash: Int = Hash.hash(Box({f = on()}))\n" +
-        "export let offHash: Int = Hash.hash(Box({f = off()}))\n" +
-        "export let equal: Bool = Box({f = on()}) == Box({f = off()})\n",
+        "export let onHash: Int = Hash.hash(Box({f = F.on()}))\n" +
+        "export let offHash: Int = Hash.hash(Box({f = F.off()}))\n" +
+        "export let equal: Bool = Box({f = F.on()}) == Box({f = F.off()})\n",
       ],
     ]);
 
@@ -84,19 +84,19 @@ describe("a record's derived `Hash` over a reached union component", () => {
       ["/shape.hex", "export union Shape derives (Eq, Hash) = Dot | Circle(radius: Int)\n"],
       [
         "/shapealias.hex",
-        "import { Shape, Dot, Circle } from \"./shape\"\n" +
+        "import Shape from \"./shape\"\n" +
         "export type S = Shape\n" +
-        "export fun dot(): S = Dot\n" +
-        "export fun circle(r: Int): S = Circle(r)\n",
+        "export fun dot(): S = Shape.Dot\n" +
+        "export fun circle(r: Int): S = Shape.Circle(r)\n",
       ],
       [
         "/main.hex",
-        "import { S, dot, circle } from \"./shapealias\"\n" +
+        "import S from \"./shapealias\"\n" +
         "export record Frame derives (Eq, Hash) = {s: S}\n" +
-        "export let three: Int = Hash.hash(Frame({s = circle(3)}))\n" +
-        "export let four: Int = Hash.hash(Frame({s = circle(4)}))\n" +
-        "export let plain: Int = Hash.hash(Frame({s = dot()}))\n" +
-        "export let threeAgain: Int = Hash.hash(Frame({s = circle(3)}))\n",
+        "export let three: Int = Hash.hash(Frame({s = S.circle(3)}))\n" +
+        "export let four: Int = Hash.hash(Frame({s = S.circle(4)}))\n" +
+        "export let plain: Int = Hash.hash(Frame({s = S.dot()}))\n" +
+        "export let threeAgain: Int = Hash.hash(Frame({s = S.circle(3)}))\n",
       ],
     ]);
 
@@ -111,17 +111,17 @@ describe("a record's derived `Hash` over a reached union component", () => {
       ["/cell.hex", "export record Cell derives (Eq, Hash) = {v: Int}\n"],
       [
         "/cellalias.hex",
-        "import { Cell } from \"./cell\"\n" +
+        "import Cell from \"./cell\"\n" +
         "export type C = Cell\n" +
         "export fun cell(v: Int): C = Cell({v = v})\n",
       ],
       [
         "/main.hex",
-        "import { C, cell } from \"./cellalias\"\n" +
+        "import C from \"./cellalias\"\n" +
         "export record Crate derives (Eq, Hash) = {c: C}\n" +
-        "export let one: Int = Hash.hash(Crate({c = cell(1)}))\n" +
-        "export let two: Int = Hash.hash(Crate({c = cell(2)}))\n" +
-        "export let oneAgain: Int = Hash.hash(Crate({c = cell(1)}))\n",
+        "export let one: Int = Hash.hash(Crate({c = C.cell(1)}))\n" +
+        "export let two: Int = Hash.hash(Crate({c = C.cell(2)}))\n" +
+        "export let oneAgain: Int = Hash.hash(Crate({c = C.cell(1)}))\n",
       ],
     ]);
 
@@ -134,11 +134,11 @@ describe("a record's derived `Hash` over a reached union component", () => {
       ["/mark.hex", "export union Mark derives (Eq, Hash) = Up | Down\n"],
       [
         "/main.hex",
-        "import { Mark, Up, Down } from \"./mark\"\n" +
+        "import Mark from \"./mark\"\n" +
         "export record Slot derives (Eq, Hash) = {m: Mark}\n" +
-        "export let up: Int = Hash.hash(Slot({m = Up}))\n" +
-        "export let down: Int = Hash.hash(Slot({m = Down}))\n" +
-        "export let upAgain: Int = Hash.hash(Slot({m = Up}))\n",
+        "export let up: Int = Hash.hash(Slot({m = Mark.Up}))\n" +
+        "export let down: Int = Hash.hash(Slot({m = Mark.Down}))\n" +
+        "export let upAgain: Int = Hash.hash(Slot({m = Mark.Up}))\n",
       ],
     ]);
 
@@ -154,17 +154,17 @@ describe("the `Eq` law through the hash-backed collections (#609's severer half)
       ["/a.hex", "export union Ring derives (Eq, Hash) = Nil | Node(size: Int)\n"],
       [
         "/b.hex",
-        "import { Ring, Nil, Node } from \"./a\"\n" +
+        "import Ring from \"./a\"\n" +
         "export type R = Ring\n" +
-        "export fun node(n: Int): R = Node(n)\n",
+        "export fun node(n: Int): R = Ring.Node(n)\n",
       ],
       [
         "/main.hex",
-        "import { R, node } from \"./b\"\n" +
-        "let rings: Set({r: R}) = Set.add(Set.add(Set.empty, {r = node(3)}), {r = node(3)})\n" +
+        "import R from \"./b\"\n" +
+        "let rings: Set({r: R}) = Set.add(Set.add(Set.empty, {r = R.node(3)}), {r = R.node(3)})\n" +
         "export let count: Int = Set.size(rings)\n" +
-        "export let found: Bool = Set.contains(rings, {r = node(3)})\n" +
-        "export let absent: Bool = Set.contains(rings, {r = node(4)})\n",
+        "export let found: Bool = Set.contains(rings, {r = R.node(3)})\n" +
+        "export let absent: Bool = Set.contains(rings, {r = R.node(4)})\n",
       ],
     ]);
 
@@ -181,17 +181,17 @@ describe("the `Eq` law through the hash-backed collections (#609's severer half)
       ["/keys.hex", "export union Key derives (Eq, Hash) = Anon | Named(id: Int)\n"],
       [
         "/keysalias.hex",
-        "import { Key, Anon, Named } from \"./keys\"\n" +
+        "import Key from \"./keys\"\n" +
         "export type K = Key\n" +
-        "export fun named(id: Int): K = Named(id)\n",
+        "export fun named(id: Int): K = Key.Named(id)\n",
       ],
       [
         "/main.hex",
-        "import { K, named } from \"./keysalias\"\n" +
+        "import K from \"./keysalias\"\n" +
         "let table: Map({k: K}, Int) =\n" +
-        "    Map.set(Map.set(Map.empty, {k = named(7)}, 1), {k = named(7)}, 2)\n" +
+        "    Map.set(Map.set(Map.empty, {k = K.named(7)}, 1), {k = K.named(7)}, 2)\n" +
         "export let entries: Int = Map.size(table)\n" +
-        "export let bound: Bool = Map.containsKey(table, {k = named(7)})\n",
+        "export let bound: Bool = Map.containsKey(table, {k = K.named(7)})\n",
       ],
     ]);
 
@@ -204,10 +204,10 @@ describe("the `Eq` law through the hash-backed collections (#609's severer half)
       ["/tone.hex", "export union Tone derives (Eq, Hash) = Flat | Sharp(step: Int)\n"],
       [
         "/main.hex",
-        "import { Tone, Flat, Sharp } from \"./tone\"\n" +
-        "let tones: Set({t: Tone}) = Set.add(Set.add(Set.empty, {t = Sharp(2)}), {t = Sharp(2)})\n" +
+        "import Tone from \"./tone\"\n" +
+        "let tones: Set({t: Tone}) = Set.add(Set.add(Set.empty, {t = Tone.Sharp(2)}), {t = Tone.Sharp(2)})\n" +
         "export let count: Int = Set.size(tones)\n" +
-        "export let found: Bool = Set.contains(tones, {t = Sharp(2)})\n",
+        "export let found: Bool = Set.contains(tones, {t = Tone.Sharp(2)})\n",
       ],
     ]);
 

@@ -578,12 +578,18 @@ describe("`mod` and `rem` gained a second exporter", () => {
     expect(exports["generic"]).toBe(1);
   });
 
-  /** A user module's own `mod` is unaffected — it is not a prelude name. */
+  /**
+   * A user module's own `mod` is unaffected — it is not a prelude name. What
+   * stands where the named import stood (§3.2, #762): the ordinary
+   * declaration `let mod = Clock.mod` is what wants the spelling bare, and it
+   * wins outright, above the prelude layer's own refusal.
+   */
   test("a module exporting its own `mod` still works", () => {
     expect(diagnostics([
       ["/clock.hex", "export let mod(value: Int, by: Int): String = \"tick\"\n"],
       ["/main.hex",
-        'import { mod } from "./clock"\n' +
+        'import Clock from "./clock"\n' +
+        "let mod = Clock.mod\n" +
         "export let label: String = mod(7, 3)\n"],
     ])).toEqual([]);
   });

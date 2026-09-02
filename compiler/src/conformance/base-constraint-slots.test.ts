@@ -101,18 +101,18 @@ const WEIGH_LIB = [
 
 /** The consumer of an extending constraint, honoring both at its own record. */
 const WEIGH_MAIN = [
-  'import { Both, use } from "./mid.hex"',
-  'import { Weigh } from "./lib.hex"',
+  'import Mid from "./mid.hex"',
+  'import Lib from "./lib.hex"',
   "",
   "record Wrap = {n: Int}",
   "",
-  "honor Weigh<Wrap> =",
+  "honor Lib.Weigh<Wrap> =",
   '    weigh(value) = "wrap"',
   "",
-  "honor Both<Wrap> =",
+  "honor Mid.Both<Wrap> =",
   '    label(value) = "wb"',
   "",
-  "export let r: String = use(Wrap({n = 1}))",
+  "export let r: String = Mid.use(Wrap({n = 1}))",
   "",
 ].join("\n");
 
@@ -125,13 +125,20 @@ function weighGraph(mid: string): readonly (readonly [string, string])[] {
 }
 
 describe("a base constraint's slot follows its declaration, not the spelling", () => {
+  // Under #762 an import binds a module alias and nothing smaller, so the old
+  // `import { Weigh as Heft }` — a *bare local rename* of the constraint — has
+  // no seat left: nothing renames a constraint any more, only the module alias
+  // qualifying it can be spelled however the importer likes. `Heft` here is
+  // that alias, chosen to look nothing like `Weigh`, so the claim is the same
+  // one the old fixture pinned: the module alias's own spelling never moves
+  // the slot, which is minted from the base declaration's identity.
   const ALIASED = [
-    'import { Weigh as Heft } from "./lib.hex"',
+    'import Heft from "./lib.hex"',
     "",
-    "export constraint Both<a: Heft> =",
+    "export constraint Both<a: Heft.Weigh> =",
     "    label(value: a): String",
     "",
-    'export let use<a: Both>(n: a): String = "${weigh(n)}/${label(n)}"',
+    'export let use<a: Both>(n: a): String = "${Heft.weigh(n)}/${label(n)}"',
     "",
   ].join("\n");
 
@@ -140,7 +147,7 @@ describe("a base constraint's slot follows its declaration, not the spelling", (
     // wrote `weigh:` — no diagnostic, and `Cannot read properties of undefined`
     // at run time from a module that spells neither word.
     expect(emitted(weighGraph(ALIASED), "/mid.hex")).toContain(
-      'const use = (n, __Both_a) => weigh(n, __Both_a.Weigh) + "/" + label(n, __Both_a);',
+      'const use = (n, __Both_a) => __weigh(n, __Both_a.Weigh) + "/" + label(n, __Both_a);',
     );
   });
 
@@ -152,7 +159,7 @@ describe("a base constraint's slot follows its declaration, not the spelling", (
   });
 
   const QUALIFIED = [
-    'import module L from "./lib.hex"',
+    'import L from "./lib.hex"',
     "",
     "export constraint Both<a: L.Weigh> =",
     "    label(value: a): String",
@@ -195,33 +202,34 @@ describe("two same-spelled bases both stay reachable", () => {
   }
 
   const MID = [
-    'import { Tag } from "./lib1.hex"',
-    'import { Tag as Tag2 } from "./lib2.hex"',
+    'import Lib1 from "./lib1.hex"',
+    'import Lib2 from "./lib2.hex"',
     "",
-    "export constraint Both<a: (Tag, Tag2)> =",
+    "export constraint Both<a: (Lib1.Tag, Lib2.Tag)> =",
     "    label(value: a): String",
     "",
-    'export let use<a: Both>(n: a): String = "${one(n)}/${two(n)}/${label(n)}"',
+    'export let use<a: Both>(n: a): String = ' +
+      '"${Lib1.one(n)}/${Lib2.two(n)}/${label(n)}"',
     "",
   ].join("\n");
 
   const MAIN = [
-    'import { Both, use } from "./mid.hex"',
-    'import { Tag } from "./lib1.hex"',
-    'import { Tag as Tag2 } from "./lib2.hex"',
+    'import Mid from "./mid.hex"',
+    'import Lib1 from "./lib1.hex"',
+    'import Lib2 from "./lib2.hex"',
     "",
     "record Wrap = {n: Int}",
     "",
-    "honor Tag<Wrap> =",
+    "honor Lib1.Tag<Wrap> =",
     '    one(value) = "first"',
     "",
-    "honor Tag2<Wrap> =",
+    "honor Lib2.Tag<Wrap> =",
     '    two(value) = "second"',
     "",
-    "honor Both<Wrap> =",
+    "honor Mid.Both<Wrap> =",
     '    label(value) = "both"',
     "",
-    "export let r: String = use(Wrap({n = 1}))",
+    "export let r: String = Mid.use(Wrap({n = 1}))",
     "",
   ].join("\n");
 
@@ -243,7 +251,7 @@ describe("two same-spelled bases both stay reachable", () => {
   test("and each base's demand reads its own slot", () => {
     expect(emitted(GRAPH, "/mid.hex")).toContain(
       "const use = (n, __Both_a) => " +
-        'one(n, __Both_a.Tag) + "/" + two(n, __Both_a.Tag_1) + "/" + label(n, __Both_a);',
+        '__one(n, __Both_a.Tag) + "/" + __two(n, __Both_a.Tag_1) + "/" + label(n, __Both_a);',
     );
   });
 
@@ -270,37 +278,38 @@ describe("two same-spelled bases both stay reachable", () => {
       ].join("\n");
     }
     const mid = [
-      'import { Tag } from "./lib1.hex"',
-      'import { Tag as Tag2 } from "./lib2.hex"',
-      'import { Tag_1 } from "./lib3.hex"',
+      'import Lib1 from "./lib1.hex"',
+      'import Lib2 from "./lib2.hex"',
+      'import Lib3 from "./lib3.hex"',
       "",
-      "export constraint Both<a: (Tag, Tag2, Tag_1)> =",
+      "export constraint Both<a: (Lib1.Tag, Lib2.Tag, Lib3.Tag_1)> =",
       "    label(value: a): String",
       "",
-      'export let use<a: Both>(n: a): String = "${one(n)}/${two(n)}/${three(n)}/${label(n)}"',
+      'export let use<a: Both>(n: a): String = ' +
+        '"${Lib1.one(n)}/${Lib2.two(n)}/${Lib3.three(n)}/${label(n)}"',
       "",
     ].join("\n");
     const main = [
-      'import { Both, use } from "./mid.hex"',
-      'import { Tag } from "./lib1.hex"',
-      'import { Tag as Tag2 } from "./lib2.hex"',
-      'import { Tag_1 } from "./lib3.hex"',
+      'import Mid from "./mid.hex"',
+      'import Lib1 from "./lib1.hex"',
+      'import Lib2 from "./lib2.hex"',
+      'import Lib3 from "./lib3.hex"',
       "",
       "record Wrap = {n: Int}",
       "",
-      "honor Tag<Wrap> =",
+      "honor Lib1.Tag<Wrap> =",
       '    one(value) = "first"',
       "",
-      "honor Tag2<Wrap> =",
+      "honor Lib2.Tag<Wrap> =",
       '    two(value) = "second"',
       "",
-      "honor Tag_1<Wrap> =",
+      "honor Lib3.Tag_1<Wrap> =",
       '    three(value) = "third"',
       "",
-      "honor Both<Wrap> =",
+      "honor Mid.Both<Wrap> =",
       '    label(value) = "both"',
       "",
-      "export let r: String = use(Wrap({n = 1}))",
+      "export let r: String = Mid.use(Wrap({n = 1}))",
       "",
     ].join("\n");
     const graph: readonly (readonly [string, string])[] = [
@@ -319,8 +328,8 @@ describe("two same-spelled bases both stay reachable", () => {
     // Read side: the same three spellings, projected out of the one binder.
     expect(emitted(graph, "/mid.hex")).toContain(
       "const use = (n, __Both_a) => " +
-        'one(n, __Both_a.Tag) + "/" + two(n, __Both_a.Tag_2) + "/" + ' +
-        'three(n, __Both_a.Tag_1) + "/" + label(n, __Both_a);',
+        '__one(n, __Both_a.Tag) + "/" + __two(n, __Both_a.Tag_2) + "/" + ' +
+        '__three(n, __Both_a.Tag_1) + "/" + label(n, __Both_a);',
     );
     const exports = await runProject([...graph], {
       transform: distinct("base-slot-flattening"),
@@ -352,7 +361,7 @@ describe("a base list names each declaration once", () => {
     // one module — `Identifier '__weigh' has already been declared`, at load.
     const mid = [
       'import { Weigh } from "./lib.hex"',
-      'import module L from "./lib.hex"',
+      'import L from "./lib.hex"',
       "",
       "export constraint Both<a: (Weigh, L.Weigh)> =",
       "    label(value: a): String",
@@ -371,7 +380,7 @@ describe("a base list names each declaration once", () => {
     // choose between, and the declaration they turned out to share.
     const mid = [
       'import { Weigh as Heft } from "./lib.hex"',
-      'import module L from "./lib.hex"',
+      'import L from "./lib.hex"',
       "",
       "export constraint Both<a: (Heft, L.Weigh)> =",
       "    label(value: a): String",
@@ -419,7 +428,7 @@ describe("a base list names each declaration once", () => {
     // suppresses the pair's refusal nor joins it.
     const mid = [
       'import { Weigh as Heft } from "./lib.hex"',
-      'import module L from "./lib.hex"',
+      'import L from "./lib.hex"',
       "",
       "export constraint Both<a: (Heft, L.Weigh, Bogus)> =",
       "    label(value: a): String",

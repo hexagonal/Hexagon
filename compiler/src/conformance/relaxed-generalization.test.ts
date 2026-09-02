@@ -432,7 +432,7 @@ describe("§6 declared variance on `opaque`", () => {
   });
 
   test("§6.4 a union's claim travels with the imported declaration", () => {
-    const client = 'import module B from "./box.hex"\n' +
+    const client = 'import B from "./box.hex"\n' +
       "let b = B.makeBox()\n" +
       "export let n: B.Box(Int) = b\n" +
       "export let s: B.Box(String) = b\n";
@@ -453,7 +453,7 @@ describe("§6 declared variance on `opaque`", () => {
         "exception Empty\n" +
         "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n"],
       ["/main.hex",
-        'import module B from "./box.hex"\n' +
+        'import B from "./box.hex"\n' +
         "let b = B.makeBox()\n" +
         "export let n: B.Box(Int) = b\n" +
         "export let s: B.Box(String) = b\n"],
@@ -487,7 +487,7 @@ describe("§6 declared variance on `opaque`", () => {
     const with_ = compileFiles([
       ["/box.hex", BOX],
       ["/mid.hex", MID],
-      ["/main.hex", 'import module Unused from "./box.hex"\n' + MAIN],
+      ["/main.hex", 'import Unused from "./box.hex"\n' + MAIN],
     ]);
     expect(without.diagnostics.map(({ message }) => message))
       .toEqual(with_.diagnostics.map(({ message }) => message));
@@ -500,14 +500,14 @@ const BOX = "opaque record Box(+a) = { get: () -> a }\n" +
   "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n";
 
 /** Re-exports `Box` under an alias, so the declaration's own name never travels. */
-const MID = 'import { Box, makeBox } from "./box.hex"\n' +
-  "export type Crate(a) = Box(a)\n" +
-  "export fun makeCrate<a>(): Crate(a) = makeBox()\n";
+const MID = 'import BoxHex from "./box.hex"\n' +
+  "export type Crate(a) = BoxHex.Box(a)\n" +
+  "export fun makeCrate<a>(): Crate(a) = BoxHex.makeBox()\n";
 
-const MAIN = 'import { Crate, makeCrate } from "./mid.hex"\n' +
-  "let c = makeCrate()\n" +
-  "export let n: Crate(Int) = c\n" +
-  "export let s: Crate(String) = c\n";
+const MAIN = 'import MidHex from "./mid.hex"\n' +
+  "let c = MidHex.makeCrate()\n" +
+  "export let n: MidHex.Crate(Int) = c\n" +
+  "export let s: MidHex.Crate(String) = c\n";
 
 describe("§6.1 the sigil grammar", () => {
   test("a sigil on a transparent declaration is a parse error", () => {

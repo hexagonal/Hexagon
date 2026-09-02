@@ -152,7 +152,7 @@ describe("ordered intra-prelude visibility", () => {
 describe("emission follows the new dependency edge", () => {
   const USES_RESULT = [
     "/main.hex",
-    "import module R from \"./Result\"\n" +
+    "import R from \"./Result\"\n" +
     "export fun use(r: Result(Int, Int)): Option(Int) = R.toOption(r)\n",
   ] as const;
 
@@ -170,7 +170,7 @@ describe("emission follows the new dependency edge", () => {
    */
   const RESULT_IMPORTING_OPTION = [
     "/Result.hex",
-    "import module O from \"./Option\"\n" +
+    "import O from \"./Option\"\n" +
     "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
     "export fun toOption(result: Result(a, e)): O.Option(a) =\n" +
     "    match result\n" +

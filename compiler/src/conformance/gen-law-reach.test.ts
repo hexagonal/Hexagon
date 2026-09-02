@@ -19,8 +19,11 @@ import { compileFiles, projectDiagnostics, runProject } from "../support/test-pr
  * where nothing is prelude-gated and every verdict can be shown side by side:
  * the declaration compiles and all three faces run, a bare in-module use beside
  * the lawful pair resolves to the widens binding at both argument shapes, and
- * the two carves — the declaring module and the named import — keep the prior
- * refusals, the law unconsulted.
+ * the carve — a spelling that is already an ordinary binding, in the declaring
+ * module or anywhere else — keeps the prior refusal, the law unconsulted.
+ * (An import brings only a module alias into scope now (#762), so the second
+ * carve this file used to pin — a named import's members colliding with a
+ * would-be door — has no program left that reaches it.)
  *
  * The behavioural half of the law is what makes the route pins necessary rather
  * than fussy: since #546 the door and the member agree on the whole shared
@@ -58,7 +61,7 @@ function matrixModule(
 ): string {
   return [
     `// matrix ${tag}`,
-    "import module Scale from \"./scale\"",
+    "import Scale from \"./scale\"",
     "",
     "export record Matrix = {n: Float}",
     "",
@@ -111,8 +114,8 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
       ["/matrix.hex", matrixModule("three faces", DOOR)],
       ["/main.hex", [
         "// consumer, three faces",
-        "import module Matrix from \"./matrix\"",
-        "import module Scale from \"./scale\"",
+        "import Matrix from \"./matrix\"",
+        "import Scale from \"./scale\"",
         "",
         "let m: Matrix.Matrix = Matrix.Matrix({n = 4.0})",
         "export let qualified: Float = Matrix.scale(m, 2.5).n",
@@ -137,8 +140,8 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
       ["/matrix.hex", matrixModule("routes", DOOR)],
       ["/main.hex", [
         "// consumer, routes",
-        "import module Matrix from \"./matrix\"",
-        "import module Scale from \"./scale\"",
+        "import Matrix from \"./matrix\"",
+        "import Scale from \"./scale\"",
         "",
         "let m: Matrix.Matrix = Matrix.Matrix({n = 4.0})",
         "export let dotted: Float = m.scale(2.5).n",
@@ -170,7 +173,7 @@ describe("`honor` may stand above the declaration it accounts for (§4.7)", () =
   function blockFirst(tag: string): string {
     return [
       `// matrix ${tag}`,
-      "import module Scale from \"./scale\"",
+      "import Scale from \"./scale\"",
       "",
       "export record Matrix = {n: Float}",
       "",
@@ -292,7 +295,7 @@ describe("what the law refuses at the same reach (Constraints §4.7)", () => {
       ["/scale.hex", scaleModule("export rewrite")],
       ["/matrix.hex", [
         "// export rewrite",
-        "import module Scale from \"./scale\"",
+        "import Scale from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -312,7 +315,19 @@ describe("what the law refuses at the same reach (Constraints §4.7)", () => {
   });
 });
 
-describe("the two carves: where the law is never consulted (Modules §5.3)", () => {
+describe("where the law is never consulted (Modules §5.3)", () => {
+  // #762 retired the other carve this section used to pin: a named import
+  // brought a constraint's members into scope as ordinary bindings, so a
+  // would-be door collided with the *import item* and earned a hint of its
+  // own ("it arrived with `import { Scale }`, and a named constraint import
+  // brings its members …"). An import binds a module alias now and nothing
+  // smaller (Modules §3.2) — there is no route left by which a member arrives
+  // in scope unwritten, so that collision, its hint, and the aliased- and
+  // coexisting-alias variants of it have no seat to re-aim at and are gone.
+  // What remains is the carve that was never about imports at all: a name
+  // already bound, in the plain rebinding form the law never gets asked
+  // about.
+
   test("the declaring module's own spelling is the member's forwarder", () => {
     // Not the exemption's business at all: the spelling is already an ordinary
     // binding — the declaration's exported bare face — so the prior refusal
@@ -338,129 +353,18 @@ describe("the two carves: where the law is never consulted (Modules §5.3)", () 
     ]);
   });
 
-  test("a named constraint import brings its members, and the door is that collision", () => {
-    // Modules §3.1's family, with the repair taught (#544): the members arrive
-    // as ordinary bindings, so the would-be door is an ordinary rebinding — and
-    // the prior binding it names is the *import item*, in this module, rather
-    // than the member's line in the imported file.
-    const diagnostics = compileFiles([
-      ["/scale.hex", scaleModule("named import carve")],
-      ["/matrix.hex", [
-        "// named import carve",
-        "import { Scale } from \"./scale\"",
-        "",
-        "export record Matrix = {n: Float}",
-        "",
-        "export let scale(value: Matrix, factor: Float): Matrix = " +
-          "Matrix({n = value.n * factor})",
-        "",
-        "honor Scale<Matrix> =",
-        "    scale(value, factor) = Matrix({n = value.n * factor})",
-        "",
-      ].join("\n")],
-    ]).diagnostics.map(({ message }) => message);
-
-    expect(diagnostics).toEqual([
-      "`scale` is already bound (line 2); it arrived with `import { Scale }`, " +
-        "and a named constraint import brings its members — to widen `scale` " +
-        "lawfully, import the module instead (`import module …`), or choose a " +
-        "different export name (Modules §5.3's generalisation law).",
-    ]);
-  });
-
-  test("the hint follows the import item's spelling, aliased or not", () => {
-    // §3.2: an alias renames the constraint only, and the members arrive under
-    // their declared names — so the repair has to quote the item as written.
-    const diagnostics = compileFiles([
-      ["/scale.hex", scaleModule("aliased carve")],
-      ["/matrix.hex", [
-        "// aliased carve",
-        "import { Scale as Sizing } from \"./scale\"",
-        "",
-        "export record Matrix = {n: Float}",
-        "",
-        "export let scale(value: Matrix, factor: Float): Matrix = value",
-        "",
-      ].join("\n")],
-    ]).diagnostics.map(({ message }) => message);
-
-    expect(diagnostics).toEqual([
-      "`scale` is already bound (line 2); it arrived with " +
-        "`import { Scale as Sizing }`, and a named constraint import brings its " +
-        "members — to widen `scale` lawfully, import the module instead " +
-        "(`import module …`), or choose a different export name (Modules §5.3's " +
-        "generalisation law).",
-    ]);
-  });
-
-  test("a coexisting namespace alias makes the head spellable, and changes nothing", () => {
-    // §4.6's third seat, in the shape it is actually about (#546): with an alias
-    // for the declaring module beside the named import, the `widens` head *can*
-    // be spelled — and the declaration is refused all the same, the
-    // ordinary-binding claim standing. What the message cannot say here is
-    // "choose a different export name": this is not an export and its name is
-    // derived, so the hint names what must go instead — the named import — with
-    // the namespace route as the door-builder's form.
-    const diagnostics = compileFiles([
-      ["/scale.hex", scaleModule("coexisting alias")],
-      ["/matrix.hex", [
-        "// coexisting alias",
-        "import module Sizing from \"./scale\"",
-        "import { Scale } from \"./scale\"",
-        "",
-        "export record Matrix = {n: Float}",
-        "",
-        "widens Sizing.scale(value: Matrix, factor: Float): Matrix =",
-        "    Matrix({n = value.n * factor})",
-        "",
-        "honor Scale<Matrix> =",
-        "    scale = widened",
-        "",
-      ].join("\n")],
-    ]).diagnostics.map(({ message }) => message);
-
-    expect(diagnostics).toEqual([
-      "`scale` is already bound (line 3); it arrived with `import { Scale }`, " +
-        "and a named constraint import brings its members — a `widens` " +
-        "declaration cannot unseat an ordinary binding and has no name of its " +
-        "own to choose, so the named import is what must go: reach the " +
-        "constraint through `import module …` instead (Modules §5.3's " +
-        "generalisation law).",
-    ]);
-  });
-
-  test("a private binding beside an arriving member keeps the plain refusal", () => {
-    // The hint is the *door*-builder's: only an exported binding could have been
-    // a generalising export, so a private one has nothing to be told about the
-    // law and keeps the refusal it always had.
-    const diagnostics = compileFiles([
-      ["/scale.hex", scaleModule("private beside member")],
-      ["/matrix.hex", [
-        "// private beside member",
-        "import { Scale } from \"./scale\"",
-        "",
-        "export record Matrix = {n: Float}",
-        "",
-        "let scale(value: Matrix, factor: Float): Matrix = value",
-        "",
-      ].join("\n")],
-    ]).diagnostics.map(({ message }) => message);
-
-    expect(diagnostics).toEqual([
-      "`scale` is already bound (line 3); Hexagon does not allow rebinding — " +
-        "choose a different name.",
-    ]);
-  });
-
   test("an ordinary imported term keeps the plain refusal too", () => {
-    // The hint reads *how the name arrived*, not merely that an import bound it.
-    // `scaledTwice` is an ordinary export, so its collision has no door to build
-    // and no constraint to re-import.
+    // Modules §3.2's bare-declaration route (`let scaledTwice = Scale.scaledTwice`)
+    // is an ordinary local binding, same as if it had been written out by hand —
+    // so its collision with a later export is the plain refusal, with no import
+    // machinery anywhere in the message.
     const diagnostics = compileFiles([
       ["/scale.hex", scaleModule("ordinary import")],
       ["/matrix.hex", [
         "// ordinary import",
-        "import { scaledTwice } from \"./scale\"",
+        "import Scale from \"./scale\"",
+        "",
+        "let scaledTwice = Scale.scaledTwice",
         "",
         "export let scaledTwice(n: Int): Int = n",
         "",
@@ -468,7 +372,7 @@ describe("the two carves: where the law is never consulted (Modules §5.3)", () 
     ]).diagnostics.map(({ message }) => message);
 
     expect(diagnostics).toEqual([
-      "`scaledTwice` is already bound (line 7); Hexagon does not allow " +
+      "`scaledTwice` is already bound (line 4); Hexagon does not allow " +
         "rebinding — choose a different name.",
     ]);
   });

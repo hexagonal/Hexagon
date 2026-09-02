@@ -261,14 +261,14 @@ describe("the zero-entry-point list (§3.4)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import {heaviest, Weighty} from \"./lib.hex\"",
+        "import LibHex from \"./lib.hex\"",
         "",
         "export record Grams = {n: Float}",
         "",
-        "honor Weighty<Grams> =",
+        "honor LibHex.Weighty<Grams> =",
         "    weight(g) = g.n",
         "",
-        "export fun heaviestGrams(x: Grams): Float = heaviest(x)",
+        "export fun heaviestGrams(x: Grams): Float = LibHex.heaviest(x)",
         "",
       ].join("\n")],
     ]);

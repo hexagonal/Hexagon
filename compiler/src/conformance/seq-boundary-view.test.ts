@@ -669,12 +669,12 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
         "export let identical(left: Seq(Int), right: Seq(Int)): Bool =\n" +
         "    Seq.length(left) == Seq.length(right)\n"],
       ["/main.hex",
-        "import { firstOf, identical } from \"./lib.hex\"\n" +
+        "import LibHex from \"./lib.hex\"\n" +
         "\n" +
         "let shared: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
         "\n" +
-        "export let head: Option(Int) = firstOf(shared)\n" +
-        "export let same: Bool = identical(shared, shared)\n"],
+        "export let head: Option(Int) = LibHex.firstOf(shared)\n" +
+        "export let same: Bool = LibHex.identical(shared, shared)\n"],
     ]);
     expect(exports["head"]).toEqual({ tag: "Some", value: 1 });
     expect(exports["same"]).toBe(true);
@@ -691,14 +691,14 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
         ["/lib.hex",
           "export let twice(source: Seq(Int)): Int = Seq.length(source) + Seq.length(source)\n"],
         ["/main.hex",
-          "import { twice } from \"./lib.hex\"\n" +
+          "import LibHex from \"./lib.hex\"\n" +
           "extern from \"probe\"\n" +
           "    pure fun note(value: Int): Int\n" +
           "    fun steps(): Int\n" +
           "\n" +
           "let counted: Seq(Int) = Seq.map(Seq.take(Seq.iterate(1, x => x + 1), 3), note)\n" +
           "\n" +
-          "export let total: Int = twice(counted)\n" +
+          "export let total: Int = LibHex.twice(counted)\n" +
           "export let observed(ignored: Int): Int = steps!()\n"],
       ],
       {

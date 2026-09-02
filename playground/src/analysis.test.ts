@@ -455,7 +455,7 @@ describe("the session across requests", () => {
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Helper\n";
     const caller = "module Extra\n" +
-      '    import module Helper from "./Helper"\n' +
+      '    import Helper from "./Helper"\n' +
       "    export fun quadruple(n: Int): Int = Helper.twice(Helper.twice(n))\n" +
       "end module Extra\n" +
       "Debug.log(\"${Extra.quadruple(3)}\")\n";

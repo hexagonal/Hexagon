@@ -90,7 +90,7 @@ describe("row 1 — a namespace alias beside a same-spelled declaration (TS2440,
       ],
       [
         "/main.hex",
-        'import module Point from "./point"\n' +
+        'import Point from "./point"\n' +
           "export record Point = {n: Int}\n" +
           "export fun mine(p: Point): Int = p.n\n" +
           "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n",
@@ -119,7 +119,7 @@ describe("row 1 — a namespace alias beside a same-spelled declaration (TS2440,
       ],
       [
         "/main.hex",
-        'import module Point from "./point"\n' +
+        'import Point from "./point"\n' +
           "export record Point = {n: Int}\n" +
           "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n",
       ],
@@ -142,7 +142,7 @@ describe("row 2 — a namespace alias beside a named import of the same spelling
       ["/other.hex", "export record Point = {n: Int}\n"],
       [
         "/main.hex",
-        'import module Point from "./point"\n' +
+        'import Point from "./point"\n' +
           'import { Point } from "./other"\n' +
           "export fun mine(p: Point): Int = p.n\n",
       ],
@@ -165,7 +165,7 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
       ["/lib.hex", "export record Point = {x: Float, y: Float}\n"],
       [
         "/main.hex",
-        'import module Lib from "./lib"\nexport fun mk(p: Lib.Point): Lib.Point = p\n',
+        'import Lib from "./lib"\nexport fun mk(p: Lib.Point): Lib.Point = p\n',
       ],
     ]);
 
@@ -192,7 +192,7 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
       ],
       [
         "/main.hex",
-        'import module Lib from "./lib"\n' +
+        'import Lib from "./lib"\n' +
           "export let o: Lib.Point = Lib.origin\n" +
           "export let c: Lib.Color = Lib.Red\n" +
           "export let arrow: (Lib.Point) -> Lib.Point = Lib.identity\n",
@@ -215,7 +215,7 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
       ],
       [
         "/main.hex",
-        'import module Lib from "./lib"\n' +
+        'import Lib from "./lib"\n' +
           "export let r: {p: Lib.Point} = {p = Lib.origin}\n" +
           "export fun f(v: {p: Lib.Point}): Int = 0\n",
       ],
@@ -243,7 +243,7 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
       ["/lib.hex", "export record Point = {x: Float, y: Float}\n"],
       [
         "/main.hex",
-        'import module Lib from "./lib"\n' +
+        'import Lib from "./lib"\n' +
           "export record Wrap = {inner: Lib.Point}\n" +
           "export union Holder = Held(p: Lib.Point)\n" +
           "export exception Bad(p: Lib.Point)\n",
@@ -268,12 +268,12 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
       ["/other.hex", "export record Point = {n: Int}\nexport let one: Int = 1\n"],
       [
         "/mid.hex",
-        'import module Lib from "./lib"\nexport type Carried = Lib.Point\n' +
+        'import Lib from "./lib"\nexport type Carried = Lib.Point\n' +
           "export fun pass(p: Carried): Carried = p\n",
       ],
       [
         "/main.hex",
-        'import module Lib from "./other"\nimport { pass, Carried } from "./mid"\n' +
+        'import Lib from "./other"\nimport { pass, Carried } from "./mid"\n' +
           "export fun here(p: Carried): Carried = pass(p)\n" +
           "export fun mine(p: Lib.Point): Lib.Point = p\n" +
           "export let n: Int = Lib.one\n",
@@ -304,7 +304,7 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
       ["/other.hex", "export let one: Int = 1\n"],
       [
         "/mid.hex",
-        'import module Lib from "./lib"\nexport type Carried = Lib.Point\n' +
+        'import Lib from "./lib"\nexport type Carried = Lib.Point\n' +
           "export fun pass(p: Carried): Carried = p\n",
       ],
       [
@@ -313,7 +313,7 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
       ],
       [
         "/main.hex",
-        'import module Lib from "./other"\nimport { pass, Carried } from "./mid"\n' +
+        'import Lib from "./other"\nimport { pass, Carried } from "./mid"\n' +
           'import { two, W } from "./mid2"\n' +
           "export fun here(p: Carried): Carried = pass(p)\n" +
           "export let w: W = two()\nexport let n: Int = Lib.one\n",
@@ -337,7 +337,7 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
       ["/lib.hex", "export record Point = {x: Float, y: Float}\n"],
       [
         "/main.hex",
-        'import module A from "./lib"\nimport module B from "./lib"\n' +
+        'import A from "./lib"\nimport B from "./lib"\n' +
           "export fun first(p: A.Point): A.Point = p\n" +
           "export fun second(p: B.Point): B.Point = p\n",
       ],
@@ -364,7 +364,7 @@ describe("row 4 — a bare face in scope only by the companion fallback (TS2709,
       ["/shape.hex", "export record Shape = {s: Int}\nexport let unit: Int = 1\n"],
       [
         "/main.hex",
-        'import module Shape from "./shape"\n' +
+        'import Shape from "./shape"\n' +
           "export fun width(s: Shape): Int = s.s + Shape.unit\n",
       ],
     ]);
@@ -390,7 +390,7 @@ describe("row 4 — a bare face in scope only by the companion fallback (TS2709,
       ["/shape.hex", "export record Shape = {s: Int}\nexport let unit: Int = 1\n"],
       [
         "/main.hex",
-        'import module Shape from "./shape"\n' +
+        'import Shape from "./shape"\n' +
           "export fun width(s: Shape): Int = s.s + Shape.unit\n",
       ],
     ]);
@@ -531,7 +531,7 @@ describe("where the alias is contested, the alias yields", () => {
       POINT,
       [
         "/main.hex",
-        'import module Point from "./point"\n' +
+        'import Point from "./point"\n' +
           "export record Point = {n: Int}\n" +
           "export fun mine(p: Point): Int = p.n\n" +
           "export fun theirs(p: Point.Point): Float = p.x\n",
@@ -557,7 +557,7 @@ describe("where the alias is contested, the alias yields", () => {
       POINT,
       [
         "/main.hex",
-        'import module Point from "./point"\n' +
+        'import Point from "./point"\n' +
           "export fun qualified(p: Point.Point): Float = p.x\n" +
           "export fun bare(p: Point): Float = p.x\n",
       ],
@@ -617,7 +617,7 @@ describe("the opaque brands are in every universe the file probes", () => {
       ["/lib.hex", "export record Row = {n: Int}\n"],
       [
         "/main.hex",
-        'import module HandleBrand from "./lib"\nextern from "./host.js"\n' +
+        'import HandleBrand from "./lib"\nextern from "./host.js"\n' +
           "    type Handle\n" +
           "export fun row(r: HandleBrand.Row): Int = r.n\n",
       ],
@@ -640,7 +640,7 @@ describe("the opaque brands are in every universe the file probes", () => {
       ["/lib.hex", "export record Row = {n: Int}\n"],
       [
         "/main.hex",
-        'import module PointBrand from "./lib"\nopaque record Point = {x: Int}\n' +
+        'import PointBrand from "./lib"\nopaque record Point = {x: Int}\n' +
           "export fun mk(): Point = Point({x = 1})\n" +
           "export fun row(r: PointBrand.Row): Int = r.n\n",
       ],
@@ -751,7 +751,7 @@ describe("what the sink is not asked", () => {
       ["/lib.hex", "export let one: Int = 1\n"],
       [
         "/main.hex",
-        'import module S from "./Seq"\nimport module B from "./Bool"\n' +
+        'import S from "./Seq"\nimport B from "./Bool"\n' +
           "export fun pass(s: S.Seq(Int), flag: B.Bool): S.Seq(Int) = s\n",
       ],
     ]);
@@ -778,7 +778,7 @@ describe("what the sink is not asked", () => {
       ],
       [
         "/main.hex",
-        'import module S from "./Seq"\nimport { one, W } from "./mid"\n' +
+        'import S from "./Seq"\nimport { one, W } from "./mid"\n' +
           "export fun pass(x: S.Seq(Int), w: W): W = w\n",
       ],
     ]);
@@ -803,7 +803,7 @@ describe("what the sink is not asked", () => {
       ],
       [
         "/main.hex",
-        'import module Lib from "./lib"\nimport { Point } from "./lib"\n' +
+        'import Lib from "./lib"\nimport { Point } from "./lib"\n' +
           'import { one, W } from "./mid"\n' +
           "export fun mk(p: Lib.Point): Lib.Point = p\nexport let w: W = one()\n",
       ],
@@ -823,7 +823,7 @@ describe("what the sink is not asked", () => {
       ["/shape.hex", "export record Shape = {s: Int}\nexport let unit: Int = 1\n"],
       [
         "/main.hex",
-        'import module Shape from "./shape"\n' +
+        'import Shape from "./shape"\n' +
           "let hidden(s: Shape.Shape): Int = s.s\n" +
           "export fun width(s: Shape): Int = hidden(s) + Shape.unit\n",
       ],
@@ -847,7 +847,7 @@ describe("what the sink is not asked", () => {
       ["/shape.hex", "export record Shape = {s: Int}\nexport let unit: Int = 1\n"],
       [
         "/main.hex",
-        'import module Shape from "./shape"\n' +
+        'import Shape from "./shape"\n' +
           "export fun width(s: Shape): Int =\n" +
           "    let inner: Shape.Shape = s\n" +
           "    inner.s + Shape.unit\n",
@@ -866,7 +866,7 @@ describe("what the sink is not asked", () => {
   test("a prelude identity the source qualified is rung 3's, not rung 4's", async () => {
     const compiled = project([[
       "/main.hex",
-      'import module O from "./Option"\nexport fun pick(o: O.Option(Int)): O.Option(Int) = o\n',
+      'import O from "./Option"\nexport fun pick(o: O.Option(Int)): O.Option(Int) = o\n',
     ]]);
 
     // A take-over of the channel §14.2 established, in the direction §14.2 did
@@ -884,7 +884,7 @@ describe("a module whose whole `.d.ts` was one dead line", () => {
   test("it becomes `export {};`", async () => {
     const compiled = project([
       ["/lib.hex", "export let one: Int = 1\n"],
-      ["/main.hex", 'import module Lib from "./lib"\nlet n: Int = Lib.one\n'],
+      ["/main.hex", 'import Lib from "./lib"\nlet n: Int = Lib.one\n'],
     ]);
 
     // The third of §14.3's expected text changes: a module that exports nothing
@@ -1036,7 +1036,7 @@ describe("the written signature is the face's spelling, at every published seat"
       ...ROWS,
       [
         "/main.hex",
-        'import module A from "./a"\nimport module B from "./b"\n' +
+        'import A from "./a"\nimport B from "./b"\n' +
           "export fun f(): A.Row =\n    let inner: B.Row = B.mk\n    A.mk\n",
       ],
     ]);
@@ -1054,7 +1054,7 @@ describe("the written signature is the face's spelling, at every published seat"
       ...ROWS,
       [
         "/main.hex",
-        'import module A from "./a"\nimport module B from "./b"\n' +
+        'import A from "./a"\nimport B from "./b"\n' +
           "let helper(): B.Row = B.mk\n" +
           "export let r: A.Row = A.mk\nexport let unused: Int = helper().s\n",
       ],
@@ -1073,7 +1073,7 @@ describe("the written signature is the face's spelling, at every published seat"
       ONE,
       [
         "/main.hex",
-        'import module Row from "./row"\n' +
+        'import Row from "./row"\n' +
           "export fun f(): Row =\n    let inner: Row.Row = Row.mk\n    inner\n",
       ],
     ]);
@@ -1095,7 +1095,7 @@ describe("the written signature is the face's spelling, at every published seat"
       ONE,
       [
         "/main.hex",
-        'import module Row from "./row"\n' +
+        'import Row from "./row"\n' +
           "let helper(r: Row.Row): Row.Row = r\nexport let h: (Row) -> Row = helper\n",
       ],
     ]);
@@ -1112,7 +1112,7 @@ describe("the written signature is the face's spelling, at every published seat"
       "/host.hex",
       'extern from "./host.js"\n    export type Handle\n    export fun make(): Handle\n',
     ];
-    const aliases = 'import module Handle from "./host"\nimport module B from "./host"\n';
+    const aliases = 'import Handle from "./host"\nimport B from "./host"\n';
 
     // The family's sixth row. An extern type is a nominal like the other two and
     // takes the same seat, so the rule has to hold on its arm as well: the
@@ -1159,7 +1159,7 @@ describe("the written signature is the face's spelling, at every published seat"
         "/host.hex",
         'extern from "./host.js"\n    export type Handle\n    export fun make(): Handle\n',
       ],
-      ["/main.hex", 'import module A from "./host"\nexport fun h(): A.Handle = A.make!()\n'],
+      ["/main.hex", 'import A from "./host"\nexport fun h(): A.Handle = A.make!()\n'],
     ]);
 
     expect(declarations(compiled)).toBe(
@@ -1175,7 +1175,7 @@ describe("the written signature is the face's spelling, at every published seat"
       ...ROWS,
       [
         "/main.hex",
-        'import module A from "./a"\nimport module B from "./b"\n' +
+        'import A from "./a"\nimport B from "./b"\n' +
           "let helper(r: B.Row): B.Row = r\nexport let h: (B.Row) -> B.Row = helper\n" +
           "export fun p(r: A.Row): Int = r.n\n",
       ],
@@ -1212,7 +1212,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
       'import { S } from "./s"\nexport type W = S\nexport fun one(): W = S({n = 1})\n',
     ],
   ];
-  const HEAD = 'import module S from "./lib"\nimport { one, W } from "./mid"\n';
+  const HEAD = 'import S from "./lib"\nimport { one, W } from "./mid"\n';
   const TAIL = 'import type { S } from "./s.js";\n';
 
   test("a constrained export with no fundamental editions renders no face", async () => {
@@ -1263,7 +1263,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
       LIB,
       [
         "/main.hex",
-        'import module S from "./lib"\n' +
+        'import S from "./lib"\n' +
           "export let describe<a: Show>(p: S.Point, value: a): String = show(value)\n",
       ],
     ]);
@@ -1312,7 +1312,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
       LIB,
       [
         "/main.hex",
-        'import module Lib from "./lib"\nunion Holder = Held(p: Lib.Point)\n' +
+        'import Lib from "./lib"\nunion Holder = Held(p: Lib.Point)\n' +
           "export let n: Int = 1\n",
       ],
     ]);
@@ -1331,7 +1331,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
   test("an exception's payloads count", async () => {
     const compiled = project([
       LIB,
-      ["/main.hex", 'import module Lib from "./lib"\nexport exception Bad(p: Lib.Point)\n'],
+      ["/main.hex", 'import Lib from "./lib"\nexport exception Bad(p: Lib.Point)\n'],
     ]);
     const text = declarations(compiled);
 
@@ -1345,7 +1345,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
       LIB,
       [
         "/main.hex",
-        'import module Lib from "./lib"\nextern from "./host.js"\n' +
+        'import Lib from "./lib"\nextern from "./host.js"\n' +
           "    export fun take(p: Lib.Point): Int\n",
       ],
     ]);
@@ -1359,7 +1359,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
   test("an exported type alias counts", async () => {
     const compiled = project([
       LIB,
-      ["/main.hex", 'import module Lib from "./lib"\nexport type Alias = Lib.Point\n'],
+      ["/main.hex", 'import Lib from "./lib"\nexport type Alias = Lib.Point\n'],
     ]);
 
     expect(declarations(compiled)).toBe(

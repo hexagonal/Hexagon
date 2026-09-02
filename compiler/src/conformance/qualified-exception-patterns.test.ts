@@ -122,7 +122,7 @@ describe("a module alias qualifies an imported exception", () => {
   const project = (arm: string): readonly (readonly [string, string])[] => [
     ["/lib.hex", "export exception Boom(code: Int)\n"],
     ["/main.hex",
-      "import module Lib from \"./lib\"\n" +
+      "import Lib from \"./lib\"\n" +
       "import { Boom } from \"./lib\"\n" +
       "export fun f(): Int =\n" +
       "    try\n" +
@@ -140,12 +140,12 @@ describe("a module alias qualifies an imported exception", () => {
   });
 
   test("the alias alone is enough — no term import of the constructor", async () => {
-    // `import module Lib` binds no bare `Boom`, so this is the qualified form
+    // `import Lib` binds no bare `Boom`, so this is the qualified form
     // carrying the whole reference, throw side and catch side both.
     const files = [
       ["/lib.hex", "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
         "        throw(Lib.Boom(5))\n" +
@@ -170,7 +170,7 @@ describe("a module alias qualifies an imported exception", () => {
     const javascript = compileFiles([
       ["/lib.hex", "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(g: (() ->? Int)): Int =\n" +
         "    try\n" +
         "        g?()\n" +
@@ -245,8 +245,8 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
       ["/a.hex", "export exception Boom(code: Int)\nexport fun raise(): Int = throw(Boom(1))\n"],
       ["/b.hex", "export exception Boom(tag: String)\n"],
       ["/main.hex",
-        "import module A from \"./a\"\n" +
-        "import module B from \"./b\"\n" +
+        "import A from \"./a\"\n" +
+        "import B from \"./b\"\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
         "        A.raise()\n" +
@@ -271,8 +271,8 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
       ["/a.hex", "export exception Boom(code: Int)\nexport fun raise(): Int = throw(Boom(7))\n"],
       ["/b.hex", "export exception Boom(tag: String)\n"],
       ["/main.hex",
-        "import module A from \"./a\"\n" +
-        "import module B from \"./b\"\n" +
+        "import A from \"./a\"\n" +
+        "import B from \"./b\"\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
         "        A.raise()\n" +
@@ -330,7 +330,7 @@ describe("reachability reads the constructor, not the spelling (§5.3)", () => {
     expect(compileFiles([
       ["/lib.hex", "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "import { Boom } from \"./lib\"\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
@@ -396,7 +396,7 @@ describe("what a qualified exception pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(n: Int): Int =\n" +
         "    try\n" +
         "        n\n" +
@@ -408,7 +408,7 @@ describe("what a qualified exception pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(n: Int): Int =\n" +
         "    try\n" +
         "        n\n" +
@@ -427,7 +427,7 @@ describe("what a qualified exception pattern refuses", () => {
     const messages = compileFiles([
       ["/lib.hex", "exception Hidden(code: Int)\nexport let seed: Int = 1\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(n: Int): Int =\n" +
         "    try\n" +
         "        n\n" +

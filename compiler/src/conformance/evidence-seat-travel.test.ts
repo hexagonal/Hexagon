@@ -23,21 +23,23 @@
  * The words collide and the answers do not: one member prefixes `A`, the other
  * `B`, so a program that reads the wrong seat returns `"B7|A7"` rather than
  * throwing, and only an executed pin catches it. A head meets such a pair and
- * spells it two ways (FFI Part 9 §6.2): the **qualified form** `<u: (MA.Fancy,
- * MB.Fancy)>` (Modules §3.3), which is the unconditional route, or an alias
- * (Modules §3.2), open only where the two constraints' member spellings do not
- * collide (Modules §3.1). These members are `fancyA` and `fancyB` and so do not,
- * which is why this file takes the alias — the importer writes `Fancy as
- * Fancy2` and can then write the binder list itself. The choice is this file's
- * convenience and not the rule; the ordering claim below is a claim about the
- * written conjunction, under either spelling.
+ * spells it with the **qualified form** `<u: (LibA.Fancy, LibB.Fancy)>`
+ * (Modules §3.3) — under #762 an import binds a module alias and nothing
+ * smaller, so this is now the *only* route: the alias-through-a-named-import
+ * spelling FFI Part 9 §6.2 used to offer as a second option (`import { Fancy as
+ * Fancy2 }`, open only where the two constraints' member spellings do not
+ * collide) has no seat left to stand in, named imports being gone entirely.
+ * The two libraries' module aliases, `LibA` and `LibB`, are what the binder list
+ * and every member call spell out instead. The ordering claim below is a claim
+ * about the written conjunction, and is unaffected by which spelling names each
+ * constraint.
  *
  * The ordering claim is the second half. Constraints §6.1 orders the evidence
  * suffix by *(type-variable ordinal, constraint name)*, and two constraints that
  * spell one word tie on both components; the tie-break is the **written
  * conjunction's own order** — the resolution §6.2's base-slot contest already
  * takes on a declaration's base list, carried onto the suffix by #731. So `<u:
- * (Fancy, Fancy2)>` and `<u: (Fancy2, Fancy)>` are two
+ * (LibA.Fancy, LibB.Fancy)>` and `<u: (LibB.Fancy, LibA.Fancy)>` are two
  * different ABIs over one type, and both ends have to read the same one. Both
  * arrangements are emitted *and* executed here, and executed through a caller
  * that is itself generic, because a saturated call at `Int` is routed to a
@@ -89,31 +91,32 @@ const LIB_B = fancyLib("fancyB", "useB", "B");
  */
 function mid(conjunction: string): string {
   return [
-    'import { Fancy, useA } from "./liba.hex"',
-    'import { Fancy as Fancy2, useB } from "./libb.hex"',
+    'import LibA from "./liba.hex"',
+    'import LibB from "./libb.hex"',
     "",
-    `export let both<u: ${conjunction}>(v: u): String = "\${useA(v)}|\${useB(v)}"`,
+    `export let both<u: ${conjunction}>(v: u): String = ` +
+      '"${LibA.useA(v)}|${LibB.useB(v)}"',
     "",
   ].join("\n");
 }
 
-const DECLARED = "(Fancy, Fancy2)";
-const FLIPPED = "(Fancy2, Fancy)";
+const DECLARED = "(LibA.Fancy, LibB.Fancy)";
+const FLIPPED = "(LibB.Fancy, LibA.Fancy)";
 
 /** A saturated call at `Int`, which Part 8 routes to an edition. */
 const CALLS_DIRECTLY = [
-  'import { both } from "./mid.hex"',
+  'import Mid from "./mid.hex"',
   "",
   "let seven: Int = 7",
-  "export let r: String = both(seven)",
+  "export let r: String = Mid.both(seven)",
   "",
 ].join("\n");
 
 /** The same call from an inferred generalized function, which is not routed. */
 const CALLS_THROUGH_WRAPPER = [
-  'import { both } from "./mid.hex"',
+  'import Mid from "./mid.hex"',
   "",
-  "let wrap(v) = both(v)",
+  "let wrap(v) = Mid.both(v)",
   "let seven: Int = 7",
   "export let r: String = wrap(seven)",
   "",
@@ -121,9 +124,9 @@ const CALLS_THROUGH_WRAPPER = [
 
 /** The same call through a value-position reference of the imported function. */
 const CALLS_THROUGH_ALIAS = [
-  'import { both } from "./mid.hex"',
+  'import Mid from "./mid.hex"',
   "",
-  "let alias = both",
+  "let alias = Mid.both",
   "let seven: Int = 7",
   "export let r: String = alias(seven)",
   "",
@@ -174,7 +177,7 @@ describe("a two-seat scheme crosses a module border", () => {
   test("the definer mints two parameters and reads each member out of its own", () => {
     expect(emitted(files, "/mid.hex")).toContain(
       "const both = (v, __Fancy_a, __Fancy_a_1) => " +
-        'useA(v, __Fancy_a) + "|" + useB(v, __Fancy_a_1);',
+        '__useA(v, __Fancy_a) + "|" + __useB(v, __Fancy_a_1);',
     );
   });
 
@@ -209,7 +212,7 @@ describe("the written conjunction's order is the ABI", () => {
   test("the declared order puts each member on the seat its own list names", () => {
     expect(emitted(graph(DECLARED, CALLS_THROUGH_WRAPPER), "/mid.hex")).toContain(
       "const both = (v, __Fancy_a, __Fancy_a_1) => " +
-        'useA(v, __Fancy_a) + "|" + useB(v, __Fancy_a_1);',
+        '__useA(v, __Fancy_a) + "|" + __useB(v, __Fancy_a_1);',
     );
   });
 
@@ -219,7 +222,7 @@ describe("the written conjunction's order is the ABI", () => {
     // each lookup reads out of, which is the whole of the claim.
     expect(emitted(graph(FLIPPED, CALLS_THROUGH_WRAPPER), "/mid.hex")).toContain(
       "const both = (v, __Fancy_a, __Fancy_a_1) => " +
-        'useA(v, __Fancy_a_1) + "|" + useB(v, __Fancy_a);',
+        '__useA(v, __Fancy_a_1) + "|" + __useB(v, __Fancy_a);',
     );
   });
 
@@ -276,7 +279,7 @@ describe("a generic pass-through forwards both seats", () => {
 
   test("the wrapper takes two seats and passes them in its own order", () => {
     expect(emitted(files)).toContain(
-      "const wrap = (v, __Fancy_a, __Fancy_a_1) => both(v, __Fancy_a, __Fancy_a_1);",
+      "const wrap = (v, __Fancy_a, __Fancy_a_1) => __both(v, __Fancy_a, __Fancy_a_1);",
     );
   });
 
@@ -296,7 +299,7 @@ describe("a value-position reference of a two-seat function", () => {
   const files = graph(DECLARED, CALLS_THROUGH_ALIAS);
 
   test("the alias is the bare name and its call site fills both seats", () => {
-    expect(emitted(files)).toContain("const alias = both;");
+    expect(emitted(files)).toContain("const alias = __both;");
     expect(emitted(files)).toContain(
       "const r = alias(seven, __Fancy_Int_1, __Fancy_Int_2);",
     );
@@ -326,11 +329,11 @@ describe("a recursion knot agrees with itself about both seats", () => {
    * `"A7|A7"` and not a crash.
    */
   const KNOT = [
-    'import { Fancy, useA } from "./liba.hex"',
-    'import { Fancy as Fancy2, useB } from "./libb.hex"',
+    'import LibA from "./liba.hex"',
+    'import LibB from "./libb.hex"',
     "",
-    "fun walk<u: (Fancy, Fancy2)>(v: u, n: Int): String =",
-    '    if n <= 0 then "${useA(v)}|${useB(v)}" else walk(v, n - 1)',
+    "fun walk<u: (LibA.Fancy, LibB.Fancy)>(v: u, n: Int): String =",
+    '    if n <= 0 then "${LibA.useA(v)}|${LibB.useB(v)}" else walk(v, n - 1)',
     "",
     "let seven: Int = 7",
     "export let r: String = walk(seven, 3)",
@@ -345,7 +348,7 @@ describe("a recursion knot agrees with itself about both seats", () => {
 
   test("the self-call forwards the two seats it was handed, in order", () => {
     expect(emitted([...files])).toContain(
-      'return n <= 0 ? useA(v, __Fancy_a) + "|" + useB(v, __Fancy_a_1) ' +
+      'return n <= 0 ? __useA(v, __Fancy_a) + "|" + __useB(v, __Fancy_a_1) ' +
         ": walk(v, n - 1, __Fancy_a, __Fancy_a_1);",
     );
   });
@@ -365,17 +368,17 @@ describe("a parameterized instance's factory takes the head's flipped list", () 
    * element.
    */
   const HONOR = [
-    'import { Fancy, useA } from "./liba.hex"',
-    'import { Fancy as Fancy2, useB } from "./libb.hex"',
+    'import LibA from "./liba.hex"',
+    'import LibB from "./libb.hex"',
     "",
     "record Box(t) = {value: t}",
     "",
-    "honor<t: (Fancy2, Fancy)> Fancy<Box(t)> =",
-    '    fancyA(box) = "${useA(box.value)}|${useB(box.value)}"',
+    "honor<t: (LibB.Fancy, LibA.Fancy)> LibA.Fancy<Box(t)> =",
+    '    fancyA(box) = "${LibA.useA(box.value)}|${LibB.useB(box.value)}"',
     "",
     "let seven: Int = 7",
     "let box: Box(Int) = Box({value = seven})",
-    "export let r: String = useA(box)",
+    "export let r: String = LibA.useA(box)",
     "",
   ].join("\n");
 
@@ -390,7 +393,7 @@ describe("a parameterized instance's factory takes the head's flipped list", () 
     // library's — and `useA`, wanting the first library's, reads `__Fancy_t_1`.
     expect(emitted([...files])).toContain(
       "const __instance = { fancyA: box => " +
-        'useA(box.value, __Fancy_t_1) + "|" + useB(box.value, __Fancy_t) };',
+        '__useA(box.value, __Fancy_t_1) + "|" + __useB(box.value, __Fancy_t) };',
     );
   });
 

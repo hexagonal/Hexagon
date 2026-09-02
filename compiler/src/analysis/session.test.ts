@@ -661,7 +661,7 @@ describe("AnalysisSession.rename", () => {
 
   test("a namespace-qualified use is rewritten past its qualifier", () => {
     const helper = "export let two: Int = 2\n";
-    const main = ['import module H from "./helper"', "", "let four: Int = H.two + H.two", ""]
+    const main = ['import H from "./helper"', "", "let four: Int = H.two + H.two", ""]
       .join("\n");
     const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
     const plan = session.rename("/helper.hex", at(helper, "two"), "pair");

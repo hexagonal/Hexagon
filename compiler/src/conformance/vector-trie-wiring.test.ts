@@ -994,8 +994,8 @@ describe("the trie runtime is reached from wherever a module sits", () => {
   test("a nested module reaches up to the injected root", async () => {
     const files = [
       ["/src/deep/leaf.hex", "export let values: Vector(Int) = [1, 2]\n"],
-      ["/src/main.hex", 'import { values } from "./deep/leaf"\n' +
-        "export let total: Int = values.length()\n"],
+      ["/src/main.hex", 'import Leaf from "./deep/leaf"\n' +
+        "export let total: Int = Leaf.values.length()\n"],
     ] as const;
     const javascript = emitted(files, "/src/deep/leaf.hex");
     expect(javascript).toContain('from "../VectorTrie.js"');

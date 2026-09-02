@@ -382,7 +382,7 @@ describe("#651: a refused member body is never materialized", () => {
       "",
     ].join("\n"))).toEqual([
       "unknown constraint `Nope`; import its home module with " +
-        "`import module Nope` for qualified access, or import the constraint " +
+        "`import Nope` for qualified access, or import the constraint " +
         "by name",
     ]);
   });

@@ -282,7 +282,7 @@ describe("the generated local is probed, and only it moves", () => {
       ["/lib.hex", "export record Row = {n: Int}\nexport let one: Int = 1\n"],
       [
         "/main.hex",
-        'import module Option from "./lib"\n' +
+        'import Option from "./lib"\n' +
           "export let o: Option(Int) = None\nexport let r(x: Option.Row): Int = 1\n",
       ],
     ]);
@@ -307,7 +307,7 @@ describe("the generated local is probed, and only it moves", () => {
   test("a gated alias moves nothing — the probe counts what the file carries", async () => {
     const compiled = project([
       ["/lib.hex", "export let one: Int = 1\n"],
-      ["/main.hex", 'import module Option from "./lib"\nexport let o: Option(Int) = None\n'],
+      ["/main.hex", 'import Option from "./lib"\nexport let o: Option(Int) = None\n'],
     ]);
     const text = emitted(compiled, "/main.hex").declarations.text;
 

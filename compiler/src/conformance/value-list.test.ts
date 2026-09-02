@@ -78,7 +78,7 @@ describe("Step 1: the completed syntactic-value list", () => {
     const compiled = project({
       "/lib.hex": "export let empty: Seq(a) = Seq.empty\n",
       "/main.hex":
-        'import module Lib from "./lib.hex"\n' +
+        'import Lib from "./lib.hex"\n' +
         "let e = Lib.empty\n" +
         "export let ys: Seq(Int) = Seq.prepend(e, 42)\n" +
         'export let xs: Seq(String) = Seq.prepend(e, "Briar")\n',

@@ -153,7 +153,7 @@ describe("a module alias qualifies an imported union's constructors in patterns"
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun measure(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r\n" +
@@ -163,7 +163,7 @@ describe("a module alias qualifies an imported union's constructors in patterns"
     const exports = await runProject([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun size(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r * 2.0\n" +
@@ -181,7 +181,7 @@ describe("a module alias qualifies an imported union's constructors in patterns"
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun only(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r\n"],
@@ -208,7 +208,7 @@ describe("a module alias qualifies an imported union's constructors in patterns"
    */
   test("the two reports agree, alias-qualified and aliased-bare alike", () => {
     const COL = "export union Col = Red | Blue | Green\n";
-    const imports = "import module G from \"./g\"\n" +
+    const imports = "import G from \"./g\"\n" +
       "import { Col, Red as Crimson, Green as Emerald } from \"./g\"\n";
 
     // The unspellable-bare constructor: no bare spelling exists for `Blue`, so
@@ -321,7 +321,7 @@ describe("catch arms take the same form, and now reach as far", () => {
     compileFiles([
       ["/lib.hex", "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "import { Boom } from \"./lib\"\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
@@ -392,7 +392,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(p: Lib.Point): Int =\n" +
         "    match p\n" +
         "        Lib.Point(a, b) => a\n"],
@@ -408,7 +408,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(p: Lib.Point): Int =\n" +
         "    match p\n" +
         "        Lib.Point({x}) => x\n"],
@@ -423,7 +423,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(s: Lib.Shape): Int =\n" +
         "    match s\n" +
         "        Lib.Shape(r) => 1\n" +
@@ -432,7 +432,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export let s: Int = Lib.Shape\n"],
     ]).diagnostics.map(({ message: text }) => text)).toContain(message);
   });

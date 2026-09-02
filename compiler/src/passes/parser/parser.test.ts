@@ -1859,48 +1859,48 @@ describe("parse", () => {
   });
 
   /**
-   * Modules §3.3 and Lexer §4.2's new row: the namespace head is
-   * `import module Geo from "./geometry"`, and `*` has left the import grammar
-   * entirely.
+   * Modules §3.1 and Lexer §4.2's deleted row: an `import` binds a module and
+   * nothing smaller (#762), so the head is `import Geo from "./geometry"` and
+   * the grammar has one alias seat and no items. `*`, `{` and the word
+   * `module` have all left the import grammar; `module` is an ordinary name
+   * everywhere again, recognised after `import` only to redirect.
    *
-   * The context is one position wide — between `import` and the alias — and it
-   * is total there because nothing else could ever stand in it: before #565 an
-   * `import` admitted only `{`, `*`, or a string, so no name after `import` was
-   * ever a legal program. That is why recognition is unconditional rather than
-   * gated on an uppercase name ahead, and why the degenerate `import module
-   * module` reaches the alias seat and dies of the seat's own start-class rule
-   * instead of a special case written for the spelling.
+   * Four heads reach the redirect and one refusal is the seat's own. Each
+   * names the module form, and each recovers the way the parser recovers
+   * everywhere: a head that wrote an alias becomes the import it was reaching
+   * for, so one stale line costs one diagnostic and the module still resolves;
+   * a head that wrote none has nothing to bind and becomes an `ErrorItem`.
    */
-  describe("`module` is contextual in the import head (#565)", () => {
+  describe("an import binds a module and nothing smaller (#762)", () => {
     const messages = (text: string): readonly string[] =>
       parseSource(text).diagnostics.map(({ message }) => message);
 
     const itemKinds = (text: string): readonly string[] =>
       parseSource(text).items.map(({ kind }) => kind);
 
-    test("the head binds an alias, and nothing else changed about the form", () => {
-      const module = parseSource('import module Geo from "./geometry"\n');
+    test("the head binds an alias, and that is the whole form", () => {
+      const module = parseSource('import Geo from "./geometry"\n');
       expect(module.diagnostics).toEqual([]);
       expect(module.items).toMatchObject([{
         kind: "Import",
         specifier: "./geometry",
-        form: { kind: "Namespace", alias: { text: "Geo", startClass: "upper" } },
+        alias: { text: "Geo", startClass: "upper" },
       }]);
     });
 
     /**
      * A legal head is not a line — comments are trivia between its tokens and it
-     * may break across them. The old spelling held both properties and the new
-     * one inherits them, because the change is which tokens the head is made of,
-     * not how the parser walks them. The Playground's alias scan (#537) reads the
-     * same token stream and depends on exactly this.
+     * may break across them. The property survives the shrink, because the
+     * change is which tokens the head is made of, not how the parser walks
+     * them. The Playground's alias scan (#537) reads the same token stream and
+     * depends on exactly this.
      */
     test("the head is tokens, not a line", () => {
-      expect(messages('import (* why *) module Geo from "./geometry"\n')).toEqual([]);
-      expect(messages('import\n    module Geo from "./geometry"\n')).toEqual([]);
+      expect(messages('import (* why *) Geo from "./geometry"\n')).toEqual([]);
+      expect(messages('import\n    Geo from "./geometry"\n')).toEqual([]);
     });
 
-    test("the word still binds, names a field, and names a parameter", () => {
+    test("`module` binds, names a field, and names a parameter", () => {
       expect(messages("let module = 3")).toEqual([]);
       expect(itemKinds("let module = 3")).toEqual(["Let"]);
       expect(messages("let r = { module = 1 }")).toEqual([]);
@@ -1910,9 +1910,10 @@ describe("parse", () => {
     });
 
     /**
-     * §2's refusal is untouched: the context is the import head and reaches no
-     * declaration seat, so a header line is read as the two ordinary items it
-     * lexes as, exactly as before, and no import diagnostic is spoken over it.
+     * §2's refusal is untouched: the redirect below is the import head and
+     * reaches no declaration seat, so a header line is read as the two ordinary
+     * items it lexes as, exactly as before, and no import diagnostic is spoken
+     * over it.
      */
     test("`module Geometry` at a declaration seat is no import head", () => {
       expect(messages("module Geometry\n")).toEqual([
@@ -1921,79 +1922,153 @@ describe("parse", () => {
     });
 
     /**
-     * The degenerate spelling. `module` in the alias seat is a non-uppercase-start
-     * name and the seat refuses it as it refuses any other — the message is the
-     * alias seat's own, not a rule about this word. The refusal is followed by
-     * the same recovery cascade any rejected alias has drawn since before #565
-     * (`import * as module from "./x"` reached these four messages by this exact
-     * path), so the first message is what is pinned.
+     * The #565 head, refused with the rewrite that drops the word (§3.1). The
+     * message carries the alias the author wrote and the path they wrote, and
+     * the fix-it deletes the word alone — the rest of the line is never
+     * retyped.
      */
-    test("`import module module` dies in the alias seat, by start class", () => {
-      expect(messages('import module module from "./x"\n')[0]).toBe(
-        "module aliases must be uppercase-start names",
-      );
+    test("the `import module` head is refused with the word dropped", () => {
+      const module = parseSource('import module Geo from "./geometry"\n');
+      expect(module.diagnostics.map(({ message }) => message)).toEqual([
+        'Hexagon imports bind modules: write `import Geo from "./geometry"`',
+      ]);
+      const [fix] = module.diagnostics[0]?.fixes ?? [];
+      expect(fix?.message).toBe("write `import`");
+      expect(fix?.edits.map(({ span, replacement }) => [
+        span.start.offset,
+        span.end.offset,
+        replacement,
+      ])).toEqual([[7, 13, ""]]);
+      // The item still binds the alias the head named: a migration costs one
+      // diagnostic per line, never a cascade of unknown names below it.
+      expect(module.items).toMatchObject([{ kind: "Import", alias: { text: "Geo" } }]);
     });
 
     /**
-     * JavaScript's default-import muscle memory. It draws the start-class refusal
-     * because `from` is a non-uppercase-start name standing in the alias seat —
-     * which is what §3.3 says it gets. A targeted redirect naming the missing
-     * alias is a recorded diagnostics candidate, deliberately not invented here.
+     * The degenerate spelling. `module` after the word `module` is a
+     * non-uppercase-start name standing in the alias seat, and it draws the
+     * seat's own refusal rather than a rule written for the word — except that
+     * the head's own fault leads, so what is pinned is that the stale head is
+     * what the reader is told about.
      */
-    test("`import module from` draws the same start-class refusal, alone", () => {
+    test("`import module` with no alias dies in the alias seat", () => {
       expect(messages('import module from "./x"\n')).toEqual([
-        "module aliases must be uppercase-start names",
+        'Hexagon imports bind modules: write `import X from "./x"`',
       ]);
     });
 
-    test("a name where the head belongs names the three heads that exist", () => {
-      expect(messages('import geo from "./x"\n')[0]).toBe(
-        "expected `{`, `module`, or a module string after `import`",
-      );
+    /**
+     * JavaScript's default-import muscle memory with a lowercase alias. The
+     * seat settles it by start class alone, and the rewrite is the specifier's
+     * own basename — which is what the author was naming the module after.
+     */
+    test("a non-uppercase-start alias is refused with the derived spelling", () => {
+      const module = parseSource('import geometry from "./geometry"\n');
+      expect(module.diagnostics.map(({ message }) => message)).toEqual([
+        'a module alias is uppercase-start; write `import Geometry from "./geometry"`',
+      ]);
+      const [fix] = module.diagnostics[0]?.fixes ?? [];
+      expect(fix?.message).toBe("write `Geometry`");
+      expect(fix?.edits.map(({ replacement }) => replacement)).toEqual(["Geometry"]);
+    });
+
+    test("`import from` draws the alias seat's refusal, alone", () => {
+      expect(messages('import from "./x"\n')).toEqual([
+        'a module alias is uppercase-start; write `import X from "./x"`',
+      ]);
     });
 
     /**
-     * The Rewrite Rule applied to JavaScript's own head (§3.3, §10). The message
-     * carries the spec's exemplar and the fix-it carries the user's line: the two
-     * tokens `* as` become the one word `module`, leaving alias and path as
-     * written. Parsing continues into the alias seat, so one pasted JavaScript
-     * import costs one diagnostic rather than a cascade.
+     * The Rewrite Rule applied to JavaScript's own namespace head (§3.1, §10).
+     * The head keeps the alias it wrote and carries no item clause — the
+     * program names no item — and the fix-it deletes `* as`, whitespace
+     * between the two tokens included.
      */
     test("JavaScript's `import * as` head is refused with its rewrite", () => {
       const module = parseSource('import * as Geo from "./geometry"\n');
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        'namespace imports are spelled `import module Geo from "./geometry"`',
+        'Hexagon imports bind modules: write `import Geo from "./geometry"`',
       ]);
       const [fix] = module.diagnostics[0]?.fixes ?? [];
-      expect(fix?.message).toBe("write `import module`");
+      expect(fix?.message).toBe("write `import`");
       expect(fix?.edits.map(({ span, replacement }) => [
         module.diagnostics[0]!.primary.fileId === span.fileId,
         span.start.offset,
         span.end.offset,
         replacement,
-      ])).toEqual([[true, 7, 11, "module"]]);
-      // The edit is over `* as` exactly, so applying it yields the head the
-      // message names — the alias and the path are never retyped.
+      ])).toEqual([[true, 7, 11, ""]]);
+      // Applying the edit yields the head the message names — the alias and
+      // the path are never retyped. (The one space the head spent between `as`
+      // and the alias stays, and the formatter owns it.)
       const text = 'import * as Geo from "./geometry"\n';
-      expect(
-        text.slice(0, 7) + "module" + text.slice(11),
-      ).toBe('import module Geo from "./geometry"\n');
-      expect(module.items).toMatchObject([{
-        kind: "Import",
-        form: { kind: "Namespace", alias: { text: "Geo" } },
-      }]);
+      expect(text.slice(0, 7) + text.slice(11)).toBe('import  Geo from "./geometry"\n');
+      expect(module.items).toMatchObject([{ kind: "Import", alias: { text: "Geo" } }]);
     });
 
     /**
-     * With no `as` there is no two-token span to rewrite, so the redirect stands
-     * on its message — the restraint the lexer's JavaScript-block-comment
-     * redirect shows when it finds no closing delimiter.
+     * With no `as` there is no two-token span, so the star's own stands — the
+     * restraint the lexer's JavaScript-block-comment redirect shows when it
+     * finds no closing delimiter.
      */
-    test("a `*` head with no `as` keeps the message and offers no edit", () => {
+    test("a `*` head with no `as` reports against the star", () => {
       const module = parseSource('import * Geo from "./geometry"\n');
-      expect(module.diagnostics.map(({ message, fixes }) => [message, fixes])).toEqual([
-        ['namespace imports are spelled `import module Geo from "./geometry"`', undefined],
+      expect(module.diagnostics.map(({ message }) => message)).toEqual([
+        'Hexagon imports bind modules: write `import Geo from "./geometry"`',
       ]);
+      expect(module.diagnostics[0]?.primary.start.offset).toBe(7);
+      expect(module.diagnostics[0]?.primary.end.offset).toBe(8);
+    });
+
+    /**
+     * The named list (§3.1, §10). The message names the first listed item and
+     * an alias derived from the specifier's basename, each `-`, `_` or
+     * `.`-separated segment upper-cased at its start and joined. The list
+     * binds nothing, so the item recovers as an `ErrorItem` — minting the
+     * derived alias would put a name in scope the source never wrote.
+     */
+    test("JavaScript's named list is refused with the item's qualified spelling", () => {
+      expect(messages('import { area } from "./geometry"\n')).toEqual([
+        'Hexagon imports bind modules: write `import Geometry from "./geometry"` ' +
+          "and reach `area` as `Geometry.area`",
+      ]);
+      expect(itemKinds('import { area } from "./geometry"\n')).toEqual(["ErrorItem"]);
+      expect(messages('import { get, set } from "./search-params"\n')).toEqual([
+        'Hexagon imports bind modules: write `import SearchParams from "./search-params"` ' +
+          "and reach `get` as `SearchParams.get`",
+      ]);
+      // A renamed item is still one item: the rewrite names what the module
+      // exports, since that is what the qualified spelling reaches.
+      expect(messages('import { area as a } from "./geometry"\n')).toEqual([
+        'Hexagon imports bind modules: write `import Geometry from "./geometry"` ' +
+          "and reach `area` as `Geometry.area`",
+      ]);
+    });
+
+    /**
+     * Where the derivation yields no uppercase-start identifier the message
+     * names the slot instead of a spelling the language would refuse twice.
+     */
+    test("an underivable basename names the slot", () => {
+      expect(messages('import { area } from "./2d-utils"\n')).toEqual([
+        'Hexagon imports bind modules: write `import <Alias> from "./2d-utils"` ' +
+          "and reach `area` as `<Alias>.area`",
+      ]);
+    });
+
+    /**
+     * §3.3: a module is imported for its names, never loaded for its effects.
+     * The refusal names the form the author was reaching for, in their own
+     * path.
+     */
+    test("the effect import is refused with the route named", () => {
+      expect(messages('import "./telemetry"\n')).toEqual([
+        "Hexagon has no effect import; a module is imported for its names — " +
+          '`import Telemetry from "./telemetry"` — or run as a root',
+      ]);
+      expect(itemKinds('import "./telemetry"\n')).toEqual(["ErrorItem"]);
+      // The foreign form is untouched (FFI Part 4 §8): it loads a JavaScript
+      // module for its effects and introduces no Hexagon binding.
+      expect(messages('extern import "telemetry/register"\n')).toEqual([]);
     });
   });
 });

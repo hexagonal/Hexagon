@@ -377,12 +377,14 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     // stands in its place, in the shape its two siblings already have. Nothing
     // is leaked on the way: the sentence carries no field name and no
     // constructor spelling, which is the field privacy §4.2 calls load-bearing.
+    // The alias is spelled `Crate`, so §5.1 rule 2's companion fallback carries
+    // the type bare with no named import to carry it (#762).
     const messages = compileFiles([
       ["/geo.hex",
         "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
-        'import { Crate, make } from "./geo"\n' +
+        'import Crate from "./geo"\n' +
         "export fun size(c: Crate): Float =\n" +
         "    let {n} = c\n" +
         "    n\n"],
@@ -405,12 +407,12 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
         `${head} record Crate = {n: Float}\n` +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/mid.hex",
-        'import { Crate, make } from "./geo"\n' +
-        "export fun forged(): Crate = make()\n"],
+        'import Geo from "./geo"\n' +
+        "export fun forged(): Geo.Crate = Geo.make()\n"],
       ["/main.hex",
-        'import { forged } from "./mid"\n' +
+        'import Mid from "./mid"\n' +
         "export fun size(): Float =\n" +
-        "    let {n} = forged()\n" +
+        "    let {n} = Mid.forged()\n" +
         "    n\n"],
     ]).diagnostics.map(({ message }) => message);
     expect(reached("opaque")).toEqual([
@@ -441,7 +443,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
         "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
-        'import { Crate, make } from "./geo"\n' +
+        'import Crate from "./geo"\n' +
         "export fun size(c: Crate): Float =\n" +
         "    match c\n" +
         "        {n} => n\n"],
@@ -486,11 +488,15 @@ describe("arity is one, positional (§2.2)", () => {
 describe("outside the home module the name carries it, and only the name", () => {
   const GEO = CRATE + "export fun make(): Crate = Crate({n = 6.0, tag = \"g\"})\n";
 
-  test("a named import brings the pattern with it", async () => {
+  test("the alias's own spelling brings the pattern bare, through rule 3 (#763)", async () => {
+    // No import binds a name any smaller than a module now (#762) — a bare
+    // constructor abroad is Modules §5.1 rule 3's companion fallback: the
+    // alias is spelled `Crate`, the module exports a same-spelled constructor,
+    // and term position has nothing of its own to answer with.
     expect(compileFiles([
       ["/geo.hex", GEO],
       ["/main.hex",
-        'import { Crate } from "./geo"\n' +
+        'import Crate from "./geo"\n' +
         "export fun size(c: Crate): Float =\n" +
         "    let Crate({n}) = c\n" +
         "    n\n"],
@@ -499,11 +505,11 @@ describe("outside the home module the name carries it, and only the name", () =>
     const exports = await runProject([
       ["/geo.hex", GEO],
       ["/main.hex",
-        'import { Crate, make } from "./geo"\n' +
+        'import Crate from "./geo"\n' +
         "export fun size(c: Crate): Float =\n" +
         "    match c\n" +
         "        Crate({n}) => n\n" +
-        "export let v: Float = size(make())\n"],
+        "export let v: Float = size(Crate.make())\n"],
     ]);
     expect(exports.v).toBe(6.0);
   });
@@ -512,7 +518,7 @@ describe("outside the home module the name carries it, and only the name", () =>
     expect(compileFiles([
       ["/geo.hex", GEO],
       ["/main.hex",
-        'import module Geo from "./geo"\n' +
+        'import Geo from "./geo"\n' +
         "export fun size(c: Geo.Crate): Float =\n" +
         "    let Geo.Crate({n}) = c\n" +
         "    n\n"],
@@ -521,7 +527,7 @@ describe("outside the home module the name carries it, and only the name", () =>
     const exports = await runProject([
       ["/geo.hex", GEO],
       ["/main.hex",
-        'import module Geo from "./geo"\n' +
+        'import Geo from "./geo"\n' +
         "export fun size(c: Geo.Crate): Float =\n" +
         "    match c\n" +
         "        Geo.Crate({n}) => n\n" +
@@ -530,49 +536,67 @@ describe("outside the home module the name carries it, and only the name", () =>
     expect(exports.v).toBe(6.0);
   });
 
-  test("without the name in scope, the ordinary unknown-constructor refusal", () => {
-    // The type reaches — `make()`'s result is a `Crate` and its fields are open
-    // here (§4.2, #587) — but the *name* was never imported, and the eliminator
-    // is name-carried. §4.2's own sentence gives the spelling that works
-    // without it: `let {n} = {...v}`, through the crossing.
+  test("with the alias spelled the same, the constructor is bare through rule 3 alone", () => {
+    // §4.2's "the *name* does not travel" is still true — this is not the door,
+    // it is rule 3 firing in the resolver, before the door is ever consulted
+    // (Pattern Matching §2.2's own ordering). A `let`'s subject is typed first
+    // regardless, so this seat cannot tell the two mechanisms apart on its own;
+    // `qualified-constructor-patterns.test.ts` §303 pins the mechanism itself.
     expect(compileFiles([
       ["/geo.hex", GEO],
       ["/main.hex",
-        'import { make } from "./geo"\n' +
+        'import Crate from "./geo"\n' +
         "export fun size(): Float =\n" +
-        "    let Crate({n}) = make()\n" +
-        "    n\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual([
-      "unknown constructor `Crate`",
-      "unknown name `n`",
-    ]);
-
-    expect(compileFiles([
-      ["/geo.hex", GEO],
-      ["/main.hex",
-        'import { make } from "./geo"\n' +
-        "export fun size(): Float =\n" +
-        "    let {n} = {...make()}\n" +
+        "    let Crate({n}) = Crate.make()\n" +
         "    n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([]);
   });
 
-  test("an opaque record refuses outside its home, at the name (§4.2)", () => {
+  test("without a supplying seat, the door is closed — the alias's own rewrite is offered", () => {
+    // A lambda parameter is a door seat only where a #513 supplying seat hands
+    // its type in (Pattern Matching §2.2); an unannotated `let` gives the
+    // lambda none, so the pattern's expected type is a fresh variable when it
+    // is checked and the closed-door refusal fires, naming the qualified
+    // spelling the visible alias reaches (`Geo.Crate`, since the alias here is
+    // spelled `Geo`, not `Crate`, so rule 3 never fires either) and the seat
+    // that would open the door.
+    expect(compileFiles([
+      ["/geo.hex", GEO],
+      ["/main.hex",
+        'import Geo from "./geo"\n' +
+        "let size = Crate({n}) => n\n" +
+        "export let v: Float = size(Geo.make())\n"],
+    ]).diagnostics.map(({ message }) => message)).toEqual([
+      "no bare `Crate` here: its type is not determined at this pattern — " +
+        "write `Geo.Crate(…)`, or bind the function with its own annotated `let`",
+    ]);
+  });
+
+  test("an opaque record refuses outside its home, even through the alias's own spelling (§4.2)", () => {
+    // KNOWN FAILURE — reported, not weakened (see the sweep report). Modules
+    // §5.1's own sentence: rule 3 "reads the module's exported constructor, so
+    // an opaque record's constructor is out of reach abroad exactly as its
+    // qualified spelling is." Confirmed still true in expression position
+    // (`Crate({n = 1.0})` under the same-spelled alias draws `unknown name
+    // \`Crate\``) — but Pattern Matching §2.2's door, reached here because
+    // rule 3 found nothing, resolves the head from the **declaration**
+    // (`#constructorOfType` in checker.ts) with no call to
+    // `#recordRepresentationVisible`, so `let Crate({n}) = c` currently
+    // destructures the private field with zero diagnostics. This is the same
+    // sentence's other half left unenforced, not a new rule: the pattern
+    // eliminator's own opacity check (`#recordConstructorSlot`,
+    // checker.ts:6492) never runs for the door-resolved case.
     expect(compileFiles([
       ["/geo.hex",
         "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
-        'import { Crate, make } from "./geo"\n' +
+        'import Crate from "./geo"\n' +
         "export fun size(c: Crate): Float =\n" +
         "    let Crate({n}) = c\n" +
         "    n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
-      // The constructor is private, so the import carried the type name only —
-      // and the pattern's lookup is the term lookup. Nothing record-specific
-      // fires: opacity is enforced where it always was, at the name.
-      "unknown constructor `Crate`",
-      "unknown name `n`",
+      "cannot destructure opaque record `Crate`; use an operation exported by its home module",
     ]);
   });
 });
@@ -623,7 +647,7 @@ describe("emission erases the wrapper, because there is none (Products §5.4)", 
     expect(emitted([
       ["/geo.hex", CRATE],
       ["/main.hex",
-        'import module Geo from "./geo"\n' +
+        'import Geo from "./geo"\n' +
         "export fun size(c: Geo.Crate): Float =\n" +
         "    let Geo.Crate({n}) = c\n" +
         "    n\n"],

@@ -28,9 +28,17 @@ import { compileFiles, runProject } from "../support/test-project.js";
  * miss, stamped as an imported copy is, and carried in the typed module so the
  * emitter's constructor table and tagging judgment answer from it too.
  *
- * Witness spelling is bare-name **parity** with the import case, deliberately:
+ * Witness spelling is bare-name **parity** with the reached case, deliberately:
  * whether a witness should say where the name is declared is one message-design
- * question across both routes, and it is #607.
+ * question across every route the constructor door does not reach, and it is
+ * #607.
+ *
+ * Imports bind modules, never names smaller than one (#762): every fixture
+ * below reaches `./a` and `./b` through a module alias. A constructor pattern's
+ * head still reads bare — #763's door supplies it from the scrutinee's expected
+ * type, with no import of the constructor's home module required at all — so
+ * only *expression*-position constructions and type annotations need the
+ * alias's dot; pattern heads stay bare throughout.
  */
 
 /** `union Flag = On | Off`, and a maker in a second module whose result carries it. */
@@ -38,8 +46,8 @@ const FLAG = [
   ["/a.hex", "export union Flag = On | Off\n"],
   [
     "/b.hex",
-    "import { Flag, On } from \"./a\"\n" +
-    "export fun make(): Flag = On\n",
+    "import A from \"./a\"\n" +
+    "export fun make(): A.Flag = A.On\n",
   ],
 ] as const;
 
@@ -54,9 +62,9 @@ describe("the coverage column answers from the reached declaration", () => {
       ...FLAG,
       [
         "/main.hex",
-        "import { make } from \"./b\"\n" +
+        "import B from \"./b\"\n" +
         "export fun probe(): Int =\n" +
-        "    match make()\n" +
+        "    match B.make()\n" +
         "        _ => 1\n",
       ],
     ])).toEqual([]);
@@ -67,16 +75,21 @@ describe("the coverage column answers from the reached declaration", () => {
       ...FLAG,
       [
         "/main.hex",
-        "import { make } from \"./b\"\n" +
-        "import { On } from \"./a\"\n" +
+        "import B from \"./b\"\n" +
         "export fun probe(): Int =\n" +
-        "    match make()\n" +
+        "    match B.make()\n" +
         "        On => 1\n",
       ],
     ])).toEqual([
-      // #607: `Off` was never imported here, so §7.3's clause states its route.
-      "match is missing cases: `Off` — `Off` is declared in `./a`; " +
-      "`import { Off } from \"./a\"` to spell it here",
+      // #607, respelled for #762: the witness prints the bare spelling with no
+      // route clause at all — #763's door reaches `Off` in a pattern from the
+      // scrutinee's expected type alone, with no import of `./a` required, so
+      // §7.3's route-clause tiers have nothing left to add here. (They still
+      // exist for the one case the door cannot help: a bare spelling this
+      // module's own scope has taken for something else, so the door's
+      // "scope first" rule would resolve it wrong — see the coverage-tiers
+      // fixtures that cover that shadowing directly.)
+      "match is missing cases: `Off`",
     ]);
   });
 
@@ -85,38 +98,39 @@ describe("the coverage column answers from the reached declaration", () => {
       ["/a.hex", "export union Shape = Dot | Circle(radius: Float)\n"],
       [
         "/b.hex",
-        "import { Shape, Dot } from \"./a\"\n" +
-        "export fun make(): Shape = Dot\n",
+        "import A from \"./a\"\n" +
+        "export fun make(): A.Shape = A.Dot\n",
       ],
       [
         "/main.hex",
-        "import { make } from \"./b\"\n" +
-        "import { Dot } from \"./a\"\n" +
+        "import B from \"./b\"\n" +
         "export fun probe(): Int =\n" +
-        "    match make()\n" +
+        "    match B.make()\n" +
         "        Dot => 1\n",
       ],
     ])).toEqual([
-      "match is missing cases: `Circle(_)` — `Circle` is declared in `./a`; " +
-      "`import { Circle } from \"./a\"` to spell it here",
+      "match is missing cases: `Circle(_)`",
     ]);
   });
 
-  test("the already-shipped partial-import case is unchanged", () => {
-    // `Flag` is imported here, so this module always had the row. The repaired
-    // route prints exactly what this prints — that parity is the ruling.
+  test("the already-aliased case reports the same missing cases — the door, not the import, decides", () => {
+    // `Flag` is imported here, so this module always had a row for it, before
+    // and after #762. The repaired lazy-registration route (symptom 2, above)
+    // prints exactly what this prints — that parity is the ruling — and #763
+    // sharpens *why*: the bare spelling a witness prints comes from the door,
+    // which reads the pattern's expected type, not from whether this module
+    // happens to hold an alias for the constructor's home module too.
     expect(diagnostics([
       ["/a.hex", "export union Flag = On | Off\n"],
       [
         "/main.hex",
-        "import { Flag, On } from \"./a\"\n" +
-        "export fun probe(f: Flag): Int =\n" +
+        "import A from \"./a\"\n" +
+        "export fun probe(f: A.Flag): Int =\n" +
         "    match f\n" +
         "        On => 1\n",
       ],
     ])).toEqual([
-      "match is missing cases: `Off` — `Off` is declared in `./a`; " +
-      "`import { Off } from \"./a\"` to spell it here",
+      "match is missing cases: `Off`",
     ]);
   });
 
@@ -131,9 +145,9 @@ describe("the coverage column answers from the reached declaration", () => {
       ],
       [
         "/main.hex",
-        "import { make } from \"./a\"\n" +
+        "import A from \"./a\"\n" +
         "export fun probe(): Int =\n" +
-        "    match make()\n" +
+        "    match A.make()\n" +
         "        _ => 1\n",
       ],
     ])).toEqual([]);
@@ -151,9 +165,9 @@ describe("the coverage column answers from the reached declaration", () => {
       ],
       [
         "/main.hex",
-        "import { make } from \"./a\"\n" +
+        "import A from \"./a\"\n" +
         "export fun probe(): Int =\n" +
-        "    match make()\n" +
+        "    match A.make()\n" +
         "        _ => 1\n",
       ],
     ] as const;
@@ -180,14 +194,20 @@ describe("constructor-pattern typing answers from the reached declaration", () =
     // No union type is expected at this pattern at all — the scrutinee is a
     // `String` — so the union has to be found from the constructor's own symbol
     // or the arm unifies nothing and the confusion is accepted in silence.
+    // The pattern has to resolve to a real symbol *without* going through the
+    // door for that seat to be exercised at all — the door reads the expected
+    // type first and `String` is not a union, so a bare `On` would only draw
+    // the closed door's "has no constructor" refusal. Scope answers instead:
+    // `A.On`, qualified through the alias, resolves at name resolution and
+    // never asks the door at all (§763: "scope first").
     const messages = diagnostics([
       ["/a.hex", "export union Flag = On | Off\n"],
       [
         "/main.hex",
-        "import { On } from \"./a\"\n" +
+        "import A from \"./a\"\n" +
         "export fun probe(s: String): Int =\n" +
         "    match s\n" +
-        "        On => 1\n" +
+        "        A.On => 1\n" +
         "        _ => 2\n",
       ],
     ]);
@@ -205,20 +225,19 @@ describe("the emitter judges a reached union's tagging from the same declaration
       ["/a.hex", "export union Shape = Dot | Circle(radius: Float)\n"],
       [
         "/b.hex",
-        "import { Shape, Dot, Circle } from \"./a\"\n" +
-        "export fun dot(): Shape = Dot\n" +
-        "export fun circle(r: Float): Shape = Circle(r)\n",
+        "import A from \"./a\"\n" +
+        "export fun dot(): A.Shape = A.Dot\n" +
+        "export fun circle(r: Float): A.Shape = A.Circle(r)\n",
       ],
       [
         "/main.hex",
-        "import { dot, circle } from \"./b\"\n" +
-        "import { Dot, Circle } from \"./a\"\n" +
+        "import B from \"./b\"\n" +
         "export let atDot: Int =\n" +
-        "    match dot()\n" +
+        "    match B.dot()\n" +
         "        Dot => 11\n" +
         "        Circle(r) => 12\n" +
         "export let atCircle: Int =\n" +
-        "    match circle(1.5)\n" +
+        "    match B.circle(1.5)\n" +
         "        Dot => 21\n" +
         "        Circle(r) => 22\n",
       ],
@@ -232,20 +251,19 @@ describe("the emitter judges a reached union's tagging from the same declaration
       ["/a.hex", "export union Signal = Red | Green\n"],
       [
         "/b.hex",
-        "import { Signal, Red, Green } from \"./a\"\n" +
-        "export fun red(): Signal = Red\n" +
-        "export fun green(): Signal = Green\n",
+        "import A from \"./a\"\n" +
+        "export fun red(): A.Signal = A.Red\n" +
+        "export fun green(): A.Signal = A.Green\n",
       ],
       [
         "/main.hex",
-        "import { red, green } from \"./b\"\n" +
-        "import { Red, Green } from \"./a\"\n" +
+        "import B from \"./b\"\n" +
         "export let atRed: Int =\n" +
-        "    match red()\n" +
+        "    match B.red()\n" +
         "        Red => 7\n" +
         "        Green => 8\n" +
         "export let atGreen: Int =\n" +
-        "    match green()\n" +
+        "    match B.green()\n" +
         "        Red => 9\n" +
         "        Green => 10\n",
       ],
@@ -261,9 +279,9 @@ describe("the emitter judges a reached union's tagging from the same declaration
       ...FLAG,
       [
         "/main.hex",
-        "import { make } from \"./b\"\n" +
+        "import B from \"./b\"\n" +
         "export fun probe(): Int =\n" +
-        "    match make()\n" +
+        "    match B.make()\n" +
         "        _ => 1\n",
       ],
     ]);
@@ -291,8 +309,8 @@ describe("a reached union is still the importer's copy, for §4.3's reading", ()
       ],
       [
         "/main.hex",
-        "import { Pair, make } from \"./a\"\n" +
-        "export fun pass(): Pair = make()\n" +
+        "import A from \"./a\"\n" +
+        "export fun pass(): A.Pair = A.make()\n" +
         "export fun probe(): Int =\n" +
         "    match pass()\n" +
         "        (f, n) =>\n" +

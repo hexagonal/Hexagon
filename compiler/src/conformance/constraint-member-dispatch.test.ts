@@ -337,7 +337,7 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
     const exports = await runProject([
       ["/Rat.hex", stdlib("Rat.hex")],
       ["/main.hex", [
-        'import module Rat from "./Rat"',
+        'import Rat from "./Rat"',
         "",
         "export let total: String = \"${Rat.add(Rat.fromInt(1), Rat.fromInt(2))}\"",
         "export let scaled: String = \"${Rat.multiply(Rat.fromInt(3), Rat.fromInt(4))}\"",
@@ -419,7 +419,7 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import module Shapes from "./shapes"',
+        'import Shapes from "./shapes"',
         "",
         "export let drawn: String = Shapes.show(Shapes.Disc({radius = 1}))",
         "",
@@ -432,30 +432,22 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
   });
 
   /**
-   * The one-exporter law (Constraints §4.6's last bullet). If honoring modules
-   * poured their member bindings into consumers' bare scope, `show` would have
-   * as many exporters as the prelude has companions and Modules §5.5 would
-   * refuse the bare name everywhere. Qualification is the only outside route.
+   * The one-exporter law (Constraints §4.6's last bullet) used to be measured
+   * against a *bare* grab: `import { Dial, show } from "./dial"` tried to pull
+   * the honored member into the consumer's own bare scope by name, alongside
+   * the type, and was refused because `dial.hex` exports no term called
+   * `show` — an honor block is not an export, so a named import naming it had
+   * nothing to bind.
+   *
+   * #762 removed the whole channel that test measured: an import binds a
+   * module and nothing smaller, so there is no way to *attempt* pulling a
+   * bare `show` out of `dial.hex` by name any more, successfully or not — the
+   * failure mode is now structurally unreachable rather than refused. What
+   * survives is the positive half — qualification reaching the honored member
+   * through the module alias — and that is exactly what `Rat.add`, `Int.show`
+   * and the ambiguity test above already measure, so no replacement pin is
+   * added here; the property has no seat of its own left to hold.
    */
-  test("an honoring module's member is not a bare export in consumers", () => {
-    expect(diagnostics([
-      ["/dial.hex", [
-        "export record Dial = {mark: Int}",
-        "",
-        "honor Show<Dial> =",
-        '    show(dial) = "Dial"',
-        "",
-      ].join("\n")],
-      ["/main.hex", [
-        'import { Dial, show } from "./dial"',
-        "",
-        "export let read: String = show(Dial({mark = 2}))",
-        "",
-      ].join("\n")],
-    ])).toEqual([
-      "module `./dial` does not export `show`",
-    ]);
-  });
 });
 
 describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
@@ -472,8 +464,8 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import module Loud from "./loud"',
-        'import module Soft from "./soft"',
+        'import Loud from "./loud"',
+        'import Soft from "./soft"',
         "",
         "export record Gauge = {needle: Int}",
         "",
@@ -505,8 +497,8 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import module Near from "./near"',
-        'import module Far from "./far"',
+        'import Near from "./near"',
+        'import Far from "./far"',
         "",
         "export let span<a: (Near.Near, Far.Far)>(value: a): Int = value.reach()",
         "",
@@ -532,7 +524,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import module Quiet from "./quiet"',
+        'import Quiet from "./quiet"',
         "",
         "constraint Brash<a> =",
         "    level(value: a): Int",
@@ -559,11 +551,13 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
    * coexist — that is the carve-out — and it is the bare *use* that has no
    * discriminator, so it is refused naming the routes that do.
    *
-   * The shape is forced. A namespace import puts no member in bare scope, and
-   * two same-spelled members declared in one module collide at the second
-   * declaration — so the only way one module holds two bare-visible bindings of
-   * a spelling is a **named** constraint import beside a prelude one, whose
-   * member the import occludes (Modules §5.4).
+   * The shape is forced. A module import puts no member in bare scope on its
+   * own, and two same-spelled members declared in one module collide at the
+   * second declaration — so the only way one module holds two bare-visible
+   * bindings of a spelling is the companion fallback (Modules §5.1 rule 2,
+   * #762): an alias spelled the same as the constraint it names puts that
+   * constraint's own bare name in view, beside a prelude one, whose member the
+   * fallback occludes (Modules §5.4).
    */
   test("two constraints binding one spelling refuse the bare in-module use", () => {
     expect(diagnostics([
@@ -573,7 +567,7 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import { Warm } from "./warm"',
+        'import Warm from "./warm"',
         "",
         "export record Probe = {reading: Int}",
         "",

@@ -47,10 +47,10 @@ const sameNamedConstraints: readonly (readonly [string, string])[] = [
     "",
   ].join("\n")],
   ["/main.hex", [
-    "import { alphaLine } from \"./alpha\"",
-    "import { betaLine } from \"./beta\"",
+    "import Alpha from \"./alpha\"",
+    "import Beta from \"./beta\"",
     "",
-    "export fun both(): String = alphaLine(1) ++ \" / \" ++ betaLine(2)",
+    "export fun both(): String = Alpha.alphaLine(1) ++ \" / \" ++ Beta.betaLine(2)",
     "",
   ].join("\n")],
 ];
@@ -75,16 +75,16 @@ describe("same-named constraints in different modules are distinct", () => {
     const compiled = compileFiles([
       ...sameNamedConstraints.slice(0, 2),
       ["/middle.hex", [
-        "import { alphaLine } from \"./alpha\"",
-        "import { betaLine } from \"./beta\"",
+        "import Alpha from \"./alpha\"",
+        "import Beta from \"./beta\"",
         "",
-        "export fun joined(): String = alphaLine(3) ++ betaLine(4)",
+        "export fun joined(): String = Alpha.alphaLine(3) ++ Beta.betaLine(4)",
         "",
       ].join("\n")],
       ["/tip.hex", [
-        "import { joined } from \"./middle\"",
+        "import Middle from \"./middle\"",
         "",
-        "export fun report(): String = joined()",
+        "export fun report(): String = Middle.joined()",
         "",
       ].join("\n")],
     ]);
@@ -99,8 +99,8 @@ describe("same-named constraints in different modules are distinct", () => {
     const compiled = compileFiles([
       ...sameNamedConstraints.slice(0, 2),
       ["/main.hex", [
-        "import { alphaLine } from \"./alpha\"",
-        "import { betaLine } from \"./beta\"",
+        "import Alpha from \"./alpha\"",
+        "import Beta from \"./beta\"",
         "",
         "constraint Describe<a> =",
         "    describe(item: a): String",
@@ -109,7 +109,7 @@ describe("same-named constraints in different modules are distinct", () => {
         "    describe(k) = \"main\"",
         "",
         "let five: Int = 5",
-        "export fun mine(): String = describe(five) ++ alphaLine(6) ++ betaLine(7)",
+        "export fun mine(): String = describe(five) ++ Alpha.alphaLine(6) ++ Beta.betaLine(7)",
         "",
       ].join("\n")],
     ]);
@@ -154,9 +154,9 @@ describe("coherence still holds within one constraint declaration", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { tag } from \"./lib\"",
+        "import Lib from \"./lib\"",
         "",
-        "export fun same(): Bool = tag(\"x\") == tag(\"x\")",
+        "export fun same(): Bool = Lib.tag(\"x\") == Lib.tag(\"x\")",
         "",
       ].join("\n")],
     ]);
@@ -184,10 +184,10 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { announce } from \"./alpha\"",
+        "import Alpha from \"./alpha\"",
         "",
         "let seven: Int = 7",
-        "export fun greet(): String = announce(seven)",
+        "export fun greet(): String = Alpha.announce(seven)",
         "",
       ].join("\n")],
     ]);
@@ -208,7 +208,7 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { announce } from \"./alpha\"",
+        "import Alpha from \"./alpha\"",
         "",
         "constraint Describe<a> =",
         "    describe(item: a): String",
@@ -216,7 +216,7 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
         "honor Describe<Bool> =",
         "    describe(b) = \"local\"",
         "",
-        "export fun greet(): String = announce(True)",
+        "export fun greet(): String = Alpha.announce(True)",
         "",
       ].join("\n")],
     ]);
@@ -246,6 +246,8 @@ describe("pre-registered constraints have one identity, held by the compiler", (
   });
 
   test("every pre-registered name is refused alike", () => {
+    // Eleven sequential compiles; the default 5s budget is occasionally too
+    // tight for the whole loop even though each compile alone is quick.
     // All eleven, and the list is the whole inventory rather than a subset of
     // it. `Integral` (#335) and `Iterable` (#353) were held out while the
     // compiler pre-registered their *names* and held no declaration for
@@ -262,7 +264,7 @@ describe("pre-registered constraints have one identity, held by the compiler", (
         `constraint \`${name}\` is pre-registered and cannot be redeclared`,
       );
     }
-  });
+  }, 20000);
 
   test("redeclaring a module's own constraint keeps its own report", () => {
     const compiled = compileFiles([["/main.hex", [

@@ -62,7 +62,7 @@ function verdict(source: string): readonly string[] {
 }
 
 function withRat(source: string): readonly (readonly [string, string])[] {
-  return [["/main.hex", `import module Rat from "./Rat"\n${fixtures}${source}`], ["/Rat.hex", RAT]];
+  return [["/main.hex", `import Rat from "./Rat"\n${fixtures}${source}`], ["/Rat.hex", RAT]];
 }
 
 function ratVerdict(source: string): readonly string[] {

@@ -26,8 +26,11 @@ import { compileFiles, projectDiagnostics, runMain } from "../support/test-proje
  * So this is the exception to "every prelude export is in bare scope", and it
  * has to be exactly as wide as §12 draws it and no wider. The file pins:
  *
- * - **the twenty-one constructors are unreachable bare**, in expressions and in
- *   patterns alike, with the ordinary unknown-name refusals §12 leaves them to;
+ * - **the twenty-one constructors are unreachable bare in expressions**, with
+ *   the ordinary unknown-name refusals §12 leaves them to; **in a pattern**
+ *   they are reachable bare wherever #763's door applies — the scrutinee's
+ *   type is known and is the constructor's own union — because the door
+ *   reaches every union alike, this qualified-only prelude set included;
  * - **the qualified spelling works everywhere** a constructor can stand, which
  *   is Modules §3.3's existing `Geo.Circle(r)` door and nothing new;
  * - **the eight words are given back**, including the two occlusion shapes the
@@ -106,19 +109,20 @@ describe("the ten constructors are not bare prelude terms (ffi.md §12)", () => 
   });
 
   /**
-   * Pattern position, which Modules §5.4 reads as one scope with value
-   * position — and §10 gives the refusal **one shape for both**, so the sentence
-   * here is the sentence above, character for character. This is the seat that
-   * matters most: a capitalized name in a pattern is a *constructor* pattern,
-   * never a binder, so an unbound one is refused rather than silently matching
-   * everything.
+   * Pattern position is where #763's door lives, and it reaches every union
+   * alike — this qualified-only prelude set included: the scrutinee's type is
+   * `JsKind`, which is exactly the union each of these ten constructs, so a
+   * bare head in the pattern resolves through the door rather than drawing
+   * §12's expression-position refusal. Reading a capitalized pattern head as a
+   * constructor first, and only refusing when neither scope nor the door
+   * answers, is what the door *is* — this is the seat it was built for.
    */
-  test.each(KINDS)("bare `%s` in a pattern draws the same sentence", (constructor) => {
+  test.each(KINDS)("bare `%s` in a pattern resolves through the door (#763)", (constructor) => {
     expect(projectDiagnostics(
       "export let f(k: JsKind): Int = match k\n" +
         `    ${constructor} => 1\n` +
         "    _ => 2\n",
-    )[0]).toBe(`no bare \`${constructor}\`; write \`JsKind.${constructor}\``);
+    )).toEqual([]);
   });
 
   /**
@@ -310,17 +314,43 @@ describe("the extension gives the eight words back (§12's extension, #511)", ()
     },
   );
 
-  /** Pattern position, the seat where an unbound capitalized name is refused. */
-  test.each(["Shape", "Range", "Cycle"] as const)(
-    "bare `%s` in a pattern draws the same sentence",
+  /**
+   * Pattern position, where #763's door reaches these two nullary
+   * constructors the same way it reaches `JsKind`'s: the scrutinee's type is
+   * `JsConversionReason`, so the bare head resolves with no diagnostic at all.
+   */
+  test.each(["Shape", "Range"] as const)(
+    "bare `%s` in a pattern resolves through the door (#763)",
     (constructor) => {
       expect(projectDiagnostics(
         "export let f(r: JsConversionReason): Int = match r\n" +
           `    ${constructor} => 1\n` +
           "    _ => 2\n",
-      )[0]).toBe(`no bare \`${constructor}\`; write \`JsConversionReason.${constructor}\``);
+      )).toEqual([]);
     },
   );
+
+  /**
+   * `Cycle` carries a payload, so a head with no argument list is not the
+   * refused-bare-head shape at all: the door still resolves the head (there is
+   * no "no bare `Cycle`" refusal), and what remains is the ordinary arity
+   * report a nullary write of a unary constructor always draws.
+   */
+  test("bare `Cycle(_)` in a pattern resolves through the door (#763)", () => {
+    expect(projectDiagnostics(
+      "export let f(r: JsConversionReason): Int = match r\n" +
+        "    Cycle(_) => 1\n" +
+        "    _ => 2\n",
+    )).toEqual([]);
+  });
+
+  test("bare `Cycle` with no argument list still draws the arity report", () => {
+    expect(projectDiagnostics(
+      "export let f(r: JsConversionReason): Int = match r\n" +
+        "    Cycle => 1\n" +
+        "    _ => 2\n",
+    )).toEqual(["constructor pattern `Cycle` expects 1 arguments, got 0"]);
+  });
 
   /** And they are reachable qualified, in expressions and in patterns. */
   test("every constructor of both unions is reachable qualified", () => {
@@ -394,8 +424,7 @@ describe("the extension gives the eight words back (§12's extension, #511)", ()
       "union Shape = Circle(Float)\n" +
         "export let n: Float = Shape.area(1.0)\n",
     )).toEqual([
-      "`Shape` is a type, not a module; import its home module with " +
-        "`import module` for qualified access, or import the constructor/function you need",
+      "`Shape` is a type, not a module; import its home module to qualify through it",
     ]);
   });
 

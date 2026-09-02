@@ -10,48 +10,50 @@
  * ordinary modules injected at the source common root, so a project file can
  * reach one of their declarations under a word of its own.
  *
- * **Two channels do that, not one**, and both were live defect routes:
+ * **One channel does that** — Modules §3.3's qualifier:
  *
- *     import { Hash as H } from "./Hash.hex"      // the named-import alias
- *     import module M from "./Hash.hex"           // Modules §3.3's qualifier
+ *     import M from "./Hash.hex"
+ *     honor M.Hash<P> = ...
  *
- * `H` and `M.Hash` are each a second spelling of `hex:Hash`, bound with no
- * redeclaration anywhere. The qualified channel is not a variation on the first:
- * it needs no alias at all, and `honor M.Hash<P>` compiled a hand-written `Hash`
- * with zero diagnostics on its own. What the gates below are keyed on is the
- * *identity*, which is what makes them robust to the channel rather than robust
- * to one of them — so the specimens exercise both, and pin that the canonical,
- * aliased and qualified spellings of one program are answered identically.
+ * `M.Hash` is a second spelling of `hex:Hash`, bound with no redeclaration
+ * anywhere and no rename in sight: the module alias `M` is whatever this file
+ * chose to write, and the constraint's own word is untouched. (An import
+ * binding a bare `Eq` to itself once needed a rename — #762 retired that whole
+ * route: an import binds a module and nothing smaller, so there is no second
+ * *bare* spelling of a pre-registered name left to mint at all. The gates below
+ * are keyed on the *identity*, which is what makes them robust to the qualifier
+ * regardless of which word this file picks for the alias — so several specimens
+ * below reuse a different alias letter per constraint (`H`, `E`, `S`, `C`, `I`,
+ * `M`) rather than one, and pin that the canonical and qualified spellings of
+ * one program are answered identically.
  *
- * What an import cannot do is bind a pre-registered name to **itself**
- * (`constraint \`Eq\` is already declared or imported`), which is why every
- * second spelling is a renaming one. The two channels differ in reach: a
- * `derives` entry is a single bare `UpperName` by grammar (#726), so the alias
- * reaches that seat and the qualifier does not — `derives (Eq, M.Hash)` is a
- * parse error by design, and the specimen below pins that rather than working
- * around it.
+ * What the qualifier cannot do is reach a `derives` entry: a `derives` entry is
+ * a single bare `UpperName` by grammar (#726), so `derives (Eq, M.Hash)` is a
+ * parse error by design. Nothing else supplies a *bare* second spelling of a
+ * pre-registered name either — the compiler already seeds the canonical word
+ * bare in every module — so "an aliased `derives` entry" has no program left to
+ * write; that property is pinned only where the grammar refuses it, and the
+ * derivability gate's other pins run on `Hash` reached bare, unaliased.
  *
  * Three defect classes, all measured on the code this file was written against:
  *
- * - **False refusals.** `derives (Eq, H)` was refused as underivable while the
- *   identical program spelled `Hash` compiled; a call defaulting under `<a: S>`
- *   reported ``\`S\` is not a defaultable constraint``; and every structural arm
- *   — tuples, records, vectors, `Set`, `Map`, the pinned `Bool`, `Concat` on a
- *   vector spine — declined under an alias and sent the requirement to the
+ * - **False refusals.** A call defaulting under `<a: S.Show>` reported
+ *   ``\`S\` is not a defaultable constraint``; and every structural arm —
+ *   tuples, records, vectors, `Set`, `Map`, the pinned `Bool`, `Concat` on a
+ *   vector spine — declined under a qualifier and sent the requirement to the
  *   instance table to fail for want of an `S` instance no module can write.
- * - **A refusal bypass**, the severe one, and reachable through *either* channel
- *   independently. `honor H<P>` and `honor M.Hash<P>` each compiled a
+ * - **A refusal bypass**, the severe one. `honor H.Hash<P>` compiled a
  *   hand-written `Hash` with *zero* diagnostics while `honor Hash<P>` was
  *   refused, so the hash-agrees-with-`Eq` law (Collections Part 2 §4.1/§4.3) had
- *   two spellings that walked around it.
+ *   a spelling that walked around it.
  * - **A dropped repair.** The implied-type binder refusal keeps its fixit under
- *   an alias, where it used to print the reason alone.
+ *   a qualifier, where it used to print the reason alone.
  *
  * What does *not* change is what the reader sees: every message still names the
  * word the source wrote. Identity decides, spelling reports.
  *
  * The emission block is the arc's other half. A spelling is not a property of a
- * constraint at a module border (#714, #718), so the aliased program's emitted
+ * constraint at a module border (#714, #718), so the qualified program's emitted
  * dictionary must be the one the canonical spelling emits — same binding name,
  * same slots — and the pins below hold that against the program that differs
  * from it in the one written word.
@@ -84,33 +86,30 @@ async function runs(label: string, source: string): Promise<Record<string, unkno
   return await runProject([["/main.hex", source]], { transform: distinct(label) });
 }
 
-describe("a pre-registered constraint has two second-spelling channels", () => {
-  test("a named import may not bind one under its own name, so it renames", () => {
-    expect(
-      diagnostics('import { Eq } from "./Eq.hex"\nrecord P derives (Eq) = {x: Int}\n'),
-    ).toEqual(["constraint `Eq` is already declared or imported"]);
-  });
-
-  test("but `import module` binds the qualified form with no alias at all", () => {
-    // Modules §3.3. No renaming, no `as`, and the word `Hash` is untouched —
-    // which is why "nothing can occlude `Hash`" was never the question the
-    // gates needed answered.
+describe("a pre-registered constraint has a second-spelling channel", () => {
+  test("`import module` binds the qualified form with no rename at all", () => {
+    // Modules §3.3. The alias is this file's own word, the constraint's word
+    // (`Show`) is untouched, and nothing declares anything — which is why
+    // "nothing can occlude `Show`" was never the question the gates needed
+    // answered.
     expect(
       diagnostics(
-        'import module M from "./Show.hex"\n' +
+        'import M from "./Show.hex"\n' +
           "export fun render<a: M.Show>(value: a): String = show(value)\n" +
           'export let r: String = render("x")\n',
       ),
     ).toEqual([]);
   });
 
-  test("a `derives` entry is a bare name by grammar, so only the alias reaches it", () => {
+  test("a `derives` entry is a bare name by grammar, so the qualifier cannot reach it", () => {
     // #726's §2.3 sentence: a `derives` entry is a single bare `UpperName` and
-    // no qualified form parses. Pinned rather than worked around — it is the one
-    // asymmetry between the two channels, and it is a grammar fact, not a gate.
+    // no qualified form parses. Pinned rather than worked around — it is the
+    // reason the derivability gate below is pinned only at the canonical,
+    // unaliased spelling: nothing supplies a second *bare* word for a
+    // pre-registered name, so there is no aliased `derives` entry to write.
     expect(
       diagnostics(
-        'import module M from "./Hash.hex"\nrecord P derives (Eq, M.Hash) = {x: Int}\n',
+        'import M from "./Hash.hex"\nrecord P derives (Eq, M.Hash) = {x: Int}\n',
       ),
     ).toEqual([
       "expected `)` after `derives` constraints",
@@ -120,56 +119,15 @@ describe("a pre-registered constraint has two second-spelling channels", () => {
 });
 
 describe("the derivability gate reads the declaration", () => {
-  const ALIASED = 'import { Hash as H } from "./Hash.hex"\n' +
-    "record P derives (Eq, H) = {x: Int}\n" +
-    "export let seen: Bool = " +
-    "Set.contains(Set.fromVector([P({x = 1}), P({x = 1})]), P({x = 1}))\n";
-
-  const CANONICAL = "record P derives (Eq, Hash) = {x: Int}\n" +
-    "export let seen: Bool = " +
-    "Set.contains(Set.fromVector([P({x = 1}), P({x = 1})]), P({x = 1}))\n";
-
-  test("an aliased derives entry is accepted", () => {
-    // Was: "`H` cannot be derived; only `Eq`, `Ord`, `Show`, and `Hash` have
-    // derivable forms" — of the constraint that *is* `Hash`.
-    expect(diagnostics(ALIASED)).toEqual([]);
-  });
-
-  test("and the derived hash it emits is the canonical one, byte for byte", () => {
-    // #718's law reaching the newly-legal program: the dictionary is `__Hash_P`
-    // and its base slot is `Eq`, both minted from the declaration's own name.
-    // The resolver used to mint the binding from the *written* word and emitted
-    // `__H_P`, an alias leaking into the output of a module nothing imports.
-    expect(emitted(ALIASED)).toContain("const __Hash_P = { Eq: __Eq_P, hash: __Hash_P_hash };");
-    expect(emitted(ALIASED)).not.toContain("__H_P");
-    expect(emitted(ALIASED)).toBe(emitted(CANONICAL));
-  });
-
-  test("and the program runs, the derived hash agreeing with derived equality", async () => {
-    const exports = await runs("alias-derives-hash", ALIASED);
-    expect(exports["seen"]).toBe(true);
-  });
-
-  const ALIASED_THREE = 'import { Eq as E } from "./Eq.hex"\n' +
-    'import { Ord as O } from "./Ord.hex"\n' +
-    'import { Show as S } from "./Show.hex"\n' +
-    "record P derives (E, O, S) = {x: Int}\n" +
-    'export let r: String = "${show(P({x = 1}))}"\n';
-
-  test("the other three derive under an alias too, and emit their own names", () => {
-    expect(diagnostics(ALIASED_THREE)).toEqual([]);
-    const text = emitted(ALIASED_THREE);
-    for (const dictionary of ["__Eq_P", "__Ord_P", "__Show_P"]) {
-      expect(text).toContain(`const ${dictionary} = `);
-    }
-    expect(text).not.toMatch(/__[EOS]_P\b/u);
-  });
-
-  test("and that program runs", async () => {
-    const exports = await runs("alias-derives-three", ALIASED_THREE);
-    expect(exports["r"]).toBe("{x = 1}");
-  });
-
+  // #762 retired the one route that could put a *bare* second spelling of a
+  // pre-registered name in scope (a named import's own alias), and a `derives`
+  // entry admits no qualified form (the grammar pin just above). So there is no
+  // program left in which the derivability gate could be asked about `Hash`
+  // under any spelling but its own — the aliased specimens this block used to
+  // hold (`derives (Eq, H)` and its three-constraint sibling) have no seat
+  // remaining and are removed rather than re-aimed. What is left is the control
+  // the gate must still answer correctly: a constraint that really cannot be
+  // derived, by its own unaliased word.
   test("a constraint that is genuinely underivable is still refused, by its own word", () => {
     expect(
       diagnostics(
@@ -188,9 +146,9 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
   // Collections Part 2 §4.1's derivable-only law had a spelling that bypassed
   // it — and the instance it admitted was a hash under no obligation to agree
   // with the subject's equality.
-  const BYPASS = 'import { Hash as H } from "./Hash.hex"\n' +
+  const BYPASS = 'import H from "./Hash.hex"\n' +
     "record P derives (Eq) = {x: Int}\n" +
-    "honor H<P> =\n" +
+    "honor H.Hash<P> =\n" +
     "    hash(value) = 7\n";
 
   const CANONICAL = "record P derives (Eq) = {x: Int}\n" +
@@ -208,8 +166,8 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
     // one voice across the family, so the two spellings of one program are owed
     // one message. The advice names the **canonical** word because the seat it
     // sends the reader to is a `derives` list on a declaration, and `derives
-    // Hash` is writable in every module while `derives H` is writable only in
-    // one that happens to hold this import — the same reason #644's use-site
+    // Hash` is writable in every module while `derives H.Hash` does not even
+    // parse there (the grammar pin above) — the same reason #644's use-site
     // fixit canonicalizes.
     expect(diagnostics(BYPASS)).toEqual(diagnostics(CANONICAL));
   });
@@ -217,7 +175,7 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
   test("and the advice it offers is takeable, spelled canonically", async () => {
     const exports = await runs(
       "alias-hash-repair",
-      'import { Hash as H } from "./Hash.hex"\n' +
+      'import H from "./Hash.hex"\n' +
         "record P derives (Eq, Hash) = {x: Int}\n" +
         "export let seen: Bool = " +
         "Set.contains(Set.fromVector([P({x = 1})]), P({x = 1}))\n",
@@ -225,35 +183,35 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
     expect(exports["seen"]).toBe(true);
   });
 
-  // The second channel, at the same seat. `import module M` renames nothing and
-  // binds no alias, so this program was the bypass reached without ever writing
-  // `as` — and it is why the closure has to be keyed on the identity rather than
-  // on "the word here is not `Hash`".
-  const QUALIFIED_BYPASS = 'import module M from "./Hash.hex"\n' +
+  // The same channel again, an unrelated alias word at the same seat: the
+  // closure has to be keyed on the identity rather than on "the word here is
+  // not `Hash`", and this and BYPASS above are the measurement of that —
+  // two different alias spellings answering alike.
+  const QUALIFIED_BYPASS = 'import M from "./Hash.hex"\n' +
     "record P derives (Eq) = {x: Int}\n" +
     "honor M.Hash<P> =\n" +
     "    hash(value) = 7\n";
 
-  test("the qualified hand-written instance is refused too", () => {
+  test("the qualified hand-written instance is refused too, under a second alias word", () => {
     expect(diagnostics(QUALIFIED_BYPASS)).toEqual([
       "`Hash` instances must be derived; add `Hash` to `P`'s `derives` list",
     ]);
   });
 
-  test("with the same sentence again — one law, three spellings", () => {
+  test("with the same sentence again — one law, one channel, two alias words", () => {
     expect(diagnostics(QUALIFIED_BYPASS)).toEqual(diagnostics(CANONICAL));
     expect(diagnostics(QUALIFIED_BYPASS)).toEqual(diagnostics(BYPASS));
   });
 
-  const QUALIFIED_DERIVE = 'import module M from "./Hash.hex"\n' +
+  const QUALIFIED_DERIVE = 'import M from "./Hash.hex"\n' +
     "record P derives (Eq) = {x: Int}\n" +
     "honor M.Hash<P> = derive\n" +
     "export let seen: Bool = " +
     "Set.contains(Set.fromVector([P({x = 1})]), P({x = 1}))\n";
 
   test("and the qualified spelling of the *derived* form is accepted and runs", async () => {
-    // The positive on the second channel: §4.5's core `= derive` body reached
-    // through the qualifier, which the `derives` header sugar cannot spell.
+    // The positive on the channel: §4.5's core `= derive` body reached through
+    // the qualifier, which the `derives` header sugar cannot spell.
     expect(diagnostics(QUALIFIED_DERIVE)).toEqual([]);
     expect(emitted(QUALIFIED_DERIVE)).toContain("const __Hash_P = { Eq: __Eq_P, hash:");
     const exports = await runs("qualified-derive-hash", QUALIFIED_DERIVE);
@@ -261,16 +219,17 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
   });
 
   test("a derived `Hash` under an alias still requires derived equality", () => {
-    // Latent while the gate above refused `derives (H)` first, and live the
-    // moment it stopped: the pair is `hex:Hash` and `hex:Eq` however this module
-    // spells either of them.
+    // Latent while the gate above refused `derives (H.Hash)` (it does not even
+    // parse), and live once the honor-block bypass is what is measured: the
+    // pair is `hex:Hash` and `hex:Eq` however this module spells either of
+    // them.
     expect(
       diagnostics(
-        'import { Hash as H } from "./Hash.hex"\n' +
+        'import H from "./Hash.hex"\n' +
           "record P = {x: Int}\n" +
           "honor Eq<P> =\n" +
           "    equals(left, right) = left.x == right.x\n" +
-          "honor H<P> = derive\n",
+          "honor H.Hash<P> = derive\n",
       ),
     ).toEqual([
       "cannot derive `Hash<P>`: the subject has a hand-written `Eq` instance; " +
@@ -280,11 +239,11 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
 });
 
 describe("defaulting reads the declaration", () => {
-  const ALIASED = 'import { Show as S } from "./Show.hex"\n' +
-    "export fun render<a: S>(value: a): String = show(value)\n" +
+  const ALIASED = 'import S from "./Show.hex"\n' +
+    "export fun render<a: S.Show>(value: a): String = show(value)\n" +
     "export let r: String = render(7)\n";
 
-  test("a literal under an aliased binder defaults", () => {
+  test("a literal under a qualified binder defaults", () => {
     // Was: "the literal `7` cannot default to `Int`: `S` is not a defaultable
     // constraint; add a type annotation to pin the type". The gate minted
     // `hex:S` from the written word and compared it against the requirement's
@@ -317,11 +276,11 @@ describe("defaulting reads the declaration", () => {
 });
 
 describe("structural satisfaction reads the declaration", () => {
-  const RENDER = 'import { Show as S } from "./Show.hex"\n' +
-    "export fun render<a: S>(value: a): String = show(value)\n";
+  const RENDER = 'import S from "./Show.hex"\n' +
+    "export fun render<a: S.Show>(value: a): String = show(value)\n";
 
   // Each row is a separate arm of the requirement walk, and each one declined
-  // under an alias and reported `type \`…\` has no \`S\` instance`.
+  // under a qualifier and reported `type \`…\` has no \`S\` instance`.
   const ROWS: readonly (readonly [string, string, string])[] = [
     ["a tuple", "export let r: String = render((1, 2))\n", "(1, 2)"],
     ["a structural record", "export let r: String = render({n = 1})\n", "{n = 1}"],
@@ -343,7 +302,7 @@ describe("structural satisfaction reads the declaration", () => {
   ];
 
   for (const [what, use, answer] of ROWS) {
-    test(`${what} satisfies an aliased constraint`, () => {
+    test(`${what} satisfies a qualified constraint`, () => {
       expect(diagnostics(RENDER + use)).toEqual([]);
     });
 
@@ -353,24 +312,15 @@ describe("structural satisfaction reads the declaration", () => {
     });
   }
 
-  const QUALIFIED_TUPLE = 'import module M from "./Show.hex"\n' +
-    "export fun render<a: M.Show>(value: a): String = show(value)\n" +
-    "export let r: String = render((1, 2))\n";
+  // The tuple row above already exercises this exact channel (a module alias
+  // dotted through to the constraint it declares); a second alias word over
+  // the same arm would measure nothing the rows do not already show.
 
-  test("the qualified channel reaches the structural arms as well", () => {
-    expect(diagnostics(QUALIFIED_TUPLE)).toEqual([]);
-  });
-
-  test("and answers with the same structural instance", async () => {
-    const exports = await runs("qualified-structural-tuple", QUALIFIED_TUPLE);
-    expect(exports["r"]).toBe("(1, 2)");
-  });
-
-  const JOIN = 'import { Concat as C } from "./Concat.hex"\n' +
-    "export fun join<a: C>(x: a, y: a): a = x ++ y\n" +
+  const JOIN = 'import C from "./Concat.hex"\n' +
+    "export fun join<a: C.Concat>(x: a, y: a): a = x ++ y\n" +
     "export let r: String = show(join([1], [2]))\n";
 
-  test("a vector spine satisfies an aliased `Concat`", () => {
+  test("a vector spine satisfies a qualified `Concat`", () => {
     expect(diagnostics(JOIN)).toEqual([]);
   });
 
@@ -397,8 +347,8 @@ describe("a container walk demands of its contents what the identity says", () =
    * `TypeError: __Hash_P.show is not a function`.
    */
   const SHOWLESS = "record P derives (Eq, Hash) = {x: Int}\n";
-  const RENDER = 'import { Show as S } from "./Show.hex"\n' +
-    "export fun render<a: S>(value: a): String = show(value)\n";
+  const RENDER = 'import S from "./Show.hex"\n' +
+    "export fun render<a: S.Show>(value: a): String = show(value)\n";
 
   test("a `Set`'s element is asked for `Show` when `Show` is what was demanded", () => {
     expect(
@@ -437,10 +387,10 @@ describe("a container walk demands of its contents what the identity says", () =
     // and refused by the right one.
     expect(
       diagnostics(
-        'import { Hash as H } from "./Hash.hex"\n' +
+        'import H from "./Hash.hex"\n' +
           "record K derives (Eq, Hash) = {k: Int}\n" +
           "record V derives (Eq) = {v: Int}\n" +
-          "export fun keyed<a: H>(value: a): Int = 0\n" +
+          "export fun keyed<a: H.Hash>(value: a): Int = 0\n" +
           "let m: Map(K, V) = Map.fromVector([(K({k = 1}), V({v = 2}))])\n" +
           "export let r: Int = keyed(m)\n",
       ),
@@ -451,10 +401,10 @@ describe("a container walk demands of its contents what the identity says", () =
   });
 });
 
-describe("a hand-written instance of an aliased constraint stays legal", () => {
-  const SHOW = 'import { Show as S } from "./Show.hex"\n' +
+describe("a hand-written instance of a qualified constraint stays legal", () => {
+  const SHOW = 'import S from "./Show.hex"\n' +
     "record P = {x: Int}\n" +
-    "honor S<P> =\n" +
+    "honor S.Show<P> =\n" +
     '    show(value) = "p!"\n' +
     "export let r: String = show(P({x = 1}))\n";
 
@@ -472,31 +422,31 @@ describe("a hand-written instance of an aliased constraint stays legal", () => {
     expect(exports["r"]).toBe("p!");
   });
 
-  const EQ = 'import { Eq as E } from "./Eq.hex"\n' +
+  const EQ = 'import E from "./Eq.hex"\n' +
     "record P = {x: Int}\n" +
-    "honor E<P> =\n" +
+    "honor E.Eq<P> =\n" +
     "    equals(left, right) = left.x == right.x\n" +
     "export let differs: Bool = P({x = 1}) != P({x = 2})\n";
 
-  test("an omitted `notEquals` is still completed under an alias", async () => {
+  test("an omitted `notEquals` is still completed under a qualifier", async () => {
     expect(diagnostics(EQ)).toEqual([]);
     const exports = await runs("alias-eq-honor", EQ);
     expect(exports["differs"]).toBe(true);
   });
 });
 
-describe("the implied-type binder refusal keeps its repair under an alias", () => {
-  test("`Iterable` reached by an alias still says what to write instead", () => {
+describe("the implied-type binder refusal keeps its repair under a qualifier", () => {
+  test("`Iterable` reached by a qualifier still says what to write instead", () => {
     // The reason and the repair parted company here: the message naming the
     // written word dropped the `Seq` clause while the loop-head report beside
     // it — where the compiler spells the constraint itself — still printed it.
     expect(
       diagnostics(
-        'import { Iterable as I } from "./Iterable.hex"\n' +
-          "export fun count<c: I>(xs: c): Int = 0\n",
+        'import I from "./Iterable.hex"\n' +
+          "export fun count<c: I.Iterable>(xs: c): Int = 0\n",
       ),
     ).toEqual([
-      "`I` declares an implied type and cannot constrain a type variable in v1; " +
+      "`I.Iterable` declares an implied type and cannot constrain a type variable in v1; " +
         "take a `Seq(a)` parameter instead",
     ]);
   });

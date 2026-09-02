@@ -109,7 +109,7 @@ describe("completions", () => {
       "export fun triple(value: Int): Int = value * 3",
       "",
     ].join("\n");
-    const source = ['import module H from "./helper"', "", "let answer: Int = H.‸", ""].join("\n");
+    const source = ['import H from "./helper"', "", "let answer: Int = H.‸", ""].join("\n");
     const offered = completionsIn(source, { "/helper.hex": helper });
     expect(offered).toEqual(["triple:function", "two:value"]);
   });
@@ -392,7 +392,7 @@ describe("completions", () => {
 
     test("a qualified offer carries it too", () => {
       const offered = documented(
-        'import module Helper from "./helper"\n\nlet probe: Int = Helper.‸\n',
+        'import Helper from "./helper"\n\nlet probe: Int = Helper.‸\n',
         { "/helper.hex": DOCUMENTED },
       );
       expect(offered).toContain("brighten :: Brightens it.");

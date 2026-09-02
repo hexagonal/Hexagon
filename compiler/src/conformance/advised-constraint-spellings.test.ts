@@ -101,7 +101,7 @@ describe("the completeness advice spells each constraint by its own declaration"
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
       "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`, and this module " +
-      "binds another `Heft`; `import module Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "binds another `Heft`; `import Lib from \"./lib\"` and spell it `Lib.Heft`",
     ]);
   });
 
@@ -109,7 +109,7 @@ describe("the completeness advice spells each constraint by its own declaration"
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
-        'import module Lib from "./lib"\n' +
+        'import Lib from "./lib"\n' +
         "constraint Heft<a: Ord> =\n    other(value: a): a\n" +
         "export let caller<a: (Ord, Lib.Heft)>(n: a, m: a, stop: Bool): Bool =\n" +
         "    if stop then n <= m else useHeft(n) <= useHeft(m)\n"],
@@ -138,7 +138,7 @@ describe("the completeness advice spells each constraint by its own declaration"
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
-        'import module L from "./lib"\n' + CALLER],
+        'import L from "./lib"\n' + CALLER],
     ])).toEqual([
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
@@ -153,7 +153,7 @@ describe("the completeness advice spells each constraint by its own declaration"
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
-        'import module L from "./lib"\n' +
+        'import L from "./lib"\n' +
         "constraint Heft<a: Ord> =\n    other(value: a): a\n" + CALLER],
     ])).toEqual([
       INCOMPLETE_CALLER,
@@ -170,8 +170,8 @@ describe("the completeness advice spells each constraint by its own declaration"
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
-        'import module Second from "./lib"\n' +
-        'import module Zeroth from "./lib"\n' + CALLER],
+        'import Second from "./lib"\n' +
+        'import Zeroth from "./lib"\n' + CALLER],
     ])).toEqual([
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
@@ -191,7 +191,7 @@ describe("the completeness advice spells each constraint by its own declaration"
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
       "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`; " +
-      "`import module Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "`import Lib from \"./lib\"` and spell it `Lib.Heft`",
     ]);
   });
 });
@@ -212,9 +212,9 @@ describe("two declarations sharing a word are two binders (#716)", () => {
       INCOMPLETE_BOTH,
       "exported function `both` must declare every constraint in its signature; " +
       "write `<a: (Lib1.Describe, Lib2.Describe)>` — `Describe` is declared in `./lib1`; " +
-      "`import module Lib1 from \"./lib1\"` and spell it `Lib1.Describe`" +
+      "`import Lib1 from \"./lib1\"` and spell it `Lib1.Describe`" +
       " — `Describe` is declared in `./lib2`; " +
-      "`import module Lib2 from \"./lib2\"` and spell it `Lib2.Describe`",
+      "`import Lib2 from \"./lib2\"` and spell it `Lib2.Describe`",
     ]);
   });
 
@@ -224,8 +224,8 @@ describe("two declarations sharing a word are two binders (#716)", () => {
       ["/lib2.hex", DESCRIBE_TWO],
       ["/main.hex", 'import { useOne } from "./lib1.hex"\n' +
         'import { useTwo } from "./lib2.hex"\n' +
-        'import module Lib1 from "./lib1"\n' +
-        'import module Lib2 from "./lib2"\n' +
+        'import Lib1 from "./lib1"\n' +
+        'import Lib2 from "./lib2"\n' +
         "export let both<a: (Lib1.Describe, Lib2.Describe)>(v: a): a = useOne(v) + useTwo(v)\n"],
     ])).toEqual([]);
   });
@@ -245,7 +245,7 @@ describe("two declarations sharing a word are two binders (#716)", () => {
       "exported function `both` must declare every constraint in its signature; " +
       "write `<a: (Describe, Lib2.Describe)>` — `Describe` is declared in `./lib2`, " +
       "and this module binds another `Describe`; " +
-      "`import module Lib2 from \"./lib2\"` and spell it `Lib2.Describe`",
+      "`import Lib2 from \"./lib2\"` and spell it `Lib2.Describe`",
     ]);
   });
 
@@ -255,7 +255,7 @@ describe("two declarations sharing a word are two binders (#716)", () => {
       ["/lib2.hex", DESCRIBE_TWO],
       ["/main.hex", 'import { Describe, useOne } from "./lib1.hex"\n' +
         'import { useTwo } from "./lib2.hex"\n' +
-        'import module Lib2 from "./lib2"\n' +
+        'import Lib2 from "./lib2"\n' +
         "export let both<a: (Describe, Lib2.Describe)>(v: a): a = useOne(v) + useTwo(v)\n"],
     ])).toEqual([]);
   });
@@ -274,9 +274,9 @@ describe("two declarations sharing a word are two binders (#716)", () => {
       INCOMPLETE_BOTH,
       "exported function `both` must declare every constraint in its signature; " +
       "write `<a: (Lib.Describe, Lib_1.Describe)>` — `Describe` is declared in `./a/lib`; " +
-      "`import module Lib from \"./a/lib\"` and spell it `Lib.Describe`" +
+      "`import Lib from \"./a/lib\"` and spell it `Lib.Describe`" +
       " — `Describe` is declared in `./b/lib`; " +
-      "`import module Lib_1 from \"./b/lib\"` and spell it `Lib_1.Describe`",
+      "`import Lib_1 from \"./b/lib\"` and spell it `Lib_1.Describe`",
     ]);
   });
 
@@ -286,8 +286,8 @@ describe("two declarations sharing a word are two binders (#716)", () => {
       ["/b/lib.hex", DESCRIBE_TWO],
       ["/main.hex", 'import { useOne } from "./a/lib.hex"\n' +
         'import { useTwo } from "./b/lib.hex"\n' +
-        'import module Lib from "./a/lib"\n' +
-        'import module Lib_1 from "./b/lib"\n' +
+        'import Lib from "./a/lib"\n' +
+        'import Lib_1 from "./b/lib"\n' +
         "export let both<a: (Lib.Describe, Lib_1.Describe)>(v: a): a = useOne(v) + useTwo(v)\n"],
     ])).toEqual([]);
   });
@@ -307,7 +307,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     ])).toEqual([
       "`a` is declared to honor this module's `Heft`, but the body requires " +
       "the `Heft` declared in `./lib.hex`; write `<a: (Heft, Lib.Heft)>` — " +
-      "`import module Lib from \"./lib\"` and spell it `Lib.Heft`, " +
+      "`import Lib from \"./lib\"` and spell it `Lib.Heft`, " +
       "or remove the constraint annotation to let it be inferred",
     ]);
   });
@@ -319,7 +319,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
-        'import module Lib from "./lib"\n' +
+        'import Lib from "./lib"\n' +
         "constraint Heft<a> =\n    other(value: a): a\n" +
         "let g<a: (Heft, Lib.Heft)>(x: a): a = useHeft(x)\n" + KEEP],
     ])).toEqual([]);
@@ -346,7 +346,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     ])).toEqual([
       "`a` is declared to honor `Ord`, but the body requires `Heft`; " +
       "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`; " +
-      "`import module Lib from \"./lib\"` and spell it `Lib.Heft`, " +
+      "`import Lib from \"./lib\"` and spell it `Lib.Heft`, " +
       "or remove the constraint annotation to let it be inferred",
     ]);
   });
@@ -365,7 +365,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     ])).toEqual([
       "`a` is declared to honor this module's `Heft` on the block head, but `right`'s " +
       "body requires the `Heft` declared in `./lib.hex`; widen the head: " +
-      "`fun<a: (Heft, Lib.Heft)>` — `import module Lib from \"./lib\"` and spell it " +
+      "`fun<a: (Heft, Lib.Heft)>` — `import Lib from \"./lib\"` and spell it " +
       "`Lib.Heft`, or remove the head's constraint to let it be inferred",
     ]);
   });
@@ -374,7 +374,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
-        'import module Lib from "./lib"\n' +
+        'import Lib from "./lib"\n' +
         "constraint Heft<a> =\n    other(value: a): a\n" +
         "fun<a: (Heft, Lib.Heft)>\n" +
         "    left(x: a, n: Int): a =\n" +
@@ -398,7 +398,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     ])).toEqual([
       "`a` is declared to honor this module's `Heft`, but the body requires " +
       "the `Heft` declared in `./lib.hex`; write `<a: (Heft, Lib.Heft)>` on the " +
-      "`honor` header — `import module Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "`honor` header — `import Lib from \"./lib\"` and spell it `Lib.Heft`",
     ]);
   });
 
@@ -418,7 +418,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
       "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its base " +
       "constraints, but it requires `Heft`; add `Heft` as a base constraint — write " +
       "`constraint Labelled<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`; " +
-      "`import module Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "`import Lib from \"./lib\"` and spell it `Lib.Heft`",
     ]);
   });
 
@@ -426,7 +426,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
-        'import module Lib from "./lib"\n' +
+        'import Lib from "./lib"\n' +
         "constraint Labelled<a: (Ord, Lib.Heft)> =\n" +
         "    label(value: a): a\n" +
         "    shown(value: a): a = useHeft(value)\n" + KEEP],
@@ -448,7 +448,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
       "`a` is `Heft`'s subject, so the body reaches only `Heft` and its base " +
       "constraints, but it requires the `Heft` declared in `./lib.hex`; add the " +
       "`Heft` declared in `./lib.hex` as a base constraint — write " +
-      "`constraint Heft<a: (Ord, Lib.Heft)>` — `import module Lib from \"./lib\"` " +
+      "`constraint Heft<a: (Ord, Lib.Heft)>` — `import Lib from \"./lib\"` " +
       "and spell it `Lib.Heft`",
     ]);
   });
@@ -457,7 +457,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
-        'import module Lib from "./lib"\n' +
+        'import Lib from "./lib"\n' +
         "constraint Heft<a: (Ord, Lib.Heft)> =\n" +
         "    other(value: a): a\n" +
         "    shown(value: a): a = useHeft(value)\n" + KEEP],
@@ -478,11 +478,11 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     ])).toEqual([
       "`a` is declared to honor `Ord`, but the body requires `Describe`; " +
       "write `<a: (Ord, Lib1.Describe)>` — `Describe` is declared in `./lib1`; " +
-      "`import module Lib1 from \"./lib1\"` and spell it `Lib1.Describe`, " +
+      "`import Lib1 from \"./lib1\"` and spell it `Lib1.Describe`, " +
       "or remove the constraint annotation to let it be inferred",
       "`a` is declared to honor `Ord`, but the body requires `Describe`; " +
       "write `<a: (Ord, Lib2.Describe)>` — `Describe` is declared in `./lib2`; " +
-      "`import module Lib2 from \"./lib2\"` and spell it `Lib2.Describe`, " +
+      "`import Lib2 from \"./lib2\"` and spell it `Lib2.Describe`, " +
       "or remove the constraint annotation to let it be inferred",
     ]);
   });

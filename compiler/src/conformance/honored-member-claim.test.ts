@@ -146,8 +146,8 @@ describe("what the claim does not reach", () => {
       ["/loud.hex", "export constraint Loud<a> =\n    volume(value: a): Int\n"],
       ["/soft.hex", "export constraint Soft<a> =\n    volume(value: a): Int\n"],
       ["/main.hex", [
-        "import module Loud from \"./loud\"",
-        "import module Soft from \"./soft\"",
+        "import Loud from \"./loud\"",
+        "import Soft from \"./soft\"",
         "",
         "export record Horn = {n: Int}",
         "",

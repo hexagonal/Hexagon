@@ -17,7 +17,7 @@ describe("compileSource", () => {
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     // `Vector` is a prelude module, not Playground equipment, so nothing
-    // prepends `import module Vector`: the members arrive named, through the same
+    // prepends `import Vector`: the members arrive named, through the same
     // channel `Seq`'s `take`/`iterate` arrive on, and the calls are bare.
     expect(response.javascript).toContain(
       'import { fromSeq, append, set, at, get } from "./stdlib/Vector.js";',
@@ -699,7 +699,7 @@ describe("compileSource", () => {
   test("compiles a buffer that writes the equipment import itself", () => {
     const response = compileSource(
       20,
-      "import module Rat from \"./stdlib/Rat\"\n" +
+      "import Rat from \"./stdlib/Rat\"\n" +
         "let half = Rat.create(1, 2)\n" +
         "Debug.log(\"${half}\")\n",
     );
@@ -720,7 +720,7 @@ describe("compileSource", () => {
     // the buffer's lines instead of its tokens.
     const shapes = [
       "import (* the exact one *) module Rat from \"./stdlib/Rat\"\n",
-      "import module (* the exact one *) Rat from \"./stdlib/Rat\"\n",
+      "import (* the exact one *) Rat from \"./stdlib/Rat\"\n",
       "import\n    module Rat from \"./stdlib/Rat\"\n",
     ];
 
@@ -743,7 +743,7 @@ describe("compileSource", () => {
       "module Helper\n" +
         "    export let twice(n: Int): Int = n * 2\n" +
         "end module Helper\n" +
-        "import module Rat from \"./Helper\"\n" +
+        "import Rat from \"./Helper\"\n" +
         "Debug.log(\"${Rat.twice(3)}\")\n",
     );
 

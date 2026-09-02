@@ -96,7 +96,7 @@ describe("code actions: the diagnostic's own fixes", () => {
     expect(action.title).toBe("write `import module`");
     // The alias and the path are the user's own text and are never retyped.
     expect(applied(source, action)).toBe(
-      'import module Geo from "./geometry"\nlet n: Int = 1\n',
+      'import Geo from "./geometry"\nlet n: Int = 1\n',
     );
     expect(action.disabled).toBeUndefined();
   });
@@ -295,7 +295,7 @@ describe("code actions: infer return type", () => {
   test("qualifies a type reached only through a namespace import", () => {
     const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
     const source = [
-      'import module Palette from "./helper"',
+      'import Palette from "./helper"',
       "",
       "export fun pick() = Palette.Red",
       "",
@@ -311,8 +311,8 @@ describe("code actions: infer return type", () => {
     // runs would not, so the first is kept.
     const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
     const source = [
-      'import module Palette from "./helper"',
-      'import module Shades from "./helper"',
+      'import Palette from "./helper"',
+      'import Shades from "./helper"',
       "",
       "export fun pick() = Palette.Red",
       "",
@@ -1091,7 +1091,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
 
   test("an imported declaration's head is not this file's to edit", () => {
     const box = "opaque record Box(a) = { get: () -> a }\n";
-    const main = 'import module B from "./box.hex"\nexport let n: Int = 1\n';
+    const main = 'import B from "./box.hex"\nexport let n: Int = 1\n';
     const { session } = sessionOf({ "/box.hex": box, "/main.hex": main });
     expect(session.codeActions("/main.hex", { start: 0, end: main.length })).toEqual([]);
   });
@@ -1129,12 +1129,12 @@ describe("code actions: the `import module` repair family (#577)", () => {
       "export fun go(s: Shape): Float = Shape.area(s)\n";
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
-    expect(action.title).toBe("import module `Shape`");
+    expect(action.title).toBe("import `Shape`");
     expect(action.kind).toBe("quickfix");
     expect(action.disabled).toBeUndefined();
     expect(applied(main, action)).toBe(
       'import { Shape } from "./shape"\n' +
-        'import module Shape from "./shape"\n\n' +
+        'import Shape from "./shape"\n\n' +
         "export fun go(s: Shape): Float = Shape.area(s)\n",
     );
   });
@@ -1157,9 +1157,9 @@ describe("code actions: the `import module` repair family (#577)", () => {
     const binder = "export fun go<a: Scale>(x: a): a = x\n";
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": binder });
     const first = sole(actionsOn(session, "/main.hex", binder, "Scale>"));
-    expect(first.title).toBe("import module `Scale`");
+    expect(first.title).toBe("import `Scale`");
     expect(applied(binder, first)).toBe(
-      'import module Scale from "./scale"\n' +
+      'import Scale from "./scale"\n' +
         "export fun go<a: Scale>(x: a): a = x\n",
     );
 
@@ -1168,7 +1168,7 @@ describe("code actions: the `import module` repair family (#577)", () => {
     session.setFile("/main.hex", head);
     const second = sole(actionsOn(session, "/main.hex", head, "Scale.scale"));
     expect(applied(head, second)).toBe(
-      'import module Scale from "./scale"\n' +
+      'import Scale from "./scale"\n' +
         "export record Metre = {m: Float}\n" +
         "widens Scale.scale(value: Metre, factor: Float): Metre = value\n",
     );
@@ -1182,7 +1182,7 @@ describe("code actions: the `import module` repair family (#577)", () => {
     });
     const action = sole(actionsOn(session, "/src/main.hex", main, "Scale>"));
     expect(applied(main, action)).toBe(
-      'import module Scale from "../lib/scaling/scale"\n' +
+      'import Scale from "../lib/scaling/scale"\n' +
         "export fun go<a: Scale>(x: a): a = x\n",
     );
   });
@@ -1200,7 +1200,7 @@ describe("code actions: the `import module` repair family (#577)", () => {
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
     const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
     expect(applied(main, action)).toBe(
-      'import module Scale from "./scale"\n' +
+      'import Scale from "./scale"\n' +
         "(** The metre, and nothing else. *)\n" +
         "export record Metre = {m: Float}\n" +
         "\n" +
@@ -1220,8 +1220,8 @@ describe("code actions: the `import module` repair family (#577)", () => {
       'import { Shape } from "./shape"\n';
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const actions = actionsOn(session, "/main.hex", main, "Shape.area");
-    const action = actions.find(({ title }) => title === "import module `Shape`")!;
-    expect(applied(main, action).startsWith('import module Shape from "./shape"\n'))
+    const action = actions.find(({ title }) => title === "import `Shape`")!;
+    expect(applied(main, action).startsWith('import Shape from "./shape"\n'))
       .toBe(true);
   });
 
@@ -1325,7 +1325,7 @@ describe("code actions: the `import module` repair family (#577)", () => {
     );
     expect(action.disabled).toBeUndefined();
     expect(applied(REACHES_PRELUDE, action)).toBe(
-      'import module JsConversionError from "./mine"\n' + REACHES_PRELUDE,
+      'import JsConversionError from "./mine"\n' + REACHES_PRELUDE,
     );
   });
 
@@ -1343,7 +1343,7 @@ describe("code actions: the `import module` repair family (#577)", () => {
     const action = sole(actionsOn(session, "/main.hex", main, "Meters.zero"));
     expect(applied(main, action)).toBe(
       'import { Meters } from "./lib/Prelude"\n' +
-        'import module Meters from "./lib/Prelude"\n' +
+        'import Meters from "./lib/Prelude"\n' +
         "export let n: Float = Meters.zero\n",
     );
   });
@@ -1354,7 +1354,7 @@ describe("code actions: the `import module` repair family (#577)", () => {
     const main = "export fun go<a: Scale, b: Scale>(x: a, y: b): a = x\n";
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
     expect(session.codeActions("/main.hex", { start: 0, end: main.length })
-      .filter(({ title }) => title === "import module `Scale`")).toHaveLength(1);
+      .filter(({ title }) => title === "import `Scale`")).toHaveLength(1);
   });
 
   test("the placement law is read locally — the use being repaired", () => {
@@ -1378,7 +1378,7 @@ describe("code actions: the `import module` repair family (#577)", () => {
       'import { Shape } from "./shape"\n' +
         "export fun a(s: Shape): Float = Shape.area(s)\n" +
         'import { z } from "./other"\n' +
-        'import module Shape from "./shape"\n' +
+        'import Shape from "./shape"\n' +
         "export fun b(s: Shape): Float = Shape.area(s)\n",
     );
     session.setFile("/main.hex", applied(main, lower));
@@ -1393,7 +1393,7 @@ describe("code actions: the `import module` repair family (#577)", () => {
     // earliest use and repairs the file whole.
     session.setFile("/main.hex", main);
     const both = session.codeActions("/main.hex", { start: 0, end: main.length })
-      .filter(({ title }) => title === "import module `Shape`");
+      .filter(({ title }) => title === "import `Shape`");
     expect(both).toHaveLength(1);
     session.setFile("/main.hex", applied(main, both[0]!));
     expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
@@ -1414,6 +1414,6 @@ describe("code actions: the `import module` repair family (#577)", () => {
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
     expect(actionsOn(session, "/main.hex", main, "Scale>")).toHaveLength(1);
     expect(actionsOn(session, "/main.hex", main, "Int = 1")
-      .map(({ title }) => title)).not.toContain("import module `Scale`");
+      .map(({ title }) => title)).not.toContain("import `Scale`");
   });
 });

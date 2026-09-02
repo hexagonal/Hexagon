@@ -1095,7 +1095,7 @@ describe("`widens` and `widened` are contextual (#546)", () => {
 
 /**
  * The namespace-import head #565 respelled (spec/modules.md §3.3, Lexer §4.2):
- * `import module Geo from "./geometry"`, where `module` is contextual and
+ * `import Geo from "./geometry"`, where `module` is contextual and
  * `import * as` is gone from the language.
  *
  * The context is one position wide and total in it — before #565 an `import`
@@ -1106,7 +1106,7 @@ describe("`widens` and `widened` are contextual (#546)", () => {
  */
 describe("`module` is contextual in the import head (#565)", () => {
   it("paints the whole head, `module` among the keywords", async () => {
-    expect(await scopePairs('import module Geo from "./geometry"')).toEqual([
+    expect(await scopePairs('import Geo from "./geometry"')).toEqual([
       ["import", "keyword.control.import.hexagon"],
       ["module", "keyword.other.module.hexagon"],
       // The alias seat has never had a paint of its own: an uppercase name that
@@ -1125,15 +1125,15 @@ describe("`module` is contextual in the import head (#565)", () => {
     // The difference an anchor makes: a follower-keyed rule would leave this
     // unpainted until the alias arrived, and the word would flicker into place.
     expect(await scope("import module", "module")).toBe("keyword.other.module.hexagon");
-    expect(await scope('import module from "./x"', "module"))
+    expect(await scope('import from "./x"', "module"))
       .toBe("keyword.other.module.hexagon");
   });
 
-  it("paints the head word of `import module module` and nothing after it", async () => {
+  it("paints the head word of `import module` and nothing after it", async () => {
     // The parser reads this as the head and refuses at the *alias* seat, by
     // start class (`module aliases must be uppercase-start names`). The grammar
     // agrees: one head word, then an ordinary name standing where an alias must.
-    expect((await scopePairs('import module module from "./x"')).slice(0, 3)).toEqual([
+    expect((await scopePairs('import module from "./x"')).slice(0, 3)).toEqual([
       ["import", "keyword.control.import.hexagon"],
       ["module", "keyword.other.module.hexagon"],
       ["module", "variable.other.hexagon"],

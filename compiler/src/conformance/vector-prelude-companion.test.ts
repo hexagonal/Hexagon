@@ -445,18 +445,21 @@ describe("two prelude members exporting one bare name", () => {
   });
 
   /**
-   * An explicit import of one member's term is a module-level binding too
-   * (§5.4), so it occludes the layer exactly as a declaration does and the bare
-   * spelling means the member the reader chose. This is the pin that keeps the
-   * refusal keyed to the *layer a name resolved in* rather than to the symbol: a
-   * prelude term and an explicit import of that term are one `SymbolId`, and a
-   * test on the symbol would refuse this program, which names no ambiguity at
-   * all.
+   * An ordinary declaration sourced from one member's term (§3.2, #762 — what
+   * stands where the named import stood) is a module-level binding too
+   * (§5.4), so it occludes the layer exactly as any other declaration does and
+   * the bare spelling means the member the reader chose. This is the pin that
+   * keeps the refusal keyed to the *layer a name resolved in* rather than to
+   * the symbol: a prelude term and a declaration sourced from that term are
+   * one `SymbolId`, and a test on the symbol would refuse this program, which
+   * names no ambiguity at all.
    */
-  test("an explicit import of one member settles the name", async () => {
+  test("a declaration sourced from one member settles the name", async () => {
     const main = await runProject([[
       "/main.hex",
-      "import { empty, length } from \"./Seq\"\n" +
+      'import Seq from "./Seq"\n' +
+      "let empty = Seq.empty\n" +
+      "let length = Seq.length\n" +
       "export let n: Int = length(empty)\n",
     ]]);
 
