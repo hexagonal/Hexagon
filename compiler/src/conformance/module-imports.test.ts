@@ -93,6 +93,92 @@ describe("§13 (b) — the companion fallbacks, both namespaces and both halves"
   });
 });
 
+describe("Modules §5.1 rule 3 — the term-position fallback, in both its shapes", () => {
+  /**
+   * §5.1 rule 3 names two shapes: "a nominal record's, **or a union constructor
+   * spelled like the alias**". Both are pinned by *running* the program, not by
+   * its diagnostics: in the emitted module a bare rule-3 reference and the
+   * alias's namespace binding are the same identifier, so a reference rendered
+   * bare type-checks and then throws `TypeError` at load. What the fallback
+   * answers with is the alias's qualified local, which is the ordinary
+   * qualified access the same program's `Tag.Tag(7)` emits.
+   */
+  const TAG = [
+    "/tag.hex",
+    "export union Tag = Tag(n: Int) | Other\n",
+  ] as const;
+
+  test("a union constructor spelled like its alias constructs, and runs", async () => {
+    const files = [
+      TAG,
+      ["/main.hex",
+        'import Tag from "./tag"\n' +
+        "export let t: Tag = Tag(7)\n" +
+        "export let n: Int =\n" +
+        "    match t\n" +
+        "        Tag(k) => k\n" +
+        "        Other => 0\n"],
+    ] as const;
+    expect(messages(files as never)).toEqual([]);
+    expect((await runProject(files as never))["n"]).toBe(7);
+  });
+
+  test("— and the emitted reference is the alias's own qualified access", () => {
+    const javascript = emitted([
+      TAG,
+      ["/main.hex", 'import Tag from "./tag"\nexport let t: Tag = Tag(7)\n'],
+    ], "/main.hex");
+    expect(javascript).toContain('import * as Tag from "./tag.js";');
+    expect(javascript).toContain("const t = Tag.Tag(7);");
+  });
+
+  test("a nominal record's constructor runs too, and erases to its object", async () => {
+    const files = [
+      POINT,
+      ["/main.hex",
+        'import Point from "./point"\n' +
+        "export let p: Point = Point({x = 1.5, y = 2.0})\n" +
+        "export let n: Float = p.x\n"],
+    ] as const;
+    expect(messages(files as never)).toEqual([]);
+    expect((await runProject(files as never))["n"]).toBe(1.5);
+  });
+
+  test("two aliases onto one module, each spelled like a different constructor", async () => {
+    // §3.1's legal pair, meeting rule 3 twice: neither bare word may render as
+    // the namespace binding it shares its spelling with.
+    const files = [
+      SHAPE,
+      ["/main.hex",
+        'import Circle from "./shape"\n' +
+        'import Rect from "./shape"\n' +
+        "export let a: Circle.Shape = Circle(1.0)\n" +
+        "export let b: Circle.Shape = Rect(2.0, 3.0)\n" +
+        "export fun width(s: Circle.Shape): Float =\n" +
+        "    match s\n" +
+        "        Circle(r) => r\n" +
+        "        Rect(w, h) => w\n" +
+        "export let first: Float = width(a)\n" +
+        "export let second: Float = width(b)\n"],
+    ] as const;
+    expect(messages(files as never)).toEqual([]);
+    const module = await runProject(files as never);
+    expect([module["first"], module["second"]]).toEqual([1, 2]);
+  });
+
+  test("a prelude companion answers through its own local, not a qualifier", async () => {
+    // The prelude route is the one `#reachPreludeTerm` owns, and it comes
+    // first: a prelude module has no import line for a qualifier to name.
+    const files = [
+      ["/main.hex",
+        "export let s: Seq(Int) = Seq.empty\n" +
+        "export let n: Int = Seq.length(s)\n"],
+    ] as const;
+    expect(messages(files as never)).toEqual([]);
+    expect((await runProject(files as never))["n"]).toBe(0);
+  });
+});
+
 describe("§13 (c) — opaque is a black box outside its home", () => {
   const OPAQUE = [
     "/point.hex",
@@ -223,8 +309,21 @@ describe("§13 (i) — instance globality, and the effect import that is gone", 
   });
 });
 
-describe("§13 (k), §11.2–§11.3 — emission", () => {
-  test("the module form emits the namespace import, and the alias is a path", () => {
+/**
+ * Emission (Modules §11.2–§11.3).
+ *
+ * **What is pinned here is the shipped lowering, not §13(k)'s golden text.** A
+ * module-alias import has lowered to `import * as Alias from "./m.js"` since
+ * #565/#569, and #569 ruled that the emitted JavaScript keeps that shape; §13
+ * (k)'s golden and §11.2's "Named imports always" predate it and are stale.
+ * Both ESM shapes mean one thing — every `Alias.name` resolves at compile time
+ * to a specific export either way (§11.2's own reason for permitting the
+ * namespace form) — so nothing observable rides on which is written. The spec
+ * seat is amending the two sections; these tests say what the emitter does and
+ * claim no golden.
+ */
+describe("emission: the module form's ESM shape (§11.2–§11.3)", () => {
+  test("the module form emits the namespace import; either ESM shape, one meaning", () => {
     const javascript = emitted([
       GEOMETRY,
       ["/main.hex",
@@ -385,6 +484,224 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
   });
 });
 
+describe("the opaque family's pattern refusal, both nominal kinds", () => {
+  // Pattern Matching §2.4 and §12: a constructor pattern over an opaque type
+  // abroad — **a written head or the door's** — draws the opaque family's own
+  // sentence at the type's own noun, never a constructor no spelling in this
+  // module can write and never the mechanism's "does not export". The record
+  // half is §13(c)'s above; this is its union twin, and the door is what makes
+  // the union half reachable at all, since it reads the *declaration* rather
+  // than scope.
+  const HANDLE = [
+    "/handle.hex",
+    "opaque union Handle = FileH(fd: Int) | NetH(sock: Int)\n" +
+      "export fun make(n: Int): Handle = FileH(n)\n",
+  ] as const;
+
+  test("a bare constructor pattern over an opaque union abroad is refused", () => {
+    expect(messages([
+      HANDLE,
+      ["/main.hex",
+        'import Handle from "./handle"\n' +
+        "export fun f(): Int =\n" +
+        "    match Handle.make(1)\n" +
+        "        FileH(n) => n\n" +
+        "        NetH(s) => s\n"],
+    ])).toEqual([
+      "cannot destructure opaque union `Handle`; " +
+        "use an operation exported by its home module",
+      "cannot destructure opaque union `Handle`; " +
+        "use an operation exported by its home module",
+    ]);
+  });
+
+  test("— and inside the home module `opaque` changes nothing", () => {
+    expect(messages([
+      ["/handle.hex",
+        "opaque union Handle = FileH(fd: Int) | NetH(sock: Int)\n" +
+        "export fun width(h: Handle): Int =\n" +
+        "    match h\n" +
+        "        FileH(n) => n\n" +
+        "        NetH(s) => s\n"],
+    ])).toEqual([]);
+  });
+
+  test("the written head takes the same sentence, not the mechanism's", () => {
+    // The two spellings are one refusal (§2.4). "does not export" would be true
+    // of the export table and silent about the rule: an opaque type exports its
+    // name and no constructor, which is what `opaque` *means*.
+    expect(messages([
+      HANDLE,
+      ["/main.hex",
+        'import Handle from "./handle"\n' +
+        "export fun f(): Int =\n" +
+        "    match Handle.make(1)\n" +
+        "        Handle.FileH(_) => 1\n"],
+    ])).toEqual([
+      "cannot destructure opaque union `Handle`; " +
+        "use an operation exported by its home module",
+    ]);
+  });
+
+  test("a record's written head reads the same way, at its own noun", () => {
+    expect(messages([
+      ["/point.hex",
+        "opaque record Point = {x: Float}\n" +
+        "export fun make(): Point = Point({x = 1.0})\n"],
+      ["/main.hex",
+        'import P from "./point"\n' +
+        "export fun f(): Float =\n" +
+        "    match P.make()\n" +
+        "        P.Point(_) => 1.0\n"],
+    ])).toEqual([
+      "cannot destructure opaque record `Point`; " +
+        "use an operation exported by its home module",
+    ]);
+  });
+
+  test("a name the module genuinely does not export keeps the mechanism's report", () => {
+    // The gate is opacity, not absence: a spelling no declaration of the
+    // exporter's holds is still the ordinary does-not-export sentence.
+    expect(messages([
+      HANDLE,
+      ["/main.hex",
+        'import Handle from "./handle"\n' +
+        "export fun f(): Int =\n" +
+        "    match Handle.make(1)\n" +
+        "        Handle.Absent(_) => 1\n"],
+    ])).toEqual(["module `Handle` does not export `Absent`"]);
+  });
+});
+
+describe("Modules §3's reading law at the fallback's own seat", () => {
+  // §3: a term-position use above its import is "the declared-later error with
+  // the import-shaped fixit, `move the import above this use`, exactly as a use
+  // of any term binding above its declaration". Rule 3's fallback is a term
+  // position, so it reads the same way — and `unknown name` would be false
+  // about a spelling that resolves one line down.
+  test("a rule-3 construction above its import is the declared-later error", () => {
+    expect(messages([
+      POINT,
+      ["/main.hex",
+        "export let p: Point.Point = Point({x = 1.0, y = 2.0})\n" +
+        'import Point from "./point"\n'],
+    ])).toEqual([
+      "`Point` is declared later in this block; declarations are read " +
+        "top-down — move the import above this use",
+    ]);
+  });
+
+  test("the qualified route reads identically, and always has", () => {
+    expect(messages([
+      GEOMETRY,
+      ["/main.hex",
+        "export let n: Float = Geo.area(1.0)\n" +
+        'import Geo from "./geometry"\n'],
+    ])).toEqual([
+      "`Geo.area` is declared later in this block; declarations are read " +
+        "top-down — move the import above this use",
+    ]);
+  });
+
+  test("a rule-3 *pattern* above the import compiles — §3 makes it order-free", () => {
+    // The other half of the same law: a type-position and a pattern-position
+    // mention are order-insensitive, and only the term half reads top-down.
+    expect(messages([
+      POINT,
+      ["/main.hex",
+        "export fun f(p: Point): Float =\n" +
+        "    match p\n" +
+        "        Point({x, y}) => x\n" +
+        'import Point from "./point"\n'],
+    ])).toEqual([]);
+  });
+
+  test("moving the import is the repair the message names", () => {
+    expect(messages([
+      POINT,
+      ["/main.hex",
+        'import Point from "./point"\n' +
+        "export let p: Point = Point({x = 1.0, y = 2.0})\n"],
+    ])).toEqual([]);
+  });
+
+  test("§10's row: a qualified term above an occluding alias reads the same", () => {
+    // §5.4 keeps "a module import, whose alias may occlude a prelude module's",
+    // and §10 has its own row for a use above the line that binds it. The
+    // *below* direction is pinned in §13 (f) above; this is the seat that
+    // survived the named import's deletion.
+    expect(messages([
+      ["/vector.hex", "export fun size(n: Int): Int = n\n"],
+      ["/main.hex",
+        "export let n: Int = Vector.size(1)\n" +
+        'import Vector from "./vector"\n'],
+    ])).toEqual([
+      "`Vector.size` is declared later in this block; declarations are read " +
+        "top-down — move the import above this use",
+    ]);
+  });
+});
+
+describe("the derived alias reads every separator §3.1 names", () => {
+  const refusal = (specifier: string): string =>
+    messages([
+      [`${specifier.slice(1)}.hex`, "export fun get(n: Int): Int = n\n"],
+      ["/main.hex", `import { get } from "${specifier}"\n`],
+    ])[0] ?? "";
+
+  test("`-`, `_` and `.` all split, and each segment is upper-cased at its start", () => {
+    expect(refusal("./search-params")).toContain("`import SearchParams from");
+    expect(refusal("./search_params")).toContain("`import SearchParams from");
+    expect(refusal("./search.params")).toContain("`import SearchParams from");
+  });
+
+  test("a basename with no separator is upper-cased whole", () => {
+    expect(refusal("./geometry")).toContain("`import Geometry from");
+  });
+});
+
+describe("a nominal record reached only through a signature (#587, #763)", () => {
+  // The isolating pin for the door's own record path: `/main.hex` names `Crate`
+  // under no alias and through no annotation — the type arrives on `Mid.make`'s
+  // result alone — so the constructor the eliminator needs exists nowhere in
+  // this module's own tables and is materialized from the program's copy of the
+  // declaration.
+  test("the door destructures it, with no field access to materialize it first", async () => {
+    const files = [
+      ["/crate.hex", "export record Crate = {n: Float}\n"],
+      ["/mid.hex",
+        'import Crate from "./crate"\n' +
+        "export fun make(value: Float): Crate = Crate({n = value})\n"],
+      ["/main.hex",
+        'import Mid from "./mid"\n' +
+        "export fun reading(): Float =\n" +
+        "    let Crate({n}) = Mid.make(2.5)\n" +
+        "    n\n" +
+        "export let out: Float = reading()\n"],
+    ] as const;
+    expect(messages(files as never)).toEqual([]);
+    expect((await runProject(files as never))["out"]).toBe(2.5);
+  });
+
+  test("— and the emitted destructure reads the record's own field", () => {
+    const javascript = emitted([
+      ["/crate.hex", "export record Crate = {n: Float}\n"],
+      ["/mid.hex",
+        'import Crate from "./crate"\n' +
+        "export fun make(value: Float): Crate = Crate({n = value})\n"],
+      ["/main.hex",
+        'import Mid from "./mid"\n' +
+        "export fun reading(): Float =\n" +
+        "    let Crate({n}) = Mid.make(2.5)\n" +
+        "    n\n"],
+    ], "/main.hex");
+    expect(javascript).toContain("const { n } = Mid.make(2.5);");
+    // Never the positional slot a union constructor's pattern would read: the
+    // record has no `item1`, and lowering it as one is the defect this pins.
+    expect(javascript).not.toContain("item1");
+  });
+});
+
 describe("Pattern Matching §15 (o) — the door, and the absence of its expression twin", () => {
   test("imported constructors are bare in arms and qualified in bodies", async () => {
     const files = [
@@ -482,7 +799,11 @@ describe("Pattern Matching §15 (o) — the door, and the absence of its express
 });
 
 describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
-  test("a module's own constructor of the spelling wins, and the arm is a type error", () => {
+  test("a module's own constructor of the spelling wins, and the arm says which", () => {
+    // §12's rival-constructor row, verbatim: the arm's ordinary type error is
+    // replaced by the one that names the constructor scope answered with, the
+    // type the arm is judged against, and the pastable spelling of the
+    // constructor that type does hold.
     expect(messages([
       DIRECTION,
       ["/main.hex",
@@ -492,7 +813,39 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "    match d\n" +
         "        North => 1\n" +
         "        _ => 0\n"],
-    ])[0]).toMatch(/type mismatch/u);
+    ])).toEqual([
+      "`North` here is `Compass.North`; this arm matches a `Direction` — " +
+        "write `Direction.North`",
+    ]);
+  });
+
+  test("— and the spelling it names compiles", () => {
+    expect(messages([
+      DIRECTION,
+      ["/main.hex",
+        'import Direction from "./direction"\n' +
+        "union Compass = North | South\n" +
+        "export fun h(d: Direction): Int =\n" +
+        "    match d\n" +
+        "        Direction.North => 1\n" +
+        "        _ => 0\n"],
+    ])).toEqual([]);
+  });
+
+  test("a rival the expected type does not hold keeps the ordinary mismatch", () => {
+    // The row is conditioned on the expected type holding the spelling. With no
+    // such constructor there is no third reading to name, and inventing one
+    // would send the reader at a word that does not exist.
+    expect(messages([
+      DIRECTION,
+      ["/main.hex",
+        'import Direction from "./direction"\n' +
+        "union Compass = Up | Down\n" +
+        "export fun h(d: Direction): Int =\n" +
+        "    match d\n" +
+        "        Up => 1\n" +
+        "        _ => 0\n"],
+    ])).toEqual(["type mismatch: expected Direction, found Compass"]);
   });
 
   test("scope is read module-wide: a use above the declaration is declared-later", () => {
@@ -557,14 +910,51 @@ describe("Pattern Matching §15 (p2) — the lambda-parameter seat, one-sided", 
   ] as const;
 
   test("under no supplying seat the head is refused, with the seat that would open it", () => {
+    // §15(p2) verbatim. The rewrite echoes the reader's **own** sub-pattern —
+    // §2.4's convention for the whole redirect family — so the line it names is
+    // the line they wrote with one qualifier added, never a shape they have to
+    // reconstruct.
     expect(messages([
       PAIR,
       ["/main.hex",
         'import Pairs from "./pair"\n' +
         "let first = Pair({first, second}) => first\n"],
     ])).toEqual([
-      "no bare `Pair` here: its type is not determined at this pattern — " +
-        "write `Pairs.Pair(…)`, or bind the function with its own annotated `let`",
+      "no bare `Pair` here: its type is not determined at this pattern — write " +
+        "`Pairs.Pair({first, second})`, or bind the function with its own annotated `let`",
+    ]);
+  });
+
+  test("— and the echoed rewrite is the reader's own pattern, whatever it wrote", () => {
+    // Renames, wildcards and nesting all come back as written; punning is
+    // restored where the field's sub-pattern is a binder of its own name, which
+    // is the one place two spellings read back to one tree.
+    const refusal = (head: string): string =>
+      messages([
+        PAIR,
+        ["/main.hex", 'import Pairs from "./pair"\n' + `let f = ${head} => 1\n`],
+      ])[0] ?? "";
+    expect(refusal("Pair({first = a, second = _})")).toContain(
+      "write `Pairs.Pair({first = a, second = _})`",
+    );
+    expect(refusal("Pair(whole)")).toContain("write `Pairs.Pair(whole)`");
+    expect(refusal("Pair({first} as p)")).toContain("write `Pairs.Pair({first} as p)`");
+  });
+
+  test("a nullary head takes no argument list at all", () => {
+    // §15(q)'s own arm, which the rewrite must not decorate.
+    expect(messages([
+      DIRECTION,
+      ["/main.hex",
+        'import Direction from "./direction"\n' +
+        "export let b: Int =\n" +
+        "    match None\n" +
+        "        Some(East) => 2\n" +
+        "        Some(Direction.North) => 1\n" +
+        "        _ => 0\n"],
+    ])).toEqual([
+      "no bare `East` here: its type is not determined at this pattern — " +
+        "write `Direction.East`, or ascribe the scrutinee",
     ]);
   });
 

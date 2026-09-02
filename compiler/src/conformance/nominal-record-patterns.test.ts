@@ -568,7 +568,7 @@ describe("outside the home module the name carries it, and only the name", () =>
         "export let v: Float = size(Geo.make())\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "no bare `Crate` here: its type is not determined at this pattern — " +
-        "write `Geo.Crate(…)`, or bind the function with its own annotated `let`",
+        "write `Geo.Crate({n})`, or bind the function with its own annotated `let`",
     ]);
   });
 
@@ -1031,7 +1031,7 @@ describe("outside the home module the name carries it, and only the name", () =>
         "export let v: Float = size(Geo.make())\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "no bare `Crate` here: its type is not determined at this pattern — " +
-        "write `Geo.Crate(…)`, or bind the function with its own annotated `let`",
+        "write `Geo.Crate({n})`, or bind the function with its own annotated `let`",
     ]);
   });
 

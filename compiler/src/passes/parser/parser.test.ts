@@ -1934,11 +1934,16 @@ describe("parse", () => {
       ]);
       const [fix] = module.diagnostics[0]?.fixes ?? [];
       expect(fix?.message).toBe("write `import`");
+      // Through the whitespace, so the applied edit is the sentence the message
+      // printed and nothing else.
       expect(fix?.edits.map(({ span, replacement }) => [
         span.start.offset,
         span.end.offset,
         replacement,
-      ])).toEqual([[7, 13, ""]]);
+      ])).toEqual([[7, 14, ""]]);
+      const text = 'import module Geo from "./geometry"\n';
+      expect(text.slice(0, 7) + text.slice(14)).toBe('import Geo from "./geometry"\n');
+      expect(parseSource(text.slice(0, 7) + text.slice(14)).diagnostics).toEqual([]);
       // The item still binds the alias the head named: a migration costs one
       // diagnostic per line, never a cascade of unknown names below it.
       expect(module.items).toMatchObject([{ kind: "Import", alias: { text: "Geo" } }]);
@@ -1996,12 +2001,13 @@ describe("parse", () => {
         span.start.offset,
         span.end.offset,
         replacement,
-      ])).toEqual([[true, 7, 11, ""]]);
-      // Applying the edit yields the head the message names — the alias and
-      // the path are never retyped. (The one space the head spent between `as`
-      // and the alias stays, and the formatter owns it.)
+      ])).toEqual([[true, 7, 12, ""]]);
+      // Applying the edit yields the head the message names, byte for byte —
+      // the alias and the path are never retyped, and the whitespace the head
+      // spent goes with the head.
       const text = 'import * as Geo from "./geometry"\n';
-      expect(text.slice(0, 7) + text.slice(11)).toBe('import  Geo from "./geometry"\n');
+      expect(text.slice(0, 7) + text.slice(12)).toBe('import Geo from "./geometry"\n');
+      expect(parseSource(text.slice(0, 7) + text.slice(12)).diagnostics).toEqual([]);
       expect(module.items).toMatchObject([{ kind: "Import", alias: { text: "Geo" } }]);
     });
 

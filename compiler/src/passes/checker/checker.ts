@@ -6519,7 +6519,7 @@ class Checker {
     if (head.kind === "Union" && !this.#unionConstructorsVisible(head.union)) {
       this.#diagnostics.add({
         severity: "error",
-        message: `cannot match opaque union \`${head.name}\`; ` +
+        message: `cannot destructure opaque union \`${head.name}\`; ` +
           "use an operation exported by its home module",
         primary: pattern.nameSpan,
       });
@@ -6530,7 +6530,7 @@ class Checker {
       const rewrites = [
         ...(qualified === undefined
           ? []
-          : [`write \`${qualified}${pattern.arguments.length === 0 ? "" : "(…)"}\``]),
+          : [`write \`${qualified}${renderArguments(pattern.arguments)}\``]),
         this.#patternDepth > 0
           ? "ascribe the scrutinee"
           : "bind the function with its own annotated `let`",
@@ -9474,8 +9474,113 @@ class Checker {
     // with no surviving diagnostic to explain the silence, and this read is
     // where that would have to become "reported, and still reported".
     const before = this.#diagnostics.count;
-    this.#unify(expected, actual, pattern.span);
+    this.#unify(
+      expected,
+      actual,
+      pattern.span,
+      pattern.kind === "Constructor"
+        ? () => this.#rivalConstructorMessage(pattern, expected)
+        : undefined,
+    );
     if (this.#diagnostics.count > before) this.#brokenPatterns.add(pattern);
+  }
+
+  /**
+   * Pattern Matching §12's **rival-constructor row** (#763): where a bare head
+   * scope binds turns out to be *another* type's constructor, and the expected
+   * type holds the same spelling, the arm's ordinary type error is replaced by
+   * the one that names both.
+   *
+   * > "`North` here is `Compass.North`; this arm matches a `Direction` — write
+   * > `Direction.North`"
+   *
+   * Three readings, and each is a different question. The first names the
+   * constructor **scope** answered with, identified by its own declaration
+   * (`Union.Constructor`) rather than by any spelling — the reader's word
+   * already means it, so a spelling would say nothing. The second names the
+   * type the arm is judged against, displayed as every diagnostic displays a
+   * type. The third is the *pastable* spelling of the constructor the expected
+   * type does hold, chosen by §7.3's own tiers: bare is taken by the rival, so
+   * the tiers fall to the alias qualification or to the module route, and the
+   * reader is never handed a word that would resolve back to the rival.
+   *
+   * `undefined` — the ordinary mismatch — wherever any of the three readings
+   * would be invented: an open head (the door reports its own refusals), a head
+   * whose union the expected type does not hold a same-spelled constructor of,
+   * or an expected type that is no union or nominal record.
+   */
+  #rivalConstructorMessage(
+    pattern: Resolved.ConstructorPattern,
+    expected: Mono,
+  ): string | undefined {
+    if (pattern.open === true || pattern.symbol === undefined) return undefined;
+    // §12's row is written for a rival that is "another **union's**
+    // constructor", and the reading it rests on is that one — `Compass.North`
+    // identifies a constructor by the union it is one of. A nominal record's
+    // constructor shares its declaration's name, so the same clause would read
+    // `Box.Box` and say nothing the reader does not have; that seat keeps the
+    // ordinary mismatch until a ruling gives it a sentence.
+    if (this.#constructorUnions.get(pattern.symbol) === undefined &&
+        this.#programConstructorUnion(pattern.symbol) === undefined) {
+      return undefined;
+    }
+    const head = this.#prune(expected);
+    const wanted = this.#constructorOfType(head, pattern.text);
+    if (wanted === undefined || wanted === pattern.symbol) return undefined;
+    const owner = this.#constructorOwnerName(pattern.symbol);
+    if (owner === undefined) return undefined;
+    const spelling = this.#pastableConstructorSpelling(head, wanted);
+    return `\`${pattern.text}\` here is \`${owner}.${pattern.text}\`; this arm ` +
+      `matches a \`${this.#display(head)}\` — write \`${spelling}\``;
+  }
+
+  /**
+   * The declaration a constructor belongs to, by name — the `Compass` of
+   * `Compass.North`. A union's own name, or a nominal record's, which is its
+   * constructor's too.
+   */
+  #constructorOwnerName(symbol: Resolved.SymbolId): string | undefined {
+    const union = this.#constructorUnions.get(symbol) ??
+      this.#programConstructorUnion(symbol);
+    if (union !== undefined) {
+      this.#materializeReachedUnion(union);
+      const declaration = this.#unions.get(union) ?? this.#programUnion(union);
+      if (declaration !== undefined) return declaration.name;
+    }
+    const record = this.#recordConstructors.get(symbol);
+    return record === undefined
+      ? undefined
+      : (this.#records.get(record) ?? this.#programRecord(record))?.name;
+  }
+
+  /** §7.3's tiers, for the constructor the expected type holds. */
+  #pastableConstructorSpelling(head: Mono, symbol: Resolved.SymbolId): string {
+    const binding = this.#constructorBinding(head, symbol);
+    if (binding === undefined) return this.#display(head);
+    const home = head.kind === "Union"
+      ? {
+          path: this.#programUnion(head.union)?.declaringPath ??
+            this.#unions.get(head.union)?.declaringPath,
+          prelude: this.#preludeUnionIds.has(head.union),
+        }
+      : { path: undefined, prelude: false };
+    return this.#constructorSpelling(binding, home).text;
+  }
+
+  /** The declared binding of one constructor of `head`. */
+  #constructorBinding(
+    head: Mono,
+    symbol: Resolved.SymbolId,
+  ): Resolved.Binding | undefined {
+    if (head.kind === "Union") {
+      const union = this.#unions.get(head.union) ?? this.#programUnion(head.union);
+      return union?.constructors.find(({ binding }) => binding.symbol === symbol)?.binding;
+    }
+    if (head.kind === "NominalRecord") {
+      const record = this.#records.get(head.record) ?? this.#programRecord(head.record);
+      return record?.constructor.symbol === symbol ? record.constructor : undefined;
+    }
+    return undefined;
   }
 
   /**
@@ -9506,7 +9611,8 @@ class Checker {
     left: Mono,
     right: Mono,
     span: Source.Span,
-    message?: () => string,
+    /** A replacement for the mismatch sentence; `undefined` keeps the ordinary one. */
+    message?: () => string | undefined,
   ): void {
     const actualLeft = this.#prune(left);
     const actualRight = this.#prune(right);
@@ -16680,6 +16786,66 @@ function missingFieldMessage(
   return subject === undefined
     ? `record has fields ${enumeration}, not \`${field}\``
     : `\`${subject}\` has fields ${enumeration}, not \`${field}\``;
+}
+
+/**
+ * A pattern rendered back as the reader wrote it — Pattern Matching §12's
+ * closed-door rewrite, and §2.4's convention for the whole redirect family:
+ * "the user's own pattern wrapped in the missing constructor: it names the
+ * fields the pattern itself wrote, punned — never the declaration's list".
+ *
+ * The resolved tree is the source of the text, not the source file: the checker
+ * holds no module text, and every shape below has one spelling the parser would
+ * read back to the same tree. Punning is restored where the field's sub-pattern
+ * is a binder of the field's own name, which is the one place the two spellings
+ * differ and the one the convention names.
+ */
+function renderPattern(pattern: Resolved.Pattern): string {
+  switch (pattern.kind) {
+    case "Wildcard":
+      return "_";
+    case "Unit":
+      return "()";
+    case "Integer":
+      return pattern.decimal;
+    case "String":
+      return JSON.stringify(pattern.value);
+    case "Binding":
+      return pattern.binding.name;
+    case "As":
+      return `${renderPattern(pattern.pattern)} as ${pattern.binding.name}`;
+    case "Or":
+      return pattern.alternatives.map(renderPattern).join(" | ");
+    case "Tuple":
+      return `(${pattern.elements.map(renderPattern).join(", ")})`;
+    case "Vector": {
+      const elements = pattern.elements.map(renderPattern);
+      if (pattern.rest !== undefined) {
+        const rest = pattern.rest.pattern === undefined
+          ? "..."
+          : `...${renderPattern(pattern.rest.pattern)}`;
+        elements.splice(pattern.rest.index, 0, rest);
+      }
+      return `[${elements.join(", ")}]`;
+    }
+    case "Record":
+      return `{${
+        pattern.fields.map(({ name, pattern: field }) =>
+          field.kind === "Binding" && field.binding.name === name
+            ? name
+            : `${name} = ${renderPattern(field)}`
+        ).join(", ")
+      }}`;
+    case "Constructor":
+      return `${pattern.text}${renderArguments(pattern.arguments)}`;
+  }
+}
+
+/** A constructor pattern's argument list, empty for a nullary head. */
+function renderArguments(arguments_: readonly Resolved.Pattern[]): string {
+  return arguments_.length === 0
+    ? ""
+    : `(${arguments_.map(renderPattern).join(", ")})`;
 }
 
 /**

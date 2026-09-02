@@ -1427,7 +1427,26 @@ export type Expr =
 export interface NameExpr {
   readonly kind: "Name";
   readonly symbol: SymbolId;
+  /**
+   * The spelling the **source** wrote, which every diagnostic quotes back.
+   *
+   * It is also the emitted spelling wherever the two agree, which is
+   * everywhere but rule 3's fallback — see `emitted`.
+   */
   readonly text: string;
+  /**
+   * The spelling the **emitted module** must use, where it is not `text`.
+   *
+   * Modules §5.1 rule 3's fallback is the one reader that parts them: a bare
+   * `Tag(7)` under `import Tag from "./tag"` is written bare and *emitted* as
+   * the qualified access on the alias's local (`Tag.Tag(7)`, §11.2's own
+   * golden), because in the emitted module the bare spelling is the alias's
+   * namespace binding and calling it would throw. A reference that carried the
+   * qualified spelling in `text` would emit correctly and then quote a word
+   * the reader never wrote — `` `Red.Red` is a value, not a function `` — so
+   * the two spellings are two fields.
+   */
+  readonly emitted?: string;
   /**
    * The instance subject this reference is pinned at, for a member reached
    * through **qualified access to an honoring module** (Modules §5.3).

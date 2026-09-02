@@ -489,8 +489,9 @@ function mintedImportLocals(module: Core.Module): readonly string[] {
  * The local each namespace import's emitted `import * as` line binds, entered
  * only for an alias one of the module's own bindings contests (#569).
  *
- * The `* as` head is JavaScript's and survives only in emission (§11.2, #565);
- * the source line this plan renames the local of is `import Point`.
+ * The `* as` head is JavaScript's and survives only in emission: the source
+ * side refuses it (§3.1, #762) and §11.2 spells the emitted shape. The source
+ * line this plan renames the local of is `import Point`.
  *
  * Modules §5.2 makes `import Point from "./point"` beside a declared
  * `Point` legal and load-bearing — it is the companion idiom — and the checker
@@ -4440,7 +4441,12 @@ class JavaScriptEmitter {
             ? imported
             : this.#emitConstrainedValue(expression, imported, evidenceNames, bindingRhs);
         }
-        if (expression.text.includes(".")) return this.#qualifiedSpelling(expression.text);
+        // The emitted spelling where it parts from the written one — Modules
+        // §5.1 rule 3's fallback, whose bare word is the alias's namespace
+        // binding here (§11.2: "never called as though the namespace object
+        // were the export").
+        const spelled = expression.emitted ?? expression.text;
+        if (spelled.includes(".")) return this.#qualifiedSpelling(spelled);
         // An imported symbol is spelled by the local its import binds, which is
         // not always the name the reference carries: the synthesized prelude
         // import may bind a term under a distinguished local to clear a

@@ -1052,11 +1052,23 @@ class Parser {
       // The glob head keeps the alias it wrote and carries no item clause —
       // the program names no item; the `import module` head's rewrite drops
       // the word. One sentence, one edit: the head's own tokens go away.
+      //
+      // The edit reaches **to the alias**, not to the head's last token, so the
+      // whitespace the head spent goes with it and the applied edit is the
+      // sentence the message prints, byte for byte. Deleting the tokens alone
+      // leaves `import  Geo from "./geometry"`, which compiles and is not what
+      // the reader was told to write — the Rewrite Rule's whole demand is that
+      // the offered line is the line.
+      const edit = aliasToken === undefined ? staleSpan : {
+        fileId: staleSpan.fileId,
+        start: staleSpan.start,
+        end: aliasToken.span.start,
+      };
       this.#diagnostics.add({
         severity: "error",
         message: `Hexagon imports bind modules: write \`${rewrite}\``,
         primary: staleSpan,
-        fixes: [{ message: "write `import`", edits: [{ span: staleSpan, replacement: "" }] }],
+        fixes: [{ message: "write `import`", edits: [{ span: edit, replacement: "" }] }],
       });
     } else if (!written) {
       // The seat's own rule, which settles every degenerate spelling by start

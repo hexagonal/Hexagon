@@ -95,11 +95,16 @@ describe("code actions: the diagnostic's own fixes", () => {
     const action = sole(actionsOn(session, "/main.hex", source, "*"));
     expect(action.title).toBe("write `import`");
     // The alias and the path are the user's own text and are never retyped;
-    // the head's own two tokens are what the edit deletes.
+    // the head's own tokens, and the whitespace they spent, are what the edit
+    // deletes — so the file it produces is the sentence the message printed.
     expect(applied(source, action)).toBe(
-      'import  Geo from "./geometry"\nlet n: Int = 1\n',
+      'import Geo from "./geometry"\nlet n: Int = 1\n',
     );
     expect(action.disabled).toBeUndefined();
+    // And it compiles, which is the property that makes an *applied* edit
+    // honest — the sibling `export opaque` action below asserts the same.
+    session.setFile("/main.hex", applied(source, action));
+    expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
   });
 
   /**

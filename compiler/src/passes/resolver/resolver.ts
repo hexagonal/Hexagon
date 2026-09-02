@@ -1502,10 +1502,23 @@ class Resolver {
    * are identical for both spellings, and an opaque record's constructor stays
    * out of reach abroad exactly as its qualified spelling is.
    *
+   * The answer carries **the spelling a reference to it emits**, which is the
+   * alias's own qualified local (`Tag.Tag`) and not the bare word the source
+   * wrote. The two are the same identifier in the emitted module — the alias's
+   * namespace binding — so a bare `Tag(7)` rendered bare would call the module
+   * object and die at load; rendered through the alias it is the ordinary
+   * qualified access the same program's `Tag.Tag(7)` emits. This is §11.2's
+   * "emitted-name collisions are the emitter's ordinary renaming problem",
+   * answered at the one seat that can see both names are one. A **prelude**
+   * companion answers through its own local first, exactly as the qualified
+   * route does.
+   *
    * `undefined` means declined; the caller proceeds to whatever answered before
    * the fallback existed.
    */
-  #companionConstructor(name: string): Resolved.SymbolId | undefined {
+  #companionConstructor(
+    name: string,
+  ): { readonly symbol: Resolved.SymbolId; readonly local: string } | undefined {
     // Term position reads top-down (Functions §7.2): above the import line the
     // alias is bound but not reached, and the caller reports the declared-later
     // error rather than resolving through it.
@@ -1518,7 +1531,48 @@ class Resolver {
       return undefined;
     }
     this.#importedSymbols.set(symbol.id, symbol);
-    return symbol.id;
+    return {
+      symbol: symbol.id,
+      local: this.#reachPreludeTerm(symbol.id) ?? `${name}.${name}`,
+    };
+  }
+
+  /**
+   * Modules §3's reading law at rule 3's own seat: a bare constructor reference
+   * *above* the import whose alias would have answered it.
+   *
+   * `#companionConstructor` declines there — term position reads top-down
+   * (Functions §7.2) — and without this the reference decayed to `unknown
+   * name`, which is false about a spelling that resolves one line down and
+   * names no repair. The report is `#reportUnreachedAlias`'s, one spelling
+   * over: the same sentence, the same label, and the same fixit, because §3
+   * says the two seats read alike.
+   *
+   * Gated on the exporter really exporting a **constructor** of the spelling,
+   * for the reason `#reportUnreachedAlias` gates on what the line binds: moving
+   * an import that would still not answer is a repair that fixes nothing, and
+   * the reference falls through to whatever reports it today.
+   *
+   * Answers whether it reported.
+   */
+  #reportUnreachedCompanion(name: Parsed.Name): boolean {
+    const pending = this.#pendingImportAliases.get(name.text);
+    if (pending === undefined) return false;
+    const symbol = this.#moduleAliases.get(name.text)?.terms.get(name.text);
+    if (
+      symbol === undefined ||
+      (symbol.kind !== "constructor" && symbol.kind !== "record-constructor")
+    ) {
+      return false;
+    }
+    this.#diagnostics.add({
+      severity: "error",
+      message: `\`${name.text}\` is declared later in this block; ` +
+        "declarations are read top-down — move the import above this use",
+      primary: name.span,
+      labels: [{ span: pending.span, message: "declared here" }],
+    });
+    return true;
   }
 
   /**
@@ -3689,9 +3743,20 @@ class Resolver {
     // honored-member read answers calls, not patterns.
     const symbol = module.terms.get(name.text);
     if (symbol === undefined) {
+      // **Opacity intercepts** (Pattern Matching §2.4, §12; Modules §4.2).
+      // An opaque type exports its name and no constructor, so `terms` has
+      // nothing — and "does not export" would describe the mechanism while
+      // saying nothing about the rule. The opaque family's own sentence, at the
+      // type's own noun, is what the door reports for the bare head; the
+      // written head reads the same way, which is what makes the two spellings
+      // one refusal.
+      const opaque = this.#opaqueConstructorHome(module, name.text);
       this.#diagnostics.add({
         severity: "error",
-        message: `module \`${qualifier.text}\` does not export \`${name.text}\``,
+        message: opaque === undefined
+          ? `module \`${qualifier.text}\` does not export \`${name.text}\``
+          : `cannot destructure opaque ${opaque.noun} \`${opaque.name}\`; ` +
+            "use an operation exported by its home module",
         primary: name.span,
       });
       return undefined;
@@ -3716,6 +3781,32 @@ class Resolver {
     // import (see `#preludeImport`).
     this.#importedSymbols.set(symbol.id, symbol);
     return symbol.id;
+  }
+
+  /**
+   * The **opaque** declaration in `module` whose constructor set holds `name`,
+   * with the noun its refusal is spelled at (Pattern Matching §2.4, §12).
+   *
+   * Read from the exporter's own declarations rather than from `terms`, which
+   * is where an opaque type is *absent* by construction: the whole point of
+   * the reading is to tell "this module exports no such name" from "this name
+   * is private here, and here is why".
+   */
+  #opaqueConstructorHome(
+    module: ModuleInterface,
+    name: string,
+  ): { readonly noun: "record" | "union"; readonly name: string } | undefined {
+    const record = module.records.get(name);
+    if (record?.opaque === true) return { noun: "record", name: record.name };
+    for (const union of module.unions.values()) {
+      if (
+        union.opaque &&
+        union.constructors.some(({ binding }) => binding.name === name)
+      ) {
+        return { noun: "union", name: union.name };
+      }
+    }
+    return undefined;
   }
 
   #resolvePattern(
@@ -3846,8 +3937,10 @@ class Resolver {
       // answers in an expression — §5.4 reads pattern and value position as one
       // scope — and it answers *after* scope and *before* the door, which is
       // the order Pattern Matching §2.2 states.
+      // A pattern compiles to a tag test and needs no import, so the fallback's
+      // emitted spelling is not read here — only the symbol it answers with.
       const symbol = scoped ?? (bound === undefined && later === undefined
-        ? this.#companionConstructor(pattern.name.text)
+        ? this.#companionConstructor(pattern.name.text)?.symbol
         : undefined);
       const arguments_ = (): readonly Resolved.Pattern[] =>
         pattern.arguments.map((argument) =>
@@ -4343,11 +4436,27 @@ class Resolver {
       if (companion !== undefined) {
         return {
           kind: "Name",
-          symbol: companion,
+          symbol: companion.symbol,
+          // Written bare, emitted through the alias: see
+          // `#companionConstructor`. In the emitted module the bare spelling
+          // *is* the namespace binding, and every diagnostic still quotes the
+          // word the reader wrote.
           text: expression.name.text,
+          ...(companion.local === expression.name.text
+            ? {}
+            : { emitted: companion.local }),
           span: expression.span,
         };
       }
+    }
+    // Rule 3 above its own import line. The fallback declined because the alias
+    // is bound but not *reached* (`#companionConstructor`'s guard), and this is
+    // the caller that guard names: Modules §3 makes a term-position use above
+    // its import "the declared-later error with the import-shaped fixit, `move
+    // the import above this use`, exactly as a use of any term binding above
+    // its declaration", and the qualified route already reads that way.
+    if (later === undefined && this.#reportUnreachedCompanion(expression.name)) {
+      return { kind: "ErrorExpr", span: expression.span };
     }
     // §5.5's refusal is read *after* the declared-later one and before the
     // unknown name: a module that declares the spelling lower down means its
