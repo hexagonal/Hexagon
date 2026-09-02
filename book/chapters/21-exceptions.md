@@ -95,7 +95,7 @@ let loadConfiguration(path: String): Configuration =
         readConfiguration!(path)
     catch
         ParseError(line, message) =>
-            log("Line ${line}: ${message}")
+            Debug.log("Line ${line}: ${message}")
             defaultConfiguration
         NotFound => defaultConfiguration
 ```
@@ -118,7 +118,7 @@ let scoreAt(scores: Vector(Int), index: Int): Int =
         Vector.at(scores, index)
     catch
         Vector.IndexError(requested, size) =>
-            log("asked for ${requested} of ${size}")
+            Debug.log("asked for ${requested} of ${size}")
             0
 ```
 

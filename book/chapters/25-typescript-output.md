@@ -62,7 +62,7 @@ does not pretend that it can.
 called for its effect conventionally returns `void`:
 
 ```hexagon
-export let notify(message: String): Unit = log(message)
+export let notify(message: String): Unit = Debug.log(message)
 ```
 
 ```ts

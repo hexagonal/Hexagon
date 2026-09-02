@@ -22,12 +22,12 @@ block's indentation. Lines that begin at the same indentation belong to the same
 
 ```hexagon
 let prepare(order: Order): Order =
-    log("Preparing order")
+    Debug.log("Preparing order")
     let checkedOrder = check(order)
     checkedOrder
 ```
 
-All three body items begin in the same column. The call to `log`, the `let` binding,
+All three body items begin in the same column. The call to `Debug.log`, the `let` binding,
 and the final expression therefore belong to one block. As established earlier, the
 final expression supplies the block's value — the law of *expression* blocks. A
 member block, like chapter 3's `fun` block or the top level of a source file,
@@ -39,13 +39,13 @@ Indenting farther opens a nested block. Returning to an earlier column closes it
 ```hexagon
 let describeDelay(delayed: Bool): String =
     if delayed then
-        log("Order delayed")
+        Debug.log("Order delayed")
         "Delayed"
     else
         "On time"
 ```
 
-`log` and `"Delayed"` belong to the first branch. The dedented `else` closes that
+`Debug.log` and `"Delayed"` belong to the first branch. The dedented `else` closes that
 branch and begins the alternative.
 
 Use four spaces for each level of leading indentation. A tab before the first token of
@@ -78,7 +78,7 @@ This is the same block model, not a second function syntax.
 A JavaScript developer may instinctively write:
 
 ```hexagon
-let greet(name) = { log("Hello ${name}") }
+let greet(name) = { Debug.log("Hello ${name}") }
 ```
 
 That is not a block. In Hexagon, `{` always begins a record. The compiler can therefore
@@ -86,7 +86,7 @@ give one direct correction:
 
 ```hexagon
 let greet(name) =
-    log("Hello ${name}")
+    Debug.log("Hello ${name}")
 ```
 
 There is no context where braces switch back to block delimiters. Later, when records
@@ -118,17 +118,17 @@ the end of a line, at the start of a block, or beside another semicolon.
 It also cannot open a multi-item body:
 
 ```hexagon
-let greet = name => log("Hello ${name}"); log("Ready")
+let greet = name => Debug.log("Hello ${name}"); Debug.log("Ready")
 ```
 
-The lambda body is only `log("Hello ${name}")`. The semicolon separates the complete
-`let` binding from `log("Ready")` in the enclosing block. If both calls should belong
+The lambda body is only `Debug.log("Hello ${name}")`. The semicolon separates the complete
+`let` binding from `Debug.log("Ready")` in the enclosing block. If both calls should belong
 to the lambda, use indentation:
 
 ```hexagon
 let greet = name =>
-    log("Hello ${name}")
-    log("Ready")
+    Debug.log("Hello ${name}")
+    Debug.log("Ready")
 ```
 
 Semicolons are occasionally convenient for tiny neighboring bindings. Newlines are
@@ -177,7 +177,7 @@ separates two items:
 ```hexagon
 let prepare(order: Order): Order =
     // Keep the effect close to the work it announces.
-    log("Preparing order")
+    Debug.log("Preparing order")
 
             // Comment-only indentation is ignored.
     order
