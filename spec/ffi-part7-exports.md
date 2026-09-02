@@ -418,8 +418,7 @@ export union Shape = Circle(radius: Float) | Point
 --     export const Point = {tag: "Point"};
 -- internal Circle(2.0) still erases to the literal
 
--- (d) All-nullary: the same shape, no cliff (Unions §6.2; #771 — the emitter still
---     emits strings here until the #771 emitter change lands)
+-- (d) All-nullary: the same shape, no cliff (Unions §6.2)
 export union Color = Red | Green | Blue    -- export const Red = {tag: "Red"}; ...
 --   .d.ts: export type Color = {tag: "Red"} | {tag: "Green"} | {tag: "Blue"};
 
