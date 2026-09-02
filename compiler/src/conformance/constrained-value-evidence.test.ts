@@ -165,9 +165,9 @@ describe("a constrained function carries its evidence into value position", () =
     const exports = await run([
       ["/lib.hex", "export let plus<a: Num>(left: a, right: a): a = left + right\n"],
       ["/main.hex",
-        "import { plus } from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "let apply(f: (Int, Int) -> Int): Int = f(1, 2)\n" +
-        "export let out: Int = apply(plus)\n"],
+        "export let out: Int = apply(Lib.plus)\n"],
     ]);
     expect(exports["out"]).toBe(3);
   });

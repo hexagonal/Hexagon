@@ -438,7 +438,7 @@ describe("row 5 — two rung-5 mints of the same spelling (#617)", () => {
       ["/handle.hex", 'extern from "./host.js"\n    export type Color\n'],
       [
         "/mida.hex",
-        'import Color from "./color"\nexport type CA = Color\nexport fun mkA(): CA = Red\n',
+        'import Color from "./color"\nexport type CA = Color\nexport fun mkA(): CA = Color.Red\n',
       ],
       ["/midb.hex", 'import Color from "./handle"\nexport type CB = Color\n'],
       [
@@ -604,13 +604,13 @@ describe("the opaque brands are in every universe the file probes", () => {
       ["/lib.hex", "export record PointBrand = {n: Int}\n"],
       [
         "/mid.hex",
-        'import { PointBrand } from "./lib"\nexport type W = PointBrand\n' +
+        'import PointBrand from "./lib"\nexport type W = PointBrand\n' +
           "export fun one(): W = PointBrand({n = 1})\n",
       ],
       [
         "/main.hex",
-        'import { one, W } from "./mid"\nopaque record Point = {x: Int}\n' +
-          "export fun mk(): Point = Point({x = 1})\nexport let w: W = one()\n",
+        'import W from "./mid"\nopaque record Point = {x: Int}\n' +
+          "export fun mk(): Point = Point({x = 1})\nexport let w: W = W.one()\n",
       ],
     ]);
 
@@ -708,13 +708,13 @@ describe("placement, and one probe for both minting rungs", () => {
       ["/lib.hex", "export record Point = {n: Int}\n"],
       [
         "/mid.hex",
-        'import { Point } from "./lib"\nexport type Wrapped = Point\n' +
+        'import Point from "./lib"\nexport type Wrapped = Point\n' +
           "export fun one(): Wrapped = Point({n = 1})\n",
       ],
       ["/other.hex", "export union Color = Red | Green\n"],
       [
         "/main.hex",
-        'import { Color } from "./other"\nimport { one, Wrapped } from "./mid"\n' +
+        'import Color from "./other"\nimport Wrapped from "./mid"\n' +
           "export fun f(c: Color, w: Wrapped, v: Vector(Int)): Option(Int) = None\n",
       ],
     ]);
@@ -738,13 +738,13 @@ describe("placement, and one probe for both minting rungs", () => {
       ["/lib.hex", "export record Option = {n: Int}\n"],
       [
         "/mid.hex",
-        'import { Option as LibOption } from "./lib"\nexport type Held = LibOption\n' +
-          "export fun one(): Held = LibOption({n = 1})\n",
+        'import Lib from "./lib"\nexport type Held = Lib.Option\n' +
+          "export fun one(): Held = Lib.Option({n = 1})\n",
       ],
       [
         "/main.hex",
-        'import { one, Held } from "./mid"\n' +
-          "export let a: Held = one()\nexport let b: Option(Int) = None\n",
+        'import Held from "./mid"\n' +
+          "export let a: Held = Held.one()\nexport let b: Option(Int) = None\n",
       ],
     ]);
 
@@ -790,11 +790,11 @@ describe("what the sink is not asked", () => {
       ["/s.hex", "export record S = {n: Int}\n"],
       [
         "/mid.hex",
-        'import { S } from "./s"\nexport type W = S\nexport fun one(): W = S({n = 1})\n',
+        'import S from "./s"\nexport type W = S\nexport fun one(): W = S({n = 1})\n',
       ],
       [
         "/main.hex",
-        'import S from "./Seq"\nimport { one, W } from "./mid"\n' +
+        'import S from "./Seq"\nimport W from "./mid"\n' +
           "export fun pass(x: S.Seq(Int), w: W): W = w\n",
       ],
     ]);
@@ -806,30 +806,34 @@ describe("what the sink is not asked", () => {
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
-  test("an alias rung 2 took over contests nothing either", async () => {
-    // Rung 2 outranks rung 3, so the named import's local is spelled at the
-    // qualified seat too and the alias's line is not owed. The identity decides
-    // it, which is why the identity travels with the occurrence.
+  test("two aliases to one module answer their own seats independently", async () => {
+    // What this test used to pin was rung 2's one surprise: a named import's
+    // local outranked rung 3 *even at a qualified seat*, spelling the whole
+    // identity through the named import's local regardless of how a given
+    // occurrence was written. #762 retired that global override along with
+    // the rest of rung 2 — Modules §3, and FFI Part 7 §2.4's rung 3 paragraph,
+    // both now read "each seat of the `.d.ts` says what the source said at
+    // that seat." Two aliases onto the same module, one qualified and one bare
+    // through Modules §5.1 rule 2's companion fallback, therefore answer
+    // independently — the truth this test now pins, in place of the takeover
+    // that no longer happens (the "one identity at two rungs" test above
+    // already establishes it for a single alias doing both jobs; this is the
+    // sibling with two).
     const compiled = project([
       ["/lib.hex", "export record Point = {x: Float, y: Float}\n"],
-      ["/lib2.hex", "export record Lib = {n: Int}\n"],
-      [
-        "/mid.hex",
-        'import { Lib } from "./lib2"\nexport type W = Lib\nexport fun one(): W = Lib({n = 1})\n',
-      ],
       [
         "/main.hex",
-        'import Lib from "./lib"\nimport { Point } from "./lib"\n' +
-          'import { one, W } from "./mid"\n' +
-          "export fun mk(p: Lib.Point): Lib.Point = p\nexport let w: W = one()\n",
+        'import Lib from "./lib"\nimport Point from "./lib"\n' +
+          "export fun mk(p: Lib.Point): Lib.Point = p\n" +
+          "export fun bare(q: Point): Float = q.x\n",
       ],
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type { Lib } from "./lib2.js";\n' +
-        'import type { Point } from "./lib.js";\n' +
-        "export declare function mk(p: Point): Point;\n" +
-        "export declare const w: Lib;\n",
+      'import type { Point } from "./lib.js";\n' +
+        'import type * as Lib from "./lib.js";\n' +
+        "export declare function mk(p: Lib.Point): Lib.Point;\n" +
+        "export declare function bare(q: Point): number;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -910,17 +914,19 @@ describe("a module whose whole `.d.ts` was one dead line", () => {
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
-  test("a named import whose type half no face mentions is left out on the same rule", async () => {
+  test("an alias whose type half no face mentions is left out on the same rule", async () => {
     const compiled = project([
       ["/lib.hex", "export record Point = {n: Int}\n"],
-      ["/main.hex", 'import { Point } from "./lib"\nexport let n: Int = Point({n = 1}).n\n'],
+      ["/main.hex", 'import Point from "./lib"\nexport let n: Int = Point({n = 1}).n\n'],
     ]);
 
     expect(declarations(compiled)).toBe("export declare const n: number;\n");
-    // The JavaScript still imports the constructor: the two files are decided
-    // by different questions.
+    // The alias's constructor use — a term, reached through Modules §5.1 rule
+    // 3's companion fallback — is a JavaScript question and has nothing to do
+    // with the type-side sink: the two files are decided independently. A
+    // module import always emits as the namespace form (§2.1's plan for #762).
     expect(emitted(compiled, "/main.hex").javascript.text).toContain(
-      'import { Point } from "./lib.js";',
+      'import * as Point from "./lib.js";',
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -943,7 +949,7 @@ describe("rung 5 mints only what its home module exports", () => {
         ],
         [
           "/main.hex",
-          'import { Box, Exposed } from "./lib"\nexport fun peek(b: Box): Exposed = b.h\n',
+          'import Lib from "./lib"\nexport fun peek(b: Lib.Box): Lib.Exposed = b.h\n',
         ],
       ],
       [
@@ -958,13 +964,17 @@ describe("rung 5 mints only what its home module exports", () => {
     // refused program: rung 5 must decline rather than mint, since the home
     // module does not export the name and `import type { Hidden }` would bind
     // nothing — a worse failure than the unbound name the refusal already owns.
+    // `Box` is qualified (rung 3, kept) so its own successful mint doesn't
+    // muddy what's being watched; `Exposed` is transparent, so its crossing
+    // is rung 5's regardless of how the occurrence was spelled, and that mint
+    // is the one this test declines.
     expect(declarations(compiled)).toBe(
-      'import type { Box } from "./lib.js";\n' +
-        "export declare function peek(b: Box): Hidden;\n",
+      'import type * as Lib from "./lib.js";\n' +
+        "export declare function peek(b: Lib.Box): Hidden;\n",
     );
     expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual([]);
     expect((await typeScriptErrors(declarationSet(compiled))).join("\n"))
-      .toContain("main.d.ts(2,39): error TS2304: Cannot find name 'Hidden'.");
+      .toContain("Cannot find name 'Hidden'.");
   });
 });
 
@@ -976,7 +986,7 @@ describe("rung 5 declines a private nominal on every arm of the guard", () => {
   // not export.
   const CONSUMER = [
     "/main.hex",
-    'import { Exposed } from "./lib"\nexport record Wrap = {h: Exposed}\n',
+    'import Exposed from "./lib"\nexport record Wrap = {h: Exposed}\n',
   ] as const;
   const FACE = "export type Wrap = { h: Hidden };\n" +
     "export declare const Wrap: (record: { h: Hidden }) => Wrap;\n";
@@ -1225,10 +1235,10 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     ["/s.hex", "export record S = {n: Int}\n"],
     [
       "/mid.hex",
-      'import { S } from "./s"\nexport type W = S\nexport fun one(): W = S({n = 1})\n',
+      'import S from "./s"\nexport type W = S\nexport fun one(): W = S({n = 1})\n',
     ],
   ];
-  const HEAD = 'import S from "./lib"\nimport { one, W } from "./mid"\n';
+  const HEAD = 'import S from "./lib"\nimport W from "./mid"\n';
   const TAIL = 'import type { S } from "./s.js";\n';
 
   test("a constrained export with no fundamental editions renders no face", async () => {
@@ -1240,7 +1250,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
         "constraint Render<a> =\n    render(value: a): String\n" +
           HEAD +
           "export let describe<a: Render>(p: S.Point, value: a): String = render(value)\n" +
-          "export let w: W = one()\n",
+          "export let w: W = W.one()\n",
       ],
     ]);
 
@@ -1266,7 +1276,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
         HEAD +
           "let helper<a: Show>(p: S.Point, value: a): String = show(value)\n" +
           "export let describe<a: Show>: (S.Point, a) -> String = helper\n" +
-          "export let w: W = one()\n",
+          "export let w: W = W.one()\n",
       ],
     ]);
 
@@ -1294,7 +1304,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     const compiled = project([
       LIB,
       ...MINT,
-      ["/main.hex", HEAD + "opaque record Box = {p: S.Point}\nexport let w: W = one()\n"],
+      ["/main.hex", HEAD + "opaque record Box = {p: S.Point}\nexport let w: W = W.one()\n"],
     ]);
 
     // §5's brand is the face; the representation is not published.
@@ -1311,7 +1321,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     const compiled = project([
       LIB,
       ...MINT,
-      ["/main.hex", HEAD + "opaque union Held = Wrap(p: S.Point)\nexport let w: W = one()\n"],
+      ["/main.hex", HEAD + "opaque union Held = Wrap(p: S.Point)\nexport let w: W = W.one()\n"],
     ]);
 
     expect(declarations(compiled)).toBe(

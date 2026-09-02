@@ -1205,10 +1205,7 @@ class Analysis {
       this.#pathsByFileId.set(Number(module.source.id), path);
       this.#typedByPath.set(path, module.typed);
       const types = collectTypeOccurrences(module.typed);
-      const occurrences = collectOccurrences(module, {
-        fileOfSpecifier: (specifier) => fileIdsByPath.get(resolveSpecifier(path, specifier)),
-        typeOccurrences: types,
-      });
+      const occurrences = collectOccurrences(module, { typeOccurrences: types });
       this.#occurrencesByPath.set(path, occurrences);
       this.#resolvedByPath.set(path, module.resolved);
       for (const occurrence of occurrences) {

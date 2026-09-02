@@ -111,11 +111,11 @@ describe("collectOccurrences", () => {
   test("references reach across modules by shared identity", () => {
     const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
     const main = [
-      'import {Colour, Red} from "./helper"',
+      'import Helper from "./helper"',
       "",
-      "let pick(c: Colour): Colour =",
+      "let pick(c: Helper.Colour): Helper.Colour =",
       "    match c",
-      "        Red => Red",
+      "        Red => Helper.Red",
       "        other => other",
       "",
     ].join("\n");
@@ -133,15 +133,14 @@ describe("collectOccurrences", () => {
     expect(render(mainOwn, main, (o) => targetKey(o.target) === colour)).toEqual([
       'reference union "Colour"',
       'reference union "Colour"',
-      'reference union "Colour"',
     ]);
     expect(helperOwn.filter((o) => targetKey(o.target) === colour)).toHaveLength(1);
 
-    // `Red` is a value symbol declared elsewhere: the import name and both uses
-    // are references here, and the definition stays in the declaring module.
+    // `Red` is a value symbol declared elsewhere: the arm's door-reached
+    // pattern and the qualified expression are both references here, and the
+    // definition stays in the declaring module.
     const red = mainOwn.filter((occurrence) => occurrence.name === "Red");
     expect(render(red, main)).toEqual([
-      'reference value "Red"',
       'reference value "Red"',
       'reference value "Red"',
     ]);
@@ -258,65 +257,16 @@ describe("collectOccurrences", () => {
     ]);
   });
 
-  test("an aliasing import clause publishes both of its names, each narrowed", () => {
-    const helper = ["export union Shade =", "    | Pale", "    | Deep", "", "export let two: Int = 2", ""]
-      .join("\n");
-    const main = [
-      'import {Shade as Other, two as deux} from "./helper"',
-      "",
-      "let q(y: Other): Int = deux",
-      "",
-    ].join("\n");
-    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
-    const own = occurrences.get("/main.hex")!;
-    // `ImportName.span` covers `Shade as Other`. Published unnarrowed, hover and
-    // find-references would report the whole clause, and every offset across it
-    // — including the `as` — would answer as the imported name. Both names are
-    // published because both denote the thing: leaving the imported one out
-    // costs find-references a mention, and leaves a rename of the declaration
-    // rewriting every module *except* the ones that aliased it.
-    expect(render(own, main, (o) => o.span.start.line === 0)).toEqual([
-      'reference union "Shade"',
-      'reference union "Other"',
-      'reference value "two"',
-      'reference value "deux"',
-    ]);
-  });
-
-  test("the two names of an aliasing clause denote one identity", () => {
-    const helper = "export let two: Int = 2\n";
-    const main = ['import {two as deux} from "./helper"', "", "let four: Int = deux + deux", ""]
-      .join("\n");
-    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
-    const own = occurrences.get("/main.hex")!;
-    const keys = new Set(own.filter((o) => o.span.start.line === 0).map((o) => targetKey(o.target)));
-    expect(keys.size).toBe(1);
-  });
-
-  test("an alias that repeats the name still publishes both mentions", () => {
-    const helper = "export let two: Int = 2\n";
-    // Told apart by span rather than by comparing spellings: `two as two` writes
-    // the name twice at two offsets, and a rename that rewrote only one of them
-    // would leave the clause naming something that no longer exists.
-    const main = ['import {two as two} from "./helper"', "", "let four: Int = two + two", ""]
-      .join("\n");
-    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
-    const own = occurrences.get("/main.hex")!;
-    const clause = own.filter((o) => o.span.start.line === 0);
-    expect(clause.map((o) => o.span.start.offset)).toEqual([
-      main.indexOf("two"),
-      main.lastIndexOf("two", main.indexOf("\n")),
-    ]);
-  });
-
-  test("a namespace import publishes nothing, having no names of its own", () => {
+  test("an import publishes nothing, having no names of its own", () => {
     const helper = "export let two: Int = 2\n";
     const main = ['import H from "./helper"', "", "let four: Int = H.two + H.two", ""].join("\n");
     const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
     const own = occurrences.get("/main.hex")!;
-    // The resolver expands `* as H` into one entry per reachable member, each
-    // carrying the whole import statement as its span. Publishing those would
-    // put a member on top of the `import` keyword and the specifier string.
+    // An import binds a module and nothing smaller (Modules §3, #762): the one
+    // name on the line is the alias, which is a module and no term or type. The
+    // resolver expands it into one entry per reachable member, each carrying the
+    // whole import statement as its span; publishing those would put a member on
+    // top of the `import` keyword and the specifier string.
     expect(render(own, main, (o) => o.span.start.line === 0)).toEqual([]);
     expect(render(own, main, (o) => o.span.start.line === 2)).toEqual([
       'definition value "four"',
@@ -325,27 +275,31 @@ describe("collectOccurrences", () => {
     ]);
   });
 
-  test("without a specifier resolver, a type import is left unindexed rather than guessed", () => {
+  test("a type reached through an alias indexes at its own mention, not at the import", () => {
+    // The specifier-resolving option this query once took is gone with the named
+    // import (#762): no import line carries a type name, so nothing on it needs
+    // a specifier resolved to be indexed, and the type's occurrences are the
+    // annotations that mention it.
     const helper = ["export union Shade =", "    | Pale", "    | Deep", ""].join("\n");
-    const main = ['import {Shade} from "./helper"', "", "let q(y: Shade): Shade = y", ""].join("\n");
+    const main = ['import H from "./helper"', "", "let q(y: H.Shade): H.Shade = y", ""].join("\n");
     const project = compileFiles([["/helper.hex", helper], ["/main.hex", main]]);
     expect(project.diagnostics).toEqual([]);
     const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
-    const bare = collectOccurrences(module);
-    const resolved = collectOccurrences(module, {
-      fileOfSpecifier: () => project.modules.find(({ source }) => source.path === "/helper.hex")!
-        .source.id,
-    });
-    expect(render(bare, main, (o) => o.span.start.line === 0)).toEqual([]);
-    expect(render(resolved, main, (o) => o.span.start.line === 0)).toEqual([
+    const own = collectOccurrences(module);
+    expect(render(own, main, (o) => o.span.start.line === 0)).toEqual([]);
+    expect(render(own, main, (o) => o.span.start.line === 2)).toEqual([
+      'definition value "q"',
+      'definition value "y"',
       'reference union "Shade"',
+      'reference union "Shade"',
+      'reference value "y"',
     ]);
   });
 
   test("every occurrence belongs to the module that published it", () => {
     const { project, occurrences } = index([
       ["/helper.hex", "export let two: Int = 2\n"],
-      ["/main.hex", 'import {two} from "./helper"\n\nlet four = two + two\n'],
+      ["/main.hex", 'import H from "./helper"\n\nlet four = H.two + H.two\n'],
     ]);
     for (const module of project.modules) {
       for (const occurrence of occurrences.get(module.source.path) ?? []) {
@@ -365,9 +319,9 @@ describe("collectOccurrences", () => {
     const project = compileFiles([[
       "/main.hex",
       [
-        'import {map} from "./Seq"',
+        'import S from "./Seq"',
         "",
-        "let doubled = map(Seq.iterate(1, (n) => n + 1), (n) => n * 2)",
+        "let doubled = S.map(Seq.iterate(1, (n) => n + 1), (n) => n * 2)",
         "let maybe: Option(Int) = Some(1)",
         "",
       ].join("\n"),

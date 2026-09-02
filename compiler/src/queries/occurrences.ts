@@ -70,20 +70,6 @@ export interface ModuleInput {
 
 export interface CollectOptions {
   /**
-   * The file an import specifier resolves to, from this module.
-   *
-   * A type name in an import list carries no type identity — `ImportName` has no
-   * room for one — so it has to be recovered from the module's own type tables,
-   * which hold the imported declarations alongside the local ones. Matching on
-   * the name alone is not enough: two modules may export the same type name, and
-   * picking either one is wrong half the time. Only the specifier says which.
-   *
-   * Resolving a specifier needs the project's file set, which one module does
-   * not have, so the caller supplies it. Without it, type names in import lists
-   * are left unindexed rather than guessed at.
-   */
-  readonly fileOfSpecifier?: (specifier: string) => Source.FileId | undefined;
-  /**
    * This module's type occurrences, when the caller already has them.
    *
    * Dot calls are read out of that same table, and a host asking for both — as
@@ -138,9 +124,6 @@ class Collector {
   readonly #occurrences: Occurrence[] = [];
   /** Guards against a span being published twice for the same target. */
   readonly #seen = new Set<string>();
-  /** Spans of the imports the source actually contains — see `#visitItem`. */
-  readonly #writtenImports: ReadonlySet<string>;
-  readonly #fileOfSpecifier: CollectOptions["fileOfSpecifier"];
   readonly #typeOccurrences: CollectOptions["typeOccurrences"];
 
   constructor(module: ModuleInput, options: CollectOptions) {
@@ -149,13 +132,7 @@ class Collector {
     this.#resolved = module.resolved;
     this.#typed = module.typed;
     this.#fileId = module.resolved.fileId;
-    this.#fileOfSpecifier = options.fileOfSpecifier;
     this.#typeOccurrences = options.typeOccurrences;
-    this.#writtenImports = new Set(
-      module.parsed.items
-        .filter((item) => item.kind === "Import")
-        .map((item) => spanKey(item.span)),
-    );
   }
 
   run(): readonly Occurrence[] {
@@ -275,21 +252,14 @@ class Collector {
   #visitItem(item: Resolved.Item): void {
     switch (item.kind) {
       case "Import":
-        // Every module also carries the prelude's imports, which the resolver
-        // injects rather than reads (Modules §5.5). They are real bindings but
-        // not source text: their spans are the whole module, so publishing them
-        // would put `Some`, `None`, `True` and `False` on top of the entire
-        // file. A written import is exactly one the parser also saw.
-        // A namespace import's `names` are the members it made reachable, not
-        // names the source wrote: each one carries the whole import statement as
-        // its span, and the alias itself has none. Publishing them would put a
-        // member on top of the `import` keyword and the specifier string.
-        if (
-          item.form.kind === "Named" &&
-          this.#writtenImports.has(spanKey(item.span))
-        ) {
-          for (const name of item.form.names) this.#visitImportName(name, item.specifier);
-        }
+        // **An import publishes nothing** (Modules §3, #762). It binds a module
+        // and nothing smaller, so the only name the source wrote on the line is
+        // the alias — which is a module and no term, type or constraint, and so
+        // is no occurrence of anything this index holds. The `names` an import
+        // item carries are the members the alias made reachable, or the
+        // prelude's own synthesized line (§5.5): each carries the whole import
+        // statement as its span, and publishing them would put a member on top
+        // of the `import` keyword and the specifier string.
         return;
       case "ExternBlock":
         for (const declaration of item.declarations) {
@@ -352,64 +322,6 @@ class Collector {
     }
   }
 
-  /**
-   * A name in an import list.
-   *
-   * The span covers the whole clause — `Shade as Other`, not `Other` — so it is
-   * narrowed to the local name, which is what the reader clicked and what the
-   * editor should underline.
-   *
-   * An aliasing clause writes the name *twice*, and both mentions denote the
-   * same thing: `Shade` names the declaration, `Other` names it locally. Both
-   * are published. Leaving the imported one out would cost find-references a
-   * real mention, and would make a rename of the declaration rewrite every
-   * module except the ones that aliased it — silently breaking exactly the
-   * imports that were hardest to notice. The two are told apart by span rather
-   * than by comparing the spellings, so `Shade as Shade` still publishes both.
-   *
-   * Value names arrive already resolved. A type name does not, because
-   * `ImportName` has no room for a type identity, so it is recovered from the
-   * module's own type tables, which carry the imported declarations alongside
-   * the local ones. Two modules may export the same type name, so the candidate
-   * has to be matched against the file this specifier resolves to — filtering on
-   * "declared somewhere other than here" picks an arbitrary one of the two, and
-   * is wrong half the time with no diagnostic to warn anyone.
-   */
-  #visitImportName(name: Resolved.ImportName, specifier: string): void {
-    const local = this.#trailingNameSpan(name.span, name.local);
-    const imported = this.#headNameSpan(name.span);
-    const mentions: readonly (readonly [string, Source.Span])[] =
-      imported.start.offset === local.start.offset
-        ? [[name.local, local]]
-        : [[name.imported, imported], [name.local, local]];
-    const publish = (target: Target): void => {
-      for (const [written, span] of mentions) this.#publish(target, "reference", written, span);
-    };
-    if (name.symbol !== undefined) {
-      publish({ kind: "value", symbol: name.symbol });
-      return;
-    }
-    const declaring = this.#fileOfSpecifier?.(specifier);
-    if (declaring === undefined) return;
-    const from = <T extends { readonly span: Source.Span }>(candidates: readonly T[]) =>
-      candidates.find((candidate) => candidate.span.fileId === declaring);
-    const union = from(this.#resolved.unions.filter(({ name: it }) => it === name.imported));
-    if (union !== undefined) {
-      publish({ kind: "union", union: union.id });
-      return;
-    }
-    const record = from(this.#resolved.records.filter(({ name: it }) => it === name.imported));
-    if (record !== undefined) {
-      publish({ kind: "record", record: record.id });
-      return;
-    }
-    const externType = from(
-      this.#resolved.externTypes.filter(({ localName }) => localName === name.imported),
-    );
-    if (externType !== undefined) {
-      publish({ kind: "extern-type", externType: externType.externType });
-    }
-  }
 
   #visitAnnotation(annotation: Resolved.TypeAnnotation): void {
     switch (annotation.kind) {
@@ -799,9 +711,6 @@ const HEAD_NAME = new RegExp(
   "u",
 );
 
-function spanKey(span: Source.Span): string {
-  return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
-}
 
 /** `Vector.map` hovers and jumps as `map`; the qualifier is not the reference. */
 function trailingIdentifier(text: string): string {

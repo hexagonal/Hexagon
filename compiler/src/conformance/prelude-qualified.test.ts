@@ -260,11 +260,15 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
    * next prelude member inherits it.
    */
 
-  test("an explicit named import does not collide with a qualified prelude term", async () => {
+  test("an explicit local binding does not collide with a qualified prelude term", async () => {
+    // #762 left no named import to bind `take` bare; Modules §3.2's ordinary
+    // route for a value bare under another module's name — an explicit `let`
+    // — is the modern shape of the same collision risk.
     const module = await run([
       ["/lib.hex", "export let take(value: Int): Int = value + 1\n"],
       ["/main.hex",
-        "import { take } from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
+        "let take = Lib.take\n" +
         "let source: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
         "export let mine: Int = take(1)\n" +
         "export let theirs: Vector(Int) = Vector.fromSeq(Seq.take(source, 2))\n"],

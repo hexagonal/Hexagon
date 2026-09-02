@@ -142,25 +142,37 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
 });
 
 describe("a source-written import owns every name it binds", () => {
-  test("a term+type name keeps its `.d.ts` type row, and its JavaScript term import", async () => {
+  // #762: an import binds a module alias, never a name. What used to be "a
+  // source-written *named* import" is now the companion fallback (Modules
+  // §3.2, rule 2/3) — a module alias reached bare, same spelling as its
+  // module's export — and that is the only route left that puts a
+  // *type-only* `.d.ts` row for a user module's declaration, the way channel
+  // 1's automatic prelude routing does. A qualified use (`Lib.Point`)
+  // instead imports the whole namespace (`import type * as Lib`), which is a
+  // different — and already covered — shape (see "placement" below).
+  test("a term+type name keeps its `.d.ts` type row, and its JavaScript module import", async () => {
     const compiled = project([
       ["/lib.hex", "export record Point = {x: Float, y: Float}\n"],
-      ["/app.hex", 'import { Point } from "./lib"\nexport let mk(): Point = Point({x = 1.0, y = 2.0})\n'],
+      ["/app.hex", 'import Point from "./lib"\nexport let mk(): Point = Point.Point({x = 1.0, y = 2.0})\n'],
     ]);
     const app = emitted(compiled, "/app.hex");
 
     // The record's name binds the constructor *and* the type. Before #227 the
     // type-only marking keyed off the term's absence, so the term half silently
-    // cost the `.d.ts` its row.
+    // cost the `.d.ts` its row. The bare `Point` type still gets that row
+    // through the fallback; the constructor is reached qualified (`Point.Point`)
+    // since a rule-3-resolved bare term that is actually called crashes at
+    // runtime today — a confirmed emission bug, irrelevant here since this test
+    // only inspects text — but qualifying keeps the specimen unambiguous.
     expect(app.declarations.text).toContain('import type { Point } from "./lib.js";');
-    expect(app.javascript.text).toContain('import { Point } from "./lib.js";');
+    expect(app.javascript.text).toContain('import * as Point from "./lib.js";');
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
   test("a pure-term import still contributes no declaration row", () => {
     const compiled = project([
       ["/lib.hex", "export let one: Int = 1\n"],
-      ["/app.hex", 'import { one } from "./lib"\nexport let two: Int = one + one\n'],
+      ["/app.hex", 'import Lib from "./lib"\nlet one = Lib.one\nexport let two: Int = one + one\n'],
     ]);
 
     expect(emitted(compiled, "/app.hex").declarations.text).toBe(
@@ -168,23 +180,19 @@ describe("a source-written import owns every name it binds", () => {
     );
   });
 
-  test("a rename is respected and the faces spell the local", async () => {
-    const compiled = project([
-      ["/lib.hex", "export union Color = Red | Green\n"],
-      ["/app.hex", 'import { Color as LibColor } from "./lib"\nexport let pick(c: LibColor): LibColor = c\n'],
-    ]);
-
-    expect(emitted(compiled, "/app.hex").declarations.text).toBe(
-      'import type { Color as LibColor } from "./lib.js";\n' +
-        "export declare const pick: (c: LibColor) => LibColor;\n",
-    );
-    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
-  });
+  // Deleted: "a rename is respected and the faces spell the local". #762
+  // removes renamed named imports outright, and their §3.2 replacement for a
+  // type — `type LibColor = Lib.Color` — is a transparent alias: the emitted
+  // face prints the resolved type (`Lib.Color`), not the alias's own spelling.
+  // Confirmed empirically. There is no surviving route by which an imported
+  // type's *local* rename shows up in an exported face, so the property this
+  // test existed to pin no longer holds under any spelling — it is not
+  // re-aimable without asserting something the compiler correctly refuses.
 
   test("an explicit import of a prelude type binds it once, not twice", async () => {
     const compiled = project([[
       "/main.hex",
-      'import { Option } from "./Option"\nexport let o: Option(Int) = None\n',
+      'import Option from "./Option"\nexport let o: Option(Int) = None\n',
     ]]);
     const text = emitted(compiled, "/main.hex").declarations.text;
 
@@ -195,18 +203,12 @@ describe("a source-written import owns every name it binds", () => {
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
-  test("an explicit prelude import under a rename moves the faces too", async () => {
-    const compiled = project([[
-      "/main.hex",
-      'import { Option as Maybe } from "./Option"\nexport let o: Maybe(Int) = None\n',
-    ]]);
-
-    expect(emitted(compiled, "/main.hex").declarations.text).toBe(
-      'import type { Option as Maybe } from "./Option.js";\n' +
-        "export declare const o: Maybe<number>;\n",
-    );
-    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
-  });
+  // Deleted: "an explicit prelude import under a rename moves the faces too".
+  // Same defect as the rename test above, one prelude module over: the §3.2
+  // replacement for a renamed type import is `type Maybe(a) = Opt.Option(a)`,
+  // a transparent alias, so the emitted face prints `Opt.Option`, never
+  // `Maybe` — confirmed empirically. No route makes a renamed type's local
+  // spelling appear in a face any more.
 });
 
 describe("placement", () => {
@@ -215,7 +217,7 @@ describe("placement", () => {
       ["/lib.hex", "export union Color = Red | Green\n"],
       [
         "/main.hex",
-        'import { Color } from "./lib"\n' +
+        'import Color from "./lib"\n' +
           "export let f(c: Color, v: Vector(Int)): Option(Int) = None\n",
       ],
     ]);

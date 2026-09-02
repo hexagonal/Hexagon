@@ -51,16 +51,16 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
 
   test("the type name crosses: a stranger may name it and pass it around", () => {
     expect(messages(vault(
-      'import { Ticket, issue, serialOf } from "./vault"\n' +
-      "export fun round(t: Ticket): Int = serialOf(t)\n" +
-      "export let one: Int = round(issue(7))\n",
+      'import Vault from "./vault"\n' +
+      "export fun round(t: Vault.Ticket): Int = Vault.serialOf(t)\n" +
+      "export let one: Int = round(Vault.issue(7))\n",
     ))).toEqual([]);
   });
 
   test("the field does not cross", () => {
     expect(messages(vault(
-      'import { Ticket, issue } from "./vault"\n' +
-      "export fun peek(t: Ticket): Int = t.serial\n",
+      'import Vault from "./vault"\n' +
+      "export fun peek(t: Vault.Ticket): Int = t.serial\n",
     ))).toEqual([
       "cannot access field `serial` of opaque record `Ticket`; " +
         "use an operation exported by its home module",
@@ -69,11 +69,13 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
 
   test("the constructor does not cross", () => {
     expect(messages(vault(
-      'import { Ticket } from "./vault"\n' +
-      "export fun forge(): Ticket = Ticket({serial = 1})\n",
+      'import Vault from "./vault"\n' +
+      "export fun forge(): Vault.Ticket = Ticket({serial = 1})\n",
     ))).toEqual([
-      // The name arrives in the *type* namespace alone, so the constructor is
-      // not merely refused at the seat — it was never bound here.
+      // The constructor is opaque, so no visible alias's module exports it —
+      // rule 3's fallback (#762) has nothing to answer with, and expression
+      // position has no door of its own (§9.13), so the bare name falls all
+      // the way through to the plain unknown-name report.
       "unknown name `Ticket`",
     ]);
   });
@@ -96,19 +98,24 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
         "        FileHandle(fd) => fd\n" +
         "        NetHandle(sock) => sock\n"],
       ["/main.hex",
-        'import { Handle, openFile, describe } from "./handles"\n' +
-        "export fun show(h: Handle): Int = describe(h)\n" +
-        "export let n: Int = show(openFile(3))\n"],
+        'import Handles from "./handles"\n' +
+        "export fun show(h: Handles.Handle): Int = Handles.describe(h)\n" +
+        "export let n: Int = show(Handles.openFile(3))\n"],
     ] as const;
     expect(messages(files)).toEqual([]);
 
+    // An `opaque union` exports the type name and nothing else — `FileHandle`
+    // is never in the module's export table — so a second alias spelled
+    // `FileHandle` finds nothing for rule 3's fallback to answer with (#762),
+    // and the bare name falls through to the plain unknown-name report, one
+    // diagnostic, exactly as the record constructor does above.
     expect(messages([
       files[0],
       ["/main.hex",
-        'import { Handle, FileHandle } from "./handles"\n' +
-        "export fun forge(): Handle = FileHandle(1)\n"],
+        'import Handles from "./handles"\n' +
+        'import FileHandle from "./handles"\n' +
+        "export fun forge(): Handles.Handle = FileHandle(1)\n"],
     ])).toEqual([
-      "module `./handles` does not export `FileHandle`",
       "unknown name `FileHandle`",
     ]);
   });
@@ -120,8 +127,8 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
         "export fun mint(number: Int): Badge = Badge({number = number})\n" +
         "export fun numberOf(b: Badge): Int = b.number\n"],
       ["/main.hex",
-        'import { mint, numberOf } from "./badge"\n' +
-        "export let answer: Int = numberOf(mint(42))\n"],
+        'import Badge from "./badge"\n' +
+        "export let answer: Int = Badge.numberOf(Badge.mint(42))\n"],
     ]);
     expect(exports["answer"]).toBe(42);
   });
@@ -156,8 +163,8 @@ describe("`export opaque` is refused with the required rewrite (§4.2, §10)", (
         "export opaque record Coin = {face: Int}\n" +
         "export fun strike(face: Int): Coin = Coin({face = face})\n"],
       ["/main.hex",
-        'import { Coin, strike } from "./mint"\n' +
-        "export fun read(c: Coin): Int = c.face\n"],
+        'import Mint from "./mint"\n' +
+        "export fun read(c: Mint.Coin): Int = c.face\n"],
     ])).toEqual([
       "`opaque` already exports the type name; write `opaque record Point = …`",
       "cannot access field `face` of opaque record `Coin`; " +
@@ -230,13 +237,18 @@ describe("`opaque` on a subject it does not apply to (§10)", () => {
   });
 
   test("the phantom export is not reachable from another module", () => {
+    // No import binds a bare `width` any more (#762); the only route left is
+    // the alias's dot, `Hidden.width` — and the refused word recovers the
+    // declaration to the slot's neutral, private value, so the dot finds
+    // nothing to answer with either. One lookup failure, not two: a dot
+    // access that misses reports itself and stops, unlike a term reference
+    // that also had a binding form of its own to fail.
     expect(messages([
       ["/hidden.hex", "opaque let width = 3\n"],
-      ["/main.hex", 'import { width } from "./hidden"\nexport let n: Int = width\n'],
+      ["/main.hex", 'import Hidden from "./hidden"\nexport let n: Int = Hidden.width\n'],
     ])).toEqual([
       "`opaque` applies to `record` and `union` declarations",
-      "module `./hidden` does not export `width`",
-      "unknown name `width`",
+      "module `Hidden` does not export `width`",
     ]);
   });
 

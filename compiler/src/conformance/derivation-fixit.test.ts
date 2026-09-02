@@ -134,7 +134,8 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
     const [message] = messagesOf([
       ["/widget.hex", "export record Widget = {size: Int}\n"],
       ["/main.hex", [
-        "import { Widget } from \"./widget\"",
+        // Rule 3's companion fallback (Modules §3.2, #762): same-spelled alias.
+        "import Widget from \"./widget\"",
         "",
         "export fun go(w: Widget): String = show(w)",
         "",
@@ -221,7 +222,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     expect(messagesOf([
       ["/point.hex", "export record Point = {n: Int}\n"],
       ["/main.hex", [
-        "import { Point } from \"./point\"",
+        "import Point from \"./point\"",
         "",
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))",
         "",
@@ -283,7 +284,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
     expect(messagesOf([
       ["/point.hex", "export record Point derives Eq = {n: Int}\n"],
       ["/main.hex", [
-        "import { Point } from \"./point\"",
+        "import Point from \"./point\"",
         "",
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))",
         "",
@@ -308,7 +309,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Point } from \"./point\"",
+        "import Point from \"./point\"",
         "",
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))",
         "",
@@ -327,15 +328,15 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
     expect(messagesOf([
       ["/point.hex", "export record Point derives (Eq, Show) = {n: Int}\n"],
       ["/middle.hex", [
-        "import { Point } from \"./point\"",
+        "import Point from \"./point\"",
         "",
         "export fun make(n: Int): Point = Point({n = n})",
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { make } from \"./middle\"",
+        "import Middle from \"./middle\"",
         "",
-        "export fun go(): Int = Set.size(Set.add(Set.empty, make(1)))",
+        "export fun go(): Int = Set.size(Set.add(Set.empty, Middle.make(1)))",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -378,11 +379,14 @@ describe("the gate: what draws no fixit at all", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Render } from \"./render\"",
+        // A constraint's members are reached through the alias or the dot
+        // (Modules §3.2, #762) — the bare `render` is nothing now, so the
+        // member is called qualified.
+        "import Render from \"./render\"",
         "",
         "export record Panel = {width: Int}",
         "",
-        "export fun go(p: Panel): String = render(p)",
+        "export fun go(p: Panel): String = Render.render(p)",
         "",
       ].join("\n")],
     ])).toEqual([

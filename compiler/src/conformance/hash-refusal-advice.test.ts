@@ -141,7 +141,10 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
       [
         "/main.hex",
         [
-          "import { Weird } from \"./types\"",
+          // Rule 3's companion fallback (Modules §3.2, #762): the alias's
+          // own spelling equals the exported record's, so the `honor` head
+          // reaches it bare with no separate import for the type.
+          "import Weird from \"./types\"",
           "honor Hash<Weird> =",
           "    hash(w) = w.n * 31",
           "",
@@ -381,9 +384,8 @@ describe("#651: a refused member body is never materialized", () => {
       "    f(r) = \"${r.n}\"",
       "",
     ].join("\n"))).toEqual([
-      "unknown constraint `Nope`; import its home module with " +
-        "`import Nope` for qualified access, or import the constraint " +
-        "by name",
+      "unknown constraint `Nope`; import its home module under the alias " +
+        "`Nope` for qualified access",
     ]);
   });
 });
