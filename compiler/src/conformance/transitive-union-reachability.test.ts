@@ -18,15 +18,19 @@ import { compileFiles, runProject } from "../support/test-project.js";
  * - constructor-pattern typing missed `#constructorUnions` and returned having
  *   unified nothing, so a union constructor pattern against a `String` scrutinee
  *   was accepted;
- * - the emitter read the same absence as *untagged*, so a tagged union's match
- *   compiled to a switch over the scrutinee value against `case "Dot"` where the
- *   value is `{tag: "Dot"}` — the case never matched and every `Dot` took the
- *   wrong arm.
+ * - the emitter read the same absence as the bare-string representation an
+ *   all-nullary union then had, so a payload-carrying union's match compiled to
+ *   a switch over the scrutinee value against `case "Dot"` where the value is
+ *   `{tag: "Dot"}` — the case never matched and every `Dot` took the wrong arm.
+ *   That third symptom cannot recur in that form since #771 retired the string
+ *   representation: there is one shape, and the emitter reads a tag whether or
+ *   not it found the declaration. The registration still decides the arms'
+ *   payload field names and the derived instances, so it is pinned below.
  *
  * The repair is #587's program-nominals materialization extended to unions: the
  * home declaration is registered lazily from the program table at the seats that
  * miss, stamped as an imported copy is, and carried in the typed module so the
- * emitter's constructor table and tagging judgment answer from it too.
+ * emitter's constructor table answers from it too.
  *
  * Witness spelling is bare-name **parity** with the reached case, deliberately:
  * whether a witness should say where the name is declared is one message-design
@@ -217,8 +221,8 @@ describe("constructor-pattern typing answers from the reached declaration", () =
   });
 });
 
-describe("the emitter judges a reached union's tagging from the same declaration", () => {
-  test("a reached tagged union's arms compile and run (#605 symptom 4)", async () => {
+describe("the emitter reads a reached union from the same declaration", () => {
+  test("a reached payload-carrying union's arms compile and run (#605 symptom 4)", async () => {
     // Textually distinct from the harness below on purpose: byte-identical
     // emitted JavaScript shares one module instance across the `data:` URL cache.
     const exports = await runProject([
@@ -246,7 +250,7 @@ describe("the emitter judges a reached union's tagging from the same declaration
     expect(exports.atCircle).toBe(22);
   });
 
-  test("a reached untagged union's arms run without a `RangeError`", async () => {
+  test("a reached union of nullary constructors runs without a `RangeError`", async () => {
     const exports = await runProject([
       ["/a.hex", "export union Signal = Red | Green\n"],
       [

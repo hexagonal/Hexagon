@@ -197,7 +197,8 @@ describe("the guard refuses, and the selection reads off the binding", () => {
         "const __rightStep = __right[Symbol.iterator]();",
     );
     expect(javascript).toContain(
-      "const less = __Ord_Vector_Int.compare(__vectorOf([1, 2]), __vectorOf([1, 3])) === \"Less\";",
+      "const less = __Ord_Vector_Int.compare(__vectorOf([1, 2]), " +
+        "__vectorOf([1, 3])).tag === \"Less\";",
     );
     expect(javascript).not.toContain("}).compare(");
 

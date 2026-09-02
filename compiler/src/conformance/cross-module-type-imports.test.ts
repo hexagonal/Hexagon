@@ -274,7 +274,7 @@ describe("the generated local is probed, and only it moves", () => {
     // identity does reach an exported face. Both types then live in one file:
     // the module's own under the bare name, the prelude's under a probed local.
     expect(text).toContain('import type { Ordering as Ordering_1 } from "./Ordering.js";');
-    expect(text).toContain('export type Ordering = "Asc" | "Desc";');
+    expect(text).toContain('export type Ordering = { tag: "Asc" } | { tag: "Desc" };');
     expect(text).toContain("export declare const f: (x: Ordering_1) => number;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });

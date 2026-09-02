@@ -1518,9 +1518,14 @@ class Checker {
    * Every union `#materializeReachedUnion` registered, in the order it did.
    *
    * The typed module's union list is what the elaborator forwards and the
-   * emitter's constructor table and tagging judgment are built from, so a union
-   * the checker reached without importing has to leave by that door too, or the
-   * accepted program is emitted as if its constructors were untagged strings.
+   * emitter's constructor table is built from, so a union the checker reached
+   * without importing has to leave by that door too. There is no representation
+   * left for its absence to get wrong — every union is the tagged object since
+   * #771, and a constructor with no entry here still tests its tag — but the
+   * table is also where the emitter reads each constructor's *slot names*, and
+   * `module.unions` is where the derived walks find the declaration to walk. An
+   * absent union costs `item1`-style field names in a match arm's destructuring
+   * and a degenerate derived instance, both silently.
    */
   readonly #reachedUnions = new Set<Resolved.UnionId>();
   readonly #records = new Map<Resolved.RecordId, Resolved.RecordDeclaration>();
@@ -2768,9 +2773,10 @@ class Checker {
       items: module.items.map((item) => this.#materializeItem(item)),
       symbols,
       // The reached ones ride out beside the listed ones, and after them: the
-      // emitter builds its constructor table and its tagged/untagged judgment
-      // from this list, so a union registered lazily during the walk above would
-      // otherwise be emitted as if it had no representation at all (#605).
+      // emitter builds its constructor table from this list and its derived
+      // walks read the declarations in it, so a union registered lazily during
+      // the walk above would otherwise be emitted with the wrong payload field
+      // names and a degenerate derived instance (#605).
       // Appended rather than merged, because two consumers still pick the
       // prelude's `Bool` out of the list by *name*, and first found must stay
       // the one the eager listing put there.
@@ -13663,7 +13669,10 @@ class Checker {
    * — was in none of the four tables the eager pass fills. The judgments that
    * read them did not abstain: the coverage column took the arms as the
    * signature, a constructor pattern unified nothing, and the emitter read the
-   * absence as an untagged representation.
+   * absence as the bare-string representation an all-nullary union then had.
+   * That third reading is gone with the string case (#771) — one shape, and a
+   * constructor with no entry still tests its tag — but the absence still costs
+   * the emitter this declaration's slot names and its derived walks.
    *
    * A no-op for everything already known, and written to the same four tables
    * the eager registration writes, in the same order — parameters before the

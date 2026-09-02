@@ -902,13 +902,14 @@ describe("emitJavaScript", () => {
     );
 
     expect(emitJavaScript(module).text).toBe(
-      'const Clubs = "Clubs";\n' +
-        'const Diamonds = "Diamonds";\n' +
-        'const Hearts = "Hearts";\n' +
-        'const Spades = "Spades";\n' +
+      'const Clubs = { tag: "Clubs" };\n' +
+        'const Diamonds = { tag: "Diamonds" };\n' +
+        'const Hearts = { tag: "Hearts" };\n' +
+        'const Spades = { tag: "Spades" };\n' +
         "const card = [10, Hearts];\n" +
         "const color = suit => {\n" +
-        "  switch (suit) {\n" +
+        "  const __match = suit;\n" +
+        "  switch (__match.tag) {\n" +
         '    case "Clubs":\n      return "black";\n' +
         '    case "Diamonds":\n      return "red";\n' +
         '    case "Hearts":\n      return "red";\n' +
@@ -920,7 +921,8 @@ describe("emitJavaScript", () => {
         "export { card };\nexport { color };\n",
     );
     expect(emitDeclarations(module).text).toBe(
-      'export type Suit = "Clubs" | "Diamonds" | "Hearts" | "Spades";\n' +
+      'export type Suit = { tag: "Clubs" } | { tag: "Diamonds" } | { tag: "Hearts" }' +
+        ' | { tag: "Spades" };\n' +
         "export declare const Clubs: Suit;\n" +
         "export declare const Diamonds: Suit;\n" +
         "export declare const Hearts: Suit;\n" +
@@ -939,8 +941,10 @@ describe("emitJavaScript", () => {
 
     const output = emitJavaScript(module);
 
-    expect(output.text).toContain("switch (suit) {");
-    expect(output.text).not.toContain("__match");
+    // The scrutinee is named because the switch reads a field of it, which is
+    // the same shape a union with payload constructors already took (#771).
+    expect(output.text).toContain("const __match = suit;");
+    expect(output.text).toContain("switch (__match.tag) {");
     expect(output.text.match(/default:/gu)).toHaveLength(1);
     expect(output.text).not.toContain("Unexpected pattern.");
     expect(output.diagnostics).toEqual([]);
@@ -956,7 +960,7 @@ describe("emitJavaScript", () => {
     const output = emitJavaScript(module);
 
     expect(output.text).toContain("const __match = suit;");
-    expect(output.text).toContain("switch (__match) {");
+    expect(output.text).toContain("switch (__match.tag) {");
     expect(output.text).toContain("const whole = __match;");
     expect(output.diagnostics).toEqual([]);
   });
@@ -972,7 +976,8 @@ describe("emitJavaScript", () => {
 
     expect(emitJavaScript(module).text).toContain(
       "const color = (() => {\n" +
-        "  switch (suit) {\n" +
+        "  const __match = suit;\n" +
+        "  switch (__match.tag) {\n" +
         '    case "Clubs":\n      return "black";\n' +
         '    case "Spades":\n      return "black";\n' +
         '    default:\n      throw new RangeError("Unexpected pattern.");\n' +
@@ -995,7 +1000,8 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain(
       "const color = suit => {\n" +
         "  const selected = suit;\n" +
-        "  switch (selected) {",
+        "  const __match = selected;\n" +
+        "  switch (__match.tag) {",
     );
     expect(output.text).not.toContain("(() =>");
     expect(output.diagnostics).toEqual([]);
@@ -1140,10 +1146,10 @@ describe("emitJavaScript", () => {
 
     expect(output.text).toBe(
       "// Card suits are a closed set.\n" +
-        'const Clubs = "Clubs";\n' +
-        'const Diamonds = "Diamonds";\n' +
-        'const Hearts = "Hearts";\n' +
-        'const Spades = "Spades";\n\n' +
+        'const Clubs = { tag: "Clubs" };\n' +
+        'const Diamonds = { tag: "Diamonds" };\n' +
+        'const Hearts = { tag: "Hearts" };\n' +
+        'const Spades = { tag: "Spades" };\n\n' +
         "/* A card combines ordinary product and sum types. */\n" +
         "const card = [10, Hearts]; // the ten of hearts\n",
     );
@@ -1792,16 +1798,16 @@ describe("emitJavaScript", () => {
     // `Unit` ordering is the structural tuple comparison at arity 0 (#159):
     // a constant compare over the `undefined` representation, with the
     // operands kept — the retired primitive fast path discarded them, which
-    // mattered for effectful operands. The constant is `"Equal"` and the test
-    // is `!== "Greater"`, because a dictionary's `compare` slot answers with an
-    // `Ordering` and `<=` is a constructor test on it (#275). The record itself
-    // is Dictionary Sharing §3.4's hoisted module constant since #446 — ground,
+    // mattered for effectful operands. The constant is this module's hoisted
+    // `Equal` and the test reads its tag, because a dictionary's `compare` slot
+    // answers with an `Ordering` and `<=` is a constructor test on it (#275). The
+    // record itself is Dictionary Sharing §3.4's hoisted module constant since #446 — ground,
     // and §9.1's reduction declines because the body names neither parameter.
     expect(output.text).toContain(
-      'const __Ord_Unit = ({ compare: (__left, __right) => "Equal" });',
+      "const __Ord_Unit = ({ compare: (__left, __right) => __Equal });",
     );
     expect(output.text).toContain(
-      'const unitOrder = __Ord_Unit.compare(undefined, undefined) !== "Greater";',
+      'const unitOrder = __Ord_Unit.compare(undefined, undefined).tag !== "Greater";',
     );
     expect(output.diagnostics).toEqual([]);
   });

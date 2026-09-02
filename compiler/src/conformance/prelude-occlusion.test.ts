@@ -470,8 +470,8 @@ describe("a declaration's constructor names occlude too (#466)", () => {
       "export let g: Direction = Greater\n",
     );
 
-    expect(exports.d).toBe("Less");
-    expect(exports.g).toBe("Greater");
+    expect(exports.d).toEqual({ tag: "Less" });
+    expect(exports.g).toEqual({ tag: "Greater" });
   });
 
   test("a bare constructor *pattern* below the declaration is the module's", async () => {
@@ -584,7 +584,9 @@ describe("a declaration's constructor names occlude too (#466)", () => {
       "export let said: String = describe(Bool.True)\n",
     );
 
-    expect(exports.flag).toBe("True");
+    // The module's own `Flag` is an ordinary union, so its `True` is the
+    // tagged constant; the prelude's is the pin's `true` beside it.
+    expect(exports.flag).toEqual({ tag: "True" });
     expect(exports.yes).toBe(true);
     expect(exports.said).toBe("yes");
   });

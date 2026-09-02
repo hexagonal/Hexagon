@@ -67,9 +67,9 @@ describe("an arm reached through the door matches the declared tag", () => {
   });
 
   test("a nullary constructor reads the same way", async () => {
-    // A nullary constructor of an untagged union is emitted as its own name
-    // string, so the pattern is a bare `===` against it rather than a `.tag`
-    // test — the same property through a different emission.
+    // Every union is the tagged object since #771, so this is the same `.tag`
+    // test the payload case above takes — the property travels, and no longer
+    // through a second emission.
     const exports = await runProject([
       ["/traffic.hex",
         "export union Signal = Stop | Go\n" +

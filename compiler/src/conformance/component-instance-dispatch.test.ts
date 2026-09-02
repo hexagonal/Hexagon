@@ -334,9 +334,12 @@ describe("the shape of a composed dictionary", () => {
     // is observable without any Hexagon expression standing in front of it.
     const ord = module.__Ord_Parcel as OrdDictionary;
     const eq = module.__Eq_Parcel as EqDictionary;
-    expect(ord.compare({ mass: { grams: 1 } }, { mass: { grams: 2 } })).toBe("Greater");
-    expect(ord.compare({ mass: { grams: 2 } }, { mass: { grams: 1 } })).toBe("Less");
-    expect(ord.compare({ mass: { grams: 1 } }, { mass: { grams: 1 } })).toBe("Equal");
+    expect(ord.compare({ mass: { grams: 1 } }, { mass: { grams: 2 } }))
+      .toEqual({ tag: "Greater" });
+    expect(ord.compare({ mass: { grams: 2 } }, { mass: { grams: 1 } }))
+      .toEqual({ tag: "Less" });
+    expect(ord.compare({ mass: { grams: 1 } }, { mass: { grams: 1 } }))
+      .toEqual({ tag: "Equal" });
     expect(eq.equals({ mass: { grams: 1 } }, { mass: { grams: 1 } })).toBe(true);
     expect(eq.notEquals({ mass: { grams: 1 } }, { mass: { grams: 2 } })).toBe(true);
   });
@@ -435,7 +438,9 @@ describe("the licensed shortcuts stay inline", () => {
     // falls out of it. A dictionary here would drag `Bool`'s four instances
     // into the emitted JavaScript of nearly every module.
     expect(emitted).toContain("__left.on === __right.on");
-    expect(emitted).toContain('__left.on === __right.on ? "Equal" : __right.on ? "Less" : "Greater"');
+    expect(emitted).toContain(
+      "__left.on === __right.on ? __Equal : __right.on ? __Less : __Greater",
+    );
     expect(emitted).toContain('(__value.on ? "True" : "False")');
     expect(emitted).not.toContain("__Eq_Bool");
     expect(emitted).not.toContain("__Ord_Bool");
@@ -448,7 +453,7 @@ describe("the licensed shortcuts stay inline", () => {
     );
 
     expect(emitted).toContain("__left.count === __right.count");
-    expect(emitted).toContain('__left.count < __right.count ? "Less"');
+    expect(emitted).toContain("__left.count < __right.count ? __Less");
     expect(emitted).toContain("__compareString(__left.name, __right.name)");
     expect(emitted).toContain("__floatEquals(__left.ratio, __right.ratio)");
     expect(emitted).toContain('"count = " + String(__value.count)');

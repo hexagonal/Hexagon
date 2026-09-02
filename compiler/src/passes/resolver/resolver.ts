@@ -1923,8 +1923,9 @@ class Resolver {
     // dot-call channel, and `#preludeTerms`/`#importedSymbols` are what let
     // `#qualifiedConstructor` — the same `Geo.Circle(r)` door a user union uses,
     // in expressions and in patterns alike — resolve and synthesize its import.
-    // Runtime representations are untouched: an `Ordering` is still its
-    // name-string.
+    // Runtime representations are untouched: an `Ordering` is still the
+    // string-tagged object every union is (Unions §6.1, #771). Which channel a
+    // constructor is reached through decides a spelling, never a shape.
     const openConstructors = new Set<string>();
     const qualifiedOnlyConstructors = new Set<string>();
     for (const [name, union] of prelude.unions) {

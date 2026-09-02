@@ -6,10 +6,11 @@ import { compileMain, runMain } from "../support/test-project.js";
  * Conformance for the `Vector` walks not emitting machinery for an element
  * operation that ignores its operands (issue #680).
  *
- * `Unit`'s equality inlines to `true` and its order to `"Equal"` — operand-free,
- * because there is nothing to read. The walks emitted the surrounding machinery
- * anyway, so a `Vector(Unit)` equality carried, once per element and forever
- * false, a discarded `.next()` read and a guard testing a literal:
+ * `Unit`'s equality inlines to `true` and its order to the `Equal` constructor —
+ * both operand-free, because there is nothing to read. The walks emitted the
+ * surrounding machinery anyway, so a `Vector(Unit)` equality carried, once per
+ * element and forever false, a discarded `.next()` read and a guard testing a
+ * literal:
  *
  * ```js
  * const __rightElement = __rightStep.next().value; if (!(true)) return false;
@@ -24,7 +25,7 @@ import { compileMain, runMain } from "../support/test-project.js";
  *   the cascade #680 blesses. Two vectors of units are equal exactly when they
  *   are the same length, which is what the emitted text now says outright.
  * - `compare` sheds the binding and keeps the loop, because exhaustion rather
- *   than any element is what decides a vector order. Collapsing an all-`"Equal"`
+ *   than any element is what decides a vector order. Collapsing an always-`Equal`
  *   walk to a length comparison would be a different emission rather than a
  *   deletion, and is deliberately not taken.
  *
@@ -225,8 +226,8 @@ describe("an operand-free element that is not `true` keeps its loop", () => {
       "",
     ].join("\n");
     const emitted = javascript(source);
-    expect(emitted).toContain("if (__step.done) return \"Greater\"; ");
-    expect(emitted).toContain("return __rightStep.next().done ? \"Equal\" : \"Less\";");
+    expect(emitted).toContain("if (__step.done) return __Greater; ");
+    expect(emitted).toContain("return __rightStep.next().done ? __Equal : __Less;");
     expect(emitted).not.toContain("const __rightElement = __step.value;");
     const module = await runMain(source);
     expect(module.shortPairFirst).toBe(true);
@@ -308,8 +309,10 @@ describe("an operand-free element order sheds its binding, not its loop", () => 
     expect(emitted).not.toContain("const __rightElement = __step.value;");
     // The loop is not: `.next()` still advances, `done` still decides
     // `Greater`, and the tail check still separates `Equal` from `Less`.
-    expect(emitted).toContain("const __step = __rightStep.next(); if (__step.done) return \"Greater\"; ");
-    expect(emitted).toContain("return __rightStep.next().done ? \"Equal\" : \"Less\";");
+    expect(emitted).toContain(
+      "const __step = __rightStep.next(); if (__step.done) return __Greater; ",
+    );
+    expect(emitted).toContain("return __rightStep.next().done ? __Equal : __Less;");
     const module = await runMain(source);
     // A proper prefix is `Less`; the longer side is `Greater`.
     expect(module.shortFirst).toBe(true);
