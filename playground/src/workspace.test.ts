@@ -123,15 +123,11 @@ describe("layOutWorkspace", () => {
         ?.source === source;
 
     expect(suppressed(
-      'import (* the exact one *) module Rat from "./stdlib/Rat"\n' +
-        "let half = Rat.create(1, 2)\n",
-    )).toBe(true);
-    expect(suppressed(
       'import (* the exact one *) Rat from "./stdlib/Rat"\n' +
         "let half = Rat.create(1, 2)\n",
     )).toBe(true);
     expect(suppressed(
-      "import\n    module Rat from \"./stdlib/Rat\"\n" +
+      "import\n    Rat from \"./stdlib/Rat\"\n" +
         "let half = Rat.create(1, 2)\n",
     )).toBe(true);
   });

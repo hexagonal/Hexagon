@@ -255,7 +255,7 @@ describe("§5: the hard errors", () => {
   });
 
   test("an import is not documentable, and the message names the deferral", () => {
-    const source = '(** Module header? *)\nimport {map} from "./other.hex"\n';
+    const source = '(** Module header? *)\nimport Other from "./other.hex"\n';
 
     expect(diagnostics(source)[0]).toBe(
       `${DANGLING} imports are not documentable; module-level documentation is not in v1.`,

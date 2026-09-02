@@ -423,19 +423,13 @@ describe("§4, §5, §8 — the key, determinism, and the exported surface", () 
     // reaches for the other's. The consumer imports the *factory*, not an
     // application of it.
     //
-    // KNOWN COMPILER DEFECT, reported rather than routed around — see this
-    // file's report (and `evidence-key-identity.test.ts`'s, which found the
-    // same shape independently). `/main.hex` reaches `honor<a: Render>
-    // Render<Box(a)>` only through `Lib.render`/`Lib.Box`, never a bare name;
-    // that instance's own binder list in turn demands `Render<Int>`, which is
-    // declared in the very same external module, `/lib.hex`. Resolving it
-    // reports `` type `Int` has no `Render` instance `` even though the
-    // instance sits three lines above the one that needs it in that module's
-    // own source. The same declarations checked as one module (no import at
-    // all) resolve cleanly — confirmed directly, and this test's own control
-    // in `dictionary-names.test.ts`'s neighbourhood never reaches a
-    // *parameterized* instance's own recursive binder demand cross-module, so
-    // this fixture is the one exhibit of it. Left as the correct expectation.
+    // `/main.hex` reaches `honor<a: Render> Render<Box(a)>` only through
+    // `Lib.render`/`Lib.Box`, never a bare name, and that instance's own binder
+    // list in turn demands `Render<Int>`. Since #762 this module has no
+    // spelling for `Render` at all, so the binder's constraint travels by the
+    // identity it resolved to at home (`Resolved.TypeParameter`'s
+    // `constraintIdentities`) rather than being re-resolved here against a word
+    // nothing binds.
     const files = [
       [
         "/lib.hex",

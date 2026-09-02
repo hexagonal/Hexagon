@@ -276,20 +276,12 @@ describe("#763's door reaches a nominal record's constructor in pattern position
   // the determined type `Crate.Crate`, so `Crate(r)` in the pattern now reaches
   // the constructor the same way a `match` arm over an imported union does.
   test("`let Crate(r) = Mid.make(1.5)` resolves through the door and runs", async () => {
-    // KNOWN COMPILER DEFECT, reported rather than papered over — see this
-    // file's report. `#constructorOfType`'s `Union` branch in checker.ts calls
-    // `#materializeReachedUnion` before consulting `this.#unions`, which is
-    // exactly the fix a transitively-reached union's constructor needs
-    // (confirmed separately: the same shape with a union in place of `Crate`
-    // compiles clean). The `NominalRecord` branch beside it has no equivalent
-    // call — it reads `this.#records` directly, which Modules §4.2's own
-    // comment on `#programRecord` says "holds what this module's own text put
-    // there", not what the type reaches. So a nominal record's constructor
-    // reached only through another module's return type — never named by a
-    // module alias in `/main.hex` — draws a closed-door refusal here instead of
-    // resolving, even though its union twin does not. This is the same
-    // starved-table shape #587 fixed for field access, one judgment over,
-    // still open for the pattern door.
+    // The door reads the declaration wherever the program wrote it, exactly as
+    // the union arm does (#605's `#materializeReachedUnion`, #587's
+    // `#materializeReachedRecord`): `Crate` is named by no alias here and
+    // arrives only as `Mid.make`'s result type, and the constructor its
+    // eliminator needs — scheme and all — is materialized off the home
+    // module's declaration. Modules §4.2's own example, run.
     const files = [...CRATE, ["/main.hex",
       'import Mid from "./mid"\n' +
       "export fun reading(): Float =\n" +

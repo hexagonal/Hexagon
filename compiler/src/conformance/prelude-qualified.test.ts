@@ -83,7 +83,7 @@ async function run(files: readonly (readonly [string, string])[]): Promise<Recor
  * half that has to work.
  *
  * A prelude member is addressable as a **fallback** layer: an explicit
- * `import module` of the same name is a module-level binding and wins (§5.4).
+ * `import` of the same name is a module-level binding and wins (§5.4).
  */
 
 function diagnostics(source: string): readonly string[] {
@@ -177,7 +177,7 @@ describe("an explicit alias is a module-level binding and wins", () => {
 
 describe("the qualified spelling runs (PR #90 finding F1)", () => {
   // Resolving the name is half the job. A prelude member has no namespace object
-  // to dot into — unlike an explicit `import module`, nothing declares one — so the
+  // to dot into — unlike an explicit `import`, nothing declares one — so the
   // first fix emitted a bare `Option.Some(1)` with no import at all: a clean
   // compile and a `ReferenceError` on load. These assertions are on *values*
   // produced by executing the emitted module, which is the only level at which

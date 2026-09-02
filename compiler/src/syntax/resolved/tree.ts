@@ -1557,6 +1557,25 @@ export interface LambdaExpr {
 export interface TypeParameter {
   readonly name: string;
   readonly constraints: readonly string[];
+  /**
+   * The identity each name in `constraints` resolved to **here** (Constraints
+   * §5.1.1), positionally.
+   *
+   * A binder's constraints are spellings, and a spelling belongs to the module
+   * that wrote it. On an `honor` head that crosses a module boundary, the
+   * importer used to re-resolve the word in its own namespace and get the same
+   * declaration only because a named import had put the name in scope there —
+   * which no import does any more (Modules §3, #762). So the head carries the
+   * identity it resolved to at home, and a consumer instantiating the instance
+   * demands *that* declaration rather than whatever the word means in its own
+   * file.
+   *
+   * Present on `honor` heads; absent wherever a binder is not an instance
+   * context's (a function's own binders are resolved in the module that wrote
+   * them and never travel), and absent on a synthesized head with no source
+   * spelling to resolve.
+   */
+  readonly constraintIdentities?: readonly string[];
   readonly span: Source.Span;
 }
 

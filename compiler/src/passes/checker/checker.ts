@@ -1634,6 +1634,13 @@ class Checker {
    * recognise the pattern as the record's sole constructor.
    */
   readonly #recordConstructors = new Map<Resolved.SymbolId, Resolved.RecordId>();
+  /**
+   * Records this module reached without declaring or importing one — the
+   * `#reachedUnions` set, one nominal over (#587, #763). They ride out on the
+   * typed module beside the listed ones, so the emitter's record-constructor
+   * table knows every constructor a pattern in this module can name.
+   */
+  readonly #reachedRecords = new Set<Resolved.RecordId>();
   readonly #aliasParameters = new WeakMap<Resolved.TypeAliasItem, ReadonlyMap<string, Variable>>();
   /** Each type alias's elaborated target, memoized — see `#aliasTarget`. */
   readonly #aliasTargets = new WeakMap<Resolved.TypeAliasItem, Mono>();
@@ -2716,7 +2723,20 @@ class Checker {
           this.#materializeUnion(this.#unions.get(union)!)
         ),
       ],
-      records: module.records.map((record) => this.#materializeRecord(record)),
+      // The reached ones ride out beside the listed ones, and after them, for
+      // the reason the unions above do (#605) — one judgment over (#587, #763):
+      // the emitter builds its record-constructor table from this list, and a
+      // record reached only through another module's signature is exactly what
+      // Pattern Matching §2.2's door lets a `let Crate({n}) = Mid.make(1.5)`
+      // eliminate. Absent from the list, the constructor pattern lowered as if
+      // it were a union's, reading positional `item1` slots off a record that
+      // has none.
+      records: [
+        ...module.records.map((record) => this.#materializeRecord(record)),
+        ...[...this.#reachedRecords].map((record) =>
+          this.#materializeRecord(this.#programRecord(record)!)
+        ),
+      ],
       preludeRecords: module.preludeRecords,
       preludeUnions: module.preludeUnions,
       preludeInstances: module.preludeInstances,
@@ -6403,14 +6423,47 @@ class Checker {
     if (type.kind === "Union") {
       this.#materializeReachedUnion(type.union);
       const union = this.#unions.get(type.union);
-      return union?.constructors.find(({ binding }) => binding.name === name)
+      if (union === undefined || !this.#unionConstructorsVisible(type.union)) return undefined;
+      return union.constructors.find(({ binding }) => binding.name === name)
         ?.binding.symbol;
     }
     if (type.kind === "NominalRecord") {
-      const record = this.#records.get(type.record);
+      // Materialized first, for the reason the union arm calls
+      // `#materializeReachedUnion` (#605, #587): a record can reach this module
+      // through nothing but an imported signature — `let Crate({n}) =
+      // Mid.make(1.5)`, Modules §4.2's own example — and the door has to read
+      // the declaration, and hand the checker a constructor with a scheme,
+      // wherever in the program it was written.
+      this.#materializeReachedRecord(type.record);
+      if (!this.#recordRepresentationVisible(type.record)) return undefined;
+      const record = this.#records.get(type.record) ?? this.#programRecord(type.record);
       return record?.constructor.name === name ? record.constructor.symbol : undefined;
     }
     return undefined;
+  }
+
+  /**
+   * Whether this module may name a union's constructors — Modules §4.2's
+   * `opaque` rule, read for the door (§2.2) exactly as
+   * `#recordRepresentationVisible` reads it for a record's.
+   *
+   * "Unions: all constructors private — no construction, no pattern matching
+   * outside." The door reads the *declaration* rather than scope, so it is the
+   * one reader that could reach a constructor no spelling in this module can
+   * write, and Modules §5.1 rule 3's own sentence — an opaque type's
+   * constructor is out of reach abroad exactly as its qualified spelling is —
+   * has to be enforced here or nowhere.
+   */
+  #unionConstructorsVisible(union: Resolved.UnionId): boolean {
+    const declaration = this.#unions.get(union);
+    if (declaration !== undefined && !this.#reachedUnions.has(union)) {
+      return declaration.representationVisible || !declaration.opaque;
+    }
+    // Reached without being declared or imported here: the program's copy is
+    // the home module's, whose `representationVisible` is `true` by definition,
+    // so opacity is read off the declaration directly (#587's own reasoning at
+    // the record seat).
+    return !(this.#programUnion(union)?.opaque ?? false);
   }
 
   /**
@@ -6429,6 +6482,28 @@ class Checker {
    * draws, from the same inventory.
    */
   #reportClosedDoor(pattern: Resolved.ConstructorPattern, head: Mono): void {
+    // Opacity leads, and says so in the opaque family's own words: the door
+    // declined because the constructor is private here (Modules §4.2), not
+    // because the type lacks it, and a near-miss over a constructor set the
+    // reader cannot write would leak exactly what `opaque` hides.
+    if (head.kind === "NominalRecord" && !this.#recordRepresentationVisible(head.record)) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `cannot destructure opaque record \`${head.name}\`; ` +
+          "use an operation exported by its home module",
+        primary: pattern.nameSpan,
+      });
+      return;
+    }
+    if (head.kind === "Union" && !this.#unionConstructorsVisible(head.union)) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: `cannot match opaque union \`${head.name}\`; ` +
+          "use an operation exported by its home module",
+        primary: pattern.nameSpan,
+      });
+      return;
+    }
     const qualified = pattern.qualifications?.[0];
     if (head.kind === "Variable" || head.kind === "Error") {
       const rewrites = [
@@ -6463,10 +6538,11 @@ class Checker {
       return this.#unions.get(type.union)?.constructors.map(({ binding }) => binding.name) ?? [];
     }
     if (type.kind === "NominalRecord") {
-      const record = this.#records.get(type.record);
+      const record = this.#records.get(type.record) ?? this.#programRecord(type.record);
       return record === undefined ? [] : [record.constructor.name];
     }
     return [];
+
   }
 
   /**
@@ -11394,8 +11470,18 @@ class Checker {
       const formal = this.#instanceTypeParameters.get(instance)?.get(parameter.name);
       const actual = formal === undefined ? undefined : replacements.get(formal.id);
       if (actual === undefined) return [];
-      return parameter.constraints.map((constraint) =>
-        this.#require(constraint, actual, parameter.span)
+      // The identity the head resolved to **at home**, where one is recorded
+      // (#762): the binder's word belongs to the declaring module, and this
+      // module may have no spelling for the constraint at all.
+      return parameter.constraints.map((constraint, index) =>
+        this.#require(
+          constraint,
+          actual,
+          parameter.span,
+          "operation",
+          undefined,
+          parameter.constraintIdentities?.[index] ?? this.#constraintIdentity(constraint),
+        )
       );
     });
   }
@@ -13250,18 +13336,38 @@ class Checker {
     if (this.#recordFields.has(record)) return;
     const declaration = this.#programRecord(record);
     if (declaration === undefined) return;
+    this.#reachedRecords.add(record);
     const typeParameters = new Map(
       declaration.parameters.map((name) => [name, this.#fresh(0, false)] as const),
     );
     this.#recordParameters.set(record, typeParameters);
-    this.#recordFields.set(
-      record,
-      this.#inPosition("record", () =>
-        new Map(declaration.fields.map((field) => [
-          field.name,
-          this.#annotationType(field.annotation, 0, new Map(), typeParameters),
-        ]))),
-    );
+    const fields = this.#inPosition("record", () =>
+      new Map(declaration.fields.map((field) => [
+        field.name,
+        this.#annotationType(field.annotation, 0, new Map(), typeParameters),
+      ])));
+    this.#recordFields.set(record, fields);
+    // The **constructor** rides the same materialization since #763. A record
+    // this module never named is exactly what Pattern Matching §2.2's door
+    // reaches — `let Crate({n}) = Mid.make(1.5)`, Modules §4.2's own example —
+    // and the eliminator needs the constructor's scheme (Products §5.1's
+    // `{closed row} -> Crate`) to check against and to lower by. Seeded here
+    // rather than at the door, so the two passes that ask read one answer, and
+    // in the same shape and order the eager pass writes.
+    this.#recordConstructors.set(declaration.constructor.symbol, record);
+    this.#schemes.set(declaration.constructor.symbol, {
+      variables: [...typeParameters.values()],
+      type: {
+        kind: "Function",
+        parameters: [{ kind: "Record", fields }],
+        result: {
+          kind: "NominalRecord",
+          record,
+          name: declaration.name,
+          arguments: [...typeParameters.values()],
+        },
+      },
+    });
   }
 
   /**

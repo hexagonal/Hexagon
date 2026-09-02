@@ -269,27 +269,14 @@ describe("the live name-reads see pre-registered names only", () => {
     PRE_REGISTERED_CONSTRAINTS.some((name) => identity === `hex:${name}`);
 
   test("the corpus compiles clean, and the walk finds it", () => {
-    // KNOWN COMPILER DEFECT, reported rather than routed around — see this
-    // file's report. `MAIN_MODULE`'s `Declared.tell(Declared.Pair({...}))`
-    // demands `Describe<Pair(Int, Bool)>` from *outside* `/declared.hex`; that
-    // instance is `honor<a: Describe, b: Describe> Describe<Pair(a, b)>`, whose
-    // own binder list in turn demands `Describe<Int>` and `Describe<Bool>` — two
-    // instances that live in the very same external module. Reduced to a
-    // minimal repro: a module declaring `Describe`, honoring it at `Int` and at
-    // `Bool`, and a parameterized `Describe<Pair(a, b)>` instance over both,
-    // compiles clean on its own (proven directly, and by every other row in
-    // this corpus), but the moment a *second* module reaches the parameterized
-    // instance only through a module alias — `Declared.tell(Declared.Pair(...))`,
-    // never a bare name — the binder demand at `Int`/`Bool` reports
-    // `` type `Int` has no `Describe` instance `` and `` type `Bool` has no
-    // `Describe` instance `` even though both are declared two lines above the
-    // instance that needs them. This is the same starved-local-table shape
-    // `#587`/`#763` hit elsewhere (`transparent-representation.test.ts`): the
-    // checker's own-module `#instances` map is never faulted for the *outer*
-    // demand (`Describe<Pair(Int, Bool)>` resolves, and reaches the
-    // parameterized instance fine), only for the instance's *own* recursive
-    // binder demands, which under #762 can now be reached with no bare name for
-    // either constraint or record ever having crossed into the caller's module.
+    // `MAIN_MODULE`'s `Declared.tell(Declared.Pair({...}))` demands
+    // `Describe<Pair(Int, Bool)>` from *outside* `/declared.hex`; that instance
+    // is `honor<a: Describe, b: Describe> Describe<Pair(a, b)>`, whose own
+    // binder list in turn demands `Describe<Int>` and `Describe<Bool>` — two
+    // instances that live in the very same external module. Since #762 the
+    // caller has no bare spelling for `Describe` at all, so the binder's
+    // constraint travels by the identity it resolved to at home rather than
+    // being re-resolved against a word nothing here binds.
     // Both halves matter otherwise. A rejected program satisfies the pins below
     // for free, and so does a discriminator that has stopped matching anything.
     expect(compiled.diagnostics).toEqual([]);
@@ -351,14 +338,11 @@ describe("the live name-reads see pre-registered names only", () => {
    * determine a declaration.
    */
   test("a module-declared constraint reaches neither seat", () => {
-    // KNOWN COMPILER DEFECT, the same one flagged above: the failed
-    // `Describe<Int>`/`Describe<Bool>` binder resolution inside
-    // `Describe<Pair(a, b)>`'s own instance leaves those two requirements
-    // `reported` rather than resolved, which mints them a second, unrelated
-    // identity (`1:Describe`) instead of unifying them with the `0:Describe`
-    // every other occurrence in the corpus shares — so the row set below has
-    // five entries instead of the four a clean compile produces. Left as the
-    // correct expectation; see the report for this file.
+    // One identity across the corpus, which is the claim: a binder's constraint
+    // on an `honor` head travels by the identity it resolved to at home
+    // (#762 — the consumer has no spelling for the word), so a parameterized
+    // instance's own recursive demand unifies with every other occurrence
+    // instead of minting a rival.
     const declared = rows.filter(({ identity }) => !identity.startsWith("hex:"));
 
     expect(declared.length).toBeGreaterThan(0);

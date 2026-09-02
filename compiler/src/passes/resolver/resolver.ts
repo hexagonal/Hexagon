@@ -2553,6 +2553,9 @@ class Resolver {
       typeParameters: item.parameters.map((name) => ({
         name,
         constraints: requiredParameters.has(name) ? [constraint] : [],
+        ...(requiredParameters.has(name)
+          ? { constraintIdentities: [this.#constraintIdentity(constraint)] }
+          : {}),
         span: item.span,
       })),
       subject,
@@ -2877,6 +2880,11 @@ class Resolver {
           typeParameters: item.typeParameters.map((parameter) => ({
             name: parameter.name.text,
             constraints: parameter.constraints.map(({ text }) => text),
+            // Resolved here, where the head was written: a consumer of this
+            // instance has no spelling for the constraint of its own (#762).
+            constraintIdentities: parameter.constraints.map(({ text }) =>
+              this.#constraintIdentity(text)
+            ),
             span: parameter.span,
           })),
           subject,
@@ -5809,11 +5817,13 @@ class Resolver {
     this.#importedSymbols.set(symbol.id, symbol);
     // The member is the *declaring* module's binding, so the spelling this
     // module emits has to be one it can reach: the prelude local for a prelude
-    // constraint. Nothing else has an import to render — no import binds a
-    // name smaller than a module (Modules §3, #762) — and inventing one is the
-    // companion arc's business, not this read's.
-    const local = this.#reachPreludeTerm(symbol.id);
-    if (local === undefined) return undefined;
+    // constraint, and otherwise **the alias's own qualified local** — which is
+    // exactly the line the author already wrote, and the only spelling #762
+    // leaves for a name smaller than a module (Modules §3, §5.3's uniform
+    // access principle). The honored-member read is the whole reason `Rat.add`
+    // and a user companion's `Box.size` mean the same thing, so declining here
+    // for want of a named import would narrow the principle to the prelude.
+    const local = this.#reachPreludeTerm(symbol.id) ?? `${alias}.${symbol.name}`;
     return {
       kind: "Name",
       symbol: symbol.id,

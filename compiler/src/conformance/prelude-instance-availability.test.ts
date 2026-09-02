@@ -367,8 +367,8 @@ describe("an explicit import of a prelude module coexists with the channel", () 
    */
   test("a prelude instance reaches a consumer by one name only", () => {
     const files = [
-      ["/a.hex", 'import { Some } from "./Option"\nexport fun mk(x: Int): Option(Int) = Some(x)\n'],
-      ["/b.hex", 'import { mk } from "./a"\nexport fun g(x: Int): Bool = mk(x) == mk(x)\n'],
+      ["/a.hex", 'import Option from "./Option"\nexport fun mk(x: Int): Option(Int) = Option.Some(x)\n'],
+      ["/b.hex", 'import A from "./a"\nexport fun g(x: Int): Bool = A.mk(x) == A.mk(x)\n'],
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);

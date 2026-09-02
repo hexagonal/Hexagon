@@ -333,16 +333,15 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     expect(await tokenOf("let r = {with = 3}", "with")).toBe(term);
   });
 
-  test("the namespace-import head paints its own word (#565)", async () => {
-    // The one Playground-shaped hazard in #565's grammar rider: `module` is a
-    // header word to the injection below and the import head's word to the
-    // shared grammar, and the two must not reach for each other's line. Here the
-    // word is mid-line, where no header can begin.
-    expect(await tokenOf('import Geo from "./geometry"', "module")).toBe(
-      "keyword.other.module.hexagon",
-    );
+  test("the import head paints its keyword and its alias (#762)", async () => {
+    // The head has one word of its own since #762: `module` left the import
+    // grammar with the form that carried it, so the alias stands immediately
+    // after the keyword and is painted as the namespace it names.
     expect(await tokenOf('import Geo from "./geometry"', "import")).toBe(
       "keyword.control.import.hexagon",
+    );
+    expect(await tokenOf('import Geo from "./geometry"', "from")).toBe(
+      "keyword.other.from.hexagon",
     );
   });
 
@@ -402,17 +401,14 @@ describe("the Playground-only module notation (injection)", () => {
     expect(await tokenOf("let x = module", "module")).toBe(term);
   });
 
-  test("the header and the import head keep out of each other's way (#565)", async () => {
-    // Both words are `module` and both are painted, by different grammars. The
-    // injection's rules are `L:`, so they run first — but they demand the word at
-    // column zero and the whole rest of the line as one name, and an import head
-    // is neither. The shared grammar's rule demands an `import` before the word,
-    // which a header line does not have.
+  test("the header owns `module` outright now the import head has let it go (#762)", async () => {
+    // The Playground-shaped hazard #565's grammar rider guarded against is
+    // gone: the shared grammar no longer paints `module` at all, so the
+    // injection's header rule is the word's only claimant and cannot reach for
+    // an import's line — which begins with `import`, never at column zero with
+    // the word.
     const source = ['import Geo from "./geometry"', "module Numbers"].join("\n");
-    expect(await allTokensFor(source, "module")).toEqual([
-      "keyword.other.module.hexagon",
-      control,
-    ]);
+    expect(await allTokensFor(source, "module")).toEqual([control]);
     expect(await allTokensFor(source, "Numbers")).toEqual([namespace]);
   });
 

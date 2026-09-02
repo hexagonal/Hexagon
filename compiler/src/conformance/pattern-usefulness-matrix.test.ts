@@ -789,8 +789,8 @@ describe("the witness printer keeps a record's private fields at home (Modules Â
     const messages = runProjectDiagnostics([
       ["/geo.hex", GEO],
       ["/main.hex",
-        'import { Crate, make } from "./geo"\n' +
-        "export fun pick(o: Option(Crate)): Int =\n" +
+        'import Geo from "./geo"\n' +
+        "export fun pick(o: Option(Geo.Crate)): Int =\n" +
         "    match o\n" +
         "        None => 0\n"],
     ]);

@@ -162,25 +162,30 @@ describe("the qualified spelling works everywhere (Modules §3.3)", () => {
 
   /**
    * A missing arm is still a missing arm: the qualification changes no
-   * judgment. And the message names the missing cases the *only* way a reader
-   * can write them — qualified — which is what makes the refusal actionable
-   * under §12's rule.
+   * judgment. Pattern Matching §7.3's counterexample renderer prints the
+   * *barest pastable spelling* (#763), and for a qualified-only prelude union
+   * that is the bare constructor name itself — reachable through §2.2's door
+   * at this very seat — not the qualified spelling §12 forces in an
+   * expression. The witness names how a reader would *paste it back into this
+   * `match`*, which is bare.
    */
-  test("exhaustiveness still counts the arms, and names them qualified", () => {
+  test("exhaustiveness still counts the arms, and names them by their barest pastable spelling", () => {
     expect(projectDiagnostics(
       "export let name(k: JsKind): String = match k\n" +
         "    JsKind.Null => \"Null\"\n",
     )).toEqual([
-      "match is missing cases: `JsKind.Undefined`, `JsKind.Bool`, `JsKind.Number` …and 6 more",
+      "match is missing cases: `Undefined`, `Bool`, `Number` …and 6 more",
     ]);
   });
 
   /**
-   * §7.2's *other* report has to agree with §7.1's above. A duplicate arm names
-   * the constructor already handled, and the pattern's own text is the
-   * constructor half alone — so this seat quoted a bare `Null`, a spelling §12
-   * makes unwritable, in the same `match` whose missing-cases report says
-   * `JsKind.Null`. One `match`, two reports, one way of saying a name (#511).
+   * §7.2's *other* report does not agree with §7.1's above, by design (#763):
+   * the unreachable-arm report names the arm exactly as the user wrote it —
+   * qualified, here, since §12 forces the qualified spelling in an expression
+   * and a pattern head is written the same way this module already spells it
+   * — while §7.3's counterexample renderer prints the barest pastable
+   * spelling instead. One `match`, two reports, two rules, each in its own
+   * section of the spec; they coincide for an ordinary union and diverge here.
    */
   test("the duplicate-arm report names the constructor qualified too", () => {
     expect(projectDiagnostics(
