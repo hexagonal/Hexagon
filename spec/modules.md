@@ -480,7 +480,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 ## 11. Emission
 
 1. **One module → one ESM module.** `export` → `export`; unexported bindings → plain `const`/`function`. Privacy is enforced by the Hexagon checker; the emitted JS simply doesn't export what wasn't exported.
-2. **Named imports always.** Because module aliases are not values, every `Geo.area` resolves at compile time to a specific export; the emitter uses named ESM imports (`import { area } from "./geometry.js"`) for the module form — tree-shakeable, readable, no runtime namespace objects; the source head (§3.1) never reaches emission. (An emitted `import * as` — JavaScript's own namespace form, a spelling that survives only in emission (§3.1) — is permitted where the emitter judges it more readable for heavy qualified use; semantics identical either way.) **The emitter may likewise add a named import a resolved companion dot call requires even when the source never textually imported the companion module** (Method Syntax §8.2) — the same liberty, exercised for calls the checker resolved; emitted-name collisions are the emitter's ordinary renaming problem.
+2. **Resolved names, either ESM shape.** Because module aliases are not values, every `Geo.area` resolves at compile time to a specific export, and the emitter may spell the dependency as JavaScript's own namespace import — `import * as Geo from "./geometry.js"`, the shape the module form lowers to (#569: the alias's emitted local yields to a same-spelled declaration on collision and takes the `_1` suffix) — or as named imports (`import { area } from "./geometry.js"`); semantics are identical either way, and the source head (§3.1) never reaches emission. A name the source reaches **bare** through a companion fallback (§5.1 rules 2–3) is bound under a local of the emitter's choosing, or spelled as the qualified access on the alias's local — never called as though the namespace object were the export. **The emitter may likewise add a named import a resolved companion dot call requires even when the source never textually imported the companion module** (Method Syntax §8.2) — the same liberty, exercised for calls the checker resolved; emitted-name collisions are the emitter's ordinary renaming problem.
 3. **Load order** is ESM's own, valid because the graph is acyclic (§8.1). An import whose alias the body never reaches still emits — as a bare `import "./x.js"` or a namespace import, the emitter's choice — because the source wrote the dependency and its load order is §8.2's; that is the one place a bare import is ever emitted, and no bare import is ever synthesized for a module the source did not import (the named import a companion dot call requires, §11.2, is a different liberty).
 4. **`.d.ts`:** exported terms and types appear; private ones don't — for a private type, no line of any kind, a non-exported `type` declaration included. §4.3's face rule is what makes that possible: no exported face can mention a private nominal, so no `.d.ts` row ever needs one declared. Private aliases in exported faces appear as their expansion (§4.3). An exported opaque record or union uses FFI Part 7 §5's brand-only face: one non-exported `unique symbol` per type, with no honest fields or constructors exposed — not an exception to the sentence above, since the brand line belongs to an *exported* type. The brand is TypeScript-only; runtime representation and identity are unchanged.
 5. **Instances** remain global compiler-selected declarations and are never nameable from Hexagon. At the JavaScript boundary, every instance satisfying FFI Part 9 §5's public-evidence closure forces a stable module-level handle or factory export from the instance declaration's home module, with its `Constraint.Dictionary<a>` face in `.d.ts`; this capability exists independently of current consumption. Private instances remain plumbing. Fundamental specializations are dictionary-free (FFI Part 8).
@@ -589,10 +589,15 @@ import "./config"                            -- ERROR (parse): Hexagon has no ef
                                              -- ./a.hex (line N) and ./b.hex (line M)
                                              -- (b.hex also violates the orphan rule)
 
--- (k) Emission: the module form emits named imports
+-- (k) Emission: the module form lowers to JavaScript's namespace import
 import Geo from "./geometry"
 Geo.area(2.0)
--- emits: import { area } from "./geometry.js";  area(2.0);
+-- emits: import * as Geo from "./geometry.js";  Geo.area(2.0);
+-- (the named shape — import { area } …; area(2.0) — is equally lawful, §11.2)
+-- point.hex: export union Tag = Tag(n: Int) | Other
+import Tag from "./point"
+let t = Tag(7)                               -- rule 3; emits a call of the export, never
+                                             --   of the namespace object
 
 -- (l) Transparent representation reaches through an un-imported home (§4.2)
 -- crate.hex: export record Crate = {n: Float}
@@ -657,7 +662,7 @@ import geometry from "./geometry"            -- ERROR: a module alias is upperca
 | Companion dispatch targets the nominal type's home module (idiom load-bearing); emitter may add companion-call named imports | §5.3, §11.2 |
 | Imports acyclic, hard error, incl. type-only; deterministic depth-first load order; top-level `Unit` effects legal; selected root module runs through ordinary ESM evaluation; no special `main` | §8 |
 | ML calculus, headers, export lists, `(..)` sugar, default exports, single-namespace, F# priority stack, unified paths, cycles: rejected with reasons | §9 |
-| Emission: 1:1 ESM; named imports for the module form; exported opaque types use FFI Part 7's private-symbol branded `.d.ts` face | §11 |
+| Emission: 1:1 ESM; the module form lowers to the namespace import or named imports, one meaning (#569); exported opaque types use FFI Part 7's private-symbol branded `.d.ts` face | §11 |
 | Five hanging questions recorded | §12 |
 | Intrinsic linkage is a declaration (`extern from "hex:intrinsic"`), never a third resolution meaning; companion idiom retained under widened #125 scope; public-name and primitive doors deprecated per-companion | §5.3 note; `spec/intrinsics.md` |
 | Variance claims on parameterized opaque exports: `+a`/`-a` declared, bare = invariant (the empty claim); verified in the home module against the representation; over-claim errors at the declaration with a witness occurrence; claims read uniformly, home module included; what crosses an opaque boundary is declared, never inferred (#205) | §4.2.1; closure doc `decisions-ml-dialect-generalization-2026-08.md` §6 |
