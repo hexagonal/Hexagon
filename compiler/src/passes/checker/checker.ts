@@ -9678,6 +9678,11 @@ class Checker {
     if (route === undefined) return { text, clause: "" };
     const clause = this.#routeClauses([route]);
     const routed = this.#routedSpelling(route);
+    // Defensive and **unexercised**: no program builds a route whose clause and
+    // whose routed spelling both come back empty-handed — a compilation that
+    // reaches this seat has paths, and a prelude route always has a basename.
+    // The branch stands because the alternative if one ever did is printing the
+    // rival's own word, which is the one thing §12 forbids.
     return clause === "" && routed === route.name ? undefined : { text: routed, clause };
   }
 

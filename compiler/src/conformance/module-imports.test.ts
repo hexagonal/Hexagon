@@ -1084,6 +1084,63 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
     ]);
   });
 
+  test("a **record** rival routes the same way, through its own declaring path", () => {
+    // The record shape of the tier-3 case above, and the arm the union pins
+    // cannot reach: `#constructorSpelling` needs the expected type's declaring
+    // path to fall past tier 1 at all, and a record arm that passed none
+    // answered bare — the identical fault one nominal over. Here the rival is
+    // this module's own `Box`, so the bare word is taken and the rewrite has to
+    // be routed.
+    expect(messages([
+      ["/lib.hex", "export record Box = {n: Int}\n"],
+      ["/mid.hex",
+        'import Lib from "./lib"\n' +
+        "export fun get(): Lib.Box = Lib.Box({n = 1})\n"],
+      ["/main.hex",
+        'import Mid from "./mid"\n' +
+        "record Box = {n: Int}\n" +
+        "export fun f(): Int =\n" +
+        "    match Mid.get()\n" +
+        "        Box({n}) => n\n"],
+    ])).toEqual([
+      "`Box` here is this module's `Box`; this pattern matches a `Lib.Box` — " +
+        "write `Lib.Box({n})` — `Box` is declared in `./lib`, and this module " +
+        "binds another `Box`; `import Lib from \"./lib\"` and spell it `Lib.Box`",
+    ]);
+  });
+
+  test("— and that spelling compiles, once the import it names is made", () => {
+    expect(messages([
+      ["/lib.hex", "export record Box = {n: Int}\n"],
+      ["/mid.hex",
+        'import Lib from "./lib"\n' +
+        "export fun get(): Lib.Box = Lib.Box({n = 1})\n"],
+      ["/main.hex",
+        'import Mid from "./mid"\n' +
+        'import Lib from "./lib"\n' +
+        "record Box = {n: Int}\n" +
+        "export fun f(): Int =\n" +
+        "    match Mid.get()\n" +
+        "        Lib.Box({n}) => n\n"],
+    ])).toEqual([]);
+  });
+
+  test("— and the record rewrite is never the rival's own word either", () => {
+    const reported = messages([
+      ["/lib.hex", "export record Box = {n: Int}\n"],
+      ["/mid.hex",
+        'import Lib from "./lib"\n' +
+        "export fun get(): Lib.Box = Lib.Box({n = 1})\n"],
+      ["/main.hex",
+        'import Mid from "./mid"\n' +
+        "record Box = {n: Int}\n" +
+        "export fun f(): Int =\n" +
+        "    match Mid.get()\n" +
+        "        Box({n}) => n\n"],
+    ])[0] ?? "";
+    expect(reported).not.toContain("— write `Box(");
+  });
+
   test("the rewrite is never the rival's own word", () => {
     // The property the whole reading exists for, asserted directly: whatever
     // spelling is offered, pasting it must not reproduce the same error.
