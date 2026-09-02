@@ -48,10 +48,10 @@ const HELPER = [
 ].join("\n");
 
 const MAIN = [
-  'import {Colour, brighten, Red} from "./helper"',
+  'import Helper from "./helper"',
   "",
-  "let start: Colour = Red",
-  "let finish: Colour = brighten(start)",
+  "let start: Helper.Colour = Helper.Red",
+  "let finish: Helper.Colour = Helper.brighten(start)",
   "",
 ].join("\n");
 
@@ -72,21 +72,21 @@ describe("AnalysisSession", () => {
 
   test("a diagnostic lands in the file its span names", () => {
     const { session } = sessionOf({
-      "/main.hex": 'import {missing} from "./helper"\n',
+      "/main.hex": 'import Helper from "./helper"\nlet n: Int = Helper.missing\n',
       "/helper.hex": "export let present: Int = 1\n",
     });
     expect(session.diagnostics("/helper.hex")).toEqual([]);
     expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
-      "module `./helper` does not export `missing`",
+      "module `Helper` does not export `missing`",
     ]);
   });
 
   test("go-to-definition crosses modules", () => {
     const { session, texts } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
-    const use = at(MAIN, "brighten", 2);
+    const use = at(MAIN, "brighten");
     expect(show(texts, session.definitions("/main.hex", use))).toEqual(["/helper.hex:brighten"]);
 
-    const type = at(MAIN, "Colour", 2);
+    const type = at(MAIN, "Colour");
     expect(show(texts, session.definitions("/main.hex", type))).toEqual(["/helper.hex:Colour"]);
   });
 
@@ -100,18 +100,19 @@ describe("AnalysisSession", () => {
 
   test("find-references gathers every module and includes the declaration", () => {
     const { session, texts } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
-    const found = session.references("/main.hex", at(MAIN, "Colour", 2));
+    // Two mentions in `/main.hex` now, not three: no import clause carries a
+    // name any more, so the only occurrences are the two annotations (#762).
+    const found = session.references("/main.hex", at(MAIN, "Colour"));
     expect(show(texts, found)).toEqual([
       "/helper.hex:Colour",
       "/helper.hex:Colour",
       "/helper.hex:Colour",
       "/main.hex:Colour",
       "/main.hex:Colour",
-      "/main.hex:Colour",
     ]);
     expect(found.filter(({ isDefinition }) => isDefinition)).toHaveLength(1);
 
-    const withoutDeclaration = session.references("/main.hex", at(MAIN, "Colour", 2), {
+    const withoutDeclaration = session.references("/main.hex", at(MAIN, "Colour"), {
       includeDeclaration: false,
     });
     expect(withoutDeclaration).toHaveLength(found.length - 1);
@@ -120,14 +121,14 @@ describe("AnalysisSession", () => {
 
   test("a request from either end of a reference sees the same set", () => {
     const { session } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
-    const fromUse = session.references("/main.hex", at(MAIN, "brighten", 2));
+    const fromUse = session.references("/main.hex", at(MAIN, "brighten"));
     const fromDeclaration = session.references("/helper.hex", at(HELPER, "brighten"));
     expect(fromDeclaration).toEqual(fromUse);
   });
 
   test("hover carries the checker's type for a value", () => {
     const { session } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
-    const hover = session.hover("/main.hex", at(MAIN, "brighten", 2));
+    const hover = session.hover("/main.hex", at(MAIN, "brighten"));
     expect(hover?.name).toBe("brighten");
     expect(hover?.target?.kind).toBe("value");
     expect(hover?.displayedType).toBe("Colour -> Colour");
@@ -135,7 +136,7 @@ describe("AnalysisSession", () => {
 
   test("hover on a type names the type without inventing one", () => {
     const { session } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
-    const hover = session.hover("/main.hex", at(MAIN, "Colour", 2));
+    const hover = session.hover("/main.hex", at(MAIN, "Colour"));
     expect(hover?.name).toBe("Colour");
     expect(hover?.target?.kind).toBe("union");
     expect(hover?.displayedType).toBeUndefined();
@@ -169,7 +170,10 @@ describe("AnalysisSession", () => {
     const before = session.version;
     expect(session.diagnostics("/main.hex")).toEqual([]);
 
-    session.setFile("/main.hex", 'import {Colour} from "./helper"\n\nlet start: Colour = Purple\n');
+    session.setFile(
+      "/main.hex",
+      'import Helper from "./helper"\n\nlet start: Helper.Colour = Purple\n',
+    );
     expect(session.version).toBeGreaterThan(before);
     expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
       "unknown name `Purple`",
@@ -265,11 +269,11 @@ describe("AnalysisSession", () => {
     const shade = ["export union Shade =", "    | Pale", "    | Deep", ""].join("\n");
     const other = ["export union Shade =", "    | Faint", "    | Vivid", ""].join("\n");
     const main = [
-      'import {Shade} from "./a"',
-      'import {Shade as Other} from "./b"',
+      'import Shade from "./a"',
+      'import Other from "./b"',
       "",
       "let p(x: Shade): Shade = x",
-      "let q(y: Other): Other = y",
+      "let q(y: Other.Shade): Other.Shade = y",
       "",
     ].join("\n");
     const { session, texts } = sessionOf({
@@ -283,15 +287,10 @@ describe("AnalysisSession", () => {
     // declared somewhere other than here?" picks whichever comes first and is
     // wrong half the time — with no diagnostic, because the program is valid.
     // Only the specifier says which module a name came from.
-    expect(show(texts, session.definitions("/main.hex", at(main, "Shade", 3)))).toEqual([
+    expect(show(texts, session.definitions("/main.hex", at(main, "Shade", 2)))).toEqual([
       "/a.hex:Shade",
     ]);
-    expect(show(texts, session.definitions("/main.hex", at(main, "Other", 2)))).toEqual([
-      "/b.hex:Shade",
-    ]);
-    // The import clause itself has to agree with the use it binds, or the two
-    // ends of one alias answer with two different types.
-    expect(show(texts, session.definitions("/main.hex", at(main, "Other")))).toEqual([
+    expect(show(texts, session.definitions("/main.hex", at(main, "Shade", 4)))).toEqual([
       "/b.hex:Shade",
     ]);
     const fromClause = session.references("/main.hex", at(main, "Other"));
@@ -366,10 +365,10 @@ describe("AnalysisSession.hover documentation", () => {
   ].join("\n");
 
   const USES = [
-    'import {Colour, brighten, Red} from "./helper"',
+    'import Helper from "./helper"',
     "",
-    "let start: Colour = Red",
-    "let finish: Colour = brighten(start)",
+    "let start: Helper.Colour = Helper.Red",
+    "let finish: Helper.Colour = Helper.brighten(start)",
     "",
   ].join("\n");
 
@@ -387,11 +386,11 @@ describe("AnalysisSession.hover documentation", () => {
 
   test("a use carries what its declaration documents, across modules", () => {
     const { session } = sessionOf({ "/helper.hex": DOCUMENTED, "/main.hex": USES });
-    expect(session.hover("/main.hex", at(USES, "brighten", 2))?.documentation)
+    expect(session.hover("/main.hex", at(USES, "brighten"))?.documentation)
       .toBe("Brightens a colour.\n\nTwice, if you ask twice.");
-    expect(session.hover("/main.hex", at(USES, "Colour", 2))?.documentation)
+    expect(session.hover("/main.hex", at(USES, "Colour"))?.documentation)
       .toBe("A colour, as the light leaves it.");
-    expect(session.hover("/main.hex", at(USES, "Red", 2))?.documentation)
+    expect(session.hover("/main.hex", at(USES, "Red"))?.documentation)
       .toBe("The warm one.");
   });
 
@@ -672,55 +671,36 @@ describe("AnalysisSession.rename", () => {
     });
   });
 
-  test("renaming a declaration rewrites an aliasing clause's imported name only", () => {
-    const helper = "export let two: Int = 2\n";
-    const main = ['import {two as deux} from "./helper"', "", "let four: Int = deux + deux", ""]
-      .join("\n");
-    const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
-    const plan = session.rename("/helper.hex", at(helper, "two"), "pair");
-    // The clause goes on aliasing; it just aliases a differently-spelled
-    // declaration. Rewriting `deux` as well would rename a name the user never
-    // asked about, and leaving `two` alone would break the import outright.
-    expect(applied(texts, plan)).toEqual({
-      "/helper.hex": "export let pair: Int = 2\n",
-      "/main.hex": main.replace("two as deux", "pair as deux"),
-    });
-  });
-
-  test("renaming through the local alias leaves the declaration alone", () => {
-    const helper = "export let two: Int = 2\n";
-    const main = ['import {two as deux} from "./helper"', "", "let four: Int = deux + deux", ""]
-      .join("\n");
-    const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
-    const plan = session.rename("/main.hex", at(main, "deux"), "zwei");
-    expect(applied(texts, plan)).toEqual({ "/main.hex": main.replaceAll("deux", "zwei") });
-  });
-
-  test("a constructor pattern spelled by an alias moves with the alias, not the declaration", () => {
-    // The resolved pattern carries two strings since #468 — the local spelling
-    // and the declared tag — and only the first belongs to a rename. Publishing
-    // the tag here would make renaming `Circle` rewrite the *pattern's* `Round`,
-    // which is a name the user never asked about and a compile error afterwards.
+  test("a rename moves a constructor pattern the door reached, and the qualified one", () => {
+    // The resolved pattern carries two strings since #468 — the spelling
+    // written here and the declared tag — and only the first belongs to a
+    // rename. Since #762 there is no route by which the two can differ, and
+    // what the rename must still get right is the *qualified* pattern's halves:
+    // the constructor moves, the module alias does not.
     const shapes = "export union Shape =\n    | Circle\n    | Square\n";
     const main = [
-      'import {Shape, Circle as Round, Square} from "./shapes"',
+      'import Shapes from "./shapes"',
       "",
-      "let name(s: Shape): Int =",
+      "let name(s: Shapes.Shape): Int =",
       "    match s",
-      "        Round => 1",
-      "        Square => 2",
+      "        Circle => 1",
+      "        Shapes.Square => 2",
       "",
     ].join("\n");
     const { session, texts } = sessionOf({ "/shapes.hex": shapes, "/main.hex": main });
+    expect(session.allDiagnostics().get("/main.hex")).toEqual([]);
 
     const declaration = session.rename("/shapes.hex", at(shapes, "Circle"), "Disc");
     expect(applied(texts, declaration)).toEqual({
       "/shapes.hex": shapes.replace("Circle", "Disc"),
-      "/main.hex": main.replace("Circle as Round", "Disc as Round"),
+      "/main.hex": main.replace("        Circle => 1", "        Disc => 1"),
     });
 
-    const alias = session.rename("/main.hex", at(main, "Round", 2), "Ring");
-    expect(applied(texts, alias)).toEqual({ "/main.hex": main.replaceAll("Round", "Ring") });
+    const qualified = session.rename("/main.hex", at(main, "Shapes.Square") + "Shapes.".length, "Boxy");
+    expect(applied(texts, qualified)).toEqual({
+      "/shapes.hex": shapes.replace("Square", "Boxy"),
+      "/main.hex": main.replace("Shapes.Square", "Shapes.Boxy"),
+    });
   });
 
   test("refuses a spelling that is not one identifier, and says which", () => {
@@ -805,12 +785,13 @@ describe("AnalysisSession.rename", () => {
     // clients are the refusal tests below.
     const a = ["export union Shade =", "    | Pale", "", "export fun tag(s: Shade): Int = 1", ""]
       .join("\n");
-    const b = ['import {Shade} from "./a"', "", "export fun mark(s: Shade): Int = 2", ""].join("\n");
+    const b = ['import A from "./a"', "", "export fun mark(s: A.Shade): Int = 2", ""].join("\n");
     const main = [
-      'import {Shade, Pale, tag} from "./a"',
-      'import {mark as m} from "./b"',
+      'import A from "./a"',
+      'import B from "./b"',
       "",
-      "let x: Int = Pale.tag()",
+      "let m = B.mark",
+      "let x: Int = A.Pale.tag()",
       "",
     ].join("\n");
     const { session, texts } = sessionOf({ "/a.hex": a, "/b.hex": b, "/main.hex": main });
@@ -818,10 +799,11 @@ describe("AnalysisSession.rename", () => {
     const plan = session.rename("/b.hex", at(b, "mark"), "tag");
     const after = applied(texts, plan);
     expect(after["/b.hex"]).toBe(b.replace("mark", "tag"));
-    // `/main.hex` renames only its own import of `/b.hex`'s function; the dot
-    // call is left alone because it never meant that function.
-    expect(after["/main.hex"]).toContain('import {tag as m} from "./b"');
-    expect(after["/main.hex"]).toContain("let x: Int = Pale.tag()");
+    // `/main.hex` renames only its own qualified reference to `/b.hex`'s
+    // function; the dot call is left alone because it never meant that
+    // function.
+    expect(after["/main.hex"]).toContain("let m = B.tag");
+    expect(after["/main.hex"]).toContain("let x: Int = A.Pale.tag()");
   });
 
   test("a dot call reached through an alias keeps its own spelling", () => {
@@ -839,9 +821,10 @@ describe("AnalysisSession.rename", () => {
       "",
     ].join("\n");
     const main = [
-      'import {Shade, Pale, brighten as b} from "./helper"',
+      'import H from "./helper"',
+      "let b = H.brighten",
       "",
-      "let x: Int = Pale.brighten()",
+      "let x: Int = H.Pale.brighten()",
       "",
     ].join("\n");
     const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
@@ -854,13 +837,14 @@ describe("AnalysisSession.rename", () => {
         end: expect.objectContaining({ offset: call + "brighten".length }),
       }),
     });
-    // Renaming the declaration moves the call with it. The alias does not move:
-    // the clause goes on aliasing a differently-spelled declaration.
+    // Renaming the declaration moves the call with it, and the qualified
+    // reference beside it. The local binding `b` does not move: it is a name of
+    // this module's own.
     const plan = session.rename("/helper.hex", at(helper, "brighten"), "lighten");
     expect(applied(texts, plan)).toEqual({
       "/helper.hex": helper.replace("fun brighten", "fun lighten"),
       "/main.hex": main
-        .replace("brighten as b", "lighten as b")
+        .replace("H.brighten", "H.lighten")
         .replace("Pale.brighten()", "Pale.lighten()"),
     });
   });
@@ -876,16 +860,17 @@ describe("AnalysisSession.rename", () => {
       "",
     ].join("\n");
     const main = [
-      'import {Shade, Pale, brighten as b} from "./helper"',
+      'import H from "./helper"',
+      "let b = H.brighten",
       "",
-      "let x: Int = Pale.brighten()",
-      "let y: Int = b(Pale)",
+      "let x: Int = H.Pale.brighten()",
+      "let y: Int = b(H.Pale)",
       "",
     ].join("\n");
     const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
-    const plan = session.rename("/main.hex", at(main, "b(Pale)"), "bb");
+    const plan = session.rename("/main.hex", at(main, "b(H.Pale)"), "bb");
     expect(applied(texts, plan)["/main.hex"]).toBe(
-      main.replace("brighten as b", "brighten as bb").replace("b(Pale)", "bb(Pale)"),
+      main.replace("let b = H.brighten", "let bb = H.brighten").replace("b(H.Pale)", "bb(H.Pale)"),
     );
   });
 
@@ -935,18 +920,23 @@ describe("AnalysisSession.rename", () => {
     expect(applied(texts, plan)["/main.hex"]).toBe(source.replaceAll("Shade", "Tint"));
   });
 
-  test("renaming to a spelling an importer already aliases it to is allowed", () => {
-    // `import {two as deux}` becomes `import {deux as deux}` — legal, and the
-    // same program. The alias's mentions already denoted this declaration, so
-    // nothing merged with anything.
+  test("renaming to a spelling an importer already binds locally is allowed", () => {
+    // `let deux = H.two` becomes `let deux = H.deux` — legal, and the same
+    // program. The local binding already denoted this declaration, so nothing
+    // merged with anything.
     const helper = "export let two: Int = 2\n";
-    const main = ['import {two as deux} from "./helper"', "", "let four: Int = deux + deux", ""]
-      .join("\n");
+    const main = [
+      'import H from "./helper"',
+      "let deux: Int = H.two",
+      "",
+      "let four: Int = deux + deux",
+      "",
+    ].join("\n");
     const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
     const plan = session.rename("/helper.hex", at(helper, "two"), "deux");
     expect(applied(texts, plan)).toEqual({
       "/helper.hex": "export let deux: Int = 2\n",
-      "/main.hex": main.replace("two as deux", "deux as deux"),
+      "/main.hex": main.replace("H.two", "H.deux"),
     });
   });
 

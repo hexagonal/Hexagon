@@ -422,6 +422,20 @@ describe("§4, §5, §8 — the key, determinism, and the exported surface", () 
     // §7: two modules demanding one tree each hold one binding, and neither
     // reaches for the other's. The consumer imports the *factory*, not an
     // application of it.
+    //
+    // KNOWN COMPILER DEFECT, reported rather than routed around — see this
+    // file's report (and `evidence-key-identity.test.ts`'s, which found the
+    // same shape independently). `/main.hex` reaches `honor<a: Render>
+    // Render<Box(a)>` only through `Lib.render`/`Lib.Box`, never a bare name;
+    // that instance's own binder list in turn demands `Render<Int>`, which is
+    // declared in the very same external module, `/lib.hex`. Resolving it
+    // reports `` type `Int` has no `Render` instance `` even though the
+    // instance sits three lines above the one that needs it in that module's
+    // own source. The same declarations checked as one module (no import at
+    // all) resolve cleanly — confirmed directly, and this test's own control
+    // in `dictionary-names.test.ts`'s neighbourhood never reaches a
+    // *parameterized* instance's own recursive binder demand cross-module, so
+    // this fixture is the one exhibit of it. Left as the correct expectation.
     const files = [
       [
         "/lib.hex",
@@ -435,9 +449,9 @@ describe("§4, §5, §8 — the key, determinism, and the exported surface", () 
       ],
       [
         "/main.hex",
-        'import { Render, Box } from "./lib"\n' +
-          "let boxed: Box(Int) = Box({value = 1})\n" +
-          "export let one: String = render(boxed)\n",
+        'import Lib from "./lib"\n' +
+          "let boxed: Lib.Box(Int) = Lib.Box({value = 1})\n" +
+          "export let one: String = Lib.render(boxed)\n",
       ],
     ] as const;
 
@@ -794,7 +808,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
       // is compiler-built at every use site (#441).
       [
         "/main.hex",
-        'import { Bool } from "./Bool"\nlet eagerSlot = 0\nexport let flag: Bool = True\n',
+        'import Boolean from "./Bool"\nlet eagerSlot = 0\nexport let flag: Bool = True\n',
       ],
     ] as const;
     const project = compileFiles(files);

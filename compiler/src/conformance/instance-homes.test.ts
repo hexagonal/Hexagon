@@ -41,10 +41,10 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Badge } from \"./badge\"",
-        "import { Token } from \"./token\"",
+        "import Badge from \"./badge\"",
+        "import Token from \"./token\"",
         "",
-        "export fun go(t: Token): String = mark(t)",
+        "export fun go(t: Token.Token): String = Badge.mark(t)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -65,9 +65,9 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Badge, Token } from \"./kit\"",
+        "import Kit from \"./kit\"",
         "",
-        "export fun go(t: Token): String = mark(t)",
+        "export fun go(t: Kit.Token): String = Kit.mark(t)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -93,9 +93,9 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Widget } from \"./widget\"",
+        "import Widget from \"./widget\"",
         "",
-        "export fun go(w: Widget): String = show(w)",
+        "export fun go(w: Widget.Widget): String = show(w)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -116,9 +116,9 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Badge } from \"./badge\"",
+        "import Badge from \"./badge\"",
         "",
-        "export fun go(n: Int): String = mark(n)",
+        "export fun go(n: Int): String = Badge.mark(n)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -174,17 +174,17 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
         "",
       ].join("\n")],
       ["/middle.hex", [
-        "import { Loud } from \"./units\"",
+        "import Units from \"./units\"",
         "",
-        "export fun banner<a: Loud>(subject: a): String = shout(subject)",
+        "export fun banner<a: Units.Loud>(subject: a): String = Units.shout(subject)",
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { banner } from \"./middle\"",
+        "import Middle from \"./middle\"",
         "",
         "export record Siren = {pitch: Int}",
         "",
-        "export fun run(): String = banner(Siren({pitch = 3}))",
+        "export fun run(): String = Middle.banner(Siren({pitch = 3}))",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -202,12 +202,12 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
         "",
       ].join("\n")],
       ["/gatekeeper.hex", [
-        "import { Token } from \"./token\"",
+        "import Token from \"./token\"",
         "",
         "constraint Gate<a> =",
         "    pass(subject: a): String",
         "",
-        "export fun admit(t: Token): String = pass(t)",
+        "export fun admit(t: Token.Token): String = pass(t)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -237,11 +237,11 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Big } from \"./scales\"",
+        "import Scales from \"./scales\"",
         "",
         "export record Ounce = {drams: Int}",
         "",
-        "honor Big<Ounce> =",
+        "honor Scales.Big<Ounce> =",
         "    big(o) = \"ounce\"",
         "",
       ].join("\n")],
@@ -272,11 +272,11 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { admit } from \"./gatekeeper\"",
+        "import Gatekeeper from \"./gatekeeper\"",
         "",
         "export record Badge = {serial: Int}",
         "",
-        "export fun go(b: Badge): String = admit(b)",
+        "export fun go(b: Badge): String = Gatekeeper.admit(b)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -297,11 +297,11 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Face } from \"./seal\"",
+        "import Seal from \"./seal\"",
         "",
         "export record Panel = {width: Int}",
         "",
-        "honor Face<Panel> =",
+        "honor Seal.Face<Panel> =",
         "    face(p) = \"panel\"",
         "",
       ].join("\n")],
@@ -325,11 +325,11 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Face } from \"./seal\"",
+        "import Seal from \"./seal\"",
         "",
         "export record Panel = {width: Int}",
         "",
-        "honor Face<Panel> =",
+        "honor Seal.Face<Panel> =",
         "    face(p) = \"panel\"",
         "",
       ].join("\n")],
@@ -358,9 +358,9 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { admit, Ticket } from \"./gate\"",
+        "import Gate from \"./gate\"",
         "",
-        "export fun go(t: Ticket): String = admit(t)",
+        "export fun go(t: Gate.Ticket): String = Gate.admit(t)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -391,9 +391,9 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     expect(messagesOf([
       ["/gate.hex", gate],
       ["/main.hex", [
-        "import { admit } from \"./gate\"",
+        "import Gate from \"./gate\"",
         "",
-        "export fun go(m: Option(Int)): String = admit(m)",
+        "export fun go(m: Option(Int)): String = Gate.admit(m)",
         "",
       ].join("\n")],
     ])).toEqual([sealed("Option(Int)")]);
@@ -401,11 +401,11 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     expect(messagesOf([
       ["/gate.hex", gate],
       ["/main.hex", [
-        "import { admit } from \"./gate\"",
+        "import Gate from \"./gate\"",
         "",
         "export union Colour = Red | Green",
         "",
-        "export fun go(c: Colour): String = admit(c)",
+        "export fun go(c: Colour): String = Gate.admit(c)",
         "",
       ].join("\n")],
     ])).toEqual([sealed("Colour")]);
@@ -429,7 +429,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { render } from \"./alpha\"",
+        "import Alpha from \"./alpha\"",
         "",
         "export constraint Describe<a> =",
         "    describe(subject: a): String",
@@ -439,7 +439,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "honor Describe<Panel> =",
         "    describe(p) = \"panel\"",
         "",
-        "export fun go(p: Panel): String = render(p)",
+        "export fun go(p: Panel): String = Alpha.render(p)",
         "",
       ].join("\n")],
     ]);
@@ -471,9 +471,9 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { admit } from \"./gate\"",
+        "import Gate from \"./gate\"",
         "",
-        "export fun go(p: (Int, Int)): String = admit(p)",
+        "export fun go(p: (Int, Int)): String = Gate.admit(p)",
         "",
       ].join("\n")],
     ])).toEqual(["type `(Int, Int)` has no `Gate` instance"]);
@@ -492,9 +492,9 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { admit } from \"./gate\"",
+        "import Gate from \"./gate\"",
         "",
-        "export fun go(n: Int): String = admit(n)",
+        "export fun go(n: Int): String = Gate.admit(n)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -515,9 +515,9 @@ describe("what the clause does not reach", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Badge } from \"./badge\"",
+        "import Badge from \"./badge\"",
         "",
-        "export fun go(p: (Int, Int)): String = mark(p)",
+        "export fun go(p: (Int, Int)): String = Badge.mark(p)",
         "",
       ].join("\n")],
     ])).toEqual(["type `(Int, Int)` has no `Badge` instance"]);
@@ -531,9 +531,9 @@ describe("what the clause does not reach", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Badge } from \"./badge\"",
+        "import Badge from \"./badge\"",
         "",
-        "export fun go(f: ((Int) -> Int)): String = mark(f)",
+        "export fun go(f: ((Int) -> Int)): String = Badge.mark(f)",
         "",
       ].join("\n")],
     ])).toEqual(["functions have no `Badge` instance"]);

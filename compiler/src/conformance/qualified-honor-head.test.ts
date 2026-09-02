@@ -84,8 +84,8 @@ describe("the ground head, end to end", () => {
         "export fun crate(n: Int): Crate = Crate({n = n})\n"],
       ["/main.hex",
         'import Far from "./describe"\n' +
-        'import { crate } from "./home"\n' +
-        "export let shown: String = Far.describe(crate(5))\n"],
+        'import Home from "./home"\n' +
+        "export let shown: String = Far.describe(Home.crate(5))\n"],
     ] as const;
 
     expect(messages(files)).toEqual([]);
@@ -154,9 +154,9 @@ const CONSUMER_BARE = [
     "export fun parcel(n: Int): Parcel = Parcel({n = n})\n"],
   ["/main.hex",
     'import Describe from "./describe"\n' +
-    'import { parcel } from "./home"\n' +
+    'import Home from "./home"\n' +
     "export fun label<a: Describe>(x: a): String = Describe.describe(x)\n" +
-    "export let shown: String = label(parcel(9))\n"],
+    "export let shown: String = label(Home.parcel(9))\n"],
 ] as const;
 
 describe("one declaration under either spelling", () => {
@@ -209,8 +209,8 @@ describe("one declaration under either spelling", () => {
         "honor H.Describe<Box> =\n    describe(value) = \"home\"\n"],
       ["/other.hex",
         'import Describe from "./describe"\n' +
-        'import { Box } from "./home"\n' +
-        "honor Describe<Box> =\n    describe(value) = \"other\"\n"],
+        'import Home from "./home"\n' +
+        "honor Describe<Home.Box> =\n    describe(value) = \"other\"\n"],
       ["/main.hex",
         'import Other from "./other"\n' +
         "export let n: Int = 1\n"],
@@ -257,8 +257,8 @@ describe("one declaration under either spelling", () => {
         "honor Describe<Box> =\n    describe(value) = \"home\"\n"],
       ["/other.hex",
         'import D from "./describe"\n' +
-        'import { Box } from "./home"\n' +
-        "honor D.Describe<Box> =\n    describe(value) = \"other\"\n"],
+        'import Home from "./home"\n' +
+        "honor D.Describe<Home.Box> =\n    describe(value) = \"other\"\n"],
       ["/main.hex",
         'import Other from "./other"\n' +
         "export let n: Int = 1\n"],
@@ -268,8 +268,8 @@ describe("one declaration under either spelling", () => {
       qualifiedElsewhere[1],
       ["/other.hex",
         'import Describe from "./describe"\n' +
-        'import { Box } from "./home"\n' +
-        "honor Describe<Box> =\n    describe(value) = \"other\"\n"],
+        'import Home from "./home"\n' +
+        "honor Describe<Home.Box> =\n    describe(value) = \"other\"\n"],
       qualifiedElsewhere[3],
     ] as const;
 

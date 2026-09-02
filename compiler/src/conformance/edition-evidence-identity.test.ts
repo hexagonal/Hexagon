@@ -410,23 +410,33 @@ describe("the lookup walks all three channels, keyed on identity", () => {
       .toBe("__Show_Int");
   });
 
+  // #762 leaves exactly one import *form* — a module alias, and nothing
+  // smaller — so the three spellings this table used to compare (a bare named
+  // import, `import module`, and a renamed named import) are down to one route
+  // for reaching a name at all: through the alias. What the property below
+  // still has to say is that *which alias, and whether the constraint is
+  // written through the fallback or spelled out* is not the key either, so the
+  // three rows now vary that instead: the bare companion fallback (§5.1 rule
+  // 2, open because the alias is spelled `Describe`, the same word the module
+  // exports), the same alias qualified explicitly, and a renamed alias with no
+  // fallback available at all.
   test.each([
-    ["a bare-spelling named import", [
-      "import { Describe } from \"./describe\"",
+    ["the bare companion fallback", [
+      "import Describe from \"./describe\"",
       "",
-      "export fun tell<a: Describe>(x: a): String = describe(x)",
+      "export fun tell<a: Describe>(x: a): String = Describe.describe(x)",
       "",
     ]],
-    ["a qualified `import module`", [
+    ["the same alias, qualified explicitly", [
       "import Describe from \"./describe\"",
       "",
       "export fun tell<a: Describe.Describe>(x: a): String = Describe.describe(x)",
       "",
     ]],
-    ["an aliased named import", [
-      "import { Describe as Portray } from \"./describe\"",
+    ["a renamed alias, qualified", [
+      "import Portray from \"./describe\"",
       "",
-      "export fun tell<a: Portray>(x: a): String = describe(x)",
+      "export fun tell<a: Portray.Describe>(x: a): String = Portray.describe(x)",
       "",
     ]],
   ])("an import's instances: %s", (_label, lines) => {
@@ -437,7 +447,8 @@ describe("the lookup walks all three channels, keyed on identity", () => {
     const { constraint } = constrainedItem(module, "tell");
 
     // The spelling the consumer wrote is not the key and cannot be: all three
-    // reach one declaration, and the third does not spell its name at all.
+    // reach one declaration, and the third does not even reuse the module's own
+    // word for its alias.
     expect(constraint.identity).toBe("0:Describe");
     expect(sourceInstanceDictionary(module, constraint.identity, "Int", boolUnion(module)))
       .toBe("__Describe_Int");
@@ -457,10 +468,10 @@ describe("the lookup walks all three channels, keyed on identity", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Describe } from \"./describe\"",
+        "import Describe from \"./describe\"",
         "import Portray from \"./portray\"",
         "",
-        "export fun tell<a: Describe>(x: a): String = describe(x)",
+        "export fun tell<a: Describe>(x: a): String = Describe.describe(x)",
         "export fun other<a: Portray.Describe>(x: a): String = Portray.portray(x)",
         "",
       ].join("\n")],
@@ -494,9 +505,9 @@ describe("the lookup walks all three channels, keyed on identity", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Mark } from \"./mark\"",
+        "import Mark from \"./mark\"",
         "",
-        "export fun tag<a: Mark>(x: a): String = mark(x)",
+        "export fun tag<a: Mark>(x: a): String = Mark.mark(x)",
         "",
       ].join("\n")],
     ]);

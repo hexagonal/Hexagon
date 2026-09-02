@@ -135,29 +135,15 @@ describe("row 1 — a namespace alias beside a same-spelled declaration (TS2440,
   });
 });
 
-describe("row 2 — a namespace alias beside a named import of the same spelling (#574)", () => {
-  test("only the line an answer owes survives", async () => {
-    const compiled = project([
-      POINT,
-      ["/other.hex", "export record Point = {n: Int}\n"],
-      [
-        "/main.hex",
-        'import Point from "./point"\n' +
-          'import { Point } from "./other"\n' +
-          "export fun mine(p: Point): Int = p.n\n",
-      ],
-    ]);
-
-    // Two lines bound one identifier before this landed — TS2300 twice, plus a
-    // TS2709 for the face, which described the wrong type. The named import is
-    // what the face answered through, so its line stays and the alias's does not.
-    expect(declarations(compiled)).toBe(
-      'import type { Point } from "./other.js";\n' +
-        "export declare function mine(p: Point): number;\n",
-    );
-    expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
-  });
-});
+// row 2 is retired in place (#762): it answered for a named import's local
+// contesting a namespace alias of the same spelling, and no source form binds
+// an imported name under a local any more. The numbering is kept so §14's
+// records read true, but there is no test here — the only remaining way to
+// bind a bare spelling contesting an alias is a local *declaration*, which
+// row 1 already covers (the alias yields because a declaration occludes).
+// Two import *aliases* can never contest each other on spelling either: two
+// distinct alias bindings of the same spelling would be a duplicate local
+// declaration, refused before the sink is ever asked.
 
 describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => {
   test("rung 3 spells the alias the author wrote", async () => {
@@ -273,8 +259,8 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
       ],
       [
         "/main.hex",
-        'import Lib from "./other"\nimport { pass, Carried } from "./mid"\n' +
-          "export fun here(p: Carried): Carried = pass(p)\n" +
+        'import Lib from "./other"\nimport Carried from "./mid"\n' +
+          "export fun here(p: Carried): Carried = Carried.pass(p)\n" +
           "export fun mine(p: Lib.Point): Lib.Point = p\n" +
           "export let n: Int = Lib.one\n",
       ],
@@ -309,14 +295,14 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
       ],
       [
         "/mid2.hex",
-        'import { Lib } from "./lib2"\nexport type W = Lib\nexport fun two(): W = Lib({n = 1})\n',
+        'import Lib from "./lib2"\nexport type W = Lib\nexport fun two(): W = Lib({n = 1})\n',
       ],
       [
         "/main.hex",
-        'import Lib from "./other"\nimport { pass, Carried } from "./mid"\n' +
-          'import { two, W } from "./mid2"\n' +
-          "export fun here(p: Carried): Carried = pass(p)\n" +
-          "export let w: W = two()\nexport let n: Int = Lib.one\n",
+        'import Lib from "./other"\nimport Carried from "./mid"\n' +
+          'import W from "./mid2"\n' +
+          "export fun here(p: Carried): Carried = Carried.pass(p)\n" +
+          "export let w: W = W.two()\nexport let n: Int = Lib.one\n",
       ],
     ]);
 
@@ -402,42 +388,70 @@ describe("row 4 — a bare face in scope only by the companion fallback (TS2709,
   });
 });
 
-describe("row 5 — a renamed type import (TS2304, #617)", () => {
-  test("the face spells the local, not the imported name", async () => {
+describe("row 5 — two rung-5 mints of the same spelling (#617)", () => {
+  // Row 5's original subject was a renaming named import — "the face spells
+  // the local, not the imported name". #762 retired that form along with
+  // every other named import, and nothing today lets an importer publish a
+  // foreign identity under a spelling of its own choosing: a bare occurrence
+  // is minted under the identity's *own* name (rung 5), never a chosen local
+  // one. What survives, one seat over, is the neighbouring question rung 5
+  // still has to answer: two different identities, each reaching this file
+  // with no qualifier of its own — through a transparent alias one hop
+  // further out, so each mints fresh from its own home — happen to share a
+  // spelling. The probe (§2.4, "a minted local is probed like `Hex`")
+  // decides who keeps it.
+  test("a probed local: two homes named alike land at the probe", async () => {
     const compiled = project([
-      ["/shape.hex", "export record Shape = {s: Int}\n"],
+      ["/aa.hex", "export record Row = {n: Int}\n"],
+      ["/bb.hex", "export record Row = {s: Int}\n"],
+      [
+        "/mida.hex",
+        'import Row from "./aa"\nexport type RA = Row\nexport fun mkA(): RA = Row({n = 1})\n',
+      ],
+      [
+        "/midb.hex",
+        'import Row from "./bb"\nexport type RB = Row\nexport fun mkB(): RB = Row({s = 2})\n',
+      ],
       [
         "/main.hex",
-        'import { Shape as S } from "./shape"\nexport let c: S = S({s = 1})\n',
+        'import RA from "./mida"\nimport RB from "./midb"\n' +
+          "export let a: RA = RA.mkA()\nexport let b: RB = RB.mkB()\n",
       ],
     ]);
 
-    // The import line was already right and the face was wrong, so the two
-    // halves of one channel disagreed inside a single file.
+    // Neither `RA` nor `RB` is an identity of its own — both are transparent
+    // aliases, so the face carries each one's expansion, minted straight from
+    // its true home. `a` is declared first, so `/aa.hex`'s `Row` claims the
+    // bare spelling; `/bb.hex`'s moves to `Row_1`.
     expect(declarations(compiled)).toBe(
-      'import type { Shape as S } from "./shape.js";\n' +
-        "export declare const c: S;\n",
+      'import type { Row } from "./aa.js";\n' +
+        'import type { Row as Row_1 } from "./bb.js";\n' +
+        "export declare const a: Row;\n" +
+        "export declare const b: Row_1;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
-  test("a rename of a union and of an extern type answer the same way", async () => {
+  test("a union and an extern type answer the same probe", async () => {
     const compiled = project([
+      ["/color.hex", "export union Color = Red | Green\n"],
+      ["/handle.hex", 'extern from "./host.js"\n    export type Color\n'],
       [
-        "/lib.hex",
-        "export union Color = Red | Green\n" +
-          'extern from "./host.js"\n    export type Handle\n',
+        "/mida.hex",
+        'import Color from "./color"\nexport type CA = Color\nexport fun mkA(): CA = Red\n',
       ],
+      ["/midb.hex", 'import Color from "./handle"\nexport type CB = Color\n'],
       [
         "/main.hex",
-        'import { Color as C, Handle as H } from "./lib"\n' +
-          "export fun both(c: C, h: H): H = h\n",
+        'import CA from "./mida"\nimport CB from "./midb"\n' +
+          "export fun both(c: CA, h: CB): CA = c\n",
       ],
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type { Color as C, Handle as H } from "./lib.js";\n' +
-        "export declare function both(c: C, h: H): H;\n",
+      'import type { Color } from "./color.js";\n' +
+        'import type { Color as Color_1 } from "./handle.js";\n' +
+        "export declare function both(c: Color, h: Color_1): Color;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -449,17 +463,18 @@ describe("row 6 — a type alias's expansion (TS2304, #618)", () => {
       ["/shape.hex", "export record Shape = {s: Int}\n"],
       [
         "/mid.hex",
-        'import { Shape } from "./shape"\nexport type Wrapped = Shape\n' +
+        'import Shape from "./shape"\nexport type Wrapped = Shape\n' +
           "export fun one(): Wrapped = Shape({s = 1})\n",
       ],
-      ["/main.hex", 'import { one, Wrapped } from "./mid"\nexport let c: Wrapped = one()\n'],
+      ["/main.hex", 'import Wrapped from "./mid"\nexport let c: Wrapped = Wrapped.one()\n'],
     ]);
 
     // A face carries an alias's expansion and never its name, so `/main.hex`
-    // names `Shape` under no spelling whatever: it binds `Wrapped`, and rung 2
-    // owns the names an import *binds*. The `Wrapped` row goes with the same
-    // rule — no face mentions it — which is one of the three text changes §14.3
-    // names as expected.
+    // names `Shape` under no spelling whatever: its own alias is spelled
+    // `Wrapped`, reaching the type bare only through Modules §5.1 rule 2's
+    // companion fallback, and rung 1 owns the names this module itself
+    // declares. The `Wrapped` row goes with the same rule — no face mentions
+    // it — which is one of the three text changes §14.3 names as expected.
     expect(declarations(compiled)).toBe(
       'import type { Shape } from "./shape.js";\n' +
         "export declare const c: Shape;\n",
@@ -483,10 +498,10 @@ describe("row 6 — a type alias's expansion (TS2304, #618)", () => {
       ["/shape.hex", "export record Shape = {s: Int}\n"],
       [
         "/mid.hex",
-        'import { Shape } from "./shape"\nexport type Wrapped = Shape\n' +
+        'import Shape from "./shape"\nexport type Wrapped = Shape\n' +
           "export fun one(): Wrapped = Shape({s = 1})\n",
       ],
-      ["/main.hex", 'import { one, Wrapped } from "./mid"\nexport let c: Wrapped = one()\n'],
+      ["/main.hex", 'import Wrapped from "./mid"\nexport let c: Wrapped = Wrapped.one()\n'],
     ]);
 
     expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual(["./shape"]);
@@ -503,13 +518,14 @@ describe("row 6 — a type alias's expansion (TS2304, #618)", () => {
       ["/b.hex", "export record Gamma = {n: Int}\n"],
       [
         "/mid.hex",
-        'import { Alpha, Beta } from "./a"\nimport { Gamma } from "./b"\n' +
+        'import Alpha from "./a"\nimport Beta from "./a"\nimport Gamma from "./b"\n' +
           "export type A = Alpha\nexport type B = Beta\nexport type G = Gamma\n" +
           "export fun mk(g: G, b: B, a: A): Int = 0\n",
       ],
       [
         "/main.hex",
-        'import { mk, A, B, G } from "./mid"\nexport fun use(g: G, b: B, a: A): Int = mk(g, b, a)\n',
+        'import A from "./mid"\nimport B from "./mid"\nimport G from "./mid"\n' +
+          "export fun use(g: G, b: B, a: A): Int = G.mk(g, b, a)\n",
       ],
     ]);
 

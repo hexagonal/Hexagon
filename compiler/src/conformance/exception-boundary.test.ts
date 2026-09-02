@@ -50,18 +50,18 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
       ["/errors.hex", "export exception Boom(code: Int)\n"],
       ["/client/failures.hex", "export exception Splat(code: Int)\n"],
       ["/main.hex",
-        "import { Boom } from \"./errors\"\n" +
-        "import { Splat } from \"./client/failures\"\n" +
+        "import Errors from \"./errors\"\n" +
+        "import Failures from \"./client/failures\"\n" +
         "export fun a(): Int =\n" +
         "    try\n" +
-        "        throw(Boom(1))\n" +
+        "        throw(Errors.Boom(1))\n" +
         "    catch\n" +
-        "        Boom(c) => c\n" +
+        "        Errors.Boom(c) => c\n" +
         "export fun b(): Int =\n" +
         "    try\n" +
-        "        throw(Splat(2))\n" +
+        "        throw(Failures.Splat(2))\n" +
         "    catch\n" +
-        "        Splat(c) => c\n"],
+        "        Failures.Splat(c) => c\n"],
     ] as const;
 
     // Forward slashes, no leading slash, `.hex` dropped — Modules §2's "a
@@ -77,12 +77,12 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     const files = [
       ["/src/client/failures.hex", "export exception Splat(code: Int)\n"],
       ["/src/main.hex",
-        "import { Splat } from \"./client/failures\"\n" +
+        "import Failures from \"./client/failures\"\n" +
         "export fun b(): Int =\n" +
         "    try\n" +
-        "        throw(Splat(2))\n" +
+        "        throw(Failures.Splat(2))\n" +
         "    catch\n" +
-        "        Splat(c) => c\n"],
+        "        Failures.Splat(c) => c\n"],
     ] as const;
 
     expect(javascriptOf(files, "/src/client/failures.hex"))
@@ -123,12 +123,12 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     const files = [
       ["/client/failures.hex", "export exception Splat(code: Int)\n"],
       ["/main.hex",
-        "import { Splat } from \"./client/failures\"\n" +
+        "import Failures from \"./client/failures\"\n" +
         "export fun b(): Int =\n" +
         "    try\n" +
-        "        throw(Splat(2))\n" +
+        "        throw(Failures.Splat(2))\n" +
         "    catch\n" +
-        "        Splat(c) => c\n"],
+        "        Failures.Splat(c) => c\n"],
     ] as const;
 
     expect(declarationsOf(files, "/client/failures.hex")).toContain(
@@ -352,45 +352,18 @@ describe("boundary guards (#478, §7.6)", () => {
     ]);
   });
 
-  test("and so is one with an import that binds the name", () => {
-    // An import binds a module-level name in the emitted JavaScript exactly as a
-    // declaration does. Without this the module compiled clean and emitted both
-    // the import line and `export const isHexError = …` — a duplicate
-    // declaration, and a `SyntaxError` before a line of it ran.
-    expect(compileFiles([
-      ["/lib.hex", "export let isHexError: Int = 1\n"],
-      ["/main.hex",
-        "import { isHexError } from \"./lib\"\n" +
-        "export exception Boom(code: Int)\n" +
-        "export let seed: Int = isHexError\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual([
-      "generated guard `isHexError` conflicts with binding `isHexError`; rename the declaration",
-    ]);
-  });
-
-  test("an aliased import is the same collision — the alias is the binding", () => {
-    // The spelling the source chose, not the one the exporter published. An
-    // alias can name anything, so the rule reads locals and never imported
-    // names.
-    expect(compileFiles([
-      ["/lib.hex", "export let seed: Int = 1\n"],
-      ["/main.hex",
-        "import { seed as isHexError } from \"./lib\"\n" +
-        "export exception Boom(code: Int)\n" +
-        "export let value: Int = isHexError\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual([
-      "generated guard `isHexError` conflicts with binding `isHexError`; rename the declaration",
-    ]);
-  });
-
-  test("an importing module that exports no exception is untouched", () => {
-    expect(compileFiles([
-      ["/lib.hex", "export let seed: Int = 1\n"],
-      ["/main.hex",
-        "import { seed as isHexError } from \"./lib\"\n" +
-        "export let value: Int = isHexError\n"],
-    ]).diagnostics).toEqual([]);
-  });
+  // DELETED (#762 sweep): "and so is one with an import that binds the
+  // name", "an aliased import is the same collision — the alias is the
+  // binding", and "an importing module that exports no exception is
+  // untouched" pinned an import as a second route to the collision — an
+  // ordinary named import (`import { isHexError } from "./lib"`) and a
+  // renaming one (`import { seed as isHexError } from "./lib"`) both bound
+  // the lowercase local `isHexError` in the emitted JavaScript. No import
+  // binds a name smaller than a module now (#762), and a module alias is
+  // uppercase-start, mandatorily (Modules §3) — so no import can ever bind a
+  // lowercase local again, and the collision route these three tests pinned
+  // has no surviving instance. The `let`/`fun` collision above still stands;
+  // it never went through an import.
 
   test("a module exporting no exception may bind the name freely", () => {
     expect(projectDiagnostics(

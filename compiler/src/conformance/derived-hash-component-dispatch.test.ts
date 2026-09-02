@@ -41,6 +41,16 @@ import { compileMain, runProject } from "../support/test-project.js";
  * Every program is textually distinct on purpose: two programs whose emitted JS
  * is byte-identical share one `data:` URL module instance, so a copy of another
  * test's source would silently assert against that test's module.
+ *
+ * Imports bind modules, never names smaller than one (#762): every alias file
+ * below imports its home module under the type's own spelling, so the type
+ * itself reads bare through Modules §5.1 rule 2's companion fallback (or, for a
+ * one-constructor nominal record, rule 3's term-namespace twin lets the
+ * constructor read bare too — `Cell({v = v})`, `Coin({value = value})`). A
+ * union's several constructors have no such luck: nothing spells `Dot` or `On`
+ * the way an alias spells its own type, so every construction of one in
+ * *expression* position is qualified through the alias — `Shape.Dot`,
+ * `Flag.On`. There is no expression-side door (#763).
  */
 
 /** One module's emitted JavaScript, with the project's diagnostics asserted empty. */
@@ -222,19 +232,19 @@ describe("the evidence chain through structural layers", () => {
       ["/beat.hex", "export union Beat derives (Eq, Hash) = Rest | Hit(force: Int)\n"],
       [
         "/beatalias.hex",
-        "import { Beat, Rest, Hit } from \"./beat\"\n" +
+        "import Beat from \"./beat\"\n" +
         "export type B = Beat\n" +
-        "export fun rest(): B = Rest\n" +
-        "export fun hit(force: Int): B = Hit(force)\n",
+        "export fun rest(): B = Beat.Rest\n" +
+        "export fun hit(force: Int): B = Beat.Hit(force)\n",
       ],
       [
         "/main.hex",
-        "import { B, rest, hit } from \"./beatalias\"\n" +
+        "import B from \"./beatalias\"\n" +
         "export record Bar derives (Eq, Hash) = {beats: Vector(B), lead: (B, Int)}\n" +
-        "let soft: Bar = Bar({beats = [hit(1), rest()], lead = (hit(1), 0)})\n" +
-        "let loud: Bar = Bar({beats = [hit(2), rest()], lead = (hit(1), 0)})\n" +
-        "let leadShift: Bar = Bar({beats = [hit(1), rest()], lead = (hit(2), 0)})\n" +
-        "let softAgain: Bar = Bar({beats = [hit(1), rest()], lead = (hit(1), 0)})\n" +
+        "let soft: Bar = Bar({beats = [B.hit(1), B.rest()], lead = (B.hit(1), 0)})\n" +
+        "let loud: Bar = Bar({beats = [B.hit(2), B.rest()], lead = (B.hit(1), 0)})\n" +
+        "let leadShift: Bar = Bar({beats = [B.hit(1), B.rest()], lead = (B.hit(2), 0)})\n" +
+        "let softAgain: Bar = Bar({beats = [B.hit(1), B.rest()], lead = (B.hit(1), 0)})\n" +
         "export let softHash: Int = Hash.hash(soft)\n" +
         "export let loudHash: Int = Hash.hash(loud)\n" +
         "export let leadHash: Int = Hash.hash(leadShift)\n" +
@@ -257,26 +267,27 @@ describe("the evidence chain through structural layers", () => {
       ["/inner.hex", "export union Inner derives (Eq, Hash) = Zero | One\n"],
       [
         "/outer.hex",
-        "import { Inner, Zero, One } from \"./inner\"\n" +
+        "import Inner from \"./inner\"\n" +
         "export union Outer derives (Eq, Hash) = Wrap(inner: Inner)\n" +
-        "export fun wrapZero(): Outer = Wrap(Zero)\n" +
-        "export fun wrapOne(): Outer = Wrap(One)\n",
+        "export fun wrapZero(): Outer = Wrap(Inner.Zero)\n" +
+        "export fun wrapOne(): Outer = Wrap(Inner.One)\n",
       ],
       [
         "/outeralias.hex",
-        "import { Outer, wrapZero, wrapOne } from \"./outer\"\n" +
+        "import Outer from \"./outer\"\n" +
         "export type O = Outer\n" +
-        "export fun zero(): O = wrapZero()\n" +
-        "export fun one(): O = wrapOne()\n",
+        "export fun zero(): O = Outer.wrapZero()\n" +
+        "export fun one(): O = Outer.wrapOne()\n",
       ],
       [
         "/main.hex",
-        // Neither `Outer` nor `Inner` is spelled in this module.
-        "import { O, zero, one } from \"./outeralias\"\n" +
+        // Neither `Outer` nor `Inner` is spelled in this module — only the
+        // alias `O`, itself two removes from either declaration.
+        "import O from \"./outeralias\"\n" +
         "export record Cage derives (Eq, Hash) = {held: O}\n" +
-        "export let zeroHash: Int = Hash.hash(Cage({held = zero()}))\n" +
-        "export let oneHash: Int = Hash.hash(Cage({held = one()}))\n" +
-        "export let zeroAgain: Int = Hash.hash(Cage({held = zero()}))\n",
+        "export let zeroHash: Int = Hash.hash(Cage({held = O.zero()}))\n" +
+        "export let oneHash: Int = Hash.hash(Cage({held = O.one()}))\n" +
+        "export let zeroAgain: Int = Hash.hash(Cage({held = O.zero()}))\n",
       ],
     ]);
 
@@ -289,17 +300,17 @@ describe("the evidence chain through structural layers", () => {
       ["/coin.hex", "export record Coin derives (Eq, Hash) = {value: Int}\n"],
       [
         "/coinalias.hex",
-        "import { Coin } from \"./coin\"\n" +
+        "import Coin from \"./coin\"\n" +
         "export type Money = Coin\n" +
         "export fun coin(value: Int): Money = Coin({value = value})\n",
       ],
       [
         "/main.hex",
-        "import { Money, coin } from \"./coinalias\"\n" +
+        "import Money from \"./coinalias\"\n" +
         "export union Purse derives (Eq, Hash) = Empty | Holding(coin: Money)\n" +
-        "export let one: Int = Hash.hash(Holding(coin(1)))\n" +
-        "export let two: Int = Hash.hash(Holding(coin(2)))\n" +
-        "export let oneAgain: Int = Hash.hash(Holding(coin(1)))\n" +
+        "export let one: Int = Hash.hash(Holding(Money.coin(1)))\n" +
+        "export let two: Int = Hash.hash(Holding(Money.coin(2)))\n" +
+        "export let oneAgain: Int = Hash.hash(Holding(Money.coin(1)))\n" +
         "export let none: Int = Hash.hash(Empty)\n",
       ],
     ]);

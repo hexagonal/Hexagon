@@ -359,14 +359,19 @@ describe("a base list names each declaration once", () => {
   test("two spellings of one declaration are refused, naming both and the home", () => {
     // Emitted before the refusal: `import { __weigh } from "./lib.js"` twice in
     // one module — `Identifier '__weigh' has already been declared`, at load.
+    //
+    // The bare entry is the companion fallback (§5.1 rule 2), open because the
+    // module alias is spelled exactly `Weigh`, the same word `/lib.hex` exports
+    // — the one bare route #762 leaves standing here — beside the qualified
+    // entry through a second alias, `L`, for the same module.
     const mid = [
-      'import { Weigh } from "./lib.hex"',
+      'import Weigh from "./lib.hex"',
       'import L from "./lib.hex"',
       "",
       "export constraint Both<a: (Weigh, L.Weigh)> =",
       "    label(value: a): String",
       "",
-      'export let use<a: Both>(n: a): String = "${weigh(n)}/${label(n)}"',
+      'export let use<a: Both>(n: a): String = "${L.weigh(n)}/${label(n)}"',
       "",
     ].join("\n");
     expect(diagnostics(weighGraph(mid))).toEqual([
@@ -375,21 +380,26 @@ describe("a base list names each declaration once", () => {
     ]);
   });
 
-  test("an alias is the same refusal, and reports the word that was written", () => {
+  test("two aliases of one module are the same refusal, and report the words written", () => {
     // Both currencies show in one message: the two *spellings* the author must
-    // choose between, and the declaration they turned out to share.
+    // choose between, and the declaration they turned out to share. Under #762
+    // neither spelling can be a bare rename any more (`import { Weigh as Heft }`
+    // has no seat left), so this is the two-alias shape instead: `W` and `L`
+    // name the one module, and neither is the module's own bare-fallback name,
+    // so the message quotes both qualified spellings rather than one of them
+    // bare.
     const mid = [
-      'import { Weigh as Heft } from "./lib.hex"',
+      'import W from "./lib.hex"',
       'import L from "./lib.hex"',
       "",
-      "export constraint Both<a: (Heft, L.Weigh)> =",
+      "export constraint Both<a: (W.Weigh, L.Weigh)> =",
       "    label(value: a): String",
       "",
-      'export let use<a: Both>(n: a): String = "${weigh(n)}/${label(n)}"',
+      'export let use<a: Both>(n: a): String = "${W.weigh(n)}/${label(n)}"',
       "",
     ].join("\n");
     expect(diagnostics(weighGraph(mid))).toEqual([
-      "`Heft` and `L.Weigh` both name the constraint declared `Weigh` in " +
+      "`W.Weigh` and `L.Weigh` both name the constraint declared `Weigh` in " +
         "`./lib.hex`; remove one",
     ]);
   });
@@ -427,16 +437,16 @@ describe("a base list names each declaration once", () => {
     // The stand-down is per *entry*. An unrelated unknown third spelling neither
     // suppresses the pair's refusal nor joins it.
     const mid = [
-      'import { Weigh as Heft } from "./lib.hex"',
+      'import W from "./lib.hex"',
       'import L from "./lib.hex"',
       "",
-      "export constraint Both<a: (Heft, L.Weigh, Bogus)> =",
+      "export constraint Both<a: (W.Weigh, L.Weigh, Bogus)> =",
       "    label(value: a): String",
       "",
     ].join("\n");
     expect(diagnostics([["/lib.hex", WEIGH_LIB], ["/mid.hex", mid]])).toEqual([
       "unknown base constraint `Bogus`",
-      "`Heft` and `L.Weigh` both name the constraint declared `Weigh` in " +
+      "`W.Weigh` and `L.Weigh` both name the constraint declared `Weigh` in " +
         "`./lib.hex`; remove one",
     ]);
   });
@@ -445,10 +455,10 @@ describe("a base list names each declaration once", () => {
     // The contest above, asked as a negative: identity is what the rule keys on,
     // so a same-*spelled* pair passes where a same-*declaration* pair does not.
     const mid = [
-      'import { Tag } from "./lib1.hex"',
-      'import { Tag as Tag2 } from "./lib2.hex"',
+      'import Lib1 from "./lib1.hex"',
+      'import Lib2 from "./lib2.hex"',
       "",
-      "export constraint Both<a: (Tag, Tag2)> =",
+      "export constraint Both<a: (Lib1.Tag, Lib2.Tag)> =",
       "    label(value: a): String",
       "",
     ].join("\n");
@@ -481,28 +491,28 @@ describe("a member cannot take a minted slot, and needs no rule saying so", () =
   ].join("\n");
 
   const MID = [
-    'import { Weigh as Heft } from "./lib.hex"',
+    'import Weigh from "./lib.hex"',
     "",
-    "export constraint Both<a: Heft> =",
+    "export constraint Both<a: Weigh> =",
     "    weigh(value: a): String",
     "",
-    'export let use<a: Both>(n: a): String = "${heaviness(n)}/${weigh(n)}"',
+    'export let use<a: Both>(n: a): String = "${Weigh.heaviness(n)}/${weigh(n)}"',
     "",
   ].join("\n");
 
   const MAIN = [
-    'import { Both, use } from "./mid.hex"',
-    'import { Weigh } from "./lib.hex"',
+    'import Mid from "./mid.hex"',
+    'import Lib from "./lib.hex"',
     "",
     "record Wrap = {n: Int}",
     "",
-    "honor Weigh<Wrap> =",
+    "honor Lib.Weigh<Wrap> =",
     '    heaviness(value) = "base"',
     "",
-    "honor Both<Wrap> =",
+    "honor Mid.Both<Wrap> =",
     '    weigh(value) = "member"',
     "",
-    "export let r: String = use(Wrap({n = 1}))",
+    "export let r: String = Mid.use(Wrap({n = 1}))",
     "",
   ].join("\n");
 
@@ -537,11 +547,13 @@ describe("a member cannot take a minted slot, and needs no rule saying so", () =
 
   test("a member spelled like the local alias is legal too", () => {
     // The mirror, and a behaviour change from before #719: `heft` was refused,
-    // and no slot of that spelling has ever existed.
+    // and no slot of that spelling has ever existed. `Heft` is the module
+    // alias's own spelling here (not the base's — #762 leaves no bare rename to
+    // reach for), so this is the same claim: the alias's word is not the slot.
     const mid = [
-      'import { Weigh as Heft } from "./lib.hex"',
+      'import Heft from "./lib.hex"',
       "",
-      "export constraint Both<a: Heft> =",
+      "export constraint Both<a: Heft.Weigh> =",
       "    heft(value: a): String",
       "",
     ].join("\n");

@@ -137,50 +137,34 @@ export function typeNamesOf(
     claimed.add(item.name);
   }
 
+  // Every import binds a module and nothing smaller (Modules §3, #762), so the
+  // spellings an import contributes are the alias's: the qualified ones below,
+  // and — where the aliased module exports a type of the alias's own spelling —
+  // the **bare** one §5.1 rule 2's companion fallback answers. The bare one is
+  // claimed first because it is the spelling the reader would write, and the
+  // qualified one still stands behind it for every other type the module
+  // exports.
   const namespaces: { readonly alias: string; readonly fileId: Source.FileId }[] = [];
   for (const item of resolved.items) {
-    if (item.kind !== "Import") continue;
+    if (item.kind !== "Import" || item.synthesized) continue;
     const declaring = fileOfSpecifier?.(item.specifier);
-    if (declaring === undefined) continue;
+    if (declaring === undefined || item.form.kind !== "Namespace") continue;
+    const { alias } = item.form;
+    namespaces.push({ alias, fileId: declaring });
+    if (taken.has(alias)) continue;
     const declared = declaredIn(declaring);
-    if (item.form.kind === "Namespace") {
-      namespaces.push({ alias: item.form.alias, fileId: declaring });
+    const union = declared.union(alias);
+    if (union !== undefined) {
+      claim(unions, union, alias);
       continue;
     }
-    if (item.form.kind !== "Named") continue;
-    for (const name of item.form.names) {
-      // An import clause carries no type identity — `ImportName` has nowhere to
-      // put one — so it is recovered from the module's own type tables, which
-      // hold imported declarations beside local ones. Two modules can export one
-      // type name, so the candidate is matched against the file this specifier
-      // resolves to rather than against "declared somewhere other than here".
-      //
-      // Every clause is checked, including one that already resolved to a value
-      // symbol. `import {Point}` where `Point` is a record binds the type *and*
-      // the constructor — one item, two namespaces (Modules §3.1) — so the
-      // symbol being present says nothing about whether a type came with it.
-      // Skipping those made every imported record unspellable, and said so in a
-      // sentence claiming the module had no name for a type it had just
-      // imported. A clause that really does name only a value matches nothing
-      // here, since the tables are keyed by names it cannot collide with.
-      const union = declared.union(name.imported);
-      if (union !== undefined) {
-        taken.add(name.local);
-        claim(unions, union, name.local);
-        continue;
-      }
-      const record = declared.record(name.imported);
-      if (record !== undefined) {
-        taken.add(name.local);
-        claim(records, record, name.local);
-        continue;
-      }
-      const externType = declared.externType(name.imported);
-      if (externType !== undefined) {
-        taken.add(name.local);
-        claim(externTypes, externType, name.local);
-      }
+    const record = declared.record(alias);
+    if (record !== undefined) {
+      claim(records, record, alias);
+      continue;
     }
+    const externType = declared.externType(alias);
+    if (externType !== undefined) claim(externTypes, externType, alias);
   }
 
   for (const [name, union] of resolved.preludeUnions) claim(unions, union, name);

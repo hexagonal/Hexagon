@@ -8201,11 +8201,12 @@ class Checker {
     // A head the door answered — or refused — was written bare, and the bare
     // spelling is what the reader is looking at: no tier can improve on it, and
     // a head with no symbol has no tier to judge at all.
-    if (pattern.open === true) return pattern.text;
-    if (this.#bareNames.get(pattern.text) === pattern.symbol) return pattern.text;
-    const local = this.#bareSpellings.get(pattern.symbol);
+    const symbol = pattern.symbol;
+    if (pattern.open === true || symbol === undefined) return pattern.text;
+    if (this.#bareNames.get(pattern.text) === symbol) return pattern.text;
+    const local = this.#bareSpellings.get(symbol);
     if (local !== undefined) return local;
-    return this.#aliasQualifications.get(pattern.symbol) ?? pattern.text;
+    return this.#aliasQualifications.get(symbol) ?? pattern.text;
   }
 
   /** Whether anything inside this pattern failed to type (§7.3's obligation). */

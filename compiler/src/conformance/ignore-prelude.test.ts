@@ -294,8 +294,8 @@ describe("referenced as a value: the ordinary ESM export (§3.3)", () => {
         ["/apply.hex",
           "export let applyTo(value: Int, action: (Int) -> Unit): Unit = action(value)\n"],
         ["/main.hex",
-          'import { applyTo } from "./apply"\n' +
-          "export let handed(): Unit = applyTo(3, ignore)\n"],
+          'import Apply from "./apply"\n' +
+          "export let handed(): Unit = Apply.applyTo(3, ignore)\n"],
       ],
       { transform: distinct("first-class") },
     );
@@ -401,9 +401,9 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
             '    Debug.log("imported ignore ran")\n'],
           ["/main.hex",
             audit +
-            'import { ignore } from "./mine"\n' +
+            'import Mine from "./mine"\n' +
             'export let go(): Int =\n' +
-            '    ignore(audit("imported"))\n' +
+            '    Mine.ignore(audit("imported"))\n' +
             '    1\n'],
         ],
         { transform: distinct("imported-ignore") },

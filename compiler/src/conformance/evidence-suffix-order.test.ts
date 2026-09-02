@@ -103,8 +103,14 @@ const DESCRIBE =
   "honor Describe<Int> =\n" +
   "    tag(value) = \"int\"\n";
 
+// `Describe` reaches the constraint bare through the companion fallback
+// (§5.1 rule 2): the module alias every fixture below imports it under is
+// spelled `Describe`, the same word `./describe.hex` exports, and this
+// module's own constraint namespace has nothing else of that name. Its
+// member `tag`, in the term namespace, has no such fallback — it is a member,
+// reached only through the alias.
 const BOTH_MEMBERS =
-  "let both<a: (Show, Describe)>(x: a): String = show(x) ++ tag(x)\n";
+  "let both<a: (Show, Describe)>(x: a): String = show(x) ++ Describe.tag(x)\n";
 
 describe("conjuncts on one variable follow the alphabet, not the spelling", () => {
   test("#447's own program runs", async () => {
@@ -480,9 +486,9 @@ describe("across a module boundary, at a type no edition covers", () => {
         ["/mix.hex", `export ${MIX}`],
         [
           "/main.hex",
-          'import { Point } from "./describe"\n' +
-            'import { mix } from "./mix"\n' +
-            "export let answer: String = mix(Point({x = 1}), True)\n",
+          'import Describe from "./describe"\n' +
+            'import Mix from "./mix"\n' +
+            "export let answer: String = Mix.mix(Describe.Point({x = 1}), True)\n",
         ],
       ],
       { transform: distinct("evidence suffix order: cross-module axis 2") },
@@ -497,9 +503,9 @@ describe("across a module boundary, at a type no edition covers", () => {
       ["/mix.hex", `export ${MIX}`],
       [
         "/main.hex",
-        'import { Point } from "./describe"\n' +
-          'import { mix } from "./mix"\n' +
-          "export let answer: String = mix(Point({x = 1}), True)\n",
+        'import Describe from "./describe"\n' +
+          'import Mix from "./mix"\n' +
+          "export let answer: String = Mix.mix(Describe.Point({x = 1}), True)\n",
       ],
     ] as const;
 
@@ -507,7 +513,7 @@ describe("across a module boundary, at a type no edition covers", () => {
       "const mix = (x, y, __Show_b, __Show_a) =>",
     );
     expect(emitted(files)).toContain(
-      "const answer = mix({ x: 1 }, true, __Show_Bool, __Show_Point);",
+      "const answer = __mix({ x: 1 }, true, __Show_Bool, __Show_Point);",
     );
   });
 
@@ -524,9 +530,9 @@ describe("across a module boundary, at a type no edition covers", () => {
         ["/describe.hex", DESCRIBE],
         [
           "/main.hex",
-          'import { Describe, Point } from "./describe"\n' +
+          'import Describe from "./describe"\n' +
             BOTH_MEMBERS +
-            "export let answer: String = both(Point({x = 1}))\n",
+            "export let answer: String = both(Describe.Point({x = 1}))\n",
         ],
       ],
       { transform: distinct("evidence suffix order: both members nominal") },
@@ -542,7 +548,7 @@ describe("across a module boundary, at a type no edition covers", () => {
         ["/describe.hex", DESCRIBE],
         [
           "/main.hex",
-          'import { Describe } from "./describe"\n' +
+          'import Describe from "./describe"\n' +
             BOTH_MEMBERS +
             "let seven: Int = 7\n" +
             "export let answer: String = both(seven)\n",
@@ -559,14 +565,15 @@ describe("across a module boundary, at a type no edition covers", () => {
       ["/describe.hex", DESCRIBE],
       [
         "/main.hex",
-        'import { Describe, Point } from "./describe"\n' +
+        'import Describe from "./describe"\n' +
           BOTH_MEMBERS +
-          "export let answer: String = both(Point({x = 1}))\n",
+          "export let answer: String = both(Describe.Point({x = 1}))\n",
       ],
     ]);
 
     expect(javascript).toContain(
-      "const both = (x, __Describe_a, __Show_a) => show(x, __Show_a) + tag(x, __Describe_a);",
+      "const both = (x, __Describe_a, __Show_a) => " +
+        "show(x, __Show_a) + __tag(x, __Describe_a);",
     );
     expect(javascript).toContain(
       "const answer = both({ x: 1 }, __Describe_Point, __Show_Point);",
@@ -598,7 +605,7 @@ describe("Part 8 routing reads the same scheme by a different key", () => {
       ["/mix.hex", `export ${MIX}`],
       [
         "/main.hex",
-        'import { mix } from "./mix"\n' + "export let out: String = mix(2, True)\n",
+        'import Mix from "./mix"\n' + "export let out: String = Mix.mix(2, True)\n",
       ],
     ]);
 
@@ -611,7 +618,7 @@ describe("Part 8 routing reads the same scheme by a different key", () => {
         ["/mix.hex", `export ${MIX}`],
         [
           "/main.hex",
-          'import { mix } from "./mix"\n' + "export let out: String = mix(2, True)\n",
+          'import Mix from "./mix"\n' + "export let out: String = Mix.mix(2, True)\n",
         ],
       ],
       { transform: distinct("evidence suffix order: routed mix") },
@@ -630,7 +637,8 @@ describe("Part 8 routing reads the same scheme by a different key", () => {
       ],
       [
         "/main.hex",
-        'import { t } from "./trio"\n' + 'export let out: String = t(1, True, "s")\n',
+        'import Trio from "./trio"\n' +
+          'export let out: String = Trio.t(1, True, "s")\n',
       ],
     ] as const;
 
@@ -657,8 +665,8 @@ describe("Part 8 routing reads the same scheme by a different key", () => {
       ],
       [
         "/main.hex",
-        'import { Box, tell } from "./box"\n' +
-          "export let out: String = Box({v = 1}).tell(2, True)\n",
+        'import Box from "./box"\n' +
+          "export let out: String = Box.Box({v = 1}).tell(2, True)\n",
       ],
     ] as const;
 

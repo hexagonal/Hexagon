@@ -256,8 +256,8 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     const lib = PRIVATE_EXTERN + "export type Exposed = Hidden\n";
     const compiled = project({
       "/src/lib.hex": lib,
-      "/src/main.hex": 'import { Exposed } from "./lib"\n' +
-        "export record Wrap = {h: Exposed}\n",
+      "/src/main.hex": 'import Lib from "./lib"\n' +
+        "export record Wrap = {h: Lib.Exposed}\n",
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "exported type alias `Exposed` exposes private type `Hidden`; " +
@@ -281,8 +281,8 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     const compiled = project({
       "/src/lib.hex": PRIVATE_EXTERN + "export type Exposed = Hidden\n" +
         "export fun peek(h: Hidden): Hidden = h\n",
-      "/src/main.hex": 'import { peek, Exposed } from "./lib"\n' +
-        "export fun g(h: Exposed): Exposed = peek(h)\n",
+      "/src/main.hex": 'import Lib from "./lib"\n' +
+        "export fun g(h: Lib.Exposed): Lib.Exposed = Lib.peek(h)\n",
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "exported type alias `Exposed` exposes private type `Hidden`; " +
@@ -301,7 +301,7 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     // annotation it owes, never about a type it cannot name.
     const compiled = project({
       "/src/lib.hex": PRIVATE_EXTERN + "export fun peek(h: Hidden): Hidden = h\n",
-      "/src/main.hex": 'import { peek } from "./lib"\n' + "export let g = peek\n",
+      "/src/main.hex": 'import Lib from "./lib"\n' + "export let g = Lib.peek\n",
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "exported binding `peek` exposes private type `Hidden`; " +
@@ -319,8 +319,8 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     // row — and the consumer still hears only about the annotation it owes.
     const lib = 'extern from "./lib.js"\n    type Hidden\n' +
       "export constraint Probe<a> =\n    probe(x: a): Hidden\n";
-    const consumer = 'import { Probe } from "./lib"\n' +
-      "export fun g<a: Probe>(x: a) = probe(x)\n";
+    const consumer = 'import Lib from "./lib"\n' +
+      "export fun g<a: Lib.Probe>(x: a) = Lib.probe(x)\n";
     const alone = project({ "/src/lib.hex": lib }).diagnostics;
     expect(alone.map(({ message }) => message)).toEqual([
       "exported constraint `Probe` exposes private type `Hidden`; " +
@@ -345,8 +345,8 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     // #605 and the extern arm since #629, so the two answer this program
     // identically — one refusal at `lib`'s member, one completeness error at
     // `main`, and no word to `main` about a type it cannot name.
-    const consumer = 'import { Probe } from "./lib"\n' +
-      "export fun g<a: Probe>(x: a) = probe(x)\n";
+    const consumer = 'import Lib from "./lib"\n' +
+      "export fun g<a: Lib.Probe>(x: a) = Lib.probe(x)\n";
     const compiled = project({
       "/src/lib.hex": "record Hidden = {n: Int}\n" +
         "export constraint Probe<a> =\n    probe(x: a): Hidden\n",
@@ -368,8 +368,8 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     const compiled = project({
       "/src/lib.hex": 'extern from "./lib.js"\n    export type Shown\n' +
         "export type Alias = Shown\n",
-      "/src/main.hex": 'import { Alias } from "./lib"\n' +
-        "export record Wrap = {h: Alias}\n",
+      "/src/main.hex": 'import Lib from "./lib"\n' +
+        "export record Wrap = {h: Lib.Alias}\n",
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(moduleOf(compiled, "/src/main.hex").declarations.text).toContain(
@@ -387,9 +387,9 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     // because nothing else in the suite reaches this arm through two hops.
     const compiled = project({
       "/src/lib.hex": 'extern from "./lib.js"\n    export type Shown\n',
-      "/src/mid.hex": 'import { Shown } from "./lib"\nexport type Alias = Shown\n',
-      "/src/main.hex": 'import { Alias } from "./mid"\n' +
-        "export record Wrap = {h: Alias}\n",
+      "/src/mid.hex": 'import Lib from "./lib"\nexport type Alias = Lib.Shown\n',
+      "/src/main.hex": 'import Mid from "./mid"\n' +
+        "export record Wrap = {h: Mid.Alias}\n",
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(moduleOf(compiled, "/src/main.hex").declarations.text).toBe(
@@ -404,9 +404,9 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     // Locality withholds the check from types that live elsewhere; it does not
     // weaken it at home. `main` here has both an import and a private extern row
     // of its own, and only its own is read.
-    const main = 'import { Shown } from "./lib"\n' +
+    const main = 'import Lib from "./lib"\n' +
       'extern from "./host.js"\n    type Own\n' +
-      "export record Wrap = {a: Shown, b: Own}\n";
+      "export record Wrap = {a: Lib.Shown, b: Own}\n";
     const compiled = project({
       "/src/lib.hex": 'extern from "./lib.js"\n    export type Shown\n',
       "/src/main.hex": main,
@@ -537,9 +537,9 @@ describe("what is not a carrier", () => {
     // out of the check — the rule is about types *this* module withholds.
     const compiled = project({
       "/src/lib.hex": "export record Pub = {n: Int}\nexport union Flag = On | Off\n",
-      "/src/main.hex": 'import { Pub, Flag } from "./lib"\n' +
-        "export record Outer = {p: Pub, f: Flag}\n" +
-        "export type W = Pub\n",
+      "/src/main.hex": 'import Lib from "./lib"\n' +
+        "export record Outer = {p: Lib.Pub, f: Lib.Flag}\n" +
+        "export type W = Lib.Pub\n",
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -705,8 +705,8 @@ describe("the sealing idiom is lawful, deliberately (#626)", () => {
         "export record Pub = {n: Int}\n" +
         "honor Priv<Pub> =\n    twiddle(x) = x.n\n" +
         "export fun use<a: Priv>(x: a): Int = twiddle(x)\n",
-      "/src/main.hex": 'import { use, Pub } from "./lib"\n' +
-        "export let n: Int = use(Pub({n = 1}))\n",
+      "/src/main.hex": 'import Lib from "./lib"\n' +
+        "export let n: Int = Lib.use(Lib.Pub({n = 1}))\n",
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   });
@@ -734,12 +734,12 @@ describe("`opaque` is the recovery the message names (#626)", () => {
     "honor Probe<Pub> =\n" +
     "    peek(x) = Hidden({n = x.n})\n" +
     "    poke(x, h) = h.n + x.n\n";
-  const CONSUMER = 'import { Probe, Pub } from "./lib"\n' +
+  const CONSUMER = 'import Lib from "./lib"\n' +
     "export record Mine = {n: Int}\n" +
-    "honor Probe<Mine> =\n" +
-    "    peek(x) = Pub({n = x.n}).peek()\n" +
-    "    poke(x, h) = Pub({n = x.n}).poke(h)\n" +
-    "export fun thread<a: Probe>(x: a): Int = poke(x, peek(x))\n";
+    "honor Lib.Probe<Mine> =\n" +
+    "    peek(x) = Lib.Pub({n = x.n}).peek()\n" +
+    "    poke(x, h) = Lib.Pub({n = x.n}).poke(h)\n" +
+    "export fun thread<a: Lib.Probe>(x: a): Int = Lib.poke(x, Lib.peek(x))\n";
 
   test("the whole existential pattern compiles under `opaque`", () => {
     const compiled = project({ "/src/lib.hex": OPAQUE_LIB, "/src/main.hex": CONSUMER });
@@ -764,8 +764,8 @@ describe("`opaque` is the recovery the message names (#626)", () => {
     const compiled = project({
       "/src/lib.hex": 'extern from "./lib.js"\n    type Hidden\n' +
         "export type Exposed = Hidden\n",
-      "/src/main.hex": 'import { Exposed } from "./lib"\n' +
-        "export constraint Probe<a> =\n    peek(x: a): Exposed\n",
+      "/src/main.hex": 'import Lib from "./lib"\n' +
+        "export constraint Probe<a> =\n    peek(x: a): Lib.Exposed\n",
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "exported type alias `Exposed` exposes private type `Hidden`; " +

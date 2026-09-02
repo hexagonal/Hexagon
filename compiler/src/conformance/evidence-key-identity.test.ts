@@ -229,7 +229,7 @@ const DECLARED_MODULE = [
 ].join("\n");
 
 const MAIN_MODULE = [
-  'import { Describe, tell, Pair } from "./declared"',
+  'import Declared from "./declared"',
   "export record Point derives (Eq, Ord, Show, Hash) = {x: Int, y: Int}",
   "export let shownPair: String = show((1, 2))",
   'export let interpolated: String = "pair ${(3, 4)}"',
@@ -251,8 +251,8 @@ const MAIN_MODULE = [
   "export fun hashed<a: Hash>(x: a): Int = Hash.hash(x)",
   "export fun joined<a: Concat>(x: a, y: a): a = x ++ y",
   "let one: Int = 1",
-  "export let told: String = tell(one)",
-  "export let toldPair: String = tell(Pair({left = one, right = True}))",
+  "export let told: String = Declared.tell(one)",
+  "export let toldPair: String = Declared.tell(Declared.Pair({left = one, right = True}))",
   "export let point: Point = Point({x = 1, y = 2})",
   "export let pointShown: String = show(point)",
   "export let pointsEqual: Bool = point == point",
@@ -269,8 +269,29 @@ describe("the live name-reads see pre-registered names only", () => {
     PRE_REGISTERED_CONSTRAINTS.some((name) => identity === `hex:${name}`);
 
   test("the corpus compiles clean, and the walk finds it", () => {
-    // Both halves matter. A rejected program satisfies the pins below for free,
-    // and so does a discriminator that has stopped matching anything.
+    // KNOWN COMPILER DEFECT, reported rather than routed around — see this
+    // file's report. `MAIN_MODULE`'s `Declared.tell(Declared.Pair({...}))`
+    // demands `Describe<Pair(Int, Bool)>` from *outside* `/declared.hex`; that
+    // instance is `honor<a: Describe, b: Describe> Describe<Pair(a, b)>`, whose
+    // own binder list in turn demands `Describe<Int>` and `Describe<Bool>` — two
+    // instances that live in the very same external module. Reduced to a
+    // minimal repro: a module declaring `Describe`, honoring it at `Int` and at
+    // `Bool`, and a parameterized `Describe<Pair(a, b)>` instance over both,
+    // compiles clean on its own (proven directly, and by every other row in
+    // this corpus), but the moment a *second* module reaches the parameterized
+    // instance only through a module alias — `Declared.tell(Declared.Pair(...))`,
+    // never a bare name — the binder demand at `Int`/`Bool` reports
+    // `` type `Int` has no `Describe` instance `` and `` type `Bool` has no
+    // `Describe` instance `` even though both are declared two lines above the
+    // instance that needs them. This is the same starved-local-table shape
+    // `#587`/`#763` hit elsewhere (`transparent-representation.test.ts`): the
+    // checker's own-module `#instances` map is never faulted for the *outer*
+    // demand (`Describe<Pair(Int, Bool)>` resolves, and reaches the
+    // parameterized instance fine), only for the instance's *own* recursive
+    // binder demands, which under #762 can now be reached with no bare name for
+    // either constraint or record ever having crossed into the caller's module.
+    // Both halves matter otherwise. A rejected program satisfies the pins below
+    // for free, and so does a discriminator that has stopped matching anything.
     expect(compiled.diagnostics).toEqual([]);
     expect(rows.length).toBeGreaterThan(500);
     expect(rows.some(({ identity }) => identity === "0:Describe")).toBe(true);
@@ -330,6 +351,14 @@ describe("the live name-reads see pre-registered names only", () => {
    * determine a declaration.
    */
   test("a module-declared constraint reaches neither seat", () => {
+    // KNOWN COMPILER DEFECT, the same one flagged above: the failed
+    // `Describe<Int>`/`Describe<Bool>` binder resolution inside
+    // `Describe<Pair(a, b)>`'s own instance leaves those two requirements
+    // `reported` rather than resolved, which mints them a second, unrelated
+    // identity (`1:Describe`) instead of unifying them with the `0:Describe`
+    // every other occurrence in the corpus shares — so the row set below has
+    // five entries instead of the four a clean compile produces. Left as the
+    // correct expectation; see the report for this file.
     const declared = rows.filter(({ identity }) => !identity.startsWith("hex:"));
 
     expect(declared.length).toBeGreaterThan(0);
@@ -357,27 +386,20 @@ describe("what keeps a pre-registered name canonical", () => {
     )).toEqual(["constraint `Eq` is pre-registered and cannot be redeclared"]);
   });
 
-  /**
-   * The other door onto the name, and the one the ban would leave open if it
-   * were about declarations alone: an import renaming a declared constraint
-   * onto a pre-registered spelling. Refused as a collision, so no program has a
-   * `Describe` that a `#validate` gate reading `requirement.name` would take
-   * for `Eq`.
-   */
-  test("a pre-registered name cannot be imported onto", () => {
-    const declared = "export constraint Describe<a> =\n    describe(subject: a): String\n";
-
-    expect(compileFiles([
-      ["/lib.hex", declared],
-      [
-        "/main.hex",
-        'import { Describe as Eq } from "./lib"\n' +
-          "export fun tell<a: Eq>(x: a): String = describe(x)\n",
-      ],
-    ]).diagnostics.map(({ message }) => message)).toContain(
-      "constraint `Eq` is already declared or imported",
-    );
-  });
+  // "The other door onto the name" this file used to pin here — an import
+  // renaming a declared constraint onto a pre-registered spelling, refused as
+  // a collision — has no seat left under #762. An import binds a module alias
+  // and nothing smaller: it does not bind the constraint's name at all, renamed
+  // or otherwise, so there is no route left by which importing can put a
+  // second `Eq` in the constraint namespace. (A module alias *can* be spelled
+  // `Eq`, but the companion-fallback tests pin that a module alias and a
+  // constraint of the same spelling occupy different namespaces and do not
+  // collide — `companion-fallback.test.ts`'s "the module's own record wins,
+  // with no diagnostic at all" is the type-namespace instance of the same
+  // fact.) So the property this test pinned — that `#validate` never sees a
+  // module-declared constraint reading back as `Eq` — is now guaranteed by a
+  // stronger fact than a collision refusal: nothing an importer writes can
+  // bind a constraint name at all.
 
   /**
    * Why a declared constraint cannot reach the `S|` seat even where the gate

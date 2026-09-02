@@ -255,9 +255,12 @@ describe("the companion is the home module, and only the home module", () => {
 
   /**
    * A local of the same name loses to the home module's operation even though it
-   * is the name in scope — §1's "not UFCS" clause, cross-module. The home
-   * operation is imported under an alias, so the emitted call also proves the
-   * winner is spelled by its local binding rather than by its declared name.
+   * is the name in scope — §1's "not UFCS" clause, cross-module. `twice` is
+   * shadowed bare here (a module import binds only the alias `Box`, #762), so
+   * the emitted call also proves the winner is reached through the module
+   * qualification rather than miscalled as the local shadow: it can be spelled
+   * `Box.twice` in this module, and it is `Box.twice` — never the bare `twice`
+   * that would resolve to the shadow — the emitter writes.
    */
   test("a same-named local loses to the type's home module", async () => {
     const files = [
@@ -268,7 +271,7 @@ describe("the companion is the home module, and only the home module", () => {
       ],
       [
         "/main.hex",
-        'import { Box, twice as scaleBy } from "./box"\n' +
+        'import Box from "./box"\n' +
         "export fun twice(b: Box): Int = 0\n" +
         "export let out: Int = Box({value = 21}).twice()\n",
       ],
@@ -277,7 +280,7 @@ describe("the companion is the home module, and only the home module", () => {
     expect(diagnostics(files)).toEqual([]);
     const main = await runProject(files);
     expect(main["out"]).toBe(42);
-    expect(emitted(files, "/main.hex")).toContain("scaleBy(");
+    expect(emitted(files, "/main.hex")).toContain("Box.twice(");
   });
 
   /**
