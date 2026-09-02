@@ -105,7 +105,7 @@ No forced parentheses when the form is rightmost — that is the point. A bare e
 
 ### 3.3 `|>` vs `=>`
 
-Pipe is the loosest infix operator, sitting just above the eats-right family. Two consequences, both intended: `xs |> map(x => x + 1)` parses the lambda inside `map`'s argument list, and `x => x |> f` parses the entire pipe as the lambda body (per §3.2 the lambda ate to the right). Everything logical pipes cleanly: `a and b |> assert` is `(a and b) |> assert`.
+Pipe is the loosest infix operator, sitting just above the eats-right family. Two consequences, both intended: `xs |> Seq.map(x => x + 1)` parses the lambda inside `map`'s argument list, and `x => x |> f` parses the entire pipe as the lambda body (per §3.2 the lambda ate to the right). Everything logical pipes cleanly: `a and b |> assert` is `(a and b) |> assert`.
 
 ---
 

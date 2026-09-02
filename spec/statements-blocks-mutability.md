@@ -145,7 +145,7 @@ The classification is **per-binder, not per-form**: `let f(x) = x + 1` binds `f`
        y
    ```
 
-   Without this clause the inner binding's legality would turn on the outer keyword — `fun` puts its name genuinely in scope in its own body, so the same rebinding under a `fun` is already an error by the main rule — and the inner `let y` sits indented directly under the `let y =` it collides with, the exact misread this ban exists to prevent (§5.3). There is nothing to eclipse, so this is not even shadowing: a fresh name colliding with a definition in progress renames without loss. Member definitions participate — a member is a `let` header (Constraints §4.6), so a member's body reserves the member's own name identically. Head binders remain exempt (rule 2): `let y = xs |> map(y => y + 1)` is legal. The diagnostic is its own — "already bound" would be false — see §9.3. Recorded cost: inlining a single-use temporary into a same-named binding now forces a rename of the inner binder (binding the block to `t` and then `let y = t` is legal; inlining `t`'s RHS into `let y = ...` is not). That is the sequential ban's usual price — code moved into a scope where its names are taken renames — extended by exactly one name: the name of the binding being moved into.
+   Without this clause the inner binding's legality would turn on the outer keyword — `fun` puts its name genuinely in scope in its own body, so the same rebinding under a `fun` is already an error by the main rule — and the inner `let y` sits indented directly under the `let y =` it collides with, the exact misread this ban exists to prevent (§5.3). There is nothing to eclipse, so this is not even shadowing: a fresh name colliding with a definition in progress renames without loss. Member definitions participate — a member is a `let` header (Constraints §4.6), so a member's body reserves the member's own name identically. Head binders remain exempt (rule 2): `let y = xs |> Seq.map(y => y + 1)` is legal. The diagnostic is its own — "already bound" would be false — see §9.3. Recorded cost: inlining a single-use temporary into a same-named binding now forces a rename of the inner binder (binding the block to `t` and then `let y = t` is legal; inlining `t`'s RHS into `let y = ...` is not). That is the sequential ban's usual price — code moved into a scope where its names are taken renames — extended by exactly one name: the name of the binding being moved into.
 2. **A head binder may shadow anything**: a sequential binder (`let x = 1; xs |> Seq.map(x => ...)` — the motivating EF-query case), another head binder (nested lambdas both binding `x`), a `var`, a prelude name. The shadow fully eclipses the outer name for the binder's region; there is no way to reach the eclipsed name inside it.
 3. Same-block duplicate names are the degenerate case of rule 1 (`let x = 1; let x = 2` — error) and of the existing duplicate-binder rules for patterns (`Rect(w, w)` — error, Unions §4.2; those are *simultaneous* binders, not shadowing, and stay errors).
 
@@ -216,7 +216,7 @@ That rewrite is for a **read** of the current value. An attempted assignment get
   var shift = computeShift()
   ...
   let s = shift                  -- freeze the current value
-  xs |> map(x => x + s)          -- fine: s is a let
+  xs |> Seq.map(x => x + s)          -- fine: s is a let
   ```
 
 - **`fun` can never touch a `var`**, as a corollary: a `fun` member is header syntax denoting a lambda (Functions §7.1), so the rule applies wholesale.
@@ -325,18 +325,18 @@ fun f() =
 -- (e) Lambda boundary
 fun g(xs) =
     var shift = 1
-    xs |> map(x => x + shift)          -- ERROR: shift is a var; copy to a let first
+    xs |> Seq.map(x => x + shift)          -- ERROR: shift is a var; copy to a let first
 
 fun g2(xs) =
     var shift = 1
     ...
     let s = shift
-    xs |> map(x => x + s)              -- fine
+    xs |> Seq.map(x => x + s)              -- fine
 
 -- (f) Head Binder Shadowing
 let x = 1
 let x = 2                            -- ERROR: x is already bound
-xs |> map(x => x * 2)                -- fine: head binder shadows
+xs |> Seq.map(x => x * 2)                -- fine: head binder shadows
 
 let x = 42
 let f(x) = x + 1                     -- fine: header-sugar parameter is a head binder

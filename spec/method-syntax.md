@@ -525,7 +525,7 @@ fun m(x) = Num.multiply(x, x.total(1)) -- x gets Num (from multiply); at the dea
                                        --   re-fires, and `total` is no field, companion
                                        --   operation, or honored member of Int —
                                        --   ERROR (row 4). Same program, same refusal,
-                                   --   now phrased against Int rather than a row
+                                       --   now phrased against Int rather than a row
 
 -- (o) Field-resolved dot call emits as itself
 fun run(r: {step: Int -> Int, ...}) = r.step(1)
