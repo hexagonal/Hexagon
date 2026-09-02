@@ -3,6 +3,11 @@ import { describe, expect, test } from "vitest";
 import { compileFiles, compileMain, projectDiagnostics, runMain }
   from "../support/test-project.js";
 import { PRELUDE_SOURCES } from "../prelude-sources.js";
+import {
+  isPreRegisteredConstraint,
+  NON_REDECLARABLE_CONSTRAINTS,
+  STRUCTURAL_CONSTRAINTS,
+} from "../constraints.js";
 
 /**
  * Conformance for **Modules §5.5's inverted seeding and its closed bare set**
@@ -345,6 +350,76 @@ describe("the function channel: none, and `ignore`", () => {
     expect(projectDiagnostics("export let n: Int = Hash.hash([1, 2])\n")).toEqual([]);
     expect(projectDiagnostics("export let b: Bool = Eq.equals([1], [1])\n")).toEqual([]);
     expect(projectDiagnostics("export let o: Ordering = Ord.compare([1], [1])\n")).toEqual([]);
+  });
+
+  /**
+   * **The narrowing is keyed by the declaring constraint's identity, and it
+   * gates the whole dot form.**
+   *
+   * Two claims, and one program tests both. A second *prelude* constraint
+   * declaring a member spelled `hash` gives the name a second route, which is
+   * not structural — its instances are written, not automatic. If the flag were
+   * keyed by the spelling, that route would be marked structural too; if the
+   * gate asked only whether *some* route qualifies, it would find the
+   * non-structural one and put `([1, 2]).hash()` back, which is the form the
+   * checker refuses. Suppression holds, and the message names both homes in
+   * prelude order.
+   *
+   * A **user's** constraint is not this case and needs no pin: its member
+   * occludes the prelude layer whole (§5.4), so no refusal is reached at all.
+   *
+   * `Result.hex` is supplied by the project with the second declaration
+   * appended — the idiom the `show` seat's identity pin uses, its real source
+   * extended rather than replaced.
+   */
+  /**
+   * **Why a spelling-keyed implementation is currently indistinguishable, and
+   * what would make it distinguishable again.**
+   *
+   * The route's flag is keyed by the declaring constraint's identity. A version
+   * keyed by "is this spelling in a structural constraint's member table"
+   * marks a *superset* — a second prelude constraint's `hash` too — and with the
+   * dot gated on **any** structural route, that superset changes no message: no
+   * program tells the two apart. That is not an accident of the tests, it is a
+   * property of the inventory, and this row is the property.
+   *
+   * Every structural constraint is **pre-registered and non-redeclarable**, so
+   * its identity is `hex:<Name>` and no other declaration can claim it: a
+   * structural member's spelling is always declared by its own structural
+   * constraint, which is always seated. The moment that stops holding — a
+   * structural constraint that is not pre-registered — the two keyings part, and
+   * the identity is the one that stays right. Pinned here so that change arrives
+   * with a red row rather than as a silent widening.
+   */
+  test("every structural constraint is pre-registered and non-redeclarable", () => {
+    for (const constraint of STRUCTURAL_CONSTRAINTS) {
+      expect([constraint, isPreRegisteredConstraint(constraint)]).toEqual([constraint, true]);
+      expect([constraint, NON_REDECLARABLE_CONSTRAINTS.includes(constraint)])
+        .toEqual([constraint, true]);
+    }
+  });
+
+  test("a second prelude constraint spelling `hash` does not restore the dot form", () => {
+    const second: readonly [string, string] = [
+      "/Result.hex",
+      `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+      "export constraint Digest<a> =\n" +
+      "    hash(value: a): Int\n",
+    ];
+    const messages = (main: string) =>
+      compileFiles([["/main.hex", main], second]).diagnostics.map(({ message }) => message);
+
+    // The supplied member is reachable and the module compiles, so the second
+    // route genuinely exists rather than being quietly dropped.
+    expect(messages("export let ok: Int = 1\n")).toEqual([]);
+
+    expect(messages("export let n: Int = hash([1, 2])\n"))
+      .toEqual(["no bare `hash`; write `Hash.hash([1, 2])` or `Result.hash([1, 2])`"]);
+
+    // And the narrowing stays the literal's: a name receiver keeps its dot, with
+    // both qualified homes beside it.
+    expect(messages("export let n(v: Vector(Int)): Int = hash(v)\n"))
+      .toEqual(["no bare `hash`; write `v.hash()`, `Hash.hash(v)`, or `Result.hash(v)`"]);
   });
 
   /**

@@ -289,8 +289,22 @@ interface PreludeRoute {
    * refused. The refusal reads this to drop the dot form at a written vector
    * literal, where the two facts meet.
    *
-   * Keyed off the **declaring constraint's identity**, never its spelling, so a
-   * user's own constraint with a member named `hash` is untouched.
+   * Keyed off the **declaring constraint's identity**, never its spelling. What
+   * that buys is narrow and worth stating exactly: it is about a *second prelude
+   * constraint* declaring a same-spelled member — `Hash`'s `hash` is structural,
+   * another prelude constraint's `hash` is not, and only the identity tells them
+   * apart. A **user's** constraint is not the case: its member occludes the
+   * prelude layer whole (§5.4), so no refusal is reached at all and no route of
+   * the prelude's is consulted.
+   *
+   * No program distinguishes the two keyings *today*, and that is a property of
+   * the inventory rather than of this code: every structural constraint is
+   * pre-registered and non-redeclarable, so a structural member's spelling is
+   * always declared by its own structural constraint, which is always seated —
+   * and the dot is gated on *any* structural route, so marking a second one
+   * changes no message. `prelude-bare-set.test.ts` pins that property, so a
+   * structural constraint that is not pre-registered reddens a row rather than
+   * silently widening this flag. The identity is what stays right when it does.
    */
   readonly structural?: true;
 }
@@ -419,8 +433,9 @@ function structuralReceiver(expression: Parsed.Expr): boolean {
  * module, and `([1, 2]).length()` and `([1, 2]).toSeq()` both compile. What it
  * does not have is a place in Method Syntax §4.2's honored table for `Eq`, `Ord`
  * and `Hash`, whose instances at it are automatic (Constraints §4.5) — so those
- * members alone have no dot at a vector, and the narrowing is per route rather
- * than per receiver.
+ * members alone have no dot at a vector. The narrowing is therefore by *name*
+ * rather than by receiver: it asks whether any route this name has is one of
+ * those members, and drops the dot form for the whole message when one is.
  *
  * Read through a group for `structuralReceiver`'s reason, and off the *written*
  * expression only: a name bound to a vector keeps its dot form, since resolution
@@ -469,11 +484,17 @@ function refusedBarePreludeMessage(
   written: WrittenArguments | undefined,
 ): string {
   const spellings: string[] = [];
-  const dotted = written === undefined || written.receiver === undefined
+  // The structural narrowing is a property of the **name at this receiver**, not
+  // of one route: `routes.find` picking some *other* qualifying route would put
+  // the broken dot form back the moment a second prelude constraint spelled a
+  // structurally-instanced member's name. So it gates the whole dot form.
+  const noDotAtVector = written !== undefined && written.vectorLiteral &&
+    routes.some((route) => route.structural === true);
+  const dotted = written === undefined || written.receiver === undefined ||
+      noDotAtVector
     ? undefined
     : routes.find((route) =>
-      route.dotCallable === true && route.arity === written.texts.length &&
-      !(written.vectorLiteral && route.structural === true)
+      route.dotCallable === true && route.arity === written.texts.length
     );
   if (dotted !== undefined) {
     const rest = written!.texts.slice(1);

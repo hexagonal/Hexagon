@@ -122,8 +122,8 @@ honor Pow<Float> =
 export let mod(left: Float, right: Float): Float =
     // Bare, not `left.rem(right)`: `rem` is this module's own export, and a
     // prelude module cannot see itself — the dot would look for `Float`'s
-    // companion, which is this file, and find nothing. This is the sixth
-    // non-case of the stdlib dot rule (`stdlib-roadmap.md` §1).
+    // companion, which is this file, and find nothing. This is a non-case of
+    // the stdlib dot rule (`stdlib-roadmap.md` §1).
     let remainder = rem(left, right)
     if remainder < 0.0 then
         remainder + (if right < 0.0 then -right else right)
