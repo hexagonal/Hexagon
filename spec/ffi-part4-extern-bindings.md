@@ -261,7 +261,7 @@ and to classes (`export default class ...`), specified in Part 5.
 
 ## 7. Visibility and export
 
-Extern bindings are **private unless individually prefixed with `export`** — the ordinary Hexagon default, applied per declaration inside the block. An exported extern binding is re-exported from the compiled Hexagon facade and appears in its `.d.ts`; a private one exists only inside the binding module. Representative emission for `export fun parse`:
+Extern bindings are **private unless individually prefixed with `export`** — the ordinary Hexagon default, applied per declaration inside the block and as the ordinary prefix on the module-free literal `extern enum` head (`ffi-foreign-enums.md` §2.4). An exported extern binding is re-exported from the compiled Hexagon facade and appears in its `.d.ts`; a private one exists only inside the binding module. Representative emission for `export fun parse`:
 
 ```js
 import { parse } from "tiny-json";
@@ -387,7 +387,7 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 | `extern from "specifier"` block: JS `from` vocabulary, TS-like bodyless typed declarations, ordinary Hexagon layout; introduces ordinary module-level bindings | §1, §2 |
 | Extern declarations are bodyless and fully annotated; declaration-site validation (incl. Part 1 §5.3), no call-site validation; extern imports are acyclicity leaf edges | §1 |
 | Bare package specifiers legal (outside Hexagon-to-Hexagon resolution); a specifier must not name a Hexagon module | §2.1 |
-| Block is the only v1 form; multiple blocks per specifier fine; emission may coalesce imports | §2.2, §2.3 |
+| Block is the only v1 form for bindings read from a module — the literal `extern enum` head stands alone (`ffi-foreign-enums.md` §2.4); multiple blocks per specifier fine; emission may coalesce imports | §2.2, §2.3 |
 | Foreign-name-first `as` (JS import order); right-hand/unaliased name is the local binding; local names obey ordinary case and collision rules; case-illegal foreign names require an alias | §3 |
 | Strict `fun` = callable / `let` = value distinction; contextual vocabulary; both misuses are hard errors with named rewrites | §4.1, §4.2 |
 | First-class extern `fun`: raw imported function identity for representation-direct signatures; one stable module-level wrapper when supported boundary plumbing is required; fresh per-value adapters remain per crossing | §4.3 |

@@ -209,7 +209,9 @@ write `honor`.
 
 **The `true`/`false` redirect (2026-07-29, #147).** Both spellings remain hard
 keywords — they may never be used as names, which forecloses `let true = ...`
-permanently — but they no longer produce values. The diagnostic is
+permanently — but they no longer produce values — save in one position: the member value of a
+literal `extern enum` (Foreign Enums §2.4), `true as Yes`, where the parser reads the
+keyword as the JavaScript boolean the member names and no redirect fires. The diagnostic is
 **position-aware, and position is the parser's to know** — the same division §4.2
 already fixes for contextual keywords: the lexer emits the hard-keyword token and
 the reserved-word fact; **the parser selects the message by position** (the §10
@@ -236,6 +238,7 @@ listed positions:
 | `when` | between an arm pattern and `=>` |
 | `with` | between a record-update head and its overrides (Products §3.3) |
 | `enum` | a foreign enum declaration inside `extern from`, or the module-scope head `extern enum` of the literal form (Foreign Enums §2.4) |
+| `null`, `undefined` | the member value of a literal `extern enum` (Foreign Enums §2.4) — ordinary names everywhere else; Hexagon admits no ambient nullish value (FFI Part 2 §2.2) |
 | `class` | foreign class description; syntax completed by the FFI spec |
 | `method` | foreign member description; syntax completed by the FFI spec |
 | `get` | foreign getter description; syntax completed by the FFI spec |

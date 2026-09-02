@@ -349,8 +349,8 @@ guess from TypeScript declarations; that would mistake the reverse entries of nu
 TypeScript enums for additional alternatives and would make exhaustiveness depend on
 runtime discovery.
 
-The declaration is trusted. It promises that the listed properties exist, remain
-stable, have distinct non-nullish values, and are the only values produced by foreign
+A declaration that reads an object is trusted. It promises that the listed properties
+exist, remain stable, have distinct non-nullish values, and are the only values produced by foreign
 functions typed as `Direction`. This keeps enum values representation-direct even
 inside arrays, records, and callbacks. When the producer is genuinely uncertain, use
 the generated checked conversion:
@@ -362,7 +362,7 @@ match fromJsDirection(rawValue)
 ```
 
 `fromJsDirection` has type `JsValue -> Option(Direction)` and checks membership
-against the captured foreign values. `toJsDirection` widens a known member to
+against the declared member values. `toJsDirection` widens a known member to
 `JsValue` without changing it. These are ordinary module bindings: for a local enum
 named `T`, the generated names are `fromJsT` and `toJsT`. A name collision is a compile
 error rather than a silently mangled public API.
@@ -394,8 +394,18 @@ export declare const Descending: Order;
 The value is always written out, so `"Up" as Up` is a coincidence of one API, not a
 rule. Strings, integers, booleans, `null` and `undefined` may mix freely, as long as the
 values are distinct. A `null` or `undefined` member is a member of the set, not an
-absence, so `Nullable(Tri)` is simply `Tri`; an API whose `undefined` means absence
-beside a `null` member names both.
+absence, so `Nullable(Tri)` is simply `Tri`. That cuts both ways: `Tri` names `null`
+and not `undefined`, so an `undefined` arriving at a `Tri`-typed slot is out of set,
+exactly as `"maybe"` would be. An API that means absence by `undefined` beside a `null`
+member says so:
+
+```hexagon
+extern enum Tri =
+    | true as Yes
+    | false as No
+    | null as Unknown
+    | undefined as Missing
+```
 
 An ordinary `extern class` remains opaque. Describing static singleton instances with
 `extern enum` is an explicit stronger promise that the listed instances form a closed

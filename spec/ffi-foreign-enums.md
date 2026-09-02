@@ -127,7 +127,8 @@ ignore the reverse numeric properties emitted by TypeScript numeric enums.
 
 ### 2.3 Export
 
-An unprefixed declaration is private to the binding module. `export enum` exports the
+An unprefixed declaration is private to the binding module. `export enum` inside a
+block, or `export extern enum` on the literal head (§2.4), exports the
 local nominal type, every local constructor, and the generated conversion bindings
 from §5, following the existing rule that `export` exports everything a
 type-introducing declaration makes public. It does not modify the foreign package.
@@ -154,13 +155,20 @@ export extern enum Tri derives (Eq, Show) =
 
 - **The head stands alone.** `extern from` names the module a block's declarations are
   read from; a literal enum reads nothing, so it has no `from` to sit under and is the
-  FFI's one module-free `extern` head (Part 4 §2.2). It is an ordinary declaration of
+  FFI's one module-free `extern` head (Part 4 §2.2). A `from`-less `extern` block is not
+  a spelling: the head is `extern enum`, or `extern from` with an enum read inside it. It is an ordinary declaration of
   the module it appears in: declared once, exported with the ordinary prefix
   (`export extern enum`, §2.3's rule unchanged), and reached from other modules through
   their import of that module, exactly as an `extern from` block's declarations are.
-- **A literal is** a string literal, an integer literal (`Int`-valued, a leading `-`
-  permitted), `true`, `false`, `null`, or `undefined`. Kinds mix freely within one
-  declaration; the values are pairwise distinct under `Object.is` (§3 rule 5). Not a
+- **A literal is** a string literal, an integer literal, `true`, `false`, `null`, or
+  `undefined`. An integer literal is `Int`-valued and may carry a leading `-`, which is
+  part of the literal here as it is in a pattern (Pattern Matching §2.5): a member list
+  contains no operators, so there is no unary minus to collide with; `-0` denotes `0`,
+  so `0 as A | -0 as B` is the duplicate-value refusal, and no signed zero ever reaches
+  §4's `switch`. Kinds mix freely within one declaration; the values are pairwise
+  distinct under `Object.is` (§3 rule 5). A plain foreign `boolean` is `Bool` (Unions
+  §6.2's pin) and wants no enum; the literal form's `true`/`false` are for a set a
+  boolean shares with other values. Not a
   literal: a float literal — `NaN` and signed zero separate `Object.is` from `===`, and
   §4's `switch` lowering rests on their agreement — an interpolated string, or any
   expression. Refused with "a literal enum member is a string, integer, boolean, `null`
@@ -171,13 +179,24 @@ export extern enum Tri derives (Eq, Show) =
 - **Nullish members are legal in the literal form only.** The object-reading contract
   (§3 rule 4) refuses them because a read `undefined` cannot be told from a missing
   property; nothing is read here, and an API's `null` sentinel is a member of its set,
-  not an absence. A literal enum with a nullish member is a **designated
-  nullish-absorbing type** (Part 2 §2.1, Part 11 §8): `Nullable(T) ≡ T`, because
-  `Nullable`'s conversions would send the member to `None` and the constructor could
-  never be produced. An enum naming one nullish value and not the other still absorbs;
+  not an absence. The contract's second reason — foreign
+  absence passes through `Nullable(a)` and takes no second representation — is given up
+  here knowingly: a nullish member is a value of a closed declared set, named and
+  matched like any other, and the designation that follows is what keeps `Nullable(a)`
+  from being asked to represent it a second time. A literal enum with a nullish member
+  is a **designated nullish-absorbing type** (Part 2 §2.1, Part 11 §8): `Nullable(T) ≡
+  T`, because `T`'s own value set already holds the nullish form the wrapper would add,
+  exactly as `JsValue`'s does — a foreign `T | null` is received as `T` with no
+  conversion, and the member is the constructor it names. At `a = T`, Part 2 §4's
+  `Nullable.toOption` remains the ordinary projection and sends the nullish member to
+  `None`: the caller asked which values are nullish, and the answer is honest; it is
+  not the route by which a `T` is received. An enum naming one nullish value and not
+  the other still absorbs;
   the unnamed one is out of set like any undeclared value (§4) — an API whose
   `undefined` means absence beside a `null` member names both (`undefined as Missing`).
-- Everything else is the object-reading form's: namespaces and duplicates (§2.2),
+- Everything else is the object-reading form's: namespaces and duplicates (§2.2 —
+  a duplicate reads as a duplicate *value* here, there being no foreign member to
+  repeat),
   typing and matching (§4, with the `switch` lowering stated there), crossing and the
   generated `fromJsT`/`toJsT` (§5), derivation (§6), ABI events (§7.3). Emission binds
   the literals themselves (§7.1); the `.d.ts` face is the literal union (§7.2).
@@ -244,8 +263,8 @@ constructor diagnostic. Two extern enums listing identically named or identical-
 foreign values remain distinct nominal types.
 
 Exhaustiveness and reachability use the declared local constructor set. Matching
-evaluates the scrutinee once and compares it with the captured member bindings using
-`Object.is`:
+evaluates the scrutinee once and compares it with the member bindings (captured or
+literal) using `Object.is`:
 
 ```js
 if (Object.is(direction, Up)) return "up";
@@ -257,12 +276,13 @@ and object/singleton identity with one rule. The compiler may use a `switch` or 
 only when it can prove the result identical for every declared member representation.
 The literal form is that case by construction — every member is a string, integer,
 boolean or nullish literal, on which `===` agrees with `Object.is` — so a literal
-enum's match lowers to a `switch` on the scrutinee:
+enum's match lowers to a `switch` on the scrutinee (`Order`, the book's example:
+`extern enum Order = "asc" as Ascending | "desc" as Descending`):
 
 ```js
-switch (direction) {
-  case "up": return "up";
-  case "down": return "down";
+switch (order) {
+  case "asc": return "ascending";
+  case "desc": return "descending";
 }
 ```
 
@@ -348,7 +368,7 @@ membership-projection semantics.
 `=`. The derivable set and base constraint rules are the ordinary union rules. Their
 observable semantics are representation-independent:
 
-- `Eq` compares constructors; emission may use `Object.is` on the captured values;
+- `Eq` compares constructors; emission may use `Object.is` on the member values;
 - `Ord` follows declaration order, never numeric/string/object ordering;
 - `Show` uses the local constructor name (`Up`), not a foreign string value or symbol
   description; and
@@ -368,11 +388,11 @@ ordinary orphan and coherence rules.
 Member bindings are stable constants holding the foreign values — read from the enum
 object, or the literals themselves in the literal form (`const Up = "up";`, with
 nothing imported). Calls and aggregates use them directly. Matches use §4's identity
-tests, the `switch` for the literal form. No enum reverse object, numeric
+tests, including the `switch` §4 licenses for the literal form. No enum reverse object, numeric
 table, string remapping, wrapper class, or brand is created at runtime.
 
 When public, constructors are ordinary named ESM exports whose runtime values remain
-the captured foreign values. `fromJsT` is emitted as a small identity-membership chain;
+the foreign values — captured, or the literals. `fromJsT` is emitted as a small identity-membership chain;
 `toJsT` is an identity function. The compiler may inline either operation internally
 when doing so preserves ordinary value evaluation and public function identity.
 
@@ -400,7 +420,11 @@ are errors rather than occasions for mangling. The brand is TypeScript-only. Run
 values remain the dependency's primitive, symbol, or object values.
 
 **The literal form faces as the literal union its values spell** — the values are known
-exactly, so there is nothing for a brand to protect:
+exactly, so the brand's opacity has nothing to cover. What the literal face gives up is
+the object-reading form's nominal distinctness (§4): two literal enums over
+`"asc" | "desc"` face TypeScript as one type, and a bare `"asc"` is accepted where
+either is expected — the trade a form whose values the foreign side owns makes on
+purpose:
 
 ```ts
 export type Direction = "up" | "down";
@@ -412,8 +436,8 @@ export declare function fromJsDirection(value: unknown): Option<Direction>;
 export declare function toJsDirection(value: Direction): unknown;
 ```
 
-This is the one place a literal-union type is emitted, and it is right by Unions §6's
-principle: the foreign side owns the concept, and a TypeScript consumer meets it in
+This is the one place Hexagon emits a union of literal types, and it is right by
+Unions §6's principle: the foreign side owns the concept, and a TypeScript consumer meets it in
 TypeScript's own spelling.
 
 This surface deliberately directs typed consumers through the exported member
@@ -459,8 +483,9 @@ values are declared as combinable flags.
 
 Distinct declared properties with the same `Object.is` value violate §3. A compiler is
 not required to check the violation at module initialization, but `fromJs` must not
-pretend aliases are distinguishable. Tooling able to inspect literal declarations may
-diagnose the problem early.
+pretend aliases are distinguishable. Tooling able to inspect the foreign module's
+source may diagnose the problem early. That concession is the object-reading form's:
+the literal form knows its values and refuses a duplicate at compile time (§2.4).
 
 ### 8.4 Literal unions without an object
 
@@ -506,8 +531,8 @@ An implementation is not conforming until tests cover at least:
 16. Literal-form `.d.ts`: the literal union face, no brand; constructors and conversions
     typed by the alias.
 17. Literal-form diagnostics: a float literal, an expression, a missing `as`, a
-    duplicate value under `Object.is`, and a literal member inside an `extern from` block
-    (which reads members, never writes them).
+    duplicate value under `Object.is`, a literal member inside an `extern from` block
+    (which reads members, never writes them), and a `from`-less `extern` block.
 
 ---
 
@@ -516,7 +541,7 @@ An implementation is not conforming until tests cover at least:
 | Decision | Result |
 |---|---|
 | Local semantic model | Closed nominal nullary union |
-| Runtime representation | Captured foreign member values |
+| Runtime representation | Captured foreign member values, or the declaration's own literals (§2.4) |
 | Ordinary boundary crossing | Direct and trusted; no conversion |
 | Match comparison | `Object.is`, subject to proven-equivalent optimization |
 | Member discovery | Never automatic; explicit declaration list only |
@@ -528,5 +553,6 @@ An implementation is not conforming until tests cover at least:
 | Literal-form nullish members | Legal (nothing is read); the enum is a designated nullish-absorbing type, `Nullable(T) ≡ T` |
 | Literal-form emission and face | Constants are the literals; match lowers to `switch`; `.d.ts` is the literal union, no brand |
 | TypeScript numeric reverse map | Ignored |
-| `const enum` / flags | Excluded |
+| `const enum` / object-free literal unions | The literal form (§2.4, §8.1, §8.4) |
+| Flags | Excluded (§8.2) |
 | Ordinary union representation | Unchanged |

@@ -40,7 +40,7 @@ Nullable(JsValue)     ≡ JsValue
 Nullable(T)           ≡ T        -- T a literal extern enum with a nullish member
 ```
 
-The first equation applies through type aliases and generic substitution: there is no distinct doubly-nullable type for the zero-wrapper representation to misrepresent. Part 11 designates `JsValue` as a nullish-absorbing type because it already contains both `null` and `undefined`; Foreign Enums §2.4 designates a literal `extern enum` with a `null` or `undefined` member, because `Nullable`'s conversions would send that member to `None` and its constructor could never be produced. The designation list is explicit and closed; the checker performs no general structural “contains nullish” analysis over arbitrary unions or opaque foreign types.
+The first equation applies through type aliases and generic substitution: there is no distinct doubly-nullable type for the zero-wrapper representation to misrepresent. Part 11 designates `JsValue` as a nullish-absorbing type because it already contains both `null` and `undefined`; Foreign Enums §2.4 designates a literal `extern enum` with a `null` or `undefined` member, because its own value set already holds the nullish form wrapping would add. At an absorbing `a` the §4 surface stays callable at `Nullable(a) ≡ a` and acts as the ordinary projection: `toOption` sends the type's own nullish values to `None`, which is the question it answers, not the route by which such a value is received. The designation list is explicit and closed; the checker performs no general structural “contains nullish” analysis over arbitrary unions or opaque foreign types.
 
 ### 2.2 The qualified nullish values
 
