@@ -127,8 +127,8 @@ work not demanded is work not done.
 ## `Seq` is the common iteration currency
 
 A pipeline does not care where its elements come from. Any iterable value converts to
-a sequence with one call — the dot where the value has a companion, the constraint's own name
-where it does not:
+a sequence with one call: the dot, or `Iterable.toSeq` for a range, which has no companion
+module to qualify with:
 
 ```hexagon
 let letters: Seq(String) = "Hexagon".toSeq()
@@ -205,7 +205,8 @@ an immutable model that can be reasoned about locally.
 - `Seq.next` returns `Some((value, rest))` or `None` without consuming the original
   sequence position;
 - loops pull elements through the same external-iteration model;
-- `.toSeq()` converts any iterable value into the common currency, and the
+- `toSeq` converts any iterable value into the common currency — the dot, or
+  `Iterable.toSeq(…)` for a range — and the
   companions' `toSeq`/`fromSeq` pairs connect collections without a library
   catalogue; and
 - `Seq(a)` crosses the JavaScript boundary as `Iterable<a>` while retaining persistent

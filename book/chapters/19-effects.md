@@ -239,7 +239,7 @@ The first of those two exceptions is a function you have been calling since Chap
 of the prelude it needs no import, and the qualifier is the spelling — `log` alone is a
 word the language leaves to you. It writes to the debugging console, which is a channel
 no Hexagon expression can read back — and that unreadability is the entire reason its
-face may be `->`, and the reason every `Debug.log(…)` call in this book has been unmarked.
+face may be `->`, and the reason every `Debug.log(…)` call in this book has been bare.
 
 It takes any value that honors `Show`, rendering it exactly as interpolation would. Its
 companion `Debug.trace` writes `label: value` and then hands the value straight back, so a step

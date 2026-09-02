@@ -330,7 +330,7 @@ late pedagogy pass, not a commitment to the current order.
 - Establishes `Seq(a)` as lazy, immutable, and possibly infinite; `Seq.next` as a
   persistent functional cursor; transformation callbacks as pure by construction;
   and `Seq` as the common iteration and collection-conversion currency, reached from
-  any iterable value by the bare `toSeq` member.
+  any iterable value by the `toSeq` member — the dot, or `Iterable.toSeq(…)` for a range.
 - Prepares persistent collections and the `Iterable` recipe while avoiding a library
   API catalogue. Opens the purity seam the Effects chapter closes: the strict
   consumers are named as the one honest seat for an effectful callback, marks
@@ -852,9 +852,12 @@ late pedagogy pass, not a commitment to the current order.
   function — so laziness never changes what the world observes. The strict consumers
   (`fold`, `forEach`, `find`, `any`, `all`) are the one seat for an effectful
   callback; their marks are deferred to the Effects chapter.
-- Bare `toSeq(x)` is the universal conversion — the member of the prelude's
-  `Iterable` constraint — and the per-collection `toSeq` spellings are its qualified
-  reads; companion `toSeq`/`fromSeq` pairs connect collections without making the
+- `x.toSeq()` is the universal conversion — the member of the prelude's `Iterable`
+  constraint, reached by the dot, or as `Iterable.toSeq(x)` where the value has no
+  companion (a range); the prelude seeds only sixteen names bare (the six open
+  constructors, the exceptions, `ignore`, `show`), so `log` is `Debug.log` and every
+  collection operation is a dot or qualified call — and the per-collection `toSeq`
+  spellings are its qualified reads; companion `toSeq`/`fromSeq` pairs connect collections without making the
   chapter an API inventory. `Seq.iterate` keeps its canonical seed/step producer
   name.
 - `Seq(a)` faces JavaScript and TypeScript as `Iterable<a>`, with runtime adaptation

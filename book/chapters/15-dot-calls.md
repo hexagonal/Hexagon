@@ -230,10 +230,11 @@ value |> show
 ```
 
 Pick whichever reads best; all three are the same call. `show` is special in one way
-only: it is the one constraint member the prelude hands you bare. Every other prelude
-operation — `compare`, `div`, `map`, `toSeq`, the whole collection vocabulary — is
-reached by the dot or by its qualified name (`Int.compare(a, b)`, `Seq.map(xs, f)`),
-never bare. The dot is the everyday spelling; the qualified form is the explicit one. One thing no type can have is
+only: it is the one constraint member the prelude hands you bare. Every other member,
+and every prelude function but `ignore` — `compare`, `div`, `map`, `toSeq`, the whole
+collection vocabulary — is reached by the dot or by its qualified name
+(`Int.compare(a, b)`, `Seq.map(xs, f)`), never bare. The dot is the everyday spelling;
+the qualified form is the explicit one. One thing no type can have is
 a *second* operation with a member's name: a module that honors `Show` cannot also
 define its own `show`, so a dot call that resolves to a member never has a monomorphic
 twin hiding behind it.

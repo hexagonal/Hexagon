@@ -43,7 +43,7 @@ Let the reader meet Hexagon as a language they can run. Begin with a root module
 one top-level line of output:
 
 ```hexagon
-log("Hello, Hexagon!")
+Debug.log("Hello, Hexagon!")
 ```
 
 Move quickly to a small transformation that shows values flowing through functions.
