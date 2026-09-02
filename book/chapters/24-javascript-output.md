@@ -289,14 +289,12 @@ bindings remain local, and import dependencies remain visible:
 
 ```hexagon
 import Prepare from "./prepare"
-import "./telemetry"
 
 export let run(order: Order): Receipt = Prepare.prepare(order)
 ```
 
 ```js
 import { prepare } from "./prepare.js";
-import "./telemetry.js";
 
 export const run = order => prepare(order);
 ```

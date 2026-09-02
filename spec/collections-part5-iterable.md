@@ -169,7 +169,7 @@ The member *is* the type's `toSeq`: the honoring module writes the conversion he
 
 ### 7.2 Globality and discoverability
 
-Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes `bag.hex`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). The effect-import pattern (Modules §3.3) is therefore *not needed* for `Iterable` on your own collection and is deliberately not taught in the recipe (Modules §7.6: nearly vestigial in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
+Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes `bag.hex`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). A separate loading step is therefore *not needed* — and Modules §3.3 has no form for one — for `Iterable` on your own collection and is deliberately not taught in the recipe (Modules §7.6: nearly vestigial in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
 
 ### 7.3 Collisions with provided instances
 
@@ -333,7 +333,7 @@ The draft of this spec did exactly that, with native `for..of` emission mandated
 
 ### 13.6 Teaching the effect-import pattern in the recipe
 
-Rejected per §7.2: for a home-module instance the pattern is structurally unnecessary (no value of the type can exist without its module in the graph), and the Modules §13(i) annotation exists precisely to keep it from reading as daily idiom. The recipe teaches that the graph does the work; the diagnostic (§3.3) covers the failure path.
+Rejected per §7.2: for a home-module instance the pattern is structurally unnecessary (no value of the type can exist without its module in the graph), and the Modules §13(i) annotation existed precisely to keep it from reading as daily idiom *(the form itself has since been deleted — Modules §3.3, #762)*. The recipe teaches that the graph does the work; the diagnostic (§3.3) covers the failure path.
 
 ---
 

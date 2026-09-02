@@ -253,7 +253,7 @@ Two type-namespace declarations of the same name in one module — any mix of `r
 | Variance sigils `+a`/`-a` legal only on parameterized `opaque` headers; not a constraint; never at use sites; semantics at Modules §4.2.1 (#205) | §2.1 |
 | `derives` in header position, before `=`, sole position; supersedes Decisions Batch §2.5 placement; semantics untouched | §2.3 |
 | `derives Eq` / `derives (Eq, Show)` mirroring binder conjunction forms | §2.3 |
-| The `derives` duplicate refusal reads spellings — never wrong (one bare name, resolved once) but not the whole rule (an importer's alias is a second spelling); the governing refusal is the elaborated instances' identity-keyed coherence slot, which catches any spelling pair naming one declaration | §2.3 |
+| The `derives` duplicate refusal reads spellings — never wrong (one bare name, resolved once) but not the whole rule (a qualified spelling beside the bare one is a second spelling); the governing refusal is the elaborated instances' identity-keyed coherence slot, which catches any spelling pair naming one declaration | §2.3 |
 | Multi-line declarations = offside continuation; union alternatives are not a block; no VOPEN after `=` | §2.4 |
 | Phantom parameters legal on nominal declarations, illegal on aliases | §3, §5.3 |
 | `type` = fully transparent alias; no instances; `honor`-on-alias and `derives`-on-alias both redirect to newtypes | §4 |

@@ -121,26 +121,21 @@ let turn(d: Direction): Direction =
 ```
 
 The pattern side reads the constructor off the type the compiler already knows the
-scrutinee to have, so `North` in an arm can only mean `Direction.North`. The expression
-side has no such anchor, which is why the arm bodies spell the constructor qualified.
-A constructor you declared in this file still wins the bare spelling in both places;
-the door only opens where the name would otherwise be unknown.
+scrutinee to have, so `North` in an arm means `Direction.North` unless this file
+declares a `North` of its own. The expression side has no such anchor, which is why the
+arm bodies spell the constructor qualified. A constructor you declared in this file
+wins the bare spelling in both places; the door only opens where the name would
+otherwise be unknown.
 
-## Effect imports load without binding names
+## Modules are imported for their names
 
-The second import form brings a module into the program graph without introducing a
-local name:
-
-```hexagon
-import "./telemetry"
-```
-
-It exists for a module with deliberate top-level effects, and it can make an
-orphan-legal instance available to the whole program without naming anything from its
-module. Neither use should be common. A pure Hexagon module holds no state, so it
-cannot register anything at load; the idiom for a setup effect is an exported function
-the importer calls, `Telemetry.init()`, where the reader can see when it runs. Effect
-imports should be rare and conspicuous.
+There is no import that loads a module for its effects alone. A pure Hexagon module
+holds no state, so it cannot register anything at load time; the idiom for a setup
+effect is an exported function the importer calls, `Telemetry.init()`, where the reader
+can see when it runs. A module that exists to be run is a root module, covered below,
+not something another file imports. Instances need no loading step either: naming a
+type brings its home module, and with it the instances declared there, into the
+program.
 
 ## Companion modules give operations a home
 
@@ -447,8 +442,7 @@ export const origin = Point({x: 0.0, y: 0.0});
 const label = "origin";
 ```
 
-Private declarations remain ordinary private ESM bindings. Effect imports remain bare
-imports. The module import emits as the precise named imports the file actually uses,
+Private declarations remain ordinary private ESM bindings. The module import emits as the precise named imports the file actually uses,
 here the constructor `Point`, rather than a runtime module object. That is why the
 source and the JavaScript spell the import differently: the source binds a module, and
 the JavaScript binds the names that module supplied.
@@ -460,8 +454,8 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 
 - one `.hex` file is one module, identified by its path and requiring no header;
 - declarations are private unless prefixed with `export`;
-- an import binds one module under an alias the importer chooses, or loads one for
-  its effects, rarely;
+- an import binds one module under an alias the importer chooses, and nothing else;
+  a module is imported for its names, never loaded for its effects;
 - a bare name is a declaration of your own, a companion fallback, or a constructor in
   a `match` arm;
 - module aliases are namespaces, not first-class values;
