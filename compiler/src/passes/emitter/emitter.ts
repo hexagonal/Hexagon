@@ -14,6 +14,7 @@ import { type Documentation, throwsManifests } from "../../support/documentation
 import { relativeSpecifier } from "../../support/paths.js";
 import type * as Source from "../../support/source.js";
 import { isSyntheticParameterName } from "../../support/synthetic.js";
+import { foreignLiteralJs } from "../../support/foreign-literal.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Emitted from "../../emission/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
@@ -2786,7 +2787,17 @@ class JavaScriptEmitter {
   readonly #symbols = new Map<Resolved.SymbolId, Core.Symbol>();
   readonly #constructors = new Map<
     Resolved.SymbolId,
-    { constructor: Core.Constructor; tagged: boolean; pinnedBool: boolean }
+    {
+      constructor: Core.Constructor;
+      tagged: boolean;
+      pinnedBool: boolean;
+      /**
+       * The JavaScript literal this constructor **is**, for a literal `extern
+       * enum`'s member (Foreign Enums §2.4, §7.1). Absent for every ordinary
+       * union's constructor, whose runtime value the emitter chooses.
+       */
+      literal?: string;
+    }
   >();
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
   /**
@@ -3220,10 +3231,21 @@ class JavaScriptEmitter {
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     for (const symbol of module.symbols) this.#symbols.set(symbol.id, symbol);
     for (const union of module.unions) {
-      const tagged = union.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
+      // A literal `extern enum` is never tagged, whatever its constructors look
+      // like: its runtime values are the declaration's own literals, not the
+      // shared constants and tagged objects Unions §6 gives every other union.
+      const tagged = union.externEnum !== true &&
+        union.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
       const pinnedBool = this.#prelude.bool !== undefined && union.id === this.#prelude.bool;
       for (const constructor of union.constructors) {
-        this.#constructors.set(constructor.symbol, { constructor, tagged, pinnedBool });
+        this.#constructors.set(constructor.symbol, {
+          constructor,
+          tagged,
+          pinnedBool,
+          ...(constructor.literal === undefined
+            ? {}
+            : { literal: foreignLiteralJs(constructor.literal) }),
+        });
       }
     }
     for (const record of module.records) {
@@ -4119,7 +4141,8 @@ class JavaScriptEmitter {
         : [`${prefix}const ${pattern} = ${value};`];
     }
     if (item.kind === "Union") {
-      const tagged = item.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
+      const tagged = item.externEnum !== true &&
+        item.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
       // Whether *this* declaration publishes its constructors, which is one of
       // the two demand sites and the only one visible from here.
       const exportedHere = item.exported && !item.opaque && depth === 0;
@@ -4153,16 +4176,21 @@ class JavaScriptEmitter {
           const fields = slots.map(({ field }) => objectProperty(field, field));
           return [...doc, `${prefix}const ${name} = ${arrowParameters(parameters)} => ({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`];
         }
-        // The pin (#147, Unions §6.4): a `Bool` constructor materialises against
-        // the pinned representation, so the export site binds the JS boolean
-        // rather than the all-nullary name-string.
-        const pinned = this.#pinnedBoolLiteral(constructor.symbol);
-        if (pinned !== undefined) return [...doc, `${prefix}const ${name} = ${pinned};`];
+        // A constructor that *is* a JavaScript literal binds that literal, and
+        // two declarations are (`#constructorLiteral`). The pin (#147, Unions
+        // §6.4): a `Bool` constructor materialises against the pinned
+        // representation, so the site binds the JS boolean rather than the
+        // all-nullary name-string. And Foreign Enums §7.1: a literal enum's
+        // member binding is a stable constant holding the value the declaration
+        // wrote, with nothing imported and no tag, wrapper or brand created at
+        // runtime.
+        const literal = this.#constructorLiteral(constructor.symbol);
+        if (literal !== undefined) return [...doc, `${prefix}const ${name} = ${literal};`];
         return [...doc, tagged
           ? `${prefix}const ${name} = { tag: ${JSON.stringify(constructor.name)} };`
           : `${prefix}const ${name} = ${JSON.stringify(constructor.name)};`];
       });
-      return lines;
+      return [...lines, ...this.#emitEnumConversions(item, prefix, depth)];
     }
     if (item.kind === "RecordDeclaration") {
       const name = this.#identifier(item.constructor.symbol, item.constructor.name);
@@ -5961,7 +5989,12 @@ class JavaScriptEmitter {
     const bodyDepth = depth + 2;
     const bodyIndent = indent(bodyDepth);
     const union = this.#module.unions.find(({ id }) => id === expression.union);
-    const tagged = union?.constructors.some(({ slots }) => (slots?.length ?? 0) > 0) ?? false;
+    // Foreign Enums §4: a literal enum's match lowers to a `switch` **on the
+    // scrutinee**, never on a tag it does not carry — the proven-identical case
+    // of the `Object.is` rule, since every member is a string, integer, boolean
+    // or nullish literal on which `===` agrees with `Object.is`.
+    const tagged = union?.externEnum !== true &&
+      (union?.constructors.some(({ slots }) => (slots?.length ?? 0) > 0) ?? false);
     const needsMatchName = tagged || expression.arms.some(
       (arm) => arm.pattern.kind === "Binding",
     );
@@ -5982,9 +6015,11 @@ class JavaScriptEmitter {
     for (const arm of expression.arms) {
       const pattern = arm.pattern;
       if (pattern.kind === "Constructor") {
-        // `case true:` / `case false:` under the pin; the name-string otherwise.
-        const pinned = this.#pinnedBoolLiteral(pattern.symbol);
-        lines.push(`${armIndent}case ${pinned ?? JSON.stringify(pattern.tag)}:`);
+        // `case true:` / `case "up":` where the constructor *is* a literal — the
+        // `Bool` pin and Foreign Enums §2.4's members alike; the name-string
+        // otherwise.
+        const literal = this.#constructorLiteral(pattern.symbol);
+        lines.push(`${armIndent}case ${literal ?? JSON.stringify(pattern.tag)}:`);
         const metadata = this.#constructors.get(pattern.symbol)?.constructor;
         pattern.arguments.forEach((argument, index) => {
           if (matchName === undefined) return;
@@ -6242,7 +6277,7 @@ class JavaScriptEmitter {
           ? this.#exceptions.get(pattern.symbol)
           : undefined;
         const metadata = this.#constructors.get(pattern.symbol);
-        const pinned = this.#pinnedBoolLiteral(pattern.symbol);
+        const literal = this.#constructorLiteral(pattern.symbol);
         // Exceptions §7.4's two-stage discrimination, written as one chain per
         // arm: `!= null` so a `throw null` reaches the discriminator without
         // crashing it, then the **(module, name) pair** (#488). Comparing the
@@ -6267,9 +6302,10 @@ class JavaScriptEmitter {
         const domestic = exception === undefined ? undefined : `${value} != null && ${value}.$hex === ${JSON.stringify(exception.owner)} && ${value}.name === ${JSON.stringify(pattern.tag)}`;
         const test = domestic !== undefined
           ? (virtual ? `${foreign} || (${domestic})` : domestic)
-          : pinned !== undefined
-          // The pin again: a `Bool` pattern tests the boolean it actually is.
-          ? `${value} === ${pinned}`
+          : literal !== undefined
+          // The literal again: a `Bool` pattern, and a literal enum's member
+          // pattern, each test the JavaScript value they actually are.
+          ? `${value} === ${literal}`
           : metadata?.tagged
           ? `${value}.tag === ${JSON.stringify(pattern.tag)}`
           : `${value} === ${JSON.stringify(pattern.tag)}`;
@@ -7017,6 +7053,17 @@ class JavaScriptEmitter {
     if (type.kind === "Union") {
       const union = this.#module.unions.find(({ id }) => id === type.union);
       if (union === undefined) return "0";
+      // Foreign Enums §6: a literal enum hashes its **declaration index**, never
+      // the member's own value — so a foreign numeric magnitude or string never
+      // reaches the hash, and reordering the declaration is the ABI event §7.3
+      // says it is. Consistent with the derived `Eq` below by construction: the
+      // members are pairwise distinct, so equal values have equal indices.
+      if (union.externEnum === true) {
+        const index = union.constructors
+          .map((constructor, position) => `${value} === ${constructorValue(constructor)} ? ${position} : `)
+          .join("") + "-1";
+        return `${this.#useHelper("stableHash")}(${index})`;
+      }
       const tagged = union.constructors.some(({ slots }) => slots.length > 0);
       if (!tagged) return `${this.#useHelper("stableHash")}(${value})`;
       const replacements = new Map(union.parameters.map((parameter, index) => [
@@ -7228,7 +7275,7 @@ class JavaScriptEmitter {
       // string case), never JS `<` on the name-strings: the index difference is
       // the sign, and `ordering` makes it the constructor.
       const tag = (value: string) => union.constructors
-        .map((constructor, index) => `${value} === ${JSON.stringify(constructor.name)} ? ${index} : `)
+        .map((constructor, index) => `${value} === ${constructorValue(constructor)} ? ${index} : `)
         .join("") + "-1";
       const tagged = union.constructors.some(({ slots }) => slots.length > 0);
       if (!tagged) return fromSign(`(${tag(left)}) - (${tag(right)})`);
@@ -7504,6 +7551,11 @@ class JavaScriptEmitter {
     if (type.kind === "Union") {
       const union = this.#module.unions.find(({ id }) => id === type.union);
       if (union === undefined) return `${left} === ${right}`;
+      // Foreign Enums §6: `Eq` compares constructors, and emission may use
+      // `Object.is` on the member values. `===` is the proven-identical case
+      // here (§4): §2.4 refuses floats and folds `-0` to `0`, so no member can
+      // be a `NaN` or a signed zero, and the two agree on every one.
+      if (union.externEnum === true) return `${left} === ${right}`;
       const tagged = union.constructors.some(({ slots }) => slots.length > 0);
       if (!tagged) return `${left} === ${right}`;
       const replacements = new Map(union.parameters.map((parameter, index) => [
@@ -7644,6 +7696,20 @@ class JavaScriptEmitter {
         // review of the commit that introduced it.
         if (this.#prelude.bool !== undefined && union.id === this.#prelude.bool) {
           return `(${value} ? "True" : "False")`;
+        }
+        // Foreign Enums §6: `Show` gives the **local constructor name**, never
+        // the foreign value — `Up`, not `"up"`. The all-nullary union below can
+        // show itself because its representation already *is* its constructor
+        // name; a literal enum's is not, so it needs the same two-way lookup the
+        // pinned `Bool` above needs, and takes it parenthesized for the same
+        // reason: `+` binds tighter than `?:`.
+        if (union.externEnum === true) {
+          const shown = union.constructors
+            .map((constructor) =>
+              `${value} === ${constructorValue(constructor)} ? ${JSON.stringify(constructor.name)} : `
+            )
+            .join("") + '"<unknown>"';
+          return `(${shown})`;
         }
         const tagged = union.constructors.some(({ slots }) => slots.length > 0);
         if (!tagged) return value;
@@ -8603,6 +8669,89 @@ class JavaScriptEmitter {
     const metadata = this.#constructors.get(symbol);
     if (metadata === undefined || !metadata.pinnedBool) return undefined;
     return metadata.constructor.name === "True" ? "true" : "false";
+  }
+
+  /**
+   * The JavaScript literal this constructor **is**, as source text, or
+   * `undefined` where the emitter chooses the representation itself.
+   *
+   * Two declarations answer: the prelude `Bool`, pinned to JavaScript's booleans
+   * (#147), and a literal `extern enum`, whose members are the values its
+   * declaration writes (Foreign Enums §2.4). They are one notion — a nullary
+   * constructor whose runtime value is a JavaScript literal — so the three sites
+   * that have to *spell* that value ask here rather than each knowing both: the
+   * declaration's own initializer, a `switch` case label, and a constructor
+   * pattern's `===` test.
+   *
+   * What this is **not** is a rule about references. `Bool`'s pin reaches the
+   * reference site too, because `True` needs no binding to be named by; an enum
+   * member is an ordinary exported constant and is named by it, at home and
+   * abroad alike (§7.1).
+   */
+  #constructorLiteral(symbol: Resolved.SymbolId): string | undefined {
+    return this.#pinnedBoolLiteral(symbol) ?? this.#constructors.get(symbol)?.literal;
+  }
+
+  /**
+   * A literal `extern enum`'s two conversion bindings, emitted beside its member
+   * constants (Foreign Enums §5.2, §7.1).
+   *
+   * `fromJsT` is "a small identity-membership chain": it evaluates its input
+   * once and compares it with the declared members **in declaration order**,
+   * returning the corresponding constructor in `Some` and `None` otherwise. The
+   * chain is a `switch` for §4's reason — every member is a literal on which
+   * `===` agrees with `Object.is` — and the `default` arm is what makes the
+   * projection total, which is the whole difference between this and an ordinary
+   * typed extern call.
+   *
+   * `toJsT` is the identity widening to `JsValue`: it allocates and encodes
+   * nothing, because the Hexagon value already *is* the JavaScript value.
+   *
+   * `Option`'s two shapes are written out rather than imported, as the runtime
+   * helpers elsewhere in this file write them: the prelude's own representation
+   * (Unions §6.1) is what a generated body has to produce, and reaching for the
+   * constructors would add an import to a module that named no prelude term.
+   * The `None` written here is a fresh object rather than the prelude's shared
+   * constant, which no program can observe: `Option`'s equality is its tag's,
+   * and Hexagon has no reference equality to tell two `{ tag: "None" }` apart.
+   */
+  #emitEnumConversions(
+    item: Core.UnionItem,
+    prefix: string,
+    depth: number,
+  ): readonly string[] {
+    const conversions = item.conversions;
+    if (conversions === undefined) return [];
+    const publish = (binding: Typed.Binding): string => {
+      const name = this.#identifier(binding.symbol, binding.name);
+      if (item.exported && depth === 0) {
+        this.#exports.push(
+          name === binding.name
+            ? `export { ${name} };`
+            : `export { ${name} as ${binding.name} };`,
+        );
+      }
+      return name;
+    };
+    const fromJs = publish(conversions.fromJs);
+    const toJs = publish(conversions.toJs);
+    const inner = indent(depth + 1);
+    const arm = indent(depth + 2);
+    return [
+      `${prefix}const ${fromJs} = __value => {`,
+      `${inner}switch (__value) {`,
+      ...item.constructors.flatMap((constructor) =>
+        constructor.literal === undefined ? [] : [
+          `${arm}case ${foreignLiteralJs(constructor.literal)}: return { tag: "Some", value: ${
+            this.#identifier(constructor.symbol, constructor.name)
+          } };`,
+        ]
+      ),
+      `${arm}default: return { tag: "None" };`,
+      `${inner}}`,
+      `${prefix}};`,
+      `${prefix}const ${toJs} = __value => __value;`,
+    ];
   }
 
   /**
@@ -9717,6 +9866,7 @@ class DeclarationEmitter {
             `export declare const ${constructor.name}: ${type};`,
           );
         }
+        declarations.push(...renderEnumConversions(item, "export ", this.#faces));
         continue;
       }
       if (item.kind === "RecordDeclaration") {
@@ -10119,6 +10269,11 @@ class TypeScriptPreviewEmitter {
             `${prefix}declare const ${constructor.name}: ${type};`,
           );
         }
+        declarations.push(...renderEnumConversions(
+          item,
+          item.exported ? "export " : "",
+          this.#faces,
+        ));
         isExternalModule ||= item.exported;
         continue;
       }
@@ -13088,6 +13243,27 @@ function declarationParameterNames(
   });
 }
 
+/**
+ * How a derived instance spells one constructor when it compares a **runtime
+ * value** against it.
+ *
+ * For an ordinary union that is the constructor's own name-string, which is
+ * exactly what the value carries either way: it *is* the value when the union is
+ * all-nullary, and it is the `.tag` field's content when the union is tagged.
+ * For a literal `extern enum` it is the literal the declaration wrote (Foreign
+ * Enums §7.1), which is where the two part company.
+ *
+ * Read by `Ord`, `Hash` and `Show`, each of which recovers a member's
+ * **declaration index** or name by testing the value against every constructor
+ * in turn — so each needs the value a constructor actually holds, not the name
+ * it is spelled by.
+ */
+function constructorValue(constructor: Core.Constructor): string {
+  return constructor.literal === undefined
+    ? JSON.stringify(constructor.name)
+    : foreignLiteralJs(constructor.literal);
+}
+
 function renderUnionDeclaration(
   item: Core.UnionItem,
   exported: boolean,
@@ -13103,6 +13279,18 @@ function renderUnionDeclaration(
   if (faces.prelude.bool !== undefined && item.union === faces.prelude.bool) {
     return `${prefix}type ${item.name} = boolean;`;
   }
+  // Foreign Enums §7.2: **the literal form faces as the literal union its values
+  // spell**, and takes no brand — the values are known exactly, so the brand's
+  // opacity has nothing to cover. What it gives up is nominal distinctness: two
+  // literal enums over `"asc" | "desc"` face TypeScript as one type, which is
+  // the trade a form whose values the foreign side owns makes on purpose. This
+  // is the one place Hexagon emits a union of literal types.
+  if (item.externEnum === true) {
+    const values = item.constructors
+      .flatMap(({ literal }) => literal === undefined ? [] : [foreignLiteralJs(literal)])
+      .join(" | ");
+    return `${prefix}type ${item.name} = ${values};`;
+  }
   const tagged = item.constructors.some(({ slots }) => slots.length > 0);
   const alternatives = item.constructors
     .map(({ name, slots }) => tagged
@@ -13110,6 +13298,39 @@ function renderUnionDeclaration(
       : JSON.stringify(name))
     .join(" | ");
   return `${prefix}type ${item.name}${generics} = ${alternatives};`;
+}
+
+/**
+ * The `.d.ts` rows for a literal `extern enum`'s two conversions (Foreign Enums
+ * §5.2, §7.2): `fromJsT(value: unknown): Option<T>` and
+ * `toJsT(value: T): unknown`.
+ *
+ * `declare function` rather than the `declare const` of an arrow type, matching
+ * every other named Hexagon function's row. The generated JavaScript names
+ * exactly match these, which §5.2 requires: collisions are compile errors rather
+ * than occasions for mangling, so there is no renamed face to reconcile.
+ */
+function renderEnumConversions(
+  item: Core.UnionItem,
+  prefix: string,
+  faces: DeclarationFaces,
+): readonly string[] {
+  const conversions = item.conversions;
+  if (conversions === undefined) return [];
+  const variables = new Map<Typed.TypeVariableId, string>();
+  const row = (binding: Typed.Binding): string => {
+    const type = binding.scheme.type;
+    // Both signatures are built by the resolver, and both are one-parameter
+    // arrows; the `const` row is what a scheme of any other shape would take,
+    // written because the narrowing has to be.
+    if (type.kind !== "Function" || type.parameters.length !== 1) {
+      return `${prefix}declare const ${binding.name}: ${renderScheme(binding.scheme, faces)};`;
+    }
+    return `${prefix}declare function ${binding.name}` +
+      `(value: ${renderType(type.parameters[0]!, variables, faces, false)}): ` +
+      `${renderType(type.result, variables, faces, true)};`;
+  };
+  return [row(conversions.fromJs), row(conversions.toJs)];
 }
 
 /**

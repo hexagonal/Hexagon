@@ -171,11 +171,25 @@ export interface RenameRefusal {
 }
 
 /** One span to replace, and the file it lies in. */
-export interface RenameEdit extends Location {}
+export interface RenameEdit extends Location {
+  /**
+   * The text to write, where it is **not** the plan's `newName`.
+   *
+   * Present only on an edit to a name **derived** from the one being renamed:
+   * a literal `extern enum`'s generated `fromJsT`/`toJsT` (Foreign Enums §5.2)
+   * spell the type name they were derived from, so renaming `Direction` to
+   * `Way` has to write `fromJsWay` at every use of `fromJsDirection`. Absent
+   * everywhere else, which is every edit a rename made before this existed.
+   */
+  readonly replacement?: string;
+}
 
 export interface RenamePlan {
   readonly newName: string;
-  /** Ordered by file, then by position; never overlapping. */
+  /**
+   * Ordered by file, then by position; never overlapping. Each edit writes
+   * `newName` unless it carries a `replacement` of its own.
+   */
   readonly edits: readonly RenameEdit[];
 }
 
@@ -921,14 +935,22 @@ export class AnalysisSession {
     const spelling = checkNewName(subject.name, newName);
     if (spelling !== undefined) return spelling;
 
-    const byPath = new Map<string, Source.Span[]>();
-    for (const mention of subject.mentions) {
+    // The subject's own mentions take `newName`; a derived name's take their own
+    // prefix plus it (Foreign Enums §5.2 — `fromJsDirection` becomes
+    // `fromJsWay`). Both go into one map so verification, offset mapping and the
+    // published plan all see one edit list.
+    const byPath = new Map<string, Rewrite[]>();
+    const record = (mention: RenameEdit, replacement: string): void => {
       const bucket = byPath.get(mention.path);
-      if (bucket === undefined) byPath.set(mention.path, [mention.span]);
-      else bucket.push(mention.span);
+      if (bucket === undefined) byPath.set(mention.path, [{ span: mention.span, replacement }]);
+      else bucket.push({ span: mention.span, replacement });
+    };
+    for (const mention of subject.mentions) record(mention, newName);
+    for (const group of subject.derived ?? []) {
+      for (const mention of group.mentions) record(mention, `${group.prefix}${newName}`);
     }
-    for (const spans of byPath.values()) {
-      spans.sort((left, right) => left.start.offset - right.start.offset);
+    for (const rewrites of byPath.values()) {
+      rewrites.sort((left, right) => left.span.start.offset - right.span.start.offset);
     }
 
     const objection = this.#verifyRename(subject.name, byPath, newName);
@@ -938,7 +960,13 @@ export class AnalysisSession {
       newName,
       edits: [...byPath]
         .sort(([left], [right]) => left.localeCompare(right))
-        .flatMap(([owner, spans]) => spans.map((span) => ({ path: owner, span }))),
+        .flatMap(([owner, rewrites]) =>
+          rewrites.map(({ span, replacement }) => ({
+            path: owner,
+            span,
+            ...(replacement === newName ? {} : { replacement }),
+          }))
+        ),
     };
   }
 
@@ -948,14 +976,31 @@ export class AnalysisSession {
    */
   #renameSubject(path: string, offset: number): SubjectOfRename | RenameRefusal | undefined {
     const analysis = this.#analyze();
-    const innermost = analysis.occurrencesAt(normalizePath(path), offset)[0];
+    const normalized = normalizePath(path);
+    const innermost = analysis.occurrencesAt(normalized, offset)[0];
     if (innermost === undefined) return undefined;
     const name = innermost.name;
+    // Foreign Enums §5.2: a generated conversion's name is derived from the
+    // enum's local type name and is not chosen, so the name under the cursor
+    // cannot move on its own — the type it comes from is the thing to rename,
+    // and renaming that rewrites this site (see `#derivedMentions`). Answered
+    // here rather than left to the "no declaration" refusal below, which is
+    // about the compiler's built-in constraints and says nothing an author of
+    // one of these could act on.
+    const generated = this.#generatedOrigin(analysis, normalized, innermost.target);
+    if (generated !== undefined) {
+      return {
+        refused:
+          `\`${name}\` is generated from \`extern enum ${generated}\` ` +
+          "(Foreign Enums §5.2), so its spelling is not chosen — rename the " +
+          `type \`${generated}\`, and every use of this name follows`,
+      };
+    }
     // One offset can carry more than one identity — a record's name is its type
     // and its constructor — and both have to move, or the declaration stops
     // agreeing with itself.
     const targets = analysis
-      .occurrencesAt(normalizePath(path), offset)
+      .occurrencesAt(normalized, offset)
       .filter((occurrence) => occurrence.name === name)
       .map(({ target }) => target);
     const mentions: RenameEdit[] = [];
@@ -996,7 +1041,74 @@ export class AnalysisSession {
     if (!declared) {
       return { refused: `\`${name}\` is built into the compiler, so it has no declaration to rename` };
     }
-    return { name, span: innermost.span, targets, mentions };
+    const derived = this.#derivedMentions(analysis, normalized, targets);
+    return {
+      name,
+      span: innermost.span,
+      targets,
+      mentions,
+      ...(derived.length === 0 ? {} : { derived }),
+    };
+  }
+
+  /**
+   * The declaration a name at this target is **generated** from, or `undefined`
+   * where the author wrote the name (`Resolved.Symbol.generated`).
+   *
+   * Read from the resolved module the cursor is in, which carries every symbol
+   * that module can see — imported ones included — so a use of `fromJsDirection`
+   * abroad answers as its declaring module's does.
+   */
+  #generatedOrigin(
+    analysis: Analysis,
+    path: string,
+    target: Target,
+  ): string | undefined {
+    if (target.kind !== "value") return undefined;
+    return analysis.resolvedOf(path)?.symbols
+      .find(({ id }) => id === target.symbol)?.generated;
+  }
+
+  /**
+   * The mentions a rename of these targets has to rewrite **beside** its own —
+   * today, a literal `extern enum`'s generated `fromJsT`/`toJsT` (Foreign Enums
+   * §5.2), whose spellings prefix the type name being renamed.
+   *
+   * Grouped by prefix rather than flattened, because each group writes a
+   * different text and only `rename` knows what the new name is. The prefix is
+   * taken off the generated spelling rather than written as a constant here, so
+   * this stays true to whatever §5.2's naming rule produces.
+   *
+   * Only *reference* occurrences exist to collect: the definition one is
+   * withheld (`queries/occurrences.ts`), which is the whole reason the type's
+   * own rename is the route.
+   */
+  #derivedMentions(
+    analysis: Analysis,
+    path: string,
+    targets: readonly Target[],
+  ): readonly { readonly prefix: string; readonly mentions: readonly RenameEdit[] }[] {
+    const groups: { prefix: string; mentions: RenameEdit[] }[] = [];
+    for (const target of targets) {
+      if (target.kind !== "union") continue;
+      const union = analysis.resolvedOf(path)?.unions
+        .find(({ id }) => id === target.union);
+      const conversions = union?.conversions;
+      if (union === undefined || conversions === undefined) continue;
+      for (const binding of [conversions.fromJs, conversions.toJs]) {
+        if (!binding.name.endsWith(union.name)) continue;
+        const prefix = binding.name.slice(0, binding.name.length - union.name.length);
+        const mentions: RenameEdit[] = [];
+        for (const occurrence of analysis.byTarget({ kind: "value", symbol: binding.symbol })) {
+          if (occurrence.name !== binding.name) continue;
+          const owner = analysis.pathOf(occurrence.span.fileId);
+          if (owner === undefined || !this.#texts.has(owner)) continue;
+          mentions.push({ path: owner, span: occurrence.span });
+        }
+        if (mentions.length > 0) groups.push({ prefix, mentions });
+      }
+    }
+    return groups;
   }
 
   /**
@@ -1030,13 +1142,13 @@ export class AnalysisSession {
    */
   #verifyRename(
     name: string,
-    byPath: ReadonlyMap<string, readonly Source.Span[]>,
+    byPath: ReadonlyMap<string, readonly Rewrite[]>,
     newName: string,
   ): RenameRefusal | undefined {
     const probe = new AnalysisSession(this.#options);
     for (const [owner, text] of this.#texts) {
-      const spans = byPath.get(owner);
-      probe.setFile(owner, spans === undefined ? text : replaceSpans(text, spans, newName));
+      const rewrites = byPath.get(owner);
+      probe.setFile(owner, rewrites === undefined ? text : replaceSpans(text, rewrites));
     }
 
     // Both spellings are blanked from both sides. Blanking only each side's own
@@ -1055,17 +1167,24 @@ export class AnalysisSession {
       };
     }
 
-    // Every rewritten span moves everything after it in its own file by the same
-    // amount, so an old offset maps forward by the number of edits that begin
-    // before it. Lines do not move: an identifier replaces an identifier and
-    // neither contains a line break.
-    const delta = newName.length - name.length;
+    // Every rewritten span moves everything after it in its own file by its own
+    // difference in length, so an old offset maps forward by the sum of the
+    // differences that begin before it. Summed over each edit's own difference
+    // rather than counted against one, because an edit's replacement is now its
+    // own text (`RenameEdit.replacement`). Today's only derived family happens
+    // to shift by the same amount as the subject — a prefix is added to both
+    // sides, so `Direction` → `Way` and `fromJsDirection` → `fromJsWay` are both
+    // −6 — and nothing here rests on that. Lines do not move: an identifier
+    // replaces an identifier and neither contains a line break.
     const moved = (owner: string, offset: number): number => {
-      const spans = byPath.get(owner);
-      if (spans === undefined) return offset;
-      let earlier = 0;
-      for (const span of spans) if (span.start.offset < offset) earlier += 1;
-      return offset + delta * earlier;
+      const rewrites = byPath.get(owner);
+      if (rewrites === undefined) return offset;
+      let shift = 0;
+      for (const { span, replacement } of rewrites) {
+        if (span.start.offset >= offset) continue;
+        shift += replacement.length - (span.end.offset - span.start.offset);
+      }
+      return offset + shift;
     };
 
     const wasMeant = this.#denotations(this.#analyze(), moved);
@@ -1348,11 +1467,27 @@ function spanKey(span: Source.Span): string {
   return `${Number(span.fileId)}:${span.start.offset}:${span.end.offset}`;
 }
 
+/** One span and the exact text a rename writes over it. */
+interface Rewrite {
+  readonly span: Source.Span;
+  readonly replacement: string;
+}
+
 /** What `#renameSubject` works out, of which only part is the host's business. */
 interface SubjectOfRename extends RenameSubject {
   readonly targets: readonly Target[];
   /** Every mention this project owns, spelled as the cursor spells it. */
   readonly mentions: readonly RenameEdit[];
+  /**
+   * Mentions of names **derived** from the subject, grouped by the prefix that
+   * derives them — `fromJs` and `toJs` for a literal `extern enum` (Foreign
+   * Enums §5.2). Each one is rewritten to its prefix plus the new name, which
+   * `#renameSubject` cannot spell because it does not know the new name yet.
+   */
+  readonly derived?: readonly {
+    readonly prefix: string;
+    readonly mentions: readonly RenameEdit[];
+  }[];
 }
 
 
@@ -1528,14 +1663,10 @@ function applyEdits(text: string, edits: readonly Diagnostics.Edit[]): string {
 }
 
 /** Replaces spans back to front, so an earlier edit cannot move a later one. */
-function replaceSpans(
-  text: string,
-  spans: readonly Source.Span[],
-  replacement: string,
-): string {
+function replaceSpans(text: string, rewrites: readonly Rewrite[]): string {
   let result = text;
-  for (let index = spans.length - 1; index >= 0; index -= 1) {
-    const span = spans[index]!;
+  for (let index = rewrites.length - 1; index >= 0; index -= 1) {
+    const { span, replacement } = rewrites[index]!;
     result = result.slice(0, span.start.offset) + replacement + result.slice(span.end.offset);
   }
   return result;

@@ -21,6 +21,7 @@
     { "include": "#comments" },
     { "include": "#strings" },
     { "include": "#reserved-identifier" },
+    { "include": "#extern-enum-declaration" },
     { "include": "#extern-from-block" },
     { "include": "#type-alias-declaration" },
     { "include": "#type-declaration-parameters" },
@@ -196,6 +197,62 @@
       "//": "spec/lexer.md §3.2: leading `__` is reserved for compiler-generated names (#425).",
       "name": "invalid.illegal.reserved-identifier.hexagon",
       "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])__[\\p{ID_Continue}$_\\x{200C}\\x{200D}]*"
+    },
+
+    "extern-enum-declaration": {
+      "//": [
+        "`[export] extern enum T = lit as C | …` at module scope (spec/ffi-foreign-enums.md",
+        "§2.4) — the FFI's one module-free `extern` head, and the only `extern` that is an",
+        "ordinary declaration of the module it appears in. A block rule rather than one",
+        "`match`, for two reasons: the head may end at `=` and continue on indented `|`",
+        "lines exactly as a union's does, and the member values need scopes the file's",
+        "other rules would refuse them. It ends where any top-level item ends.",
+        "",
+        "Ordered ahead of #extern-from-block and disjoint from it: that rule's `begin`",
+        "requires `from` after `extern`, so neither can claim the other's head."
+      ],
+      "name": "meta.extern.enum.hexagon",
+      "begin": "^[ \\t]*(?:(export)[ \\t]+)?(extern)[ \\t]+(enum)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:[ \\t]+([\\p{Uppercase}\\p{Lt}][\\p{ID_Continue}$_\\x{200C}\\x{200D}]*))?",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.import.hexagon" },
+        "2": { "name": "keyword.control.import.hexagon" },
+        "3": { "name": "keyword.other.ffi.hexagon" },
+        "4": { "name": "entity.name.type.hexagon" }
+      },
+      "end": "^(?=\\S)",
+      "patterns": [
+        { "include": "#extern-enum-members" },
+        { "include": "$self" }
+      ]
+    },
+
+    "extern-enum-members": {
+      "//": [
+        "The member values §2.4 admits that no other rule paints correctly.",
+        "",
+        "`true`/`false` are hard keywords whose ordinary scope is #147's",
+        "reserved-redirect-word error; this is the one position where they name the",
+        "JavaScript booleans and no redirect fires (spec/lexer.md §4.1). `null` and",
+        "`undefined` are ordinary names everywhere else (§4.2) and name the JavaScript",
+        "values only here. Both key on the mandatory `as` that follows, so a binding",
+        "spelled `null` on a continuation line keeps its ordinary scope.",
+        "",
+        "Strings and integers need no rule of their own: #strings and #numbers,",
+        "reached through $self, already paint them."
+      ],
+      "patterns": [
+        {
+          "name": "constant.language.hexagon",
+          "match": "(?<![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?:true|false|null|undefined)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]+as(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}]))"
+        },
+        {
+          "//": "The member's own `as`. #contextual-keywords' rule cannot reach it after a string value, whose closing quote is not in that rule's lookbehind class.",
+          "match": "(?<=\")[ \\t]+(as)(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])(?=[ \\t]+[\\p{Uppercase}\\p{Lt}])",
+          "captures": {
+            "1": { "name": "keyword.other.as.hexagon" }
+          }
+        }
+      ]
     },
 
     "extern-from-block": {
