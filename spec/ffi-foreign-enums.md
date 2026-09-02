@@ -193,15 +193,16 @@ export extern enum Tri derives (Eq, Show) =
   enum naming **exactly one** nullish value — either one — is not absorbing, and
   `Nullable(T)` over it is refused on two symmetric grounds: the wrapper collapses both
   nullish forms to `None`, so whichever form the enum declares becomes indistinguishable
-  from absence; and `fromOption`'s `None` image is a nullish value the enum may not
+  from absence; and `fromOption`'s `None` image is a nullish value the enum need not
   declare. The refusal is a template over the declared member and the missing form —
   at `extern enum Tri = true as Yes | false as No | null as Unknown`: "`Tri` already
   names `null`; `Nullable(Tri)` cannot tell absence from `Unknown` — name both nullish
   values (`undefined as Missing`) or neither"; at `extern enum Slot = "ready" as Ready
   | undefined as Missing` the same message names `undefined`, `Missing` and `null as
-  Absent`. The absorbing shape, for contrast: `extern enum Tri = true as Yes | false as
-  No | null as Unknown | undefined as Missing` — `Nullable(Tri)` is `Tri`, and a foreign
-  `boolean | null | undefined` is received as it with no wrapper at all. Receiving a foreign `T | null` as
+  Absent`. `Tri` with that advice taken is the absorbing shape: `extern enum Tri = true as
+  Yes | false as No | null as Unknown | undefined as Missing` — `Nullable(Tri)` is
+  `Tri`, and a foreign `boolean | null | undefined` is received as `Tri` with no wrapper
+  at all. Receiving a foreign `T | null` as
   `T` needs no wrapper: `null` is a member, and an arriving `undefined` is out of set
   like any undeclared value (§4).
 - Everything else is the object-reading form's: namespaces and duplicates (§2.2 —
