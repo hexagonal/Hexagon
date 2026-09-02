@@ -573,8 +573,9 @@ of stable enum-object properties. Typed values cross directly; constructor match
 `Object.is`; TypeScript numeric reverse mappings are ignored; and uncertain `JsValue`
 data uses the generated checked `fromJsT` conversion. The same form covers numeric
 and string TypeScript enums, frozen JavaScript constant objects, symbols, and explicitly
-opted-in singleton instances. `const enum`, flags, and literal unions without runtime
-objects remain outside that form.
+opted-in singleton instances. `const enum` and literal unions without runtime objects
+take the same declaration's literal form (Foreign Enums §2.4, #773); flags remain
+outside it.
 
 The ordinary `extern class` decision above is unchanged: classes are opaque unless the
 binding author deliberately describes a finite set of static singleton values with

@@ -45,7 +45,7 @@ union Bool derives (Eq, Ord, Show, Hash) = False | True
 
 There are no separate boolean literals. `True` and `False` are ordinary uppercase-start constructor names in the term namespace, module scope, prelude-imported everywhere — exactly like `None`.
 
-**`true` and `false` remain hard keywords** (Lexer §4.1) and may never be used as names. Their only role is the redirect diagnostic, per the Rewrite Rule:
+**`true` and `false` remain hard keywords** (Lexer §4.1) and may never be used as names. Their only role is the redirect diagnostic, per the Rewrite Rule *(since #773, one position excepted: the member value of a literal `extern enum`, `true as Yes`, where the keyword names the JavaScript boolean and no redirect fires — Lexer §4.1, Foreign Enums §2.4; both consequences below survive)*:
 
 > `true` is reserved; Bool's constructors are `True` and `False` — write `True`.
 
@@ -202,7 +202,7 @@ Lexer: `true`/`false` keep token kinds, now diagnostic-only (§2.2's redirect). 
 |---|---|
 | Doctrine: ML dialect targeting JS; TS-author test demoted to outcome; revisit-on-next-touch rule | §1 |
 | `union Bool derives (Eq, Ord, Show, Hash) = False \| True` in the prelude; constructor order fixes derived Ord | §2.1 |
-| `True`/`False` are the only spellings; `true`/`false` reserved with redirect diagnostic | §2.2 |
+| `True`/`False` are the only spellings; `true`/`false` reserved with redirect diagnostic (excepted since #773 as a literal `extern enum` member value) | §2.2 |
 | `show True` = `"True"` (derived union Show; supersedes lowercase ruling) | §2.3 |
 | Representation pinned to JS `boolean`; sole exception to Unions §6.2; not the intrinsic door; no user-reachable pin | §3 |
 | FFI boundary unchanged; `Bool` stays in the zero-cost fundamental set by enumeration | §3.3 |

@@ -1010,8 +1010,8 @@ late pedagogy pass, not a commitment to the current order.
   generic binders remain lowercase.
 - Public aliases remain; private aliases expand. Ordinary exported nominal records
   expose honest structural POJO types and constructors.
-- Mixed unions are discriminated TypeScript unions; all-nullary unions are string
-  literal unions. Constructor exports match their runtime value/function forms.
+- Every union is a discriminated TypeScript union, all-nullary unions included.
+  Constructor exports match their runtime value/function forms.
 - Opaque records/unions use private `unique symbol` brands in TypeScript, omit raw
   structure/constructors, and add no runtime wrapper.
 - `Seq(a)` faces as `Iterable<a>`; collections use the `Hex` runtime type namespace.

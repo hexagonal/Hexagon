@@ -1,12 +1,12 @@
 # Hexagon Spec: Foreign Enums
 
 **Status:** Decided (July 2026)
-**Scope:** The `extern enum` declaration; its relationship to ordinary nullary unions;
-foreign enum-object member binding; local constructor names and aliases; trusted direct
+**Scope:** The `extern enum` declaration in its two forms — object-reading and literal
+(§2.4); its relationship to ordinary nullary unions; foreign enum-object member binding; local constructor names and aliases; trusted direct
 crossing; checked `JsValue` conversion; pattern matching; derived constraints; JavaScript
 emission; TypeScript declarations; diagnostics; and ABI obligations.
-**Not in scope:** General `extern` syntax beyond the form introduced here; the complete
-`JsValue` accessor API; TypeScript `const enum`; bitmask/flag APIs; payload-bearing
+**Not in scope:** General `extern` syntax beyond the forms introduced here; the complete
+`JsValue` accessor API; TypeScript `const enum` beyond §8.1's rewrite; bitmask/flag APIs; payload-bearing
 foreign discriminated unions; or automatic discovery of JavaScript object properties.
 **Companions:** Unions §§2–7 (constructor, match, derivation, and ordinary union
 representation semantics); Pattern Matching (constructor patterns and exhaustiveness);
@@ -15,8 +15,8 @@ Modules (namespaces and export correspondence); Exceptions §6 (`JsValue` and
 reader-facing JavaScript Input chapter.
 
 This is a focused normative component of the consolidated FFI corpus indexed by
-`ffi.md`. It adds one foreign-description form without otherwise reopening the
-existing extern decisions.
+`ffi.md`. It adds one foreign-description form, in two spellings, without otherwise
+reopening the existing extern decisions.
 
 ---
 
@@ -47,9 +47,15 @@ union's shared constant named by Unions §6.1.
 This exception is explicit and boundary-local:
 
 > An ordinary `union` is represented by its shared constants and tagged objects
-> (Unions §6). An
-> `extern enum` is represented by the stable foreign member values named in its
-> declaration.
+> (Unions §6). An `extern enum` is represented by the foreign values named in its
+> declaration — read once from a foreign object, or written as literals (§2.4).
+
+A second family of foreign alternatives has no object at all: a TypeScript literal
+union (`"up" | "down"`, `0 | 1`, `true | false | null`) whose values are inlined at every
+use, a `const enum`'s erased members, or a protocol's sentinel values. Hexagon
+describes that set with the same declaration in its **literal form** (§2.4): the values
+are written in the declaration and nothing is read. Both forms are the same union
+inside Hexagon; they differ only in where the runtime values come from.
 
 The foreign representation is already the Hexagon representation. Typed extern calls
 therefore add no encoder, decoder, wrapper, copy, or recursive traversal.
@@ -121,14 +127,96 @@ ignore the reverse numeric properties emitted by TypeScript numeric enums.
 
 ### 2.3 Export
 
-An unprefixed declaration is private to the binding module. `export enum` exports the
+An unprefixed declaration is private to the binding module. `export enum` inside a
+block, or `export extern enum` on the literal head (§2.4), exports the
 local nominal type, every local constructor, and the generated conversion bindings
 from §5, following the existing rule that `export` exports everything a
 type-introducing declaration makes public. It does not modify the foreign package.
 
+### 2.4 The literal form
+
+A foreign set of values that no object holds is declared at **module scope**, outside
+any `extern from` block, with each value written in place of a member name:
+
+```hexagon
+extern enum Direction = "up" as Up | "down" as Down
+
+export extern enum Tri derives (Eq, Show) =
+    | true as Yes
+    | false as No
+    | null as Unknown
+```
+
+```text
+[export] extern enum LocalTypeName [derives DeriveList] =
+  [|] Literal as LocalConstructorName
+  [| Literal as LocalConstructorName]...
+```
+
+- **The head stands alone.** `extern from` names the module a block's declarations are
+  read from; a literal enum reads nothing, so it has no `from` to sit under and is the
+  FFI's one module-free `extern` head (Part 4 §2.2). A `from`-less `extern` block is not
+  a spelling: the head is `extern enum`, or `extern from` with an enum read inside it. It is an ordinary declaration of
+  the module it appears in: declared once, exported with the ordinary prefix
+  (`export extern enum`, §2.3's rule unchanged), and reached from other modules through
+  their import of that module, exactly as an `extern from` block's declarations are.
+- **A literal is** a string literal, an integer literal, `true`, `false`, `null`, or
+  `undefined`. An integer literal is `Int`-valued and may carry a leading `-`, which is
+  part of the literal here as it is in a pattern (Pattern Matching §2.5): a member list
+  contains no operators, so there is no unary minus to collide with; `-0` denotes `0`,
+  so `0 as A | -0 as B` is the duplicate-value refusal, and no signed zero ever reaches
+  §4's `switch`. Kinds mix freely within one declaration; the values are pairwise
+  distinct under `Object.is` (§3 rule 5). Not a literal: a float literal — `NaN` and
+  signed zero separate `Object.is` from `===`, and §4's `switch` lowering rests on their
+  agreement — an interpolated string, or any expression. Refused with "a literal enum
+  member is a string, integer, boolean, `null` or `undefined` literal"; a duplicate
+  value is refused naming both members.
+- **A plain foreign `boolean` is `Bool`** (Unions §6.2's pin) and wants no enum; the
+  literal form's `true`/`false` are for a set a boolean shares with other values.
+- **`as` is mandatory.** Every value is written. A member whose string equals its
+  constructor's spelling (`"Up" as Up`) is a coincidence of the source, never a rule: no
+  member is ever named by its constructor, which is the door Unions §6.2 closed.
+- **Nullish members are legal in the literal form only.** The object-reading contract
+  (§3 rule 4) refuses them because a read `undefined` cannot be told from a missing
+  property; nothing is read here, and an API's `null` sentinel is a member of its set,
+  not an absence. The contract's second reason — foreign
+  absence passes through `Nullable(a)` and takes no second representation — is given up
+  here knowingly: a nullish member is a value of a closed declared set, named and
+  matched like any other, and the designation that follows is what keeps `Nullable(a)`
+  from being asked to represent it a second time. A literal enum naming **both** `null` and
+  `undefined` is a **designated nullish-absorbing type** (Part 2 §2.1, Part 11 §8):
+  `Nullable(T) ≡ T`, because `T`'s own value set already holds both forms the wrapper
+  would add, exactly as `JsValue`'s does — a foreign `T | null | undefined` is received
+  as `T` with no conversion, and each nullish value is the constructor it names. Part 2
+  §4's surface stays sound at `a = T`: `toOption` sends both members to `None`, the
+  question it answers, and `fromOption(None)` yields `undefined`, which is a member. An
+  enum naming **exactly one** nullish value — either one — is not absorbing, and
+  `Nullable(T)` over it is refused on two symmetric grounds: the wrapper collapses both
+  nullish forms to `None`, so whichever form the enum declares becomes indistinguishable
+  from absence; and `fromOption`'s `None` image is a nullish value the enum need not
+  declare. The refusal is a template over the declared member and the missing form —
+  at `extern enum Tri = true as Yes | false as No | null as Unknown`: "`Tri` already
+  names `null`; `Nullable(Tri)` cannot tell absence from `Unknown` — name both nullish
+  values (`undefined as Missing`) or neither"; at `extern enum Slot = "ready" as Ready
+  | undefined as Missing` the same message names `undefined`, `Missing` and `null as
+  Absent`. `Tri` with that advice taken is the absorbing shape: `extern enum Tri = true as
+  Yes | false as No | null as Unknown | undefined as Missing` — `Nullable(Tri)` is
+  `Tri`, and a foreign `boolean | null | undefined` is received as `Tri` with no wrapper
+  at all. Receiving a foreign `T | null` as
+  `T` needs no wrapper: `null` is a member, and an arriving `undefined` is out of set
+  like any undeclared value (§4).
+- Everything else is the object-reading form's: namespaces and duplicates (§2.2 —
+  a duplicate reads as a duplicate *value* here, there being no foreign member to
+  repeat),
+  typing and matching (§4, with the `switch` lowering stated there), crossing and the
+  generated `fromJsT`/`toJsT` (§5), derivation (§6), ABI events (§7.3). Emission binds
+  the literals themselves (§7.1); the `.d.ts` face is the literal union (§7.2).
+
+*Conformance: the literal form is not yet implemented — #773.*
+
 ---
 
-## 3. Foreign contract and initialization
+## 3. Foreign contract and initialization (object-reading form)
 
 The declaration is a trusted contract. It asserts that:
 
@@ -138,6 +226,9 @@ The declaration is a trusted contract. It asserts that:
 4. no declared value is `null` or `undefined`;
 5. declared values are pairwise distinct under JavaScript `Object.is`; and
 6. any foreign binding declared with this enum type produces only those member values.
+
+The literal form has no contract to read: its values are the declaration's own. Rules
+5 and 6 apply to it verbatim; rules 1–4 have no seat (§2.4).
 
 The compiler reads each property exactly once during ordinary ESM initialization and
 retains the result in a stable module binding:
@@ -183,8 +274,8 @@ constructor diagnostic. Two extern enums listing identically named or identical-
 foreign values remain distinct nominal types.
 
 Exhaustiveness and reachability use the declared local constructor set. Matching
-evaluates the scrutinee once and compares it with the captured member bindings using
-`Object.is`:
+evaluates the scrutinee once and compares it with the member bindings (captured or
+literal) using `Object.is`:
 
 ```js
 if (Object.is(direction, Up)) return "up";
@@ -194,6 +285,17 @@ if (Object.is(direction, Down)) return "down";
 `Object.is` is normative. It handles strings, numbers, `NaN`, signed zero, symbols,
 and object/singleton identity with one rule. The compiler may use a `switch` or `===`
 only when it can prove the result identical for every declared member representation.
+The literal form is that case by construction — every member is a string, integer,
+boolean or nullish literal, on which `===` agrees with `Object.is` — so a literal
+enum's match lowers to a `switch` on the scrutinee — here for
+`extern enum Order = "asc" as Ascending | "desc" as Descending`:
+
+```js
+switch (order) {
+  case "asc": return "ascending";
+  case "desc": return "descending";
+}
+```
 
 The ordinary foreign-contract rule explains the exhaustive-match edge: a foreign
 function falsely declared as returning `Direction` may return an out-of-set value.
@@ -246,8 +348,8 @@ toJsDirection   : Direction -> JsValue
 ```
 
 For any local enum name `T`, the names are exactly `fromJsT` and `toJsT`.
-`fromJsDirection` evaluates its input once, compares it with the captured members in
-declaration order using `Object.is`, and returns the corresponding constructor in
+`fromJsDirection` evaluates its input once, compares it with the declared members
+(captured or literal) in declaration order using `Object.is`, and returns the corresponding constructor in
 `Some`; otherwise it returns `None`. It is the checked path for data whose foreign
 producer cannot state the enum contract. `toJsDirection` is an identity widening to
 opaque `JsValue`; it does not allocate or encode.
@@ -277,7 +379,7 @@ membership-projection semantics.
 `=`. The derivable set and base constraint rules are the ordinary union rules. Their
 observable semantics are representation-independent:
 
-- `Eq` compares constructors; emission may use `Object.is` on the captured values;
+- `Eq` compares constructors; emission may use `Object.is` on the member values;
 - `Ord` follows declaration order, never numeric/string/object ordering;
 - `Show` uses the local constructor name (`Up`), not a foreign string value or symbol
   description; and
@@ -294,12 +396,14 @@ ordinary orphan and coherence rules.
 
 ### 7.1 JavaScript emission
 
-Member bindings are stable constants holding the foreign values. Calls and aggregates
-use them directly. Matches use §4's identity tests. No enum reverse object, numeric
+Member bindings are stable constants holding the foreign values — read from the enum
+object, or the literals themselves in the literal form (`const Up = "up";`, with
+nothing imported). Calls and aggregates use them directly. Matches use §4's identity
+tests, including the `switch` §4 licenses for the literal form. No enum reverse object, numeric
 table, string remapping, wrapper class, or brand is created at runtime.
 
 When public, constructors are ordinary named ESM exports whose runtime values remain
-the captured foreign values. `fromJsT` is emitted as a small identity-membership chain;
+the foreign values — captured, or the literals. `fromJsT` is emitted as a small identity-membership chain;
 `toJsT` is an identity function. The compiler may inline either operation internally
 when doing so preserves ordinary value evaluation and public function identity.
 
@@ -326,6 +430,27 @@ The generated JavaScript names exactly match the source bindings from §5.2; col
 are errors rather than occasions for mangling. The brand is TypeScript-only. Runtime
 values remain the dependency's primitive, symbol, or object values.
 
+**The literal form faces as the literal union its values spell** — the values are known
+exactly, so the brand's opacity has nothing to cover. What the literal face gives up is
+the object-reading form's nominal distinctness (§4): two literal enums over
+`"asc" | "desc"` face TypeScript as one type, and a bare `"asc"` is accepted where
+either is expected — the trade a form whose values the foreign side owns makes on
+purpose:
+
+```ts
+export type Direction = "up" | "down";
+export type Tri = true | false | null;
+
+export declare const Up: Direction;
+export declare const Down: Direction;
+export declare function fromJsDirection(value: unknown): Option<Direction>;
+export declare function toJsDirection(value: Direction): unknown;
+```
+
+This is the one place Hexagon emits a union of literal types, and it is right by
+Unions §6's principle: the foreign side owns the concept, and a TypeScript consumer meets it in
+TypeScript's own spelling.
+
 This surface deliberately directs typed consumers through the exported member
 constants. A future enhancement may preserve precise dependency member types when
 available, but compiler behavior must not depend on the presence or quality of a
@@ -338,8 +463,8 @@ The following are breaking foreign-boundary changes:
 - adding, removing, reordering, or renaming a declared member;
 - changing a foreign member property or local constructor alias;
 - changing a member's runtime value or identity;
-- changing between ordinary `union`, `extern enum`, `extern type`, and `extern class`;
-  or
+- changing between ordinary `union`, `extern enum`, `extern type`, and `extern class`,
+  or between `extern enum`'s object-reading and literal forms; or
 - changing the derived public capabilities.
 
 Reordering is an ABI event because it changes derived `Ord` and `Hash` semantics even
@@ -352,10 +477,11 @@ when the raw values remain unchanged.
 ### 8.1 TypeScript `const enum`
 
 A TypeScript `const enum` is normally erased and supplies no runtime object to import.
-It cannot satisfy `extern enum`. Publish a real object/facade, use a normal enum, or bind
-the inlined primitive carrier and interpret it explicitly. Diagnostic when the named
-export is observably absent: "`Direction` has no runtime enum object; TypeScript
-`const enum` values require a JavaScript facade or an explicit primitive binding."
+It cannot satisfy the object-reading form. Declare its inlined values with the literal
+form (§2.4) — `extern enum Level = 0 as Low | 1 as High` — or publish a real
+object/facade. Diagnostic when the named export is observably absent: "`Direction` has
+no runtime enum object; write its values with the literal form, `extern enum Direction
+= … as …`, or bind a JavaScript facade."
 
 ### 8.2 Flags and bitmasks
 
@@ -368,19 +494,23 @@ values are declared as combinable flags.
 
 Distinct declared properties with the same `Object.is` value violate §3. A compiler is
 not required to check the violation at module initialization, but `fromJs` must not
-pretend aliases are distinguishable. Tooling able to inspect literal declarations may
-diagnose the problem early.
+pretend aliases are distinguishable. Tooling able to inspect the foreign module's
+source may diagnose the problem early. That concession is the object-reading form's:
+the literal form knows its values and refuses a duplicate at compile time (§2.4).
 
 ### 8.4 Literal unions without an object
 
 A TypeScript type such as `"up" | "down"` has no runtime enum object, and an ordinary
 all-nullary union does not describe it: such a union is tagged objects (Unions §6.2),
-so a foreign `"up"` typed as one would satisfy no arm. Until the literal form of
-`extern enum` lands (#773 — the member values named inline, no object read), bind the
-foreign value as `String` and decode it into a domestic union with an explicit
-function returning `Option` or `Result` for the values it does not recognise (§5.2's
-`fromJsT` shape), or place a small JavaScript enum object/facade beside the dependency. The
-object-reading form does not invent an object that the foreign module does not export.
+so a foreign `"up"` typed as one would satisfy no arm. Declare it with the literal
+form (§2.4):
+
+```hexagon
+extern enum Direction = "up" as Up | "down" as Down
+```
+
+The object-reading form does not invent an object that the foreign module does not
+export.
 
 ---
 
@@ -402,6 +532,20 @@ An implementation is not conforming until tests cover at least:
 11. Diagnostics for payload members, parameters, duplicate names, and attempted use of
     a missing runtime/`const enum` export.
 12. No regression to ordinary all-nullary unions' tagged-object ABI (Unions §6.2).
+13. The literal form at module scope: string, integer, boolean and mixed members;
+    private and `export extern enum` surfaces; reached abroad through the module
+    import.
+14. Literal-form nullish members: `null` and `undefined` as members; `Nullable(T) ≡ T`
+    for an enum naming both, with `toOption`/`fromOption` executed at that type;
+    `Nullable(T)` refused with the rewrite for an enum naming one — both shapes, the
+    `null`-only and the `undefined`-only, each message naming its own form; an enum
+    naming only `null` treats an arriving `undefined` as out of set, and vice versa.
+15. Literal-form match lowering to `switch`, and `fromJsT`/`toJsT` over the literals.
+16. Literal-form `.d.ts`: the literal union face, no brand; constructors and conversions
+    typed by the alias.
+17. Literal-form diagnostics: a float literal, an expression, a missing `as`, a
+    duplicate value under `Object.is`, a literal member inside an `extern from` block
+    (which reads members, never writes them), and a `from`-less `extern` block.
 
 ---
 
@@ -410,7 +554,7 @@ An implementation is not conforming until tests cover at least:
 | Decision | Result |
 |---|---|
 | Local semantic model | Closed nominal nullary union |
-| Runtime representation | Captured foreign member values |
+| Runtime representation | Captured foreign member values, or the declaration's own literals (§2.4) |
 | Ordinary boundary crossing | Direct and trusted; no conversion |
 | Match comparison | `Object.is`, subject to proven-equivalent optimization |
 | Member discovery | Never automatic; explicit declaration list only |
@@ -418,6 +562,10 @@ An implementation is not conforming until tests cover at least:
 | Checked-failure boundary | Generated membership projections keep `Option`; composable `JsValue` decoders use `Result(_, JsConversionError)` |
 | Outbound `JsValue` | Generated identity `toJsT` binding |
 | JavaScript classes | Opaque under `extern class`; singleton enum view is explicit opt-in |
+| Literal form (#773) | Module-scope `extern enum T = lit as C \| …`, the FFI's one module-free `extern` head; nothing read; string, integer, boolean, `null`, `undefined` literals mixed freely, pairwise distinct; floats and expressions refused; `as` mandatory |
+| Literal-form nullish members | Legal (nothing is read); naming both nullish values → designated nullish-absorbing, `Nullable(T) ≡ T`; naming one → `Nullable(T)` refused with the name-both-or-neither rewrite |
+| Literal-form emission and face | Constants are the literals; match lowers to `switch`; `.d.ts` is the literal union, no brand |
 | TypeScript numeric reverse map | Ignored |
-| `const enum` / flags | Excluded |
+| `const enum` / object-free literal unions | The literal form (§2.4, §8.1, §8.4) |
+| Flags | Excluded (§8.2) |
 | Ordinary union representation | Unchanged |
