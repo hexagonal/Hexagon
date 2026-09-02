@@ -605,7 +605,7 @@ describe("the workspace walk", () => {
     const path = await makeRoot();
     await mkdir(join(path, "lib"));
     await writeFile(join(path, "lib", "kept.hex"), "export let kept: Int = 1\n");
-    await writeFile(join(path, "main.hex"), 'import {kept} from "./lib/kept"\n\nlet used: Int = kept\n');
+    await writeFile(join(path, "main.hex"), 'import Kept from "./lib/kept"\n\nlet used: Int = Kept.kept\n');
     await symlink(join(path, "lib"), join(path, "lib-link"), "dir");
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["lib-link"] }));
 

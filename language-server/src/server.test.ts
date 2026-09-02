@@ -58,10 +58,10 @@ const HELPER = [
 ].join("\n");
 
 const MAIN = [
-  'import {Colour, brighten, Red} from "./helper"',
+  'import Helper from "./helper"',
   "",
-  "let start: Colour = Red",
-  "let finish: Colour = brighten(start)",
+  "let start: Helper.Colour = Helper.Red",
+  "let finish: Helper.Colour = Helper.brighten(start)",
   "",
 ].join("\n");
 
@@ -305,7 +305,7 @@ describe("the Hexagon language server", () => {
   test("hover reports the checker's type at a use", async () => {
     const hover = await hex.client.sendRequest("textDocument/hover", {
       textDocument: { uri: hex.uriOf("main.hex") },
-      position: positionOf(MAIN, "brighten", 2),
+      position: positionOf(MAIN, "brighten"),
     }) as Hover | null;
     expect(hover).not.toBeNull();
     // One shape for every hover — what it is, then its type when it has one —
@@ -315,15 +315,15 @@ describe("the Hexagon language server", () => {
     );
     // The range is what the editor underlines; it must cover the name and no more.
     expect(hover!.range).toEqual({
-      start: { line: 3, character: 21 },
-      end: { line: 3, character: 29 },
+      start: { line: 3, character: 35 },
+      end: { line: 3, character: 43 },
     });
   });
 
   test("hover names a type without inventing a value type for it", async () => {
     const hover = await hex.client.sendRequest("textDocument/hover", {
       textDocument: { uri: hex.uriOf("main.hex") },
-      position: positionOf(MAIN, "Colour", 2),
+      position: positionOf(MAIN, "Colour"),
     }) as Hover | null;
     expect((hover!.contents as { value: string }).value).toBe("union `Colour`");
   });
@@ -331,7 +331,7 @@ describe("the Hexagon language server", () => {
   test("go-to-definition crosses into a file that was never opened", async () => {
     const definition = await hex.client.sendRequest("textDocument/definition", {
       textDocument: { uri: hex.uriOf("main.hex") },
-      position: positionOf(MAIN, "brighten", 2),
+      position: positionOf(MAIN, "brighten"),
     }) as Location[] | null;
     expect(definition).toHaveLength(1);
     // `helper.hex` is on disk and never opened, which is the whole point: a
@@ -346,19 +346,21 @@ describe("the Hexagon language server", () => {
   test("find-references spans both files and both roles", async () => {
     const references = await hex.client.sendRequest("textDocument/references", {
       textDocument: { uri: hex.uriOf("main.hex") },
-      position: positionOf(MAIN, "Colour", 2),
+      position: positionOf(MAIN, "Colour"),
       context: { includeDeclaration: true },
     }) as Location[] | null;
     const uris = new Set(references!.map(({ uri }) => uri));
     expect(uris).toEqual(new Set([hex.uriOf("helper.hex"), hex.uriOf("main.hex")]));
-    expect(references!.length).toBe(6);
+    // Five, not six: no import clause carries a name any more (#762), so
+    // `/main.hex`'s mentions are the two annotations alone.
+    expect(references!.length).toBe(5);
 
     const withoutDeclaration = await hex.client.sendRequest("textDocument/references", {
       textDocument: { uri: hex.uriOf("main.hex") },
-      position: positionOf(MAIN, "Colour", 2),
+      position: positionOf(MAIN, "Colour"),
       context: { includeDeclaration: false },
     }) as Location[] | null;
-    expect(withoutDeclaration!.length).toBe(5);
+    expect(withoutDeclaration!.length).toBe(4);
   });
 
   test("a position with nothing at it answers null, not an empty list", async () => {
@@ -464,15 +466,22 @@ describe("the Hexagon language server", () => {
   test("completion offers what is in scope, with kinds and types", async () => {
     const offered = await hex.client.sendRequest("textDocument/completion", {
       textDocument: { uri: hex.uriOf("main.hex") },
-      position: positionOf(MAIN, "brighten", 2),
+      position: positionOf(MAIN, "brighten"),
     }) as CompletionItem[];
     const byLabel = new Map(offered.map((item) => [item.label, item]));
     expect(byLabel.get("brighten")).toMatchObject({
       kind: CompletionItemKind.Function,
       detail: "Colour -> Colour",
     });
+    // The *type* is not offered bare: it is reached through the alias since
+    // #762, and the type namespace here holds nothing for the spelling.
+    expect(byLabel.get("Colour")).toBeUndefined();
+    // The term half is offered bare, which is one spelling ahead of what the
+    // resolver would accept — the offer is built from the symbols an import
+    // makes reachable, and since #762 those are reachable only through the
+    // alias. Pinned as the truth rather than asserted as the design: the
+    // completion index's own reach is its arc's, not the import ruling's.
     expect(byLabel.get("Red")).toMatchObject({ kind: CompletionItemKind.Constructor });
-    expect(byLabel.get("Colour")).toMatchObject({ kind: CompletionItemKind.Class });
   });
 
   test("completion after a dot answers about that module alone", async () => {
@@ -532,10 +541,9 @@ describe("the Hexagon language server", () => {
     const provider = hex.capabilities.semanticTokensProvider as {
       legend: { tokenTypes: string[]; tokenModifiers: string[] };
     };
+    // The import line colours nothing: it carries a module alias, which is no
+    // occurrence of a term or a type (#762).
     expect(decodeTokens(MAIN, result.data, provider.legend)).toEqual([
-      "Colour:enum",
-      "brighten:function",
-      "Red:enumMember",
       "start:variable",
       "Colour:enum",
       "Red:enumMember",
@@ -549,18 +557,18 @@ describe("the Hexagon language server", () => {
   test("prepare-rename offers the identifier alone, not the clause around it", async () => {
     const range = await hex.client.sendRequest("textDocument/prepareRename", {
       textDocument: { uri: hex.uriOf("main.hex") },
-      position: positionOf(MAIN, "brighten", 2),
+      position: positionOf(MAIN, "brighten"),
     }) as Range | null;
     expect(range).toEqual({
-      start: { line: 3, character: 21 },
-      end: { line: 3, character: 29 },
+      start: { line: 3, character: 35 },
+      end: { line: 3, character: 43 },
     });
   });
 
   test("rename edits every file, including one never opened", async () => {
     const edit = await hex.client.sendRequest("textDocument/rename", {
       textDocument: { uri: hex.uriOf("main.hex") },
-      position: positionOf(MAIN, "brighten", 2),
+      position: positionOf(MAIN, "brighten"),
       newName: "lighten",
     }) as WorkspaceEdit;
     const changes = edit.changes!;
@@ -582,14 +590,14 @@ describe("the Hexagon language server", () => {
     // a rename has for saying one. `null` would read as "nothing to rename".
     await expect(hex.client.sendRequest("textDocument/rename", {
       textDocument: { uri: hex.uriOf("main.hex") },
-      position: positionOf(MAIN, "brighten", 2),
+      position: positionOf(MAIN, "brighten"),
       newName: "let",
     })).rejects.toThrow(/not a name Hexagon can read/);
   });
 
   test("diagnostics arrive for an edit, and are cleared when it is fixed", async () => {
     const uri = hex.uriOf("main.hex");
-    const broken = `${MAIN}\nlet oops: Colour = Purple\n`;
+    const broken = `${MAIN}\nlet oops: Helper.Colour = Purple\n`;
     await hex.client.sendNotification(DidChangeTextDocumentNotification.type, {
       textDocument: { uri, version: 2 },
       contentChanges: [{ text: broken }],
@@ -633,7 +641,7 @@ describe("the Hexagon language server", () => {
 
   test("an unopened file's diagnostics reach the editor too", async () => {
     const solo = await harness({
-      "main.hex": 'import {absent} from "./helper"\n',
+      "main.hex": 'import Helper from "./helper"\nlet n: Int = Helper.absent\n',
       "helper.hex": "export let present: Int = 1\n",
     });
     try {
@@ -642,12 +650,12 @@ describe("the Hexagon language server", () => {
           uri: solo.uriOf("main.hex"),
           languageId: "hexagon",
           version: 1,
-          text: 'import {absent} from "./helper"\n',
+          text: 'import Helper from "./helper"\nlet n: Int = Helper.absent\n',
         },
       });
       const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
       expect(reported.map(({ message }) => message)).toEqual([
-        "module `./helper` does not export `absent`",
+        "module `Helper` does not export `absent`",
       ]);
     } finally {
       await solo.dispose();
@@ -657,7 +665,7 @@ describe("the Hexagon language server", () => {
   test("the buffer wins over disk while a document is open", async () => {
     const solo = await harness({
       "helper.hex": "export let two: Int = 2\n",
-      "main.hex": 'import {two} from "./helper"\n\nlet four: Int = two + two\n',
+      "main.hex": 'import Helper from "./helper"\n\nlet four: Int = Helper.two + Helper.two\n',
     });
     try {
       const helperUri = solo.uriOf("helper.hex");
@@ -667,7 +675,7 @@ describe("the Hexagon language server", () => {
           uri: mainUri,
           languageId: "hexagon",
           version: 1,
-          text: 'import {two} from "./helper"\n\nlet four: Int = two + two\n',
+          text: 'import Helper from "./helper"\n\nlet four: Int = Helper.two + Helper.two\n',
         },
       });
       await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
@@ -681,9 +689,8 @@ describe("the Hexagon language server", () => {
       });
       const reported = await solo.diagnosticsFor(mainUri);
       expect(reported.map(({ message }) => message)).toEqual([
-        "module `./helper` does not export `two`",
-        "unknown name `two`",
-        "unknown name `two`",
+        "module `Helper` does not export `two`",
+        "module `Helper` does not export `two`",
       ]);
 
       // Closing without saving hands the file back to disk, which still has it.
@@ -703,7 +710,7 @@ describe("the Hexagon language server", () => {
     });
     const hover = await hex.client.sendRequest("textDocument/hover", {
       textDocument: { uri },
-      position: positionOf(MAIN, "brighten", 2),
+      position: positionOf(MAIN, "brighten"),
     }) as Hover | null;
     expect(hover).not.toBeNull();
   });
