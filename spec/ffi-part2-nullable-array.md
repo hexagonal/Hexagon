@@ -37,10 +37,10 @@ No wrapper object, tag, or brand exists at runtime; a `Nullable(String)` holding
 ```text
 Nullable(Nullable(a)) ≡ Nullable(a)
 Nullable(JsValue)     ≡ JsValue
-Nullable(T)           ≡ T        -- T a literal extern enum with a nullish member
+Nullable(T)           ≡ T        -- T a literal extern enum naming both null and undefined
 ```
 
-The first equation applies through type aliases and generic substitution: there is no distinct doubly-nullable type for the zero-wrapper representation to misrepresent. Part 11 designates `JsValue` as a nullish-absorbing type because it already contains both `null` and `undefined`; Foreign Enums §2.4 designates a literal `extern enum` with a `null` or `undefined` member, because its own value set already holds the nullish form wrapping would add. At an absorbing `a` the §4 surface stays callable at `Nullable(a) ≡ a` and acts as the ordinary projection: `toOption` sends the type's own nullish values to `None`, which is the question it answers, not the route by which such a value is received. The designation list is explicit and closed; the checker performs no general structural “contains nullish” analysis over arbitrary unions or opaque foreign types.
+The first equation applies through type aliases and generic substitution: there is no distinct doubly-nullable type for the zero-wrapper representation to misrepresent. Part 11 designates `JsValue` as a nullish-absorbing type because it already contains both `null` and `undefined`; Foreign Enums §2.4 designates a literal `extern enum` naming both `null` and `undefined`, because its own value set already holds both forms wrapping would add; an enum naming only one is not designated, and `Nullable` over it is refused there. At an absorbing `a` the §4 surface stays callable at `Nullable(a) ≡ a` and acts as the ordinary projection: `toOption` sends the type's own nullish values to `None`, and `fromOption(None)` yields `undefined`, a value of the type. The designation list is explicit and closed; the checker performs no general structural “contains nullish” analysis over arbitrary unions or opaque foreign types.
 
 ### 2.2 The qualified nullish values
 
@@ -331,7 +331,7 @@ None. The three blockers this draft originally recorded were resolved by James a
 | Stability contract covers deferred traversals; escaped `Seq` extends the borrow; fresh arrays stable while exclusively held | §6.2 |
 | Live and snapshot iteration observationally identical under the contract; iteration never copies to enforce the contract | §6.5 |
 | Accessor surface: `length`, 1-based read-only `[]` (throws `IndexError`), `at` (signed), `get` (`Option`), eager shallow clamping slices returning fresh JS arrays; no mutation; `.length` gets a specialized diagnostic naming `Array.length` | §6.3 |
-| `Nullable` is definitionally idempotent over the closed designated nullish-absorbing set: `Nullable(Nullable(a)) ≡ Nullable(a)`, `Nullable(JsValue) ≡ JsValue`, and `Nullable(T) ≡ T` for a literal extern enum with a nullish member; no structural nullish analysis | §2.1; FFI Part 11 §8; Foreign Enums §2.4 |
+| `Nullable` is definitionally idempotent over the closed designated nullish-absorbing set: `Nullable(Nullable(a)) ≡ Nullable(a)`, `Nullable(JsValue) ≡ JsValue`, and `Nullable(T) ≡ T` for a literal extern enum naming both nullish values (one named: `Nullable(T)` refused); no structural nullish analysis | §2.1; FFI Part 11 §8; Foreign Enums §2.4 |
 | `Array(Nullable(a))` admits sparse arrays; holes observe as `Nullable.undefined`; no presence distinction, no scanning; a hole under a non-nullable element type is a Part 1 §3.1 contract violation | §6.4 |
 | Native iteration needs no closing protocol | §7 |
 | `Iterable<Array(a)>`: `Item = a`, member `toSeq` = `Array.toSeq`; native `for...of` emission; suite membership — Collections Part 5 §6 discharged | §8 |

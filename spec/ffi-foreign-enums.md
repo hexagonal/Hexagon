@@ -183,17 +183,20 @@ export extern enum Tri derives (Eq, Show) =
   absence passes through `Nullable(a)` and takes no second representation — is given up
   here knowingly: a nullish member is a value of a closed declared set, named and
   matched like any other, and the designation that follows is what keeps `Nullable(a)`
-  from being asked to represent it a second time. A literal enum with a nullish member
-  is a **designated nullish-absorbing type** (Part 2 §2.1, Part 11 §8): `Nullable(T) ≡
-  T`, because `T`'s own value set already holds the nullish form the wrapper would add,
-  exactly as `JsValue`'s does — a foreign `T | null` is received as `T` with no
-  conversion, and the member is the constructor it names. At `a = T`, Part 2 §4's
-  `Nullable.toOption` remains the ordinary projection and sends the nullish member to
-  `None`: the caller asked which values are nullish, and the answer is honest; it is
-  not the route by which a `T` is received. An enum naming one nullish value and not
-  the other still absorbs;
-  the unnamed one is out of set like any undeclared value (§4) — an API whose
-  `undefined` means absence beside a `null` member names both (`undefined as Missing`).
+  from being asked to represent it a second time. A literal enum naming **both** `null` and
+  `undefined` is a **designated nullish-absorbing type** (Part 2 §2.1, Part 11 §8):
+  `Nullable(T) ≡ T`, because `T`'s own value set already holds both forms the wrapper
+  would add, exactly as `JsValue`'s does — a foreign `T | null | undefined` is received
+  as `T` with no conversion, and each nullish value is the constructor it names. Part 2
+  §4's surface stays sound at `a = T`: `toOption` sends both members to `None`, the
+  question it answers, and `fromOption(None)` yields `undefined`, which is a member. An
+  enum naming **exactly one** nullish value is not absorbing, and `Nullable(T)` over it
+  is refused: the wrapper's `null → None` would shadow the member, and `fromOption(None)`
+  would produce the unnamed nullish value, which nothing declares. The refusal: "`Tri`
+  already names `null`; `Nullable(Tri)` cannot tell absence from `Unknown` — name both
+  nullish values (`undefined as Missing`) or neither." Receiving a foreign `T | null` as
+  `T` needs no wrapper: `null` is a member, and an arriving `undefined` is out of set
+  like any undeclared value (§4).
 - Everything else is the object-reading form's: namespaces and duplicates (§2.2 —
   a duplicate reads as a duplicate *value* here, there being no foreign member to
   repeat),
@@ -525,8 +528,9 @@ An implementation is not conforming until tests cover at least:
     private and `export extern enum` surfaces; reached abroad through the module
     import.
 14. Literal-form nullish members: `null` and `undefined` as members; `Nullable(T) ≡ T`
-    for such an enum; an enum naming only `null` treats an arriving `undefined` as out
-    of set.
+    for an enum naming both, with `toOption`/`fromOption` executed at that type;
+    `Nullable(T)` refused with the rewrite for an enum naming one; an enum naming only
+    `null` treats an arriving `undefined` as out of set.
 15. Literal-form match lowering to `switch`, and `fromJsT`/`toJsT` over the literals.
 16. Literal-form `.d.ts`: the literal union face, no brand; constructors and conversions
     typed by the alias.
@@ -550,7 +554,7 @@ An implementation is not conforming until tests cover at least:
 | Outbound `JsValue` | Generated identity `toJsT` binding |
 | JavaScript classes | Opaque under `extern class`; singleton enum view is explicit opt-in |
 | Literal form (#773) | Module-scope `extern enum T = lit as C \| …`, the FFI's one module-free `extern` head; nothing read; string, integer, boolean, `null`, `undefined` literals mixed freely, pairwise distinct; floats and expressions refused; `as` mandatory |
-| Literal-form nullish members | Legal (nothing is read); the enum is a designated nullish-absorbing type, `Nullable(T) ≡ T` |
+| Literal-form nullish members | Legal (nothing is read); naming both nullish values → designated nullish-absorbing, `Nullable(T) ≡ T`; naming one → `Nullable(T)` refused with the name-both-or-neither rewrite |
 | Literal-form emission and face | Constants are the literals; match lowers to `switch`; `.d.ts` is the literal union, no brand |
 | TypeScript numeric reverse map | Ignored |
 | `const enum` / object-free literal unions | The literal form (§2.4, §8.1, §8.4) |
