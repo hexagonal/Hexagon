@@ -598,9 +598,10 @@ Geo.area(2.0)
 -- tag.hex: export union Tag = Tag(n: Int) | Other
 import Tag from "./tag"
 let t = Tag(7)                               -- rule 3 (§5.1); the application erases (Unions §6.4)
--- emits: const t = {tag: "Tag", n: 7};      -- no import line: nothing is referenced
---   (until #770 lands the emitter calls the materialised export, import * as Tag …;
---   Tag.Tag(7) — never `Tag(7)`, which would call the namespace object)
+-- emits: import * as Tag from "./tag.js";  const t = {tag: "Tag", n: 7};
+--   the import line stands for the dependency the source wrote (§11.3, §8.2's load
+--   order), not for any name the emitted body reads (#770: the emitter does not yet
+--   erase here — never `Tag(7)`, which would call the namespace object)
 let mk = Tag                                 -- referenced as a value: the function
 -- emits: import * as Tag from "./tag.js";  const mk = Tag.Tag;
 
@@ -664,7 +665,7 @@ import geometry from "./geometry"            -- ERROR: a module alias is upperca
 | Every prelude name must have a qualified home (stdlib invariant, pre-registered) | §6.4 |
 | Instances never exported/imported/hidden; home module = containing file; cross-module duplicates reported at whole-program check naming both sites; instances on private types legal; whole-program coherence cost acknowledged | §7 |
 | Discoverability: ordinary `C<T>` use brings both legal homes into the graph; residue = inferred-never-named types and isolated-file checking; missing-instance diagnostics name the legal homes, offering only the writable ones, and name the declaring module alone for an unnameable constraint; derivation fixit appended for derivable constraints at project-source nominals, replacing the clause at derivable-only `Hash` (wrapper-key route where a hand-written `Eq` bars derivation); pre-1.0 LSP names the activating module import; no loading form exists (§3.3); packages/re-exports widen the residue | §7.6 |
-| Companion dispatch targets the nominal type's home module (idiom load-bearing); emitter may add companion-call named imports; a fallback-reached constructor is never called on the namespace object | §5.3, §11.2 |
+| Companion dispatch targets the nominal type's home module (idiom load-bearing); emitter may add companion-call named imports; a fallback-reached constructor is never called or read as though the namespace object were the export | §5.3, §11.2 |
 | Imports acyclic, hard error, incl. type-only; deterministic depth-first load order; top-level `Unit` effects legal; selected root module runs through ordinary ESM evaluation; no special `main` | §8 |
 | ML calculus, headers, export lists, `(..)` sugar, default exports, single-namespace, F# priority stack, unified paths, cycles: rejected with reasons | §9 |
 | Emission: 1:1 ESM; the module form lowers to the namespace import or named imports, one meaning; the alias's local yields to a same-spelled declaration on collision (#569); exported opaque types use FFI Part 7's private-symbol branded `.d.ts` face | §11 |
