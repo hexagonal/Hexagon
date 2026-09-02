@@ -231,7 +231,7 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
 describe("`concat` has two prelude exporters (Modules §5.5, accepted)", () => {
   test("the bare name is refused, naming both qualified homes", () => {
     expect(projectDiagnostics("export let r: String = concat(\"a\", \"b\")\n")).toEqual([
-      "no bare `concat`; write `\"a\".concat(\"b\")`, " +
+      "no bare `concat`; write `(\"a\").concat(\"b\")`, " +
         "`Concat.concat(\"a\", \"b\")`, or `Seq.concat(\"a\", \"b\")`",
     ]);
   });

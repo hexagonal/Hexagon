@@ -630,7 +630,7 @@ describe("the companion's surface", () => {
       "or `Set.empty`",
     ]);
     expect(projectDiagnostics("export let n: Int = add(1, 2)\n")).toEqual([
-      "no bare `add`; write `1.add(2)`, `Num.add(1, 2)`, or `Set.add(1, 2)`",
+      "no bare `add`; write `(1).add(2)`, `Num.add(1, 2)`, or `Set.add(1, 2)`",
     ]);
     expect(projectDiagnostics("export let n: Int = size(Set.empty)\n")).toEqual([
       "no bare `size`; write `Set.empty.size()`, `Map.size(Set.empty)`, " +

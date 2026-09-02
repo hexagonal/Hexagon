@@ -217,7 +217,7 @@ describe("qualifiable, not bare: the one-exporter guarantee (Modules §5.3)", ()
     // binding is qualifiable and not an exporter, so `Float` and `BigInt` do
     // not appear among the routes even though both spell a `pow`.
     expect(projectDiagnostics("export let n: Int = pow(2, 5)\n"))
-      .toEqual(["no bare `pow`; write `2.pow(5)` or `Pow.pow(2, 5)`"]);
+      .toEqual(["no bare `pow`; write `(2).pow(5)` or `Pow.pow(2, 5)`"]);
   });
 
   test("a local name of the door's spelling is an ordinary binding", () => {

@@ -141,6 +141,76 @@ describe("the function channel: none, and `ignore`", () => {
       ]);
   });
 
+  /**
+   * **A route that does not mean the call is not a route.** The receiver seat is
+   * the one place the program's own words cannot be pasted verbatim: the dot
+   * binds tighter than a prefix minus and reaches into a bare numeric literal,
+   * so `-7` written there is a *different operation* — `-7.div(2)` parses as
+   * `-(7.div(2))` and answers −3 where `Integral.div(-7, 2)` answers −4. The
+   * message parenthesises the receiver wherever the grammar would misread it, so
+   * the two routes one message offers are always the same operation.
+   *
+   * Both halves are pinned, because either alone passes for the wrong reason:
+   * parenthesising everything would satisfy the negative shapes, and
+   * parenthesising nothing would satisfy the positive ones.
+   */
+  test.each([
+    ["a negative integer literal", "export let n: Int = div(-7, 2)\n",
+      "no bare `div`; write `(-7).div(2)` or `Integral.div(-7, 2)`"],
+    ["a float literal", "export let o: Ordering = compare(2.5, 1.5)\n",
+      "no bare `compare`; write `(2.5).compare(1.5)` or `Ord.compare(2.5, 1.5)`"],
+    ["a `BigInt` literal", "export let n: BigInt = pow(2n, 10)\n",
+      "no bare `pow`; write `(2n).pow(10)` or `Pow.pow(2n, 10)`"],
+    ["a prefix-operator expression", "export let n(x: Int): Int = hash(-x)\n",
+      "no bare `hash`; write `(-x).hash()` or `Hash.hash(-x)`"],
+    ["an infix expression", "export let n(a: Int, b: Int): Int = hash(a + b)\n",
+      "no bare `hash`; write `(a + b).hash()` or `Hash.hash(a + b)`"],
+    ["an index read", "export let n(v: Vector(Int)): Int = hash(v[1])\n",
+      "no bare `hash`; write `(v[1]).hash()` or `Hash.hash(v[1])`"],
+  ])("%s receiver is parenthesised", (_shape, source, message) => {
+    expect(projectDiagnostics(source)).toEqual([message]);
+  });
+
+  test.each([
+    ["a plain name", "export let n(x: Int): Int = hash(x)\n",
+      "no bare `hash`; write `x.hash()` or `Hash.hash(x)`"],
+    ["a dot chain", "export let n: Int = length(Seq.empty)\n",
+      "no bare `length`; write `Seq.empty.length()`, `Seq.length(Seq.empty)`, " +
+      "`Vector.length(Seq.empty)`, or `Array.length(Seq.empty)`"],
+    ["a call", "export let n(g: Int -> Int): Int = hash(g(1))\n",
+      "no bare `hash`; write `g(1).hash()` or `Hash.hash(g(1))`"],
+    ["an already-grouped expression", "export let n: Int = div((-7), 2)\n",
+      "no bare `div`; write `(-7).div(2)` or `Integral.div((-7), 2)`"],
+    ["an ascription", "export let n(a: Int): Int = hash((a: Int))\n",
+      "no bare `hash`; write `(a: Int).hash()` or `Hash.hash((a: Int))`"],
+  ])("%s receiver is left as written", (_shape, source, message) => {
+    expect(projectDiagnostics(source)).toEqual([message]);
+  });
+
+  /**
+   * And the routes one message offers are **the same operation** — the property
+   * the parentheses exist for, executed rather than reasoned about. `div` is the
+   * discriminating case: without them the dot route answers −3.
+   */
+  test("the dot route and the qualified route agree, at every parenthesised shape", async () => {
+    const main = await runMain(
+      "let v: Vector(Int) = [10, 20, 30]\n" +
+      "export let quotient: Bool = (-7).div(2) == Integral.div(-7, 2)\n" +
+      "export let euclid: Int = (-7).div(2)\n" +
+      "export let ordering: Bool =\n" +
+      "    \"${(2.5).compare(1.5)}\" == \"${Ord.compare(2.5, 1.5)}\"\n" +
+      "export let raised: Bool = (2n).pow(10) == Pow.pow(2n, 10)\n" +
+      "export let negated: Bool = (-5).hash() == Hash.hash(-5)\n" +
+      "export let summed: Bool = (3 + 4).hash() == Hash.hash(3 + 4)\n" +
+      "export let indexed: Bool = (v[1]).hash() == Hash.hash(v[1])\n" +
+      "export let ascribed: Bool = (5: Int).hash() == Hash.hash((5: Int))\n",
+    );
+    expect(main["euclid"]).toBe(-4);
+    for (const key of ["quotient", "ordering", "raised", "negated", "summed", "indexed", "ascribed"]) {
+      expect([key, main[key]]).toEqual([key, true]);
+    }
+  });
+
   /** At a reference that is not a call, the qualified names alone. */
   test("a non-call reference names bare qualified spellings", () => {
     expect(projectDiagnostics("export let e: Vector(Int) = empty\n")).toEqual([

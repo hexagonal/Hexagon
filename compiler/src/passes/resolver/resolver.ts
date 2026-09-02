@@ -307,6 +307,49 @@ function annotationCompanion(annotation: Resolved.TypeAnnotation): string | unde
   }
 }
 
+/**
+ * A refused call's arguments as the program wrote them, with the first one also
+ * rendered as a **dot-call receiver** (Modules §10, #742).
+ *
+ * The two differ, and have to: a qualified spelling takes each argument
+ * unchanged inside its parentheses, while a dot form puts the first one in front
+ * of a `.` where the grammar reads it as far as it can. `-7` written there
+ * changes the program — `-7.div(2)` parses as `-(7.div(2))` and answers −3 where
+ * `Integral.div(-7, 2)` answers −4 — so the two routes one message offers would
+ * not be the same operation. The receiver carries whatever parentheses that
+ * costs; the argument list never does.
+ */
+interface WrittenArguments {
+  /** Each argument's source text, for the qualified spellings' argument lists. */
+  readonly texts: readonly string[];
+  /** The first argument as a receiver, parenthesised where the dot would misread it. */
+  readonly receiver: string;
+}
+
+/**
+ * Whether an expression can stand in front of a `.` **as written**, or has to be
+ * parenthesised first.
+ *
+ * Three can because the dot cannot reach into their text: a plain name, a field
+ * or module access (a dot chain already), and a call. Four more can because
+ * their text is **already fully parenthesised** by the grammar that wrote it —
+ * a group, a tuple, an ascription, and `()` — and a second pair would only
+ * double what is there.
+ *
+ * Everything else is parenthesised, which is always legal (a parenthesised
+ * receiver dispatches exactly as a bare one does — probed at every literal
+ * class) and is only ever noise where it is unnecessary: the message may be
+ * wordier than a human would write, never wrong. That asymmetry is the whole
+ * reason the test is a small allowlist rather than a list of the shapes that
+ * need help — a shape nobody thought of gets parentheses and stays correct.
+ */
+function dispatchesAsWritten(expression: Parsed.Expr): boolean {
+  return expression.kind === "Name" || expression.kind === "Access" ||
+    expression.kind === "Call" || expression.kind === "Group" ||
+    expression.kind === "Tuple" || expression.kind === "Ascription" ||
+    expression.kind === "Unit";
+}
+
 /** `Home.name(…)` — one route's qualified spelling, carrying the call's arguments. */
 function qualifiedSpelling(
   name: string,
@@ -342,17 +385,19 @@ function qualifiedSpelling(
 function refusedBarePreludeMessage(
   name: string,
   routes: readonly PreludeRoute[],
-  written: readonly string[] | undefined,
+  written: WrittenArguments | undefined,
 ): string {
   const spellings: string[] = [];
-  const dotted = written === undefined || written.length === 0
+  const dotted = written === undefined || written.texts.length === 0
     ? undefined
     : routes.find((route) => route.dotCallable === true);
   if (dotted !== undefined) {
-    const [receiver, ...rest] = written!;
-    spellings.push(`\`${receiver}.${name}(${rest.join(", ")})\``);
+    const rest = written!.texts.slice(1);
+    spellings.push(`\`${written!.receiver}.${name}(${rest.join(", ")})\``);
   }
-  for (const route of routes) spellings.push(qualifiedSpelling(name, route.home, written));
+  for (const route of routes) {
+    spellings.push(qualifiedSpelling(name, route.home, written?.texts));
+  }
   return `no bare \`${name}\`; write ` +
     (spellings.length === 1 ? spellings[0]! : conjoin(spellings, "or"));
 }
@@ -4150,7 +4195,7 @@ class Resolver {
    * when the caller supplied no text (a bare `resolve` in a test), which degrades
    * to the non-call form rather than to a wrong one.
    */
-  #writtenArguments(name: Parsed.Name): readonly string[] | undefined {
+  #writtenArguments(name: Parsed.Name): WrittenArguments | undefined {
     const call = this.#calleeOf;
     const text = this.#text;
     if (
@@ -4159,9 +4204,16 @@ class Resolver {
     ) {
       return undefined;
     }
-    return call.arguments.map((argument) =>
+    const texts = call.arguments.map((argument) =>
       text.slice(argument.span.start.offset, argument.span.end.offset)
     );
+    const first = call.arguments[0];
+    return {
+      texts,
+      receiver: first === undefined || dispatchesAsWritten(first)
+        ? texts[0] ?? ""
+        : `(${texts[0]})`,
+    };
   }
 
   #refusedAmbiguousPrelude(name: Parsed.Name, scope: Scope): boolean {

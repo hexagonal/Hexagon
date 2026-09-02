@@ -547,10 +547,10 @@ describe("`mod` and `rem` gained a second exporter", () => {
     // the bare layer holds neither spelling now — and it names the same two
     // homes, spelled with the arguments the program wrote.
     expect(projectDiagnostics("export let m: Int = mod(7, 3)\n")).toEqual([
-      "no bare `mod`; write `7.mod(3)`, `Integral.mod(7, 3)`, or `Float.mod(7, 3)`",
+      "no bare `mod`; write `(7).mod(3)`, `Integral.mod(7, 3)`, or `Float.mod(7, 3)`",
     ]);
     expect(projectDiagnostics("export let r: Float = rem(7.0, 3.0)\n")).toEqual([
-      "no bare `rem`; write `7.0.rem(3.0)`, `Integral.rem(7.0, 3.0)`, " +
+      "no bare `rem`; write `(7.0).rem(3.0)`, `Integral.rem(7.0, 3.0)`, " +
         "or `Float.rem(7.0, 3.0)`",
     ]);
   });
