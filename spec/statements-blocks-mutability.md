@@ -216,7 +216,7 @@ That rewrite is for a **read** of the current value. An attempted assignment get
   var shift = computeShift()
   ...
   let s = shift                  -- freeze the current value
-  xs |> Seq.map(x => x + s)          -- fine: s is a let
+  xs |> Seq.map(x => x + s)      -- fine: s is a let
   ```
 
 - **`fun` can never touch a `var`**, as a corollary: a `fun` member is header syntax denoting a lambda (Functions §7.1), so the rule applies wholesale.
@@ -325,18 +325,18 @@ fun f() =
 -- (e) Lambda boundary
 fun g(xs) =
     var shift = 1
-    xs |> Seq.map(x => x + shift)          -- ERROR: shift is a var; copy to a let first
+    xs |> Seq.map(x => x + shift)   -- ERROR: shift is a var; copy to a let first
 
 fun g2(xs) =
     var shift = 1
     ...
     let s = shift
-    xs |> Seq.map(x => x + s)              -- fine
+    xs |> Seq.map(x => x + s)       -- fine
 
 -- (f) Head Binder Shadowing
 let x = 1
 let x = 2                            -- ERROR: x is already bound
-xs |> Seq.map(x => x * 2)                -- fine: head binder shadows
+xs |> Seq.map(x => x * 2)            -- fine: head binder shadows
 
 let x = 42
 let f(x) = x + 1                     -- fine: header-sugar parameter is a head binder
