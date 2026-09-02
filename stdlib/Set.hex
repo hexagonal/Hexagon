@@ -52,10 +52,9 @@ extern from "hex:intrinsic"
     // `toSeq` at a set is the constraint member, and a module-level binding of
     // a member's spelling beside the instance is the Constraints section 4.6
     // rebinding error. The Part 4 section 6.2 traversal is still published —
-    // as the dot call `s.toSeq()` and as `Set.toSeq(s)` qualified, both
-    // reading the row.
-    // The algebra below calls this row directly rather than the member, which
-    // is the same walk one indirection shorter.
+    // as the dot call `s.toSeq()` and as `Set.toSeq(s)` qualified, both of
+    // which read the row. The algebra below calls this row directly rather
+    // than the member, which is the same walk one indirection shorter.
     fun setElements as elements(s: Set(a)): Seq(a)
 
     // Unexported, and the one row here that is not Collections Part 4
@@ -136,8 +135,8 @@ export let intersect<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
         // Left is the smaller side: traverse it, probe the right, and every
         // element collected is the left's own by construction (section 5.4).
         elements(left)
-            .filter((element) => contains(right, element))
-            .fold(empty, add)
+        .filter((element) => contains(right, element))
+        .fold(empty, add)
     else
         // Right is the smaller side, so the elements in hand are the right's and
         // section 5.4 wants the left's. Probing with `contains` would answer the
@@ -149,8 +148,8 @@ export let intersect<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
 (** The elements of `left` that `right` does not hold. *)
 export let difference<a: Hash>(left: Set(a), right: Set(a)): Set(a) =
     elements(left)
-        .filter((element) => not contains(right, element))
-        .fold(empty, add)
+    .filter((element) => not contains(right, element))
+    .fold(empty, add)
 
 (** Whether `right` holds every element of `left`. The empty set is a subset of
     everything, and every set is a subset of itself. *)

@@ -24,8 +24,9 @@
 // repeated immutable concatenation by name. The fold is exactly what a Hexagon
 // body would be, so the operation crosses the door to reach a linear join. Its
 // twin `toSeq` is not declared here at all: `Iterable<String>` is a provided
-// row (Part 5 section 4), so `toSeq("ab")` is the constraint member and
-// `String.toSeq` is that row's uniform-access read.
+// row (Part 5 section 4), so `toSeq` at a string is the constraint member. The
+// consumer spellings are the dot call `"ab".toSeq()` and the uniform-access
+// read `String.toSeq("ab")`.
 extern from "hex:intrinsic"
     fun stringConcat as nativeConcat(left: String, right: String): String
     fun stringEquals as nativeEquals(left: String, right: String): Bool
