@@ -295,6 +295,8 @@ export interface Symbol {
   readonly kind: Resolved.SymbolKind;
   readonly bindingSpan: Source.Span;
   readonly scheme: Scheme;
+  /** See `Resolved.Symbol.generated` — the declaration this was derived from. */
+  readonly generated?: string;
 }
 
 export interface Binding {

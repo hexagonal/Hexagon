@@ -326,7 +326,13 @@ export function startServer(connection: Connection): void {
     const changes: Record<string, TextEdit[]> = {};
     for (const edit of plan.edits) {
       const uri = workspace.uris.toUri(edit.path);
-      (changes[uri] ??= []).push({ range: rangeOfSpan(edit.span), newText: plan.newName });
+      // `replacement` where the edit carries one — a name *derived* from the one
+      // being renamed writes its own text (Foreign Enums §5.2's generated
+      // conversions), and `newName` everywhere else, which is every other edit.
+      (changes[uri] ??= []).push({
+        range: rangeOfSpan(edit.span),
+        newText: edit.replacement ?? plan.newName,
+      });
     }
     return { changes };
   });

@@ -1837,26 +1837,20 @@ class Parser {
 
   /**
    * Whether the **literal `extern enum`** head starts here (Foreign Enums §2.4)
-   * — `extern`, the contextual `enum`, then the declared type's name.
+   * — `extern` followed by the contextual `enum`.
    *
-   * `extern` is a hard keyword only a declaration head may write, so the first
-   * two tokens already settle the form: nothing else in the grammar can put
-   * `enum` after `extern` outside a block. The third token is read for
-   * `#atUnionHead`'s reason rather than for disambiguation — a *non-uppercase*
-   * name counts, because `extern enum direction = …` is this declaration with
-   * the wrong name, and admitting it here is what keeps "`extern enum` requires
-   * an uppercase type name" pointed at the real fault.
-   *
-   * This is the test the **`export` head** needs, where the alternative is
-   * `export`'s own "must be followed by a declaration". `#parseExtern` tests one
-   * token instead, deliberately: by then `extern` is consumed and a bare
-   * `extern enum` with no name at all is better answered by the name's own
-   * message than by the head's list of three continuations.
+   * Two tokens are the whole test, and they settle it: `extern` is a hard
+   * keyword only a declaration head may write, and nothing else in the grammar
+   * can put `enum` after it outside a block. So this needs none of
+   * `#atUnionHead`'s lookahead past the introducer, and deliberately reads none
+   * — `export extern enum` with the name missing routes here and is answered by
+   * "`extern enum` requires an uppercase type name", which is the fault, rather
+   * than by `export`'s own "must be followed by a declaration", which is not.
+   * That is also what makes this test and `#parseExtern`'s the same rule at the
+   * two heads rather than two rules that nearly agree.
    */
   #atExternEnumHead(): boolean {
-    if (!this.#at("Extern") || !this.#peekContextual(1, "enum")) return false;
-    const name = this.#peek(2).kind;
-    return name === "UpperName" || name === "NonUpperName";
+    return this.#at("Extern") && this.#peekContextual(1, "enum");
   }
 
   /**
@@ -2615,14 +2609,19 @@ class Parser {
       }
       if (!this.#atContextual("as")) {
         // Two faults meet here and are told apart by what follows the value.
-        // Nothing more on the member — a `|`, or the item's end — means the
-        // author wrote a value and no name, which §2.4 refuses outright: "`as`
-        // is mandatory. Every value is written", and no member is ever named by
-        // its constructor's spelling, so there is no shorter form to recover
-        // into and the rewrite shows the whole member. Anything else means the
-        // value was the head of an *expression*, which is the other thing §2.4
-        // refuses, in the sentence that names what may stand there.
-        const bare = this.#at("Bar") || itemEnds.has(this.#current().kind);
+        // A **name**, a `|`, or the item's end means the author wrote a value
+        // and no `as`, which §2.4 refuses outright: "`as` is mandatory. Every
+        // value is written", and no member is ever named by its constructor's
+        // spelling, so there is no shorter form to recover into and the rewrite
+        // shows the whole member. The name case is the commonest of the three —
+        // `"up" Up`, where the author wrote both halves and dropped the word
+        // between them — and it is the one that most needs the sentence about
+        // `as` rather than one about literals, since the value they wrote *is* a
+        // literal. Anything else means the value was the head of an
+        // *expression*, which is the other thing §2.4 refuses, in the sentence
+        // that names what may stand there.
+        const bare = this.#at("UpperName") || this.#at("Bar") ||
+          itemEnds.has(this.#current().kind);
         this.#errorAt(
           bare ? value.span : this.#current().span,
           bare ? "every literal enum member is named: `\"up\" as Up`" : LITERAL_ENUM_MEMBER,

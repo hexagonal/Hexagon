@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   AnalysisSession,
   refused,
+  type RenamePlan,
   type RenameResult,
   type RenameSubject,
 } from "./session.js";
@@ -176,12 +177,49 @@ describe("AnalysisSession", () => {
   });
 
   /**
-   * The conversions §5.2 generates are ordinary term bindings, so a reference to
-   * one hovers with the signature the declaration gave it. They are written by
-   * no one, so they carry the declared type name's span — which is why hovering
-   * the *declaration* answers about the type, not about them.
+   * **At the declaration**, which is the position the generated conversions
+   * borrow their span from and therefore the only one where they could be
+   * mistaken for declarations of their own (`Resolved.Symbol.generated`).
+   *
+   * Every service has to answer about the *type* there: one definition, a hover
+   * with no value signature on it, and references that count the type's two
+   * mentions and nothing else. Before the marker this seat answered with three
+   * definitions, `JsValue -> Option(Direction)` as the hover's type, and six
+   * references with three definitions stacked on one span.
    */
-  test("a generated conversion hovers with its signature", () => {
+  test("the declaration's own name answers about the type alone", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "let out(d: Direction): JsValue = toJsDirection(d)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const declaration = at(source, "Direction");
+
+    expect(session.definitions("/main.hex", declaration).map(({ target, name }) =>
+      `${target.kind}:${name}`
+    )).toEqual(["union:Direction"]);
+
+    const hover = session.hover("/main.hex", declaration);
+    expect(hover?.name).toBe("Direction");
+    expect(hover?.target?.kind).toBe("union");
+    expect(hover?.displayedType).toBeUndefined();
+
+    // The type's own three mentions: the declaration and the two annotations.
+    // The conversions' uses spell a different name and are not among them.
+    expect(session.references("/main.hex", declaration).map(({ isDefinition }) => isDefinition))
+      .toEqual([true, false, false]);
+  });
+
+  /**
+   * The conversions §5.2 generates are ordinary term bindings, so a reference to
+   * one hovers with the signature the declaration gave it — and *only* a
+   * reference: the definition occurrence is withheld, because the span it would
+   * claim is the type's.
+   */
+  test("a generated conversion hovers with its signature and declares nothing", () => {
     const source = [
       'export extern enum Direction = "up" as Up | "down" as Down',
       "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
@@ -189,9 +227,107 @@ describe("AnalysisSession", () => {
     ].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
-    const hover = session.hover("/main.hex", at(source, "fromJsDirection"));
+    const use = at(source, "fromJsDirection");
+    const hover = session.hover("/main.hex", use);
     expect(hover?.name).toBe("fromJsDirection");
     expect(hover?.displayedType).toBe("JsValue -> Option(Direction)");
+    expect(session.definitions("/main.hex", use)).toEqual([]);
+  });
+
+  /**
+   * Foreign Enums §5.2: the conversions' names are derived from the enum's local
+   * type name and are not chosen. So renaming the *type* rewrites every use of
+   * them, to the names the new type name derives — which is the honest reading
+   * of "the binding author must rename the local enum type".
+   */
+  test("renaming a literal enum's type carries its generated conversions", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "let out(d: Direction): JsValue = toJsDirection(d)",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({ "/main.hex": source });
+    const plan = session.rename("/main.hex", at(source, "Direction"), "Way");
+    expect(plan).toBeDefined();
+    expect(refused(plan!)).toBe(false);
+    const renamed = plan as RenamePlan;
+    expect(renamed.newName).toBe("Way");
+    // Five edits: three mentions of the type, and one use of each conversion,
+    // each carrying the text its own prefix derives.
+    expect(renamed.edits.map(({ span, replacement }) =>
+      `${source.slice(span.start.offset, span.end.offset)} -> ${replacement ?? renamed.newName}`
+    )).toEqual([
+      "Direction -> Way",
+      "Direction -> Way",
+      "fromJsDirection -> fromJsWay",
+      "Direction -> Way",
+      "toJsDirection -> toJsWay",
+    ]);
+    // The plan applied is a program that still compiles, which is the point of
+    // carrying the conversions rather than refusing.
+    const edited = [...renamed.edits]
+      .sort((left, right) => right.span.start.offset - left.span.start.offset)
+      .reduce(
+        (text, { span, replacement }) =>
+          text.slice(0, span.start.offset) + (replacement ?? renamed.newName) +
+          text.slice(span.end.offset),
+        texts.get("/main.hex")!,
+      );
+    const after = sessionOf({ "/main.hex": edited });
+    expect(after.session.diagnostics("/main.hex")).toEqual([]);
+    expect(edited).toContain("fromJsWay(v)");
+    expect(edited).toContain("toJsWay(d)");
+  });
+
+  /**
+   * And renaming a conversion *itself* is refused in §5.2's own terms, naming
+   * the type to rename instead. It used to be offered and then refused with
+   * "`extern enum` requires an uppercase type name" — the compiler's complaint
+   * about the edit it had made to the shared span, which is nonsense to read.
+   */
+  test("renaming a generated conversion redirects to its type", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    const use = at(source, "fromJsDirection");
+    const expected =
+      "`fromJsDirection` is generated from `extern enum Direction` " +
+      "(Foreign Enums §5.2), so its spelling is not chosen — rename the type " +
+      "`Direction`, and every use of this name follows";
+    expect(session.prepareRename("/main.hex", use)).toEqual({ refused: expected });
+    expect(session.rename("/main.hex", use, "grab")).toEqual({ refused: expected });
+  });
+
+  /**
+   * The same abroad, which is what `Resolved.Symbol.generated` riding the
+   * *symbol* buys: an importer holds symbols, not items, so a use of
+   * `Bindings.fromJsDirection` in another module answers as its declaring
+   * module's does.
+   */
+  test("a generated conversion is redirected abroad too", () => {
+    const bindings = 'export extern enum Direction = "up" as Up | "down" as Down\n';
+    const main = [
+      'import Bindings from "./bindings"',
+      "let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/bindings.hex": bindings, "/main.hex": main });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const abroad = session.prepareRename("/main.hex", at(main, "fromJsDirection"));
+    expect(abroad).toEqual({
+      refused:
+        "`fromJsDirection` is generated from `extern enum Direction` " +
+        "(Foreign Enums §5.2), so its spelling is not chosen — rename the type " +
+        "`Direction`, and every use of this name follows",
+    });
+    // And hovering it abroad still answers with the signature: only the
+    // *definition* was withheld, never the references.
+    expect(session.hover("/main.hex", at(main, "fromJsDirection"))?.displayedType)
+      .toBe("JsValue -> Option(Direction)");
   });
 
   test("a position with nothing at it answers nothing", () => {

@@ -1494,17 +1494,17 @@ class Checker {
    */
   readonly #declaredUnions = new Map<Resolved.UnionId, Resolved.Union>();
   /**
-   * The enums that have already drawn Foreign Enums §2.4's one-nullish refusal
-   * in this module.
+   * The seats that have already drawn Foreign Enums §2.4's one-nullish refusal,
+   * keyed by the wrapper's own span and the enum under it.
    *
-   * Keyed by the **enum**, not by the seat, because the fault is one fault: the
-   * declaration names one nullish value, so no `Nullable` over it can be
-   * written. Reporting once keeps a module that wraps the same enum in five
-   * places from answering with five copies of one sentence — and one written
-   * wrapper is more than one elaboration on its own, since an annotation is read
-   * for its face and again for its check.
+   * Keyed by the **seat**, so a module that writes `Nullable(Tri)` in five
+   * places is told about all five: each is a wrapper the author has to remove,
+   * and reporting one would leave four silent seats to be found one compile at a
+   * time. The span is in the key rather than the enum alone because one *written*
+   * wrapper is more than one elaboration — an annotation is read for its face
+   * and again for its check — and one fault is still one report.
    */
-  readonly #refusedNullishWrappers = new Set<Resolved.UnionId>();
+  readonly #refusedNullishWrappers = new Set<string>();
   readonly #constructorUnions = new Map<Resolved.SymbolId, Resolved.UnionId>();
   readonly #unionParameters = new Map<Resolved.UnionId, ReadonlyMap<string, Variable>>();
   /**
@@ -9496,7 +9496,7 @@ class Checker {
    *
    * The message is the section's template over the declared member and the
    * missing form, so the `null`-only and `undefined`-only shapes each name their
-   * own. Reported once per enum per module (`#refusedNullishWrappers`).
+   * own. Reported once per written seat (`#refusedNullishWrappers`).
    *
    * Called from `#annotationType`'s `Nullable` arm, which is the single
    * construction site every **written** wrapper passes through — a binding's
@@ -9507,8 +9507,9 @@ class Checker {
     const inner = this.#prune(value);
     const nullish = this.#enumNullish(inner);
     if (nullish === undefined || nullish.designated) return;
-    if (this.#refusedNullishWrappers.has(nullish.declaration.id)) return;
-    this.#refusedNullishWrappers.add(nullish.declaration.id);
+    const seat = `${span.start.offset}:${span.end.offset}:${Number(nullish.declaration.id)}`;
+    if (this.#refusedNullishWrappers.has(seat)) return;
+    this.#refusedNullishWrappers.add(seat);
     const name = nullish.declaration.name;
     const named = nullish.nullMember ?? nullish.undefinedMember!;
     const form = nullish.nullMember === undefined ? "undefined" : "null";

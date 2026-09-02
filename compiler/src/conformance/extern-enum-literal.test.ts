@@ -413,20 +413,36 @@ describe("the generated conversions (§5.2)", () => {
    * permitted."
    */
   test("a collision with an explicit binding is a hard error", () => {
+    // Both origins in one sentence, whichever order they were written in: the
+    // line the other declaration sits on, and the `extern enum` that generates
+    // the contested name. A reader pointed at one of the two has to be able to
+    // tell which is which without knowing §5.2 already.
     expect(projectDiagnostics(
       "extern enum Direction = \"up\" as Up\n" +
         "export let fromJsDirection(v: JsValue): Int = 1\n",
     )).toEqual([
-      "`fromJsDirection` is already bound (line 1); Hexagon does not allow " +
-      "rebinding — choose a different name.",
+      "`fromJsDirection` is already bound (line 1); `extern enum Direction` " +
+      "generates it (Foreign Enums §5.2) — rename the enum type, or the other " +
+      "declaration.",
     ]);
     expect(projectDiagnostics(
       "export let toJsDirection(v: Int): Int = v\n" +
         "extern enum Direction = \"up\" as Up\n",
     )).toEqual([
-      "`toJsDirection` is already bound (line 1); Hexagon does not allow " +
-      "rebinding — choose a different name.",
+      "`toJsDirection` is already bound (line 1); `extern enum Direction` " +
+      "generates it (Foreign Enums §5.2) — rename the enum type, or the other " +
+      "declaration.",
     ]);
+    // Two enums whose derived names would collide is the same fault, and §5.2
+    // names it in the same breath as the explicit one.
+    expect(projectDiagnostics(
+      "extern enum Direction = \"up\" as Up\n" +
+        "extern enum Direction = \"down\" as Down\n",
+    )).toContain(
+      "`fromJsDirection` is already bound (line 1); `extern enum Direction` " +
+      "generates it (Foreign Enums §5.2) — rename the enum type, or the other " +
+      "declaration.",
+    );
   });
 
   /** Two enums in one binding module keep their own conversions (§5.2). */
@@ -565,6 +581,21 @@ describe("nullish members (§2.4, §9 test 14)", () => {
       .toContain(REFUSAL);
     expect(projectDiagnostics(`${ONE_NULLISH}union Holder = Holds(Nullable(Tri))\n`))
       .toContain(REFUSAL);
+  });
+
+  /**
+   * One report per **written seat**, not one per enum: each wrapper is a
+   * separate thing the author has to remove, and reporting only the first would
+   * leave the rest to be found one compile at a time. A seat is a span, so an
+   * annotation elaborated twice — once for its face, once for its check — still
+   * reports once.
+   */
+  test("every wrapped seat is reported, and each of them once", () => {
+    expect(projectDiagnostics(
+      `${ONE_NULLISH}let a: Nullable(Tri) = Yes\n` +
+        "let b(x: Nullable(Tri)): Int = 1\n" +
+        "let c(): Nullable(Tri) = Yes\n",
+    ).filter((message) => message.startsWith("`Tri` already names"))).toHaveLength(3);
   });
 
   test("the refusal covers an alias, an ascription and a nested position", () => {
@@ -768,12 +799,25 @@ describe("diagnostics (§2.4, §9 test 17)", () => {
       .toEqual([NOT_A_LITERAL]);
   });
 
-  /** §2.4: "`as` is mandatory. Every value is written." */
+  /**
+   * §2.4: "`as` is mandatory. Every value is written." The refusal has to reach
+   * the slip it is *for*: an author who wrote both halves and dropped the word
+   * between them — `"up" Up` — needs the sentence about `as`, not the one about
+   * literals, because the value they wrote is a literal. That is also the case
+   * that pins the rule: with `as` optional, `extern enum D = "up" Up` would
+   * compile clean and every other test here would still pass.
+   */
   test("a member with no `as` is refused", () => {
-    expect(projectDiagnostics("extern enum Bad = \"a\"\n"))
-      .toEqual(["every literal enum member is named: `\"up\" as Up`"]);
-    expect(projectDiagnostics("extern enum Bad = \"a\" as A | \"b\"\n"))
-      .toEqual(["every literal enum member is named: `\"up\" as Up`"]);
+    const named = ["every literal enum member is named: `\"up\" as Up`"];
+    expect(projectDiagnostics("extern enum Bad = \"a\"\n")).toEqual(named);
+    expect(projectDiagnostics("extern enum Bad = \"a\" as A | \"b\"\n")).toEqual(named);
+    // The name is present and only `as` is missing — for each literal kind that
+    // can be followed by a name.
+    expect(projectDiagnostics("extern enum Bad = \"up\" Up | \"down\" as Down\n"))
+      .toEqual(named);
+    expect(projectDiagnostics("extern enum Bad = 1 One\n")).toEqual(named);
+    expect(projectDiagnostics("extern enum Bad = null Nil\n")).toEqual(named);
+    expect(projectDiagnostics("extern enum Bad = true Yes\n")).toEqual(named);
   });
 
   /** §2.4/§3 rule 5: the values are pairwise distinct under `Object.is`. */
@@ -829,12 +873,19 @@ describe("diagnostics (§2.4, §9 test 17)", () => {
       .toEqual(["a foreign enum is monomorphic; `extern enum` takes no type parameters"]);
   });
 
-  /** The head still needs a name, and an uppercase-start one. */
+  /**
+   * The head still needs a name, and an uppercase-start one — under `export`
+   * too, which is why `#atExternEnumHead` reads two tokens and not three: a
+   * three-token test would hand `export extern enum` to `export`'s own "must be
+   * followed by a declaration", which is not the fault.
+   */
   test("a missing or mis-cased type name is refused", () => {
-    expect(projectDiagnostics("extern enum = \"a\" as A\n"))
-      .toEqual(["`extern enum` requires an uppercase type name"]);
-    expect(projectDiagnostics("extern enum direction = \"a\" as A\n"))
-      .toEqual(["`extern enum` requires an uppercase type name"]);
+    const named = ["`extern enum` requires an uppercase type name"];
+    expect(projectDiagnostics("extern enum = \"a\" as A\n")).toEqual(named);
+    expect(projectDiagnostics("extern enum direction = \"a\" as A\n")).toEqual(named);
+    expect(projectDiagnostics("extern enum\n")).toEqual(named);
+    expect(projectDiagnostics("export extern enum\n")).toEqual(named);
+    expect(projectDiagnostics("export extern enum = \"a\" as A\n")).toEqual(named);
   });
 
   /**

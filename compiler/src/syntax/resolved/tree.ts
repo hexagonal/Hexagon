@@ -304,6 +304,29 @@ export interface Symbol {
    * §6.1's one-claimant rule have to hold on the far side too.
    */
   readonly widens?: true;
+  /**
+   * Set on a binding the **compiler wrote** rather than the author — today, the
+   * `fromJsT`/`toJsT` conversions a literal `extern enum` introduces (Foreign
+   * Enums §5.2), and nothing else.
+   *
+   * Such a binding has no spelling of its own in the source: it carries the
+   * declaration's type-name span, because that is the text a reader points at to
+   * ask where the name came from. That makes the span *shared* with the type,
+   * and a shared span is exactly what an editor service must not read as two
+   * declarations. Three readers turn on it: `queries/occurrences.ts` publishes
+   * the reference occurrences and withholds the definition one,
+   * `queries/type-occurrences.ts` withholds the value scheme that would
+   * otherwise become the type name's hover, and `analysis/session.ts` routes a
+   * rename through the type the name is derived from.
+   *
+   * The value is the **declaration it was derived from**, by name — `Direction`
+   * for `fromJsDirection` — which is what lets the collision report name both
+   * origins as §5.2 asks, and what a rename refusal points the author at.
+   *
+   * It rides the *symbol* for `widens`' reason: an importer holds symbols, not
+   * items, so the fact has to cross the module boundary with the binding.
+   */
+  readonly generated?: string;
 }
 
 export interface Binding {
