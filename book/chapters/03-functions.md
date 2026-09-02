@@ -76,7 +76,7 @@ It can also be passed to a function that controls when or how it is called:
 ```hexagon
 let logResult(calculate, subtotal, delivery) =
     let total = calculate(subtotal, delivery)
-    log("Calculated ${total}")
+    Debug.log("Calculated ${total}")
     total
 ```
 
@@ -288,7 +288,7 @@ and the code that ties everything together tends to sit at the bottom.
 
 ```hexagon
 let message = "Orders are ready"
-fun announce() = log(message)
+fun announce() = Debug.log(message)
 announce()
 ```
 

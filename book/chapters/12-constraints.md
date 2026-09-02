@@ -51,7 +51,7 @@ apply a type constructor: `Option(a)` is a type, while `<a: Show>` introduces a 
 variable that must be displayable.
 
 A written binder list is a contract, not a starting point for inference to
-strengthen. If a body uses `hash(value)`, `<a: Eq>` is rejected because `Eq` does not
+strengthen. If a body uses `value.hash()`, `<a: Eq>` is rejected because `Eq` does not
 provide `Hash`; the canonical repair is `<a: Hash>`. In the other direction,
 `<a: Hash>` already provides `Eq` through its base constraint, so equality needs no
 repeated `Eq` entry. (The one written constraint list that *is* a starting point is a
@@ -138,7 +138,7 @@ An `Eq` instance must supply `equals`. It normally inherits `notEquals`, and the
 operator calls that operation. An instance may override `notEquals` for efficiency,
 but the meaning must remain the same:
 
-```hexagon
+```text
 notEquals(left, right) == not equals(left, right)
 ```
 

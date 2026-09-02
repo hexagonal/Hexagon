@@ -258,7 +258,7 @@ Conditionals that exist only for an effect may leave the `else` path unwritten:
 
 ```hexagon
 if delayed then
-    log("Order delayed")
+    Debug.log("Order delayed")
 ```
 
 The missing branch is `()`, the unit value — the compiler supplies it. This is not

@@ -342,10 +342,15 @@ import { render as renderMap } from "./map-view"
 import { render as renderChart } from "./chart-view"
 ```
 
-The prelude sits in an outer scope layer. A module-level declaration may deliberately
-use the same name and becomes the unqualified meaning throughout that module; the
-prelude operation remains available through its qualified home. Function-local
-bindings remain stricter and cannot silently replace an existing name.
+The prelude sits in an outer scope layer, and it puts very little into it bare: the
+constructors `True`, `False`, `Some`, `None`, `Ok`, `Err`, the exceptions, `ignore`, and
+`show`. Type and constraint names such as `Option` and `Show` are always in scope; every
+other prelude term is reached by the dot or by its module name — `Seq.map`, `Int.compare`,
+`Debug.log` — so the words you want for your own program stay yours. A module-level
+declaration may deliberately use one of the bare names and becomes the unqualified meaning
+throughout that module; the prelude operation remains available through its qualified
+home. Function-local bindings remain stricter and cannot silently replace an existing
+name.
 
 This balance prevents every future prelude addition from breaking module-level code
 while retaining the book's established rule that names do not quietly change meaning

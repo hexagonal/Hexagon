@@ -146,9 +146,9 @@ When the API distinguishes them, preserve all three cases:
 
 ```hexagon
 match Nullable.toCase(displayName())
-    Undefined => "not supplied"
-    Null => "explicitly blank"
-    Value(name) => name
+    NullableCase.Undefined => "not supplied"
+    NullableCase.Null => "explicitly blank"
+    NullableCase.Value(name) => name
 ```
 
 `Nullable.null` and `Nullable.undefined` supply explicit values to foreign calls.

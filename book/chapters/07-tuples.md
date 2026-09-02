@@ -84,7 +84,7 @@ A tuple pattern on the left of `let` gives several positions names at once:
 
 ```hexagon
 let (guest, seats) = reservation
-log("${guest} requested ${seats} seats")
+Debug.log("${guest} requested ${seats} seats")
 ```
 
 The pattern must have the same arity as the tuple. These names are ordinary sequential

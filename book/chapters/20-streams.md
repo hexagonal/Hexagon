@@ -53,7 +53,7 @@ the first one saw.
 
 This injection is more than a convenience. A function written against `Stream(a)`
 accepts a scripted stand-in as readily as a live source, which is how stream-consuming
-code is tested: replace the clock with `fromSeq(Seq.iterate(t0, tick))` and the test is
+code is tested: replace the clock with `Stream.fromSeq(Seq.iterate(t0, tick))` and the test is
 deterministic.
 
 ## Consuming a stream
