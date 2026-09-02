@@ -66,11 +66,11 @@ extern from "hex:intrinsic"
 // fallback. `JsValue.toString` is the strict decoder, so nothing here coerces:
 // a `.message` holding `42` is not `"42"`.
 
-let readString(value: JsValue): String = match JsValue.toString(value)
+let readString(value: JsValue): String = match value.toString()
     Ok(text) => text
     Err(_) => ""
 
-let readOption(value: JsValue): Option(String) = match JsValue.toString(value)
+let readOption(value: JsValue): Option(String) = match value.toString()
     Ok(text) => Some(text)
     Err(_) => None
 
@@ -82,7 +82,7 @@ let readOption(value: JsValue): Option(String) = match JsValue.toString(value)
 
     The value's own `toString` is never invoked and no secondary failure ever
     escapes: this function describes a failure and must not manufacture one. *)
-export let message(error: JsValue): String = match JsValue.kind(error)
+export let message(error: JsValue): String = match error.kind()
     JsKind.Object | JsKind.Function => readString(readMessage(error))
     _ => render(error)
 
@@ -94,6 +94,6 @@ export let message(error: JsValue): String = match JsValue.kind(error)
     Conservative in the same way `message` is: a throwing read is swallowed, not
     propagated. The read is fresh on every call, because `.stack` may be an
     accessor. *)
-export let stack(error: JsValue): Option(String) = match JsValue.kind(error)
+export let stack(error: JsValue): Option(String) = match error.kind()
     JsKind.Object | JsKind.Function => readOption(readStack(error))
     _ => None

@@ -1480,6 +1480,31 @@ class Checker {
    */
   #ascribedTypeSpan: Source.Span | undefined = undefined;
   readonly #unions = new Map<Resolved.UnionId, Resolved.Union>();
+  /**
+   * Every union declaration this module can see, indexed before anything else
+   * happens — including the imported and prelude-seeded copies, which the
+   * resolver has already spread into `Module.unions`.
+   *
+   * `#unions` above is the registration's own map and is not filled until the
+   * type parameters and constructor schemes are built, which happens *after* the
+   * extern blocks are typed. A question that has to be answered from an
+   * annotation — "is this union a literal `extern enum` naming one nullish
+   * value?" — cannot wait for that, so it reads this instead. Nothing here mints
+   * a variable or a scheme; it is the declarations, by identity.
+   */
+  readonly #declaredUnions = new Map<Resolved.UnionId, Resolved.Union>();
+  /**
+   * The seats that have already drawn Foreign Enums §2.4's one-nullish refusal,
+   * keyed by the wrapper's own span and the enum under it.
+   *
+   * Keyed by the **seat**, so a module that writes `Nullable(Tri)` in five
+   * places is told about all five: each is a wrapper the author has to remove,
+   * and reporting one would leave four silent seats to be found one compile at a
+   * time. The span is in the key rather than the enum alone because one *written*
+   * wrapper is more than one elaboration — an annotation is read for its face
+   * and again for its check — and one fault is still one report.
+   */
+  readonly #refusedNullishWrappers = new Set<string>();
   readonly #constructorUnions = new Map<Resolved.SymbolId, Resolved.UnionId>();
   readonly #unionParameters = new Map<Resolved.UnionId, ReadonlyMap<string, Variable>>();
   /**
@@ -1493,9 +1518,14 @@ class Checker {
    * Every union `#materializeReachedUnion` registered, in the order it did.
    *
    * The typed module's union list is what the elaborator forwards and the
-   * emitter's constructor table and tagging judgment are built from, so a union
-   * the checker reached without importing has to leave by that door too, or the
-   * accepted program is emitted as if its constructors were untagged strings.
+   * emitter's constructor table is built from, so a union the checker reached
+   * without importing has to leave by that door too. There is no representation
+   * left for its absence to get wrong — every union is the tagged object since
+   * #771, and a constructor with no entry here still tests its tag — but the
+   * table is also where the emitter reads each constructor's *slot names*, and
+   * `module.unions` is where the derived walks find the declaration to walk. An
+   * absent union costs `item1`-style field names in a match arm's destructuring
+   * and a degenerate derived instance, both silently.
    */
   readonly #reachedUnions = new Set<Resolved.UnionId>();
   readonly #records = new Map<Resolved.RecordId, Resolved.RecordDeclaration>();
@@ -2061,6 +2091,9 @@ class Checker {
   check(module: Resolved.Module): Typed.Module {
     this.#fileId = Number(module.fileId);
     for (const symbol of module.symbols) this.#symbolKinds.set(symbol.id, symbol.kind);
+    // See `#declaredUnions`: an annotation elaborated before the registration
+    // below still has to be able to look a union declaration up.
+    for (const union of module.unions) this.#declaredUnions.set(union.id, union);
     // This module's own view first — its copy of a declaration is authoritative
     // — then the whole program's, which is what §6.4's uniformity needs and what
     // the module's view alone cannot supply: a nominal reached only through a
@@ -2683,6 +2716,24 @@ class Checker {
             : { kind: "Function", parameters: slotParameters, result: type },
         });
       }
+      // A literal `extern enum`'s two conversions (Foreign Enums §5.2) are
+      // seated here, beside the constructors, for the constructors' reason:
+      // everything about them is derived from the declaration, so the
+      // declaration is what seats them. The signatures were built by the
+      // resolver and travel with the union, so an *imported* enum's `fromJsT`
+      // is typed here too, from the same annotation, rather than needing a
+      // second channel.
+      const conversions = union.conversions;
+      if (conversions !== undefined) {
+        this.#schemes.set(conversions.fromJs.symbol, {
+          variables: [],
+          type: this.#annotationType(conversions.fromJsAnnotation),
+        });
+        this.#schemes.set(conversions.toJs.symbol, {
+          variables: [],
+          type: this.#annotationType(conversions.toJsAnnotation),
+        });
+      }
     }
     this.#indexCompanionOperations(module);
     this.#inferItems(module.items, 0, true);
@@ -2722,9 +2773,10 @@ class Checker {
       items: module.items.map((item) => this.#materializeItem(item)),
       symbols,
       // The reached ones ride out beside the listed ones, and after them: the
-      // emitter builds its constructor table and its tagged/untagged judgment
-      // from this list, so a union registered lazily during the walk above would
-      // otherwise be emitted as if it had no representation at all (#605).
+      // emitter builds its constructor table from this list and its derived
+      // walks read the declarations in it, so a union registered lazily during
+      // the walk above would otherwise be emitted with the wrong payload field
+      // names and a degenerate derived instance (#605).
       // Appended rather than merged, because two consumers still pick the
       // prelude's `Bool` out of the list by *name*, and first found must stay
       // the one the eager listing put there.
@@ -9386,20 +9438,104 @@ class Checker {
    * The **nullish-absorption collapse** (FFI Part 11 §8; Part 2 §2.1): whether
    * `Nullable` stacking on this type is definitionally the type itself.
    *
-   * The designated set is **explicit and closed** at two members — `Nullable(_)`
-   * itself and `JsValue` — and this predicate *is* the designation. There is no
-   * general structural "contains nullish" analysis: an opaque extern type whose
-   * values happen to include `undefined`, or a union an author reads as
-   * nullish-adjacent, does not collapse, because it is not on the list.
+   * The designated set is **explicit and closed** at three members — `Nullable(_)`
+   * itself, `JsValue`, and a literal `extern enum` naming **both** `null` and
+   * `undefined` (Foreign Enums §2.4) — and this predicate *is* the designation.
+   * There is no general structural "contains nullish" analysis: an opaque extern
+   * type whose values happen to include `undefined`, or a union an author reads
+   * as nullish-adjacent, does not collapse, because it is not on the list. The
+   * enum is on the list not because its values were inspected in general but
+   * because its declaration *writes* both forms, which is a fact about the
+   * declaration and not about the type's shape.
+   *
+   * An enum naming exactly one of the two is **not** designated: the wrapper
+   * would collapse both nullish forms to `None`, so the form the enum declares
+   * would be indistinguishable from absence. `Nullable` over it is refused
+   * (`#refuseOneNullishWrapper`) rather than collapsed.
    */
-  static #absorbsNullish(type: Mono): boolean {
-    return type.kind === "Nullable" || type.kind === "JsValue";
+  #absorbsNullish(type: Mono): boolean {
+    return type.kind === "Nullable" || type.kind === "JsValue" ||
+      this.#enumNullish(type)?.designated === true;
+  }
+
+  /**
+   * What a literal `extern enum` declares of JavaScript's two nullish values
+   * (Foreign Enums §2.4), or `undefined` for every type that is not one.
+   *
+   * Three answers matter and they are the section's three: **both** forms named
+   * — the designated absorbing shape, `Nullable(T) ≡ T`; **one** form named —
+   * the refused shape, which the report needs the named member and the missing
+   * form to phrase; and **neither**, which is an ordinary union in every respect
+   * and answers `undefined` here so no caller has a fourth case to write.
+   */
+  #enumNullish(type: Mono): {
+    readonly declaration: Resolved.Union;
+    readonly designated: boolean;
+    /** The member naming `null`, if the declaration names one. */
+    readonly nullMember?: Resolved.Constructor;
+    /** The member naming `undefined`, likewise. */
+    readonly undefinedMember?: Resolved.Constructor;
+  } | undefined {
+    if (type.kind !== "Union") return undefined;
+    const declaration = this.#declaredUnions.get(type.union) ??
+      this.#unions.get(type.union) ?? this.#programUnion(type.union);
+    if (declaration?.externEnum !== true) return undefined;
+    const nullMember = declaration.constructors
+      .find(({ literal }) => literal?.kind === "Null");
+    const undefinedMember = declaration.constructors
+      .find(({ literal }) => literal?.kind === "Undefined");
+    if (nullMember === undefined && undefinedMember === undefined) return undefined;
+    return {
+      declaration,
+      designated: nullMember !== undefined && undefinedMember !== undefined,
+      ...(nullMember === undefined ? {} : { nullMember }),
+      ...(undefinedMember === undefined ? {} : { undefinedMember }),
+    };
+  }
+
+  /**
+   * Foreign Enums §2.4's refusal of `Nullable(T)` over a literal `extern enum`
+   * naming exactly **one** nullish value, on the section's two symmetric
+   * grounds: the wrapper collapses both nullish forms to `None`, so whichever
+   * form the enum declares becomes indistinguishable from absence; and
+   * `fromOption`'s `None` image is a nullish value the enum need not declare.
+   *
+   * The message is the section's template over the declared member and the
+   * missing form, so the `null`-only and `undefined`-only shapes each name their
+   * own. Reported once per written seat (`#refusedNullishWrappers`).
+   *
+   * Called from `#annotationType`'s `Nullable` arm, which is the single
+   * construction site every **written** wrapper passes through — a binding's
+   * annotation, an extern `fun`/`let` signature, a record field, a union
+   * constructor slot, an ascription, and a type alias body, applied or not.
+   */
+  #refuseOneNullishWrapper(value: Mono, span: Source.Span): void {
+    const inner = this.#prune(value);
+    const nullish = this.#enumNullish(inner);
+    if (nullish === undefined || nullish.designated) return;
+    const seat = `${span.start.offset}:${span.end.offset}:${Number(nullish.declaration.id)}`;
+    if (this.#refusedNullishWrappers.has(seat)) return;
+    this.#refusedNullishWrappers.add(seat);
+    const name = nullish.declaration.name;
+    const named = nullish.nullMember ?? nullish.undefinedMember!;
+    const form = nullish.nullMember === undefined ? "undefined" : "null";
+    const missing = nullish.nullMember === undefined
+      ? "null as Absent"
+      : "undefined as Missing";
+    this.#diagnostics.add({
+      severity: "error",
+      message: `\`${name}\` already names \`${form}\`; \`Nullable(${name})\` cannot ` +
+        `tell absence from \`${named.binding.name}\` — name both nullish values ` +
+        `(\`${missing}\`) or neither`,
+      primary: span,
+    });
   }
 
   /**
    * One resolution step, and the seat of the nullish-absorption collapse.
    *
-   * `Nullable(Nullable(a)) ≡ Nullable(a)` and `Nullable(JsValue) ≡ JsValue` are
+   * `Nullable(Nullable(a)) ≡ Nullable(a)`, `Nullable(JsValue) ≡ JsValue` and
+   * `Nullable(T) ≡ T` for a both-nullish literal `extern enum` are
    * **one idempotency principle** over the designated set above, and they are
    * *definitional*: there is no distinct doubly-nullish type for the zero-wrapper
    * representation to misrepresent. Collapsing here rather than at the
@@ -9412,7 +9548,7 @@ class Checker {
   #prune(type: Mono): Mono {
     if (type.kind === "Nullable") {
       const value = this.#prune(type.value);
-      return Checker.#absorbsNullish(value) ? value : type;
+      return this.#absorbsNullish(value) ? value : type;
     }
     if (type.kind !== "Variable" || type.instance === undefined) return type;
     type.instance = this.#prune(type.instance);
@@ -9432,12 +9568,13 @@ class Checker {
    * parameter order is not a type system, so the equation is solved here, where
    * every route into it passes.
    *
-   * **It is the unique solution, not a guess.** The designated set is closed at
-   * two members (`#absorbsNullish`), so `Nullable(T) ≡ JsValue` holds exactly
-   * when `T` is `JsValue` — `Nullable(Nullable(…))` cannot be it, since that
-   * collapses to a `Nullable` and never to `JsValue`. Committing an unsolved
-   * variable here therefore rules out nothing a later constraint could have
-   * wanted.
+   * **It is the unique solution, not a guess.** The designated set is closed
+   * (`#absorbsNullish`), and the members of it this arm looks at are *ground*
+   * types — `JsValue`, and a literal `extern enum`, which §2.1 makes
+   * monomorphic. So `Nullable(T) ≡ D` for such a `D` holds exactly when `T` is
+   * `D` itself: `Nullable(Nullable(…))` cannot be it, since that collapses to a
+   * `Nullable` and never to a ground type. Committing an unsolved variable here
+   * therefore rules out nothing a later constraint could have wanted.
    *
    * Three cases deliberately fall through to the ordinary walk:
    *
@@ -9448,7 +9585,7 @@ class Checker {
    *   reason any declared variable is: the caller chooses `a`, not the body.
    *   Both orders reject, so the order-independence this arm exists for is
    *   unaffected, and the mismatch keeps the shape the author wrote;
-   * - anything against a non-`JsValue` type, which this never looks at.
+   * - anything against an undesignated type, which this never looks at.
    *
    * Nesting needs no case of its own: `#prune` sends `Nullable(Nullable(?v))` to
    * `Nullable(?v)` on the idempotency half, so it arrives here already flat.
@@ -9456,15 +9593,23 @@ class Checker {
    * Answers whether it consumed the equation.
    */
   #absorbNullishVariable(left: Mono, right: Mono, span: Source.Span): boolean {
-    const nullable = left.kind === "Nullable" && right.kind === "JsValue"
-      ? left
-      : right.kind === "Nullable" && left.kind === "JsValue"
-      ? right
+    // The designated side is whichever of the two absorbs and is not itself a
+    // `Nullable` — `JsValue`, or a both-nullish literal `extern enum` (Foreign
+    // Enums §2.4), which joined the set for `JsValue`'s reason and solves the
+    // same equation. A `Nullable` on both sides is the idempotency half and is
+    // the ordinary structural walk's.
+    const designated = (type: Mono): boolean =>
+      type.kind !== "Nullable" && this.#absorbsNullish(type);
+    const pair = left.kind === "Nullable" && designated(right)
+      ? ([left, right] as const)
+      : right.kind === "Nullable" && designated(left)
+      ? ([right, left] as const)
       : undefined;
-    if (nullable === undefined) return false;
+    if (pair === undefined) return false;
+    const [nullable, target] = pair;
     const inner = this.#prune(nullable.value);
     if (inner.kind !== "Variable" || inner.rigidName !== undefined) return false;
-    this.#bind(inner, { kind: "JsValue" }, span);
+    this.#bind(inner, target, span);
     return true;
   }
 
@@ -12658,7 +12803,15 @@ class Checker {
     if (annotation.kind === "Array") return { kind: "Array", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
     if (annotation.kind === "JsSet") return { kind: "JsSet", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
     if (annotation.kind === "Node") return { kind: "Node", element: this.#annotationType(annotation.element, level, namedTails, typeParameters, impliedTypes, holes) };
-    if (annotation.kind === "Nullable") return { kind: "Nullable", value: this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes) };
+    if (annotation.kind === "Nullable") {
+      const value = this.#annotationType(annotation.value, level, namedTails, typeParameters, impliedTypes, holes);
+      // Foreign Enums §2.4's refusal at the **written** seat. One construction
+      // site serves every one of them — a `let`'s or `fun`'s annotation, an
+      // extern `fun`/`let` signature, a record field, a union constructor slot,
+      // an ascription, and an alias body all elaborate through here.
+      this.#refuseOneNullishWrapper(value, annotation.span);
+      return { kind: "Nullable", value };
+    }
     if (annotation.kind === "Map" || annotation.kind === "JsMap") {
       return {
         kind: annotation.kind,
@@ -13516,7 +13669,10 @@ class Checker {
    * — was in none of the four tables the eager pass fills. The judgments that
    * read them did not abstain: the coverage column took the arms as the
    * signature, a constructor pattern unified nothing, and the emitter read the
-   * absence as an untagged representation.
+   * absence as the bare-string representation an all-nullary union then had.
+   * That third reading is gone with the string case (#771) — one shape, and a
+   * constructor with no entry still tests its tag — but the absence still costs
+   * the emitter this declaration's slot names and its derived walks.
    *
    * A no-op for everything already known, and written to the same four tables
    * the eager registration writes, in the same order — parameters before the
@@ -15412,6 +15568,7 @@ class Checker {
       };
     }
     if (item.kind === "Union") {
+      const conversions = this.#materializeConversions(item.conversions);
       return {
         kind: "Union",
         exported: item.exported,
@@ -15421,7 +15578,7 @@ class Checker {
         parameters: [...(this.#unionParameters.get(item.union)?.values() ?? [])]
           .map(({ id }) => Typed.typeVariableId(id)),
         derives: item.derives,
-        constructors: item.constructors.map(({ binding, slots }) => ({
+        constructors: item.constructors.map(({ binding, slots, literal }) => ({
           ...binding,
           scheme: this.#publicScheme(this.#scheme(binding.symbol)),
           slots: slots.map((slot) => ({
@@ -15434,7 +15591,10 @@ class Checker {
             )),
             span: slot.span,
           })),
+          ...(literal === undefined ? {} : { literal }),
         })),
+        ...(item.externEnum === true ? { externEnum: true as const } : {}),
+        ...(conversions === undefined ? {} : { conversions }),
         span: item.span,
       };
     }
@@ -15593,7 +15753,24 @@ class Checker {
     });
   }
 
+  /**
+   * A literal `extern enum`'s two conversion bindings, published (Foreign Enums
+   * §5.2). Each carries the scheme the registration seated, so the emitter's
+   * JavaScript and its `.d.ts` face both read the signature off the binding.
+   */
+  #materializeConversions(
+    conversions: Resolved.EnumConversions | undefined,
+  ): Typed.EnumConversions | undefined {
+    if (conversions === undefined) return undefined;
+    const binding = (source: Resolved.Binding): Typed.Binding => ({
+      ...source,
+      scheme: this.#publicScheme(this.#scheme(source.symbol)),
+    });
+    return { fromJs: binding(conversions.fromJs), toJs: binding(conversions.toJs) };
+  }
+
   #materializeUnion(union: Resolved.Union): Typed.Union {
+    const conversions = this.#materializeConversions(union.conversions);
     return {
       id: union.id,
       name: union.name,
@@ -15608,7 +15785,7 @@ class Checker {
       opaque: union.opaque,
       representationVisible: union.representationVisible,
       span: union.span,
-      constructors: union.constructors.map(({ binding, slots }) => ({
+      constructors: union.constructors.map(({ binding, slots, literal }) => ({
         ...binding,
         scheme: this.#publicScheme(this.#scheme(binding.symbol)),
         slots: slots.map((slot) => ({
@@ -15621,7 +15798,10 @@ class Checker {
           )),
           span: slot.span,
         })),
+        ...(literal === undefined ? {} : { literal }),
       })),
+      ...(union.externEnum === true ? { externEnum: true as const } : {}),
+      ...(conversions === undefined ? {} : { conversions }),
     };
   }
 

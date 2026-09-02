@@ -195,6 +195,16 @@ class Collector {
     // this one list rather than from the traversal is what makes parameters and
     // pattern binders definitions without a special case at every binding site.
     for (const symbol of this.#resolved.symbols) {
+      // A **generated** binding declares nothing at the span it carries: its
+      // `bindingSpan` is the declaration it was derived from — a literal
+      // `extern enum`'s type name (Foreign Enums §5.2) — and that text already
+      // has a definition, the type's own. Publishing a second one there put two
+      // value bindings under the cursor on a type name, which showed up as a
+      // three-answer go-to-definition, a function signature on a type's hover,
+      // and a rename of the type that edited the shared span and then refused
+      // itself. References are published as usual: the *uses* of `fromJsT` are
+      // real occurrences at spans the author wrote.
+      if (symbol.generated !== undefined) continue;
       this.#publish(
         { kind: "value", symbol: symbol.id },
         "definition",

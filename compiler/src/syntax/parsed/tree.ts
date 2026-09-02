@@ -8,6 +8,7 @@
 import type * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
 import type { Documentation } from "../../support/documentation.js";
+import type { ForeignLiteral } from "../../support/foreign-literal.js";
 
 export interface Module {
   readonly kind: "Module";
@@ -244,6 +245,18 @@ export interface UnionItem {
   readonly declaredParameters: readonly DeclaredTypeParameter[];
   readonly derives: readonly Name[];
   readonly constructors: readonly Constructor[];
+  /**
+   * The **literal `extern enum`** marker (Foreign Enums §2.4): this declaration
+   * was written `extern enum T = "up" as Up | …` at module scope, so its
+   * constructors carry `literal` values and its runtime representation is those
+   * values rather than Unions §6's tagged objects.
+   *
+   * The form is an ordinary nominal union everywhere the name, the constructor
+   * namespace, matching, exhaustiveness and derivation are concerned — which is
+   * why it takes the union item's own shape rather than one of its own. Only
+   * emission and the `.d.ts` face read this marker.
+   */
+  readonly externEnum?: true;
   readonly span: Source.Span;
 }
 
@@ -331,6 +344,13 @@ export interface HonorMember {
 export interface Constructor {
   readonly name: Name;
   readonly slots: readonly ConstructorSlot[];
+  /**
+   * The JavaScript value this member names, on a **literal `extern enum`**
+   * (Foreign Enums §2.4) and on nothing else. Present on every constructor of
+   * such a declaration and absent on every constructor of an ordinary `union`,
+   * which is what `UnionItem.externEnum` says once for the whole declaration.
+   */
+  readonly literal?: ForeignLiteral;
   readonly span: Source.Span;
 }
 

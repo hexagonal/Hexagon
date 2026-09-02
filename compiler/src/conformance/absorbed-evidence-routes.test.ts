@@ -88,7 +88,7 @@ describe("an absorbed demand projects out of the surviving binder", () => {
     // `Num` a second time; `-` raises `Signed` last and swallows both.
     expect(emitted("let d1(n) = if n <= 0 then 0 else n - 1\n" + KEEP)).toContain(
       "const d1 = (n, __Ord_a, __Signed_a) => " +
-        '__Ord_a.compare(n, __Signed_a.Num.fromNat(0)) !== "Greater" ' +
+        '__Ord_a.compare(n, __Signed_a.Num.fromNat(0)).tag !== "Greater" ' +
         "? __Signed_a.Num.fromNat(0) " +
         ": __Signed_a.subtract(n, __Signed_a.Num.fromNat(1));",
     );
@@ -161,7 +161,7 @@ describe("an absorbed demand projects out of the surviving binder", () => {
         "__Ord_a.Eq.equals(__left[1], __right[1]), " +
         "notEquals: (__left, __right) => !(__Ord_a.Eq.equals(__left[0], __right[0]) && " +
         "__Ord_a.Eq.equals(__left[1], __right[1])) " +
-        '}).equals([n, n], [m, m]) : __Ord_a.compare(n, m) !== "Greater";',
+        '}).equals([n, n], [m, m]) : __Ord_a.compare(n, m).tag !== "Greater";',
     );
   });
 
@@ -196,7 +196,7 @@ describe("an absorbed demand projects out of the surviving binder", () => {
     // and every `Num` inside the body is a projection off `__Signed_a`.
     expect(javascript).toContain("function fact(n, __Ord_a, __Signed_a) {");
     expect(javascript).toContain(
-      'return __Ord_a.compare(n, __Signed_a.Num.fromNat(1)) !== "Greater" ' +
+      'return __Ord_a.compare(n, __Signed_a.Num.fromNat(1)).tag !== "Greater" ' +
         "? __Signed_a.Num.fromNat(1) " +
         ": __Signed_a.Num.multiply(n, fact(" +
         "__Signed_a.subtract(n, __Signed_a.Num.fromNat(1)), __Ord_a, __Signed_a));",
@@ -216,7 +216,7 @@ describe("the neighbours that already routed correctly are unmoved", () => {
     // here is a projection and both seats survive.
     expect(emitted("let a4(n) = if n <= 0 then n + 1 else n\n" + KEEP)).toContain(
       "const a4 = (n, __Num_a, __Ord_a) => " +
-        '__Ord_a.compare(n, __Num_a.fromNat(0)) !== "Greater" ' +
+        '__Ord_a.compare(n, __Num_a.fromNat(0)).tag !== "Greater" ' +
         "? __Num_a.add(n, __Num_a.fromNat(1)) : n;",
     );
   });
@@ -224,7 +224,7 @@ describe("the neighbours that already routed correctly are unmoved", () => {
   test("`Ord` beside `Signed` with no standalone `Num` demand is unchanged", () => {
     expect(emitted("let a2(n, m) = if n <= m then n - m else m - n\n" + KEEP)).toContain(
       "const a2 = (n, m, __Ord_a, __Signed_a) => " +
-        '__Ord_a.compare(n, m) !== "Greater" ' +
+        '__Ord_a.compare(n, m).tag !== "Greater" ' +
         "? __Signed_a.subtract(n, m) : __Signed_a.subtract(m, n);",
     );
   });

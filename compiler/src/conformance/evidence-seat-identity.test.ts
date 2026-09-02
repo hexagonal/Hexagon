@@ -291,7 +291,7 @@ describe("a program whose constraint names are unambiguous is unmoved", () => {
       project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text,
     ).toContain(
       "const d1 = (n, __Ord_a, __Signed_a) => " +
-        '__Ord_a.compare(n, __Signed_a.Num.fromNat(0)) !== "Greater" ' +
+        '__Ord_a.compare(n, __Signed_a.Num.fromNat(0)).tag !== "Greater" ' +
         "? __Signed_a.Num.fromNat(0) " +
         ": __Signed_a.subtract(n, __Signed_a.Num.fromNat(1));",
     );

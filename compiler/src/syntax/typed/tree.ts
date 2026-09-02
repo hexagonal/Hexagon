@@ -8,6 +8,7 @@ import type * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
 import type { Documentation } from "../../support/documentation.js";
 import type * as Resolved from "../resolved/index.js";
+import type { ForeignLiteral } from "../../support/foreign-literal.js";
 
 declare const typeVariableIdBrand: unique symbol;
 
@@ -294,6 +295,8 @@ export interface Symbol {
   readonly kind: Resolved.SymbolKind;
   readonly bindingSpan: Source.Span;
   readonly scheme: Scheme;
+  /** See `Resolved.Symbol.generated` — the declaration this was derived from. */
+  readonly generated?: string;
 }
 
 export interface Binding {
@@ -631,10 +634,27 @@ export interface Union {
   readonly representationVisible: boolean;
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
+  /** See `Parsed.UnionItem.externEnum` — Foreign Enums §2.4's literal form. */
+  readonly externEnum?: true;
+  /** See `EnumConversions`; present exactly with `externEnum`. */
+  readonly conversions?: EnumConversions;
 }
 
 export interface Constructor extends Binding {
   readonly slots: readonly ConstructorSlot[];
+  /** See `Parsed.Constructor.literal` — Foreign Enums §2.4's member value. */
+  readonly literal?: ForeignLiteral;
+}
+
+/**
+ * A literal `extern enum`'s two conversion bindings, typed (Foreign Enums
+ * §5.2). Each `Binding` carries its own scheme, so the emitter's JavaScript and
+ * its `.d.ts` face both read the signature off the binding rather than
+ * rebuilding it.
+ */
+export interface EnumConversions {
+  readonly fromJs: Binding;
+  readonly toJs: Binding;
 }
 
 export interface ConstructorSlot {
@@ -652,6 +672,10 @@ export interface UnionItem {
   readonly parameters: readonly TypeVariableId[];
   readonly derives: readonly string[];
   readonly constructors: readonly Constructor[];
+  /** See `Parsed.UnionItem.externEnum` — Foreign Enums §2.4's literal form. */
+  readonly externEnum?: true;
+  /** See `EnumConversions`; present exactly with `externEnum`. */
+  readonly conversions?: EnumConversions;
   readonly span: Source.Span;
 }
 

@@ -14,6 +14,7 @@ import { type Documentation, throwsManifests } from "../../support/documentation
 import { relativeSpecifier } from "../../support/paths.js";
 import type * as Source from "../../support/source.js";
 import { isSyntheticParameterName } from "../../support/synthetic.js";
+import { foreignLiteralJs } from "../../support/foreign-literal.js";
 import type * as Core from "../../syntax/core/index.js";
 import type * as Emitted from "../../emission/index.js";
 import type * as Resolved from "../../syntax/resolved/index.js";
@@ -777,6 +778,14 @@ function derivedArrow(
   return { name, rendered: `${head} => ${body}`, arrow: { parameters, body } };
 }
 
+/**
+ * The **declaration** of a hoisted tagged constant: `const __Less = { tag:
+ * "Less" };`, the one place the object literal behind `#taggedValue` is spelled.
+ */
+function taggedConstantDeclaration(name: string, tag: string): string {
+  return `const ${name} = { tag: ${JSON.stringify(tag)} };`;
+}
+
 /** The literal a set of slots stands for, in the one place it is spelled. */
 function dictionaryLiteral(slots: readonly DerivedSlot[]): string {
   return slots.length === 0
@@ -1258,10 +1267,10 @@ function jsDocBlock(content: string, indent: string): string[] {
  *   *is* its JavaScript face.
  * - `bool` (#147, decisions doc §3): the representation pin. `Bool` is an
  *   ordinary union to every earlier pass; here, and only here, its values are
- *   the JS `boolean` instead of the §6.2 all-nullary strings. This is a
- *   representation commitment, not a semantic one: no Hexagon program can tell
- *   the difference, because every eliminator of a `Bool` is representation-blind
- *   at the source level.
+ *   the JS `boolean` instead of the §6.1 tagged object every other union takes.
+ *   This is a representation commitment, not a semantic one: no Hexagon program
+ *   can tell the difference, because every eliminator of a `Bool` is
+ *   representation-blind at the source level.
  * - `ignore` (#313, Statements §3.3): the first **term** in this list, and the
  *   only one. `stdlib/Prelude.hex` defines it as ordinary source — no door key,
  *   by Constraints §6.1's strictly-simpler law — so what is known here is the
@@ -2784,9 +2793,29 @@ class JavaScriptEmitter {
    */
   readonly #alreadyDiagnosed: boolean;
   readonly #symbols = new Map<Resolved.SymbolId, Core.Symbol>();
+  /**
+   * Every constructor in scope, and what — if anything — displaces the ordinary
+   * union representation for it.
+   *
+   * There is no per-union representation *flag* left (#771): every `union` is
+   * the string-tagged object of Unions §6.1, whatever its mix of nullary and
+   * payload constructors. What survives are the two declarations that are not
+   * that shape at all — the pinned prelude `Bool` (Unions §6.2), and a literal
+   * `extern enum`'s member, which is the foreign value it names (Foreign Enums
+   * §2.4).
+   */
   readonly #constructors = new Map<
     Resolved.SymbolId,
-    { constructor: Core.Constructor; tagged: boolean; pinnedBool: boolean }
+    {
+      constructor: Core.Constructor;
+      pinnedBool: boolean;
+      /**
+       * The JavaScript literal this constructor **is**, for a literal `extern
+       * enum`'s member (Foreign Enums §2.4, §7.1). Absent for every ordinary
+       * union's constructor, whose runtime value the emitter chooses.
+       */
+      literal?: string;
+    }
   >();
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
   /**
@@ -2873,6 +2902,17 @@ class JavaScriptEmitter {
   readonly #instanceDictionaryHeads: ReadonlyMap<string, FundamentalType>;
   readonly #helpers = new Set<Helper>();
   readonly #helperNames = new Map<Helper, string>();
+  /**
+   * The nullary-constructor values this module's emitted code manufactures for
+   * itself, tag by tag, each under the name it is hoisted to — `"Less"` to
+   * `__Less` (#771, B1).
+   *
+   * Filled by `#taggedValue` on first use and rendered by `#taggedConstantLines`
+   * beside the helpers, on `#useHelper`'s shape exactly: minted once per module,
+   * only when that module actually manufactures the value, and under Lexer
+   * §3.2's `__` reservation so no source spelling can collide.
+   */
+  readonly #taggedConstants = new Map<string, string>();
   readonly #exports: string[] = [];
   readonly #exportedEvidence = new Set<string>();
   /**
@@ -3220,10 +3260,18 @@ class JavaScriptEmitter {
     for (const diagnostic of module.diagnostics) this.#diagnostics.add(diagnostic);
     for (const symbol of module.symbols) this.#symbols.set(symbol.id, symbol);
     for (const union of module.unions) {
-      const tagged = union.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
+      // A literal `extern enum`'s values are the declaration's own literals,
+      // carried per constructor below; nothing else here varies by union, since
+      // every `union` takes Unions §6.1's one shape (#771).
       const pinnedBool = this.#prelude.bool !== undefined && union.id === this.#prelude.bool;
       for (const constructor of union.constructors) {
-        this.#constructors.set(constructor.symbol, { constructor, tagged, pinnedBool });
+        this.#constructors.set(constructor.symbol, {
+          constructor,
+          pinnedBool,
+          ...(constructor.literal === undefined
+            ? {}
+            : { literal: foreignLiteralJs(constructor.literal) }),
+        });
       }
     }
     for (const record of module.records) {
@@ -3377,8 +3425,15 @@ class JavaScriptEmitter {
           (operation) => this.#useHashTrieRuntime(operation),
           this.#identity,
           (global) => this.#runtimeVocabulary.spell(global),
+          (tag) => this.#taggedValue(tag),
         )
       );
+    // After the helpers, because rendering `ordering` or `jsValueKind` is what
+    // mints the constants those two read, and *before* them in the file, so a
+    // reader meets each constant above its first use (#771, B1). Nothing here
+    // is a TDZ hazard either way — every seat that reads one sits inside a
+    // function body — but the declaration order is the readable one.
+    const taggedConstants = this.#taggedConstantLines();
 
     // After rendering, because rendering is what discovers which prelude
     // dictionaries the body names (#153) and which prelude terms it names
@@ -3511,9 +3566,10 @@ class JavaScriptEmitter {
       };`,
       "",
     ];
+    const hoisted = [...taggedConstants, ...helpers];
     const lines = [
       ...runtimeGlobalsImport,
-      ...(helpers.length === 0 ? body : [...helpers, "", ...body]),
+      ...(hoisted.length === 0 ? body : [...hoisted, "", ...body]),
     ];
 
     const text = lines.length === 0 ? "" : `${lines.join("\n")}\n`;
@@ -4119,7 +4175,6 @@ class JavaScriptEmitter {
         : [`${prefix}const ${pattern} = ${value};`];
     }
     if (item.kind === "Union") {
-      const tagged = item.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
       // Whether *this* declaration publishes its constructors, which is one of
       // the two demand sites and the only one visible from here.
       const exportedHere = item.exported && !item.opaque && depth === 0;
@@ -4153,16 +4208,23 @@ class JavaScriptEmitter {
           const fields = slots.map(({ field }) => objectProperty(field, field));
           return [...doc, `${prefix}const ${name} = ${arrowParameters(parameters)} => ({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`];
         }
-        // The pin (#147, Unions §6.4): a `Bool` constructor materialises against
-        // the pinned representation, so the export site binds the JS boolean
-        // rather than the all-nullary name-string.
-        const pinned = this.#pinnedBoolLiteral(constructor.symbol);
-        if (pinned !== undefined) return [...doc, `${prefix}const ${name} = ${pinned};`];
-        return [...doc, tagged
-          ? `${prefix}const ${name} = { tag: ${JSON.stringify(constructor.name)} };`
-          : `${prefix}const ${name} = ${JSON.stringify(constructor.name)};`];
+        // A constructor that *is* a JavaScript literal binds that literal, and
+        // two declarations are (`#constructorLiteral`). The pin (#147, Unions
+        // §6.4): a `Bool` constructor materialises against the pinned
+        // representation, so the site binds the JS boolean rather than the
+        // tagged object. And Foreign Enums §7.1: a literal enum's member
+        // binding is a stable constant holding the value the declaration wrote,
+        // with nothing imported and no tag, wrapper or brand created at runtime.
+        const literal = this.#constructorLiteral(constructor.symbol);
+        if (literal !== undefined) return [...doc, `${prefix}const ${name} = ${literal};`];
+        // Unions §6.1's shared constant, for every nullary constructor of every
+        // `union` alike (#771). The union's mix decides nothing here: a nullary
+        // constructor of an all-nullary union binds exactly the object a
+        // nullary constructor of a mixed union binds, which is what makes
+        // adding a payload constructor additive at the JavaScript boundary.
+        return [...doc, `${prefix}const ${name} = { tag: ${JSON.stringify(constructor.name)} };`];
       });
-      return lines;
+      return [...lines, ...this.#emitEnumConversions(item, prefix, depth)];
     }
     if (item.kind === "RecordDeclaration") {
       const name = this.#identifier(item.constructor.symbol, item.constructor.name);
@@ -5961,8 +6023,20 @@ class JavaScriptEmitter {
     const bodyDepth = depth + 2;
     const bodyIndent = indent(bodyDepth);
     const union = this.#module.unions.find(({ id }) => id === expression.union);
-    const tagged = union?.constructors.some(({ slots }) => (slots?.length ?? 0) > 0) ?? false;
-    const needsMatchName = tagged || expression.arms.some(
+    // Two declarations carry no tag and so switch on the scrutinee itself: the
+    // pinned `Bool` (Unions §6.2), and Foreign Enums §4's literal `extern
+    // enum`, whose members are the string, integer, boolean or nullish literals
+    // the declaration wrote — the proven-identical case of the `Object.is`
+    // rule, since `===` agrees with `Object.is` on every one of them. Every
+    // ordinary `union` is §6.1's tagged object whatever its constructors carry
+    // (#771), so the shape is read off the declaration's identity rather than
+    // off its constructor list.
+    const literalValued = union?.externEnum === true ||
+      (this.#prelude.bool !== undefined && expression.union === this.#prelude.bool);
+    // A tag switch names the scrutinee because it reads a field of it; against
+    // a literal-valued scrutinee the name is needed only by a catch-all arm
+    // that *binds* the value, since that binding is what reads it.
+    const needsMatchName = !literalValued || expression.arms.some(
       (arm) => arm.pattern.kind === "Binding",
     );
     const matchName = bound ??
@@ -5977,14 +6051,15 @@ class JavaScriptEmitter {
                 this.#emitExpr(expression.scrutinee, depth, evidenceNames)
               };`]
             : []),
-          `${prefix}switch (${matchName}${tagged ? ".tag" : ""}) {`,
+          `${prefix}switch (${matchName}${literalValued ? "" : ".tag"}) {`,
         ];
     for (const arm of expression.arms) {
       const pattern = arm.pattern;
       if (pattern.kind === "Constructor") {
-        // `case true:` / `case false:` under the pin; the name-string otherwise.
-        const pinned = this.#pinnedBoolLiteral(pattern.symbol);
-        lines.push(`${armIndent}case ${pinned ?? JSON.stringify(pattern.tag)}:`);
+        // `case true:` / `case "up":` where the constructor *is* a literal — the
+        // `Bool` pin and Foreign Enums §2.4's members alike; the tag otherwise.
+        const literal = this.#constructorLiteral(pattern.symbol);
+        lines.push(`${armIndent}case ${literal ?? JSON.stringify(pattern.tag)}:`);
         const metadata = this.#constructors.get(pattern.symbol)?.constructor;
         pattern.arguments.forEach((argument, index) => {
           if (matchName === undefined) return;
@@ -6242,7 +6317,7 @@ class JavaScriptEmitter {
           ? this.#exceptions.get(pattern.symbol)
           : undefined;
         const metadata = this.#constructors.get(pattern.symbol);
-        const pinned = this.#pinnedBoolLiteral(pattern.symbol);
+        const literal = this.#constructorLiteral(pattern.symbol);
         // Exceptions §7.4's two-stage discrimination, written as one chain per
         // arm: `!= null` so a `throw null` reaches the discriminator without
         // crashing it, then the **(module, name) pair** (#488). Comparing the
@@ -6267,12 +6342,16 @@ class JavaScriptEmitter {
         const domestic = exception === undefined ? undefined : `${value} != null && ${value}.$hex === ${JSON.stringify(exception.owner)} && ${value}.name === ${JSON.stringify(pattern.tag)}`;
         const test = domestic !== undefined
           ? (virtual ? `${foreign} || (${domestic})` : domestic)
-          : pinned !== undefined
-          // The pin again: a `Bool` pattern tests the boolean it actually is.
-          ? `${value} === ${pinned}`
-          : metadata?.tagged
-          ? `${value}.tag === ${JSON.stringify(pattern.tag)}`
-          : `${value} === ${JSON.stringify(pattern.tag)}`;
+          : literal !== undefined
+          // The literal again: a `Bool` pattern, and a literal enum's member
+          // pattern, each test the JavaScript value they actually are.
+          ? `${value} === ${literal}`
+          // Every other union is the tagged object (Unions §6.1, #771), so the
+          // discriminant is the tag whatever the union's constructors carry —
+          // and a constructor with no metadata here is one whose declaration
+          // did not reach the emitter, which under one shape is no longer a
+          // reason to test the value itself.
+          : `${value}.tag === ${JSON.stringify(pattern.tag)}`;
         const payloads = pattern.arguments.map((argument, index) => {
           const field = exception?.slots[index]?.field ??
             metadata?.constructor.slots[index]?.field ??
@@ -7017,8 +7096,33 @@ class JavaScriptEmitter {
     if (type.kind === "Union") {
       const union = this.#module.unions.find(({ id }) => id === type.union);
       if (union === undefined) return "0";
-      const tagged = union.constructors.some(({ slots }) => slots.length > 0);
-      if (!tagged) return `${this.#useHelper("stableHash")}(${value})`;
+      // Foreign Enums §6: a literal enum hashes its **declaration index**, never
+      // the member's own value — so a foreign numeric magnitude or string never
+      // reaches the hash, and reordering the declaration is the ABI event §7.3
+      // says it is. Consistent with the derived `Eq` below by construction: the
+      // members are pairwise distinct, so equal values have equal indices.
+      if (union.externEnum === true) {
+        return `${this.#useHelper("stableHash")}(${
+          declarationIndex(union.constructors, value)
+        })`;
+      }
+      // The pin (#147): a `Bool` *is* a JS boolean, and `stableHash` answers
+      // over one directly. Ahead of the reduction below, which would read a
+      // `tag` the pinned representation does not carry.
+      if (this.#prelude.bool !== undefined && union.id === this.#prelude.bool) {
+        return `${this.#useHelper("stableHash")}(${value})`;
+      }
+      // A union whose constructors all carry nothing hashes its tag. The walk
+      // below reaches the same information — every arm mixes `stableHash` of
+      // that same tag into the seed and has no slot to add — so this is that
+      // walk's answer without the seed step, a different number from it and an
+      // equally lawful one: Collections Part 2 asks only that equal values hash
+      // equally, and the derived `Eq` beside this is exactly the tag equality
+      // it hashes. It is also, to the byte, what the retired string case
+      // hashed, so no union's hashes moved with #771.
+      if (union.constructors.every(({ slots }) => slots.length === 0)) {
+        return `${this.#useHelper("stableHash")}(${value}.tag)`;
+      }
       const replacements = new Map(union.parameters.map((parameter, index) => [
         parameter,
         type.arguments[index] ?? { kind: "Error" as const },
@@ -7091,18 +7195,19 @@ class JavaScriptEmitter {
   /**
    * The body of a derived `compare`, in the one representation (#275).
    *
-   * Every expression this returns evaluates to an `Ordering` — the Unions §6.2
-   * name-string `"Less"`, `"Equal"` or `"Greater"` — because that is what a
-   * dictionary's `compare` slot holds regardless of how the instance was
-   * written. It is also what the recursive calls below receive from each other
-   * and what the `Variable` case receives from another dictionary, so
-   * composition is on the strings and never on a sign.
+   * Every expression this returns evaluates to an `Ordering` — the Unions §6.1
+   * tagged object, read by the name this module hoisted it to (`__Less`,
+   * `__Equal`, `__Greater`) — because that is what a dictionary's `compare`
+   * slot holds regardless of how the instance was written. It is also what the
+   * recursive calls below receive from each other and what the `Variable` case
+   * receives from another dictionary, so composition is on those values and
+   * never on a sign, and a test against one reads its `tag`.
    *
-   * Bare string literals rather than imported `Ordering` constructors: this is
-   * the representation, emitted the same way every other all-nullary union
-   * value is, and naming the constructors here would drag a synthesized prelude
-   * import into every deriving module. A hand-written `honor` still imports
-   * them, because its source names them.
+   * The module's own hoisted constants rather than the prelude's, imported:
+   * `#taggedValue` states the whole mechanism and why identity stops at the
+   * module boundary. A hand-written `honor` still imports the prelude's,
+   * because its source names them, and the two are the same value everywhere a
+   * Hexagon program can look.
    *
    * The numeric comparators survive as internals. `compareFloat`'s total order
    * over NaN and `compareString`'s codepoint order are unchanged; only the
@@ -7120,6 +7225,11 @@ class JavaScriptEmitter {
     components: ComponentEvidence = undefined,
   ): string {
     const fromSign = (sign: string): string => `${this.#useHelper("ordering")}(${sign})`;
+    // The three hoisted constants this walk answers with (#771, B1). Reached
+    // through `#taggedValue`, so a module that derives no order mints none.
+    const less = () => this.#taggedValue("Less");
+    const equal = () => this.#taggedValue("Equal");
+    const greater = () => this.#taggedValue("Greater");
     const component = (
       key: string,
       componentType: Typed.Type,
@@ -7140,7 +7250,9 @@ class JavaScriptEmitter {
       if (type.name === "String") {
         return fromSign(`${this.#useHelper("compareString")}(${left}, ${right})`);
       }
-      return `${left} < ${right} ? "Less" : ${left} > ${right} ? "Greater" : "Equal"`;
+      return `${left} < ${right} ? ${less()} : ${left} > ${right} ? ${
+        greater()
+      } : ${equal()}`;
     }
     if (type.kind === "Variable") {
       const ord = this.#dictionary(
@@ -7152,9 +7264,12 @@ class JavaScriptEmitter {
       return `${ord}.compare(${left}, ${right})`;
     }
     if (type.kind === "Tuple") {
-      return lexicographicComparison(type.elements.map((element, index) =>
-        component(String(index), element, `${left}[${index}]`, `${right}[${index}]`)
-      ));
+      return lexicographicComparison(
+        type.elements.map((element, index) =>
+          component(String(index), element, `${left}[${index}]`, `${right}[${index}]`)
+        ),
+        equal(),
+      );
     }
     if (type.kind === "Vector") {
       // §8's lexicographic order, zipped through the representation contract
@@ -7171,35 +7286,36 @@ class JavaScriptEmitter {
       const order = this.#generatedNames.fresh("order");
       const elementOrder = component("element", type.element, leftElement, rightElement);
       // #680, the same elision as `#derivedEquals`': an element order that
-      // ignores its right-hand operand — `Unit`'s inlines to `"Equal"` — leaves
-      // this read discarded. Only the binding goes. The loop itself is
-      // load-bearing whatever the element says, because exhaustion is what
-      // decides a vector order: `.next()` still has to run, `done` still decides
-      // `Greater`, and the tail check still separates `Equal` from `Less`.
-      // Collapsing an all-`"Equal"` walk to a length comparison would be a
-      // different emission rather than a deletion, so it is not taken here.
+      // ignores its right-hand operand — `Unit`'s inlines to the `Equal`
+      // constant — leaves this read discarded. Only the binding goes. The loop
+      // itself is load-bearing whatever the element says, because exhaustion is
+      // what decides a vector order: `.next()` still has to run, `done` still
+      // decides `Greater`, and the tail check still separates `Equal` from
+      // `Less`. Collapsing an always-`Equal` walk to a length comparison would
+      // be a different emission rather than a deletion, so it is not taken here.
       const readsRight = elementOrder.includes(rightElement);
       const rightBinding = readsRight ? `const ${rightElement} = ${step}.value; ` : "";
       return "(() => { " +
         `const ${iterator} = ${right}[${this.#spell("Symbol")}.iterator](); ` +
         `for (const ${leftElement} of ${left}) { ` +
         `const ${step} = ${iterator}.next(); ` +
-        `if (${step}.done) return "Greater"; ` +
+        `if (${step}.done) return ${greater()}; ` +
         `${rightBinding}` +
         `const ${order} = ${elementOrder}; ` +
-        `if (${order} !== "Equal") return ${order}; } ` +
-        `return ${iterator}.next().done ? "Equal" : "Less"; })()`;
+        `if (${order}.tag !== "Equal") return ${order}; } ` +
+        `return ${iterator}.next().done ? ${equal()} : ${less()}; })()`;
     }
     if (type.kind === "Record") {
       return lexicographicComparison(
         [...type.fields].sort((a, b) => a.name.localeCompare(b.name)).map((field) =>
           component(field.name, field.type, `${left}.${field.name}`, `${right}.${field.name}`)
         ),
+        equal(),
       );
     }
     if (type.kind === "NominalRecord") {
       const record = this.#module.records.find(({ id }) => id === type.record);
-      if (record === undefined) return '"Equal"';
+      if (record === undefined) return equal();
       const replacements = new Map(record.parameters.map((parameter, index) => [
         parameter,
         type.arguments[index] ?? { kind: "Error" as const },
@@ -7213,43 +7329,57 @@ class JavaScriptEmitter {
             `${right}.${field.name}`,
           )
         ),
+        equal(),
       );
     }
     if (type.kind === "Union") {
       const union = this.#module.unions.find(({ id }) => id === type.union);
-      if (union === undefined) return '"Equal"';
-      // Under the pin (#147) the declaration-index table the string case needs
-      // is unnecessary: `False | True` and JS `false < true` agree by
-      // construction, so ordering reads the booleans themselves.
-      if (this.#prelude.bool !== undefined && union.id === this.#prelude.bool) {
-        return `${left} === ${right} ? "Equal" : ${right} ? "Less" : "Greater"`;
+      if (union === undefined) return equal();
+      // Declaration-index order (Unions §7's implementer note, and Foreign Enums
+      // §6 for the enum), never JS `<` on what the values happen to be: the
+      // index difference is the sign, and `ordering` makes it the constructor.
+      // `declarationIndex` is the table, shared with the `Hash` walk so the two
+      // cannot drift about which member is which; each caller passes the
+      // accessor that reaches what it is keyed on.
+      const index = (value: string) => declarationIndex(union.constructors, value);
+      // Foreign Enums §4: a literal enum's values carry no tag, so its table
+      // reads the scrutinee itself. Ahead of everything below, which reads one.
+      if (union.externEnum === true) {
+        return fromSign(`(${index(left)}) - (${index(right)})`);
       }
-      // Declaration-index order (Unions §7's implementer note for the §6.2
-      // string case), never JS `<` on the name-strings: the index difference is
-      // the sign, and `ordering` makes it the constructor.
-      const tag = (value: string) => union.constructors
-        .map((constructor, index) => `${value} === ${JSON.stringify(constructor.name)} ? ${index} : `)
-        .join("") + "-1";
-      const tagged = union.constructors.some(({ slots }) => slots.length > 0);
-      if (!tagged) return fromSign(`(${tag(left)}) - (${tag(right)})`);
+      // Under the pin (#147) the declaration-index table is unnecessary:
+      // `False | True` and JS `false < true` agree by construction, so ordering
+      // reads the booleans themselves.
+      if (this.#prelude.bool !== undefined && union.id === this.#prelude.bool) {
+        return `${left} === ${right} ? ${equal()} : ${right} ? ${less()} : ${greater()}`;
+      }
+      // A union whose constructors all carry nothing is ordered by its tags
+      // alone: every arm of the switch below would compare an empty slot list,
+      // which is `Equal`, leaving the tag order to decide (#771).
+      if (union.constructors.every(({ slots }) => slots.length === 0)) {
+        return fromSign(`(${index(`${left}.tag`)}) - (${index(`${right}.tag`)})`);
+      }
       const replacements = new Map(union.parameters.map((parameter, index) => [
         parameter,
         type.arguments[index] ?? { kind: "Error" as const },
       ]));
       const cases = union.constructors.map((constructor) => {
-        const comparison = lexicographicComparison(constructor.slots.map((slot) =>
-          component(
-            `${constructor.name}.${slot.field}`,
-            substituteType(slot.type, replacements),
-            `${left}.${slot.field}`,
-            `${right}.${slot.field}`,
-          )
-        ));
+        const comparison = lexicographicComparison(
+          constructor.slots.map((slot) =>
+            component(
+              `${constructor.name}.${slot.field}`,
+              substituteType(slot.type, replacements),
+              `${left}.${slot.field}`,
+              `${right}.${slot.field}`,
+            )
+          ),
+          equal(),
+        );
         return `case ${JSON.stringify(constructor.name)}: return ${comparison};`;
       }).join(" ");
-      return `(() => { const __tagOrder = ${fromSign(`(${tag(`${left}.tag`)}) - (${tag(`${right}.tag`)})`)}; if (__tagOrder !== "Equal") return __tagOrder; switch (${left}.tag) { ${cases} default: return "Equal"; } })()`;
+      return `(() => { const __tagOrder = ${fromSign(`(${index(`${left}.tag`)}) - (${index(`${right}.tag`)})`)}; if (__tagOrder.tag !== "Equal") return __tagOrder; switch (${left}.tag) { ${cases} default: return ${equal()}; } })()`;
     }
-    return '"Equal"';
+    return equal();
   }
 
   /**
@@ -7504,8 +7634,22 @@ class JavaScriptEmitter {
     if (type.kind === "Union") {
       const union = this.#module.unions.find(({ id }) => id === type.union);
       if (union === undefined) return `${left} === ${right}`;
-      const tagged = union.constructors.some(({ slots }) => slots.length > 0);
-      if (!tagged) return `${left} === ${right}`;
+      // Foreign Enums §6: `Eq` compares constructors, and emission may use
+      // `Object.is` on the member values. `===` is the proven-identical case
+      // here (§4): §2.4 refuses floats and folds `-0` to `0`, so no member can
+      // be a `NaN` or a signed zero, and the two agree on every one.
+      if (union.externEnum === true) return `${left} === ${right}`;
+      // The pin (#147): two `Bool`s are two JS booleans, so `===` is the whole
+      // of it. Ahead of the reduction below, which reads a `tag`.
+      if (this.#prelude.bool !== undefined && union.id === this.#prelude.bool) {
+        return `${left} === ${right}`;
+      }
+      // A union whose constructors all carry nothing is equal exactly when the
+      // tags are: every arm of the switch below would answer `true`, leaving
+      // the tag test in front of it to decide alone (#771).
+      if (union.constructors.every(({ slots }) => slots.length === 0)) {
+        return `${left}.tag === ${right}.tag`;
+      }
       const replacements = new Map(union.parameters.map((parameter, index) => [
         parameter,
         type.arguments[index] ?? { kind: "Error" as const },
@@ -7632,9 +7776,9 @@ class JavaScriptEmitter {
     if (type.kind === "Union") {
       const union = this.#module.unions.find(({ id }) => id === type.union);
       if (union !== undefined) {
-        // The all-nullary case shows itself, because its representation already
-        // *is* its constructor name. The pinned `Bool` is the one union where
-        // that is not so, so it needs the two-way lookup (#147, §3.2).
+        // The pinned `Bool` needs the two-way lookup (#147, §3.2): its
+        // representation is a JS boolean, which carries neither a tag nor a
+        // constructor name.
         //
         // Parenthesized, and that is not cosmetic: every other branch here
         // returns something safe to drop into the `+`-concatenation a composite
@@ -7645,8 +7789,27 @@ class JavaScriptEmitter {
         if (this.#prelude.bool !== undefined && union.id === this.#prelude.bool) {
           return `(${value} ? "True" : "False")`;
         }
-        const tagged = union.constructors.some(({ slots }) => slots.length > 0);
-        if (!tagged) return value;
+        // Foreign Enums §6: `Show` gives the **local constructor name**, never
+        // the foreign value — `Up`, not `"up"`. A payload-free `union` below
+        // reads its own tag, which *is* that name; a literal enum carries no
+        // tag, so it needs the same two-way lookup the pinned `Bool` above
+        // needs, and takes it parenthesized for the same reason: `+` binds
+        // tighter than `?:`.
+        if (union.externEnum === true) {
+          const shown = union.constructors
+            .map((constructor) =>
+              `${value} === ${constructorValue(constructor)} ? ${JSON.stringify(constructor.name)} : `
+            )
+            .join("") + '"<unknown>"';
+          return `(${shown})`;
+        }
+        // A union whose constructors all carry nothing shows its tag: no arm of
+        // the switch below has a payload to parenthesize, so each would return
+        // the very string the tag holds (#771). Safe bare in the `+` chain a
+        // composite `show` builds — a member access binds tighter than `+`.
+        if (union.constructors.every(({ slots }) => slots.length === 0)) {
+          return `${value}.tag`;
+        }
         const replacements = new Map(union.parameters.map((parameter, index) => [
           parameter,
           type.arguments[index] ?? { kind: "Error" as const },
@@ -8596,13 +8759,96 @@ class JavaScriptEmitter {
    * symbol is not one of the prelude `Bool`'s two constructors (#147).
    *
    * This is the whole of the representation pin at the value level: `True` is
-   * `true`, `False` is `false`, and every place that would otherwise spell an
-   * all-nullary constructor as its own name-string asks here first.
+   * `true`, `False` is `false`, and every place that would otherwise write a
+   * nullary constructor's tagged object asks here first.
    */
   #pinnedBoolLiteral(symbol: Resolved.SymbolId): "true" | "false" | undefined {
     const metadata = this.#constructors.get(symbol);
     if (metadata === undefined || !metadata.pinnedBool) return undefined;
     return metadata.constructor.name === "True" ? "true" : "false";
+  }
+
+  /**
+   * The JavaScript literal this constructor **is**, as source text, or
+   * `undefined` where the emitter chooses the representation itself.
+   *
+   * Two declarations answer: the prelude `Bool`, pinned to JavaScript's booleans
+   * (#147), and a literal `extern enum`, whose members are the values its
+   * declaration writes (Foreign Enums §2.4). They are one notion — a nullary
+   * constructor whose runtime value is a JavaScript literal — so the three sites
+   * that have to *spell* that value ask here rather than each knowing both: the
+   * declaration's own initializer, a `switch` case label, and a constructor
+   * pattern's `===` test.
+   *
+   * What this is **not** is a rule about references. `Bool`'s pin reaches the
+   * reference site too, because `True` needs no binding to be named by; an enum
+   * member is an ordinary exported constant and is named by it, at home and
+   * abroad alike (§7.1).
+   */
+  #constructorLiteral(symbol: Resolved.SymbolId): string | undefined {
+    return this.#pinnedBoolLiteral(symbol) ?? this.#constructors.get(symbol)?.literal;
+  }
+
+  /**
+   * A literal `extern enum`'s two conversion bindings, emitted beside its member
+   * constants (Foreign Enums §5.2, §7.1).
+   *
+   * `fromJsT` is "a small identity-membership chain": it evaluates its input
+   * once and compares it with the declared members **in declaration order**,
+   * returning the corresponding constructor in `Some` and `None` otherwise. The
+   * chain is a `switch` for §4's reason — every member is a literal on which
+   * `===` agrees with `Object.is` — and the `default` arm is what makes the
+   * projection total, which is the whole difference between this and an ordinary
+   * typed extern call.
+   *
+   * `toJsT` is the identity widening to `JsValue`: it allocates and encodes
+   * nothing, because the Hexagon value already *is* the JavaScript value.
+   *
+   * `Option`'s two shapes are written out rather than imported, as the runtime
+   * helpers elsewhere in this file write them: the prelude's own representation
+   * (Unions §6.1) is what a generated body has to produce, and reaching for the
+   * constructors would add an import to a module that named no prelude term.
+   * The `None` written here is a fresh object rather than the prelude's shared
+   * constant, which no program can observe: `Option`'s equality is its tag's,
+   * and Hexagon has no reference equality to tell two `{ tag: "None" }` apart.
+   */
+  #emitEnumConversions(
+    item: Core.UnionItem,
+    prefix: string,
+    depth: number,
+  ): readonly string[] {
+    const conversions = item.conversions;
+    if (conversions === undefined) return [];
+    const publish = (binding: Typed.Binding): string => {
+      const name = this.#identifier(binding.symbol, binding.name);
+      if (item.exported && depth === 0) {
+        this.#exports.push(
+          name === binding.name
+            ? `export { ${name} };`
+            : `export { ${name} as ${binding.name} };`,
+        );
+      }
+      return name;
+    };
+    const fromJs = publish(conversions.fromJs);
+    const toJs = publish(conversions.toJs);
+    const inner = indent(depth + 1);
+    const arm = indent(depth + 2);
+    return [
+      `${prefix}const ${fromJs} = __value => {`,
+      `${inner}switch (__value) {`,
+      ...item.constructors.flatMap((constructor) =>
+        constructor.literal === undefined ? [] : [
+          `${arm}case ${foreignLiteralJs(constructor.literal)}: return { tag: "Some", value: ${
+            this.#identifier(constructor.symbol, constructor.name)
+          } };`,
+        ]
+      ),
+      `${arm}default: return { tag: "None" };`,
+      `${inner}}`,
+      `${prefix}};`,
+      `${prefix}const ${toJs} = __value => __value;`,
+    ];
   }
 
   /**
@@ -8948,9 +9194,9 @@ class JavaScriptEmitter {
       // arrow with no helper behind it. Nothing here guards, converts a sign, or
       // branches on a range — those are Hexagon in the companion, which is the
       // point of the split (`spec/intrinsics.md` §3.2). Two rows are worth
-      // spelling out: `bigIntCompare` answers with the Unions §6.2 name-strings
-      // an `Ordering` *is* (#275), and `bigIntPow` is the **raw** `**`, because
-      // the negative-exponent guard sits above it in source.
+      // spelling out: `bigIntCompare` answers with the Unions §6.1 tagged
+      // objects an `Ordering` *is* (#275, #771), and `bigIntPow` is the **raw**
+      // `**`, because the negative-exponent guard sits above it in source.
       case "bigIntAdd":
         return "(__a, __b) => __a + __b";
       case "bigIntMultiply":
@@ -8968,7 +9214,9 @@ class JavaScriptEmitter {
       case "bigIntEquals":
         return "(__a, __b) => __a === __b";
       case "bigIntCompare":
-        return '(__a, __b) => __a < __b ? "Less" : __a > __b ? "Greater" : "Equal"';
+        return `(__a, __b) => __a < __b ? ${this.#taggedValue("Less")} : __a > __b ? ${
+          this.#taggedValue("Greater")
+        } : ${this.#taggedValue("Equal")}`;
       case "bigIntShow":
         return `__a => ${this.#spell("String")}(__a)`;
       case "bigIntHash":
@@ -9019,7 +9267,9 @@ class JavaScriptEmitter {
         return "(__a, __b) => __a === __b";
       case "intCompare":
       case "natCompare":
-        return '(__a, __b) => __a < __b ? "Less" : __a > __b ? "Greater" : "Equal"';
+        return `(__a, __b) => __a < __b ? ${this.#taggedValue("Less")} : __a > __b ? ${
+          this.#taggedValue("Greater")
+        } : ${this.#taggedValue("Equal")}`;
       case "intShow":
       case "natShow":
         return `__a => ${this.#spell("String")}(__a)`;
@@ -9039,7 +9289,7 @@ class JavaScriptEmitter {
       // equals itself and the two zeroes agree; `floatCompare` and
       // `stringCompare` are the decided total order and the codepoint order,
       // through the comparators that already serve the operator fast paths,
-      // wrapped in the `Ordering` name-string a `compare` slot owes its caller
+      // wrapped in the `Ordering` value a `compare` slot owes its caller
       // (#275). Nothing here guards, because nothing at either type can:
       // `Float`'s partiality is `NaN`, and `String` has no partial operation.
       case "floatAdd":
@@ -9373,6 +9623,53 @@ class JavaScriptEmitter {
       pending.push(...HELPER_DEPENDENCIES[next]);
     }
     return this.#helperName(helper);
+  }
+
+  /**
+   * The name this module reads a manufactured nullary-constructor value by,
+   * hoisting the constant on first use (#771, B1).
+   *
+   * **Why a hoisted constant rather than a literal at each site.** Unions §6.1
+   * says a nullary constructor is "one shared frozen-by-convention constant"
+   * and that a construction of it references that constant, *allocating
+   * nothing*; three spec sentences then describe the values these seats produce
+   * as shared constants outright — Operators §4.5's `Ordering`, Intrinsics'
+   * `bigIntCompare` note, and FFI Part 11 §3's `JsKind`. A fresh `{ tag: … }` at
+   * every manufacture site is a legal *value* and an illegal *reading* of those
+   * sentences: `sort` would allocate an `Ordering` per comparison, and a
+   * debugger would show three objects where the language promises one.
+   *
+   * **Why per module, and why no import.** The constant is minted here rather
+   * than imported from the union's declaring module because reaching that
+   * declaration would add a synthesized prelude import to every deriving module
+   * and every comparison site — the cost the literal was avoiding. What is
+   * promised is *within* a module: one object per tag, shared by every seat in
+   * it. Identity across modules is not promised and never was — §6.1 says
+   * identity is never observed, a union's `Eq` is structural (§7), and `match`
+   * reads the tag — so a value from this module's `__Less` and one from the
+   * prelude's `Ordering.Less` are equal, matchable and showable alike, and
+   * distinguishable only by `===`, which no Hexagon program can write.
+   *
+   * Consequently a *test* against one of these values reads its `tag` and never
+   * `===` against a constant: the value may have come from either mint.
+   */
+  #taggedValue(tag: string): string {
+    const existing = this.#taggedConstants.get(tag);
+    if (existing !== undefined) return existing;
+    const name = this.#generatedNames.fixed(tag);
+    this.#taggedConstants.set(tag, name);
+    return name;
+  }
+
+  /**
+   * The hoisted constants, in the order they were first reached — which is the
+   * order the emitted seats read them in, and deterministic for the reason
+   * every other generated name is: one pass over one Core module.
+   */
+  #taggedConstantLines(): readonly string[] {
+    return [...this.#taggedConstants].map(([tag, name]) =>
+      taggedConstantDeclaration(name, tag)
+    );
   }
 
   #helperName(helper: Helper): string {
@@ -9717,6 +10014,7 @@ class DeclarationEmitter {
             `export declare const ${constructor.name}: ${type};`,
           );
         }
+        declarations.push(...renderEnumConversions(item, "export ", this.#faces));
         continue;
       }
       if (item.kind === "RecordDeclaration") {
@@ -10119,6 +10417,11 @@ class TypeScriptPreviewEmitter {
             `${prefix}declare const ${constructor.name}: ${type};`,
           );
         }
+        declarations.push(...renderEnumConversions(
+          item,
+          item.exported ? "export " : "",
+          this.#faces,
+        ));
         isExternalModule ||= item.exported;
         continue;
       }
@@ -10847,6 +11150,7 @@ export function renderEveryHelper(): readonly string[] {
       (operation) => `__hashTrie_${operation}`,
       "probe",
       (global) => BARE_RUNTIME_VOCABULARY.spell(global),
+      (tag) => `__${tag}`,
     ).join("\n")
   );
 }
@@ -10986,6 +11290,14 @@ function renderHelper(
    * interpolation and derived `show` — are written outside every helper.
    */
   spell: (name: RuntimeSpelling) => string,
+  /**
+   * How the emitting module names a manufactured nullary-constructor value
+   * (`#taggedValue`, #771). Two helpers answer with one: `ordering` with an
+   * `Ordering`, `jsValueKind` with a `JsKind`. Threaded in for `spell`'s
+   * reason — the constant is hoisted into the *user's* module, so only that
+   * module knows what it is called there.
+   */
+  taggedValue: (tag: string) => string,
 ): string[] {
   switch (helper) {
     // The HAMT's placement mix (#365). The seed is read **once**, when the
@@ -11033,9 +11345,12 @@ function renderHelper(
       ];
     // `JsValue.kind` (FFI Part 11 §3), and the whole of what the classification
     // is: `undefined` and `null` by direct comparison, six kinds by `typeof`,
-    // `Array` by `Array.isArray`, everything else `Object`. `JsKind` is
-    // all-nullary, so a kind *is* its name-string (Unions §6.2) and the ladder
-    // answers the representation directly.
+    // `Array` by `Array.isArray`, everything else `Object`. Every `JsKind`
+    // constructor is nullary, so a kind is the tagged object Unions §6.1 gives
+    // one (#771), and each arm below returns the **hoisted constant** the
+    // emitting module holds for that tag — `taggedValue` here, `#taggedValue`
+    // there, which states why a constant minted in this module rather than
+    // `JsKind.Null` imported from its own is the same value to every consumer.
     //
     // Two properties are load-bearing and both are visible here. It is
     // **property-free**: `typeof` and `Array.isArray` consult no user-observable
@@ -11054,19 +11369,21 @@ function renderHelper(
     case "jsValueKind":
       return [
         `function ${name}(__value) {`,
-        '  if (__value === undefined) return "Undefined";',
-        '  if (__value === null) return "Null";',
+        `  if (__value === undefined) return ${taggedValue("Undefined")};`,
+        `  if (__value === null) return ${taggedValue("Null")};`,
         "  const __type = typeof __value;",
-        '  if (__type === "boolean") return "Bool";',
-        '  if (__type === "number") return "Number";',
-        '  if (__type === "bigint") return "BigInt";',
-        '  if (__type === "string") return "String";',
-        '  if (__type === "symbol") return "Symbol";',
-        '  if (__type === "function") return "Function";',
+        `  if (__type === "boolean") return ${taggedValue("Bool")};`,
+        `  if (__type === "number") return ${taggedValue("Number")};`,
+        `  if (__type === "bigint") return ${taggedValue("BigInt")};`,
+        `  if (__type === "string") return ${taggedValue("String")};`,
+        `  if (__type === "symbol") return ${taggedValue("Symbol")};`,
+        `  if (__type === "function") return ${taggedValue("Function")};`,
         "  try {",
-        `    return ${spell("Array")}.isArray(__value) ? "Array" : "Object";`,
+        `    return ${spell("Array")}.isArray(__value) ? ${taggedValue("Array")} : ${
+          taggedValue("Object")
+        };`,
         "  } catch {",
-        '    return "Object";',
+        `    return ${taggedValue("Object")};`,
         "  }",
         "}",
       ];
@@ -11176,12 +11493,14 @@ function renderHelper(
       ];
     case "ordering":
       // The one representation (#275): every `compare` slot answers with an
-      // `Ordering` value, which under Unions §6.2 is the constructor's own
-      // name-string. The numeric comparators above are fast-path internals, so
-      // this is the single place their sign crosses into the dictionary.
+      // `Ordering` value, which under Unions §6.1 is the constructor's tagged
+      // object (#771). The numeric comparators above are fast-path internals,
+      // so this is the single place their sign crosses into the dictionary.
       return [
         `function ${name}(__sign) {`,
-        '  return __sign < 0 ? "Less" : __sign > 0 ? "Greater" : "Equal";',
+        `  return __sign < 0 ? ${taggedValue("Less")} : __sign > 0 ? ${
+          taggedValue("Greater")
+        } : ${taggedValue("Equal")};`,
         "}",
       ];
     case "compareString":
@@ -12423,15 +12742,23 @@ function substituteType(
 /**
  * Composes component `Ordering`s left to right: the first component that is not
  * `Equal` decides. Nothing here is arithmetic — every operand is already an
- * `Ordering` name-string (#275), so the empty case (a `Unit`, an empty record, a
- * nullary constructor's slots) is `"Equal"`, not a zero.
+ * `Ordering` value (#275), so the empty case (a `Unit`, an empty record, a
+ * nullary constructor's slots) is the `Equal` constructor, not a zero, and the
+ * decision reads each operand's `tag` (#771).
+ *
+ * `equal` is the caller's hoisted `Equal` constant (`#taggedValue`), passed in
+ * because minting one is the emitter instance's business and this is a free
+ * function.
  */
-function lexicographicComparison(comparisons: readonly string[]): string {
-  if (comparisons.length === 0) return '"Equal"';
+function lexicographicComparison(
+  comparisons: readonly string[],
+  equal: string,
+): string {
+  if (comparisons.length === 0) return equal;
   const statements = comparisons.map((comparison, index) =>
-    `const __order${index} = ${comparison}; if (__order${index} !== "Equal") return __order${index};`
+    `const __order${index} = ${comparison}; if (__order${index}.tag !== "Equal") return __order${index};`
   );
-  return `(() => { ${statements.join(" ")} return "Equal"; })()`;
+  return `(() => { ${statements.join(" ")} return ${equal}; })()`;
 }
 
 
@@ -12662,7 +12989,10 @@ function ownInternalNameInputs(module: Core.Module): Resolved.InternalNameInputs
  * `compare(a, b) == Less`, and so on — a **constructor test**, never a sign
  * test. This is the form every dictionary `compare` call takes, because a
  * dictionary slot holds `(a, a) -> Ordering` whether the instance was derived
- * or hand-written (#275). The operand is the Unions §6.2 name-string.
+ * or hand-written (#275). The operand is the Unions §6.1 tagged object, so the
+ * test reads its `tag` — never `===` against a constructor constant, because
+ * the value may be the emitting module's own hoisted one (`#taggedValue`)
+ * rather than the prelude's declaration (#771).
  *
  * The `Equal`/`NotEqual` arms are unreachable from the comparison lowering —
  * those tests go through `Eq`'s `equals`/`notEquals` before any `compare` is
@@ -12671,17 +13001,17 @@ function ownInternalNameInputs(module: Core.Module): Resolved.InternalNameInputs
 function comparisonFromOrdering(test: Core.ComparisonTest, ordering: string): string {
   switch (test) {
     case "Less":
-      return `${ordering} === "Less"`;
+      return `${ordering}.tag === "Less"`;
     case "Greater":
-      return `${ordering} === "Greater"`;
+      return `${ordering}.tag === "Greater"`;
     case "LessEqual":
-      return `${ordering} !== "Greater"`;
+      return `${ordering}.tag !== "Greater"`;
     case "GreaterEqual":
-      return `${ordering} !== "Less"`;
+      return `${ordering}.tag !== "Less"`;
     case "Equal":
-      return `${ordering} === "Equal"`;
+      return `${ordering}.tag === "Equal"`;
     case "NotEqual":
-      return `${ordering} !== "Equal"`;
+      return `${ordering}.tag !== "Equal"`;
   }
 }
 
@@ -12966,9 +13296,9 @@ function renderType(
       return `${renderType(type.value, variables, faces, false)} | null | undefined`;
     case "Union":
       // The representation pin (#147): the prelude `Bool` faces JavaScript as
-      // `boolean`, not as the `"False" | "True"` string union its all-nullary
-      // shape would otherwise produce. Only the prelude's; a user union spelled
-      // `Bool` renders as itself.
+      // `boolean`, not as the discriminated union its constructors would
+      // otherwise produce. Only the prelude's; a user union spelled `Bool`
+      // renders as itself.
       //
       // §2.3's pins are settled **before the sink is asked**, so a qualified
       // `S.Bool` faces as `boolean` and imports nothing, exactly as a bare one
@@ -13088,6 +13418,53 @@ function declarationParameterNames(
   });
 }
 
+/**
+ * How a derived instance spells one constructor when it compares a **runtime
+ * value** against it.
+ *
+ * For an ordinary union that is the constructor's own name-string, which is
+ * exactly what the value carries either way: it *is* the value when the union is
+ * all-nullary, and it is the `.tag` field's content when the union is tagged.
+ * For a literal `extern enum` it is the literal the declaration wrote (Foreign
+ * Enums §7.1), which is where the two part company.
+ *
+ * Read by `Ord`, `Hash` and `Show`, each of which recovers a member's
+ * **declaration index** or name by testing the value against every constructor
+ * in turn — so each needs the value a constructor actually holds, not the name
+ * it is spelled by.
+ */
+function constructorValue(constructor: Core.Constructor): string {
+  return constructor.literal === undefined
+    ? JSON.stringify(constructor.name)
+    : foreignLiteralJs(constructor.literal);
+}
+
+/**
+ * The **declaration-index table** for one union, as an expression: `value`
+ * evaluates to the position of the constructor it names, and to `-1` for
+ * anything else.
+ *
+ * Two derived walks need it and both need the same one — `Hash`, which hashes
+ * the index of a literal `extern enum`'s member rather than the member's own
+ * value (Foreign Enums §6), and `Ord`, whose order is declaration order for
+ * every union and enum alike (Unions §7's implementer note). Written once
+ * because a second copy is a second thing to keep in step: if either the key
+ * (`constructorValue`, the tag for a `union` and the literal for an enum) or
+ * the `-1` fallthrough moved in one and not the other, `Hash` and `Ord` would
+ * disagree about which member is which and nothing would say so.
+ *
+ * `value` is the accessor that reaches what the table is keyed on, which is the
+ * caller's business: the scrutinee itself for an enum, `.tag` for a `union`.
+ */
+function declarationIndex(
+  constructors: readonly Core.Constructor[],
+  value: string,
+): string {
+  return constructors
+    .map((constructor, position) => `${value} === ${constructorValue(constructor)} ? ${position} : `)
+    .join("") + "-1";
+}
+
 function renderUnionDeclaration(
   item: Core.UnionItem,
   exported: boolean,
@@ -13098,18 +13475,66 @@ function renderUnionDeclaration(
   const genericNames = item.parameters.map((parameter) => variables.get(parameter)!);
   const generics = genericNames.length === 0 ? "" : `<${genericNames.join(", ")}>`;
   // The pin (#147): the declaration site has to agree with every use site, so
-  // the prelude `Bool`'s own alias is `boolean`, not the `"False" | "True"`
-  // string union its all-nullary shape would otherwise produce.
+  // the prelude `Bool`'s own alias is `boolean`, not the discriminated union
+  // its constructors would otherwise produce.
   if (faces.prelude.bool !== undefined && item.union === faces.prelude.bool) {
     return `${prefix}type ${item.name} = boolean;`;
   }
-  const tagged = item.constructors.some(({ slots }) => slots.length > 0);
+  // Foreign Enums §7.2: **the literal form faces as the literal union its values
+  // spell**, and takes no brand — the values are known exactly, so the brand's
+  // opacity has nothing to cover. What it gives up is nominal distinctness: two
+  // literal enums over `"asc" | "desc"` face TypeScript as one type, which is
+  // the trade a form whose values the foreign side owns makes on purpose. This
+  // is the one place Hexagon emits a union of literal types — since #771 an
+  // ordinary `union` never does, whatever its constructors carry.
+  if (item.externEnum === true) {
+    const values = item.constructors
+      .flatMap(({ literal }) => literal === undefined ? [] : [foreignLiteralJs(literal)])
+      .join(" | ");
+    return `${prefix}type ${item.name} = ${values};`;
+  }
+  // One arm shape for every constructor of every `union` (Unions §6.5, #771): a
+  // union of nullary constructors faces as `{ tag: "Red" } | …`, the same arms
+  // it would keep if a payload constructor joined it.
   const alternatives = item.constructors
-    .map(({ name, slots }) => tagged
-      ? `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, variables, faces, false)}`).join("")} }`
-      : JSON.stringify(name))
+    .map(({ name, slots }) =>
+      `{ tag: ${JSON.stringify(name)}${slots.map(({ field, type }) => `; ${field}: ${renderType(type, variables, faces, false)}`).join("")} }`
+    )
     .join(" | ");
   return `${prefix}type ${item.name}${generics} = ${alternatives};`;
+}
+
+/**
+ * The `.d.ts` rows for a literal `extern enum`'s two conversions (Foreign Enums
+ * §5.2, §7.2): `fromJsT(value: unknown): Option<T>` and
+ * `toJsT(value: T): unknown`.
+ *
+ * `declare function` rather than the `declare const` of an arrow type, matching
+ * every other named Hexagon function's row. The generated JavaScript names
+ * exactly match these, which §5.2 requires: collisions are compile errors rather
+ * than occasions for mangling, so there is no renamed face to reconcile.
+ */
+function renderEnumConversions(
+  item: Core.UnionItem,
+  prefix: string,
+  faces: DeclarationFaces,
+): readonly string[] {
+  const conversions = item.conversions;
+  if (conversions === undefined) return [];
+  const variables = new Map<Typed.TypeVariableId, string>();
+  const row = (binding: Typed.Binding): string => {
+    const type = binding.scheme.type;
+    // Both signatures are built by the resolver, and both are one-parameter
+    // arrows; the `const` row is what a scheme of any other shape would take,
+    // written because the narrowing has to be.
+    if (type.kind !== "Function" || type.parameters.length !== 1) {
+      return `${prefix}declare const ${binding.name}: ${renderScheme(binding.scheme, faces)};`;
+    }
+    return `${prefix}declare function ${binding.name}` +
+      `(value: ${renderType(type.parameters[0]!, variables, faces, false)}): ` +
+      `${renderType(type.result, variables, faces, true)};`;
+  };
+  return [row(conversions.fromJs), row(conversions.toJs)];
 }
 
 /**

@@ -197,12 +197,15 @@ export class PlaygroundAnalysis {
     const result = this.#session.rename(at.path, at.offset, newName);
     if (result === undefined || "refused" in result) return result;
     const edits: PlaygroundTextEdit[] = [];
-    for (const { path, span } of result.edits) {
+    for (const { path, span, replacement } of result.edits) {
       const range = layout.map.toBufferRange(path, offsetsOf(span));
       // Every mention moves or none does. A rename that quietly skipped the
       // ones it could not reach would leave the program naming two things.
       if (range === undefined) return { refused: OUTSIDE_DOCUMENT };
-      edits.push({ ...range, replacement: newName });
+      // An edit's own `replacement` where it has one — a name *derived* from the
+      // one being renamed writes its own text (Foreign Enums §5.2's generated
+      // conversions) — and `newName` everywhere else.
+      edits.push({ ...range, replacement: replacement ?? newName });
     }
     return { newName: result.newName, edits };
   }

@@ -204,6 +204,8 @@ const inheritsEditorForeground = [
   // Scopes the whole `extern from` block, so it only ever surfaces as a token's
   // innermost scope on layout whitespace.
   "meta.extern.hexagon",
+  // Its literal-`extern enum` sibling (Foreign Enums §2.4), for the same reason.
+  "meta.extern.enum.hexagon",
 ];
 
 test("paints every scope the Hexagon grammars can emit, or knowingly leaves it inherited", () => {
