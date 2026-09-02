@@ -46,7 +46,7 @@ export interface Diagnostic {
    */
   readonly incompleteSignature?: true;
   /**
-   * Set on the refusals of Modules §5.1's **`import module` repair family**: the
+   * Set on the refusals of Modules §5.1's **module-import repair family**: the
    * type-not-module seat, the `widens` head whose qualifier names nothing, and
    * the bare constraint name nothing answers for (#577). It carries the spelling
    * the message named and which namespace a *workspace* would have to find it

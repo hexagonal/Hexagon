@@ -1096,7 +1096,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
 });
 
 /**
- * The workspace tier of Modules §5.1's **`import module` repair family** (#577).
+ * The workspace tier of Modules §5.1's **module-import repair family** (#577).
  *
  * The compiler tier is three sentences at three seats, pinned in
  * `conformance/import-module-repairs.test.ts`, and it stops where the compiler's

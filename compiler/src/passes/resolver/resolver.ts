@@ -1319,7 +1319,7 @@ class Resolver {
    */
   readonly #moduleAliasSpecifiers = new Map<string, string>();
   /**
-   * The `import module` aliases whose item the walk has not reached yet, each
+   * The import aliases whose item the walk has not reached yet, each
    * mapped to the alias's own name node.
    *
    * Modules §3 splits the alias: `Lib.Point` in an annotation is a type-position
@@ -1334,7 +1334,7 @@ class Resolver {
   /** What each import item's type half bound; see `#predeclareImports`. */
   readonly #importTypeBindings = new Map<Parsed.Item, ImportTypeBindings>();
   /** Prelude members addressable by name — a fallback layer, so an explicit
-   *  `import module` of the same name is a module-level binding and wins (§5.4). */
+   *  import alias of the same name is a module-level binding and wins (§5.4). */
   readonly #preludeModuleAliases = new Map<string, ModuleInterface>();
   /**
    * The names a `constraint` declaration may not take, growing as the module's
@@ -1645,7 +1645,7 @@ class Resolver {
    * spell it by, or `undefined` if the symbol is not a prelude term.
    *
    * A prelude member has no namespace object to dot into — unlike an explicit
-   * `import module`, nothing declares one. So the reference compiles to a plain
+   * an import, nothing declares one. So the reference compiles to a plain
    * name backed by the same synthesized used-names-only import the bare spelling
    * uses, and the symbol has to join that set or the emitted module references
    * nothing.
@@ -1762,7 +1762,7 @@ class Resolver {
     // Modules §6.4: the occlusion rule's "the prelude version stays reachable
     // qualified" only works if the member can be *named*. Registering it under
     // its own basename gives every prelude name the qualified home §6.4 requires,
-    // the same way an explicit `import module` alias would. An explicit alias of
+    // the same way an explicit import alias would. An explicit alias of
     // the same name is a module-level binding and wins, per §5.4.
     const moduleName = specifier.slice(specifier.lastIndexOf("/") + 1).replace(/\.js$/u, "");
     if (moduleName !== "") this.#preludeModuleAliases.set(moduleName, prelude);
@@ -3522,7 +3522,7 @@ class Resolver {
           }
           // The guard below asks whether a *declaration* claims the qualifier,
           // and a prelude module is one: `#namedModule` covers the explicit
-          // `import module` alias and the implicit prelude home alike (Modules
+          // import alias and the implicit prelude home alike (Modules
           // §6.4). Testing `#moduleAliases` alone would let the compiler's own
           // machinery outrank a prelude member, which is exactly the resolution
           // order Modules §5.5 forbids — and it is what kept `Seq.map` bound to
@@ -3662,7 +3662,7 @@ class Resolver {
    * pattern position as well as value position.
    *
    * `#namedModule` is the same door value position uses (the `Access` arm), so
-   * an explicit `import module` alias and a prelude module's own name (§6.4's
+   * an explicit import alias and a prelude module's own name (§6.4's
    * guaranteed home) answer alike, and neither consults the bare-name layer —
    * which is the point: an occluded prelude constructor is unreachable bare and
    * must stay reachable here.
@@ -4593,7 +4593,7 @@ class Resolver {
         : [];
       // FFI Part 7 §2.4 rung 3 reads the *occurrence*, so the alias this seat
       // was written through rides the resolved node from here (`TypeQualifier`).
-      // Only a **source-written** `import module` qualifies: `#namedModule` also
+      // Only a **source-written** import alias qualifies: `#namedModule` also
       // answers for a prelude companion (§6.4's qualified home), which carries no
       // import line at all and whose identity reaches rung 4 instead.
       const qualifier = this.#qualifierOf(annotation.qualifier.text, name);
@@ -5080,7 +5080,7 @@ class Resolver {
     impliedContext: { readonly owner: string; readonly names: ReadonlySet<string> } | undefined,
     substitutions: ReadonlyMap<string, Resolved.TypeAnnotation>,
   ): Resolved.TypeAnnotation | undefined {
-    // An explicit `import module` alias first, then the prelude companion of the
+    // An explicit import alias first, then the prelude companion of the
     // same name (§6.4's qualified home) — `#namedModule`'s own order, and the
     // §5.4 one. The prelude half is inert in practice: a prelude module's types
     // are seeded into the type namespace, so they answer above this and the

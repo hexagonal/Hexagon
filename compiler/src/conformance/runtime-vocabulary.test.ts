@@ -339,7 +339,7 @@ describe("the two `SyntaxError` classes — the module never parsed at all", () 
 });
 
 // Pre-#762 this held two legs — a named import's local (`import { Error }`,
-// binding `Error` verbatim) and a namespace alias (`import module Error`,
+// binding `Error` verbatim) and a module alias (`import Error`,
 // lowering to `import * as Error`) — because the two forms landed in
 // JavaScript differently and only one of them read as a TypeScript namespace
 // import. #762 leaves exactly the second shape: every import is a module

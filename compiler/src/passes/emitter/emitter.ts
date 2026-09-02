@@ -8143,7 +8143,7 @@ class JavaScriptEmitter {
    * resolver bound — the same discipline #263 applied to companion candidates.
    *
    * The names are deduplicated per specifier because a module may reach one
-   * constraint by two routes (a named import beside an `import module`), and two
+   * constraint by two routes (a named import beside a module import), and two
    * `import` statements binding the same identifier is a `SyntaxError` at load,
    * after a clean compile.
    */

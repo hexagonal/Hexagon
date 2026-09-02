@@ -412,7 +412,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
 
   // #762 leaves exactly one import *form* — a module alias, and nothing
   // smaller — so the three spellings this table used to compare (a bare named
-  // import, `import module`, and a renamed named import) are down to one route
+  // import, the module import, and a renamed named import) are down to one route
   // for reaching a name at all: through the alias. What the property below
   // still has to say is that *which alias, and whether the constraint is
   // written through the fallback or spelled out* is not the key either, so the

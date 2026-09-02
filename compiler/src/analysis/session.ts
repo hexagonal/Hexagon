@@ -686,11 +686,11 @@ export class AnalysisSession {
   }
 
   /**
-   * The workspace tier of Modules §5.1's **`import module` repair family** — the
+   * The workspace tier of Modules §5.1's **module-import repair family** — the
    * one code action all three seats share (#577).
    *
    * The split the two tiers are drawn on is what makes this method small. The
-   * compiler already decided that this refusal names `import module` as a
+   * compiler already decided that this refusal names the module import as a
    * repair, and said so in a marker rather than in a sentence to be re-read
    * (`Diagnostics.Diagnostic.importModuleRepair`); the only thing left that the
    * compiler could not know is *which module* — a question about the workspace,
@@ -1460,7 +1460,7 @@ function locate(
 }
 
 /**
- * Where an inserted `import module` line goes in a file that already has text
+ * Where an inserted import line goes in a file that already has text
  * in it (Modules §5.1's "placed so the file stays well-formed and any
  * term-position use sits below it", #577).
  *

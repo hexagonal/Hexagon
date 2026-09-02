@@ -838,14 +838,12 @@ const STRUCTURAL_IDENTITIES: ReadonlySet<string> = new Set(
  * constraint was just written, and §5.1.1's ban makes the spelling decisive".
  * The premise is measured false: §5.1.1's ban bars a rival *declaration*, not a
  * second *spelling*, and the prelude's modules are ordinary modules at the source
- * common root, reachable by **two** import channels —
- * `import { Hash as H } from "./Hash.hex"` and `import M from
- * "./Hash.hex"`, binding `H` and `M.Hash`. Each is a working spelling of
- * `hex:Hash` with no redeclaration anywhere, and `derives (Eq, H)` was refused
- * as underivable while the identical program spelled `Hash` compiled. (The
- * `derives` seat itself takes only the bare form by grammar, so the alias
- * reaches it and the qualifier does not; `honor M.Hash<P> = derive` is where the
- * second channel arrives at derivation.) One declaration, one answer: every gate
+ * common root, reachable by a second import channel — `import M from
+ * "./Hash.hex"`, binding `M.Hash`. It is a working spelling of `hex:Hash` with
+ * no redeclaration anywhere, and a name-keyed gate walked straight past it.
+ * (The `derives` seat itself takes only the bare form by grammar, so a
+ * qualifier does not reach it; `honor M.Hash<P> = derive` is where the second
+ * channel arrives at derivation.) One declaration, one answer: every gate
  * over this inventory reads the identity, which is what makes it right for a
  * channel nobody has thought of yet, and only the *report* reads the word the
  * source wrote.
@@ -1549,7 +1547,7 @@ class Checker {
   /**
    * The pastable **qualification** a symbol has here (§7.3 tier 2):
    * `Bool.True` through a prelude module's ambient name, `A.Off` through an
-   * `import module` alias. Both spellings are legal in pattern position
+   * import alias. Both spellings are legal in pattern position
    * (Modules §3.3).
    *
    * A module alias shadows an earlier one of the same name — the resolver lists
@@ -2097,7 +2095,7 @@ class Checker {
     for (const externType of module.externTypes) {
       this.#externTypes.set(externType.externType, externType);
     }
-    // Every import form, not just `import module`: a companion dot call emits the
+    // Every import, source-written or synthesized: a companion dot call emits the
     // *local* spelling, and a named import — including the synthesized prelude
     // one — may bind a symbol under a dodging local (`__prelude_map`) to
     // clear a module-level binding of the same name. Reading only namespace
@@ -2166,7 +2164,7 @@ class Checker {
     // used to ride the synthesized prelude import, which only a *term* reference
     // synthesizes — so a module naming only prelude *types* had no evidence for
     // `Ordering == Ordering`. Seeding first also decides which copy wins when the
-    // same identity arrives twice: an explicit `import { Some } from "./Option"`
+    // same identity arrives twice: an explicit `import Option from "./Option"`
     // carries `Eq<Option>` as well, and `identity` is stable across every hop, so
     // that copy dedups silently against this one instead of colliding.
     for (const instance of module.preludeInstances) this.#seedImportedInstance(instance);
@@ -3954,16 +3952,16 @@ class Checker {
         // The gate reads the **identity** (#727). It used to read the name, on
         // the premise that a constraint written here has nothing to occlude it —
         // and that premise was not what the gate needed. Nothing occludes `Hash`;
-        // an import *adds* a spelling rather than taking one, and it does so
-        // through two channels, each of which walked straight past this refusal
-        // and compiled a hand-written `Hash` with no diagnostic at all:
+        // an import *adds* a spelling rather than taking one, and the channel it
+        // adds walked straight past this refusal and compiled a hand-written
+        // `Hash` with no diagnostic at all:
         //
-        //     import { Hash as H } from "./Hash.hex"   →  honor H<P>
         //     import M from "./Hash.hex"        →  honor M.Hash<P>
         //
-        // The second needs no alias and leaves the word `Hash` untouched, which
-        // is what makes "the spelling here is not `Hash`" the wrong question to
-        // ask. Everything the renderer asks of the *subject* was already asked by
+        // It needs no alias of the constraint's own and leaves the word `Hash`
+        // untouched, which is what makes "the spelling here is not `Hash`" the
+        // wrong question to ask. Everything the renderer asks of the *subject*
+        // was already asked by
         // identity; now the constraint is too.
         if (
           !item.derived && item.constraintIdentity === HASH_IDENTITY &&
@@ -4814,7 +4812,7 @@ class Checker {
    * program named nothing (`#unknownConstraint` follows).
    *
    * Name-keyed on purpose, and #727 does not touch it: both second-spelling
-   * channels — a renaming named import and `import module`'s qualifier — go
+   * channels — a renaming named import and an import alias's qualifier — go
    * through importing the prelude module that declares the constraint, and in a
    * compile that reaches this arm there is no such module to import. The two
    * routes and this fallback are mutually exclusive by construction. The
@@ -7730,7 +7728,7 @@ class Checker {
       ? [{ kind: "Record", fields: new Map(this.#nominalRecordFields(type)) }]
       : [];
     // §7.3's tiers reach this constructor too: a record reached through an
-    // `import module` alias is written `H.Box({…})` in a pattern, so a witness
+    // import alias is written `H.Box({…})` in a pattern, so a witness
     // that printed `Box({…})` would name a spelling this module cannot write.
     const { text: name, route } = this.#constructorSpelling(constructor, {
       path: this.#programRecord(type.record)?.declaringPath ?? declaration?.declaringPath,
@@ -10531,7 +10529,7 @@ class Checker {
    * alias, or holds the wrong one, and the plain refusal is what the row names.
    *
    * Returns the message *and the marker*, rather than a string, because the two
-   * are one decision: the arm that names `import module` as a repair is exactly
+   * are one decision: the arm that names the module import as a repair is exactly
    * the arm whose workspace tier can apply it, and a caller free to attach one
    * without the other could put a fixit on a message that never offered it.
    */

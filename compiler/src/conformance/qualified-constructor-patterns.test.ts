@@ -15,7 +15,7 @@ import { compileFiles, compileMain, projectDiagnostics, runMain, runProject } fr
  * part of that grant, not a nicety beside it.
  *
  * Two qualifiers answer, exactly as in value position (`#namedModule`): an
- * explicit `import module` alias, and the declaring prelude module's own name
+ * explicit import alias, and the declaring prelude module's own name
  * (§6.4's guaranteed qualified home) — `Ordering.Less`, `Option.Some(v)`,
  * `Bool.True`.
  *

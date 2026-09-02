@@ -87,7 +87,7 @@ async function runs(label: string, source: string): Promise<Record<string, unkno
 }
 
 describe("a pre-registered constraint has a second-spelling channel", () => {
-  test("`import module` binds the qualified form with no rename at all", () => {
+  test("an import binds the qualified form with no rename at all", () => {
     // Modules §3.3. The alias is this file's own word, the constraint's word
     // (`Show`) is untouched, and nothing declares anything — which is why
     // "nothing can occlude `Show`" was never the question the gates needed
