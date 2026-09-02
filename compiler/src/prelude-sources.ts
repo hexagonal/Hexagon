@@ -79,14 +79,14 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    (** A hash of `value`. Equal values hash equally; unequal values may collide,\n"
     + "        and the hash is not resistant to an adversary choosing them. *)\n"
     + "    hash(value: a): Int\n",
-  "Prelude.hex":
+  "Ordering.hex":
     "// The outcome of comparing two values, as produced by `Ord.compare`.\n"
     + "export union Ordering derives (Eq, Show) =\n"
     + "    | Less\n"
     + "    | Equal\n"
-    + "    | Greater\n"
-    + "\n"
-    + "(** Evaluates its argument and discards the result, returning `()`. *)\n"
+    + "    | Greater\n",
+  "Prelude.hex":
+    "(** Evaluates its argument and discards the result, returning `()`. *)\n"
     + "export let ignore(value: a): Unit = ()\n",
   "Ord.hex":
     "(** The polymorphic face of ordering. Honoring `Ord` gives a type the `<`, `<=`,\n"
@@ -242,7 +242,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        if right == 0 then\n"
     + "            throw(DivideByZeroError(\"BigInt.div: divisor is zero\"))\n"
     + "        else\n"
-    + "            quot(left - Integral.mod(left, right), right)\n"
+    + "            Integral.quot(left - Integral.mod(left, right), right)\n"
     + "\n"
     + "    (** The greatest common divisor of `left` and `right`, never negative.\n"
     + "        `gcd(value, 0)` is the magnitude of `value`, so `gcd(0, 0)` is zero; it\n"
@@ -268,7 +268,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    if left == 0 or right == 0 then\n"
     + "        0\n"
     + "    else\n"
-    + "        let multiple = quot(left, gcd(left, right)) * right\n"
+    + "        let multiple = Integral.quot(left, Integral.gcd(left, right)) * right\n"
     + "        if multiple < 0 then -multiple else multiple\n"
     + "\n"
     + "(** `value` as an `Int`, or `None` when its magnitude is past the range an `Int`\n"
@@ -395,7 +395,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        if right == 0 then\n"
     + "            throw(DivideByZeroError(\"Int.mod: divisor is zero\"))\n"
     + "        else\n"
-    + "            let remainder = rem(left, right)\n"
+    + "            let remainder = Integral.rem(left, right)\n"
     + "            if remainder < 0 then\n"
     + "                remainder + (if right < 0 then -right else right)\n"
     + "            else\n"
@@ -408,7 +408,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        if right == 0 then\n"
     + "            throw(DivideByZeroError(\"Int.div: divisor is zero\"))\n"
     + "        else\n"
-    + "            quot(left - mod(left, right), right)\n"
+    + "            Integral.quot(left - Integral.mod(left, right), right)\n"
     + "\n"
     + "    (** The greatest common divisor of `left` and `right`, never negative.\n"
     + "        `gcd(value, 0)` is the magnitude of `value`, so `gcd(0, 0)` is zero; it\n"
@@ -419,7 +419,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        // Both operands are non-negative from here, so the loop's `rem` never\n"
     + "        // sees a zero divisor: a zero `smaller` is the exit condition.\n"
     + "        while smaller != 0\n"
-    + "            let next = rem(larger, smaller)\n"
+    + "            let next = Integral.rem(larger, smaller)\n"
     + "            larger := smaller\n"
     + "            smaller := next\n"
     + "        larger\n"
@@ -455,7 +455,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    else\n"
     + "        let leftMagnitude = if left < 0 then -left else left\n"
     + "        let rightMagnitude = if right < 0 then -right else right\n"
-    + "        if leftMagnitude > quot(intLimit, rightMagnitude) then\n"
+    + "        if leftMagnitude > Integral.quot(intLimit, rightMagnitude) then\n"
     + "            None\n"
     + "        else\n"
     + "            Some(left * right)\n",
@@ -567,7 +567,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        // Both operands are non-negative by their type, so the loop's `rem`\n"
     + "        // never sees a zero divisor: a zero `smaller` is the exit condition.\n"
     + "        while smaller != 0\n"
-    + "            let next = rem(larger, smaller)\n"
+    + "            let next = Integral.rem(larger, smaller)\n"
     + "            larger := smaller\n"
     + "            smaller := next\n"
     + "        larger\n"

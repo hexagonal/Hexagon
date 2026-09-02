@@ -370,8 +370,8 @@ describe("an edition does not reach past a hand-written component instance", () 
     const source = [
       "export record Yards derives Eq = {reach: Int}",
       "honor Ord<Yards> =",
-      "    compare(left, right) = if left.reach < right.reach then Greater" +
-        " else if right.reach < left.reach then Less else Equal",
+      "    compare(left, right) = if left.reach < right.reach then Ordering.Greater" +
+        " else if right.reach < left.reach then Ordering.Less else Ordering.Equal",
       "",
       "export let ranked<a: Ord>(x: (a, Yards), y: (a, Yards)): Bool =",
       "    x < y",

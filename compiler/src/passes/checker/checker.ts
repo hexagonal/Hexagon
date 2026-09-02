@@ -4678,7 +4678,8 @@ class Checker {
   /**
    * The prelude `Ordering` union, which `Ord.compare` returns. Resolved from the
    * registered unions (seeded from the prelude) rather than hardcoded, so the
-   * contract has a single source of truth in `stdlib/Prelude.hex`.
+   * contract has a single source of truth in `stdlib/Ordering.hex` (#742 rehomed
+   * the union there from `stdlib/Prelude.hex`).
    */
   #orderingType(span: Source.Span): Mono {
     for (const union of this.#unions.values()) {

@@ -214,7 +214,7 @@ describe("compileSource", () => {
     // `String` reaches `logString` and needs no companion dictionary at all.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/Pow.hex",
-      "/Prelude.hex",
+      "/Ordering.hex",
       "/Integral.hex",
       "/stdlib/Option.hex",
       "/Int.hex",
@@ -232,7 +232,7 @@ describe("compileSource", () => {
       "module Repo\n" +
       "export let broken = missing\n" +
       "end module Repo\n" +
-      "log(Repo.broken)\n";
+      "Debug.log(Repo.broken)\n";
     const response = compileSource(7, source);
 
     expect(response.kind).toBe("compile-failure");
@@ -502,7 +502,7 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("logString(String(plusInt(20, 22)));");
     expect(response.javascript).toContain("logString(String(plusFloat(20.0, 1.5)));");
     expect(response.javascript).toContain("logString(String(plusBigInt(10n, 20n)));");
-    expect(response.javascript).not.toContain("log(String(plus(20, 22,");
+    expect(response.javascript).not.toContain("Debug.log(String(plus(20, 22,");
     expect(response.javascript).toContain("const count = 3;");
     expect(response.javascript).toContain("const cost = 1.50;");
     expect(response.javascript).toContain("const total = count * cost;");
@@ -629,7 +629,7 @@ describe("compileSource", () => {
   });
 
   test("leaves equipment out of a program that names no companion", () => {
-    const response = compileSource(16, "log(\"hello\")\n");
+    const response = compileSource(16, "Debug.log(\"hello\")\n");
 
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
@@ -644,7 +644,7 @@ describe("compileSource", () => {
   test("prepends the Rat equipment import for a program that does name it", () => {
     const response = compileSource(
       17,
-      "let third = Rat.create(1, 3)\nlog(\"\${Rat.reciprocal(third)}\")\n",
+      "let third = Rat.create(1, 3)\nDebug.log(\"\${Rat.reciprocal(third)}\")\n",
     );
 
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
@@ -658,7 +658,7 @@ describe("compileSource", () => {
   test("a written `Rat` face selects exact arithmetic, with no import to write", () => {
     const response = compileSource(
       18,
-      "let exact(f: Int): Rat = (f - 32) * 5 / 9\nlog(\"${exact(98)}\")\n",
+      "let exact(f: Int): Rat = (f - 32) * 5 / 9\nDebug.log(\"${exact(98)}\")\n",
     );
 
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
@@ -683,7 +683,7 @@ describe("compileSource", () => {
       19,
       "record Rat = {top: Int, bottom: Int}\n" +
         "let half = Rat({top = 1, bottom = 2})\n" +
-        "log(\"${half.top}/${half.bottom}\")\n",
+        "Debug.log(\"${half.top}/${half.bottom}\")\n",
     );
 
     // The collision this used to need a guard for — `record Rat` beside
@@ -701,7 +701,7 @@ describe("compileSource", () => {
       20,
       "import module Rat from \"./stdlib/Rat\"\n" +
         "let half = Rat.create(1, 2)\n" +
-        "log(\"${half}\")\n",
+        "Debug.log(\"${half}\")\n",
     );
 
     // #537: the equipment used to arrive on top of this and report the alias
@@ -727,7 +727,7 @@ describe("compileSource", () => {
     for (const head of shapes) {
       const response = compileSource(
         23,
-        head + "let half = Rat.create(1, 2)\nlog(\"${half}\")\n",
+        head + "let half = Rat.create(1, 2)\nDebug.log(\"${half}\")\n",
       );
 
       expect(response).toMatchObject({
@@ -744,7 +744,7 @@ describe("compileSource", () => {
         "    export let twice(n: Int): Int = n * 2\n" +
         "end module Helper\n" +
         "import module Rat from \"./Helper\"\n" +
-        "log(\"${Rat.twice(3)}\")\n",
+        "Debug.log(\"${Rat.twice(3)}\")\n",
     );
 
     // The name is what collides, not the module behind it, so the gate is
@@ -759,7 +759,7 @@ describe("compileSource", () => {
       22,
       "import { Rat } from \"./stdlib/Rat\"\n" +
         "let half: Rat = Rat.create(1, 2)\n" +
-        "log(\"${half}\")\n",
+        "Debug.log(\"${half}\")\n",
     );
 
     // #537's headline case, and the half the fix deliberately does not cover:

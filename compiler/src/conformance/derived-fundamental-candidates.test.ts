@@ -113,11 +113,11 @@ const COLLECTIONS = [
  */
 const REACHES_EARLY_SEATS = [
   "export fun say<a: Show>(x: a): String = show(x)",
-  "export fun same<a: Eq>(x: a, y: a): Bool = equals(x, y)",
-  "export fun rank<a: Ord>(x: a, y: a): Ordering = compare(x, y)",
+  "export fun same<a: Eq>(x: a, y: a): Bool = Eq.equals(x, y)",
+  "export fun rank<a: Ord>(x: a, y: a): Ordering = Ord.compare(x, y)",
   "export fun keyed<a: Hash>(x: a): Int = Hash.hash(x)",
-  "export fun neg<a: Signed>(x: a): a = negate(x)",
-  "export fun sq<a: Pow>(x: a, n: Nat): a = pow(x, n)",
+  "export fun neg<a: Signed>(x: a): a = Signed.negate(x)",
+  "export fun sq<a: Pow>(x: a, n: Nat): a = Pow.pow(x, n)",
   COLLECTIONS,
 ].join("\n");
 

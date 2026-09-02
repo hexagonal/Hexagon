@@ -31,6 +31,7 @@ const EMBEDDINGS = [
       "Bool.hex",
       "Eq.hex",
       "Hash.hex",
+      "Ordering.hex",
       "Prelude.hex",
       "Ord.hex",
       "Integral.hex",

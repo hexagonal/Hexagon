@@ -366,15 +366,30 @@ describe("what a qualified exception pattern refuses", () => {
   test("a constructor that is not an exception's is still refused, either spelling", () => {
     // The table grew to every exception in scope, not to every constructor:
     // `Ordering`'s are union constructors and a catch arm has never taken one.
-    for (const arm of ["Prelude.Less", "Less"]) {
-      expect(projectDiagnostics(
-        "export fun f(n: Int): Int =\n" +
-        "    try\n" +
-        "        n\n" +
-        "    catch\n" +
-        `        ${arm} => 0\n`,
-      )).toEqual(["`Less` is not an exception constructor"]);
-    }
+    expect(projectDiagnostics(
+      "export fun f(n: Int): Int =\n" +
+      "    try\n" +
+      "        n\n" +
+      "    catch\n" +
+      "        Ordering.Less => 0\n",
+    )).toEqual(["`Less` is not an exception constructor"]);
+    // The bare spelling is refused one rule earlier since #742 — `Ordering` is
+    // not an open union, so its constructors have no bare form in any position.
+    expect(projectDiagnostics(
+      "export fun f(n: Int): Int =\n" +
+      "    try\n" +
+      "        n\n" +
+      "    catch\n" +
+      "        Less => 0\n",
+    )).toEqual(["no bare `Less`; write `Ordering.Less`"]);
+    // And an *open* union's constructor still reaches the arm-shape refusal.
+    expect(projectDiagnostics(
+      "export fun f(n: Int): Int =\n" +
+      "    try\n" +
+      "        n\n" +
+      "    catch\n" +
+      "        None => 0\n",
+    )).toEqual(["`None` is not an exception constructor"]);
   });
 
   test("an unknown qualifier and an unexported name read as they do in a match", () => {

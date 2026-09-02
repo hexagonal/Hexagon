@@ -60,7 +60,7 @@ describe("the issue specimen: a hand-written `honor Ord` answers the operators",
       "export record Meters derives Eq = {value: Int}\n" +
         "honor Ord<Meters> =\n" +
         "    compare(left, right) =\n" +
-        "        if left.value < right.value then Less else if right.value < left.value then Greater else Equal\n" +
+        "        if left.value < right.value then Ordering.Less else if right.value < left.value then Ordering.Greater else Ordering.Equal\n" +
         "let one = Meters({value = 1})\n" +
         "let two = Meters({value = 2})\n" +
         "export let lt: Bool = one < two\n" +
@@ -82,7 +82,7 @@ describe("the issue specimen: a hand-written `honor Ord` answers the operators",
       "export record Grams derives Eq = {mass: Int}\n" +
         "honor Ord<Grams> =\n" +
         "    compare(left, right) =\n" +
-        "        if left.mass < right.mass then Less else if right.mass < left.mass then Greater else Equal\n" +
+        "        if left.mass < right.mass then Ordering.Less else if right.mass < left.mass then Ordering.Greater else Ordering.Equal\n" +
         "let light = Grams({mass = 1})\n" +
         "let heavy = Grams({mass = 2})\n" +
         "let alsoLight = Grams({mass = 1})\n" +
@@ -116,12 +116,12 @@ describe("the issue specimen: a hand-written `honor Ord` answers the operators",
         "        let leftProduct = left.top * right.bottom\n" +
         "        let rightProduct = right.top * left.bottom\n" +
         "        if leftProduct < rightProduct then\n" +
-        "            Less\n" +
+        "            Ordering.Less\n" +
         "        else\n" +
         "            if leftProduct > rightProduct then\n" +
-        "                Greater\n" +
+        "                Ordering.Greater\n" +
         "            else\n" +
-        "                Equal\n" +
+        "                Ordering.Equal\n" +
         "let half = Fraction({top = 1, bottom = 2})\n" +
         "let twoThirds = Fraction({top = 2, bottom = 3})\n" +
         "export let ordered: Bool = half < twoThirds\n" +
@@ -205,7 +205,7 @@ describe("derivation composes with a hand-written instance", () => {
       "export record Metres derives Eq = {span: Int}\n" +
         "honor Ord<Metres> =\n" +
         "    compare(left, right) =\n" +
-        "        if left.span < right.span then Less else if right.span < left.span then Greater else Equal\n" +
+        "        if left.span < right.span then Ordering.Less else if right.span < left.span then Ordering.Greater else Ordering.Equal\n" +
         "export record Box(a) derives (Eq, Ord) = {item: a}\n" +
         "let small: Box(Metres) = Box({item = Metres({span = 1})})\n" +
         "let large: Box(Metres) = Box({item = Metres({span = 2})})\n" +
@@ -226,7 +226,7 @@ describe("derivation composes with a hand-written instance", () => {
       "export record Kilos derives Eq = {load: Int}\n" +
         "honor Ord<Kilos> =\n" +
         "    compare(left, right) =\n" +
-        "        if left.load < right.load then Less else if right.load < left.load then Greater else Equal\n" +
+        "        if left.load < right.load then Ordering.Less else if right.load < left.load then Ordering.Greater else Ordering.Equal\n" +
         "export record Bag(a) derives (Eq, Ord) = {items: Vector(a)}\n" +
         "let lighter: Bag(Kilos) = Bag({items = [Kilos({load = 1}), Kilos({load = 9})]})\n" +
         "let heavier: Bag(Kilos) = Bag({items = [Kilos({load = 2})]})\n" +
@@ -257,7 +257,7 @@ describe("the dictionary-passing path", () => {
         "export record Volts derives Eq = {charge: Int}\n" +
         "honor Ord<Volts> =\n" +
         "    compare(left, right) =\n" +
-        "        if left.charge < right.charge then Less else if right.charge < left.charge then Greater else Equal\n" +
+        "        if left.charge < right.charge then Ordering.Less else if right.charge < left.charge then Ordering.Greater else Ordering.Equal\n" +
         "export record Ohms derives (Eq, Ord) = {resistance: Int}\n" +
         "export let handWritten: Volts = least(Volts({charge = 7}), Volts({charge = 3}))\n" +
         "export let handWrittenBack: Volts = least(Volts({charge = 3}), Volts({charge = 7}))\n" +
@@ -314,7 +314,7 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
       "export record Yards derives Eq = {run: Int}\n" +
         "honor Ord<Yards> =\n" +
         "    compare(left, right) =\n" +
-        "        if left.run < right.run then Less else if right.run < left.run then Greater else Equal\n" +
+        "        if left.run < right.run then Ordering.Less else if right.run < left.run then Ordering.Greater else Ordering.Equal\n" +
         "export record Feet derives (Eq, Ord) = {step: Int}\n" +
         "export let anchor: Yards = Yards({run = 1})\n" +
         "export let anchorFeet: Feet = Feet({step = 1})\n",

@@ -31,7 +31,7 @@ let excuse = try
 catch
     SettingError(key, why) => "\${key}: \${why}"
 
-log(excuse)
+Debug.log(excuse)
 
 // No _ arm, and none is wanted: whatever a catch does not name is rethrown for
 // you. The inner catch names only NoSettings, so this SettingError walks
@@ -44,7 +44,7 @@ let report = try
 catch
     SettingError(key, _) => "\${key} is unset"
 
-log(report)
+Debug.log(report)
 
 // The prelude throws too, and its exceptions are caught by their qualified
 // names. In the JS view the brand names the declaring module, so this arm
@@ -56,7 +56,7 @@ let clamped = try
 catch
     Vector.IndexError(_, size) => sizes.at(size)
 
-log("the fourth of three sizes: \${clamped}")
+Debug.log("the fourth of three sizes: \${clamped}")
 
 // A second module -- module/end module is the Playground's virtual file -- and
 // its exception is caught the same qualified way.
@@ -75,7 +75,7 @@ let remaining = try
 catch
     Ledger.Overdrawn(balance, why) => "\${why}; \${balance} left"
 
-log(remaining)
+Debug.log(remaining)
 `,
   specificationReferences: ["spec/exceptions.md", "spec/pattern-matching.md"],
 };

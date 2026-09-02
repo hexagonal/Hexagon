@@ -466,7 +466,7 @@ describe("§16 (i) the instances", () => {
         "let different: Set(Int) = Set.fromVector([1, 2, 4])\n" +
         "let shorter: Set(Int) = Set.fromVector([1, 2])\n" +
         "export let equal: Bool = left == right\n" +
-        "export let hashesAgree: Bool = hash(left) == hash(right)\n" +
+        "export let hashesAgree: Bool = Hash.hash(left) == Hash.hash(right)\n" +
         "export let elementsMatter: Bool = left == different\n" +
         "export let sizesMatter: Bool = left == shorter\n" +
         // **The size check's own row, and the operand order is the whole point.**
@@ -500,7 +500,7 @@ describe("§16 (i) the instances", () => {
         "export fun agrees(a: Int, b: Int, c: Int): (Bool, Bool, Int) =\n" +
         "    let one = build(a, b, c)\n" +
         "    let other = build(c, a, b)\n" +
-        "    (one == other, hash(one) == hash(other), Set.size(one))\n",
+        "    (one == other, Hash.hash(one) == Hash.hash(other), Set.size(one))\n",
     );
     const agrees = main["agrees"] as (a: number, b: number, c: number) => [boolean, boolean, number];
     fc.assert(
@@ -626,17 +626,15 @@ describe("the companion's surface", () => {
    */
   test("the bare collided names are refused, and the qualified ones answer", async () => {
     expect(projectDiagnostics("export let e: Set(Int) = empty\n")).toEqual([
-      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, " +
-      "`Map`, and `Set`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or " +
-      "`Set.empty`",
+      "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
+      "or `Set.empty`",
     ]);
     expect(projectDiagnostics("export let n: Int = add(1, 2)\n")).toEqual([
-      "the prelude name `add` is ambiguous: exported by `Num` and `Set`; " +
-      "write `Num.add` or `Set.add`",
+      "no bare `add`; write `1.add(2)`, `Num.add(1, 2)`, or `Set.add(1, 2)`",
     ]);
     expect(projectDiagnostics("export let n: Int = size(Set.empty)\n")).toEqual([
-      "the prelude name `size` is ambiguous: exported by `Map` and `Set`; " +
-      "write `Map.size` or `Set.size`",
+      "no bare `size`; write `Set.empty.size()`, `Map.size(Set.empty)`, " +
+      "or `Set.size(Set.empty)`",
     ]);
     const main = await runMain(
       "export let n: Int = Set.size(Set.singleton(1))\n" +
@@ -657,15 +655,15 @@ describe("the companion's surface", () => {
    * declaration form is unharmed, which is the half a contextual keyword can
    * break.
    */
-  test("`union` resolves bare, qualified, and after a dot, and still declares", async () => {
+  test("`union` resolves qualified and after a dot, and still declares", async () => {
     const main = await runMain(
       "union Colour = Red | Green\n" +
         "let left: Set(Int) = Set.fromVector([1, 2])\n" +
         "let right: Set(Int) = Set.fromVector([2, 3])\n" +
-        "export let bare: Int = Set.size(union(left, right))\n" +
+        "export let bare: Int = Set.size(Set.union(left, right))\n" +
         "export let qualified: Int = Set.size(Set.union(left, right))\n" +
         "export let dotted: Int = Set.size(left.union(right))\n" +
-        "export let agree: Bool = union(left, right) == Set.union(left, right)\n" +
+        "export let agree: Bool = left.union(right) == Set.union(left, right)\n" +
         // The word still declares, and the declaration is still usable.
         "let describe(colour: Colour): Int =\n" +
         "    match colour\n" +

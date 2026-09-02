@@ -326,7 +326,7 @@ describe("what the operation spends, and what stays behind the door", () => {
    */
   test("`toArray` is single-homed, so the bare spelling resolves", () => {
     expect(projectDiagnostics(
-      "export let a(v: JsValue): Result(Array(JsValue), JsConversionError) = toArray(v)\n",
+      "export let a(v: JsValue): Result(Array(JsValue), JsConversionError) = JsValue.toArray(v)\n",
     )).toEqual([]);
   });
 

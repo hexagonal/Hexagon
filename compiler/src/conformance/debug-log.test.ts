@@ -62,7 +62,7 @@ describe("the probe writes", () => {
   test("`log` sends its message to the sink", async () => {
     const lines = await written(async () => {
       await runProject(
-        [["/main.hex", 'log("the probe reached the sink")\nexport let ok: Int = 1\n']],
+        [["/main.hex", 'Debug.log("the probe reached the sink")\nexport let ok: Int = 1\n']],
         { transform: distinct("log sends its message") },
       );
     });
@@ -86,7 +86,7 @@ describe("the probe writes", () => {
   test("the door row is unexported; nothing importable is the lowering", async () => {
     const lines = await written(async () => {
       const debug = await runProject(
-        [["/main.hex", "export let probe(message: String): Unit = log(message)\n"]],
+        [["/main.hex", "export let probe(message: String): Unit = Debug.log(message)\n"]],
         { entry: "/Debug.hex", transform: distinct("door row unexported") },
       );
       // Neither the row's local name nor a bare `log` alias of it is published.
@@ -116,7 +116,7 @@ describe("the probe writes", () => {
    * under its internal name, which the `.d.ts` does not surface.
    */
   test("the declaration faces the fundamental specializations, none generic", () => {
-    const project = compileMain("export let ok(message: String): Unit = log(message)\n");
+    const project = compileMain("export let ok(message: String): Unit = Debug.log(message)\n");
     const module = project.modules.find(({ source }) => source.path === "/Debug.hex");
     const declarations = module!.declarations.text;
     expect(declarations).toContain("export declare function logString(value: string): void;");
@@ -135,7 +135,7 @@ describe("the probe writes", () => {
    * widening a widening rather than a change.
    */
   test("the generic edition carries the evidence suffix; `String` renders through nothing", () => {
-    const project = compileMain("export let ok(message: String): Unit = log(message)\n");
+    const project = compileMain("export let ok(message: String): Unit = Debug.log(message)\n");
     const module = project.modules.find(({ source }) => source.path === "/Debug.hex");
     const javascript = module!.javascript.text;
     expect(javascript).toMatch(
@@ -162,7 +162,7 @@ describe("§6.2's caveat: the sink is captured at initialization", () => {
     };
     try {
       const exports = await runProject(
-        [["/main.hex", "export let probe(message: String): Unit = log(message)\n"]],
+        [["/main.hex", "export let probe(message: String): Unit = Debug.log(message)\n"]],
         { transform: distinct("captured at initialization") },
       );
       host.console.log = (...values: unknown[]) => {
@@ -184,7 +184,7 @@ describe("§6.2's caveat: the sink is captured at initialization", () => {
    * capture, and the call path names what the capture bound.
    */
   test("the emitted module names the global once, at the top level", () => {
-    const project = compileMain("export let ok(message: String): Unit = log(message)\n");
+    const project = compileMain("export let ok(message: String): Unit = Debug.log(message)\n");
     const module = project.modules.find(({ source }) => source.path === "/Debug.hex");
     const javascript = module!.javascript.text;
     const code = javascript.split("\n").filter((line) => {
@@ -213,7 +213,7 @@ describe("#419: the probe takes any showable value", () => {
   test("a non-`String` operand writes that type's rendering", async () => {
     const lines = await written(async () => {
       await runProject(
-        [["/main.hex", "log(5)\nexport let ok: Int = 1\n"]],
+        [["/main.hex", "Debug.log(5)\nexport let ok: Int = 1\n"]],
         { transform: distinct("widened to Int") },
       );
     });
@@ -229,7 +229,7 @@ describe("#419: the probe takes any showable value", () => {
   test("a `String` operand still writes itself, unquoted", async () => {
     const lines = await written(async () => {
       await runProject(
-        [["/main.hex", 'log("the probe reached the sink")\nexport let ok: Int = 1\n']],
+        [["/main.hex", 'Debug.log("the probe reached the sink")\nexport let ok: Int = 1\n']],
         { transform: distinct("String unchanged") },
       );
     });
@@ -250,7 +250,7 @@ describe("#419: the probe takes any showable value", () => {
           "record Money = {cents: Int}\n" +
             "honor Show<Money> =\n" +
             '    show(value) = "$2.50"\n' +
-            "log(Money({cents = 250}))\n" +
+            "Debug.log(Money({cents = 250}))\n" +
             "export let ok: Int = 1\n",
         ]],
         { transform: distinct("record instance renders") },
@@ -270,7 +270,7 @@ describe("#419: the probe takes any showable value", () => {
             "        match value\n" +
             '            Red => "stop"\n' +
             '            Green => "go"\n' +
-            "log(Green)\n" +
+            "Debug.log(Green)\n" +
             "export let ok: Int = 1\n",
         ]],
         { transform: distinct("union instance renders") },
@@ -289,7 +289,7 @@ describe("#419: the probe takes any showable value", () => {
    */
   test("a value with no `Show` is refused, in the ordinary words", () => {
     const throughLog = projectDiagnostics(
-      "let step(n: Int): Int = n + 1\nexport let bad: Unit = log(step)\n",
+      "let step(n: Int): Int = n + 1\nexport let bad: Unit = Debug.log(step)\n",
     );
     expect(throughLog).toEqual(["functions have no `Show` instance"]);
     // The same operand handed straight to `show`, for the identity claim above.
@@ -314,7 +314,7 @@ describe("#419: the probe takes any showable value", () => {
             "honor Show<Money> =\n" +
             '    show(value) = "$2.50"\n' +
             "let probe<a: Show>(value: a): a =\n" +
-            "    log(value)\n" +
+            "    Debug.log(value)\n" +
             "    value\n" +
             "export let atInt(n: Int): Int = probe(n)\n" +
             "export let atMoney(n: Int): Int = probe(Money({cents = n})).cents\n",
@@ -345,7 +345,7 @@ describe("`trace` threads the probe through an expression", () => {
       const exports = await runProject(
         [[
           "/main.hex",
-          "export let doubled(value: Int): Int = 2 * trace(\"input\", value)\n",
+          "export let doubled(value: Int): Int = 2 * Debug.trace(\"input\", value)\n",
         ]],
         { transform: distinct("trace renders and answers") },
       );
@@ -362,7 +362,7 @@ describe("`trace` threads the probe through an expression", () => {
   test("the rendering is the value's `show`", async () => {
     const lines = await written(async () => {
       await runProject(
-        [["/main.hex", 'export let rows: Vector(Int) = trace("rows", [1, 2, 3])\n']],
+        [["/main.hex", 'export let rows: Vector(Int) = Debug.trace("rows", [1, 2, 3])\n']],
         { transform: distinct("trace shows") },
       );
     });
@@ -382,7 +382,7 @@ describe("`trace` threads the probe through an expression", () => {
         [[
           "/main.hex",
           "let counted: Seq(Int) = Seq.take(Seq.iterate(1, value => value + 1), 2)\n" +
-          'let probed: Seq(Int) = Seq.map(counted, value => trace("step", value))\n' +
+          'let probed: Seq(Int) = Seq.map(counted, value => Debug.trace("step", value))\n' +
           "let stored: Seq(Int) = Seq.memoize(probed)\n" +
           "let total(source: Seq(Int)): Int =\n" +
           "    Seq.fold(source, 0, (running, value) => running + value)\n" +

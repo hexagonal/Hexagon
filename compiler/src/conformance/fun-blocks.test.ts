@@ -222,7 +222,7 @@ describe("the head's variable is one rigid (§12.3)", () => {
           "    shows(x: a, n: Int): String =\n" +
           '        if n <= 0 then show(x) else hashes(x, n - 1)\n' +
           "    hashes(x: a, n: Int): String =\n" +
-          '        if n <= 0 then "" else Int.show(hash(x))\n',
+          '        if n <= 0 then "" else Int.show(Hash.hash(x))\n',
       ),
     ).toEqual([
       "`a` is declared to honor `Eq` on the block head, but `shows`'s body requires " +
@@ -398,18 +398,18 @@ describe("the exported constrained knot (§12.5)", () => {
     const report = "exported function `first` must omit base constraint `Eq` from `a`; " +
       "`Hash` already provides it";
 
-    expect(defective("    export first(x: a): Int = hash(x)\n")).toEqual([report]);
+    expect(defective("    export first(x: a): Int = Hash.hash(x)\n")).toEqual([report]);
     expect(
       defective(
-        "    export first(x: a): Int = hash(x)\n" +
-          "    export second(x: a): Int = hash(x)\n",
+        "    export first(x: a): Int = Hash.hash(x)\n" +
+          "    export second(x: a): Int = Hash.hash(x)\n",
       ),
     ).toEqual([report]);
     expect(
       defective(
-        "    export first(x: a): Int = hash(x)\n" +
-          "    export second(x: a): Int = hash(x)\n" +
-          "    export third(x: a): Int = hash(x)\n",
+        "    export first(x: a): Int = Hash.hash(x)\n" +
+          "    export second(x: a): Int = Hash.hash(x)\n" +
+          "    export third(x: a): Int = Hash.hash(x)\n",
       ),
     ).toEqual([report]);
   });

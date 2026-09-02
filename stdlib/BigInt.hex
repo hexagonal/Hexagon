@@ -118,7 +118,7 @@ honor Integral<BigInt> =
         if right == 0 then
             throw(DivideByZeroError("BigInt.div: divisor is zero"))
         else
-            quot(left - Integral.mod(left, right), right)
+            Integral.quot(left - Integral.mod(left, right), right)
 
     (** The greatest common divisor of `left` and `right`, never negative.
         `gcd(value, 0)` is the magnitude of `value`, so `gcd(0, 0)` is zero; it
@@ -144,7 +144,7 @@ export let lcm(left: BigInt, right: BigInt): BigInt =
     if left == 0 or right == 0 then
         0
     else
-        let multiple = quot(left, gcd(left, right)) * right
+        let multiple = Integral.quot(left, Integral.gcd(left, right)) * right
         if multiple < 0 then -multiple else multiple
 
 (** `value` as an `Int`, or `None` when its magnitude is past the range an `Int`

@@ -337,27 +337,27 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
 /**
  * What seating `stdlib/Array.hex` in the prelude spends, in bare names.
  *
- * A prelude member's exports arrive in every module's bare scope, so a new one
- * is a claim on shared vocabulary and is worth stating as a test rather than as
- * a memory. `Array.hex` spends **nothing that was working**: both of its
- * exports were already Modules §5.5 ambiguities before it existed, so no bare
- * spelling that compiled yesterday changes meaning or stops compiling — the two
- * refusals below only grow by one home and one rewrite each.
+ * Since #742 the answer is **nothing at all**, for this module and for every
+ * other: Modules §5.5 seeds nothing in the term namespace, so a new prelude
+ * member takes no bare spelling and a consumer reaches its exports by the dot or
+ * qualified. What the two refusals below show is that `Array` joining the homes
+ * of two already-shared words only lengthens the list of routes the message
+ * names — spelled, per §5.5, with the arguments the program itself wrote.
  */
 describe("the vocabulary this module spends (Modules §5.5)", () => {
-  test("`length` was already ambiguous; `Array` joins its homes", () => {
+  test("`length`'s refusal grows by one home when `Array` joins", () => {
     expect(projectDiagnostics("export let n(v: Vector(Int)): Int = length(v)\n"))
       .toEqual([
-        "the prelude name `length` is ambiguous: exported by `Seq`, `Vector`, and " +
-        "`Array`; write `Seq.length`, `Vector.length`, or `Array.length`",
+        "no bare `length`; write `v.length()`, `Seq.length(v)`, `Vector.length(v)`, " +
+        "or `Array.length(v)`",
       ]);
   });
 
-  test("`get` was already ambiguous; `Array` joins its homes", () => {
+  test("`get`'s refusal grows by one home when `Array` joins", () => {
     expect(projectDiagnostics("export let n(v: Vector(Int)): Option(Int) = get(v, 1)\n"))
       .toEqual([
-        "the prelude name `get` is ambiguous: exported by `Vector`, `Map`, and " +
-        "`Array`; write `Vector.get`, `Map.get`, or `Array.get`",
+        "no bare `get`; write `v.get(1)`, `Vector.get(v, 1)`, `Map.get(v, 1)`, " +
+        "or `Array.get(v, 1)`",
       ]);
   });
 

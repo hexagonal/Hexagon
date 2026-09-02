@@ -55,7 +55,7 @@ function danglingImports(compiled: ReturnType<typeof project>): readonly string[
 }
 
 /** A stand-in prelude whose members are the project's own, in `PRELUDE_MODULES` order. */
-const ORDERING = ["/Prelude.hex", "export union Ordering = Less | Equal | Greater\n"] as const;
+const ORDERING = ["/Ordering.hex", "export union Ordering = Less | Equal | Greater\n"] as const;
 const OPTION = ["/Option.hex", "export union Option(a) = Some(value: a) | None\n"] as const;
 const RESULT = ["/Result.hex", "export union Result(a, e) = Ok(value: a) | Err(error: e)\n"] as const;
 const ENTRY = ["/main.hex", "export let ok: Int = 1\n"] as const;
@@ -76,8 +76,8 @@ describe("ordered intra-prelude visibility", () => {
     // by the embedded `Prelude.hex`; supplying our own without it must make the
     // name unavailable, proving the embedded copy is genuinely out of play.
     expect(diagnostics([
-      ["/Prelude.hex", "export union Direction = Up | Down\n"],
-      ["/main.hex", "export fun compare(): Ordering = Less\n"],
+      ["/Ordering.hex", "export union Direction = Up | Down\n"],
+      ["/main.hex", "export fun compare(): Ordering = Ordering.Less\n"],
     ])).not.toEqual([]);
   });
 
@@ -142,7 +142,7 @@ describe("ordered intra-prelude visibility", () => {
     expect(diagnostics([
       ORDERING, OPTION, RESULT,
       ["/main.hex",
-        "export fun a(): Ordering = Less\n" +
+        "export fun a(): Ordering = Ordering.Less\n" +
         "export fun b(): Option(Int) = Some(1)\n" +
         "export fun c(): Result(Int, Int) = Ok(1)\n"],
     ])).toEqual([]);

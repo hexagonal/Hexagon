@@ -604,12 +604,17 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
 describe("the bare namespace the door occupies (Modules §5.5)", () => {
   test("all four new bare names are single-homed, so each spelling resolves", () => {
     expect(projectDiagnostics(
-      "export let m(v: JsValue): String = message(v)\n" +
-        "export let s(v: JsValue): Option(String) = stack(v)\n" +
+      "export let m(v: JsValue): String = JsError.message(v)\n" +
+        "export let s(v: JsValue): Option(String) = JsError.stack(v)\n" +
         "let pure(): Int = 7\n" +
-        "export let a(ignored: Int): Result(Int, Exn) = attempt(pure)\n" +
+        "export let a(ignored: Int): Result(Int, Exn) = Result.attempt(pure)\n" +
         "export let e(v: JsValue): Exn = JsError(v)\n",
     )).toEqual([]);
+    // Since #742 only the exception constructor is bare, and it is bare as a
+    // category (§5.5); the three function spellings name their one home each.
+    expect(projectDiagnostics(
+      "export let m(v: JsValue): String = message(v)\n",
+    )).toEqual(["no bare `message`; write `JsError.message(v)`"]);
   });
 
   test("the qualified spellings the specs write resolve to the same declarations", () => {

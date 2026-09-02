@@ -595,7 +595,7 @@ describe("check", () => {
       },
     });
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "`console.log` is not a Hexagon operation; the debugging probe is `log` (`Debug.log`)",
+      "`console.log` is not a Hexagon operation; the debugging probe is `Debug.log`",
     ]);
   });
 
@@ -606,7 +606,7 @@ describe("check", () => {
     // once and by its own name. Exactly two sentences: a recovery that swallowed
     // the argument list would leave the typo for the writer to find at runtime.
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "`console.log` is not a Hexagon operation; the debugging probe is `log` (`Debug.log`)",
+      "`console.log` is not a Hexagon operation; the debugging probe is `Debug.log`",
       "unknown name `nmae`",
     ]);
   });
@@ -917,7 +917,7 @@ describe("check", () => {
 
   test("checks inferred demands against declared function constraints", () => {
     const rejected = checkSource(
-      "export let fingerprint<a: Eq>(thing: a): Int = hash(thing)\n" +
+      "export let fingerprint<a: Eq>(thing: a): Int = Hash.hash(thing)\n" +
         "let numeric<a>(thing: a) = thing + 1",
     );
 
@@ -934,7 +934,7 @@ describe("check", () => {
     ]);
 
     const accepted = checkSource(
-      "export let fingerprint<a: Hash>(thing: a): Int = hash(thing)\n" +
+      "export let fingerprint<a: Hash>(thing: a): Int = Hash.hash(thing)\n" +
         "export let same<a: Hash>(left: a, right: a): Bool = left == right",
     );
 
@@ -966,7 +966,7 @@ describe("check", () => {
   test("requires explicit maximal constraints on exported function signatures", () => {
     const module = checkSource(
       "export let inferred(value: a): Bool = value == value\n" +
-        "export let redundant<a: (Eq, Hash)>(value: a): Int = hash(value)\n" +
+        "export let redundant<a: (Eq, Hash)>(value: a): Int = Hash.hash(value)\n" +
         "export let complete<a: Hash>(value: a): Bool = value == value\n" +
         "let private(value: a) = value == value",
     );
@@ -1578,7 +1578,7 @@ describe("check", () => {
     // spelling Integral §8 always described: `stdlib/Integral.hex` is a prelude
     // member since #335, so its members are exports in bare scope and a
     // module-level redeclaration is refused.
-    const integral = checkSource("let common = gcd(4, 6)");
+    const integral = checkSource("let common = Integral.gcd(4, 6)");
     expect(integral.diagnostics).toEqual([]);
     expect(letSymbol(integral, "common").scheme.type).toEqual({
       kind: "Primitive",
@@ -1669,10 +1669,10 @@ describe("check", () => {
         // compiler defect this test would otherwise trip over now that it
         // compiles with the prelude.
         "        let incremented: Int = number + 1\n" +
-        "        log(\"${incremented}\")\n" +
+        "        Debug.log(\"${incremented}\")\n" +
         "    for character in \"ab\"\n" +
         "        let copy: String = character\n" +
-        "        log(copy)",
+        "        Debug.log(copy)",
     );
     expect(module.diagnostics).toEqual([]);
 

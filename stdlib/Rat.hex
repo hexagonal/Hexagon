@@ -41,12 +41,12 @@ honor Ord<Rat> =
         let leftProduct = left.top * right.bottom
         let rightProduct = right.top * left.bottom
         if leftProduct < rightProduct then
-            Less
+            Ordering.Less
         else
             if leftProduct > rightProduct then
-                Greater
+                Ordering.Greater
             else
-                Equal
+                Ordering.Equal
 
 honor Show<Rat> =
     (** `value` as `top/bottom`, the `/1` included, so the representation stays

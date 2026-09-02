@@ -549,7 +549,7 @@ describe("an uncontested slot is the base declaration's name, verbatim", () => {
     const main = [
       "record Point derives (Eq, Hash) = {x: Int, y: Int}",
       "",
-      "export let r: Int = hash(Point({x = 1, y = 2}))",
+      "export let r: Int = Hash.hash(Point({x = 1, y = 2}))",
       "",
     ].join("\n");
     const text = emitted([["/main.hex", main]], "/main.hex");

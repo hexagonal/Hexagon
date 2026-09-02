@@ -852,7 +852,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
    * because `Show<Unit>`'s body names its parameter nowhere.
    */
   test("a prelude module hoists its own binding for the shape it demands", async () => {
-    const files = [["/main.hex", "let perModule = 0\nlog(())\n"]] as const;
+    const files = [["/main.hex", "let perModule = 0\nDebug.log(())\n"]] as const;
     const debug = emittedFrom(files, "/Debug.hex");
 
     expect(occurrences(debug, "const __Show_Unit =")).toBe(1);
@@ -868,7 +868,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     const original = host.console.log;
     host.console.log = (...values: unknown[]) => void lines.push(values[0]);
     try {
-      await runProject([["/main.hex", "let perModuleRun = 0\nlog(())\n"]]);
+      await runProject([["/main.hex", "let perModuleRun = 0\nDebug.log(())\n"]]);
     } finally {
       host.console.log = original;
     }

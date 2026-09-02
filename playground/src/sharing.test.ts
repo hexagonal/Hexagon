@@ -4,7 +4,7 @@ import { readSharedSource, shareUrl } from "./sharing";
 
 describe("shareable source URLs", () => {
   test("round-trips multiline Unicode source through the fragment", () => {
-    const source = 'let greeting = "Hello, λ!"\nlog(greeting)';
+    const source = 'let greeting = "Hello, λ!"\nDebug.log(greeting)';
     const shared = shareUrl(new URL("https://example.test/Hexagon/?theme=dark"), source);
 
     expect(shared.search).toBe("?theme=dark");

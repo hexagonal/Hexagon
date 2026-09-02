@@ -65,8 +65,8 @@ describe("a record's derived `Hash` over a reached union component", () => {
         "/main.hex",
         "import { F, on, off } from \"./flagalias\"\n" +
         "export record Box derives (Eq, Hash) = {f: F}\n" +
-        "export let onHash: Int = hash(Box({f = on()}))\n" +
-        "export let offHash: Int = hash(Box({f = off()}))\n" +
+        "export let onHash: Int = Hash.hash(Box({f = on()}))\n" +
+        "export let offHash: Int = Hash.hash(Box({f = off()}))\n" +
         "export let equal: Bool = Box({f = on()}) == Box({f = off()})\n",
       ],
     ]);
@@ -93,10 +93,10 @@ describe("a record's derived `Hash` over a reached union component", () => {
         "/main.hex",
         "import { S, dot, circle } from \"./shapealias\"\n" +
         "export record Frame derives (Eq, Hash) = {s: S}\n" +
-        "export let three: Int = hash(Frame({s = circle(3)}))\n" +
-        "export let four: Int = hash(Frame({s = circle(4)}))\n" +
-        "export let plain: Int = hash(Frame({s = dot()}))\n" +
-        "export let threeAgain: Int = hash(Frame({s = circle(3)}))\n",
+        "export let three: Int = Hash.hash(Frame({s = circle(3)}))\n" +
+        "export let four: Int = Hash.hash(Frame({s = circle(4)}))\n" +
+        "export let plain: Int = Hash.hash(Frame({s = dot()}))\n" +
+        "export let threeAgain: Int = Hash.hash(Frame({s = circle(3)}))\n",
       ],
     ]);
 
@@ -119,9 +119,9 @@ describe("a record's derived `Hash` over a reached union component", () => {
         "/main.hex",
         "import { C, cell } from \"./cellalias\"\n" +
         "export record Crate derives (Eq, Hash) = {c: C}\n" +
-        "export let one: Int = hash(Crate({c = cell(1)}))\n" +
-        "export let two: Int = hash(Crate({c = cell(2)}))\n" +
-        "export let oneAgain: Int = hash(Crate({c = cell(1)}))\n",
+        "export let one: Int = Hash.hash(Crate({c = cell(1)}))\n" +
+        "export let two: Int = Hash.hash(Crate({c = cell(2)}))\n" +
+        "export let oneAgain: Int = Hash.hash(Crate({c = cell(1)}))\n",
       ],
     ]);
 
@@ -136,9 +136,9 @@ describe("a record's derived `Hash` over a reached union component", () => {
         "/main.hex",
         "import { Mark, Up, Down } from \"./mark\"\n" +
         "export record Slot derives (Eq, Hash) = {m: Mark}\n" +
-        "export let up: Int = hash(Slot({m = Up}))\n" +
-        "export let down: Int = hash(Slot({m = Down}))\n" +
-        "export let upAgain: Int = hash(Slot({m = Up}))\n",
+        "export let up: Int = Hash.hash(Slot({m = Up}))\n" +
+        "export let down: Int = Hash.hash(Slot({m = Down}))\n" +
+        "export let upAgain: Int = Hash.hash(Slot({m = Up}))\n",
       ],
     ]);
 
@@ -235,10 +235,10 @@ describe("the evidence chain through structural layers", () => {
         "let loud: Bar = Bar({beats = [hit(2), rest()], lead = (hit(1), 0)})\n" +
         "let leadShift: Bar = Bar({beats = [hit(1), rest()], lead = (hit(2), 0)})\n" +
         "let softAgain: Bar = Bar({beats = [hit(1), rest()], lead = (hit(1), 0)})\n" +
-        "export let softHash: Int = hash(soft)\n" +
-        "export let loudHash: Int = hash(loud)\n" +
-        "export let leadHash: Int = hash(leadShift)\n" +
-        "export let softAgainHash: Int = hash(softAgain)\n" +
+        "export let softHash: Int = Hash.hash(soft)\n" +
+        "export let loudHash: Int = Hash.hash(loud)\n" +
+        "export let leadHash: Int = Hash.hash(leadShift)\n" +
+        "export let softAgainHash: Int = Hash.hash(softAgain)\n" +
         "let bars: Set(Bar) = Set.add(Set.add(Set.empty, soft), softAgain)\n" +
         "export let count: Int = Set.size(bars)\n",
       ],
@@ -274,9 +274,9 @@ describe("the evidence chain through structural layers", () => {
         // Neither `Outer` nor `Inner` is spelled in this module.
         "import { O, zero, one } from \"./outeralias\"\n" +
         "export record Cage derives (Eq, Hash) = {held: O}\n" +
-        "export let zeroHash: Int = hash(Cage({held = zero()}))\n" +
-        "export let oneHash: Int = hash(Cage({held = one()}))\n" +
-        "export let zeroAgain: Int = hash(Cage({held = zero()}))\n",
+        "export let zeroHash: Int = Hash.hash(Cage({held = zero()}))\n" +
+        "export let oneHash: Int = Hash.hash(Cage({held = one()}))\n" +
+        "export let zeroAgain: Int = Hash.hash(Cage({held = zero()}))\n",
       ],
     ]);
 
@@ -297,10 +297,10 @@ describe("the evidence chain through structural layers", () => {
         "/main.hex",
         "import { Money, coin } from \"./coinalias\"\n" +
         "export union Purse derives (Eq, Hash) = Empty | Holding(coin: Money)\n" +
-        "export let one: Int = hash(Holding(coin(1)))\n" +
-        "export let two: Int = hash(Holding(coin(2)))\n" +
-        "export let oneAgain: Int = hash(Holding(coin(1)))\n" +
-        "export let none: Int = hash(Empty)\n",
+        "export let one: Int = Hash.hash(Holding(coin(1)))\n" +
+        "export let two: Int = Hash.hash(Holding(coin(2)))\n" +
+        "export let oneAgain: Int = Hash.hash(Holding(coin(1)))\n" +
+        "export let none: Int = Hash.hash(Empty)\n",
       ],
     ]);
 

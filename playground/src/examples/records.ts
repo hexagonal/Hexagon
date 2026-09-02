@@ -21,10 +21,10 @@ let renamedDinner = renameGuest(dinner, "Augusta")
 let updatedDinner = {renamedDinner with seats = 3}
 let {guest, seats} = updatedDinner
 
-log("\${guest} now has \${seats} seats")
-log("Preference: \${preference.note}")
-log(guestName(lunch))
-log(confirmedGuest({guest = "Lin", confirmed = True}))
+Debug.log("\${guest} now has \${seats} seats")
+Debug.log("Preference: \${preference.note}")
+Debug.log(guestName(lunch))
+Debug.log(confirmedGuest({guest = "Lin", confirmed = True}))
 `,
   specificationReferences: ["spec/products.md"],
 };

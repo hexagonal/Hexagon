@@ -73,12 +73,14 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
     const text = emitted(compiled, "/main.hex").declarations.text;
 
     // One statement per type, not per module, and each from the member that
-    // declares it: `Ordering` is `Prelude.hex`'s, `Option` is `Option.hex`'s.
-    expect(text).toContain('import type { Ordering } from "./Prelude.js";');
+    // declares it: `Ordering` is `Ordering.hex`'s (#742 rehomed it there from
+    // `Prelude.hex`, so its constructors have a module to be spelled through),
+    // `Option` is `Option.hex`'s.
+    expect(text).toContain('import type { Ordering } from "./Ordering.js";');
     expect(text).toContain('import type { Option } from "./Option.js";');
     // Inventory order — the normative prelude order — not first-use order,
     // which the source above deliberately reverses.
-    expect(text.indexOf("./Prelude.js")).toBeLessThan(text.indexOf("./Option.js"));
+    expect(text.indexOf("./Ordering.js")).toBeLessThan(text.indexOf("./Option.js"));
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
@@ -259,15 +261,17 @@ describe("the generated local is probed, and only it moves", () => {
   test("an occluding declaration beside a qualified face of the occluded identity", async () => {
     const compiled = project([[
       "/main.hex",
-      "export union Ordering = Asc | Desc\nexport let f(x: Prelude.Ordering): Int = 0\n",
+      "export union Ordering = Asc | Desc\n" +
+        "export let f(x: Ordering.Ordering): Int = 0\n",
     ]]);
     const text = emitted(compiled, "/main.hex").declarations.text;
 
-    // Occlusion takes the bare spelling only: `Prelude.Ordering` still names the
-    // prelude union (Modules §5.4, §6.4), so the occluded identity does reach an
-    // exported face. Both types then live in one file — the module's own under
-    // the bare name, the prelude's under a probed local.
-    expect(text).toContain('import type { Ordering as Ordering_1 } from "./Prelude.js";');
+    // Occlusion takes the bare spelling only: `Ordering.Ordering` still names
+    // the prelude union (Modules §5.4, §6.4) — the module alias is a namespace
+    // of its own, which a type declaration does not occlude — so the occluded
+    // identity does reach an exported face. Both types then live in one file:
+    // the module's own under the bare name, the prelude's under a probed local.
+    expect(text).toContain('import type { Ordering as Ordering_1 } from "./Ordering.js";');
     expect(text).toContain('export type Ordering = "Asc" | "Desc";');
     expect(text).toContain("export declare const f: (x: Ordering_1) => number;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);

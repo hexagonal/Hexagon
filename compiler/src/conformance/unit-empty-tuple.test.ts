@@ -54,11 +54,11 @@ describe("the §5 constants: zero observable change", () => {
     expect(module.ordered).toBe(true);
   });
 
-  test("`hash(())` is `0`, the empty `mixHash` fold's seed", async () => {
+  test("`Hash.hash(())` is `0`, the empty `mixHash` fold's seed", async () => {
     // The §5 continuity fact: `stableHash(undefined)` and the zero-element
     // structural fold produce the *same* constant, so hashes persisted under
     // the primitive regime stay valid under the structural one.
-    const module = await runMain("export let hashed: Int = hash(())\n");
+    const module = await runMain("export let hashed: Int = Hash.hash(())\n");
 
     expect(module.hashed).toBe(0);
   });

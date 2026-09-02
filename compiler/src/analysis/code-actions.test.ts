@@ -71,8 +71,8 @@ describe("code actions: the diagnostic's own fixes", () => {
     const single = 'console.log("hello")\n';
     const { session } = sessionOf({ "/main.hex": single });
     const action = sole(actionsOn(session, "/main.hex", single, "console"));
-    expect(action.title).toBe("write `log`");
-    expect(applied(single, action)).toBe('log("hello")\n');
+    expect(action.title).toBe("write `Debug.log`");
+    expect(applied(single, action)).toBe('Debug.log("hello")\n');
 
     // Two arguments have no mechanical rewrite — `log` takes one rendered
     // `String`, and the interpolation is the writer's — so the report stands
@@ -1277,34 +1277,39 @@ describe("code actions: the `import module` repair family (#577)", () => {
   });
 
   /**
-   * The one prelude type rule 1's refusal can fire at today: `Ordering` is
-   * exported by `stdlib/Prelude.hex`, and §6.4 gives a prelude *name* a
-   * qualified home (`Prelude.Ordering`) rather than a module alias spelled
-   * `Ordering` — so "no module alias `Name` exists" is met exactly.
+   * The one prelude type rule 1's refusal can fire at today: `JsConversionError`
+   * is a record exported by `stdlib/JsValue.hex`, and §6.4 gives a prelude
+   * *name* a qualified home (`JsValue.JsConversionError`) rather than a module
+   * alias spelled `JsConversionError` — so "no module alias `Name` exists" is
+   * met exactly. (`Ordering` was this specimen until #742 gave the union a
+   * module of its own; every other prelude type is now named by a member too.)
    *
    * **The file has to reach the prelude for the pin to mean anything.** A
    * module mentioning no prelude name at all compiles as a project of one:
    * `compileProject` returns the modules a program *reached*, and an unreached
    * injected source is not among them, so a file whose only line is the refusal
    * would pass this test for a reason that has nothing to do with the filter it
-   * is written about. `Prelude.Less` is the line that puts `/Prelude.hex` in the
+   * is written about. The first line is what puts `/JsValue.hex` in the
    * inventory, and with it there the tier is asked the real question.
    */
-  const REACHES_PRELUDE = "export let c: Ordering = Prelude.Less\n" +
-    "export let n: Int = Ordering.rank(1)\n";
+  const REACHES_PRELUDE = "export let c: JsConversionError =\n" +
+    "    JsValue.JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n" +
+    "export let n: Int = JsConversionError.rank(1)\n";
 
   test("an injected module is never offered, even once the program reaches it", () => {
     const { session } = sessionOf({ "/main.hex": REACHES_PRELUDE });
     expect((session.allDiagnostics().get("/main.hex") ?? []).map(({ message }) => message))
       .toEqual([
-        "`Ordering` is a type, not a module; import its home module with " +
+        "`JsConversionError` is a type, not a module; import its home module with " +
           "`import module` for qualified access, or import the constructor/function you need",
       ]);
-    // The line the tier would otherwise write is `import module Ordering from
-    // "./Prelude"`, which repairs nothing — the recompiled file reports
-    // ``module `Ordering` does not export `rank```` — and emits
-    // `import * as Ordering from "./Prelude.js"` into the user's JavaScript.
-    expect(actionsOn(session, "/main.hex", REACHES_PRELUDE, "Ordering.rank")).toEqual([]);
+    // The line the tier would otherwise write is `import module
+    // JsConversionError from "./JsValue"`, which repairs nothing — the
+    // recompiled file reports ``module `JsConversionError` does not export
+    // `rank```` — and emits `import * as JsConversionError from "./JsValue.js"`
+    // into the user's JavaScript.
+    expect(actionsOn(session, "/main.hex", REACHES_PRELUDE, "JsConversionError.rank"))
+      .toEqual([]);
   });
 
   test("nor is it named as a candidate beside a real one", () => {
@@ -1312,13 +1317,15 @@ describe("code actions: the `import module` repair family (#577)", () => {
     // enabled arm inherits. With a user module exporting the spelling there is
     // exactly one candidate, not two: the action is enabled and names `./mine`.
     const { session } = sessionOf({
-      "/mine.hex": "export union Ordering = Up | Down\n",
+      "/mine.hex": "export union JsConversionError = Up | Down\n",
       "/main.hex": REACHES_PRELUDE,
     });
-    const action = sole(actionsOn(session, "/main.hex", REACHES_PRELUDE, "Ordering.rank"));
+    const action = sole(
+      actionsOn(session, "/main.hex", REACHES_PRELUDE, "JsConversionError.rank"),
+    );
     expect(action.disabled).toBeUndefined();
     expect(applied(REACHES_PRELUDE, action)).toBe(
-      'import module Ordering from "./mine"\n' + REACHES_PRELUDE,
+      'import module JsConversionError from "./mine"\n' + REACHES_PRELUDE,
     );
   });
 

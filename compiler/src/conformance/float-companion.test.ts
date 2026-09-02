@@ -126,7 +126,7 @@ describe("Primitive Types §5's equality and order, executed", () => {
     const exports = await runMain([
       "let nan: Float = 0.0 / 0.0",
       "let alsoNan: Float = (1.0 / 0.0) - (1.0 / 0.0)",
-      "let same<a: Eq>(left: a, right: a): Bool = equals(left, right)",
+      "let same<a: Eq>(left: a, right: a): Bool = Eq.equals(left, right)",
       "export let operatorNan: Bool = nan == nan",
       "export let operatorTwoNans: Bool = nan == alsoNan",
       "export let operatorZeroes: Bool = 0.0 == -0.0",
@@ -159,7 +159,7 @@ describe("Primitive Types §5's equality and order, executed", () => {
       "    positiveInfinity < notANumber]",
       "export let nanIsNotLess: Bool = notANumber < negativeInfinity",
       "export let zeroesTie: Bool = 0.0 <= -0.0 and -0.0 <= 0.0",
-      "export let ordered: Ordering = compare(2.5, 1.5)",
+      "export let ordered: Ordering = Ord.compare(2.5, 1.5)",
       "",
     ].join("\n"));
 
@@ -250,8 +250,8 @@ describe("Collections Part 2 §2.3's `Hash` row, executed", () => {
       "let nan: Float = 0.0 / 0.0",
       "let alsoNan: Float = (1.0 / 0.0) * 0.0",
       "export let equal: Bool = nan == alsoNan",
-      "export let hashesAgree: Bool = hash(nan) == hash(alsoNan)",
-      "export let finiteStillDiffers: Bool = hash(1.5) != hash(2.5)",
+      "export let hashesAgree: Bool = Hash.hash(nan) == Hash.hash(alsoNan)",
+      "export let finiteStillDiffers: Bool = Hash.hash(1.5) != Hash.hash(2.5)",
       "",
     ].join("\n"));
 
@@ -269,7 +269,7 @@ describe("Collections Part 2 §2.3's `Hash` row, executed", () => {
   test("`-0.0` and `0.0` hash equally — the SameValueZero law", async () => {
     const exports = await runMain([
       "export let zeroesEqual: Bool = 0.0 == -0.0",
-      "export let hashesAgree: Bool = hash(0.0) == hash(-0.0)",
+      "export let hashesAgree: Bool = Hash.hash(0.0) == Hash.hash(-0.0)",
       "let both: Set(Float) = Set.add(Set.add(Set.empty, 0.0), -0.0)",
       "export let collapsed: Int = Set.size(both)",
       "",
@@ -351,7 +351,7 @@ describe("the wired rows are gone, not dormant", () => {
     const text = emitted([
       "export let a: Float = Float.mod(-9.0, 4.0)",
       "export let b: Float = Float.rem(-9.0, 4.0)",
-      "let compare2<a: Ord>(left: a, right: a): Ordering = compare(left, right)",
+      "let compare2<a: Ord>(left: a, right: a): Ordering = Ord.compare(left, right)",
       "export let c: Ordering = compare2(1.25, 2.25)",
       "",
     ].join("\n"));
@@ -390,7 +390,7 @@ describe("the wired rows are gone, not dormant", () => {
       .toEqual(["module `Float` does not export `div`"]);
     expect(projectDiagnostics("export let q: Float = Float.quot(1.0, 2.0)\n"))
       .toEqual(["module `Float` does not export `quot`"]);
-    expect(projectDiagnostics("export let g: Float = gcd(1.5, 2.0)\n"))
+    expect(projectDiagnostics("export let g: Float = Integral.gcd(1.5, 2.0)\n"))
       .toEqual([
         "type `Float` has no `Integral` instance; its only legal homes are the module " +
           "declaring `Integral` and `Float`'s prelude companion module, both outside " +
@@ -462,7 +462,7 @@ describe("Constraints §6.1's inlining survives the move", () => {
       "let alsoHere = Reading({value = 0.5})",
       "export let same: Bool = here == alsoHere",
       "export let shown: String = show(here)",
-      "export let hashed: Bool = hash(here) == hash(alsoHere)",
+      "export let hashed: Bool = Hash.hash(here) == Hash.hash(alsoHere)",
       "",
     ].join("\n");
     const exports = await runMain(source);
@@ -543,13 +543,15 @@ describe("`mod` and `rem` gained a second exporter", () => {
    * landings.
    */
   test("the bare spellings are refused, naming both homes", () => {
+    // Since #742 the sentence is §5.5's refusal rather than the ambiguity one —
+    // the bare layer holds neither spelling now — and it names the same two
+    // homes, spelled with the arguments the program wrote.
     expect(projectDiagnostics("export let m: Int = mod(7, 3)\n")).toEqual([
-      "the prelude name `mod` is ambiguous: exported by `Integral` and `Float`; " +
-        "write `Integral.mod` or `Float.mod`",
+      "no bare `mod`; write `7.mod(3)`, `Integral.mod(7, 3)`, or `Float.mod(7, 3)`",
     ]);
     expect(projectDiagnostics("export let r: Float = rem(7.0, 3.0)\n")).toEqual([
-      "the prelude name `rem` is ambiguous: exported by `Integral` and `Float`; " +
-        "write `Integral.rem` or `Float.rem`",
+      "no bare `rem`; write `7.0.rem(3.0)`, `Integral.rem(7.0, 3.0)`, " +
+        "or `Float.rem(7.0, 3.0)`",
     ]);
   });
 
@@ -711,13 +713,29 @@ describe("the special values and their detectors (#358)", () => {
   });
 
   /** Modules §5.5: one exporter, so the bare spellings resolve too. */
-  test("the four names are bare in prelude scope as well as qualified", async () => {
+  test("the four names are reached qualified, and `show` stays bare", async () => {
+    // #742 took the bare spellings: `infinity`, `nan`, `isNan` and `isFinite`
+    // are `Float.hex`'s exports and no prelude function is seeded bare. `show`
+    // is the one member that is, which is why it still reads as it did.
     const exports = await runMain(
       "export let out: String =\n" +
-        "    show(infinity) ++ show(isNan(nan)) ++ show(isFinite(2.5))\n",
+        "    show(Float.infinity) ++ show(Float.isNan(Float.nan))" +
+        " ++ show(Float.isFinite(2.5))\n",
     );
 
     expect(exports["out"]).toBe("InfinityTrueTrue");
+  });
+
+  /** And the bare spelling of each names its one home (Modules §10). */
+  test("the bare spellings name `Float`", () => {
+    expect(projectDiagnostics("export let f: Float = infinity\n"))
+      .toEqual(["no bare `infinity`; write `Float.infinity`"]);
+    expect(projectDiagnostics("export let f: Float = nan\n"))
+      .toEqual(["no bare `nan`; write `Float.nan`"]);
+    expect(projectDiagnostics("export let f(x: Float): Bool = isNan(x)\n"))
+      .toEqual(["no bare `isNan`; write `x.isNan()` or `Float.isNan(x)`"]);
+    expect(projectDiagnostics("export let f(x: Float): Bool = isFinite(x)\n"))
+      .toEqual(["no bare `isFinite`; write `x.isFinite()` or `Float.isFinite(x)`"]);
   });
 
   /** The hint the lexer has always given now names something that resolves. */

@@ -16,7 +16,7 @@ import { compileFiles, compileMain, projectDiagnostics, runMain, runProject } fr
  *
  * Two qualifiers answer, exactly as in value position (`#namedModule`): an
  * explicit `import module` alias, and the declaring prelude module's own name
- * (§6.4's guaranteed qualified home) — `Prelude.Less`, `Option.Some(v)`,
+ * (§6.4's guaranteed qualified home) — `Ordering.Less`, `Option.Some(v)`,
  * `Bool.True`.
  *
  * The invariant underneath every pin: **the two spellings are one pattern.**
@@ -32,18 +32,18 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
     // cover `Ordering` because they resolve to its three constructors.
     expect(projectDiagnostics(
       "export fun ordering(a: Int, b: Int): String =\n" +
-      "    match compare(a, b)\n" +
-      "        Prelude.Less => \"lt\"\n" +
-      "        Prelude.Equal => \"eq\"\n" +
-      "        Prelude.Greater => \"gt\"\n",
+      "    match Ord.compare(a, b)\n" +
+      "        Ordering.Less => \"lt\"\n" +
+      "        Ordering.Equal => \"eq\"\n" +
+      "        Ordering.Greater => \"gt\"\n",
     )).toEqual([]);
 
     const exports = await runMain(
       "export fun qualified(a: Int, b: Int): String =\n" +
-      "    match compare(a, b)\n" +
-      "        Prelude.Less => \"lt\"\n" +
-      "        Prelude.Equal => \"eq\"\n" +
-      "        Prelude.Greater => \"gt\"\n" +
+      "    match Ord.compare(a, b)\n" +
+      "        Ordering.Less => \"lt\"\n" +
+      "        Ordering.Equal => \"eq\"\n" +
+      "        Ordering.Greater => \"gt\"\n" +
       "export let below: String = qualified(1, 2)\n" +
       "export let same: String = qualified(2, 2)\n" +
       "export let above: String = qualified(3, 2)\n",
@@ -55,44 +55,68 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
   test("one missing case is still reported, named by the constructor", () => {
     expect(projectDiagnostics(
       "export fun partial(a: Int, b: Int): String =\n" +
-      "    match compare(a, b)\n" +
-      "        Prelude.Less => \"lt\"\n" +
-      "        Prelude.Equal => \"eq\"\n",
-    )).toEqual(["match is missing cases: `Greater`"]);
+      "    match Ord.compare(a, b)\n" +
+      "        Ordering.Less => \"lt\"\n" +
+      "        Ordering.Equal => \"eq\"\n",
+    // Named the way the reader has to write it: since #742 `Ordering`'s
+    // constructors are qualified-only, and the exhaustiveness report already
+    // spelled a qualified-only constructor through its module (`JsKind.Null`).
+    )).toEqual(["match is missing cases: `Ordering.Greater`"]);
   });
 
-  test("qualified and bare mix freely, being one pattern each", async () => {
+  /**
+   * The mixing this seat used to pin — a qualified arm beside a bare one — is
+   * gone at `Ordering`, because #742 took the bare spelling: its constructors
+   * are qualified-only in a pattern exactly as in an expression, and §10 gives
+   * the refusal **one shape for both positions**. What still mixes is an *open*
+   * union's, and `Option` is the seat that shows it.
+   */
+  test("an open union still mixes qualified and bare arms, one pattern each", async () => {
     expect(projectDiagnostics(
-      "export fun mixed(a: Int, b: Int): String =\n" +
-      "    match compare(a, b)\n" +
-      "        Prelude.Less => \"lt\"\n" +
-      "        Equal => \"eq\"\n" +
-      "        Greater => \"gt\"\n",
+      "export fun mixed(o: Option(Int)): Int =\n" +
+      "    match o\n" +
+      "        Option.Some(v) => v\n" +
+      "        None => 0\n",
     )).toEqual([]);
 
     const exports = await runMain(
-      "export fun mixedArms(a: Int, b: Int): String =\n" +
-      "    match compare(a, b)\n" +
-      "        Prelude.Less => \"lt\"\n" +
-      "        Equal => \"eq\"\n" +
-      "        Greater => \"gt\"\n" +
-      "export let r: String = mixedArms(9, 1)\n",
+      "export fun mixedArms(o: Option(Int)): Int =\n" +
+      "    match o\n" +
+      "        Option.Some(v) => v\n" +
+      "        None => 0\n" +
+      "export let r: Int = mixedArms(Some(7))\n",
     );
 
-    expect(exports.r).toBe("gt");
+    expect(exports.r).toBe(7);
+  });
+
+  test("a qualified-only constructor's bare arm is refused, in the same words", () => {
+    expect(projectDiagnostics(
+      "export fun mixed(a: Int, b: Int): String =\n" +
+      "    match Ord.compare(a, b)\n" +
+      "        Ordering.Less => \"lt\"\n" +
+      "        Equal => \"eq\"\n" +
+      "        Greater => \"gt\"\n",
+    )).toEqual([
+      "no bare `Equal`; write `Ordering.Equal`",
+      "no bare `Greater`; write `Ordering.Greater`",
+      // The refused arm recovers as a wildcard, exactly as an unknown
+      // constructor does, so the arms behind it read as unreachable.
+      "this match arm is unreachable; an earlier pattern matches everything",
+    ]);
   });
 
   test("the same constructor twice, spelled both ways, is the unreachable-case report", () => {
     // The sharpest statement of the identity claim: a reachability check that
-    // compared spellings would see two different patterns here.
+    // compared spellings would see two different patterns here. `Option` is the
+    // union that can still be written both ways (#742).
     expect(projectDiagnostics(
-      "export fun twice(a: Int, b: Int): String =\n" +
-      "    match compare(a, b)\n" +
-      "        Prelude.Less => \"lt\"\n" +
-      "        Less => \"lt again\"\n" +
-      "        Prelude.Equal => \"eq\"\n" +
-      "        Prelude.Greater => \"gt\"\n",
-    )).toEqual(["this case is unreachable; `Less` is already handled above"]);
+      "export fun twice(o: Option(Int)): Int =\n" +
+      "    match o\n" +
+      "        Option.Some(v) => v\n" +
+      "        Some(w) => w\n" +
+      "        None => 0\n",
+    )).toEqual(["this case is unreachable; `Some` is already handled above"]);
   });
 
   test("a payload binds through the qualified form", async () => {
@@ -234,10 +258,10 @@ describe("the hatch #466 depends on: an occluding module still reaches the prelu
       "        Less => \"down\"\n" +
       "        Greater => \"up\"\n" +
       "export fun theirs(a: Int, b: Int): String =\n" +
-      "    match compare(a, b)\n" +
-      "        Prelude.Less => \"lt\"\n" +
-      "        Prelude.Equal => \"eq\"\n" +
-      "        Prelude.Greater => \"gt\"\n" +
+      "    match Ord.compare(a, b)\n" +
+      "        Ordering.Less => \"lt\"\n" +
+      "        Ordering.Equal => \"eq\"\n" +
+      "        Ordering.Greater => \"gt\"\n" +
       "export let own: String = mine(Less)\n" +
       "export let prelude: String = theirs(1, 5)\n",
     );
@@ -249,14 +273,14 @@ describe("the hatch #466 depends on: an occluding module still reaches the prelu
   test("the emitted match tests the constructor's tag, not the spelling", () => {
     // `text` on the resolved pattern is the constructor's own name, which is
     // what emission turns into the tag test. A qualified pattern that carried
-    // `Prelude.Less` would compile to a case no value ever equals.
+    // `Ordering.Less` would compile to a case no value ever equals.
     const javascript = compileMain(
       "export union Direction = Less | Greater\n" +
       "export fun theirs(a: Int, b: Int): String =\n" +
-      "    match compare(a, b)\n" +
-      "        Prelude.Less => \"lt\"\n" +
-      "        Prelude.Equal => \"eq\"\n" +
-      "        Prelude.Greater => \"gt\"\n",
+      "    match Ord.compare(a, b)\n" +
+      "        Ordering.Less => \"lt\"\n" +
+      "        Ordering.Equal => \"eq\"\n" +
+      "        Ordering.Greater => \"gt\"\n",
     ).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
     expect(javascript).toContain(

@@ -21,7 +21,7 @@ describe("collectTypeOccurrences", () => {
       "let numbers: Seq(Int) = Seq.iterate(1, number => number + 1)\n" +
       "let selected = numbers.map(number => number + 1)\n" +
       "for item in selected\n" +
-      "    log(\"${item}\")\n";
+      "    Debug.log(\"${item}\")\n";
     // Through `compileProject`, because `Seq(a)` is a prelude declaration now
     // (Loops §6.6) and the passes called directly cannot see the prelude.
     const project = compileProject([new Source.File(Source.fileId(0), "/hover.hex", text)]);

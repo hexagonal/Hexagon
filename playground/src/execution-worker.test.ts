@@ -124,7 +124,7 @@ describe("the results pane receives a run's output", () => {
     harness.posted.length = 0;
     harness.native.length = 0;
 
-    await harness.send(execute(1, 'log("routed to the pane")\n'));
+    await harness.send(execute(1, 'Debug.log("routed to the pane")\n'));
 
     expect(outputAt(harness.posted, 1)).toEqual(["routed to the pane"]);
     expect(harness.posted.at(-1)).toEqual(
@@ -144,8 +144,8 @@ describe("the results pane receives a run's output", () => {
     harness.native.length = 0;
 
     await harness.send(execute(2,
-      "export let announce(message: String): Unit = log(message)\n" +
-      'log("during initialization")\n',
+      "export let announce(message: String): Unit = Debug.log(message)\n" +
+      'Debug.log("during initialization")\n',
     ));
 
     expect(outputAt(harness.posted, 2)).toEqual(["during initialization"]);
@@ -163,8 +163,8 @@ describe("the results pane receives a run's output", () => {
     harness.posted.length = 0;
     harness.native.length = 0;
 
-    await harness.send(execute(3, 'log("first run")\n'));
-    await harness.send(execute(4, 'log("second run")\n'));
+    await harness.send(execute(3, 'Debug.log("first run")\n'));
+    await harness.send(execute(4, 'Debug.log("second run")\n'));
 
     expect(outputAt(harness.posted, 3)).toEqual(["first run"]);
     expect(outputAt(harness.posted, 4)).toEqual(["second run"]);
@@ -180,8 +180,8 @@ describe("the results pane receives a run's output", () => {
   test("a second run's output is not attributed to the first", async () => {
     harness.posted.length = 0;
 
-    await harness.send(execute(5, 'log("run five")\n'));
-    await harness.send(execute(6, 'log("run six")\n'));
+    await harness.send(execute(5, 'Debug.log("run five")\n'));
+    await harness.send(execute(6, 'Debug.log("run six")\n'));
 
     expect(outputAt(harness.posted, 5)).toEqual(["run five"]);
     expect(outputAt(harness.posted, 6)).toEqual(["run six"]);

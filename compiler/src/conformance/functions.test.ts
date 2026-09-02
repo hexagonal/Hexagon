@@ -42,14 +42,14 @@ describe("Functions specification conformance", () => {
 
   test("§4.2 rejects silent constraint strengthening and accepts entailment", () => {
     const rejected = checkSource(
-      "export let fingerprint<a: Eq>(thing: a): Int = hash(thing)",
+      "export let fingerprint<a: Eq>(thing: a): Int = Hash.hash(thing)",
     );
     expect(rejected.diagnostics.map(({ message }) => message)).toEqual([
       "`a` is declared to honor `Eq`, but the body requires `Hash`; write `<a: Hash>`, or remove the constraint annotation to let it be inferred",
     ]);
 
     const accepted = checkSource(
-      "export let fingerprint<a: Hash>(thing: a): Int = hash(thing)\n" +
+      "export let fingerprint<a: Hash>(thing: a): Int = Hash.hash(thing)\n" +
         "export let same<a: Hash>(left: a, right: a): Bool = left == right",
     );
     expect(symbol(accepted, "fingerprint").scheme.constraints).toEqual([
@@ -65,7 +65,7 @@ describe("Functions specification conformance", () => {
     const module = checkSource(
       "export let answer = 42\n" +
         "export let same(value: a): Bool = value == value\n" +
-        "export let hashed<a: (Eq, Hash)>(value: a): Int = hash(value)\n" +
+        "export let hashed<a: (Eq, Hash)>(value: a): Int = Hash.hash(value)\n" +
         "let private(value: a) = value == value",
     );
 

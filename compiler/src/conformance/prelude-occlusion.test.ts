@@ -133,8 +133,14 @@ describe("a module-level binder may occlude a prelude value", () => {
     )).toEqual([]);
   });
 
-  test("a module that does not occlude still sees the prelude value", () => {
-    expect(diagnostics("export let three: Int = combine(1, 2)\n")).toEqual([]);
+  test("a module that does not occlude reaches the prelude value qualified", () => {
+    expect(diagnostics("export let three: Int = Result.combine(1, 2)\n")).toEqual([]);
+    // The control this pin used to be: bare `combine`. Since #742 nothing is in
+    // bare term scope for a non-occluding module to see, and the bare spelling
+    // draws §5.5's refusal naming the route above — which is why the occlusion
+    // pins around it read the *occluding* binding rather than the prelude's.
+    expect(diagnostics("export let three: Int = combine(1, 2)\n"))
+      .toEqual(["no bare `combine`; write `Result.combine(1, 2)`"]);
   });
 });
 
@@ -517,7 +523,7 @@ describe("a declaration's constructor names occlude too (#466)", () => {
    * binder collisions with no exception now.
    *
    * The prelude constructors these pins take over are real: `Less`/`Greater`
-   * from `Ordering` (`stdlib/Prelude.hex`), `Some` from `Option.hex`,
+   * from `Ordering` (`stdlib/Ordering.hex`), `Some` from `Option.hex`,
    * `IndexError` from `Vector.hex`, `True` from `Bool.hex` (#147).
    */
 

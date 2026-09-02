@@ -41,7 +41,7 @@ describe("the control: diagnostics are project-level, so prove the probe can fai
 describe("generic member calls exist (the note's §4: previously unspellable)", () => {
   test("a generic `compare` — Method Syntax §9 row 6's promise, discharged", async () => {
     const exports = await runMain([
-      "export let ordering<a: Ord>(left: a, right: a): Ordering = compare(left, right)",
+      "export let ordering<a: Ord>(left: a, right: a): Ordering = Ord.compare(left, right)",
       "",
       "export let ints: String = \"${ordering(1, 2)}\"",
       "export let texts: String = \"${ordering(\"b\", \"a\")}\"",
@@ -56,7 +56,7 @@ describe("generic member calls exist (the note's §4: previously unspellable)", 
 
   test("a generic `equals`, dispatching per instantiation", async () => {
     const exports = await runMain([
-      "export let same<a: Eq>(left: a, right: a): Bool = equals(left, right)",
+      "export let same<a: Eq>(left: a, right: a): Bool = Eq.equals(left, right)",
       "",
       "export let onInts: Bool = same(3, 3)",
       "export let onText: Bool = same(\"a\", \"b\")",
@@ -76,8 +76,8 @@ describe("generic member calls exist (the note's §4: previously unspellable)", 
    */
   test("a generic `div` and `quot`, with the Euclidean/truncated split visible", async () => {
     const exports = await runMain([
-      "export let euclidean<a: Integral>(left: a, right: a): a = div(left, right)",
-      "export let truncated<a: Integral>(left: a, right: a): a = quot(left, right)",
+      "export let euclidean<a: Integral>(left: a, right: a): a = Integral.div(left, right)",
+      "export let truncated<a: Integral>(left: a, right: a): a = Integral.quot(left, right)",
       "",
       "export let downInt: Int = euclidean(-7, 2)",
       "export let towardZeroInt: Int = truncated(-7, 2)",
@@ -92,15 +92,15 @@ describe("generic member calls exist (the note's §4: previously unspellable)", 
     expect(exports.towardZeroBig).toBe(-3n);
   });
 
-  test("bare `hash`, in pipe and higher-order position as well as applied", async () => {
+  test("`Hash.hash`, in pipe and higher-order position as well as applied", async () => {
     const exports = await runMain([
-      "export let applied: Int = hash(42)",
-      "export let piped: Int = 42 |> hash",
+      "export let applied: Int = Hash.hash(42)",
+      "export let piped: Int = 42 |> Hash.hash",
       "",
-      "export let ones: Int = hash(1)",
-      "export let twos: Int = hash(2)",
-      "export let threes: Int = hash(3)",
-      "export let mapped: Vector(Int) = Vector.fromSeq([1, 2, 3].toSeq().map(hash))",
+      "export let ones: Int = Hash.hash(1)",
+      "export let twos: Int = Hash.hash(2)",
+      "export let threes: Int = Hash.hash(3)",
+      "export let mapped: Vector(Int) = Vector.fromSeq([1, 2, 3].toSeq().map(Hash.hash))",
       "",
     ].join("\n"));
 
@@ -121,7 +121,7 @@ describe("qualified access to a declaring module (ordinary access to an export)"
       "export let unequal: Bool = Eq.notEquals(1, 2)",
       "export let ordered: String = \"${Ord.compare(1, 2)}\"",
       "export let summed: Int = Num.add(1, 2)",
-      "export let hashed: Bool = Hash.hash(1) == hash(1)",
+      "export let hashed: Bool = Hash.hash(1) == Hash.hash(1)",
       "export let divisor: BigInt = Integral.gcd(12n, 8n)",
       "export let joined: String = Concat.concat(\"a\", \"b\")",
       "",
@@ -231,8 +231,8 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
 describe("`concat` has two prelude exporters (Modules §5.5, accepted)", () => {
   test("the bare name is refused, naming both qualified homes", () => {
     expect(projectDiagnostics("export let r: String = concat(\"a\", \"b\")\n")).toEqual([
-      "the prelude name `concat` is ambiguous: exported by `Concat` and `Seq`; " +
-        "write `Concat.concat` or `Seq.concat`",
+      "no bare `concat`; write `\"a\".concat(\"b\")`, " +
+        "`Concat.concat(\"a\", \"b\")`, or `Seq.concat(\"a\", \"b\")`",
     ]);
   });
 
@@ -274,7 +274,7 @@ describe("`Integral` is a held declaration now, not a name", () => {
   test("the `Int.div` guard spelling still works beside the member", async () => {
     const exports = await runMain([
       "export let guarded: Int = Int.div(-7, 2)",
-      "export let member: Int = div(-7, 2)",
+      "export let member: Int = (-7).div(2)",
       "export let qualified: Int = Integral.div(-7, 2)",
       "",
     ].join("\n"));
@@ -318,8 +318,8 @@ describe("`Hash` stays derivable-only with its declaration in view", () => {
     const exports = await runMain([
       "export record Point derives (Eq, Hash) = {x: Int}",
       "",
-      "export let stable: Bool = hash(Point({x = 1})) == hash(Point({x = 1}))",
-      "export let distinct: Bool = hash(Point({x = 1})) == hash(Point({x = 2}))",
+      "export let stable: Bool = Hash.hash(Point({x = 1})) == Hash.hash(Point({x = 1}))",
+      "export let distinct: Bool = Hash.hash(Point({x = 1})) == Hash.hash(Point({x = 2}))",
       "",
     ].join("\n"));
 

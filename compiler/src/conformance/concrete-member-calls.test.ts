@@ -290,7 +290,7 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
   });
 
   test("a defaulted member at a concrete head reaches the wrapper seat", async () => {
-    const source = "export let differs: Bool = notEquals(2, 3)\n";
+    const source = "export let differs: Bool = Eq.notEquals(2, 3)\n";
     const text = emitted(source);
 
     expect(text).toContain('import { __Eq_Int_notEquals as notEquals } from "./Int.js";');

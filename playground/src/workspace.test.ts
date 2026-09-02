@@ -32,14 +32,14 @@ describe("layOutWorkspace", () => {
     const equippedMain = layOutWorkspace(equipped).files.find(
       ({ path }) => path === entryPath,
     );
-    const bareMain = layOutWorkspace("log(\"hello\")\n").files.find(
+    const bareMain = layOutWorkspace("Debug.log(\"hello\")\n").files.find(
       ({ path }) => path === entryPath,
     );
 
     expect(equippedMain?.source).toContain(
       'import module Rat from "./stdlib/Rat"',
     );
-    expect(bareMain?.source).toBe("log(\"hello\")\n");
+    expect(bareMain?.source).toBe("Debug.log(\"hello\")\n");
   });
 
   test("injects the companion idiom's one line and nothing beside it", () => {
@@ -87,7 +87,7 @@ describe("layOutWorkspace", () => {
       "    export let twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
       'import module Rat from "./Helper"\n' +
-      "log(\"${Rat.twice(3)}\")\n";
+      "Debug.log(\"${Rat.twice(3)}\")\n";
     const main = layOutWorkspace(source).files.find(({ path }) => path === entryPath);
 
     // Nothing about `./stdlib/Rat` is what collides — the bound name is. A
@@ -242,7 +242,7 @@ describe("layOutWorkspace", () => {
   test("hosts every library source whether or not it is auto-imported", () => {
     // Hosting is availability: `Rat` stays a file the compiler can resolve an
     // ordinary `import` against even when nothing prepends one.
-    const { files } = layOutWorkspace("log(\"hello\")\n");
+    const { files } = layOutWorkspace("Debug.log(\"hello\")\n");
 
     expect(files.map(({ path }) => path)).toEqual([
       "/stdlib/Option.hex",
@@ -256,7 +256,7 @@ describe("layOutWorkspace", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      "log(\"${Helper.twice(3)}\")\n";
+      "Debug.log(\"${Helper.twice(3)}\")\n";
     const { files } = layOutWorkspace(source);
 
     const helper = files.find(({ path }) => path === "/Helper.hex");
@@ -264,7 +264,7 @@ describe("layOutWorkspace", () => {
     // Masked rather than removed, so every offset after it is still the
     // buffer's own — which is the property the map relies on.
     const main = files.find(({ path }) => path === entryPath);
-    expect(main?.source).toContain("log(\"${Helper.twice(3)}\")");
+    expect(main?.source).toContain("Debug.log(\"${Helper.twice(3)}\")");
     expect(main?.source).not.toContain("export fun twice");
   });
 
@@ -277,7 +277,7 @@ describe("layOutWorkspace", () => {
 
 describe("WorkspaceMap", () => {
   test("round-trips every offset of a document with no module blocks", () => {
-    const source = "let one = 1\nlog(\"${one}\")\n";
+    const source = "let one = 1\nDebug.log(\"${one}\")\n";
     const { map } = layOutWorkspace(source);
 
     for (let offset = 0; offset <= source.length; offset += 1) {
@@ -291,7 +291,7 @@ describe("WorkspaceMap", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      "log(\"${Helper.twice(3)}\")\n";
+      "Debug.log(\"${Helper.twice(3)}\")\n";
     const { map } = layOutWorkspace(source);
     const inside = source.indexOf("twice");
 
@@ -322,9 +322,9 @@ describe("WorkspaceMap", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      "log(\"${Helper.twice(3)}\")\n";
+      "Debug.log(\"${Helper.twice(3)}\")\n";
     const { map } = layOutWorkspace(source);
-    const after = source.indexOf("log(");
+    const after = source.indexOf("Debug.log(");
 
     const at = map.locate(after);
 

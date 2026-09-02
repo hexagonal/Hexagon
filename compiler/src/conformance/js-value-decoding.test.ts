@@ -446,7 +446,7 @@ describe("the failure type is ordinary data (§5.1)", () => {
         "    JsConversionReason.Cycle([JsPathSegment.Index(1)]),\n" +
         "]\n" +
         "export let error: JsConversionError =\n" +
-        "    JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n",
+        "    JsValue.JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n",
     )).toEqual([]);
   });
 });
@@ -541,12 +541,11 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
 describe("the bare namespace this slice narrows (Modules §5.5)", () => {
   test("bare `toInt` and `toFloat` are refused, naming both homes", () => {
     expect(projectDiagnostics("export let n(b: BigInt): Int = toInt(b)\n")).toEqual([
-      "the prelude name `toInt` is ambiguous: exported by `BigInt` and `JsValue`; " +
-      "write `BigInt.toInt` or `JsValue.toInt`",
+      "no bare `toInt`; write `b.toInt()`, `BigInt.toInt(b)`, or `JsValue.toInt(b)`",
     ]);
     expect(projectDiagnostics("export let f(b: BigInt): Float = toFloat(b)\n")).toEqual([
-      "the prelude name `toFloat` is ambiguous: exported by `BigInt` and `JsValue`; " +
-      "write `BigInt.toFloat` or `JsValue.toFloat`",
+      "no bare `toFloat`; write `b.toFloat()`, `BigInt.toFloat(b)`, " +
+      "or `JsValue.toFloat(b)`",
     ]);
   });
 
@@ -558,8 +557,7 @@ describe("the bare namespace this slice narrows (Modules §5.5)", () => {
    */
   test("the argument's type does not change the refusal", () => {
     expect(projectDiagnostics("export let n(v: JsValue): Int = toInt(v)\n")).toEqual([
-      "the prelude name `toInt` is ambiguous: exported by `BigInt` and `JsValue`; " +
-      "write `BigInt.toInt` or `JsValue.toInt`",
+      "no bare `toInt`; write `v.toInt()`, `BigInt.toInt(v)`, or `JsValue.toInt(v)`",
     ]);
   });
 

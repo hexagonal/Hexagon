@@ -8,10 +8,17 @@ not compiler intrinsics.
   `Eq.hex`, `Hash.hex`, `Ord.hex`, `Integral.hex`, and `Iterable.hex` are the
   **declaring modules** of the eleven constraints the compiler pre-registers. A
   constraint member is an export of its declaring module (#335), so these files
-  are what put `show`, `add`, `equals`, `compare`, `div`, `toSeq` and the rest
-  into bare scope everywhere; all eleven are prelude members, in the
-  seats-before-uses order `compiler/src/prelude.ts` records. `Iterable.hex`
-  seats after `Seq.hex`, whose type its member signature names.
+  are what make `Show.show`, `Num.add`, `Eq.equals`, `Ord.compare`,
+  `Integral.div` and `Iterable.toSeq` spellable everywhere; all eleven are
+  prelude members, in the seats-before-uses order `compiler/src/prelude.ts`
+  records. `Iterable.hex` seats after `Seq.hex`, whose type its member signature
+  names. Since #742 only `show` of those members is in bare scope — Modules
+  §5.5 seeds nothing in the term namespace by default, and every other member is
+  reached by the dot where it is subject-first and qualified always.
+- `Prelude.hex` holds `ignore`, the one prelude function in that bare set, and
+  `Ordering.hex` holds the union `Ord.compare` answers with. They are two files
+  because `Ordering`'s constructors are qualified-only (`Ordering.Less`), and a
+  qualified constructor is spelled through the module that declares it.
 - `Rat.hex` implements exact rational arithmetic over `BigInt`. Its constructor
   normalizes through Euclidean `BigInt.gcd` and exact quotient operations, and
   its arithmetic lives in its `honor` blocks — a member definition is a

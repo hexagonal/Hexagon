@@ -99,7 +99,7 @@ const SHOW_PAIR =
 
 describe("a concrete call to a prelude constrained export", () => {
   test("reaches the `String` edition and asks for no evidence", () => {
-    const javascript = emitted([["/main.hex", 'log("hello")\n']]);
+    const javascript = emitted([["/main.hex", 'Debug.log("hello")\n']]);
 
     expect(javascript).toContain('import { logString } from "./Debug.js";');
     expect(javascript).toContain('logString("hello");');
@@ -112,7 +112,7 @@ describe("a concrete call to a prelude constrained export", () => {
   test("reaches the `Int` edition, and through a nested call too", () => {
     const javascript = emitted([[
       "/main.hex",
-      'log(trace("n", 7))\n',
+      'Debug.log(Debug.trace("n", 7))\n',
     ]]);
 
     expect(javascript).toContain(
@@ -174,13 +174,13 @@ describe("a concrete call to a prelude constrained export", () => {
    * nothing while the file still imports `logString` from `Debug.js`.
    */
   test("keeps the module it imports the edition from in the emitted graph", () => {
-    expect(danglingImports([["/main.hex", 'log("hello")\nlog(1)\n']])).toEqual([]);
+    expect(danglingImports([["/main.hex", 'Debug.log("hello")\nDebug.log(1)\n']])).toEqual([]);
   });
 
   test("runs, and the write reaches the sink", async () => {
     const lines = await written(() =>
       runProject(
-        [["/main.hex", 'log("through the edition")\nexport let ok: Int = 1\n']],
+        [["/main.hex", 'Debug.log("through the edition")\nexport let ok: Int = 1\n']],
         { transform: distinct("specialized call sites: prelude edition") },
       )
     );
@@ -346,8 +346,8 @@ describe("an edition's public name reaching a module that binds it", () => {
     const javascript = emitted([[
       "/main.hex",
       "let logString(x: String): String = x\n" +
-        'log("direct")\n' +
-        'log(logString("through"))\n',
+        'Debug.log("direct")\n' +
+        'Debug.log(logString("through"))\n',
     ]]);
 
     expect(javascript).toContain(
@@ -364,7 +364,7 @@ describe("an edition's public name reaching a module that binds it", () => {
         [[
           "/main.hex",
           "let logString(x: String): String = x\n" +
-            'log(logString("shadowed"))\n' +
+            'Debug.log(logString("shadowed"))\n' +
             "export let ok: Int = 1\n",
         ]],
         { transform: distinct("specialized call sites: shadowed edition") },
@@ -399,7 +399,7 @@ describe("the two fundamentals that name no primitive", () => {
   });
 
   test("an imported callee reaches them, and asks for no dictionary", () => {
-    const javascript = emitted([["/main.hex", "log(True)\nlog(())\n"]]);
+    const javascript = emitted([["/main.hex", "Debug.log(True)\nDebug.log(())\n"]]);
 
     expect(javascript).toContain('import { logBool, logUnit } from "./Debug.js";');
     expect(javascript).toContain("logBool(true);");
@@ -412,7 +412,7 @@ describe("the two fundamentals that name no primitive", () => {
   });
 
   test("keeps the modules the editions come from in the emitted graph", () => {
-    expect(danglingImports([["/main.hex", "log(True)\nlog(())\n"]])).toEqual([]);
+    expect(danglingImports([["/main.hex", "Debug.log(True)\nDebug.log(())\n"]])).toEqual([]);
   });
 
   test("`Bool` is one assignment among several across a boundary", () => {
@@ -488,7 +488,7 @@ describe("the two fundamentals that name no primitive", () => {
    */
   test("the `Bool` edition renders `Show<Bool>`, not the host's boolean", async () => {
     const files = [
-      ["/main.hex", "log(True)\nlog(())\nexport let ok: Int = 1\n"],
+      ["/main.hex", "Debug.log(True)\nDebug.log(())\nexport let ok: Int = 1\n"],
     ] as const;
 
     expect(emitted(files)).toContain("logBool(true);");

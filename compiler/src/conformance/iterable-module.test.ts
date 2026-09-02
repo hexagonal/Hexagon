@@ -62,7 +62,7 @@ describe("the declaration lands, and the twin is refused", () => {
    * every home. One exporter is what makes the section's examples compile.
    */
   test("`toSeq` has one prelude exporter, so the bare name is not ambiguous", () => {
-    expect(projectDiagnostics("export let main(): Int = Seq.length(toSeq([1]))\n"))
+    expect(projectDiagnostics("export let main(): Int = Seq.length(Iterable.toSeq([1]))\n"))
       .toEqual([]);
   });
 });
@@ -76,19 +76,19 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
    */
   test("Vector(a) gives a", async () => {
     expect(await mainOf(
-      'export let main(): String = Seq.fold(toSeq(["a", "b"]), "", (acc, s) => acc ++ s)\n',
+      'export let main(): String = Seq.fold(Iterable.toSeq(["a", "b"]), "", (acc, s) => acc ++ s)\n',
     )).toBe("ab");
   });
 
   test("Set(a) gives a", async () => {
     expect(await mainOf(
-      "export let main(): Int = Seq.fold(toSeq(Set.fromVector([1, 2, 3])), 0, (acc, n) => acc + n)\n",
+      "export let main(): Int = Seq.fold(Iterable.toSeq(Set.fromVector([1, 2, 3])), 0, (acc, n) => acc + n)\n",
     )).toBe(6);
   });
 
   test("Map(k, v) gives the pair (k, v)", async () => {
     expect(await mainOf(
-      'export let main(): String = Seq.fold(toSeq(Map.fromVector([(1, "a")])), "", (acc, pair) =>\n' +
+      'export let main(): String = Seq.fold(Iterable.toSeq(Map.fromVector([(1, "a")])), "", (acc, pair) =>\n' +
         "    match pair\n" +
         '        (key, value) => acc ++ show(key) ++ value)\n',
     )).toBe("1a");
@@ -96,7 +96,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
 
   test("Range gives Int", async () => {
     expect(await mainOf(
-      "export let main(): Int = Seq.fold(toSeq(1..4), 0, (acc, n) => acc + n)\n",
+      "export let main(): Int = Seq.fold(Iterable.toSeq(1..4), 0, (acc, n) => acc + n)\n",
     )).toBe(10);
   });
 
@@ -107,7 +107,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
    */
   test("String gives one-codepoint Strings", async () => {
     expect(await mainOf(
-      'export let main(): Int = Seq.length(toSeq("h\u{1F600}i"))\n',
+      'export let main(): Int = Seq.length(Iterable.toSeq("h\u{1F600}i"))\n',
     )).toBe(3);
   });
 
@@ -133,7 +133,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
     const source =
       "export let main(): Int =\n" +
       "    let sequence: Seq(Int) = Seq.prepend(Seq.prepend(Seq.empty, 2), 1)\n" +
-      "    Seq.fold(toSeq(sequence), 0, (acc, n) => acc + n)\n";
+      "    Seq.fold(Iterable.toSeq(sequence), 0, (acc, n) => acc + n)\n";
     const project = compileFiles([["/main.hex", source]]);
     expect(project.diagnostics).toEqual([]);
     const javascript = project.modules
@@ -154,7 +154,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
   test("the member's `Seq` is re-traversable", async () => {
     expect(await mainOf(
       "export let main(): Int =\n" +
-        "    let sequence: Seq(Int) = toSeq([1, 2, 3])\n" +
+        "    let sequence: Seq(Int) = Iterable.toSeq([1, 2, 3])\n" +
         "    Seq.length(sequence) + Seq.fold(sequence, 0, (acc, n) => acc + n)\n",
     )).toBe(9);
   });
@@ -173,7 +173,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
       'extern from "./rows.js"\n' +
         "    fun rows(): Array(Int)\n" +
         "\n" +
-        "export let main(): Int = Seq.length(toSeq(rows!()))\n",
+        "export let main(): Int = Seq.length(Iterable.toSeq(rows!()))\n",
     ]])).toEqual([]);
   });
 
@@ -182,7 +182,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
       'extern from "./rows.js"\n' +
         "    fun table(): JsMap(String, Int)\n" +
         "\n" +
-        "export let main(): Int = Seq.length(toSeq(table!()))\n",
+        "export let main(): Int = Seq.length(Iterable.toSeq(table!()))\n",
     ]])).toEqual([]);
   });
 
@@ -191,7 +191,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
       'extern from "./rows.js"\n' +
         "    fun flags(): JsSet(Int)\n" +
         "\n" +
-        "export let main(): Int = Seq.length(toSeq(flags!()))\n",
+        "export let main(): Int = Seq.length(Iterable.toSeq(flags!()))\n",
     ]])).toEqual([]);
   });
 
@@ -672,7 +672,7 @@ describe("`String.fromSeq`, the full §5.3 contract", () => {
    */
   test("elements may be any length, and concatenate in traversal order", async () => {
     expect(await mainOf(
-      'export let main(): String = String.fromSeq(toSeq(["ab", "", "c"]))\n',
+      'export let main(): String = String.fromSeq(Iterable.toSeq(["ab", "", "c"]))\n',
     )).toBe("abc");
   });
 
@@ -688,7 +688,7 @@ describe("`String.fromSeq`, the full §5.3 contract", () => {
       'export let main(): String = String.fromSeq(String.toSeq("h\u{1F600}i, wörld"))\n',
     )).toBe("h\u{1F600}i, wörld");
     expect(await mainOf(
-      'export let main(): Int = Seq.length(String.toSeq(String.fromSeq(toSeq(["ab", "cd"]))))\n',
+      'export let main(): Int = Seq.length(String.toSeq(String.fromSeq(Iterable.toSeq(["ab", "cd"]))))\n',
     )).toBe(4);
   });
 
@@ -701,7 +701,7 @@ describe("`String.fromSeq`, the full §5.3 contract", () => {
    */
   test("no Unicode normalization occurs", async () => {
     expect(await mainOf(
-      'export let main(): Bool = String.fromSeq(toSeq(["é"])) == String.fromSeq(toSeq(["é"]))\n',
+      'export let main(): Bool = String.fromSeq(Iterable.toSeq(["é"])) == String.fromSeq(Iterable.toSeq(["é"]))\n',
     )).toBe(false);
   });
 
@@ -715,7 +715,7 @@ describe("`String.fromSeq`, the full §5.3 contract", () => {
   test("the lowering joins rather than folding `++`", () => {
     const project = compileFiles([[
       "/main.hex",
-      'export let main(): String = String.fromSeq(toSeq(["a"]))\n',
+      'export let main(): String = String.fromSeq(Iterable.toSeq(["a"]))\n',
     ]]);
     expect(project.diagnostics).toEqual([]);
     const javascript = project.modules

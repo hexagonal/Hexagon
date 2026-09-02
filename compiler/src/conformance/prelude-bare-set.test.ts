@@ -1,0 +1,470 @@
+import { describe, expect, test } from "vitest";
+
+import { compileFiles, compileMain, projectDiagnostics, runMain }
+  from "../support/test-project.js";
+import { PRELUDE_SOURCES } from "../prelude-sources.js";
+
+/**
+ * Conformance for **Modules §5.5's inverted seeding and its closed bare set**
+ * (#742).
+ *
+ * The prelude used to seed every export into every module's bare term scope.
+ * §5.5 now seeds **nothing** there by default, and four channel rules put
+ * sixteen names back: the eight exception constructors, the six constructors of
+ * the open unions `Bool`/`Option`/`Result`, `ignore`, and `show`. Everything
+ * else is reached by the dot or the qualified spelling, and a bare reference to
+ * it draws §10's refusal with its routes named.
+ *
+ * ## What this file is for that the channel tests are not
+ *
+ * The companion suites (`vector-prelude-companion`, `float-companion`,
+ * `js-kind-qualification`, …) each pin their own module's surface. This one pins
+ * the **rule**: the set is exactly sixteen names and is closed, each channel
+ * admits what it says it admits and nothing beside, and the refusal has one
+ * shape across all three channels. The set pin is written against the *compiled
+ * prelude* rather than a transcription, so drift in either direction — a name
+ * leaving the layer, or a new stdlib export arriving in it — fails here.
+ */
+
+/**
+ * Every name the prelude layer binds in an ordinary consumer.
+ *
+ * Read off the resolved module's outermost scope region, which **is** the
+ * prelude layer (`Resolver#resolve` gives `#preludeScope` the module's span and
+ * registers it first). Reading the compiler's manifests instead would pin the
+ * lists against themselves; this reads what a program actually sees.
+ */
+function bareNames(): readonly string[] {
+  const compiled = compileMain("export let ok: Int = 1\n");
+  const main = compiled.modules.find(({ source }) => source.path === "/main.hex")!;
+  return [...new Set(main.resolved.scopes[0]!.bindings.map(({ name }) => name))].sort();
+}
+
+/**
+ * The bare set as the spec states it (§5.5), spelled out rather than derived.
+ *
+ * A derived expectation would agree with any implementation, including a wrong
+ * one; the point of this list is that adding a prelude export cannot quietly
+ * grow it and removing a channel cannot quietly shrink it. An addition here is a
+ * design ruling argued against §5.5, never an edit.
+ */
+const BARE_SET = [
+  // The eight exception constructors — a category, not a list (§5.5).
+  "DivideByZeroError",
+  "FloatRangeError",
+  "IndexError",
+  "JsError",
+  "KeyError",
+  "NegativeExponentError",
+  "ReentrancyError",
+  "SliceError",
+  // The open unions' six constructors.
+  "Err",
+  "False",
+  "None",
+  "Ok",
+  "Some",
+  "True",
+  // The pervasive term, and the one member.
+  "ignore",
+  "show",
+].sort();
+
+describe("the bare set is exactly sixteen names, and closed", () => {
+  test("the prelude layer binds the set and nothing else", () => {
+    expect(bareNames()).toEqual(BARE_SET);
+  });
+
+  test("sixteen is the count the section states", () => {
+    expect(BARE_SET.length).toBe(16);
+  });
+
+  /**
+   * The other direction of the same guard, at the channel that is hardest to see
+   * from the list: **no prelude function is bare.** `empty`, `map`, `length`,
+   * `log`, `isNan`, `fromSeq` are the vocabulary the measurements found the
+   * prelude was spending, and every one of them is refused.
+   */
+  test.each([
+    ["empty", "export let e: Vector(Int) = empty\n"],
+    ["map", "export let f(xs: Seq(Int)): Seq(Int) = map(xs, x => x)\n"],
+    ["length", "export let n(xs: Vector(Int)): Int = length(xs)\n"],
+    ["log", 'export let u: Unit = log("hi")\n'],
+    ["isNan", "export let b(x: Float): Bool = isNan(x)\n"],
+    ["fromSeq", "export let s(xs: Seq(String)): String = fromSeq(xs)\n"],
+  ])("bare `%s` is refused", (name, source) => {
+    expect(projectDiagnostics(source)[0]).toMatch(
+      new RegExp(`^no bare \`${name}\`; write `, "u"),
+    );
+  });
+});
+
+describe("the function channel: none, and `ignore`", () => {
+  test("`ignore` is bare, and is the whole of the channel's survivors", async () => {
+    expect(projectDiagnostics("export let u: Unit = ignore(1)\n")).toEqual([]);
+    const main = await runMain(
+      "export let discarded: Unit = ignore(41)\nexport let n: Int = 1\n",
+    );
+    expect(main["n"]).toBe(1);
+  });
+
+  /**
+   * The routes are spelled **with the call's own arguments** (§5.5): dot form
+   * first where the function is dot-callable, then every visible exporter's
+   * qualified spelling in prelude order, with no elision. §10's own exemplars,
+   * run.
+   */
+  test("a call's refusal names the dot form and every exporter, in the program's words", () => {
+    expect(projectDiagnostics(
+      "export let f(things: Seq(Int), g: Int -> Int): Seq(Int) = map(things, g)\n",
+    )).toEqual([
+      "no bare `map`; write `things.map(g)`, `Seq.map(things, g)`, " +
+      "or `Stream.map(things, g)`",
+    ]);
+  });
+
+  test("a single-homed dot-callable function names two routes", () => {
+    expect(projectDiagnostics("export let b(reading: Float): Bool = isNan(reading)\n"))
+      .toEqual(["no bare `isNan`; write `reading.isNan()` or `Float.isNan(reading)`"]);
+  });
+
+  /**
+   * Not dot-callable, because its first parameter is `Seq`-headed and `Seq.hex`
+   * exports no `fromSeq` — so no route can be written with a receiver, and the
+   * message names the qualified spellings alone.
+   */
+  test("a function that is not dot-callable names the qualified spellings alone", () => {
+    expect(projectDiagnostics("export let s(pairs: Seq(String)): String = fromSeq(pairs)\n"))
+      .toEqual([
+        "no bare `fromSeq`; write `String.fromSeq(pairs)`, `Vector.fromSeq(pairs)`, " +
+        "`Map.fromSeq(pairs)`, `Set.fromSeq(pairs)`, or `Stream.fromSeq(pairs)`",
+      ]);
+  });
+
+  /** At a reference that is not a call, the qualified names alone. */
+  test("a non-call reference names bare qualified spellings", () => {
+    expect(projectDiagnostics("export let e: Vector(Int) = empty\n")).toEqual([
+      "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or `Set.empty`",
+    ]);
+  });
+
+  /** And the message never names an import route (ruling 5; #750 holds the design). */
+  test("no route named is an import", () => {
+    const messages = projectDiagnostics(
+      "export let e: Vector(Int) = empty\n" +
+      'export let u: Unit = log("x")\n' +
+      "export let n(xs: Vector(Int)): Int = length(xs)\n",
+    );
+    expect(messages).toHaveLength(3);
+    for (const message of messages) {
+      expect(message).not.toContain("import");
+    }
+  });
+});
+
+describe("the constructor channel: the open unions only", () => {
+  test("the six open constructors are bare in an expression and a pattern", async () => {
+    expect(projectDiagnostics(
+      "export let a: Option(Int) = Some(1)\n" +
+      "export let b: Option(Int) = None\n" +
+      "export let c: Result(Int, String) = Ok(1)\n" +
+      "export let d: Result(Int, String) = Err(\"e\")\n" +
+      "export let e: Bool = True\n" +
+      "export let f: Bool = False\n" +
+      "export fun g(o: Option(Int)): Int =\n" +
+      "    match o\n" +
+      "        Some(v) => v\n" +
+      "        None => 0\n" +
+      "export fun h(r: Result(Int, String), flag: Bool): Int =\n" +
+      "    match (r, flag)\n" +
+      "        (Ok(v), True) => v\n" +
+      "        (Ok(_), False) => 0\n" +
+      "        (Err(_), _) => -1\n",
+    )).toEqual([]);
+    const main = await runMain(
+      "export fun pick(o: Option(Int)): Int =\n" +
+      "    match o\n" +
+      "        Some(v) => v\n" +
+      "        None => 0\n" +
+      "export let some: Int = pick(Some(7))\n" +
+      "export let none: Int = pick(None)\n",
+    );
+    expect([main["some"], main["none"]]).toEqual([7, 0]);
+  });
+
+  /**
+   * `Ordering` is not an open union (ruling 2: `<`, `==` and `>` already carry
+   * the comparison vocabulary), so its three constructors are qualified-only —
+   * and §10 gives the refusal **one shape for both positions**.
+   */
+  test("`Ordering`'s constructors are qualified in both positions", async () => {
+    expect(projectDiagnostics(
+      "export let a: Ordering = Ordering.Less\n" +
+      "export fun f(o: Ordering): Int =\n" +
+      "    match o\n" +
+      "        Ordering.Less => -1\n" +
+      "        Ordering.Equal => 0\n" +
+      "        Ordering.Greater => 1\n",
+    )).toEqual([]);
+    const main = await runMain(
+      "export fun sign(o: Ordering): Int =\n" +
+      "    match o\n" +
+      "        Ordering.Less => -1\n" +
+      "        Ordering.Equal => 0\n" +
+      "        Ordering.Greater => 1\n" +
+      "export let below: Int = sign(Ordering.Less)\n" +
+      "export let above: Int = sign(Ordering.Greater)\n",
+    );
+    expect([main["below"], main["above"]]).toEqual([-1, 1]);
+  });
+
+  test("and the bare spellings are refused, in the same words, in both positions", () => {
+    expect(projectDiagnostics("export let a: Ordering = Less\n"))
+      .toEqual(["no bare `Less`; write `Ordering.Less`"]);
+    expect(projectDiagnostics(
+      "export fun f(o: Ordering): Int =\n" +
+      "    match o\n" +
+      "        Less => -1\n" +
+      "        _ => 0\n",
+    )[0]).toBe("no bare `Less`; write `Ordering.Less`");
+  });
+
+  /**
+   * `Ordering.hex` exists so that spelling has a module to name (#742's seat
+   * ruling). `Prelude.hex` keeps `ignore` alone, so the union is not there.
+   */
+  test("`Ordering` is the union's home, and `Prelude` is not", () => {
+    expect(projectDiagnostics("export let a: Ordering = Prelude.Less\n"))
+      .toEqual(["module `Prelude` does not export `Less`"]);
+  });
+
+  /**
+   * The four boundary utility unions fall out of the default with no list entry
+   * (`spec/ffi.md` §12 reduced to a note), and they draw §5.5's refusal rather
+   * than the bare `unknown constructor` they drew before.
+   */
+  test("the boundary unions' constructors draw the refusal, not an unknown name", () => {
+    expect(projectDiagnostics("export let k: JsKind = Null\n"))
+      .toEqual(["no bare `Null`; write `JsKind.Null`"]);
+    expect(projectDiagnostics(
+      "export fun f(k: JsKind): Int =\n" +
+      "    match k\n" +
+      "        Null => 1\n" +
+      "        _ => 0\n",
+    )[0]).toBe("no bare `Null`; write `JsKind.Null`");
+    expect(projectDiagnostics("export let r: JsConversionReason = Shape\n"))
+      .toEqual(["no bare `Shape`; write `JsConversionReason.Shape`"]);
+  });
+
+  /** A name the prelude does not bind at all still gets the plain sentence. */
+  test("an unknown name keeps its own message", () => {
+    expect(projectDiagnostics("export let n: Int = frobnicate\n"))
+      .toEqual(["unknown name `frobnicate`"]);
+    expect(projectDiagnostics(
+      "export fun f(o: Option(Int)): Int =\n" +
+      "    match o\n" +
+      "        Frobnicate => 1\n" +
+      "        _ => 0\n",
+    )[0]).toBe("unknown constructor `Frobnicate`");
+  });
+});
+
+describe("the exception channel: all of them, as a category", () => {
+  /**
+   * The eight shipped exceptions, bare in a catch arm and in an expression, and
+   * reachable qualified beside it. The category rule is what makes a future
+   * prelude exception bare without a ruling — the `…Error` suffix is its own
+   * qualifier — so the list is asserted whole rather than sampled.
+   */
+  test.each([
+    ["NegativeExponentError", "Pow", "(m)"],
+    ["DivideByZeroError", "Integral", "(m)"],
+    ["FloatRangeError", "Float", "(m)"],
+    ["ReentrancyError", "Seq", ""],
+    ["IndexError", "Vector", "(i, n)"],
+    ["SliceError", "Vector", "(a, b)"],
+    ["KeyError", "Map", ""],
+    ["JsError", "JsError", "(e)"],
+  ])("`%s` is bare in a catch arm, and qualified through `%s`", (name, home, slots) => {
+    expect(projectDiagnostics(
+      "export fun f(n: Int): Int =\n" +
+      "    try\n" +
+      "        n\n" +
+      "    catch\n" +
+      `        ${name}${slots} => 0\n`,
+    )).toEqual([]);
+    expect(projectDiagnostics(
+      "export fun f(n: Int): Int =\n" +
+      "    try\n" +
+      "        n\n" +
+      "    catch\n" +
+      `        ${home}.${name}${slots} => 0\n`,
+    )).toEqual([]);
+  });
+
+  /** And an exception constructor is bare in expression position too. */
+  test("`throw` takes the bare constructor", () => {
+    expect(projectDiagnostics(
+      "export fun f(): Int = throw(KeyError)\n",
+    )).toEqual([]);
+    expect(projectDiagnostics(
+      "export fun f(): Int = throw(Map.KeyError)\n",
+    )).toEqual([]);
+  });
+});
+
+describe("the member channel: `show` only", () => {
+  test("`show` is bare, dot, and qualified alike", async () => {
+    const main = await runMain(
+      "export let bare: String = show(1)\n" +
+      "export let dotted: String = 1.show()\n" +
+      "export let qualified: String = Show.show(1)\n" +
+      "export let companion: String = Int.show(1)\n",
+    );
+    expect([main["bare"], main["dotted"], main["qualified"], main["companion"]])
+      .toEqual(["1", "1", "1", "1"]);
+  });
+
+  /**
+   * The seat is keyed by `Show.hex`'s **declaration identity**, not by the
+   * spelling (§5.5), so a *second prelude constraint* declaring a member spelled
+   * `show` seeds nothing — and the collided-name rule therefore never meets a
+   * second exporter of the one bare member.
+   *
+   * The second declaration has to be a prelude member's for the question to
+   * arise at all, so `Result.hex` is supplied by the project with one appended:
+   * the idiom the injection path already carries, its real source extended
+   * rather than replaced.
+   */
+  test("a second prelude constraint spelling `show` seeds nothing", () => {
+    const compiled = compileFiles([
+      ["/main.hex", "export let s: String = show(1)\n"],
+      [
+        "/Result.hex",
+        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        "export constraint Loud<a> =\n" +
+        "    show(value: a): String\n",
+      ],
+    ]);
+
+    // No ambiguity refusal: bare `show` still has exactly one seat, `Show.hex`'s
+    // declaration, because the second is a different identity.
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
+  });
+
+  test("every other member is refused, naming the dot and the declaring module", () => {
+    expect(projectDiagnostics("export let o(a: Int, b: Int): Ordering = compare(a, b)\n"))
+      .toEqual(["no bare `compare`; write `a.compare(b)` or `Ord.compare(a, b)`"]);
+    expect(projectDiagnostics("export let n(x: Int): Int = hash(x)\n"))
+      .toEqual(["no bare `hash`; write `x.hash()` or `Hash.hash(x)`"]);
+    expect(projectDiagnostics("export let b(x: Int, y: Int): Bool = equals(x, y)\n"))
+      .toEqual(["no bare `equals`; write `x.equals(y)` or `Eq.equals(x, y)`"]);
+  });
+
+  /** A receiver-less member has no dot form, so the message names one route. */
+  test("a receiver-less member names the declaring module alone", () => {
+    expect(projectDiagnostics("export let n(v: Nat): Int = fromNat(v)\n"))
+      .toEqual(["no bare `fromNat`; write `Num.fromNat(v)`"]);
+  });
+
+  /**
+   * **A member's in-module spelling is untouched** (§5.5's own carve-out): an
+   * honoring module binds its members at module level, and every Constraints
+   * §4.6 law about that spelling is written against it resolving.
+   */
+  test("an honoring module still writes its member's spelling bare", async () => {
+    const main = await runMain(
+      "export record Span = {lo: Int, hi: Int}\n" +
+      "\n" +
+      "honor Eq<Span> =\n" +
+      "    equals(left, right) = left.lo == right.lo and left.hi == right.hi\n" +
+      "\n" +
+      "export let same: Bool = equals(Span({lo = 1, hi = 2}), Span({lo = 1, hi = 2}))\n",
+    );
+    expect(main["same"]).toBe(true);
+  });
+
+  /** And a module that honors nothing of the name keeps the refusal. */
+  test("a module honoring nothing still meets the refusal", () => {
+    expect(projectDiagnostics(
+      "export record Span = {lo: Int}\n" +
+      "export let same(a: Int, b: Int): Bool = equals(a, b)\n",
+    )).toEqual(["no bare `equals`; write `a.equals(b)` or `Eq.equals(a, b)`"]);
+  });
+});
+
+/**
+ * **Every iterable keeps a spellable conversion.** `toSeq` left the bare layer
+ * with the rest of the member channel, so the two routes §5.5 names have to
+ * reach every `Iterable` — including the ones with no companion module of their
+ * own.
+ *
+ * `Range` is the case to verify rather than assume, and it is a **finding**: the
+ * dot form does *not* work at a `Range`, with or without an annotation, because
+ * `Range` has no module the dot can dispatch to (Method Syntax §4.1's table has
+ * no row for it). `Iterable.toSeq(1..10)` is the spelling, and `for x in 1..10`
+ * is untouched — the loop reads evidence, never this layer.
+ */
+describe("`toSeq` is reachable at every iterable", () => {
+  test("the dot form answers wherever the receiver has a companion", async () => {
+    const main = await runMain(
+      "export let text: Int = Seq.length(\"Hexagon\".toSeq())\n" +
+      "export let vector: Int = Seq.length([1, 2, 3].toSeq())\n",
+    );
+    expect([main["text"], main["vector"]]).toEqual([7, 3]);
+  });
+
+  test("the declaring constraint's spelling answers everywhere, `Range` included", async () => {
+    const main = await runMain(
+      "export let range: Int = Seq.length(Iterable.toSeq(1..10))\n" +
+      "export let text: Int = Seq.length(Iterable.toSeq(\"Hexagon\"))\n" +
+      "export let vector: Int = Seq.length(Iterable.toSeq([1, 2, 3]))\n",
+    );
+    expect([main["range"], main["text"], main["vector"]]).toEqual([10, 7, 3]);
+  });
+
+  /**
+   * The finding, pinned so it cannot change unnoticed: a `Range` receiver has no
+   * dot dispatch, and the diagnostic it draws already names `Iterable.toSeq(…)`
+   * as the route. If a `Range` companion ever lands this row is what says so.
+   */
+  test("a `Range` receiver has no dot dispatch, and is told the route", () => {
+    expect(projectDiagnostics("export let n(r: Range): Int = Seq.length(r.toSeq())\n"))
+      .toEqual([
+        "this value's type was inferred as a record with a `toSeq` field because " +
+        "its type was unknown where it was written; `Range` is not a record. " +
+        "Annotate it to use dispatch, or call `Iterable.toSeq(…)` directly.",
+      ]);
+  });
+
+  test("`for..in` over a range is untouched — it reads evidence, not this layer", async () => {
+    const main = await runMain(
+      "export fun total(): Int =\n" +
+      "    var t = 0\n" +
+      "    for x in 1..4\n" +
+      "        t := t + x\n" +
+      "    t\n" +
+      "export let sum: Int = total()\n",
+    );
+    expect(main["sum"]).toBe(10);
+  });
+});
+
+describe("the collided-name rule survives for the set, and is vacuous in it", () => {
+  /**
+   * §10 keeps the ambiguity row "for the set". It is vacuous in the shipped
+   * inventory — exception names are unique across the prelude, and the `show`
+   * seat is identity-keyed, so no second member ever enters bare scope — and
+   * that vacuity is what this row measures: no name in the layer has two homes.
+   */
+  test("no name in the bare set is exported by two prelude members", () => {
+    // A bare use of every one of the sixteen, compiled: the ambiguity refusal
+    // names itself in its own words, so its absence here is the whole claim.
+    const uses = BARE_SET
+      .map((name, index) => `export let n${index} = ${name}\n`)
+      .join("");
+    for (const message of projectDiagnostics(uses)) {
+      expect(message).not.toContain("is ambiguous: exported by");
+    }
+  });
+});

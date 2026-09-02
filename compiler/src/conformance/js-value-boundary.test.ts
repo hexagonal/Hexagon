@@ -441,7 +441,7 @@ describe("`JsValue.from` is the erased injection (§2)", () => {
   });
 
   /** §2: total. Every Hexagon value already is a JS value, so nothing is refused. */
-  test("it accepts every type, and the bare spelling is the same binding", () => {
+  test("it accepts every type, and the qualified spelling is the only one", () => {
     expect(projectDiagnostics(
       "export let a(n: Int): JsValue = JsValue.from(n)\n" +
         "export let b(s: String): JsValue = JsValue.from(s)\n" +
@@ -449,8 +449,10 @@ describe("`JsValue.from` is the erased injection (§2)", () => {
         "export let d(f: Int -> Int): JsValue = JsValue.from(f)\n" +
         "export let e(u: Unit): JsValue = JsValue.from(u)\n",
     )).toEqual([]);
-    expect(javascript("export let bare(n: Int): JsValue = from(n)\n"))
-      .toContain("const bare = n => n;");
+    // #742 took the bare spelling: `from` is `JsValue.hex`'s export like any
+    // other, so the refusal names its one home rather than the erasure running.
+    expect(projectDiagnostics("export let bare(n: Int): JsValue = from(n)\n"))
+      .toEqual(["no bare `from`; write `JsValue.from(n)`"]);
   });
 
   /**

@@ -72,6 +72,12 @@ describe("the module", () => {
       "Bool.hex",
       "Eq.hex",
       "Hash.hex",
+      // #742 rehomed the `Ordering` union to a module of its own, so that its
+      // now-qualified-only constructors have one to be spelled through
+      // (`Ordering.Less`, Modules §3.3/§5.5). It takes `Prelude.hex`'s old
+      // seat — after `Eq`/`Show`, which it derives, and before `Ord`, whose
+      // `compare` answers `Ordering` — and `Prelude.hex` keeps `ignore` alone.
+      "Ordering.hex",
       "Prelude.hex",
       "Ord.hex",
       "Integral.hex",
@@ -373,9 +379,8 @@ describe("two prelude members exporting one bare name", () => {
    */
   test("the bare name is refused, and the diagnostic names every home", () => {
     expect(projectDiagnostics("export let e: Vector(Int) = empty\n")).toEqual([
-      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, " +
-      "`Map`, and `Set`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or " +
-      "`Set.empty`",
+      "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
+      "or `Set.empty`",
     ]);
   });
 
@@ -407,20 +412,20 @@ describe("two prelude members exporting one bare name", () => {
       "export let f: Seq(Int) = map(Seq.empty, (x: Int): Int => x)\n" +
       "export let g: Option(Int) = last(b)\n",
     )).toEqual([
-      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, " +
-      "`Map`, and `Set`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or " +
-      "`Set.empty`",
-      "the prelude name `singleton` is ambiguous: exported by `Seq`, `Vector`, " +
-      "`Map`, and `Set`; write `Seq.singleton`, `Vector.singleton`, " +
-      "`Map.singleton`, or `Set.singleton`",
-      "the prelude name `prepend` is ambiguous: exported by `Seq` and `Vector`; " +
-      "write `Seq.prepend` or `Vector.prepend`",
-      "the prelude name `length` is ambiguous: exported by `Seq`, `Vector`, and " +
-      "`Array`; write `Seq.length`, `Vector.length`, or `Array.length`",
-      "the prelude name `isEmpty` is ambiguous: exported by `Vector`, `Map`, " +
-      "and `Set`; write `Vector.isEmpty`, `Map.isEmpty`, or `Set.isEmpty`",
-      "the prelude name `map` is ambiguous: exported by `Seq` and `Stream`; " +
-      "write `Seq.map` or `Stream.map`",
+      "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
+      "or `Set.empty`",
+      "no bare `singleton`; write `Seq.singleton(1)`, `Vector.singleton(1)`, " +
+      "`Map.singleton(1)`, or `Set.singleton(1)`",
+      "no bare `prepend`; write `b.prepend(1)`, `Seq.prepend(b, 1)`, " +
+      "or `Vector.prepend(b, 1)`",
+      "no bare `length`; write `b.length()`, `Seq.length(b)`, `Vector.length(b)`, " +
+      "or `Array.length(b)`",
+      "no bare `isEmpty`; write `b.isEmpty()`, `Vector.isEmpty(b)`, " +
+      "`Map.isEmpty(b)`, or `Set.isEmpty(b)`",
+      "no bare `map`; write `Seq.empty.map((x: Int): Int => x)`, " +
+      "`Seq.map(Seq.empty, (x: Int): Int => x)`, " +
+      "or `Stream.map(Seq.empty, (x: Int): Int => x)`",
+      "no bare `last`; write `b.last()` or `Vector.last(b)`",
     ]);
   });
 
@@ -459,18 +464,24 @@ describe("two prelude members exporting one bare name", () => {
   });
 
   /**
-   * **The collision set is computed from the members *visible here*, not from
-   * the prelude list.** A prelude member sees the members before it and only
-   * those (Modules §5.5), so inside `Result.hex` exactly one member exports
-   * `empty` and the bare spelling is ordinary — while the same spelling in a
-   * consumer, which sees `Vector.hex` too, is refused. One project, one name,
-   * two verdicts.
+   * **Prelude source is governed identically, its prelude layer being the
+   * visible prefix** (Modules §5.5's last sentence, #742): a prelude module
+   * reaches a predecessor's functions *qualified*, exactly as a consumer does,
+   * and only its own exports bare. Before the inversion this seat pinned the
+   * opposite half — a member seeing one exporter kept the bare spelling — and
+   * the pin is kept, turned over, because the discipline it guards is the same
+   * one: what a stdlib module may write, a user module may write.
+   *
+   * The route the message names is computed from the members *visible here*, so
+   * the same source draws a one-home rewrite inside `Result.hex` (`Seq.hex`
+   * alone precedes it) and a four-home one in the consumer. One project, one
+   * name, two sentences.
    *
    * `Result.hex` is supplied by the project rather than embedded, the idiom the
    * prelude injection path already carries; its real source is extended rather
    * than replaced, so this pins the rule and not a transcription.
    */
-  test("a member that sees one exporter keeps the name bare", () => {
+  test("a prelude member reaches a predecessor's function qualified, not bare", () => {
     const compiled = compileFiles([
       ["/main.hex", "export let consumer: Vector(Int) = empty\n"],
       [
@@ -481,10 +492,24 @@ describe("two prelude members exporting one bare name", () => {
     ]);
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
-      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, " +
-      "`Map`, and `Set`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or " +
-      "`Set.empty`",
+      "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
+      "or `Set.empty`",
+      "no bare `empty`; write `Seq.empty`",
     ]);
+  });
+
+  /** And the qualified spelling is what the member is expected to write. */
+  test("the same member compiles once the predecessor is qualified", () => {
+    const compiled = compileFiles([
+      ["/main.hex", "export let consumer: Vector(Int) = Vector.empty\n"],
+      [
+        "/Result.hex",
+        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        "export let member: Seq(Int) = Seq.empty\n",
+      ],
+    ]);
+
+    expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   });
 
   /**
@@ -507,9 +532,8 @@ describe("two prelude members exporting one bare name", () => {
     ]);
 
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
-      "the prelude name `empty` is ambiguous: exported by `Seq`, `Result`, " +
-      "`Vector`, `Map`, and `Set`; write `Seq.empty`, `Result.empty`, " +
-      "`Vector.empty`, `Map.empty`, or `Set.empty`",
+      "no bare `empty`; write `Seq.empty`, `Result.empty`, `Vector.empty`, " +
+      "`Map.empty`, or `Set.empty`",
     ]);
   });
 

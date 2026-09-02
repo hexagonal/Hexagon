@@ -67,7 +67,7 @@ describe("code actions", () => {
 
   test("files the variance offer as a refactor, since it repairs nothing", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "opaque record Box(a) = { get: () -> a }\nlog(\"${1}\")\n";
+    const source = "opaque record Box(a) = { get: () -> a }\nDebug.log(\"${1}\")\n";
     const caret = source.indexOf("(a)") + 1;
 
     const [action, ...rest] = analysis.codeActions(source, {
@@ -107,7 +107,7 @@ describe("code actions", () => {
     const source = "module Helper\n" +
       "    opaque record Box(a) = { get: () -> a }\n" +
       "end module Helper\n" +
-      "log(\"${1}\")\n";
+      "Debug.log(\"${1}\")\n";
 
     // That last offset is the first character of the `end module` line, and
     // which file claims it decides whether this request is answered at all:
@@ -125,7 +125,7 @@ describe("code actions", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int) = n * 2\n" +
       "end module Helper\n" +
-      "log(\"${Helper.twice(3)}\")\n";
+      "Debug.log(\"${Helper.twice(3)}\")\n";
 
     const actions = analysis.codeActions(source, {
       startOffset: at(source, "twice"),
@@ -149,7 +149,7 @@ describe("code actions", () => {
 describe("hover", () => {
   test("names what the value is, the way the language server does", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "let xs = [1, 2, 3]\nlog(\"${Vector.length(xs)}\")\n";
+    const source = "let xs = [1, 2, 3]\nDebug.log(\"${Vector.length(xs)}\")\n";
 
     const hover = analysis.hover(source, at(source, "xs"));
 
@@ -161,7 +161,7 @@ describe("hover", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "(** Doubles what it is given. *)\n" +
       "fun twice(n: Int): Int = n * 2\n" +
-      "log(\"${twice(3)}\")\n";
+      "Debug.log(\"${twice(3)}\")\n";
 
     const hover = analysis.hover(source, at(source, "twice", 1));
 
@@ -175,7 +175,7 @@ describe("hover", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      "log(\"${Helper.twice(3)}\")\n";
+      "Debug.log(\"${Helper.twice(3)}\")\n";
 
     const hover = analysis.hover(source, at(source, "twice"));
 
@@ -201,7 +201,7 @@ describe("hoverSpans", () => {
     "    opaque record Box(a) = { get: () -> a }",
     "end module Shapes",
     "let one = 1",
-    "log(\"${one}\")",
+    "Debug.log(\"${one}\")",
     "",
   ].join("\n");
 
@@ -271,7 +271,7 @@ describe("hoverSpans", () => {
 describe("definition and references", () => {
   test("goes from a use to the declaration that binds it", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "fun twice(n: Int): Int = n * 2\nlog(\"${twice(3)}\")\n";
+    const source = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
 
     const [definition, ...rest] = analysis.definitions(source, at(source, "twice", 1));
 
@@ -285,7 +285,7 @@ describe("definition and references", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      "log(\"${Helper.twice(3)}\")\n";
+      "Debug.log(\"${Helper.twice(3)}\")\n";
 
     const [definition] = analysis.definitions(source, at(source, "twice", 1));
 
@@ -294,14 +294,14 @@ describe("definition and references", () => {
 
   test("reports every mention, at the offsets the user can see", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "fun twice(n: Int): Int = n * 2\nlog(\"${twice(twice(3))}\")\n";
+    const source = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(twice(3))}\")\n";
 
     const found = analysis.references(source, at(source, "twice"));
 
     expect(found).toEqual([
       { startOffset: 4, endOffset: 9 },
-      { startOffset: 38, endOffset: 43 },
       { startOffset: 44, endOffset: 49 },
+      { startOffset: 50, endOffset: 55 },
     ]);
   });
 
@@ -313,7 +313,7 @@ describe("definition and references", () => {
     const source = "module Zed\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Zed\n" +
-      "log(\"${Zed.twice(Zed.twice(3))}\")\n";
+      "Debug.log(\"${Zed.twice(Zed.twice(3))}\")\n";
 
     const found = analysis.references(source, at(source, "twice"));
 
@@ -326,7 +326,7 @@ describe("definition and references", () => {
 
   test("has nowhere to go for a name declared in a hosted library", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "log(\"${Vector.length([1, 2, 3])}\")\n";
+    const source = "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
 
     expect(analysis.definitions(source, at(source, "length"))).toEqual([]);
   });
@@ -335,7 +335,7 @@ describe("definition and references", () => {
 describe("rename", () => {
   test("moves every mention, in buffer coordinates", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "fun twice(n: Int): Int = n * 2\nlog(\"${twice(twice(3))}\")\n";
+    const source = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(twice(3))}\")\n";
 
     const result = analysis.rename(source, at(source, "twice"), "double");
 
@@ -343,7 +343,7 @@ describe("rename", () => {
     if (result === undefined || "refused" in result) return;
     const renamed = applied(source, result.edits);
     expect(renamed).toBe(
-      "fun double(n: Int): Int = n * 2\nlog(\"${double(double(3))}\")\n",
+      "fun double(n: Int): Int = n * 2\nDebug.log(\"${double(double(3))}\")\n",
     );
     expect(compileSource(1, renamed)).toMatchObject({ kind: "compile-success" });
   });
@@ -353,7 +353,7 @@ describe("rename", () => {
     const source = "module Helper\n" +
       "    export fun twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      "log(\"${Helper.twice(3)}\")\n";
+      "Debug.log(\"${Helper.twice(3)}\")\n";
 
     const result = analysis.rename(source, at(source, "twice"), "double");
 
@@ -362,13 +362,13 @@ describe("rename", () => {
       "module Helper\n" +
         "    export fun double(n: Int): Int = n * 2\n" +
         "end module Helper\n" +
-        "log(\"${Helper.double(3)}\")\n",
+        "Debug.log(\"${Helper.double(3)}\")\n",
     );
   });
 
   test("refuses a name whose mentions reach a hosted library", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "log(\"${Vector.length([1, 2, 3])}\")\n";
+    const source = "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
 
     const result = analysis.rename(source, at(source, "length"), "size");
 
@@ -377,7 +377,7 @@ describe("rename", () => {
 
   test("prepares the identifier the editor should pre-fill", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "fun twice(n: Int): Int = n * 2\nlog(\"${twice(3)}\")\n";
+    const source = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
 
     const subject = analysis.prepareRename(source, at(source, "twice", 1));
 
@@ -396,13 +396,13 @@ describe("rename", () => {
     // it is the reason the user is shown. Swallowing it and answering nothing
     // leaves the editor silent exactly where there is something to say.
     expect(analysis.prepareRename(source, at(source, "Show"))).toEqual({
-      refused: "`Show` is declared in `/Prelude.hex`, which this project does not own",
+      refused: "`Show` is declared in `/Ordering.hex`, which this project does not own",
     });
   });
 
   test("passes the session's own rename refusal through, wording and all", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "fun twice(n: Int): Int = n * 2\nlet one = 1\nlog(\"${twice(one)}\")\n";
+    const source = "fun twice(n: Int): Int = n * 2\nlet one = 1\nDebug.log(\"${twice(one)}\")\n";
 
     // The rename is verified by re-analysing the project, so this reason is
     // the compiler's account of what the edit would have done. Replacing it
@@ -414,7 +414,7 @@ describe("rename", () => {
 
   test("refuses at prepare time whatever `rename` would refuse afterwards", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "log(\"${Vector.length([1, 2, 3])}\")\n";
+    const source = "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
     const caret = at(source, "length");
 
     // The identifier itself is in the buffer, so a prepare that asked only
@@ -433,8 +433,8 @@ describe("rename", () => {
 describe("the session across requests", () => {
   test("answers about the newest source it was asked about, not the first", () => {
     const analysis = new PlaygroundAnalysis();
-    const before = "fun twice(n: Int): Int = n * 2\nlog(\"${twice(3)}\")\n";
-    const after = "fun thrice(n: Int): Int = n * 3\nlog(\"${thrice(3)}\")\n";
+    const before = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
+    const after = "fun thrice(n: Int): Int = n * 3\nDebug.log(\"${thrice(3)}\")\n";
 
     expect(analysis.hover(before, at(before, "twice"))?.markdown).toBe(
       "value `twice: Int -> Int`",
@@ -458,7 +458,7 @@ describe("the session across requests", () => {
       '    import module Helper from "./Helper"\n' +
       "    export fun quadruple(n: Int): Int = Helper.twice(Helper.twice(n))\n" +
       "end module Extra\n" +
-      "log(\"${Extra.quadruple(3)}\")\n";
+      "Debug.log(\"${Extra.quadruple(3)}\")\n";
 
     const both = `${helper}${caller}`;
     expect(analysis.hover(both, at(both, "twice", 1))?.markdown).toBe(

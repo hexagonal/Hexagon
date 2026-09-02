@@ -381,6 +381,9 @@ export function compileProject(
       // `Vector`, which is what keeps the brand a property of the module rather
       // than of the directory a host happened to unpack the stdlib into.
       identity: moduleBrandIdentity(path, root, isInjected),
+      // Modules §5.5's refusal quotes the program back to itself; nothing else
+      // reads the text.
+      text: source.text,
       imports,
       symbolBase: isInjected ? preludeSymbolBase : symbolBase,
       unionBase: isInjected ? preludeUnionBase : unionBase,

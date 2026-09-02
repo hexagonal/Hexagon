@@ -65,7 +65,7 @@ describe("the issue specimen: a container agrees with its field's own instance",
     const source =
       "export record Metres derives Eq = {span: Int}\n" +
       "honor Ord<Metres> =\n" +
-      "    compare(left, right) = if left.span < right.span then Greater else if right.span < left.span then Less else Equal\n" +
+      "    compare(left, right) = if left.span < right.span then Ordering.Greater else if right.span < left.span then Ordering.Less else Ordering.Equal\n" +
       "export record Leg derives (Eq, Ord) = {distance: Metres}\n" +
       "export let legLt: Bool = Leg({distance = Metres({span = 1})}) < Leg({distance = Metres({span = 2})})\n" +
       "export let metresLt: Bool = Metres({span = 1}) < Metres({span = 2})\n";
@@ -82,7 +82,7 @@ describe("the issue specimen: a container agrees with its field's own instance",
     const emitted = javascript(
       "export record Metres2 derives Eq = {span: Int}\n" +
         "honor Ord<Metres2> =\n" +
-        "    compare(left, right) = if left.span < right.span then Greater else if right.span < left.span then Less else Equal\n" +
+        "    compare(left, right) = if left.span < right.span then Ordering.Greater else if right.span < left.span then Ordering.Less else Ordering.Equal\n" +
         "export record Leg2 derives (Eq, Ord) = {distance: Metres2}\n",
     );
 
@@ -135,7 +135,7 @@ describe("record fields", () => {
     const module = await runMain(
       "export record Backwards derives Eq = {rank: Int}\n" +
         "honor Ord<Backwards> =\n" +
-        "    compare(left, right) = if left.rank < right.rank then Greater else if right.rank < left.rank then Less else Equal\n" +
+        "    compare(left, right) = if left.rank < right.rank then Ordering.Greater else if right.rank < left.rank then Ordering.Less else Ordering.Equal\n" +
         "export record Pair derives (Eq, Ord) = {first: Backwards, second: Int}\n" +
         "let low = Backwards({rank = 1})\n" +
         "let high = Backwards({rank = 2})\n" +
@@ -158,7 +158,7 @@ describe("union payload slots", () => {
         "honor Eq<Payload> =\n" +
         "    equals(left, right) = False\n" +
         "honor Ord<Payload> =\n" +
-        "    compare(left, right) = if left.n < right.n then Greater else if right.n < left.n then Less else Equal\n" +
+        "    compare(left, right) = if left.n < right.n then Ordering.Greater else if right.n < left.n then Ordering.Less else Ordering.Equal\n" +
         "honor Show<Payload> =\n" +
         "    show(value) = \"LOUD\"\n" +
         "union Wrapped derives (Eq, Ord, Show) = Empty | Full(content: Payload)\n" +
@@ -207,7 +207,7 @@ describe("direct structural use sites run the same walk", () => {
     const module = await runMain(
       "export record Flip derives Eq = {rank: Int}\n" +
         "honor Ord<Flip> =\n" +
-        "    compare(left, right) = if left.rank < right.rank then Greater else if right.rank < left.rank then Less else Equal\n" +
+        "    compare(left, right) = if left.rank < right.rank then Ordering.Greater else if right.rank < left.rank then Ordering.Less else Ordering.Equal\n" +
         "honor Show<Flip> =\n" +
         "    show(value) = \"FLIP\"\n" +
         "export let vectorLt: Bool = [Flip({rank = 1})] < [Flip({rank = 2})]\n" +
@@ -262,7 +262,7 @@ describe("across module boundaries and through `opaque`", () => {
     "opaque record Metre derives Eq = {span: Int}\n" +
     "export fun metre(n: Int): Metre = Metre({span = n})\n" +
     "honor Ord<Metre> =\n" +
-    "    compare(left, right) = if left.span < right.span then Greater else if right.span < left.span then Less else Equal\n" +
+    "    compare(left, right) = if left.span < right.span then Ordering.Greater else if right.span < left.span then Ordering.Less else Ordering.Equal\n" +
     "honor Show<Metre> =\n" +
     "    show(value) = \"LOUD\"\n";
 
@@ -304,7 +304,7 @@ describe("the shape of a composed dictionary", () => {
       "export record Box(a) derives (Eq, Ord) = {item: a}\n" +
       "export record Span derives Eq = {units: Int}\n" +
       "honor Ord<Span> =\n" +
-      "    compare(left, right) = if left.units < right.units then Greater else if right.units < left.units then Less else Equal\n" +
+      "    compare(left, right) = if left.units < right.units then Ordering.Greater else if right.units < left.units then Ordering.Less else Ordering.Equal\n" +
       "export record Crate derives (Eq, Ord) = {boxed: Box(Span)}\n" +
       "export let crateLt: Bool = Crate({boxed = Box({item = Span({units = 1})})}) < Crate({boxed = Box({item = Span({units = 2})})})\n";
     const emitted = javascript(source);
@@ -326,7 +326,7 @@ describe("the shape of a composed dictionary", () => {
     const module = await runMain(
       "export record Weight derives Eq = {grams: Int}\n" +
         "honor Ord<Weight> =\n" +
-        "    compare(left, right) = if left.grams < right.grams then Greater else if right.grams < left.grams then Less else Equal\n" +
+        "    compare(left, right) = if left.grams < right.grams then Ordering.Greater else if right.grams < left.grams then Ordering.Less else Ordering.Equal\n" +
         "export record Parcel derives (Eq, Ord) = {mass: Weight}\n",
     );
 
@@ -354,7 +354,7 @@ describe("a component whose order is not its representation's order", () => {
     "    compare(left, right) =\n" +
     "        let leftProduct = left.top * right.bottom\n" +
     "        let rightProduct = right.top * left.bottom\n" +
-    "        if leftProduct < rightProduct then Less else if rightProduct < leftProduct then Greater else Equal\n";
+    "        if leftProduct < rightProduct then Ordering.Less else if rightProduct < leftProduct then Ordering.Greater else Ordering.Equal\n";
 
   test("a field of that type sorts by the cross-product, not by the fields", async () => {
     const module = await runMain(

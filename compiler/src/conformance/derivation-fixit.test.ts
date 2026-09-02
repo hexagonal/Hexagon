@@ -59,7 +59,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ["/main.hex", [
         "export record Point derives Eq = {n: Int}",
         "",
-        "export fun go(p: Point, q: Point): Ordering = compare(p, q)",
+        "export fun go(p: Point, q: Point): Ordering = Ord.compare(p, q)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -78,7 +78,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ["/main.hex", [
         "export record Point = {n: Int}",
         "",
-        "export fun go(p: Point, q: Point): Ordering = compare(p, q)",
+        "export fun go(p: Point, q: Point): Ordering = Ord.compare(p, q)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -95,7 +95,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ["/main.hex", [
         "export record Point derives Show = {n: Int}",
         "",
-        "export fun go(p: Point, q: Point): Ordering = compare(p, q)",
+        "export fun go(p: Point, q: Point): Ordering = Ord.compare(p, q)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -118,7 +118,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
         "honor Eq<Point> =",
         "    equals(left, right) = left.n == right.n",
         "",
-        "export fun go(p: Point, q: Point): Ordering = compare(p, q)",
+        "export fun go(p: Point, q: Point): Ordering = Ord.compare(p, q)",
         "",
       ].join("\n")],
     ])).toEqual([
@@ -399,7 +399,7 @@ describe("the gate: what draws no fixit at all", () => {
     // file no reader may edit.
     expect(messagesOf([
       ["/main.hex", [
-        "export fun go(m: Option(Int), n: Option(Int)): Ordering = compare(m, n)",
+        "export fun go(m: Option(Int), n: Option(Int)): Ordering = Ord.compare(m, n)",
         "",
       ].join("\n")],
     ])).toEqual([

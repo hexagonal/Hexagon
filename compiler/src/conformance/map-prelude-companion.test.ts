@@ -270,7 +270,7 @@ describe("§16 (i) the instances", () => {
         "let different: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"TWO\")])\n" +
         "let shorter: Map(Int, String) = Map.singleton(1, \"one\")\n" +
         "export let equal: Bool = left == right\n" +
-        "export let hashesAgree: Bool = hash(left) == hash(right)\n" +
+        "export let hashesAgree: Bool = Hash.hash(left) == Hash.hash(right)\n" +
         "export let valuesMatter: Bool = left == different\n" +
         "export let sizesMatter: Bool = left == shorter\n" +
         "export let emptiesAgree: Bool = Map.remove(shorter, 1) == Map.empty\n",
@@ -295,7 +295,7 @@ describe("§16 (i) the instances", () => {
         "export fun agrees(a: Int, b: Int, c: Int): (Bool, Bool, Int) =\n" +
         "    let one = build(a, b, c)\n" +
         "    let other = build(c, a, b)\n" +
-        "    (one == other, hash(one) == hash(other), Map.size(one))\n",
+        "    (one == other, Hash.hash(one) == Hash.hash(other), Map.size(one))\n",
     );
     const agrees = main["agrees"] as (a: number, b: number, c: number) => [boolean, boolean, number];
     fc.assert(
@@ -473,9 +473,8 @@ describe("the companion's surface", () => {
   test("the bare collided names are refused, and the qualified ones answer", async () => {
     expect(projectDiagnostics("export let e: Map(Int, Int) = empty\n")).toEqual([
       // Four homes since #373 seated `Set.hex`, which exports `empty` too.
-      "the prelude name `empty` is ambiguous: exported by `Seq`, `Vector`, " +
-      "`Map`, and `Set`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or " +
-      "`Set.empty`",
+      "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
+      "or `Set.empty`",
     ]);
     const main = await runMain(
       "export let n: Int = Map.size(Map.singleton(1, 2))\n" +
