@@ -1586,6 +1586,19 @@ class Checker {
    */
   #patternDepth = 0;
   /**
+   * Whether the pattern being checked is the top of a `match` arm.
+   *
+   * Pattern Matching §2.2's one suppression: at a `match`, §6.1's abstract-type
+   * refusal already guarantees the scrutinee's head is known when the arms are
+   * checked — **or the match is refused first**, and "§6.1 leads, and the
+   * door's refusal is not additionally reported". A scrutinee that is still an
+   * undetermined variable at the top of an arm is exactly the match §6.1 is
+   * about to refuse, so the door marks the head broken and says nothing.
+   * Beneath the top the refusal stands (§15(q)), and at every other seat — a
+   * `let`, a `for..in`, a lambda parameter — §6.1 has no report to lead with.
+   */
+  #matchArmTop = false;
+  /**
    * The prelude `Bool` union's identity (#147). `Bool` stopped being a primitive
    * and became `union Bool = False | True` declared in `stdlib/Bool.hex`, so every
    * condition, guard, logic operand, comparison result, and compiler-known
@@ -5689,8 +5702,14 @@ class Checker {
       case "Match": {
         const scrutinee = this.#inferExpr(expression.scrutinee, level);
         const result = this.#fresh(level, false);
+        const outerArmTop = this.#matchArmTop;
         for (const arm of expression.arms) {
-          this.#inferMatchPattern(arm.pattern, scrutinee, level);
+          this.#matchArmTop = true;
+          try {
+            this.#inferMatchPattern(arm.pattern, scrutinee, level);
+          } finally {
+            this.#matchArmTop = outerArmTop;
+          }
           if (arm.guard !== undefined) {
             const guard = this.#inferExpr(arm.guard, level);
             this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
@@ -6404,7 +6423,11 @@ class Checker {
       (pattern as { symbol?: Resolved.SymbolId }).symbol = found;
       return true;
     }
-    this.#reportClosedDoor(pattern, head);
+    // §6.1 leads at a `match` whose scrutinee is still undetermined: the match
+    // is about to be refused, and one report is the ruling.
+    if (!(this.#matchArmTop && this.#patternDepth === 0 && head.kind === "Variable")) {
+      this.#reportClosedDoor(pattern, head);
+    }
     this.#brokenPatterns.add(pattern);
     return false;
   }
