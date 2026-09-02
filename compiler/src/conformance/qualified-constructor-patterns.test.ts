@@ -262,7 +262,8 @@ describe("the hatch #466 depends on: an occluding module still reaches the prelu
     ).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
     expect(javascript).toContain(
-      "  switch (compare(a, b)) {\n" +
+      "  const __match = compare(a, b);\n" +
+      "  switch (__match.tag) {\n" +
       "    case \"Less\":\n" +
       "      return \"lt\";\n" +
       "    case \"Equal\":\n" +
@@ -271,9 +272,9 @@ describe("the hatch #466 depends on: an occluding module still reaches the prelu
       "      return \"gt\";\n",
     );
     expect(javascript).not.toContain("Prelude.");
-    // A constructor matched in a pattern compiles to its string tag, so the
-    // qualified spelling drags in no import of its own — the module's only
-    // import here is the one the `compare` call needs.
+    // A constructor matched in a pattern compiles to its tag, so the qualified
+    // spelling drags in no import of its own — the module's only import here is
+    // the one the `compare` call needs.
     expect(javascript.match(/^import /gmu)).toHaveLength(1);
   });
 });

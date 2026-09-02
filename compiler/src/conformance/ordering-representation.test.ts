@@ -9,9 +9,9 @@ import { compileMain, runMain } from "../support/test-project.js";
  * The defect was two representations meeting at a dictionary slot. `a < b`
  * lowered to `compare(a, b) < 0` — a *sign* test — while `Ord.compare` is
  * `(a, a) -> Ordering`, and `Ordering = Less | Equal | Greater` is an
- * all-nullary union, so a hand-written `honor Ord<T>` returns the Unions §6.2
- * name-strings. `"Less" < 0` is `false`, and so was `"Greater" > 0`: the
- * specimen below compiled with zero diagnostics and exported `false` for every
+ * union of nullary constructors, so a hand-written `honor Ord<T>` returns the
+ * Unions §6.1 tagged objects. `Less < 0` is `false`, and so was `Greater > 0`:
+ * the specimen below compiled with zero diagnostics and exported `false` for every
  * comparison. Derived instances escaped only because they emitted a *numeric*
  * comparator into the same slot — the other half of the nonconformance, and the
  * reason the two kinds of instance could not be mixed.
@@ -33,8 +33,8 @@ import { compileMain, runMain } from "../support/test-project.js";
  * of another test's source would silently assert against that test's module.
  */
 
-/** The three values a conforming `compare` slot may return. */
-const ORDERINGS = ["Less", "Equal", "Greater"];
+/** The three values a conforming `compare` slot may return (Unions §6.1). */
+const ORDERINGS = [{ tag: "Less" }, { tag: "Equal" }, { tag: "Greater" }];
 
 /** A dictionary as JS sees it across the FFI Part 9 boundary. */
 type OrdDictionary = { readonly compare: (left: unknown, right: unknown) => unknown };
@@ -198,7 +198,7 @@ describe("derived instances answer in the same representation", () => {
 describe("derivation composes with a hand-written instance", () => {
   test("a parameterized derived `Ord` calls the hand-written slot it is given", async () => {
     // The composition the defect broke in both directions at once: the derived
-    // `compare` received `"Less"` from the hand-written one and compared it to
+    // `compare` received `Less` from the hand-written one and compared it to
     // a number. `Box(a)`'s field is the type *variable*, so this is the one
     // record shape whose derived comparison genuinely delegates.
     const module = await runMain(
@@ -251,7 +251,7 @@ describe("the dictionary-passing path", () => {
   test("a generic `<=` works at a hand-written and at a derived instance", async () => {
     // `least` sees only a dictionary, so this is the path with no fast path to
     // fall back on: before the fix it returned `y` for every input, at every
-    // instantiation, because `"Less" <= 0` is `false`.
+    // instantiation, because `Less <= 0` is `false`.
     const module = await runMain(
       "export let least<a: Ord>(x: a, y: a): a = if x <= y then x else y\n" +
         "export record Volts derives Eq = {charge: Int}\n" +
@@ -323,19 +323,19 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
     const written = module["__Ord_Yards"] as OrdDictionary;
     const derived = module["__Ord_Feet"] as OrdDictionary;
 
-    expect(written.compare({ run: 1 }, { run: 2 })).toBe("Less");
-    expect(written.compare({ run: 2 }, { run: 1 })).toBe("Greater");
-    expect(written.compare({ run: 1 }, { run: 1 })).toBe("Equal");
+    expect(written.compare({ run: 1 }, { run: 2 })).toEqual({ tag: "Less" });
+    expect(written.compare({ run: 2 }, { run: 1 })).toEqual({ tag: "Greater" });
+    expect(written.compare({ run: 1 }, { run: 1 })).toEqual({ tag: "Equal" });
     // The whole point of the fix: the derived slot is indistinguishable.
-    expect(derived.compare({ step: 1 }, { step: 2 })).toBe("Less");
-    expect(derived.compare({ step: 2 }, { step: 1 })).toBe("Greater");
-    expect(derived.compare({ step: 1 }, { step: 1 })).toBe("Equal");
+    expect(derived.compare({ step: 1 }, { step: 2 })).toEqual({ tag: "Less" });
+    expect(derived.compare({ step: 2 }, { step: 1 })).toEqual({ tag: "Greater" });
+    expect(derived.compare({ step: 1 }, { step: 1 })).toEqual({ tag: "Equal" });
   });
 
   test("every derived slot shape returns one of the three, never a number", async () => {
     // One assertion per arm of the derived comparison: primitive leaf, `Float`
     // and `String` comparators, `Bool`, `Vector` (element and length), the
-    // all-nullary tag table, and a payload union's tag-then-payload path.
+    // payload-free tag table, and a payload union's tag-then-payload path.
     const module = await runMain(
       "export union Suit derives (Eq, Ord) =\n" +
         "    | Clubs\n" +
@@ -354,25 +354,29 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
     const hand = module["__Ord_Hand"] as OrdDictionary;
     const left = { flags: [false], label: "a", score: 1.0, seat: 1 };
 
-    expect(suit.compare("Clubs", "Spades")).toBe("Less");
-    expect(suit.compare("Spades", "Spades")).toBe("Equal");
-    expect(card.compare({ tag: "Joker" }, { tag: "Pip", rank: 0 })).toBe("Less");
-    expect(card.compare({ tag: "Pip", rank: 2 }, { tag: "Pip", rank: 1 })).toBe("Greater");
-    expect(card.compare({ tag: "Joker" }, { tag: "Joker" })).toBe("Equal");
+    // `Suit` is a union of nullary constructors, so its values are the same
+    // tagged objects `Card`'s are (#771) — the argument shape below is the
+    // whole of what the representation change means at this boundary.
+    expect(suit.compare({ tag: "Clubs" }, { tag: "Spades" })).toEqual({ tag: "Less" });
+    expect(suit.compare({ tag: "Spades" }, { tag: "Spades" })).toEqual({ tag: "Equal" });
+    expect(card.compare({ tag: "Joker" }, { tag: "Pip", rank: 0 })).toEqual({ tag: "Less" });
+    expect(card.compare({ tag: "Pip", rank: 2 }, { tag: "Pip", rank: 1 }))
+      .toEqual({ tag: "Greater" });
+    expect(card.compare({ tag: "Joker" }, { tag: "Joker" })).toEqual({ tag: "Equal" });
     // `flags` sorts first by field name, so each probe below moves exactly one
     // field away from `left` and the earlier fields stay equal.
-    expect(hand.compare(left, { ...left, flags: [true] })).toBe("Less");
-    expect(hand.compare(left, { ...left, flags: [false, false] })).toBe("Less");
-    expect(hand.compare(left, { ...left, label: "b" })).toBe("Less");
-    expect(hand.compare(left, { ...left, score: 2.0 })).toBe("Less");
-    expect(hand.compare(left, { ...left, seat: 0 })).toBe("Greater");
-    expect(hand.compare(left, { ...left })).toBe("Equal");
+    expect(hand.compare(left, { ...left, flags: [true] })).toEqual({ tag: "Less" });
+    expect(hand.compare(left, { ...left, flags: [false, false] })).toEqual({ tag: "Less" });
+    expect(hand.compare(left, { ...left, label: "b" })).toEqual({ tag: "Less" });
+    expect(hand.compare(left, { ...left, score: 2.0 })).toEqual({ tag: "Less" });
+    expect(hand.compare(left, { ...left, seat: 0 })).toEqual({ tag: "Greater" });
+    expect(hand.compare(left, { ...left })).toEqual({ tag: "Equal" });
     for (const probe of [left, { ...left, label: "b" }, { ...left, seat: 0 }]) {
-      expect(ORDERINGS).toContain(hand.compare(left, probe));
+      expect(ORDERINGS).toContainEqual(hand.compare(left, probe));
     }
   });
 
-  test("the `Unit` slot's constant is `\"Equal\"`, and `<=` tests it as a constructor", async () => {
+  test("the `Unit` slot's constant is the `Equal` object, and `<=` tests its tag", async () => {
     // #159 makes `Unit` the arity-0 tuple, whose structural comparison has no
     // components to compare. The constant used to be `0`; a slot may not hand a
     // number to a caller expecting an `Ordering`.
@@ -386,11 +390,15 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
     // module constant and the selection reads off it (#446); the slot's constant
     // — this test's subject — is unchanged by where the record is built.
     const text = javascript(source);
+    // The whole body is one `Ordering`, which is why this seat is the one that
+    // would break on an object literal: `(__left, __right) => { tag: "Equal" }`
+    // reads that object as a block and returns `undefined`. A hoisted name
+    // (#771 B1) opens no block, so no parentheses are needed here any more.
     expect(text).toContain(
-      'const __Ord_Unit = ({ compare: (__left, __right) => "Equal" });',
+      "const __Ord_Unit = ({ compare: (__left, __right) => __Equal });",
     );
     expect(text).toContain(
-      'const unitOrder = __Ord_Unit.compare(undefined, undefined) !== "Greater";',
+      'const unitOrder = __Ord_Unit.compare(undefined, undefined).tag !== "Greater";',
     );
   });
 
@@ -422,7 +430,7 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
     expect(text).toContain('__Ord_Float } from "./Float.js"');
     expect(text).toContain('__Ord_String } from "./String.js"');
     expect(companionText(source, "Int.hex")).toContain(
-      '(__a, __b) => __a < __b ? "Less" : __a > __b ? "Greater" : "Equal"',
+      "(__a, __b) => __a < __b ? __Less : __a > __b ? __Greater : __Equal",
     );
     expect(companionText(source, "Float.hex")).toContain(
       "(__a, __b) => __ordering(__compareFloat(__a, __b))",
@@ -433,8 +441,8 @@ describe("one representation, observable from JS (FFI Part 9)", () => {
     // And `ordering` and the comparators travelled with them, bodies and all,
     // into the companions that call them.
     expect(companionText(source, "Float.hex")).toContain(
-      'function __ordering(__sign) {\n' +
-        '  return __sign < 0 ? "Less" : __sign > 0 ? "Greater" : "Equal";\n' +
+      "function __ordering(__sign) {\n" +
+        "  return __sign < 0 ? __Less : __sign > 0 ? __Greater : __Equal;\n" +
         "}",
     );
     expect(companionText(source, "Float.hex"))

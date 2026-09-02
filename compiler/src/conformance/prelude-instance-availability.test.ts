@@ -127,9 +127,11 @@ describe("a type-only prelude mention has its instances", () => {
       // instance through the data-URL import cache.
       "export fun l(a: Ordering, b: Ordering): Bool = a == b\n",
     ]]);
-    const l = main["l"] as (a: string, b: string) => boolean;
-    expect(l("Less", "Less")).toBe(true);
-    expect(l("Less", "Greater")).toBe(false);
+    // An `Ordering` is the tagged object of Unions §6.1 (#771), so a JS caller
+    // hands one of those in.
+    const l = main["l"] as (a: unknown, b: unknown) => boolean;
+    expect(l({ tag: "Less" }, { tag: "Less" })).toBe(true);
+    expect(l({ tag: "Less" }, { tag: "Greater" })).toBe(false);
   });
 
   test("`Option` equality compiles and computes", async () => {
@@ -354,8 +356,10 @@ describe("an explicit import of a prelude module coexists with the channel", () 
     expect(exportLines(javascript)).toEqual(["export { f };", "export { first };"]);
 
     const main = await runProject([["/main.hex", source]]);
-    expect((main["f"] as (a: string, b: string) => boolean)("Less", "Less")).toBe(true);
-    expect(main["first"]).toBe("Less");
+    expect(
+      (main["f"] as (a: unknown, b: unknown) => boolean)({ tag: "Less" }, { tag: "Less" }),
+    ).toBe(true);
+    expect(main["first"]).toEqual({ tag: "Less" });
   });
 
   /**

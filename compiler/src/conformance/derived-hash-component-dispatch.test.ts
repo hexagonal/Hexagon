@@ -61,7 +61,7 @@ function javascript(source: string): string {
 }
 
 describe("a record's derived `Hash` over a reached union component", () => {
-  test("an untagged union reached through an alias still separates (#609 filed case)", async () => {
+  test("a payload-free union reached through an alias still separates (#609 filed case)", async () => {
     const module = await runProject([
       ["/flag.hex", "export union Flag derives (Eq, Hash) = On | Off\n"],
       [
@@ -89,7 +89,7 @@ describe("a record's derived `Hash` over a reached union component", () => {
     expect(module.equal).toBe(false);
   });
 
-  test("a tagged union reached through an alias separates by payload", async () => {
+  test("a payload-carrying union reached through an alias separates by payload", async () => {
     const module = await runProject([
       ["/shape.hex", "export union Shape derives (Eq, Hash) = Dot | Circle(radius: Int)\n"],
       [

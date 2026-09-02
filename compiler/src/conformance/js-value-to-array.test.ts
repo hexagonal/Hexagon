@@ -98,8 +98,9 @@ function borrowed(value: unknown): unknown {
   return result.value;
 }
 
+/** The constructor name of the `JsKind` `kind` answers — its `tag` (#771). */
 function kindOf(value: unknown): string {
-  return (exports_["kindOf"] as (v: unknown) => string)(value);
+  return (exports_["kindOf"] as (v: unknown) => { readonly tag: string })(value).tag;
 }
 
 beforeAll(async () => {

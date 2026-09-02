@@ -18,16 +18,15 @@ import { compileFiles, runProject } from "../support/test-project.js";
  * §3/§4 make mandatory — and nowhere else.
  *
  * What is *not* touched, and is pinned here so it stays that way: nullary
- * constructors of a mixed union (§6.1's shared constant), all-nullary unions
- * (§6.2), the `Bool` pin (#147), and the `.d.ts` face, which describes the type
- * rather than the emitted binding.
+ * constructors of a mixed union (§6.1's shared constant), unions whose
+ * constructors are all nullary (§6.2), the `Bool` pin (#147), and the `.d.ts`
+ * face, which describes the type rather than the emitted binding.
  *
  * A nullary constructor is a **value**, whatever shape §6.2 gives it — and #771
- * has just changed that shape in the spec, retiring the bare-string form for
- * §6.1's tagged object, with the emitter arc still to come. Nothing below pins
- * that shape: what these pin is the property this arc owns, that a nullary
- * construction is a *read* and never an application to erase, which is true on
- * either side of #771.
+ * changed that shape, retiring the bare-string form for §6.1's tagged object.
+ * Nothing below pins that shape: what these pin is the property this arc owns,
+ * that a nullary construction is a *read* and never an application to erase,
+ * which is true on either side of #771.
  */
 
 /** The emitted JavaScript of one module. */

@@ -846,7 +846,7 @@ describe("Pattern Matching §15 (o) — the door, and the absence of its express
         "export let after: Direction = turn(Direction.North)\n"],
     ] as const;
     expect(messages(files as never)).toEqual([]);
-    expect((await runProject(files as never))["after"]).toBe("East");
+    expect((await runProject(files as never))["after"]).toEqual({ tag: "East" });
   });
 
   test("an arm body has no door", () => {

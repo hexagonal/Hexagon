@@ -167,7 +167,7 @@ describe("Primitive Types §5's equality and order, executed", () => {
       .toEqual([true, true, true, true, true]);
     expect(exports["nanIsNotLess"]).toBe(false);
     expect(exports["zeroesTie"]).toBe(true);
-    expect(exports["ordered"]).toBe("Greater");
+    expect(exports["ordered"]).toEqual({ tag: "Greater" });
   });
 });
 

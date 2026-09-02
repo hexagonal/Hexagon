@@ -132,12 +132,12 @@ describe("the four spellings are one implementation", () => {
     ].join("\n"));
 
     // Unions §6.2's name-strings, which is what an `Ordering` is (#275).
-    expect(exports["qualified"]).toBe("Less");
-    expect(exports["dotted"]).toBe("Less");
-    expect(exports["generic"]).toBe("Less");
+    expect(exports["qualified"]).toEqual({ tag: "Less" });
+    expect(exports["dotted"]).toEqual({ tag: "Less" });
+    expect(exports["generic"]).toEqual({ tag: "Less" });
     expect(exports["operator"]).toBe(true);
-    expect(exports["reversed"]).toBe("Greater");
-    expect(exports["equal"]).toBe("Equal");
+    expect(exports["reversed"]).toEqual({ tag: "Greater" });
+    expect(exports["equal"]).toEqual({ tag: "Equal" });
   });
 });
 

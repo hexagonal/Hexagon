@@ -121,7 +121,7 @@ describe("Primitive Types §5's codepoint order, executed", () => {
 
     expect(exports["byCodepoint"]).toBe(true);
     expect(exports["notTheOtherWay"]).toBe(false);
-    expect(exports["ordered"]).toBe("Greater");
+    expect(exports["ordered"]).toEqual({ tag: "Greater" });
   });
 
   /** The ordinary cases, which must not have been traded away for that one. */
@@ -138,7 +138,7 @@ describe("Primitive Types §5's codepoint order, executed", () => {
     expect(exports["alphabetical"]).toBe(true);
     expect(exports["prefixFirst"]).toBe(true);
     expect(exports["upperFirst"]).toBe(true);
-    expect(exports["ties"]).toBe("Equal");
+    expect(exports["ties"]).toEqual({ tag: "Equal" });
     expect(exports["empty"]).toBe(true);
   });
 
