@@ -44,6 +44,7 @@
           "name": "Hexagon literal data",
           "scope": [
             "constant.character.escape.hexagon",
+            "constant.language.hexagon",
             "constant.numeric.integer.hexagon",
             "constant.numeric.float.hexagon",
             "constant.numeric.bigint.hexagon",
@@ -182,6 +183,7 @@
           "name": "Hexagon literal data",
           "scope": [
             "constant.character.escape.hexagon",
+            "constant.language.hexagon",
             "constant.numeric.integer.hexagon",
             "constant.numeric.float.hexagon",
             "constant.numeric.bigint.hexagon",

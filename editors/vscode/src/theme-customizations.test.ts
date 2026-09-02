@@ -22,6 +22,7 @@ const settingsPath = `${repositoryRoot}/.vscode/settings.json`;
 
 const deliberatelyInherited = new Set([
   "meta.extern.hexagon",
+  "meta.extern.enum.hexagon",
   "punctuation.accessor.hexagon",
   "punctuation.section.parens.begin.hexagon",
   "punctuation.section.parens.end.hexagon",

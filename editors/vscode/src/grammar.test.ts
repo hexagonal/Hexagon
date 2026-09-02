@@ -209,6 +209,51 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     }
   });
 
+  it("recognizes the literal `extern enum` head at module scope", async () => {
+    // spec/ffi-foreign-enums.md §2.4: the FFI's one module-free `extern` head.
+    // The `extern from` block rule must not claim it, and `enum` takes the same
+    // FFI scope it takes inside a block.
+    const pairs = await scopePairs('extern enum Direction = "up" as Up | "down" as Down');
+    expect(pairs).toContainEqual(["extern", "keyword.control.import.hexagon"]);
+    expect(pairs).toContainEqual(["enum", "keyword.other.ffi.hexagon"]);
+    expect(pairs).toContainEqual(["Direction", "entity.name.type.hexagon"]);
+    expect(pairs).toContainEqual(["up", "string.quoted.double.hexagon"]);
+    expect(pairs).toContainEqual(["as", "keyword.other.as.hexagon"]);
+    expect(pairs).toContainEqual(["Up", "entity.name.type.hexagon"]);
+  });
+
+  it("paints a literal enum's nullish and boolean members as constants", async () => {
+    // spec/lexer.md §4.1: `true`/`false` name the JavaScript booleans in this
+    // one position and no redirect fires, so they must not take the §10
+    // reserved-redirect-word scope here. §4.2: `null` and `undefined` are
+    // ordinary names everywhere else, and name JavaScript values only here.
+    const source = [
+      "export extern enum Tri derives (Eq) =",
+      "    | true as Yes",
+      "    | false as No",
+      "    | null as Unknown",
+      "    | undefined as Missing",
+      "let null = 3",
+    ].join("\n");
+    const pairs = await scopePairs(source);
+    for (const word of ["true", "false", "null", "undefined"]) {
+      expect(pairs).toContainEqual([word, "constant.language.hexagon"]);
+    }
+    expect(pairs).toContainEqual(["derives", "keyword.other.derives.hexagon"]);
+    // The declaration ends at the next line starting in column zero, so the
+    // ordinary binding below it is untouched.
+    expect(pairs).toContainEqual(["null", "variable.other.definition.hexagon"]);
+  });
+
+  it("still paints `true` and `false` as reserved outside a member position", async () => {
+    expect(await scope("let flag = true", "true")).toBe(
+      "invalid.illegal.reserved-redirect-word.hexagon",
+    );
+    expect(await scope('extern enum Bad = "a" as A\nlet flag = false', "false")).toBe(
+      "invalid.illegal.reserved-redirect-word.hexagon",
+    );
+  });
+
   it("recognizes FFI vocabulary inside an `extern from` block", async () => {
     const source = [
       'extern from "url-tools"',

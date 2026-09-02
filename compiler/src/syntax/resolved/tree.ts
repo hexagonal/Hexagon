@@ -7,6 +7,7 @@
 import type * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
 import type { Documentation } from "../../support/documentation.js";
+import type { ForeignLiteral } from "../../support/foreign-literal.js";
 
 declare const symbolIdBrand: unique symbol;
 declare const unionIdBrand: unique symbol;
@@ -1182,12 +1183,39 @@ export interface Union {
   readonly declaringPath?: string;
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
+  /** See `Parsed.UnionItem.externEnum` — Foreign Enums §2.4's literal form. */
+  readonly externEnum?: true;
+  /** See `EnumConversions`; present exactly with `externEnum`. */
+  readonly conversions?: EnumConversions;
 }
 
 export interface Constructor {
   readonly binding: Binding;
   readonly slots: readonly ConstructorSlot[];
+  /** See `Parsed.Constructor.literal` — Foreign Enums §2.4's member value. */
+  readonly literal?: ForeignLiteral;
   readonly span: Source.Span;
+}
+
+/**
+ * The two conversion bindings a literal `extern enum` introduces beside itself
+ * (Foreign Enums §5.2): `fromJsT : JsValue -> Option(T)` and
+ * `toJsT : T -> JsValue`, for the declaration's own local type name `T`.
+ *
+ * They are ordinary module-level term bindings — declared, scoped, exported and
+ * collision-checked exactly as a `let` is — that no source text writes. They
+ * ride the declaration rather than standing as items of their own because
+ * everything about them is derived from it: their names, their types, their
+ * visibility, and the bodies the emitter supplies. Absent when the prelude's
+ * `Option` is not reachable, which is only ever a module compiled without one.
+ */
+export interface EnumConversions {
+  readonly fromJs: Binding;
+  readonly toJs: Binding;
+  /** `JsValue -> Option(T)`, built by the resolver from the declaration. */
+  readonly fromJsAnnotation: TypeAnnotation;
+  /** `T -> JsValue`, likewise. */
+  readonly toJsAnnotation: TypeAnnotation;
 }
 
 export interface ConstructorSlot {
@@ -1206,6 +1234,10 @@ export interface UnionItem {
   readonly declaredParameters?: readonly DeclaredTypeParameter[];
   readonly derives: readonly string[];
   readonly constructors: readonly Constructor[];
+  /** See `Parsed.UnionItem.externEnum` — Foreign Enums §2.4's literal form. */
+  readonly externEnum?: true;
+  /** See `EnumConversions`; present exactly with `externEnum`. */
+  readonly conversions?: EnumConversions;
   readonly span: Source.Span;
 }
 

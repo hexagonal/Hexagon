@@ -142,6 +142,58 @@ describe("AnalysisSession", () => {
     expect(hover?.displayedType).toBeUndefined();
   });
 
+  /**
+   * A literal `extern enum` (Foreign Enums §2.4) is a union inside Hexagon, so
+   * every editor service reads it as one: the type hovers as a union and colours
+   * as an `enum`, and its members hover as values and colour as `enumMember`.
+   * Nothing here knows the form exists, which is the point of representing it as
+   * a union rather than as a kind of its own.
+   */
+  test("a literal `extern enum` answers as the union it is", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let start: Direction = Up",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+
+    const type = session.hover("/main.hex", at(source, "Direction", 2));
+    expect(type?.name).toBe("Direction");
+    expect(type?.target?.kind).toBe("union");
+
+    const member = session.hover("/main.hex", at(source, "Up", 2));
+    expect(member?.name).toBe("Up");
+    expect(member?.displayedType).toBe("Direction");
+
+    const tokens = session.semanticTokens("/main.hex");
+    const spelling = (token: { span: { start: { offset: number }; end: { offset: number } } }) =>
+      source.slice(token.span.start.offset, token.span.end.offset);
+    expect(tokens.filter((token) => spelling(token) === "Direction")
+      .map(({ type: kind }) => kind)).toEqual(["enum", "enum"]);
+    expect(tokens.filter((token) => spelling(token) === "Up")
+      .map(({ type: kind }) => kind)).toEqual(["enumMember", "enumMember"]);
+  });
+
+  /**
+   * The conversions §5.2 generates are ordinary term bindings, so a reference to
+   * one hovers with the signature the declaration gave it. They are written by
+   * no one, so they carry the declared type name's span — which is why hovering
+   * the *declaration* answers about the type, not about them.
+   */
+  test("a generated conversion hovers with its signature", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const hover = session.hover("/main.hex", at(source, "fromJsDirection"));
+    expect(hover?.name).toBe("fromJsDirection");
+    expect(hover?.displayedType).toBe("JsValue -> Option(Direction)");
+  });
+
   test("a position with nothing at it answers nothing", () => {
     const { session } = sessionOf({ "/main.hex": "let value: Int = 1\n" });
     const inWhitespace = at("let value: Int = 1\n", " ");

@@ -9,6 +9,7 @@ import type * as Source from "../../support/source.js";
 import type { Documentation } from "../../support/documentation.js";
 import type * as Resolved from "../resolved/index.js";
 import type * as Typed from "../typed/index.js";
+import type { ForeignLiteral } from "../../support/foreign-literal.js";
 
 export type Evidence = PrimitiveEvidence | DictionaryEvidence | InstanceEvidence | StructuralEvidence | ErrorEvidence;
 
@@ -342,10 +343,16 @@ export interface Union {
   readonly representationVisible: boolean;
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
+  /** See `Parsed.UnionItem.externEnum` — Foreign Enums §2.4's literal form. */
+  readonly externEnum?: true;
+  /** See `Typed.EnumConversions`; present exactly with `externEnum`. */
+  readonly conversions?: Typed.EnumConversions;
 }
 
 export interface Constructor extends Binding {
   readonly slots: readonly ConstructorSlot[];
+  /** See `Parsed.Constructor.literal` — Foreign Enums §2.4's member value. */
+  readonly literal?: ForeignLiteral;
 }
 
 export interface ConstructorSlot {
@@ -362,6 +369,10 @@ export interface UnionItem {
   readonly name: string;
   readonly parameters: readonly Typed.TypeVariableId[];
   readonly constructors: readonly Constructor[];
+  /** See `Parsed.UnionItem.externEnum` — Foreign Enums §2.4's literal form. */
+  readonly externEnum?: true;
+  /** See `Typed.EnumConversions`; present exactly with `externEnum`. */
+  readonly conversions?: Typed.EnumConversions;
   readonly span: Source.Span;
 }
 

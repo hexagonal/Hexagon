@@ -195,6 +195,21 @@ interface ImportTypeBindings {
 }
 
 /**
+ * The two conversion bindings a literal `extern enum` introduces (Foreign Enums
+ * §5.2), as names to declare: `fromJsT` and `toJsT` for a local type name `T`.
+ *
+ * The spellings prefix the **unchanged** local type name — no acronym case
+ * conversion — which is what lets several enums live in one binding module.
+ * Both carry the declared name's span, having none of their own.
+ */
+function enumConversionNames(name: Parsed.Name): readonly [Parsed.Name, Parsed.Name] {
+  return [
+    { text: `fromJs${name.text}`, startClass: "non-upper", span: name.span },
+    { text: `toJs${name.text}`, startClass: "non-upper", span: name.span },
+  ];
+}
+
+/**
  * The **term**-namespace names a type-namespace declaration binds: a union's and
  * record's constructors, an exception's, a constraint's members. Functions §7.2
  * governs their references — value position, and equally the pattern position a
@@ -205,7 +220,17 @@ function termNamesBound(
   item: Parsed.Item,
 ): readonly { readonly name: Parsed.Name; readonly owner: string }[] {
   if (item.kind === "Union") {
-    return item.constructors.map(({ name }) => ({ name, owner: "union" }));
+    const constructors = item.constructors.map(({ name }) => ({ name, owner: "union" }));
+    if (item.externEnum !== true) return constructors;
+    // A literal `extern enum` binds two more term names than its constructors:
+    // the conversions of Foreign Enums §5.2, `fromJsT` and `toJsT`. They are
+    // written by no one, so they carry the declared type name's span — which is
+    // the seat a reader points at to ask where `fromJsTri` came from, and the
+    // one the rebinding label names when an explicit binding contests it.
+    return [
+      ...constructors,
+      ...enumConversionNames(item.name).map((name) => ({ name, owner: "enum" })),
+    ];
   }
   if (item.kind === "RecordDeclaration") return [{ name: item.name, owner: "record" }];
   if (item.kind === "Exception") return [{ name: item.name, owner: "exception" }];
@@ -984,6 +1009,14 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
         const symbol = symbols.get(constructor.binding.symbol);
         if (symbol !== undefined) terms.set(constructor.binding.name, symbol);
       }
+      // Foreign Enums §2.3: `export extern enum` exports the local nominal type,
+      // every local constructor, **and the generated conversion bindings** —
+      // §5.2's `fromJsT`/`toJsT`, which are ordinary terms and cross as ordinary
+      // terms. A private declaration exports neither, like any private `let`.
+      for (const binding of item.conversions === undefined ? [] : [item.conversions.fromJs, item.conversions.toJs]) {
+        const symbol = symbols.get(binding.symbol);
+        if (symbol !== undefined) terms.set(binding.name, symbol);
+      }
     } else if (item.kind === "RecordDeclaration") {
       const record = module.records.find(({ id }) => id === item.record);
       const symbol = symbols.get(item.constructor.symbol);
@@ -1056,6 +1089,14 @@ export function internalNameInputs(
           ? [declaration.localName]
           : []
       );
+    }
+    // A literal `extern enum`'s conversions are exported *terms* with
+    // non-uppercase spellings (Foreign Enums §5.2), so they contest an internal
+    // export name exactly as a `let` does and belong on this list for the same
+    // reason. Its constructors do not: they are uppercase-start, like every
+    // other union's.
+    if (item.kind === "Union" && item.exported && item.conversions !== undefined) {
+      return [item.conversions.fromJs.name, item.conversions.toJs.name];
     }
     return (item.kind === "Let" || item.kind === "Fun") && item.exported
       ? [item.binding.name]
@@ -3231,9 +3272,14 @@ class Resolver {
               annotation: this.#resolveTypeAnnotation(slot.annotation, typeParameters),
               span: slot.span,
             })),
+            ...(constructor.literal === undefined ? {} : { literal: constructor.literal }),
             span: constructor.span,
           };
         });
+        const externEnum = item.externEnum === true ? { externEnum: true as const } : {};
+        const conversions = item.externEnum === true
+          ? this.#enumConversions(item, union, scope)
+          : undefined;
         const declaration: Resolved.Union = {
           id: union,
           name: item.name.text,
@@ -3249,6 +3295,8 @@ class Resolver {
           ...(this.#path === undefined ? {} : { declaringPath: this.#path }),
           span: item.name.span,
           constructors,
+          ...externEnum,
+          ...(conversions === undefined ? {} : { conversions }),
         };
         this.#unions.push(declaration);
         return {
@@ -3261,6 +3309,8 @@ class Resolver {
           declaredParameters: item.declaredParameters,
           derives: item.derives.map(({ text }) => text),
           constructors,
+          ...externEnum,
+          ...(conversions === undefined ? {} : { conversions }),
           span: item.span,
         };
       }
@@ -5055,6 +5105,76 @@ class Resolver {
       primary: annotation.span,
     });
     return { kind: "ErrorType", span: annotation.span };
+  }
+
+  /**
+   * The two conversion bindings a literal `extern enum` introduces beside itself
+   * (Foreign Enums §5.2): `fromJsT : JsValue -> Option(T)` and
+   * `toJsT : T -> JsValue`.
+   *
+   * They are declared here exactly as a module-level `let` is — the same
+   * `#declare`, the same `scope.define`, the same `#reportRebinding` on a
+   * contest — because that is what they are. §5.2 refuses a silent suffix, and
+   * this is how the refusal is got: the second declaration of the spelling finds
+   * the first through the ordinary lookup and reports it, whichever of the two
+   * origins was written and whichever was generated.
+   *
+   * The signatures are built rather than parsed, because no source text writes
+   * them. `Option` is reached through the prelude's own identity, not through
+   * whatever a module may have named `Option` (Modules §5.5); a compilation with
+   * no prelude at all has no `Option` to name and generates nothing, which is
+   * exactly the compilation that could not have used the bindings either.
+   */
+  #enumConversions(
+    item: Parsed.UnionItem,
+    union: Resolved.UnionId,
+    scope: Scope,
+  ): Resolved.EnumConversions | undefined {
+    const option = this.#preludeUnions.get("Option");
+    if (option === undefined) return undefined;
+    const span = item.name.span;
+    const subject: Resolved.TypeAnnotation = {
+      kind: "Union",
+      union,
+      name: item.name.text,
+      arguments: [],
+      span,
+    };
+    const jsValue: Resolved.TypeAnnotation = { kind: "JsValue", span };
+    const [fromJsName, toJsName] = enumConversionNames(item.name);
+    const declare = (name: Parsed.Name): Resolved.Binding => {
+      const existing = scope === this.#moduleScope
+        ? scope.lookupLocal(name.text)
+        : this.#lookupTerm(name.text, scope);
+      if (existing !== undefined) this.#reportRebinding(name, existing);
+      const binding = this.#declare(name, "let");
+      if (existing === undefined) {
+        scope.define(name.text, binding.symbol, item.span.end.offset);
+      }
+      return binding;
+    };
+    return {
+      fromJs: declare(fromJsName),
+      toJs: declare(toJsName),
+      fromJsAnnotation: {
+        kind: "Function",
+        parameters: [jsValue],
+        result: {
+          kind: "Union",
+          union: option,
+          name: "Option",
+          arguments: [subject],
+          span,
+        },
+        span,
+      },
+      toJsAnnotation: {
+        kind: "Function",
+        parameters: [subject],
+        result: jsValue,
+        span,
+      },
+    };
   }
 
   #declare(
