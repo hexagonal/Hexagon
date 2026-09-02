@@ -397,15 +397,7 @@ values are distinct. A `null` or `undefined` member is a member of the set, not 
 absence, so `Nullable(Tri)` is simply `Tri`. That cuts both ways: `Tri` names `null`
 and not `undefined`, so an `undefined` arriving at a `Tri`-typed slot is out of set,
 exactly as `"maybe"` would be. An API that means absence by `undefined` beside a `null`
-member says so:
-
-```hexagon
-extern enum Tri =
-    | true as Yes
-    | false as No
-    | null as Unknown
-    | undefined as Missing
-```
+member says so with a fourth line, `| undefined as Missing`.
 
 An ordinary `extern class` remains opaque. Describing static singleton instances with
 `extern enum` is an explicit stronger promise that the listed instances form a closed

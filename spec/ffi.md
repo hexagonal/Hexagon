@@ -96,7 +96,7 @@ Final names and faces only; the authoritative full table is **Part 1 §4.1**, de
 | `JsMap(k,v)` / `JsSet(a)` | borrowed native `Map`/`Set` | `ReadonlyMap<k,v>` / `ReadonlySet<a>` | Part 10 |
 | `JsValue` | any JS value, identity | `unknown` | Part 11 |
 | opaque families (opaque record/union, extern `type`, extern class) | erased/foreign value, identity | generated private-symbol brand — save Part 7 §2.3-pinned types, whose declaration seat is the pin's alias (#622) | Part 7 §5 |
-| `extern enum` | captured foreign member values | per `ffi-foreign-enums.md` §7.2 | Foreign Enums |
+| `extern enum` | captured foreign member values, or the declaration's own literals (the literal form) | per `ffi-foreign-enums.md` §7.2 — brand for the object-reading form, the literal union for the literal form | Foreign Enums |
 | functions/callbacks | n-ary JS functions, same order, same object | function types | Part 6 |
 | dictionaries (JS-facing evidence) | frozen-where-practical runtime records | `Constraint.Dictionary<a>` (branded) | Part 9 |
 

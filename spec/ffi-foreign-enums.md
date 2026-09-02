@@ -166,9 +166,9 @@ export extern enum Tri derives (Eq, Show) =
   contains no operators, so there is no unary minus to collide with; `-0` denotes `0`,
   so `0 as A | -0 as B` is the duplicate-value refusal, and no signed zero ever reaches
   §4's `switch`. Kinds mix freely within one declaration; the values are pairwise
-  distinct under `Object.is` (§3 rule 5). A plain foreign `boolean` is `Bool` (Unions
-  §6.2's pin) and wants no enum; the literal form's `true`/`false` are for a set a
-  boolean shares with other values. Not a
+  distinct under `Object.is` (§3 rule 5).
+- **A plain foreign `boolean` is `Bool`** (Unions §6.2's pin) and wants no enum; the
+  literal form's `true`/`false` are for a set a boolean shares with other values. Not a
   literal: a float literal — `NaN` and signed zero separate `Object.is` from `===`, and
   §4's `switch` lowering rests on their agreement — an interpolated string, or any
   expression. Refused with "a literal enum member is a string, integer, boolean, `null`
@@ -276,8 +276,8 @@ and object/singleton identity with one rule. The compiler may use a `switch` or 
 only when it can prove the result identical for every declared member representation.
 The literal form is that case by construction — every member is a string, integer,
 boolean or nullish literal, on which `===` agrees with `Object.is` — so a literal
-enum's match lowers to a `switch` on the scrutinee (`Order`, the book's example:
-`extern enum Order = "asc" as Ascending | "desc" as Descending`):
+enum's match lowers to a `switch` on the scrutinee — here for
+`extern enum Order = "asc" as Ascending | "desc" as Descending`:
 
 ```js
 switch (order) {
