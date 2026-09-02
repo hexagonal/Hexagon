@@ -36,8 +36,8 @@ export union Direction = North | East | South | West
 export exception ParseError(line: Int)
 ```
 
-Hexagon has named exports only. There is no `export default`, and an import always says
-which name it receives.
+Hexagon has named exports only. There is no `export default`, and an import always
+names the module it binds.
 
 A declaration exports the things it introduces. Exporting a record publishes its type
 and constructor. Exporting a union publishes its type and constructors. Exporting a
@@ -49,57 +49,34 @@ An unexported name is genuinely inaccessible from another module. Qualification 
 a privacy escape hatch, and emitted JavaScript simply does not export the private
 binding.
 
-## Imports can be direct or qualified
+## Imports bind modules
 
-Hexagon's import rules are similar to JavaScript's ES module rules. Named imports,
-aliases, qualified module imports, and effect-only imports all have familiar forms;
-the details below state Hexagon's exact rules.
-
-Module paths are relative string literals with the extension omitted:
+An import brings one module into scope under a name you choose. That is the whole of
+it: there is no form that imports a single function, type, or constructor by name.
 
 ```hexagon
-import { Point, distanceFromOrigin } from "./geometry"
-```
-
-A named import brings the exported name into the current module. One record import
-brings both the type and its constructor because the record declaration introduced
-both:
-
-```hexagon
-let point: Point = Point({x = 3.0, y = 4.0})
-let distance = distanceFromOrigin(point)
-```
-
-Union constructors are separate exported names. Import whichever alternatives the
-module uses:
-
-```hexagon
-import { Direction, North, South } from "./direction"
-```
-
-An alias resolves a collision or gives a more specific local name:
-
-```hexagon
-import { area as circleArea } from "./circle"
-import { area as rectangleArea } from "./rectangle"
-```
-
-For sustained qualified use, bind a module alias:
-
-```hexagon
-import module Geo from "./geometry"
+import Geo from "./geometry"
 
 let point = Geo.Point({x = 3.0, y = 4.0})
 let distance = Geo.distanceFromOrigin(point)
 ```
 
-Qualification works in term, type, and pattern positions:
+Module paths are relative string literals with the extension omitted. The alias begins
+with an uppercase letter, and every export is reached through it: terms, types,
+constructors, and constraints alike. Qualification works in term, type, and pattern
+positions:
 
 ```hexagon
 let length(point: Geo.Point): Float = Geo.distanceFromOrigin(point)
 ```
 
-Module aliases begin with an uppercase letter. They are namespaces, not values:
+A reader of the consuming file can see where every name comes from without opening
+another file. That is the property the rule buys, and it is why the line reads like a
+JavaScript default import but is not one. JavaScript's `import Geo from "./geometry"`
+asks for a default export; Hexagon has none, and the same spelling binds the whole
+module. The uppercase alias is the tell.
+
+Module aliases are namespaces, not values:
 
 ```hexagon
 let saved = Geo // error: modules are not values
@@ -108,21 +85,57 @@ let saved = Geo // error: modules are not values
 They cannot be passed to a function, returned, or stored in a record. Functions and
 records already provide those forms of program data.
 
-## Effect imports load without binding names
+## A bare name is a declaration
 
-The fourth import form brings a module into the program graph without introducing a
-local name:
+When a qualified spelling is more than a file wants to write, the file declares the
+bare name itself. A module-level `let` binds a function or a value and keeps its
+polymorphism; a `type` alias names a type:
 
 ```hexagon
-import "./telemetry"
+import Geo from "./geometry"
+
+let distance = Geo.distanceFromOrigin
+type Point = Geo.Point
 ```
 
-This is useful when the imported module has deliberate top-level effects. It can also
-make an orphan-legal instance available to the whole program without importing an
-ordinary value from its module.
+Each of these is an ordinary declaration, so it obeys the ordinary rules: it is private
+unless exported, and it collides with other declarations the way any binding does. An
+import cannot introduce a name that silently shadows one of yours, because an import
+introduces no bare names at all.
 
-Effect imports should be rare and conspicuous. Most modules expose values and
-functions, leaving callers to decide when effects occur.
+Constructors have two doors of their own, neither needing a declaration. The first is
+the companion idiom below: an alias spelled like an exported type also answers for that
+type and for a same-named record constructor. The second is the `match` arm. The
+constructors of the scrutinee's type may be written bare in a pattern, whatever module
+declared them:
+
+```hexagon
+import Direction from "./direction"
+
+let turn(d: Direction): Direction =
+    match d
+        North => Direction.East
+        East => Direction.South
+        South => Direction.West
+        West => Direction.North
+```
+
+The pattern side reads the constructor off the type the compiler already knows the
+scrutinee to have, so `North` in an arm means `Direction.North` unless this file
+declares a `North` of its own. The expression side has no such anchor, which is why the
+arm bodies spell the constructor qualified. A constructor you declared in this file
+wins the bare spelling in both places; the door only opens where the name would
+otherwise be unknown.
+
+## Modules are imported for their names
+
+There is no import that loads a module for its effects alone. A pure Hexagon module
+holds no state, so it cannot register anything at load time; the idiom for a setup
+effect is an exported function the importer calls, `Telemetry.init()`, where the reader
+can see when it runs. A module that exists to be run is a root module, covered below,
+not something another file imports. Instances need no loading step either: naming a
+type brings its home module, and with it the instances declared there, into the
+program.
 
 ## Companion modules give operations a home
 
@@ -140,24 +153,23 @@ export let translate(point: Point, dx: Float, dy: Float): Point =
     {point with x = point.x + dx, y = point.y + dy}
 ```
 
-A consumer may import the type and give the module the same name:
+A consumer gives the module the type's own name:
 
 ```hexagon
-import { Point } from "./point"
-import module Point from "./point"
+import Point from "./point"
 
 let start: Point = Point({x = 1.0, y = 2.0})
 let moved = Point.translate(start, 3.0, 4.0)
 ```
 
-The type, constructor, and module alias occupy different namespaces. Type position
-selects the type, bare `Point(...)` selects the constructor, and `Point.` selects the
-module. Many modules instead choose a plural alias, but the companion spelling is
+One line, three readings. `Point.` selects the module. `Point` in type position selects
+the type, because the module exports a type spelled like the alias. Bare `Point(...)`
+selects the constructor, for the same reason, in an expression and in a pattern. These
+are the companion fallbacks: where the alias's own spelling names nothing in the type
+or term namespace, a same-spelled export of the aliased module answers. A module whose
+type is not spelled like its alias takes the qualified spelling, or a `type` alias of
+your own. Many modules choose a plural alias instead; the companion spelling is
 available without a special module system.
-
-Since the companion fallback (Modules §5.1 rule 2), the namespace import alone also
-covers type position whenever the alias matches the exported type's spelling — in this
-example the named import is doing constructor duty, not type duty.
 
 Dot calls build on this exact organization. If `translate` is exported and subject
 first, `start.translate(3.0, 4.0)` resolves to the companion operation.
@@ -334,13 +346,19 @@ polymorphic type system used for private bindings.
 
 ## Names remain predictable
 
-Two named imports that would introduce the same name in one namespace are an error.
-Use an alias or qualification rather than relying on import order:
+Two imports that bind the same alias are an error, and the importer chooses the
+aliases, so the fix is always local:
 
 ```hexagon
-import { render as renderMap } from "./map-view"
-import { render as renderChart } from "./chart-view"
+import MapView from "./map-view"
+import ChartView from "./chart-view"
+
+let renderMap = MapView.render
+let renderChart = ChartView.render
 ```
+
+Nothing an import does can change the meaning of a name you declared, because an
+import declares nothing but its alias.
 
 The prelude sits in an outer scope layer, and it puts very little into it bare: the
 constructors `True`, `False`, `Some`, `None`, `Ok`, `Err`, the exceptions, `ignore`, and
@@ -375,9 +393,9 @@ source order.
 Top-level expressions are allowed when they produce `Unit`:
 
 ```hexagon
-import { print } from "./console"
+import Console from "./console"
 
-print("application loaded")
+Console.print("application loaded")
 ```
 
 The ordinary discarded-value rule still applies. A meaningful non-`Unit` value must
@@ -390,9 +408,9 @@ a root module; evaluating the resulting ESM graph loads its imports and performs
 top-level effects.
 
 ```hexagon
-import { runServer } from "./server"
+import Server from "./server"
 
-runServer(configuration)
+Server.start(configuration)
 ```
 
 That file can be selected as an application root or imported by another module. The
@@ -409,7 +427,7 @@ is an interoperation concern, not module-level Hexagon mutation.
 One Hexagon file emits as one ESM file. The source:
 
 ```hexagon
-import { Point } from "./point"
+import Point from "./point"
 
 export let origin: Point = Point({x = 0.0, y = 0.0})
 let label = "origin"
@@ -424,9 +442,11 @@ export const origin = Point({x: 0.0, y: 0.0});
 const label = "origin";
 ```
 
-Private declarations remain ordinary private ESM bindings. Effect imports remain bare
-imports. Qualified source calls resolve statically, so emitted code may use precise
-named imports rather than constructing runtime module objects.
+Private declarations remain ordinary private ESM bindings. The module import emits as
+the precise named imports the file actually uses, here the constructor `Point`, rather
+than a runtime module object. That is why the source and the JavaScript spell the
+import differently: the source binds a module, and the JavaScript binds the names that
+module supplied.
 
 Companion modules now give every exported subject-first operation an unambiguous home.
 The next chapter uses that fact to explain the convenient dot-call spelling.
@@ -435,7 +455,10 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 
 - one `.hex` file is one module, identified by its path and requiring no header;
 - declarations are private unless prefixed with `export`;
-- imports may be named, aliased, namespace-qualified, or effect-only;
+- an import binds one module under an alias the importer chooses, and nothing else;
+  a module is imported for its names, never loaded for its effects;
+- a bare name is a declaration of your own, a companion fallback, or a constructor in
+  a `match` arm;
 - module aliases are namespaces, not first-class values;
 - companion modules give subject-first operations a predictable qualified home;
 - `opaque` exports the type name alone, hiding a record's fields or a union's constructors outside its home;

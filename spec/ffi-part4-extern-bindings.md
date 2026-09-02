@@ -81,7 +81,7 @@ The unaliased or right-hand name is the local Hexagon binding. This is the same 
 The foreign JavaScript name and local Hexagon name are checked independently. The
 foreign side must be an ECMAScript identifier and retains its exact export spelling;
 the local side obeys ordinary Hexagon role rules: term bindings are
-non-uppercase-start and type bindings uppercase-start (Lexer §3; Modules §3.2).
+non-uppercase-start and type bindings uppercase-start (Lexer §3; the module alias's own rule is Modules §3.1's).
 Duplicate local bindings collide under the ordinary module-level rules.
 
 A consequence worth stating: a foreign export whose name violates Hexagon's local start-class rules **or Lexer §3.2's reserved `__` prefix** requires an alias. `let VERSION: String` alone would introduce an uppercase-start term and is rejected with the named rewrite:
@@ -268,9 +268,9 @@ import { parse } from "tiny-json";
 export { parse };
 ```
 
-(Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §6: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import module TinyJson from "./tiny-json"` — the extern block never forces its consumers to know it is an extern block.
+(Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §6: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import TinyJson from "./tiny-json"` — the extern block never forces its consumers to know it is an extern block.
 
-Exported extern bindings are ordinary Hexagon exports thereafter: importable, aliasable, namespace-qualifiable. The `.d.ts` details of the re-exported face are Part 7's.
+Exported extern bindings are ordinary Hexagon exports thereafter: reached through a module alias like any export (Modules §3.1). The `.d.ts` details of the re-exported face are Part 7's.
 
 ---
 
@@ -282,7 +282,7 @@ Exported extern bindings are ordinary Hexagon exports thereafter: importable, al
 extern import "telemetry/register"
 ```
 
-This introduces **no bindings** and executes the foreign module's top-level effects. It is the extern counterpart of Modules §3.4's `import "./telemetry"` and remains visibly distinct from it: `import "..."` pulls a Hexagon module into the graph (chiefly for its instances); `extern import "..."` evaluates a foreign JavaScript module for its side effects. The reader can always tell which world a specifier lives in by the keyword in front of it.
+This introduces **no bindings** and executes the foreign module's top-level effects. It has no Hexagon-side counterpart: a Hexagon module is imported for its names, never loaded for its effects (Modules §3.3 — a pure Hexagon module cannot be a registration point), so `extern import "..."` is the one form whose purpose is loading, and it names a foreign module only. The reader can always tell which world a specifier lives in by the keyword in front of it.
 
 Representative emission is the identity:
 
@@ -396,7 +396,7 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 | `type` declares a nominal opaque foreign type: no structure, constructor, or instances; representation-direct by identity; distinct declarations are distinct types; exported `.d.ts` face is a generated opaque brand | §5, §12.3 |
 | `default fun`/`default let` binds the JS default export; private by default; `export default fun` exports a **named** Hexagon binding — never a Hexagon/emitted default export; no `as` on `default` | §6 |
 | Per-declaration `export` inside the block; exported extern bindings re-exported from the facade and present in its `.d.ts` | §7 |
-| `extern import "specifier"`: effect-only, no bindings; visibly distinct from Hexagon `import "./x"`; foreign evaluation follows ordinary ESM semantics | §8 |
+| `extern import "specifier"`: effect-only, no bindings; the one loading form — Hexagon has no effect import (Modules §3.3); foreign evaluation follows ordinary ESM semantics | §8 |
 | Fixed visible arity; explicit nullish slots modeled with `Nullable(...)` + `Nullable.undefined`/`Nullable.null`; no optional/default/rest/overloads in v1 | §9, §11 |
 | Globals, CommonJS forms, overloads, rest/variadic, string export names, opaque callables deferred with a concrete-library revisit bar | §11 |
 | Generic extern declarations are monomorphic in v1; parameterized types/functions/classes deferred as one family | §11, §12.4 |

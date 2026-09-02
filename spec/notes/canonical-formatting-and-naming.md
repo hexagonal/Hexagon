@@ -44,8 +44,8 @@ declarations through this list before considering the segment done.
 - **N6 [canonical]** Prefer `let` over `fun`; `fun` is for recursion only.
   (Functions §3.2)
 - **N7 [enforced]** Module aliases are uppercase-start, mandatorily
-  (`import module Geo`). An import alias's start class matches what it names.
-  (Modules §3.3, §3.2)
+  (`import Geo from "./geometry"`); an import binds nothing else.
+  (Modules §3.1)
 - **N8 [canonical]** `create` for smart constructors is cultural guidance,
   never a compiler-special name. (FFI Part 5)
 

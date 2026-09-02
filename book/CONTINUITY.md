@@ -284,9 +284,10 @@ late pedagogy pass, not a commitment to the current order.
 - Assumes module-level declarations and exports as light previews throughout the book,
   plus constraints, instances, derivation, nominal records/unions, and top-level
   `Unit` expressions.
-- Establishes one-file/one-module identity, privacy by default, named/aliased/namespace
-  and effect imports, named exports, module aliases, companion modules, prelude
-  occlusion, acyclic loading, selected roots, and direct ESM emission.
+- Establishes one-file/one-module identity, privacy by default, the single module
+  import form, named exports, module aliases, companion modules, the constructor doors
+  (companion fallback and the `match`-arm door), prelude occlusion, acyclic loading,
+  selected roots, and direct ESM emission.
 - Introduces **opacity** for records and unions after privacy and home modules are
   available. Opacity hides structure but not lawful capabilities.
 - Establishes that modules are namespaces rather than values and that Hexagon has no
@@ -491,7 +492,7 @@ late pedagogy pass, not a commitment to the current order.
   `let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9` — the doctrine's own specimen
   (spec/friendly-numerics.md §1) — in both the book and the Playground (#529). `Rat`
   is outside the prelude by design, so a file project reaching for it writes
-  `import { Rat } from "…"`; the Playground injects that line as equipment, which is
+  `import Rat from "…"`; the Playground injects that line as equipment, which is
   why the example carries no import.
 - Primitive boundary table (seven rows, #158): `Nat`/`Int`/`Float` → `number`,
   `Bool` → `boolean` (by the Unions representation pin), `String` → `string`,
@@ -785,8 +786,12 @@ late pedagogy pass, not a commitment to the current order.
   header.
 - Declarations are private by default. Hexagon has named exports only and no default
   export or re-export syntax in the current language.
-- Four import forms are established: named, aliased named, namespace, and effect.
-  Relative paths omit `.hex`.
+- One import form is established: `import Geo from "./geometry"` binds a module under
+  an uppercase alias and nothing smaller; there is no named, aliased, or effect import,
+  and a module is imported for its names, never loaded for its effects. A bare name is
+  a declaration (`let`, `type`), a companion fallback (type and same-named constructor
+  through the alias), or a constructor written bare in a `match` arm, resolved from the
+  scrutinee's type. Relative paths omit `.hex`.
 - Module aliases are uppercase namespaces, never values. The same spelling may name a
   type/constructor and its companion module because positions select namespaces.
 - `opaque` is limited to nominal records and unions. It exports only the type,

@@ -436,8 +436,8 @@ export let plus<a: Num>(x: a, y: a): a = x + y
 constraint Weighty<a> = weight(x: a): Float        -- no fundamental instances
 export let heaviest<a: Weighty>(xs: Vector(a)): Option(a) = ...
 -- with no public non-fundamental Weighty instance: no foreign typed entry
--- points. Not an error: another Hexagon module may `import { heaviest }`,
--- honor Weighty<Grams>, and call it — that is what `export` is for.
+-- points. Not an error: another Hexagon module may import this one, honor
+-- Weighty<Grams>, and call `Lib.heaviest` — that is what `export` is for.
 -- Obligations checked: generated docs state the absence and the two ways an
 -- entry point would appear; the §10 build report lists `heaviest` by name.
 

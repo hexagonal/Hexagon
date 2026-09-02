@@ -210,7 +210,7 @@ Per §9: same rules, codepoint windows.
 
 ## 7. The core API
 
-The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.` prefixed; bare names when imported). The full combinator set (`map`, `filter`, `fold`, `reverse`, `sort`, `contains`, `indexOf`, `insertAt`, `removeAt`, …) is ledgered in `stdlib-roadmap.md`; this doc fixes the core:
+The core surface, under the Part 1 §3 naming doctrine (subject-first, `Vector.` prefixed — qualified or by the dot, as every prelude function is, Modules §5.5). The full combinator set (`map`, `filter`, `fold`, `reverse`, `sort`, `contains`, `indexOf`, `insertAt`, `removeAt`, …) is ledgered in `stdlib-roadmap.md`; this doc fixes the core:
 
 | Function | Type | Notes |
 |---|---|---|
