@@ -627,6 +627,6 @@ let pairKey(pair: (a, Unit)): a =
     let (key, _) = pair
     key
 
-// Every element of `s`, lazily — one `Seq.map` projection of the trie's own
-// walk, so the order caveats on `entries` above apply here unchanged.
-let members(s: HashSet(a)): Seq(a) = Seq.map(entries(s.trie), pairKey)
+// Every element of `s`, lazily — one `map` projection of the trie's own walk,
+// so the order caveats on `entries` above apply here unchanged.
+let members(s: HashSet(a)): Seq(a) = entries(s.trie).map(pairKey)

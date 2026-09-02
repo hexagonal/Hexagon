@@ -35,7 +35,7 @@ extern from "hex:intrinsic"
     // provided row (Collections Part 5 section 4), so `toSeq` at a vector is
     // the constraint member, and a module-level binding of a member's spelling
     // beside the instance is the Constraints section 4.6 rebinding error. The
-    // consumer spellings are the bare member `toSeq(values)` and the
+    // consumer spellings are the dot call `values.toSeq()` and the
     // uniform-access read `Vector.toSeq(values)`; neither is an export of this
     // file.
     //
