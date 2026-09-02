@@ -445,8 +445,8 @@ const label = "origin";
 Private declarations remain ordinary private ESM bindings. The module import lowers to
 JavaScript's own namespace import, `import * as Point`; a name the file reaches through
 the alias is spelled on that local, and a record construction erases into its object
-literal before any name is needed. The compiler may use named imports instead where
-they read better; either shape means the same program.
+literal before any name is needed. Where a file reaches several of a module's names, the
+compiler may use named imports instead; either shape means the same program.
 
 Companion modules now give every exported subject-first operation an unambiguous home.
 The next chapter uses that fact to explain the convenient dot-call spelling.
