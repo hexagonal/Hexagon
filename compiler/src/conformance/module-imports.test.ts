@@ -124,13 +124,13 @@ describe("Modules §5.1 rule 3 — the term-position fallback, in both its shape
   });
 
   test("— and the emitted reference is the alias's own qualified access", () => {
-    // **Interim, and pinned as such (#770).** Unions §6.4 erases a union
-    // construction into its object literal at every seat, home and abroad, so
-    // the spec's golden here is `const t = {tag: "Tag", n: 7};` and no name is
-    // emitted for the constructor at all. The emitter does not yet erase
-    // abroad; that is its own arc. What this pins is the property #765 owes:
-    // the reference is never `Tag(7)`, which calls the namespace object and
-    // throws. When #770 lands, this expectation becomes the erased literal.
+    // **Interim, and §13(k)'s own parenthetical says so (#770).** Unions §6.4
+    // erases a union construction into its object literal at every seat, home
+    // and abroad, so the spec's golden here is `const t = {tag: "Tag", n: 7};`
+    // and no name is emitted for the constructor at all. The emitter does not
+    // yet erase abroad; that is #770's arc. What this pins is the property #765
+    // owes: the reference is never `Tag(7)`, which calls the namespace object
+    // and throws. When #770 lands, this expectation becomes the erased literal.
     const javascript = emitted([
       TAG,
       ["/main.hex", 'import Tag from "./tag"\nexport let t: Tag = Tag(7)\n'],
@@ -151,7 +151,7 @@ describe("Modules §5.1 rule 3 — the term-position fallback, in both its shape
         'import Tag from "./tag"\n' +
         "export let mk: (Int) -> Tag = Tag\n"],
     ], "/main.hex");
-    expect(javascript).toContain("Tag.Tag");
+    expect(javascript).toContain("const mk = Tag.Tag;");
   });
 
   test("a nominal record's constructor runs too, and erases to its object", async () => {
@@ -334,22 +334,20 @@ describe("§13 (i) — instance globality, and the effect import that is gone", 
 /**
  * Emission (Modules §11.2–§11.3).
  *
- * **What is pinned here is the shipped lowering, not §13(k)'s golden text.** A
- * module-alias import has lowered to `import * as Alias from "./m.js"` since
- * #565/#569, and #569 ruled that the emitted JavaScript keeps that shape; §13
- * (k)'s golden and §11.2's "Named imports always" predate it and are stale.
- * Both ESM shapes mean one thing — every `Alias.name` resolves at compile time
- * to a specific export either way (§11.2's own reason for permitting the
- * namespace form) — so nothing observable rides on which is written. The spec
- * seat is amending the two sections; these tests say what the emitter does and
- * claim no golden.
+ * **These are §13(k)'s golden, as #768 amended it.** §11.2 is now "Resolved
+ * names, either ESM shape": a module-alias import may lower to JavaScript's
+ * namespace import — `import * as Geo from "./geometry.js"`, the shape it has
+ * had since #565/#569 — or to named imports, semantics identical either way,
+ * since every `Alias.name` resolves at compile time to a specific export. §13
+ * (k)'s golden carries the namespace form, with the named shape noted as
+ * equally lawful. The tests below match it.
  *
- * One expectation below is **interim** rather than the shipped design: a union
- * construction reached through §5.1 rule 3 emits `Tag.Tag(7)` where Unions
- * §6.4's golden is the erased object literal `const t = {tag: "Tag", n: 7};`.
- * The emitter's failure to erase abroad is a standing gap, filed as **#770**
- * and owned by its own arc; #765 owes only that the reference is never a call
- * on the namespace object. See the rule 3 block above.
+ * One expectation is **interim** and §13(k) says so in its own parenthetical: a
+ * union construction reached through §5.1 rule 3 emits `Tag.Tag(7)` where
+ * Unions §6.4's erasure gives `const t = {tag: "Tag", n: 7};`. The emitter's
+ * failure to erase abroad is a standing gap, filed as **#770** and owned by its
+ * own arc; #765 owes only that the reference is never a call on the namespace
+ * object. See the rule 3 block above.
  */
 describe("emission: the module form's ESM shape (§11.2–§11.3)", () => {
   test("the module form emits the namespace import; either ESM shape, one meaning", () => {
@@ -1018,6 +1016,91 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
       "`Box` here is `Box.Box`; this pattern matches a `H.Box` — " +
         "write `H.Box({q = 0})`",
     ]);
+  });
+
+  test("no alias reaching the home routes the rewrite through the one the clause binds", () => {
+    // §12's third reading, at the tier the alias cases never reach: the expected
+    // type arrives through a facade, so this file holds no alias for its home
+    // and bare is taken by the rival. §7.3 tier 3 answers with the bare name
+    // plus a route — right for a witness, which is pasted once the import
+    // exists, and wrong for a rewrite, where the bare word *is* the rival. So
+    // the rewrite is spelled through the alias the clause binds, and the clause
+    // rides with it.
+    expect(messages([
+      ["/direction.hex", "export union Holder = North | Empty\n"],
+      ["/mid.hex",
+        'import Lib from "./direction"\n' +
+        "export fun get(): Lib.Holder = Lib.Empty\n"],
+      ["/main.hex",
+        'import Mid from "./mid"\n' +
+        "union Compass = North | South\n" +
+        "export fun f(): Int =\n" +
+        "    match Mid.get()\n" +
+        "        North => 1\n" +
+        "        _ => 0\n"],
+    ])).toEqual([
+      "`North` here is `Compass.North`; this arm matches a `Holder` — " +
+        "write `Direction.North` — `North` is declared in `./direction`, and " +
+        "this module binds another `North`; `import Direction from \"./direction\"` " +
+        "and spell it `Direction.North`",
+    ]);
+  });
+
+  test("— and the spelling it names compiles, once the import it names is made", () => {
+    expect(messages([
+      ["/direction.hex", "export union Holder = North | Empty\n"],
+      ["/mid.hex",
+        'import Lib from "./direction"\n' +
+        "export fun get(): Lib.Holder = Lib.Empty\n"],
+      ["/main.hex",
+        'import Mid from "./mid"\n' +
+        'import Direction from "./direction"\n' +
+        "union Compass = North | South\n" +
+        "export fun f(): Int =\n" +
+        "    match Mid.get()\n" +
+        "        Direction.North => 1\n" +
+        "        _ => 0\n"],
+    ])).toEqual([]);
+  });
+
+  test("— and at tier 3 the rewrite still echoes the reader's own sub-pattern", () => {
+    expect(messages([
+      ["/direction.hex", "export union Holder = North(n: Int) | Empty\n"],
+      ["/mid.hex",
+        'import Lib from "./direction"\n' +
+        "export fun get(): Lib.Holder = Lib.Empty\n"],
+      ["/main.hex",
+        'import Mid from "./mid"\n' +
+        "union Compass = North(m: Int) | South\n" +
+        "export fun f(): Int =\n" +
+        "    match Mid.get()\n" +
+        "        North(n) => n\n" +
+        "        _ => 0\n"],
+    ])).toEqual([
+      "`North` here is `Compass.North`; this arm matches a `Holder` — " +
+        "write `Direction.North(n)` — `North` is declared in `./direction`, and " +
+        "this module binds another `North`; `import Direction from \"./direction\"` " +
+        "and spell it `Direction.North`",
+    ]);
+  });
+
+  test("the rewrite is never the rival's own word", () => {
+    // The property the whole reading exists for, asserted directly: whatever
+    // spelling is offered, pasting it must not reproduce the same error.
+    const reported = messages([
+      ["/direction.hex", "export union Holder = North | Empty\n"],
+      ["/mid.hex",
+        'import Lib from "./direction"\n' +
+        "export fun get(): Lib.Holder = Lib.Empty\n"],
+      ["/main.hex",
+        'import Mid from "./mid"\n' +
+        "union Compass = North | South\n" +
+        "export fun f(): Int =\n" +
+        "    match Mid.get()\n" +
+        "        North => 1\n" +
+        "        _ => 0\n"],
+    ])[0] ?? "";
+    expect(reported).not.toContain("— write `North`");
   });
 
   test("an opaque expected type leads with its own refusal, naming no private spelling", () => {

@@ -125,6 +125,39 @@ describe("tier 2: the qualified spelling", () => {
     ])).toEqual([]);
   });
 
+  test("a spelling rule 3 answers for is taken, so a witness qualifies past it", () => {
+    // §5.1 rule 3's fallback answers a bare spelling without *binding* it, so a
+    // scope-derived table reads the word as free and offers it as pastable —
+    // which it is not: bare `Box` under `import Box from "./box"` means that
+    // module's `Box`, not the constructor the witness is naming. The table
+    // carries the fallback's answers, and tier 2 takes over.
+    expect(diagnostics([
+      ["/box.hex", "export union Box = Box(n: Int) | Lid\n"],
+      ["/shapes.hex", "export union Shape = Box(n: Int) | Round\n"],
+      [
+        "/main.hex",
+        'import Shapes from "./shapes"\n' +
+        'import Box from "./box"\n' +
+        "export fun f(s: Shapes.Shape): Int =\n" +
+        "    match s\n" +
+        "        Round => 1\n",
+      ],
+    ])).toEqual(["match is missing cases: `Shapes.Box(_)`"]);
+  });
+
+  test("— and the control, with no rival alias, keeps the bare witness", () => {
+    expect(diagnostics([
+      ["/shapes.hex", "export union Shape = Box(n: Int) | Round\n"],
+      [
+        "/main.hex",
+        'import Shapes from "./shapes"\n' +
+        "export fun f(s: Shapes.Shape): Int =\n" +
+        "    match s\n" +
+        "        Round => 1\n",
+      ],
+    ])).toEqual(["match is missing cases: `Box(_)`"]);
+  });
+
   test("a taken bare spelling prints through the alias that reaches the real one", () => {
     // Tier 2's surviving second case since the door: bare `Off` in this module
     // means the *local* union's constructor, so the witness would name the

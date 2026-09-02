@@ -9547,10 +9547,12 @@ class Checker {
     // spelling the rewrite uses, and `expected Box, found Box` cannot recur in
     // the sentence written to replace it.
     const spelling = this.#pastableConstructorSpelling(head, wanted);
-    const subject = head.kind === "NominalRecord" ? spelling : this.#display(head);
+    if (spelling === undefined) return undefined;
+    const subject = head.kind === "NominalRecord" ? spelling.text : this.#display(head);
     return `\`${pattern.text}\` here is ${rival.phrase}; this ${rival.seat} ` +
       `matches a \`${subject}\` — write ` +
-      `\`${spelling}${renderArguments(pattern.arguments)}\``;
+      `\`${spelling.text}${renderArguments(pattern.arguments)}\`` +
+      spelling.clause;
   }
 
   /**
@@ -9629,18 +9631,66 @@ class Checker {
   }
 
 
-  /** §7.3's tiers, for the constructor the expected type holds. */
-  #pastableConstructorSpelling(head: Mono, symbol: Resolved.SymbolId): string {
+  /**
+   * §7.3's tiers, for the constructor the expected type holds — **with tier 3's
+   * route**, exactly as the two witness seats carry it.
+   *
+   * Pattern Matching §12's third reading is "the *pastable* spelling of the
+   * constructor the expected type does hold … bare is taken by the rival, so
+   * the tiers fall to the alias qualification or to the module route, and the
+   * reader is never handed a word that would resolve back to the rival". Tier 3
+   * answers with the **bare** name plus a route, which is right for a witness —
+   * a witness is a pattern to paste once the named import exists — and wrong
+   * for a rewrite, where the bare word is the rival. So at tier 3 the rewrite
+   * is spelled through the alias the clause binds, and the clause rides with
+   * it, which is the shape Constraints §5.1.1's advised spelling already has
+   * ("write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib` … and spell
+   * it `Lib.Heft`").
+   *
+   * `undefined` where no honest third reading exists: a compilation with no
+   * paths cannot name a file, so the clause is empty and the only spelling left
+   * is the rival's own — and the caller falls back to the ordinary mismatch
+   * rather than print it.
+   */
+  #pastableConstructorSpelling(
+    head: Mono,
+    symbol: Resolved.SymbolId,
+  ): { readonly text: string; readonly clause: string } | undefined {
     const binding = this.#constructorBinding(head, symbol);
-    if (binding === undefined) return this.#display(head);
+    if (binding === undefined) return { text: this.#display(head), clause: "" };
+    // The declaring path travels for a record as it does for a union: without
+    // it `#constructorSpelling` cannot reach tier 3 at all and answers bare,
+    // which is the same fault one nominal over.
     const home = head.kind === "Union"
       ? {
           path: this.#programUnion(head.union)?.declaringPath ??
             this.#unions.get(head.union)?.declaringPath,
           prelude: this.#preludeUnionIds.has(head.union),
         }
+      : head.kind === "NominalRecord"
+      ? {
+          path: this.#programRecord(head.record)?.declaringPath ??
+            this.#records.get(head.record)?.declaringPath,
+          prelude: this.#preludeRecordIds.has(head.record),
+        }
       : { path: undefined, prelude: false };
-    return this.#constructorSpelling(binding, home).text;
+    const { text, route } = this.#constructorSpelling(binding, home);
+    if (route === undefined) return { text, clause: "" };
+    const clause = this.#routeClauses([route]);
+    const routed = this.#routedSpelling(route);
+    return clause === "" && routed === route.name ? undefined : { text: routed, clause };
+  }
+
+  /**
+   * The spelling tier 3's clause makes work — through the alias the clause
+   * binds, or, in §7.3's one corner with no import to name, through the prelude
+   * module's own ambient name, which the clause's rename restores.
+   */
+  #routedSpelling(route: RouteNeed): string {
+    const home = route.prelude
+      ? moduleBaseName(route.path)
+      : this.#derivedAlias(route.path);
+    return home === undefined ? route.name : `${home}.${route.name}`;
   }
 
   /** The declared binding of one constructor of `head`. */
