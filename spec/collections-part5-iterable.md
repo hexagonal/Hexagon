@@ -169,7 +169,7 @@ The member *is* the type's `toSeq`: the honoring module writes the conversion he
 
 ### 7.2 Globality and discoverability
 
-Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes `bag.hex`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). A separate loading step is therefore *not needed* — and Modules §3.3 has no form for one — for `Iterable` on your own collection and is deliberately not taught in the recipe (Modules §7.6: nearly vestigial in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
+Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes `bag.hex`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). No separate loading step is needed for `Iterable` on your own collection — Modules §3.3 has no form for one — and none is taught in the recipe (Modules §7.6: unnecessary in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
 
 ### 7.3 Collisions with provided instances
 

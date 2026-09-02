@@ -77,7 +77,7 @@ Where a function demands `<a: Ord>`, the callee may use both `Ord` members and `
 
 ### 2.2 Namespacing of members
 
-Constraint members are module-scope term names (like constructors, Unions §2). Two in-scope constraints declaring the same member name: error at the point that makes it ambiguous; two constraints in one module sharing a member name: hard error at the second declaration — the same rule family as constructor names. Qualified access (`Ord.compare`) is the modules spec's business; no import binds a member bare (Modules §3, #762).
+Constraint members are module-scope term names (like constructors, Unions §2). Two in-scope constraints declaring the same member name: error at the point that makes it ambiguous — a rule with no reachable instance now that no import binds a member bare (Modules §3, #762): the constraints in scope are the module's own, whose case (two constraints in one module sharing a member name) is a hard error at the second declaration, and the prelude's, whose one bare member `show` is seeded by identity (Modules §5.5) — the same rule family as constructor names. Qualified access (`Ord.compare`) is the modules spec's business; no import binds a member bare (Modules §3, #762).
 
 **Call style (doctrine, absorbed from the July 2026 review closures §A):**
 

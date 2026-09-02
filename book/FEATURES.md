@@ -16,8 +16,10 @@ open specification work does not make the book outline provisional.
 
 1. **Modules** — Source files are modules. Imports are
    acyclic, top-level effects run in dependency order, and the selected root module
-   runs without a special `main` function. Modules support named, aliased, namespace,
-   and effect imports, plus public and opaque exports. Opacity is taught here for both
+   runs without a special `main` function. Modules have one import form: an import
+   binds a module under an uppercase alias the importer chooses, and a module is
+   imported for its names, never loaded for its effects. Public and opaque exports
+   complete the surface. Opacity is taught here for both
    records and unions, after privacy and home modules are established, together with
    the `+a` / `-a` variance claim a parameterized opaque type uses to say what it
    promises across that boundary.
