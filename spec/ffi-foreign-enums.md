@@ -216,6 +216,8 @@ export extern enum Tri derives (Eq, Show) =
 
 ## 3. Foreign contract and initialization (object-reading form)
 
+*Conformance: the object-reading form is not yet implemented — #779; the literal form (§2.4) is.*
+
 The declaration is a trusted contract. It asserts that:
 
 1. the named module export is an object or constructor object;
