@@ -324,10 +324,27 @@ export interface JavaScriptEmissionOptions {
  * `#referencedSymbols` is again what answers. The discovery pass materialises
  * every constructor, which is `main`'s behaviour and a correct emission; the
  * second pass runs only where at least one constructor turned out to be
- * unreferenced. Dropping a line claims no name and frees none — the spelling is
- * taken in both passes — so the two passes agree about everything else, and the
- * demand set the second pass is handed is the first's, never re-derived from
- * its own output.
+ * unreferenced.
+ *
+ * **Why dropping a line cannot move any other name.** Not because emitting one
+ * claims a spelling — `#identifier` claims nothing, it is a pure function of
+ * the symbol and its source name. Because *every* collision decision in this
+ * emitter is derived from the **Core module**, in the constructor, and never
+ * from what rendering emitted: `moduleLevelBindings(module)` seeds
+ * `#moduleBindings`, `namespaceAliasPlan(module)` settles the alias locals and
+ * their `_1` suffixes (#569, #718), and `#importLocals` is filled from the
+ * import items. Both passes are handed the same module, so both compute the
+ * same names before either renders a line.
+ *
+ * **And the demand set is the first pass's, never re-derived from the
+ * second's.** It could not shrink further if it were: pass two's
+ * `#referencedSymbols` is necessarily a *subset* of pass one's — dropping lines
+ * can only remove references — and a materialised constructor's body
+ * references no constructor at all, so a surviving line can never be the sole
+ * reason another survives, and no cascade exists to chase. The pin is
+ * empirical too: forcing the second pass to run on every module, with the full
+ * demand set, leaves all 37 stdlib and runtime modules byte-identical, which is
+ * what says the discovery pass leaks nothing into the pass that ships.
  */
 export function emitJavaScript(
   module: Core.Module,
@@ -3417,24 +3434,36 @@ class JavaScriptEmitter {
     );
     let previousSpan: Source.Span | undefined;
     /**
-     * Whether a constructor declaration between here and `previousSpan`
-     * vanished, which caps the next gap at one blank line (#770).
+     * Whether an entry that emitted nothing stands between `previousSpan` and
+     * the entry about to be written, which caps the gap at one blank line.
      */
     let collapsed = false;
     for (const entry of entries) {
       const lines = entry.kind === "Comment" ? commentLines(entry.comment) : entry.lines;
-      // A **constructor declaration** with nothing to emit has no seat on the
-      // page, so it shapes none of its vertical rhythm. Reachable only since
-      // #770 — a constructor nothing demands emits no line at all — and without
-      // this the source's blank lines on both sides of the vanished declaration
-      // run together, plus the lines the declaration itself occupied, into a
-      // gap no source wrote. One blank line is what a reader sees instead.
-      // Narrowed to these two item kinds deliberately: every other way an entry
-      // can emit nothing predates this rule, and its spacing is what ships.
-      if (
-        lines.length === 0 && entry.kind === "Item" &&
-        (entry.item.kind === "Union" || entry.item.kind === "RecordDeclaration")
-      ) {
+      // **An entry that emits nothing shapes none of the page's vertical
+      // rhythm.** It has no seat there, so the gap is measured from the last
+      // entry that wrote something to the next one that does, and one blank
+      // line is all a vanished entry leaves behind.
+      //
+      // Both halves are load-bearing, and each is why the other cannot be
+      // dropped. *Skipping* is what keeps `previousSpan` pointing at a line the
+      // output actually contains: a zero-line entry whose source span sits far
+      // below the reader's position — an `Import` item, which renders last and
+      // carries a span from the top of the file — would otherwise make every
+      // following gap compute as `0` and weld two unrelated comment blocks
+      // together. *Capping* is what stops the source's blank lines on both
+      // sides of a vanished declaration, plus the lines it occupied, running
+      // together into a gap no source wrote.
+      //
+      // #770 is what made this reachable at a *declaration* — a constructor
+      // nothing demands emits no line at all — but the rule is not about
+      // constructors, and narrowing it to them is what produced the weld above.
+      // It also collapses runs no source wrote at the entries that could
+      // already emit nothing before this arc (a `type` alias, a `honor` whose
+      // lines moved to the dictionary block): a cosmetic improvement to shipped
+      // output, inside the emitter's readability licence and outside the
+      // ruling, and measured in the PR that landed it.
+      if (lines.length === 0) {
         collapsed = true;
         continue;
       }
@@ -4080,10 +4109,11 @@ class JavaScriptEmitter {
       // the two demand sites and the only one visible from here.
       const exportedHere = item.exported && !item.opaque && depth === 0;
       const lines = item.constructors.flatMap((constructor) => {
-        // The spelling is claimed whether or not a line is emitted, so an
-        // unmaterialized constructor cannot free its name for a later
-        // declaration to take un-suffixed (#718's `_1` probe) and the rest of
-        // the module stays byte-identical.
+        // Read whether or not a line is emitted, because the export below needs
+        // it either way. It reserves nothing — see `emitJavaScript` for why an
+        // unmaterialized constructor still cannot free its name for another
+        // declaration: the collision decisions are all made off the Core module
+        // in the constructor, never off what rendering emitted.
         const name = this.#identifier(constructor.symbol, constructor.name);
         if (exportedHere) {
           this.#exports.push(
@@ -5376,6 +5406,16 @@ class JavaScriptEmitter {
    * constructor is a named ESM export with stable identity, so it exists
    * whether or not this module ever mentions it. An `opaque` declaration
    * exports the type alone (§5) and demands nothing.
+   *
+   * **Both callers push the `export` line before asking this**, so the export
+   * list and the demand set have to agree or the module emits `export { Circle
+   * };` with no `const Circle` — a `SyntaxError` at load, not a silent wrong
+   * answer. They agree by construction: `constructorDemand` takes the union of
+   * `#exportedConstructors` with the referenced set, so every symbol that
+   * pushed an export line is in the set the second pass is given. The order is
+   * deliberate — asking first and pushing the export only on a materialised
+   * constructor would make an export depend on a demand it is itself supposed
+   * to be.
    */
   #materializes(symbol: Resolved.SymbolId, exported: boolean): boolean {
     this.#declaredConstructors.add(symbol);
@@ -8641,22 +8681,25 @@ class JavaScriptEmitter {
    * and never reaches this method: `#emitExpr`'s `Name` arm spells it, through
    * the alias's qualified local where rule 3 supplied one.
    *
-   * The four exclusions:
+   * The three exclusions:
    *
-   * - **Nullary constructors** carry no slots. A mixed union's emit as the
-   *   §6.1 shared constant and an all-nullary union's as the §6.2 string, both
-   *   of them *values* the `Name` arm reads — there is no application to erase,
-   *   and `Point()` is not a term any source can write.
-   * - **The `Bool` pin** (#147) is nullary on both constructors, so it is
-   *   already covered; the guard is here so the pin cannot be reached by a
-   *   later declaration that gains a payload.
+   * - **Nullary constructors** carry no slots, and the one test covers every
+   *   shape §6.2 has given them or may give them: whatever a nullary
+   *   constructor emits as — the shared constant, and `Bool`'s pinned `true`
+   *   and `false` (#147) — it is a *value* the `Name` arm reads, there is no
+   *   application to erase, and `Point()` is not a term any source can write.
+   *   No separate `Bool` guard: both its constructors are nullary, so the pin
+   *   is out of reach here by the same clause and a redundant test would only
+   *   read as live logic.
    * - **Evidence** on the call. A constructor's scheme carries no constraints,
    *   so this is unreachable; a call that somehow had evidence to pass needs a
    *   callee to pass it to.
    * - **Arity.** Unions §2.2 makes a constructor application exact and the
    *   checker enforces it, so a mismatch here is unreachable on a clean module.
    *   Falling back to the call keeps an already-diagnosed module emitting
-   *   something rather than an object literal with `undefined` slots.
+   *   something rather than an object literal with `undefined` slots — and the
+   *   call it falls back to is the ordinary one, which spells a rule-3 callee
+   *   `Tag.Tag`, so #765's miscompile is out of reach on this branch too.
    */
   #erasedUnionConstruction(
     expression: Core.CallExpr,
@@ -8665,7 +8708,7 @@ class JavaScriptEmitter {
   ): string | undefined {
     if (expression.callee.kind !== "Name") return undefined;
     const metadata = this.#constructors.get(expression.callee.symbol);
-    if (metadata === undefined || metadata.pinnedBool) return undefined;
+    if (metadata === undefined) return undefined;
     const slots = metadata.constructor.slots ?? [];
     if (slots.length === 0) return undefined;
     if (expression.evidence.length > 0) return undefined;
@@ -10634,8 +10677,12 @@ function exits(lines: readonly string[]): boolean {
 /**
  * Parenthesizes a concise arrow body that starts with `{`, which JavaScript
  * would otherwise read as a block rather than an object literal. Reached
- * whenever a lambda's body emits a record — a record construction inlines to its
- * literal, since the constructor is the identity function.
+ * whenever a lambda's body emits an object literal: a record — written, or a
+ * record construction, which inlines to its literal since the constructor is
+ * the identity function — and since #770 a **union** construction, which erases
+ * into its §6.1 literal at every seat. The test is on the emitted text rather
+ * than the expression's shape, which is why one repair covers all three and a
+ * fourth would need no edit here.
  */
 function arrowBody(text: string): string {
   return text.startsWith("{") ? `(${text})` : text;

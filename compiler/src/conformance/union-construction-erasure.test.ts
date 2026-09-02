@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
 
+import { emitJavaScript } from "../passes/emitter/emitter.js";
+import type * as Core from "../syntax/core/index.js";
+import type * as Resolved from "../syntax/resolved/index.js";
 import { compileFiles, runProject } from "../support/test-project.js";
 
 /**
@@ -16,8 +19,15 @@ import { compileFiles, runProject } from "../support/test-project.js";
  *
  * What is *not* touched, and is pinned here so it stays that way: nullary
  * constructors of a mixed union (§6.1's shared constant), all-nullary unions
- * (§6.2's strings), the `Bool` pin (#147), and the `.d.ts` face, which describes
- * the type rather than the emitted binding.
+ * (§6.2), the `Bool` pin (#147), and the `.d.ts` face, which describes the type
+ * rather than the emitted binding.
+ *
+ * A nullary constructor is a **value**, whatever shape §6.2 gives it — and #771
+ * has just changed that shape in the spec, retiring the bare-string form for
+ * §6.1's tagged object, with the emitter arc still to come. Nothing below pins
+ * that shape: what these pin is the property this arc owns, that a nullary
+ * construction is a *read* and never an application to erase, which is true on
+ * either side of #771.
  */
 
 /** The emitted JavaScript of one module. */
@@ -115,15 +125,20 @@ describe("§6.1's literal, at the home seat", () => {
     expect(javascript).toContain("const nothing = None;");
   });
 
-  test("all-nullary unions keep §6.2's strings, and `Bool` keeps its pin", () => {
+  test("an all-nullary constructor is read, not erased; `Bool` keeps its pin", () => {
     const javascript = emitted([[
       "/main.hex",
       "export union Colour = Red | Green | Blue\n" +
       "export let c: Colour = Red\n" +
       "export let yes: Bool = True\n",
     ]]);
-    expect(javascript).toContain('const Red = "Red";');
+    // The construction is a read of the shared constant the declaration bound,
+    // whatever §6.2 makes that constant (#771 is changing it, and this pin
+    // survives either answer because it names neither).
     expect(javascript).toContain("const c = Red;");
+    expect(javascript).toMatch(/^const Red = .+;$/mu);
+    // `Bool`'s pin is a representation commitment to one prelude declaration
+    // and is unaffected by either arc (#147).
     expect(javascript).toContain("const yes = true;");
   });
 });
@@ -326,6 +341,126 @@ describe("the two demand sites, and nothing else", () => {
     expect(javascript).not.toContain("export { Point };");
     // §5's brand-only face: the type crosses, the constructors do not.
     expect(declarations(files)).not.toContain("Circle");
+  });
+});
+
+describe("the two passes agree", () => {
+  /** Every constructor symbol this module declares a function seat for. */
+  function everyConstructor(module: Core.Module): ReadonlySet<Resolved.SymbolId> {
+    return new Set([
+      ...module.unions.flatMap(({ constructors }) =>
+        constructors.map(({ symbol }) => symbol)
+      ),
+      ...module.records.map(({ constructor }) => constructor.symbol),
+    ]);
+  }
+
+  test("forcing the second pass to run changes nothing it did not have to", () => {
+    // The property that makes the discovery pass safe to build on: it leaves no
+    // residue in the pass that ships. A module where every constructor is
+    // demanded takes one pass; handing that same module the demand set it would
+    // have computed forces the *second* pass to run, and the text has to come
+    // out byte-identical — otherwise something rendering did on the first pass
+    // would be leaking into the second's decisions.
+    //
+    // Measured across all 34 `stdlib/` and 2 `runtime/` modules when this
+    // landed; one module here keeps it honest per commit.
+    const source =
+      "export union Shape = Circle(radius: Float) | Point\n" +
+      "export record Holder = {shape: Shape}\n" +
+      "export let one: Shape = Circle(2.0)\n" +
+      "export let two: (Float) -> Shape = Circle\n" +
+      "export let three: Holder = Holder({shape = Point})\n";
+    const module = compileFiles([["/main.hex", source]] as never)
+      .modules.find(({ source: file }) => file.path === "/main.hex")!;
+
+    const onePass = module.javascript.text;
+    const forced = emitJavaScript(module.core, {
+      materializedConstructors: everyConstructor(module.core),
+    }).text;
+    expect(forced).toBe(onePass);
+    // And the module really does materialise everything, so `forced` is the
+    // second pass rather than the first one under another name.
+    expect(onePass).toContain('const Circle = radius => ({ tag: "Circle", radius });');
+    expect(onePass).toContain("const Holder = __record => __record;");
+  });
+});
+
+describe("a declaration that emits nothing shapes none of the page", () => {
+  /**
+   * The rule this pins is the emitter's, not the ruling's: an entry that emits
+   * nothing is skipped when the vertical rhythm is measured, and it caps the
+   * gap it left at one blank line. #770 is what made it reachable at a
+   * *declaration* — before this arc every `union` and `record` emitted a line —
+   * so the pins live here with the arc that needs them.
+   */
+
+  test("two comment blocks a vanished declaration stood between keep their blank line", () => {
+    // The shape that fails when the skip is narrowed to declarations, reduced
+    // from the two modules it was found in — the emitted `runtime/HashTrie.js`
+    // and `runtime/VectorTrie.js`, where two unrelated comment blocks came out
+    // welded into one.
+    //
+    // `a.div(b)` is what arms it. A concrete dot call registers a *candidate*
+    // prelude term the emitter then routes to `Int`'s member seat instead, so
+    // the synthesized prelude import item exists and every one of its names is
+    // filtered out (#263) — a zero-line `Import` entry. Its span runs from the
+    // first item to the last, so leaving it in the measurement puts
+    // `previousSpan` at the foot of the module and makes every following gap
+    // compute as zero. Skipping every zero-line entry, not only the vanished
+    // declaration, is what keeps `previousSpan` on a line the output contains.
+    expect(emitted([[
+      "/main.hex",
+      "// first block, about the declaration below\n" +
+      "union Shape = Circle(radius: Float) | Rect(width: Float, height: Float)\n" +
+      "\n" +
+      "// second block, about something else entirely\n" +
+      "export fun area(): Float =\n" +
+      "    match Circle(2.0)\n" +
+      "        Circle(r) => r\n" +
+      "        Rect(w, h) => w\n" +
+      "export fun half(a: Int, b: Int): Int = a.div(b)\n",
+    ]])).toContain(
+      "// first block, about the declaration below\n" +
+      "\n" +
+      "// second block, about something else entirely\n",
+    );
+  });
+
+  test("a vanished union leaves exactly one blank line, not the run it stood in", () => {
+    expect(emitted([[
+      "/main.hex",
+      "export let before: Int = 1\n\n\n\n" +
+      "union Shape = Circle(radius: Float) | Rect(width: Float, height: Float)\n\n\n\n" +
+      "export fun area(): Float =\n" +
+      "    match Circle(2.0)\n" +
+      "        Circle(r) => r\n" +
+      "        Rect(w, h) => w\n",
+    ]])).toContain("const before = 1;\n\nfunction area() {");
+  });
+
+  test("a vanished record leaves exactly one blank line too", () => {
+    expect(emitted([[
+      "/main.hex",
+      "export let before: Int = 1\n\n\n\n" +
+      "record Box = {n: Int}\n\n\n\n" +
+      "export let after: Int = Box({n = 2}).n\n",
+    ]])).toContain("const before = 1;\n\nconst after = { n: 2 }.n;");
+  });
+
+  test("the same cap collapses a run an entry that predates #770 stood in", () => {
+    // A `type` alias has emitted nothing since long before this arc, and its
+    // source span shaped the gap around it — a run of blank lines no source
+    // wrote. The general rule owns that case too, which is a cosmetic
+    // improvement to shipped output rather than anything the ruling asked for;
+    // `stdlib/JsError.js` and `stdlib/JsValue.js` each carried nine consecutive
+    // blank lines of it.
+    expect(emitted([[
+      "/main.hex",
+      "export let before: Int = 1\n\n\n\n" +
+      "type Alias = Int\n\n\n\n" +
+      "export let after: Alias = 2\n",
+    ]])).toContain("const before = 1;\n\nconst after = 2;");
   });
 });
 

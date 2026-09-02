@@ -144,8 +144,13 @@ describe("a contestant that binds nothing in JavaScript is no contestant", () =>
         "type Lib = Types.Lib\n" +
         "export let four: Lib = Lib.twice(2)\n",
     ]])).toBe(
+      // The blank line is the `type` alias's seat, vacated. An entry that emits
+      // nothing shapes none of the page's vertical rhythm (#770), so the gap is
+      // measured from the imports to the binding and capped at one blank line
+      // — where before the alias's own source span held it at zero.
       'import * as Lib from "./lib.js";\n' +
         'import * as Types from "./types.js";\n' +
+        "\n" +
         "const four = Lib.twice(2);\n" +
         "export { four };\n",
     );
