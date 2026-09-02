@@ -3,7 +3,8 @@
 ## Purpose
 
 Teach files as modules, private-by-default declarations, the single module-import
-form, named exports, opaque records and unions, companion modules, acyclic loading, top-level
+form, named exports, opaque records and unions, companion modules, acyclic loading,
+top-level
 effects, root execution, and the global visibility of instances.
 
 ## Reader outcome
