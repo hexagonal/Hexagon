@@ -1,9 +1,9 @@
 # Hexagon FFI Part 7: Hexagon Exports and TypeScript Declarations
 
 **Status:** Decided (July 2026), revised in place after external review (Sol) before landing; §2.2 and §12.1 amended 2026-08-02 — a polymorphic non-function declaration faces as its `never` instantiation, generalizing §12.1 beyond nullary constructors — see correction record §14.1; §2.1 amended and §2.4 added 2026-08-04 — cross-module Hexagon types in faces take type-only named imports (#227) — see correction record §14.2; §6 and §11 amended — exported exceptions ship boundary guards (`.is`, `isHexError`), the one hard error this part owns (#478). Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §7, plus the export-surface pieces earlier parts assigned here: the exact opaque-brand `.d.ts` form (Part 4 §12.3), stable export wrappers' emission rules (Parts 3/6), and the discharge of Modules §11.4's deferred opaque-representation question. The draft's three clarifications were confirmed in §12: generic nullary constants use the `never` instantiation; export forces stable constructor materialization; and all four opaque-faced families use one non-exported-`unique symbol` brand mechanism. Inherits: generated opaque brands for exported extern types, never re-exported foreign typings; raw identity for representation-direct functions; stable module-level wrappers where adapted signatures or receiver conventions require them, with fresh per-value adapters remaining distinct from those named callable wrappers (Part 6 §1); exported Hexagon `Unit` functions genuinely returning `undefined` (Part 6 §3.2); the `Error & {$hex: "<module>"; ...}` exception face (Exceptions §7.5, brand value per #488); constrained exports referenced but governed by Parts 8–9.
-**Scope:** ESM export correspondence; the generated `.d.ts` (structure, the `Hex` namespace import, lowercase Hexagon-originated generic binders, cross-module type imports); records; unions, exported constructors, and the all-nullary representation cliff; opaque branded values — the uniform brand for `opaque` types, extern types, and extern class types; exceptions, including the nullary function-shape difference; direct exports versus stable wrappers; edit notes discharging flags in Modules, Unions, and Exceptions.
+**Scope:** ESM export correspondence; the generated `.d.ts` (structure, the `Hex` namespace import, lowercase Hexagon-originated generic binders, cross-module type imports); records; unions and exported constructors; opaque branded values — the uniform brand for `opaque` types, extern types, and extern class types; exceptions, including the nullary function-shape difference; direct exports versus stable wrappers; edit notes discharging flags in Modules, Unions, and Exceptions.
 **Not in scope:** the specialization and generic-edition machinery for constrained exports (Part 8, `ffi-zero-cost-fundamental-exports.md`) and dictionary types, handles, and factories (Part 9, `ffi-part9-exported-dictionaries.md`); extern declaration syntax (Parts 4–5); calling convention (Part 6); `JsMap`/`JsSet` and `JsValue` faces (finalized by Parts 10–11).
-**Companions:** Modules §4/§11 (export semantics; ESM emission; the §11.4 deferral); Unions §6 (representations, the cliff, constructor emission, `.d.ts`); Products §5.4 (record constructor erasure); Exceptions §7 (branded representation, `.d.ts`, construction sites); Part 1 §4/§8 (master table; `Hex` namespace); Part 3 §9.1 (exported `Seq` replayability); Part 6 §1/§3 (wrapper list; `Unit`); Part 8 §3.4/§6 (zero-entry-point exception; Algorithm N collisions).
+**Companions:** Modules §4/§11 (export semantics; ESM emission; the §11.4 deferral); Unions §6 (representation, constructor emission, `.d.ts`); Products §5.4 (record constructor erasure); Exceptions §7 (branded representation, `.d.ts`, construction sites); Part 1 §4/§8 (master table; `Hex` namespace); Part 3 §9.1 (exported `Seq` replayability); Part 6 §1/§3 (wrapper list; `Unit`); Part 8 §3.4/§6 (zero-entry-point exception; Algorithm N collisions).
 
 ---
 
@@ -282,7 +282,7 @@ Rules fixed here:
 
 ### 4.1 Retired: the union representation cliff warning
 
-This section carried a normative generated-documentation obligation — a warning that the first payload-bearing constructor added to an all-nullary union changed the representation of every constructor already declared — and a representative `.d.ts` doc comment placing it. Both are retired with the bare-string representation (Unions §6.2, #771): every union takes one shape, so adding a constructor is additive at the boundary, and the only thing a JavaScript consumer can lose is the exhaustiveness of a `switch`. The number is kept for §14's records.
+This section carried a normative generated-documentation obligation — a warning that the first payload-bearing constructor added to an all-nullary union changed the representation of every constructor already declared — and a representative `.d.ts` doc comment placing it. Both are retired with the bare-string representation (Unions §6.2, #771): every union takes one shape, so adding a constructor changes no existing value's shape and no existing `.d.ts` arm; what remains is what any union's new case costs — a consumer's `switch` exhaustiveness, and the declaration-order semantics of derived `Ord`/`Hash` (Unions §7). The number is kept for §14's records.
 
 ---
 
@@ -418,7 +418,8 @@ export union Shape = Circle(radius: Float) | Point
 --     export const Point = {tag: "Point"};
 -- internal Circle(2.0) still erases to the literal
 
--- (d) All-nullary: the same shape, no cliff (Unions §6.2)
+-- (d) All-nullary: the same shape, no cliff (Unions §6.2; #771 — the emitter still
+--     emits strings here until the emitter lands)
 export union Color = Red | Green | Blue    -- export const Red = {tag: "Red"}; ...
 --   .d.ts: export type Color = {tag: "Red"} | {tag: "Green"} | {tag: "Blue"};
 
@@ -444,7 +445,7 @@ export let sum(xs: Seq(Int)): Int = ...
 
 - **Modules §11.4:** the deferred `opaque`-in-`.d.ts` representation is decided as generated `unique symbol` brands (§5); the honest-fields interim license has ended.
 - **Products §5.4:** export is a mandatory materialization site for a record constructor, while direct internal applications still erase (§3).
-- **Unions §6.4–§6.5:** export is a mandatory materialization site, and exported unions declare every constructor as a function, POJO constant, or string constant (§4).
+- **Unions §6.4–§6.5:** export is a mandatory materialization site, and exported unions declare every constructor as a function or a POJO constant (§4).
 - **Exceptions §7.5:** exported exceptions ship constructor functions; nullary exceptions are function-shaped and construct freshly per call (§6).
 
 ---

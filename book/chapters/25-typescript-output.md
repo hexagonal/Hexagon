@@ -207,19 +207,23 @@ export declare const Arrived: Delivery;
 Payload constructors are functions. Nullary constructors within this mixed union are
 shared values.
 
-An all-nullary union becomes a string-literal union:
+An all-nullary union has the same shape, each constructor a shared constant:
 
 ```ts
-export type Direction = "North" | "East" | "South" | "West";
+export type Direction =
+  | {tag: "North"}
+  | {tag: "East"}
+  | {tag: "South"}
+  | {tag: "West"};
 export declare const North: Direction;
 export declare const East: Direction;
 export declare const South: Direction;
 export declare const West: Direction;
 ```
 
-This declaration is pleasant to use in TypeScript and exactly matches the emitted
-strings. Adding a payload constructor changes the whole representation to tagged
-objects and is therefore a breaking foreign-boundary change.
+This declaration exactly matches the emitted values, and it is the same declaration
+shape a payload-carrying union gets. Adding a payload constructor later adds an arm and
+leaves every existing arm and value as it was.
 
 ## Opaque types hide their representation twice
 

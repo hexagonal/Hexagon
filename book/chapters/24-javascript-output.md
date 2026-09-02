@@ -161,15 +161,15 @@ The tag is readable in a debugger. Named payloads remain named fields. Nullary v
 inside a mixed union are shared objects because immutable union values have no
 observable identity.
 
-When every constructor is nullary, the smaller honest representation is a string:
+When every constructor is nullary, the representation is the same:
 
 ```hexagon
 union Direction = North | East | South | West
 ```
 
-`North` emits as `"North"`, and a match becomes a switch over strings. Adding the
-first payload constructor later changes this external representation to tagged
-objects, which is one reason public union evolution deserves care.
+`North` emits as the shared value `{tag: "North"}`, and a match is still a switch over
+`tag`. Adding a payload constructor later changes nothing about the values that already
+exist, which is what makes public union evolution safe at the JavaScript boundary.
 
 ## Source conveniences become direct calls
 
@@ -318,7 +318,7 @@ what another JavaScript or TypeScript module is invited to depend on.
 - primitive values, ordinary functions, tuples, records, and ESM structure stay close
   to native JavaScript;
 - erasure removes type-only distinctions when runtime values need no representation;
-- unions remain readable tagged objects, or strings when every constructor is nullary;
+- unions remain readable tagged objects, whatever their constructors carry;
 - pipes and dot calls become ordinary calls, while patterns become ordinary tests;
 - derivation generates direct operations instead of runtime reflection;
 - genuinely generic constrained code may retain trailing dictionary arguments;

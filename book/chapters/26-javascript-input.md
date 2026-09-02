@@ -329,7 +329,7 @@ let describe(direction: Direction): String =
         Down => "down"
 ```
 
-Unlike an ordinary all-nullary union, whose values are constructor-name strings, this
+Unlike an ordinary all-nullary union, whose values are shared tagged objects, this
 foreign-backed union retains the actual member values. `Up` is `Direction.Up`—`"UP"`
 in this example—and `move(Up)` passes that value straight back to JavaScript. Numeric,
 string, symbol, and singleton-object members all use the same rule. The compiler reads

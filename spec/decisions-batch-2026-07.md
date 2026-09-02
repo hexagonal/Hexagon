@@ -132,7 +132,7 @@ union Ordering = Less | Equal | Greater
 
 Every language with this type dodged the `Eq`-constructor/`Eq`-constraint clash by spelling, in one of two schools: Haskell's all-caps `LT | EQ | GT` (copied by Elm — notably, Haskell's namespaces would have *permitted* the collision and they avoided it anyway), or Rust's/Jane Street Base's full words `Less | Equal | Greater`. F#/OCaml-stdlib sidestep with `compare : ... -> int` — the one precedent explicitly rejected: magic negative/zero/positive integers are the thing the union exists to fix.
 
-Rust's spelling wins for Hexagon on two counts: it dodges the collision **regardless of how the modules-spec namespace question resolves** (the question remains owed there but is no longer load-bearing — edit note §7), and under all-nullary emission the debugger shows `"Less"`/`"Equal"`/`"Greater"` rather than `"EQ"`, which is strictly better readable-JS.
+Rust's spelling wins for Hexagon on two counts: it dodges the collision **regardless of how the modules-spec namespace question resolves** (the question remains owed there but is no longer load-bearing — edit note §7), and under all-nullary emission the debugger shows `"Less"`/`"Equal"`/`"Greater"` rather than `"EQ"`, which is strictly better readable-JS *(under #771 the debugger shows `{tag: "Less"}`; the readability point stands)*.
 
 ### 3.3 Rejected alternatives
 
