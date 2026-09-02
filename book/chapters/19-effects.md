@@ -235,21 +235,21 @@ manufactures an effect; effects arrive through declared doors.
 ### The debug probe
 
 The first of those two exceptions is a function you have been calling since Chapter 1.
-`log` is ordinary Hexagon, declared in the standard library's `Debug.hex`; like the rest
-of the prelude it needs no import, and `Debug.log` is its qualified spelling. It writes
-to the debugging console, which is a channel no Hexagon expression can read back — and
-that unreadability is the entire reason its face may be `->`, and the reason every
-`log(…)` call in this book has been bare.
+`Debug.log` is ordinary Hexagon, declared in the standard library's `Debug.hex`; like the rest
+of the prelude it needs no import, and the qualifier is the spelling — `log` alone is a
+word the language leaves to you. It writes to the debugging console, which is a channel
+no Hexagon expression can read back — and that unreadability is the entire reason its
+face may be `->`, and the reason every `Debug.log(…)` call in this book has been unmarked.
 
 It takes any value that honors `Show`, rendering it exactly as interpolation would. Its
-companion `trace` writes `label: value` and then hands the value straight back, so a step
+companion `Debug.trace` writes `label: value` and then hands the value straight back, so a step
 can be watched without taking the surrounding expression apart:
 
 ```hexagon
-log("Preparing order")            // a String is written as itself
-log(order.total)                  // any showable value, rendered by its own `Show`
+Debug.log("Preparing order")            // a String is written as itself
+Debug.log(order.total)                  // any showable value, rendered by its own `Show`
 
-let scaled = 2 * trace("subtotal", subtotal)
+let scaled = 2 * Debug.trace("subtotal", subtotal)
 ```
 
 With `subtotal` at 120, the last line writes `subtotal: 120` and computes 240. A value
@@ -300,7 +300,7 @@ loophole.
 - effects enter through user-written externs, which are impure by default and may claim
   either `pure` — it never touches the world — or `conduit` — it is exactly as effectful
   as the callbacks it is handed — as trusted, unchecked promises; and
-- the standard library's own exception is the debug probe — `log` and `trace`, from
+- the standard library's own exception is the debug probe — `Debug.log` and `Debug.trace`, from
   `Debug.hex` — pure-faced because the console cannot be read back, and therefore
   indifferent to how many times it runs; counted, ordered output belongs behind a `!`.
 

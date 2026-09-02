@@ -165,7 +165,7 @@ Maps iterate as key-value tuples, so tuple patterns fit directly:
 
 ```hexagon
 for (name, score) in scores
-    log("${name}: ${score}")
+    Debug.log("${name}: ${score}")
 ```
 
 ## Sets answer membership questions
@@ -178,7 +178,7 @@ let withIvo = Set.add(invited, "Ivo")
 let withoutNiko = Set.remove(withIvo, "Niko")
 
 if Set.contains(withoutNiko, "Mira") then
-    log("Mira is invited")
+    Debug.log("Mira is invited")
 else
     ()
 ```
@@ -266,7 +266,7 @@ Now ordinary loop syntax works:
 let bag = Bag({items = [2, 3, 3]})
 
 for number in bag
-    log(number)
+    Debug.log(number)
 ```
 
 For now, read `type Item = a` as “iterating `Bag(a)` produces `a`.” The `toSeq`

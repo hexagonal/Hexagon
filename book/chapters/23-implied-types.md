@@ -51,7 +51,7 @@ This is why a map loop receives tuples without another annotation:
 
 ```hexagon
 for (key, value) in scores
-    log("${key}: ${value}")
+    Debug.log("${key}: ${value}")
 ```
 
 The compiler finds `Iterable<Map(String, Int)>`, whose `Item` is `(String, Int)`, and
@@ -229,7 +229,7 @@ The restriction does not prevent the operations that motivated the feature:
 - `for` may use the statically known `Iterable` instance for its source.
 
 ```hexagon
-let next = toSeq(bag)                // Seq(Int), when bag: Bag(Int)
+let next = bag.toSeq()               // Seq(Int), when bag: Bag(Int)
 let converted = convert(parser, "8080")
 ```
 
@@ -252,7 +252,7 @@ At a loop whose source type is known, instance selection is static:
 
 ```hexagon
 for value in bag
-    log(value)
+    Debug.log(value)
 ```
 
 has the same general output shape as calling `Bag.toSeq(bag)` and iterating the

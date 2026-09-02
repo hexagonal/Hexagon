@@ -4,7 +4,7 @@ Hexagon's primary loop reads as a direct description of iteration:
 
 ```hexagon
 for number in 1..5
-    log("Number ${number}")
+    Debug.log("Number ${number}")
 ```
 
 The range contains `1`, `2`, `3`, `4`, and `5`. The loop binds each value to `number`
@@ -94,7 +94,7 @@ source:
 let countdown(start: Int): Unit =
     var remaining = start
     while remaining > 0
-        log("${remaining}")
+        Debug.log("${remaining}")
         remaining := remaining - 1
 ```
 
@@ -113,7 +113,7 @@ receives a sequence of tuple values:
 ```hexagon
 let logReservations(entries: Seq((String, Int))): Unit =
     for (guest, seats) in entries
-        log("${guest}: ${seats}")
+        Debug.log("${guest}: ${seats}")
 ```
 
 The tuple pattern is **irrefutable**: every element of `(String, Int)` has exactly two
@@ -125,7 +125,7 @@ A loop pattern must match every possible element. A refutable pattern is an erro
 ```hexagon
 let logPresent(possibilities: Seq(Option(Int))): Unit =
     for Some(value) in possibilities
-        log("${value}")
+        Debug.log("${value}")
     // error: an element might be None; use match in the body
 ```
 
