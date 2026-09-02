@@ -475,7 +475,7 @@ This part introduces **one hard error of its own** — #478's `isHexError` colli
 
 ### 12.2 Export forces constructor materialization (§3–§4)
 
-**Confirmed.** Export is a mandatory demand site with stable ESM identity, while direct applications continue to erase, at every seat (#770). This follows §1's correspondence doctrine: an exported constructor term must exist as a named ESM export.
+**Confirmed.** Export is a mandatory demand site with stable ESM identity, while direct applications continue to erase, at every seat. This follows §1's correspondence doctrine: an exported constructor term must exist as a named ESM export.
 
 ### 12.3 One uniform brand mechanism (§5)
 
