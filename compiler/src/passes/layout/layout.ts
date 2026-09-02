@@ -305,7 +305,14 @@ function expectsBlock(item: readonly Lexed.Token[]): boolean {
   // has a `LeftParen` there and must keep opening its block like any other.
   const unionHead = first?.kind === "NonUpperName" && first.text === "union" &&
     ["UpperName", "NonUpperName"].includes(item[head + 1]?.kind ?? "");
-  if (first?.kind === "Record" || unionHead || first?.kind === "Type") {
+  // A literal `extern enum` head lays out as the union head it is (Foreign
+  // Enums §2.4): `extern enum T =` at the end of a line is followed by indented
+  // `| lit as C` alternatives, which continue the same logical item rather than
+  // opening a block. An `extern` that reaches here wrote no `from` and no
+  // trailing specifier — the block rule above already returned for those — so
+  // the only `extern` head ending in `=` is this one.
+  const externEnumHead = first?.kind === "Extern";
+  if (first?.kind === "Record" || unionHead || externEnumHead || first?.kind === "Type") {
     return false;
   }
   // Every term binding opens a block: `let x =`, `var x =`, and `fun f(...) =`
