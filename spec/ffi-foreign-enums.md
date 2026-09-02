@@ -212,11 +212,11 @@ export extern enum Tri derives (Eq, Show) =
   generated `fromJsT`/`toJsT` (§5), derivation (§6), ABI events (§7.3). Emission binds
   the literals themselves (§7.1); the `.d.ts` face is the literal union (§7.2).
 
-*Conformance: the literal form is not yet implemented — #773.*
-
 ---
 
 ## 3. Foreign contract and initialization (object-reading form)
+
+*Conformance: the object-reading form is not yet implemented — #779; the literal form (§2.4) is.*
 
 The declaration is a trusted contract. It asserts that:
 
