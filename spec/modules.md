@@ -601,7 +601,7 @@ let t = Tag(7)                               -- rule 3 (§5.1); the application 
 -- emits: import * as Tag from "./tag.js";  const t = {tag: "Tag", n: 7};
 --   the import line stands for the dependency the source wrote (§11.3, §8.2's load
 --   order), not for any name the emitted body reads (#770: the emitter does not yet
---   erase here — never `Tag(7)`, which would call the namespace object)
+--   erase here, lowering `Tag.Tag(7)` — never `Tag(7)`, which would call the namespace object)
 let mk = Tag                                 -- referenced as a value: the function
 -- emits: import * as Tag from "./tag.js";  const mk = Tag.Tag;
 
