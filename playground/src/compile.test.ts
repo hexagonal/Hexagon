@@ -34,10 +34,13 @@ describe("compileSource", () => {
       "const __persistentCollections",
     );
     // `Option`/`Some`/`None` are implicit via the prelude; Vector imports only
-    // the constructors it uses, ordered by first reference.
+    // the constructors it *names*, and since #770 a `Some(...)` application
+    // names none — it erases into its object literal — so only the shared
+    // `None` constant is left to bind.
     expect(vectorModule?.javascript).toContain(
-      'import { None, Some } from "./Option.js";',
+      'import { None } from "./Option.js";',
     );
+    expect(vectorModule?.javascript).toContain('{ tag: "Some", value: ');
   });
 
   // The observation channel is an export, not a sink (#417): the assertions
@@ -159,17 +162,26 @@ describe("compileSource", () => {
     });
   });
 
-  test("shows idiomatic payload-union constructors in JavaScript output", () => {
+  test("shows idiomatic payload-union constructions in JavaScript output", () => {
     const response = compileSource(6, payloadUnions.source);
 
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
 
     expect(response.diagnostics).toEqual([]);
+    // Unions §6.4, since #770: an applied constructor *is* its object literal,
+    // and this example applies its constructors and never hands one on — so no
+    // function is materialised for any of them. The nullary constant stays,
+    // because a construction of it is a read of the constant.
     expect(response.javascript).toContain(
-      'const Circle = radius => ({ tag: "Circle", radius });',
+      'preserve({ tag: "Circle", radius: 3.0 })',
     );
-    expect(response.javascript).not.toContain("const Circle = (radius) =>");
+    expect(response.javascript).toContain(
+      'describe({ tag: "Accepted", details: ["Ada", 2] })',
+    );
+    expect(response.javascript).toContain('const Point = { tag: "Point" };');
+    expect(response.javascript).not.toContain("const Circle = ");
+    expect(response.javascript).not.toContain("Circle(");
     expect(response.javascript).not.toContain("radius: radius");
   });
 
@@ -180,9 +192,10 @@ describe("compileSource", () => {
     if (response.kind !== "compile-success") return;
 
     expect(response.diagnostics).toEqual([]);
-    expect(response.javascript).toContain(
-      "const Tउपयोगकर्ता = __record => __record;",
-    );
+    // The record constructor is applied and never handed on, so Products §5.4's
+    // on-demand rule materialises no identity function for it (#770); the
+    // construction below is the whole of what it emitted.
+    expect(response.javascript).not.toContain("const Tउपयोगकर्ता = ");
     expect(response.javascript).toContain(
       "const __C可显示_Tउपयोगकर्ता",
     );

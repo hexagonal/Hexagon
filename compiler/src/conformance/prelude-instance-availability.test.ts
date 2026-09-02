@@ -233,7 +233,10 @@ describe("transit shapes keep working and shrink", () => {
     expect(exportLines(b)).toEqual(["export { g };"]);
 
     const a = emitted(files, "/a.hex");
-    expect(importLines(a)).toEqual(['import { Some } from "./Option.js";']);
+    // No import at all: `a.hex`'s only reach into `Option.js` was the `Some`
+    // application, which erases into its object literal (#770).
+    expect(importLines(a)).toEqual([]);
+    expect(a).toContain('{ tag: "Some", value: ');
     expect(exportLines(a)).toEqual(["export { mk };"]);
 
     const main = await runProject([

@@ -179,19 +179,29 @@ describe("each doc block sits at the declaration it describes", () => {
     // are invisible to attachment); only the order of the blocks does, which is
     // why this reads the emitted seats rather than the source's line order.
     //
-    // Both artifacts, because §7.1 gives documentation two of them and the
-    // misfire showed up in both.
+    // The **`.d.ts`** carries the record's seat. The emitted JavaScript no
+    // longer has one: `Seq` is opaque, so its constructor is exported nowhere,
+    // and every construction in the module is a direct application that erases
+    // (Products §5.4, #770) — so the function is materialised for no one and
+    // the type doc that rode it has nothing left to ride. The exception's seat
+    // is in both artifacts and answers in both, which is what keeps the #561
+    // misfire — the type doc landing on the *exception* — falsifiable here.
     const seq = compileSeq(IMPORT + "export let ok: Int = 1\n")
       .modules.find(({ source }) => source.path === "/Seq.hex")!;
 
-    for (const [emitted, record, exception] of [
-      [seq.javascript.text, "const Seq = ", "const ReentrancyError = "],
-      [seq.declarations.text, "export type Seq<a> = ", "export type ReentrancyError = "],
+    // `?? "(undocumented)"` so the failure names the defect rather than the
+    // shape of `undefined`: an unattached type doc leaves the record bare.
+    expect(docAbove(seq.declarations.text, "export type Seq<a> = ") ?? "(undocumented)")
+      .toContain("A lazy, immutable, possibly infinite sequence");
+    expect(seq.javascript.text).not.toContain("const Seq = ");
+    expect(seq.javascript.text).not.toContain(
+      "A lazy, immutable, possibly infinite sequence",
+    );
+
+    for (const [emitted, exception] of [
+      [seq.javascript.text, "const ReentrancyError = "],
+      [seq.declarations.text, "export type ReentrancyError = "],
     ] as const) {
-      // `?? "(undocumented)"` so the failure names the defect rather than the
-      // shape of `undefined`: an unattached type doc leaves the record bare.
-      expect(docAbove(emitted, record) ?? "(undocumented)")
-        .toContain("A lazy, immutable, possibly infinite sequence");
       expect(docAbove(emitted, exception)).toBe(
         "Raised when a sequence position is forced while it is already being\n" +
         "forced (FFI Part 3 section 7.3-7.4).",

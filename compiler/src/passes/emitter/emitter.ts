@@ -258,6 +258,13 @@ export interface JavaScriptEmissionOptions {
    */
   readonly memberSeatLocals?: ReadonlyMap<string, string>;
   /**
+   * The constructors this module materialises a function for — Unions §6.4's
+   * and Products §5.4's on-demand rule (#770), whose demand only a finished
+   * rendering can report. Absent on the discovery pass, where every constructor
+   * materialises; see `emitJavaScript`.
+   */
+  readonly materializedConstructors?: ReadonlySet<Resolved.SymbolId>;
+  /**
    * The specifier this module spells the program's **runtime module** by (FFI
    * Part 7 §1.2), source-form, as an `Import` item would carry it — the file
    * holding the globals capture a contested module imports its reserved names
@@ -284,9 +291,10 @@ export interface JavaScriptEmissionOptions {
 }
 
 /**
- * Which routed member seats earn the member's **source** spelling is a fact
- * about the whole finished module, so emission runs twice when — and only when
- * — one of them does.
+ * Two facts about the **whole finished module** decide part of its own text, so
+ * emission runs twice when — and only when — one of them lands: which routed
+ * member seats earn the member's source spelling (#444), and which constructors
+ * a function has to be materialised for (#770).
  *
  * Dictionary Sharing §8: a consumer binds an imported seat under the member's
  * source spelling where that spelling is uncontested in the consumer, and the
@@ -306,6 +314,37 @@ export interface JavaScriptEmissionOptions {
  * that the first did not are the source spellings themselves, which no
  * generated name can contest (every one of those carries Lexer §3.2's reserved
  * prefix, and a member's source spelling cannot).
+ *
+ * **The constructor demand set reads the same way** (#770). Unions §6.4 and
+ * Products §5.4 materialise a constructor's function only where the module
+ * *references* it as a value or *exports* it; every other mention is a direct
+ * application, and those erased. A reference is a reference wherever it sits —
+ * inside a nested item, a lambda, a match arm, or evidence-lowered code — so
+ * the only reader that can answer completely is a finished rendering, and
+ * `#referencedSymbols` is again what answers. The discovery pass materialises
+ * every constructor, which is `main`'s behaviour and a correct emission; the
+ * second pass runs only where at least one constructor turned out to be
+ * unreferenced.
+ *
+ * **Why dropping a line cannot move any other name.** Not because emitting one
+ * claims a spelling — `#identifier` claims nothing, it is a pure function of
+ * the symbol and its source name. Because *every* collision decision in this
+ * emitter is derived from the **Core module**, in the constructor, and never
+ * from what rendering emitted: `moduleLevelBindings(module)` seeds
+ * `#moduleBindings`, `namespaceAliasPlan(module)` settles the alias locals and
+ * their `_1` suffixes (#569, #718), and `#importLocals` is filled from the
+ * import items. Both passes are handed the same module, so both compute the
+ * same names before either renders a line.
+ *
+ * **And the demand set is the first pass's, never re-derived from the
+ * second's.** It could not shrink further if it were: pass two's
+ * `#referencedSymbols` is necessarily a *subset* of pass one's — dropping lines
+ * can only remove references — and a materialised constructor's body
+ * references no constructor at all, so a surviving line can never be the sole
+ * reason another survives, and no cascade exists to chase. The pin is
+ * empirical too: forcing the second pass to run on every module, with the full
+ * demand set, leaves all 37 stdlib and runtime modules byte-identical, which is
+ * what says the discovery pass leaks nothing into the pass that ships.
  */
 export function emitJavaScript(
   module: Core.Module,
@@ -314,8 +353,15 @@ export function emitJavaScript(
   const discovery = new JavaScriptEmitter(module, options);
   const emitted = discovery.emit();
   const memberSeatLocals = discovery.memberSeatSpellings();
-  if (memberSeatLocals === undefined) return emitted;
-  return new JavaScriptEmitter(module, { ...options, memberSeatLocals }).emit();
+  const materializedConstructors = discovery.constructorDemand();
+  if (memberSeatLocals === undefined && materializedConstructors === undefined) {
+    return emitted;
+  }
+  return new JavaScriptEmitter(module, {
+    ...options,
+    ...(memberSeatLocals === undefined ? {} : { memberSeatLocals }),
+    ...(materializedConstructors === undefined ? {} : { materializedConstructors }),
+  }).emit();
 }
 
 /** One routed seat's identity across the two passes: the module it lives in, and its name there. */
@@ -2743,6 +2789,20 @@ class JavaScriptEmitter {
     { constructor: Core.Constructor; tagged: boolean; pinnedBool: boolean }
   >();
   readonly #recordConstructors = new Set<Resolved.SymbolId>();
+  /**
+   * The constructors this pass materialises a function for, or `undefined` on
+   * the discovery pass, where every one of them does (#770). See
+   * `emitJavaScript`.
+   */
+  readonly #materializedConstructors: ReadonlySet<Resolved.SymbolId> | undefined;
+  /**
+   * Every constructor this module *declared* a function seat for, and the
+   * subset of them a demand site already claims — the export half, which the
+   * declaration itself knows. `#referencedSymbols` supplies the other half once
+   * rendering is done; `constructorDemand` puts the two together.
+   */
+  readonly #declaredConstructors = new Set<Resolved.SymbolId>();
+  readonly #exportedConstructors = new Set<Resolved.SymbolId>();
   readonly #constrainedImports = new Map<Resolved.SymbolId, string>();
   /**
    * The import item each imported constrained term arrived on, so a call site
@@ -3102,6 +3162,7 @@ class JavaScriptEmitter {
       }
     }
     this.#memberSeatLocals = options.memberSeatLocals ?? new Map();
+    this.#materializedConstructors = options.materializedConstructors;
     this.#companionImports = new Map(
       module.companionImports.map((companion) => [companion.symbol, companion]),
     );
@@ -3372,13 +3433,61 @@ class JavaScriptEmitter {
       trailing,
     );
     let previousSpan: Source.Span | undefined;
+    /**
+     * Whether an entry that emitted nothing stands between `previousSpan` and
+     * the entry about to be written, which caps that one gap at a single blank
+     * line. Reset after every gap it caps: it describes the gap being written,
+     * not the module, and leaving it set would cap every later gap too.
+     */
+    let collapsed = false;
     for (const entry of entries) {
-      if (previousSpan !== undefined) {
-        body.push(...Array(blankLinesBetween(previousSpan, entry.start)).fill(""));
+      const lines = entry.kind === "Comment" ? commentLines(entry.comment) : entry.lines;
+      // **A vanished entry leaves exactly one blank line.** An entry that emits
+      // nothing is skipped when the page's vertical rhythm is measured, and the
+      // gap it stood in is capped at one blank — whether the source crowded it
+      // or spaced it out, the reader sees one consistent "something was here".
+      //
+      // Both halves are load-bearing, and each is why the other cannot be
+      // dropped. *Skipping* is what keeps `previousSpan` on a line the output
+      // actually contains. A **synthesized prelude import** (#263) is the entry
+      // that makes this bite: the resolver builds it from `module.span`, the
+      // whole module's extent, so when every one of its names is filtered out
+      // and it emits nothing, leaving it in the measurement puts `previousSpan`
+      // at the module's *last* line — and every following gap then computes as
+      // `0`, welding two unrelated comment blocks together. *Capping* is what
+      // stops the source's blank lines on both sides of a vanished declaration,
+      // plus the lines it occupied, running together into a gap no source
+      // wrote.
+      //
+      // #770 is what made this reachable at a *declaration* — a constructor
+      // nothing demands emits no line at all — but the rule is not about
+      // constructors, and narrowing it to them is what produced the weld above.
+      // Beyond those, it reaches the entries that could already emit nothing
+      // before this arc: a `type` alias, which crosses in the `.d.ts` and
+      // nowhere else, and the filtered synthesized import itself. It does *not*
+      // reach a `honor` block, whose lines move to the hoisted dictionary
+      // section — `sourceEntries` above is handed `entries` with every `Honor`
+      // item already filtered out, so no `honor` ever reaches this loop, and
+      // the blank run its source span leaves behind is untouched by this rule.
+      //
+      // **One blank rather than none is a choice, not a floor.** Where the
+      // source crowded a vanished entry with no blank line on either side, the
+      // line it occupied is counted as gap and one blank is left where `main`
+      // emitted none. Summing the real gaps on each side instead would give
+      // zero there — but only for an entry whose span *is* a source position,
+      // and the synthesized import's is not, so that rule would have to key on
+      // provenance the emitter does not track. One uniform rule, chosen over
+      // two behaviours that agree on nothing a reader could predict.
+      if (lines.length === 0) {
+        collapsed = true;
+        continue;
       }
-      body.push(
-        ...(entry.kind === "Comment" ? commentLines(entry.comment) : entry.lines),
-      );
+      if (previousSpan !== undefined) {
+        const blanks = blankLinesBetween(previousSpan, entry.start);
+        body.push(...Array(collapsed ? Math.min(blanks, 1) : blanks).fill(""));
+      }
+      collapsed = false;
+      body.push(...lines);
       previousSpan = entry.span;
     }
     // The stage-1 guard (Exceptions §7.6, #478), once per module that exports an
@@ -4011,9 +4120,17 @@ class JavaScriptEmitter {
     }
     if (item.kind === "Union") {
       const tagged = item.constructors.some(({ slots }) => (slots?.length ?? 0) > 0);
+      // Whether *this* declaration publishes its constructors, which is one of
+      // the two demand sites and the only one visible from here.
+      const exportedHere = item.exported && !item.opaque && depth === 0;
       const lines = item.constructors.flatMap((constructor) => {
+        // Read whether or not a line is emitted, because the export below needs
+        // it either way. It reserves nothing — see `emitJavaScript` for why an
+        // unmaterialized constructor still cannot free its name for another
+        // declaration: the collision decisions are all made off the Core module
+        // in the constructor, never off what rendering emitted.
         const name = this.#identifier(constructor.symbol, constructor.name);
-        if (item.exported && !item.opaque && depth === 0) {
+        if (exportedHere) {
           this.#exports.push(
             name === constructor.name
               ? `export { ${name} };`
@@ -4024,6 +4141,14 @@ class JavaScriptEmitter {
         const doc = this.#docs.lines(constructor.span, prefix, [], item.exported);
         const slots = constructor.slots ?? [];
         if (slots.length > 0) {
+          // Unions §6.4's **on-demand** materialisation (#770). The payload
+          // constructor's function is emitted at the two demand sites and
+          // nowhere else; a constructor this module only ever applies directly
+          // has nothing left to bind, because every one of those applications
+          // erased. The doc block is read either way, so an unmaterialized
+          // constructor's documentation is spoken for rather than falling
+          // through to the item-boundary comment channel.
+          if (!this.#materializes(constructor.symbol, exportedHere)) return [];
           const parameters = slots.map(({ field }) => field);
           const fields = slots.map(({ field }) => objectProperty(field, field));
           return [...doc, `${prefix}const ${name} = ${arrowParameters(parameters)} => ({ tag: ${JSON.stringify(constructor.name)}, ${fields.join(", ")} });`];
@@ -4041,10 +4166,19 @@ class JavaScriptEmitter {
     }
     if (item.kind === "RecordDeclaration") {
       const name = this.#identifier(item.constructor.symbol, item.constructor.name);
-      if (item.exported && !item.opaque && depth === 0) {
+      const exportedHere = item.exported && !item.opaque && depth === 0;
+      if (exportedHere) {
         this.#exports.push(
           name === item.name ? `export { ${name} };` : `export { ${name} as ${item.name} };`,
         );
+      }
+      // Products §5.4's **on-demand** materialisation, the union rule's other
+      // half (#770). A record whose constructor is only ever applied directly
+      // binds nothing: every application erased to its argument. The doc block
+      // is read either way, for the reason the union arm reads its own.
+      if (!this.#materializes(item.constructor.symbol, exportedHere)) {
+        this.#docs.lines(item.span, prefix, [], item.exported);
+        return [];
       }
       // `Seq`'s constructor is the one that is not the identity: the boundary
       // traversal method is part of what a `Seq` *is* (FFI Part 3 §9.4), so a
@@ -4623,6 +4757,15 @@ class JavaScriptEmitter {
         // in the output.
         const injected = this.#jsValueFromOperand(expression);
         if (injected !== undefined) return this.#emitExpr(injected, depth, evidenceNames);
+        // Unions §6.4's erasure, on the same footing as the record one below
+        // (#770): a payload constructor applied directly *is* its object
+        // literal, at every seat.
+        const construction = this.#erasedUnionConstruction(
+          expression,
+          depth,
+          evidenceNames,
+        );
+        if (construction !== undefined) return construction;
         const constructed = expression.callee.kind === "Name" &&
           this.#recordConstructors.has(expression.callee.symbol) &&
           expression.arguments.length === 1
@@ -5265,10 +5408,66 @@ class JavaScriptEmitter {
   }
 
   /**
+   * Whether this declaration emits a function for `symbol` — Unions §6.4's and
+   * Products §5.4's two demand sites (#770).
+   *
+   * On the **discovery pass** the answer is always yes, and the question is
+   * recorded instead: the seat joins `#declaredConstructors`, and an exported
+   * one joins `#exportedConstructors`. On the pass that ships, the demand set
+   * `emitJavaScript` computed decides.
+   *
+   * The export is the site the declaration can see for itself. FFI Part 7 §3
+   * and §4 make it mandatory: an exported non-opaque record's or union's
+   * constructor is a named ESM export with stable identity, so it exists
+   * whether or not this module ever mentions it. An `opaque` declaration
+   * exports the type alone (§5), so its export demands nothing — only a
+   * reference inside the declaring module can still ask for the function.
+   *
+   * **Both callers push the `export` line before asking this**, so the export
+   * list and the demand set have to agree or the module emits `export { Circle
+   * };` with no `const Circle` — a `SyntaxError` at load, not a silent wrong
+   * answer. They agree by construction: `constructorDemand` takes the union of
+   * `#exportedConstructors` with the referenced set, so every symbol that
+   * pushed an export line is in the set the second pass is given. The order is
+   * deliberate — asking first and pushing the export only on a materialised
+   * constructor would make an export depend on a demand it is itself supposed
+   * to be.
+   */
+  #materializes(symbol: Resolved.SymbolId, exported: boolean): boolean {
+    this.#declaredConstructors.add(symbol);
+    if (exported) this.#exportedConstructors.add(symbol);
+    if (this.#materializedConstructors === undefined) return true;
+    return this.#materializedConstructors.has(symbol);
+  }
+
+  /**
+   * The constructors a second pass would materialise, or `undefined` where that
+   * is all of them and the discovery pass's output already ships (#770).
+   *
+   * Asked only of the discovery pass — a pass already holding a demand set has
+   * nothing left to discover. Not a safety guard: re-deriving from the second
+   * pass's own output would answer the same, because no cascade is possible
+   * (see `emitJavaScript` for why). It returns `undefined` there so that the
+   * set the second pass ships under is demonstrably the one it was handed, and
+   * so a reader never has to reconstruct that argument to trust the code.
+   */
+  constructorDemand(): ReadonlySet<Resolved.SymbolId> | undefined {
+    if (this.#materializedConstructors !== undefined) return undefined;
+    const demanded = new Set<Resolved.SymbolId>();
+    for (const symbol of this.#declaredConstructors) {
+      if (this.#exportedConstructors.has(symbol) || this.#referencedSymbols.has(symbol)) {
+        demanded.add(symbol);
+      }
+    }
+    return demanded.size === this.#declaredConstructors.size ? undefined : demanded;
+  }
+
+  /**
    * Dictionary Sharing §8's seat-binding rule, answered once every body is
    * rendered: which routed seats earn the member's **source** spelling, keyed
-   * by `memberSeatKey`. `undefined` when none do, which is the signal that this
-   * pass's output is already final (`emitJavaScript`).
+   * by `memberSeatKey`. `undefined` when none do, which is this half's signal
+   * that the pass's output is already final; `constructorDemand` above is the
+   * other half, and `emitJavaScript` re-renders when either one asks.
    *
    * A spelling is contested by three things, and the first two are why this
    * cannot be decided at the call site:
@@ -8482,6 +8681,69 @@ class JavaScriptEmitter {
     ].join(", ")} }`;
   }
 
+  /**
+   * Unions §6.4's **erasure**, or `undefined` where this call is not a direct
+   * construction (#770).
+   *
+   * A payload constructor applied directly emits the §6.1 object literal —
+   * `tag` first, then the slots in declared order under their declared names
+   * (`item1…itemN` where the declaration left them unnamed), each value the
+   * emitted argument in source order — and no function is called. The doctrine
+   * is the record constructor's (Products §5.4), which the caller's next branch
+   * has always kept; this is the union half of it.
+   *
+   * **Every seat, one test.** The constructor arrives as a `Name` whichever
+   * spelling reached it — bare at home, `Shape.Circle` through a module alias
+   * (Modules §3.1), or Modules §5.1 rule 3's fallback — and the symbol it
+   * carries is the declaration's, so the seat never has to be named here. What
+   * is *not* erased is a constructor referenced as a value, which is not a call
+   * and never reaches this method: `#emitExpr`'s `Name` arm spells it, through
+   * the alias's qualified local where rule 3 supplied one.
+   *
+   * The three exclusions:
+   *
+   * - **Nullary constructors** carry no slots, and the one test covers every
+   *   shape §6.2 has given them or may give them: whatever a nullary
+   *   constructor emits as — the shared constant, and `Bool`'s pinned `true`
+   *   and `false` (#147) — it is a *value* the `Name` arm reads, there is no
+   *   application to erase, and a source that writes `Point()` is refused
+   *   before emission ("`Point` is a value, not a function").
+   *   No separate `Bool` guard: both its constructors are nullary, so the pin
+   *   is out of reach here by the same clause and a redundant test would only
+   *   read as live logic.
+   * - **Evidence** on the call. A constructor's scheme carries no constraints,
+   *   so this is unreachable; a call that somehow had evidence to pass needs a
+   *   callee to pass it to.
+   * - **Arity.** Unions §2.2 makes a constructor application exact and the
+   *   checker enforces it, so a mismatch here is unreachable on a clean module.
+   *   Falling back to the call keeps an already-diagnosed module emitting
+   *   something rather than an object literal with `undefined` slots — and the
+   *   call it falls back to is the ordinary one, which spells a rule-3 callee
+   *   `Tag.Tag`, so #765's miscompile is out of reach on this branch too.
+   */
+  #erasedUnionConstruction(
+    expression: Core.CallExpr,
+    depth: number,
+    evidenceNames: EvidenceNames,
+  ): string | undefined {
+    if (expression.callee.kind !== "Name") return undefined;
+    const metadata = this.#constructors.get(expression.callee.symbol);
+    if (metadata === undefined) return undefined;
+    const slots = metadata.constructor.slots ?? [];
+    if (slots.length === 0) return undefined;
+    if (expression.evidence.length > 0) return undefined;
+    if (slots.length !== expression.arguments.length) return undefined;
+    const fields = slots.map(({ field }, index) =>
+      objectProperty(
+        field,
+        this.#emitExpr(expression.arguments[index]!, depth, evidenceNames),
+      )
+    );
+    return `{ tag: ${
+      JSON.stringify(metadata.constructor.name)
+    }, ${fields.join(", ")} }`;
+  }
+
   /** The trailing evidence arguments a constrained callee expects (Constraints §6.1). */
   #evidenceArguments(
     evidence: readonly Core.CallEvidence[],
@@ -10435,8 +10697,12 @@ function exits(lines: readonly string[]): boolean {
 /**
  * Parenthesizes a concise arrow body that starts with `{`, which JavaScript
  * would otherwise read as a block rather than an object literal. Reached
- * whenever a lambda's body emits a record — a record construction inlines to its
- * literal, since the constructor is the identity function.
+ * whenever a lambda's body emits an object literal: a record — written, or a
+ * record construction, which inlines to its literal since the constructor is
+ * the identity function — and since #770 a **union** construction, which erases
+ * into its §6.1 literal at every seat. The test is on the emitted text rather
+ * than the expression's shape, which is why one repair covers all three and a
+ * fourth would need no edit here.
  */
 function arrowBody(text: string): string {
   return text.startsWith("{") ? `(${text})` : text;

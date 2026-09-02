@@ -144,8 +144,13 @@ describe("a contestant that binds nothing in JavaScript is no contestant", () =>
         "type Lib = Types.Lib\n" +
         "export let four: Lib = Lib.twice(2)\n",
     ]])).toBe(
+      // The blank line is the `type` alias's seat, vacated. An entry that emits
+      // nothing shapes none of the page's vertical rhythm (#770), so the gap is
+      // measured from the imports to the binding and capped at one blank line
+      // — where before the alias's own source span held it at zero.
       'import * as Lib from "./lib.js";\n' +
         'import * as Types from "./types.js";\n' +
+        "\n" +
         "const four = Lib.twice(2);\n" +
         "export { four };\n",
     );
@@ -302,7 +307,13 @@ describe("every qualified use the alias serves follows it", () => {
           "export let round: Float = radius(Shape.Circle(2.0))\n" +
           "export let boxed: Int = (Shape({n = 3})).n\n"],
     ] as const;
-    expect(javascript(files)).toContain("const round = radius(Shape_1.Circle(2.0));");
+    // The application erases wherever it was reached, contested alias
+    // included (#770) — and the alias's import line stands regardless
+    // (Modules §11.3), under the suffixed local #569 gave it.
+    expect(javascript(files)).toContain(
+      'const round = radius({ tag: "Circle", r: 2.0 });',
+    );
+    expect(javascript(files)).toContain('import * as Shape_1 from "./shape.js";');
     const main = await runProject(files);
     expect(main.round).toBe(2.0);
     expect(main.boxed).toBe(3);
