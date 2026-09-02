@@ -680,9 +680,14 @@ describe("the obligation reaches the nominal record's constructor pattern too", 
 
   test("a local record constructor against a foreign one reports the fault alone", () => {
     // The double report the obligation was argued into the block to remove:
-    // `match is missing cases: `Box(_)`` beside `type mismatch: expected Box,
-    // found Box`. Both walks reach the record constructor through
-    // `#recordConstructorSlot`, so that is where the verdict has to be taken.
+    // `match is missing cases: `Box(_)`` beside the arm's own error. Both walks
+    // reach the record constructor through `#recordConstructorSlot`, so that is
+    // where the verdict has to be taken.
+    //
+    // The arm's error is §12's rival-constructor sentence since #768 — the
+    // same-name tell (`expected Box, found Box`) is exactly the report it
+    // exists to replace. What this test pins is unchanged either way: **one**
+    // report, and no witness beside it.
     expect(diagnostics([
       FOREIGN_BOX,
       [
@@ -693,7 +698,10 @@ describe("the obligation reaches the nominal record's constructor pattern too", 
         "    match H.mk()\n" +
         "        Box({n = 0}) => 1\n",
       ],
-    ])).toEqual(["type mismatch: expected Box, found Box"]);
+    ])).toEqual([
+      "`Box` here is this module's `Box`; this pattern matches a `H.Box` — " +
+        "write `H.Box({n = 0})`",
+    ]);
   });
 
   test("and the §5.3 gate leaks nothing either", () => {

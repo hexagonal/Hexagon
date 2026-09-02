@@ -1502,6 +1502,17 @@ class Resolver {
    * are identical for both spellings, and an opaque record's constructor stays
    * out of reach abroad exactly as its qualified spelling is.
    *
+   * **#770 (standing gap, not this arc's).** A union construction erases into
+   * its object literal at every seat, home and abroad — Unions §6.4 as written
+   * all along — so the spec's golden for `Tag(7)` is `const t = {tag: "Tag",
+   * n: 7};` and no name is emitted for the constructor at all. The emitter does
+   * not yet erase abroad; until it does, the qualified local below is the
+   * *correct interim* lowering (it calls the export rather than the namespace
+   * object, which is the miscompile it replaced). When #770 lands, the applied
+   * seat here goes with it and the `emitted` spelling stays for the route that
+   * still needs a name: a constructor **referenced as a value** (`let mk = Tag`
+   * → `Tag.Tag`), which Modules §11.2 describes.
+   *
    * The answer carries **the spelling a reference to it emits**, which is the
    * alias's own qualified local (`Tag.Tag`) and not the bare word the source
    * wrote. The two are the same identifier in the emitted module — the alias's
@@ -1535,6 +1546,49 @@ class Resolver {
       symbol: symbol.id,
       local: this.#reachPreludeTerm(symbol.id) ?? `${name}.${name}`,
     };
+  }
+
+  /**
+   * Modules §10's **opaque-construction row** at rule 3's own seat: a bare
+   * `Point({x = 1.0})` under `import Point from "./point"` whose `Point` is
+   * opaque at home.
+   *
+   * The alias is bound and rule 2 reaches the *type* through it; only the
+   * constructor is private (§4.2). So the two false answers are both available
+   * and both wrong — `unknown name` denies a binding that exists, and "modules
+   * are not values" describes rule 4's seat rather than this one — and the row
+   * that is right already exists, worded for exactly this fact and naming the
+   * one route out.
+   *
+   * The specifier is the one **this module wrote**, never the exporter's own
+   * path: it is the line the reader is looking at, and the row's `./point` is
+   * that line's.
+   *
+   * The seat is reachable **only where the alias is spelled like the opaque
+   * type itself** — `import Point from "./point"` over an `opaque record
+   * Point`, or `import Tag from "./tag"` over an `opaque union Tag = Tag(…)`.
+   * An alias spelled like some *other* constructor of an opaque union
+   * (`import FileHandle from "./handles"` over `opaque union Handle =
+   * FileHandle(…)`) reaches nothing at all: that module exports only the type
+   * `Handle`, nothing spelled `FileHandle` crosses, and there is no type's
+   * home the row could name without inventing one. The plain unknown-name
+   * report is the truth there.
+   *
+   * Answers whether it reported.
+   */
+  #reportOpaqueConstruction(name: Parsed.Name): boolean {
+    const module = this.#moduleAliases.get(name.text);
+    const specifier = this.#moduleAliasSpecifiers.get(name.text);
+    if (module === undefined || specifier === undefined) return false;
+    const opaque = this.#opaqueConstructorHome(module, name.text);
+    if (opaque === undefined || opaque.name !== name.text) return false;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `\`${opaque.name}\` is opaque outside \`${specifier}\`; ` +
+        "use its exported functions",
+      primary: name.span,
+    });
+    return true;
   }
 
   /**
@@ -4448,6 +4502,16 @@ class Resolver {
           span: expression.span,
         };
       }
+    }
+    // Rule 3 declining on **opacity** (§5.1 rule 3, #768's rider). The fallback
+    // reads the module's *exported* constructor, so an opaque type's is out of
+    // reach abroad exactly as its qualified spelling is — and it declines with
+    // the same report the qualified spelling draws, §10's opaque-construction
+    // row. `unknown name` was false twice over: the alias is bound, and it
+    // names the type's home, so the reader is owed the rule rather than the
+    // mechanism that noticed it.
+    if (later === undefined && this.#reportOpaqueConstruction(expression.name)) {
+      return { kind: "ErrorExpr", span: expression.span };
     }
     // Rule 3 above its own import line. The fallback declined because the alias
     // is bound but not *reached* (`#companionConstructor`'s guard), and this is

@@ -355,10 +355,12 @@ describe("reachability reads the constructor, not the spelling (§5.3)", () => {
         "        Lib.Boom(c) => c\n" +
         "        Boom(c) => c\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
-      // Names the shadowing arm's own spelling — `Lib.Boom`, the first arm as
-      // written — not a tier-preferred rendering; the identity claim under
-      // test is that a duplicate is caught at all across the two routes.
-      "exception `Lib.Boom` is already caught above",
+      // The constructor is rendered by the barest spelling this module can
+      // write, which under the second alias is rule 3's bare answer (Modules
+      // §5.1 rule 3): `Boom` here *is* that constructor, so it is what a reader
+      // pastes. The identity claim under test is the one that matters — a
+      // duplicate is caught at all, across the two routes.
+      "exception `Boom` is already caught above",
     ]);
   });
 });

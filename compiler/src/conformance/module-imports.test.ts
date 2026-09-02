@@ -124,12 +124,34 @@ describe("Modules §5.1 rule 3 — the term-position fallback, in both its shape
   });
 
   test("— and the emitted reference is the alias's own qualified access", () => {
+    // **Interim, and pinned as such (#770).** Unions §6.4 erases a union
+    // construction into its object literal at every seat, home and abroad, so
+    // the spec's golden here is `const t = {tag: "Tag", n: 7};` and no name is
+    // emitted for the constructor at all. The emitter does not yet erase
+    // abroad; that is its own arc. What this pins is the property #765 owes:
+    // the reference is never `Tag(7)`, which calls the namespace object and
+    // throws. When #770 lands, this expectation becomes the erased literal.
     const javascript = emitted([
       TAG,
       ["/main.hex", 'import Tag from "./tag"\nexport let t: Tag = Tag(7)\n'],
     ], "/main.hex");
     expect(javascript).toContain('import * as Tag from "./tag.js";');
     expect(javascript).toContain("const t = Tag.Tag(7);");
+    expect(javascript).not.toContain("const t = Tag(7);");
+  });
+
+  test("a constructor referenced as a value keeps a name either way", () => {
+    // The route #770 does not touch: a constructor handed on rather than
+    // applied has no construction to erase, so it is spelled — through the
+    // alias's local, which is what the `emitted` spelling exists for
+    // (Modules §11.2).
+    const javascript = emitted([
+      TAG,
+      ["/main.hex",
+        'import Tag from "./tag"\n' +
+        "export let mk: (Int) -> Tag = Tag\n"],
+    ], "/main.hex");
+    expect(javascript).toContain("Tag.Tag");
   });
 
   test("a nominal record's constructor runs too, and erases to its object", async () => {
@@ -321,6 +343,13 @@ describe("§13 (i) — instance globality, and the effect import that is gone", 
  * namespace form) — so nothing observable rides on which is written. The spec
  * seat is amending the two sections; these tests say what the emitter does and
  * claim no golden.
+ *
+ * One expectation below is **interim** rather than the shipped design: a union
+ * construction reached through §5.1 rule 3 emits `Tag.Tag(7)` where Unions
+ * §6.4's golden is the erased object literal `const t = {tag: "Tag", n: 7};`.
+ * The emitter's failure to erase abroad is a standing gap, filed as **#770**
+ * and owned by its own arc; #765 owes only that the reference is never a call
+ * on the namespace object. See the rule 3 block above.
  */
 describe("emission: the module form's ESM shape (§11.2–§11.3)", () => {
   test("the module form emits the namespace import; either ESM shape, one meaning", () => {
@@ -541,6 +570,105 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
       "cannot destructure opaque union `Handle`; " +
         "use an operation exported by its home module",
     ]);
+  });
+
+  test("rule 3 declining on opacity splits by seat, one message each (#768)", () => {
+    // Modules §5.1 rule 3: in an **expression** the fallback declines with
+    // §10's opaque-construction row — the alias is bound and rule 2 reaches
+    // the *type* through it, so `unknown name` denied a binding that exists
+    // and "modules are not values" describes rule 4's seat, not this one. In a
+    // **pattern** it declines *silently* to §2.2's door, whose refusal is the
+    // destructure sentence at the type's noun. Never both.
+    const OPAQUE = [
+      "/point.hex",
+      "opaque record Point = {x: Float}\n" +
+        "export fun make(): Point = Point({x = 1.0})\n",
+    ] as const;
+    expect(messages([
+      OPAQUE,
+      ["/main.hex",
+        'import Point from "./point"\n' +
+        "export let p: Point = Point({x = 1.0})\n"],
+    ])).toEqual([
+      "`Point` is opaque outside `./point`; use its exported functions",
+    ]);
+    expect(messages([
+      OPAQUE,
+      ["/main.hex",
+        'import Point from "./point"\n' +
+        "export fun f(): Float =\n" +
+        "    match Point.make()\n" +
+        "        Point(r) => 1.0\n"],
+    ])).toEqual([
+      "cannot destructure opaque record `Point`; " +
+        "use an operation exported by its home module",
+    ]);
+  });
+
+  test("the expression row names the specifier this module wrote", () => {
+    expect(messages([
+      ["/lib/point.hex",
+        "opaque record Point = {x: Float}\n" +
+        "export fun make(): Point = Point({x = 1.0})\n"],
+      ["/main.hex",
+        'import Point from "./lib/point"\n' +
+        "export let p: Point = Point({x = 1.0})\n"],
+    ])).toEqual([
+      "`Point` is opaque outside `./lib/point`; use its exported functions",
+    ]);
+  });
+
+  test("an opaque union's constructor reads the same way in an expression", () => {
+    expect(messages([
+      ["/tag.hex",
+        "opaque union Tag = Tag(n: Int) | Other\n" +
+        "export fun make(): Tag = Tag(1)\n"],
+      ["/main.hex",
+        'import Tag from "./tag"\n' +
+        "export let t: Tag = Tag(7)\n"],
+    ])).toEqual([
+      "`Tag` is opaque outside `./tag`; use its exported functions",
+    ]);
+  });
+
+  test("the route the row names works, and the type still reaches through rule 2", () => {
+    expect(messages([
+      ["/point.hex",
+        "opaque record Point = {x: Float}\n" +
+        "export fun make(): Point = Point({x = 1.0})\n"],
+      ["/main.hex",
+        'import Point from "./point"\n' +
+        "export let p: Point = Point.make()\n"],
+    ])).toEqual([]);
+  });
+
+  test("an alias spelled like some other constructor reaches nothing at all", () => {
+    // The row is reachable only where the alias is spelled like the opaque
+    // *type*. `opaque union Handle = FileHandle(…)` exports the type `Handle`
+    // and nothing else, so an alias spelled `FileHandle` finds nothing to
+    // answer with and no type's home to name — the plain unknown-name report
+    // is what is true. (Its *pattern* twin is the door's, which reads the
+    // expected type and refuses there.)
+    expect(messages([
+      ["/handles.hex",
+        "opaque union Handle = FileHandle(fd: Int)\n" +
+        "export fun make(): Handle = FileHandle(1)\n"],
+      ["/main.hex",
+        'import Handles from "./handles"\n' +
+        'import FileHandle from "./handles"\n' +
+        "export let h: Handles.Handle = FileHandle(1)\n"],
+    ])).toEqual(["unknown name `FileHandle`"]);
+  });
+
+  test("a non-opaque alias of the same shape still reaches the constructor", () => {
+    // The gate is opacity and nothing else: the row must not fire wherever an
+    // alias happens to be spelled like a constructor.
+    expect(messages([
+      POINT,
+      ["/main.hex",
+        'import Point from "./point"\n' +
+        "export let p: Point = Point({x = 1.0, y = 2.0})\n"],
+    ])).toEqual([]);
   });
 
   test("a record's written head reads the same way, at its own noun", () => {
@@ -830,6 +958,118 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "        Direction.North => 1\n" +
         "        _ => 0\n"],
     ])).toEqual([]);
+  });
+
+  test("a record rival the module declares is named the same way (#768)", () => {
+    // §12's row reaches a nominal record's rival too. `Box.Box` would say
+    // nothing — a record constructor shares its declaration's name — so the
+    // clause names where the binding *is*, the type is shown through the
+    // spelling that means it here, and the rewrite echoes the reader's own
+    // sub-pattern. The sentence exists to replace the same-name tell
+    // (`expected Box, found Box`), which is what this program used to draw.
+    expect(messages([
+      ["/h.hex",
+        "export record Box = {n: Int}\n" +
+        "export let mk = (): Box => Box({n = 1})\n"],
+      ["/main.hex",
+        'import H from "./h"\n' +
+        "record Box = {n: Int}\n" +
+        "export fun f(): Int =\n" +
+        "    match H.mk()\n" +
+        "        Box({n = 0}) => 1\n"],
+    ])).toEqual([
+      "`Box` here is this module's `Box`; this pattern matches a `H.Box` — " +
+        "write `H.Box({n = 0})`",
+    ]);
+  });
+
+  test("— and the spelling it names compiles", () => {
+    expect(messages([
+      ["/h.hex",
+        "export record Box = {n: Int}\n" +
+        "export let mk = (): Box => Box({n = 1})\n"],
+      ["/main.hex",
+        'import H from "./h"\n' +
+        "record Box = {n: Int}\n" +
+        "export fun f(): Int =\n" +
+        "    match H.mk()\n" +
+        "        H.Box({n = 0}) => 1\n" +
+        "        _ => 0\n"],
+    ])).toEqual([]);
+  });
+
+  test("a record rival reached through rule 3 names the alias that reached it", () => {
+    // The other route a bare record constructor has (Modules §5.1 rule 3).
+    // "this module's `Box`" would be false here, so the clause names the alias
+    // instead — the same question answered, never a claim the program does not
+    // support.
+    expect(messages([
+      ["/h.hex",
+        "export record Box = {n: Int}\n" +
+        "export let mk = (): Box => Box({n = 1})\n"],
+      ["/other.hex", "export record Box = {q: Int}\n"],
+      ["/main.hex",
+        'import H from "./h"\n' +
+        'import Box from "./other"\n' +
+        "export fun f(): Int =\n" +
+        "    match H.mk()\n" +
+        "        Box({q = 0}) => 1\n"],
+    ])).toEqual([
+      "`Box` here is `Box.Box`; this pattern matches a `H.Box` — " +
+        "write `H.Box({q = 0})`",
+    ]);
+  });
+
+  test("an opaque expected type leads with its own refusal, naming no private spelling", () => {
+    // There is no qualified spelling for the rival clause to name: the
+    // constructor is private abroad. The deeper fault is reported alone.
+    expect(messages([
+      ["/h.hex",
+        "opaque record Box = {n: Int}\n" +
+        "export let mk = (): Box => Box({n = 1})\n"],
+      ["/main.hex",
+        'import H from "./h"\n' +
+        "record Box = {n: Int}\n" +
+        "export fun f(): Int =\n" +
+        "    match H.mk()\n" +
+        "        Box({n = 0}) => 1\n"],
+    ])).toEqual([
+      "cannot destructure opaque record `Box`; " +
+        "use an operation exported by its home module",
+    ]);
+  });
+
+  test("an opaque union's expected type reads the same way", () => {
+    expect(messages([
+      ["/h.hex",
+        "opaque union Tag = Tag(n: Int) | Other\n" +
+        "export let mk = (): Tag => Tag(1)\n"],
+      ["/main.hex",
+        'import H from "./h"\n' +
+        "union Mine = Tag(n: Int)\n" +
+        "export fun f(): Int =\n" +
+        "    match H.mk()\n" +
+        "        Tag(n) => n\n"],
+    ])).toEqual([
+      "cannot destructure opaque union `Tag`; " +
+        "use an operation exported by its home module",
+    ]);
+  });
+
+  test("an opaque expected type the rival's spelling misses keeps the mismatch", () => {
+    // The gate is "a constructor of this spelling the reader may not write",
+    // not "the type is opaque": a plain mismatch is honest about itself.
+    expect(messages([
+      ["/h.hex",
+        "opaque record Crate = {n: Int}\n" +
+        "export let mk = (): Crate => Crate({n = 1})\n"],
+      ["/main.hex",
+        'import H from "./h"\n' +
+        "record Box = {n: Int}\n" +
+        "export fun f(): Int =\n" +
+        "    match H.mk()\n" +
+        "        Box({n = 0}) => 1\n"],
+    ])).toEqual(["type mismatch: expected Crate, found Box"]);
   });
 
   test("a rival the expected type does not hold keeps the ordinary mismatch", () => {

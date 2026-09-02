@@ -7114,6 +7114,19 @@ class Checker {
     for (const region of module.scopes) {
       for (const binding of region.bindings) bare.set(binding.name, binding.symbol);
     }
+    // Modules §5.1 rule 3's fallback answers a bare spelling without *binding*
+    // it, so it is in no scope region — and a table built from the regions
+    // alone reads the spelling as free and offers it as pastable, which under
+    // an alias spelled like a constructor it is not: bare `Box` there means the
+    // alias's module's `Box`, not whatever else a witness or a rival clause
+    // meant. Added after the regions, never over them: the fallback answers
+    // only where scope has nothing, and that ordering is the whole of its
+    // "answering, never ranking".
+    for (const { alias, members } of module.moduleAliases) {
+      if (bare.has(alias)) continue;
+      const own = members.find(({ name }) => name === alias);
+      if (own !== undefined) bare.set(alias, own.symbol);
+    }
     const spellings = new Map<Resolved.SymbolId, string>();
     for (const [name, symbol] of bare) {
       if (!spellings.has(symbol)) spellings.set(symbol, name);
@@ -9514,44 +9527,107 @@ class Checker {
     expected: Mono,
   ): string | undefined {
     if (pattern.open === true || pattern.symbol === undefined) return undefined;
-    // §12's row is written for a rival that is "another **union's**
-    // constructor", and the reading it rests on is that one — `Compass.North`
-    // identifies a constructor by the union it is one of. A nominal record's
-    // constructor shares its declaration's name, so the same clause would read
-    // `Box.Box` and say nothing the reader does not have; that seat keeps the
-    // ordinary mismatch until a ruling gives it a sentence.
-    if (this.#constructorUnions.get(pattern.symbol) === undefined &&
-        this.#programConstructorUnion(pattern.symbol) === undefined) {
-      return undefined;
-    }
     const head = this.#prune(expected);
+    // **The opaque refusal leads** (§12's row, #768): where the expected type is
+    // opaque abroad there is no qualified spelling for the rival clause to
+    // name, so signposting one would point the reader at a constructor their
+    // module cannot write. The deeper fault is reported alone, in the opaque
+    // family's own words — the same sentence the door gives a bare head, since
+    // the two seats differ only in how the head got here.
+    const sealed = this.#opaqueDestructureRefusal(head, pattern.text);
+    if (sealed !== undefined) return sealed;
     const wanted = this.#constructorOfType(head, pattern.text);
     if (wanted === undefined || wanted === pattern.symbol) return undefined;
-    const owner = this.#constructorOwnerName(pattern.symbol);
-    if (owner === undefined) return undefined;
+    const rival = this.#rivalIdentification(pattern.symbol, pattern.text);
+    if (rival === undefined) return undefined;
+    // The expected type, spelled as this module may write it. A union's type
+    // name is in a namespace the rival constructor never took, so the ordinary
+    // display is right; a nominal record's type name **is** its constructor's,
+    // which the rival took — so the type is shown through the same pastable
+    // spelling the rewrite uses, and `expected Box, found Box` cannot recur in
+    // the sentence written to replace it.
     const spelling = this.#pastableConstructorSpelling(head, wanted);
-    return `\`${pattern.text}\` here is \`${owner}.${pattern.text}\`; this arm ` +
-      `matches a \`${this.#display(head)}\` — write \`${spelling}\``;
+    const subject = head.kind === "NominalRecord" ? spelling : this.#display(head);
+    return `\`${pattern.text}\` here is ${rival.phrase}; this ${rival.seat} ` +
+      `matches a \`${subject}\` — write ` +
+      `\`${spelling}${renderArguments(pattern.arguments)}\``;
   }
 
   /**
-   * The declaration a constructor belongs to, by name — the `Compass` of
-   * `Compass.North`. A union's own name, or a nominal record's, which is its
-   * constructor's too.
+   * The opaque family's destructure sentence, where `head` is opaque abroad and
+   * its declaration really holds a constructor of the written spelling.
+   *
+   * Read **opacity-blind**, unlike `#constructorOfType`: the whole question is
+   * whether the reader's word names a constructor of this type that they may
+   * not write, and the visibility gate the door applies would answer
+   * "undefined" and lose the distinction between "private here" and "no such
+   * constructor". A spelling the declaration does not hold falls through to the
+   * ordinary report, which is honest about a plain mismatch.
    */
-  #constructorOwnerName(symbol: Resolved.SymbolId): string | undefined {
+  #opaqueDestructureRefusal(head: Mono, written: string): string | undefined {
+    if (head.kind === "NominalRecord") {
+      if (this.#recordRepresentationVisible(head.record)) return undefined;
+      this.#materializeReachedRecord(head.record);
+      const record = this.#records.get(head.record) ?? this.#programRecord(head.record);
+      return record?.constructor.name === written
+        ? `cannot destructure opaque record \`${head.name}\`; ` +
+          "use an operation exported by its home module"
+        : undefined;
+    }
+    if (head.kind !== "Union" || this.#unionConstructorsVisible(head.union)) {
+      return undefined;
+    }
+    this.#materializeReachedUnion(head.union);
+    const union = this.#unions.get(head.union) ?? this.#programUnion(head.union);
+    return union?.constructors.some(({ binding }) => binding.name === written) === true
+      ? `cannot destructure opaque union \`${head.name}\`; ` +
+        "use an operation exported by its home module"
+      : undefined;
+  }
+
+  /**
+   * Which `Box` the reader's bare word means here, and the noun §12's row
+   * spells the seat with — the two halves that differ by the rival's kind.
+   *
+   * A **union** constructor is identified by the union it is one of
+   * (`Compass.North`): the spelling is not the reader's word, so naming it is
+   * information. A **nominal record's** constructor shares its declaration's
+   * name, so `Box.Box` would say nothing — the clause names where the binding
+   * *is* instead: this module, or the alias that reached it (rule 3's
+   * fallback is the only other route a bare record constructor has, and it
+   * always leaves an alias qualification behind).
+   *
+   * `undefined` for a rival that is neither, which is a constructor no scope
+   * could have bound bare.
+   */
+  #rivalIdentification(
+    symbol: Resolved.SymbolId,
+    written: string,
+  ): { readonly phrase: string; readonly seat: "arm" | "pattern" } | undefined {
     const union = this.#constructorUnions.get(symbol) ??
       this.#programConstructorUnion(symbol);
     if (union !== undefined) {
       this.#materializeReachedUnion(union);
       const declaration = this.#unions.get(union) ?? this.#programUnion(union);
-      if (declaration !== undefined) return declaration.name;
+      return declaration === undefined
+        ? undefined
+        : { phrase: `\`${declaration.name}.${written}\``, seat: "arm" };
     }
     const record = this.#recordConstructors.get(symbol);
-    return record === undefined
-      ? undefined
-      : (this.#records.get(record) ?? this.#programRecord(record))?.name;
+    if (record === undefined) return undefined;
+    // `representationVisible` is the resolver's "this copy is the declaring
+    // module's own" (see `#recordRepresentationVisible`), which is exactly the
+    // question here: declared in this module, or reached through an alias.
+    const own = this.#records.get(record)?.representationVisible === true;
+    const qualified = this.#aliasQualifications.get(symbol);
+    return {
+      phrase: own || qualified === undefined
+        ? `this module's \`${written}\``
+        : `\`${qualified}\``,
+      seat: "pattern",
+    };
   }
+
 
   /** §7.3's tiers, for the constructor the expected type holds. */
   #pastableConstructorSpelling(head: Mono, symbol: Resolved.SymbolId): string {
