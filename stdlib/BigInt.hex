@@ -100,12 +100,7 @@ honor Integral<BigInt> =
         if right == 0 then
             throw(DivideByZeroError("BigInt.mod: divisor is zero"))
         else
-            // `rem` and `mod` are spelled through their declaring module here
-            // and below: `Float.hex` exports plain functions of both names and
-            // seats before this file, so the bare spellings have two exporters
-            // and are refused (Modules §5.5). The qualified home is the
-            // refusal's own named repair, and it selects this very row.
-            let remainder = Integral.rem(left, right)
+            let remainder = left.rem(right)
             if remainder < 0 then
                 remainder + (if right < 0 then -right else right)
             else
@@ -118,7 +113,7 @@ honor Integral<BigInt> =
         if right == 0 then
             throw(DivideByZeroError("BigInt.div: divisor is zero"))
         else
-            Integral.quot(left - Integral.mod(left, right), right)
+            (left - left.mod(right)).quot(right)
 
     (** The greatest common divisor of `left` and `right`, never negative.
         `gcd(value, 0)` is the magnitude of `value`, so `gcd(0, 0)` is zero; it
@@ -129,7 +124,7 @@ honor Integral<BigInt> =
         // Both operands are non-negative from here, so the loop's `rem` never
         // sees a zero divisor: a zero `smaller` is the exit condition.
         while smaller != 0
-            let next = Integral.rem(larger, smaller)
+            let next = larger.rem(smaller)
             larger := smaller
             smaller := next
         larger
@@ -144,7 +139,7 @@ export let lcm(left: BigInt, right: BigInt): BigInt =
     if left == 0 or right == 0 then
         0
     else
-        let multiple = Integral.quot(left, Integral.gcd(left, right)) * right
+        let multiple = left.quot(left.gcd(right)) * right
         if multiple < 0 then -multiple else multiple
 
 (** `value` as an `Int`, or `None` when its magnitude is past the range an `Int`

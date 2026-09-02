@@ -120,6 +120,10 @@ honor Pow<Float> =
     and the divisor is large, so the bound is `0.0 <= result <= abs(right)`
     rather than the strict one `Int.mod` keeps. *)
 export let mod(left: Float, right: Float): Float =
+    // Bare, not `left.rem(right)`: `rem` is this module's own export, and a
+    // prelude module cannot see itself — the dot would look for `Float`'s
+    // companion, which is this file, and find nothing. Own-module exports are
+    // the one place the qualified-and-dot rule has nothing to say.
     let remainder = rem(left, right)
     if remainder < 0.0 then
         remainder + (if right < 0.0 then -right else right)

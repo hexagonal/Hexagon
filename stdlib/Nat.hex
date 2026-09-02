@@ -105,7 +105,7 @@ honor Integral<Nat> =
         // Both operands are non-negative by their type, so the loop's `rem`
         // never sees a zero divisor: a zero `smaller` is the exit condition.
         while smaller != 0
-            let next = Integral.rem(larger, smaller)
+            let next = larger.rem(smaller)
             larger := smaller
             smaller := next
         larger

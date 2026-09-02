@@ -34,10 +34,17 @@ import { PRELUDE_SOURCES } from "../prelude-sources.js";
  * registers it first). Reading the compiler's manifests instead would pin the
  * lists against themselves; this reads what a program actually sees.
  */
-function bareNames(): readonly string[] {
-  const compiled = compileMain("export let ok: Int = 1\n");
-  const main = compiled.modules.find(({ source }) => source.path === "/main.hex")!;
+function bareNames(source = "export let ok: Int = 1\n"): readonly string[] {
+  const compiled = compileMain(source);
+  const main = compiled.modules.find(({ source: file }) => file.path === "/main.hex")!;
   return [...new Set(main.resolved.scopes[0]!.bindings.map(({ name }) => name))].sort();
+}
+
+/** The names the module's **own** layer binds — the scope inside the prelude's. */
+function moduleNames(source: string): readonly string[] {
+  const compiled = compileMain(source);
+  const main = compiled.modules.find(({ source: file }) => file.path === "/main.hex")!;
+  return [...new Set(main.resolved.scopes[1]!.bindings.map(({ name }) => name))].sort();
 }
 
 /**
@@ -77,6 +84,43 @@ describe("the bare set is exactly sixteen names, and closed", () => {
 
   test("sixteen is the count the section states", () => {
     expect(BARE_SET.length).toBe(16);
+  });
+
+  /**
+   * **A `derives` clause seeds nothing** (#753 review). §5.5's in-module
+   * carve-out is for a module that *binds* members — an `honor` block it wrote —
+   * and a `derives` writes no block: the instance is the compiler's. Seeding off
+   * the wider index §4.6's laws use gave a deriving module nineteen bare names
+   * and let `compare(1, 2)` compile in it, which is ruling 4 undone by an
+   * implementation detail. The layer is the plain sixteen here.
+   */
+  test("a module that derives seeds nothing of its own", () => {
+    const source = "export record Box derives (Eq, Ord) = {n: Int}\n";
+    expect(bareNames(source)).toEqual(BARE_SET);
+    expect(projectDiagnostics(`${source}export let o: Ordering = compare(1, 2)\n`))
+      .toEqual(["no bare `compare`; write `(1).compare(2)` or `Ord.compare(1, 2)`"]);
+  });
+
+  /**
+   * An `honor` block is the other half of the same rule, and its members do come
+   * back — the completed set, defaults included, since an omitted default is
+   * bound here too as the wrapper seat the emitter hoists for it.
+   *
+   * **Where they sit is measured, not assumed.** They are put back into the
+   * *prelude* layer, because what goes back is the prelude's own polymorphic
+   * member symbol; the module's own layer holds only what the module declares.
+   * §5.5 describes them as module-level bindings, and the difference is visible
+   * — a function-local `let equals` still shadows rather than colliding — so the
+   * placement is pinned rather than left to be discovered.
+   */
+  test("an honoring module's member spellings sit in the prelude layer, not its own", () => {
+    const source =
+      "export record Box = {n: Int}\n" +
+      "honor Eq<Box> =\n" +
+      "    equals(left, right) = left.n == right.n\n";
+    expect(bareNames(source))
+      .toEqual([...BARE_SET, "equals", "notEquals"].sort());
+    expect(moduleNames(source)).toEqual(["Box"]);
   });
 
   /**
@@ -183,6 +227,9 @@ describe("the function channel: none, and `ignore`", () => {
       "no bare `div`; write `(-7).div(2)` or `Integral.div((-7), 2)`"],
     ["an ascription", "export let n(a: Int): Int = hash((a: Int))\n",
       "no bare `hash`; write `(a: Int).hash()` or `Hash.hash((a: Int))`"],
+    ["a nominal constructor call",
+      "export record R derives (Eq, Hash) = {x: Int}\nexport let n: Int = hash(R({x = 1}))\n",
+      "no bare `hash`; write `R({x = 1}).hash()` or `Hash.hash(R({x = 1}))`"],
   ])("%s receiver is left as written", (_shape, source, message) => {
     expect(projectDiagnostics(source)).toEqual([message]);
   });
@@ -209,6 +256,99 @@ describe("the function channel: none, and `ignore`", () => {
     for (const key of ["quotient", "ordering", "raised", "negated", "summed", "indexed", "ascribed"]) {
       expect([key, main[key]]).toEqual([key, true]);
     }
+  });
+
+  /**
+   * **A structural value has no dot form to be offered** (§5.5's rider; Method
+   * Syntax §5). Dot dispatch reads the receiver's type and looks for the
+   * operation in that type's home module, and a tuple, `()`, or a record
+   * literal has none — `(1, 2).hash()` cannot resolve however it is spelled, so
+   * offering it would be a route that is not one.
+   */
+  test.each([
+    ["a tuple", "export let n: Int = hash((1, 2))\n",
+      "no bare `hash`; write `Hash.hash((1, 2))`"],
+    ["`()`", "export let n: Int = hash(())\n",
+      "no bare `hash`; write `Hash.hash(())`"],
+    ["a record literal", "export let n(r: {x: Int}): Int = hash({x = 1})\n",
+      "no bare `hash`; write `Hash.hash({x = 1})`"],
+    ["a tuple in a two-argument call", "export let b: Bool = equals((1, 2), (1, 2))\n",
+      "no bare `equals`; write `Eq.equals((1, 2), (1, 2))`"],
+  ])("%s receiver takes the qualified route alone", (_shape, source, message) => {
+    expect(projectDiagnostics(source)).toEqual([message]);
+  });
+
+  /** And the route it names is one that works, where the dot form would not. */
+  test("the qualified route at a structural value compiles; the dot form does not", () => {
+    expect(projectDiagnostics("export let n: Int = Hash.hash((1, 2))\n")).toEqual([]);
+    expect(projectDiagnostics("export let n: Int = (1, 2).hash()\n"))
+      .toEqual(["type mismatch: expected (a, b), found {hash: a, ...}"]);
+  });
+
+  /**
+   * A **name** of structural type keeps its dot form. Resolution has no types,
+   * so the rule reads the written expression and nothing else; guessing would be
+   * wrong in the other direction, and the qualified route beside it is correct
+   * either way. A nominal constructor call is a real dot receiver and keeps its
+   * form for the better reason.
+   */
+  test("a name of structural type, and a nominal constructor call, keep the dot form", () => {
+    expect(projectDiagnostics("export let n(t: (Int, Int)): Int = hash(t)\n"))
+      .toEqual(["no bare `hash`; write `t.hash()` or `Hash.hash(t)`"]);
+    expect(projectDiagnostics("export let n(t: (Int, Int)): Int = Hash.hash(t)\n"))
+      .toEqual([]);
+    expect(projectDiagnostics(
+      "export record R derives (Eq, Hash) = {x: Int}\n" +
+      "export let n: Int = hash(R({x = 1}))\n",
+    )).toEqual([
+      "no bare `hash`; write `R({x = 1}).hash()` or `Hash.hash(R({x = 1}))`",
+    ]);
+    expect(projectDiagnostics(
+      "export record R derives (Eq, Hash) = {x: Int}\n" +
+      "export let n: Int = R({x = 1}).hash()\n",
+    )).toEqual([]);
+  });
+
+  /**
+   * **A pipe stage's written arguments are not the call's own.** `xs |> map(f)`
+   * writes `map(f)`, whose one argument is the transform; the receiver is the
+   * pipe's left operand, which the callee's node cannot see. Rendering it as an
+   * ordinary call turned `map(f)` into `f.map()` — the wrong value in the wrong
+   * seat — so a stage drops to the non-call shape, which is what a bare stage
+   * (`xs |> length`) has always drawn.
+   */
+  test.each([
+    ["a stage with an argument",
+      "export let s(xs: Seq(Int), f: Int -> Int): Seq(Int) = xs |> map(f)\n",
+      ["no bare `map`; write `Seq.map` or `Stream.map`"]],
+    ["a stage at a literal", "export let n: Int = 2 |> pow(10)\n",
+      ["no bare `pow`; write `Pow.pow`"]],
+    ["two stages",
+      "export let n(xs: Seq(Int), f: Int -> Int): Int = xs |> map(f) |> length()\n",
+      ["no bare `map`; write `Seq.map` or `Stream.map`",
+        "no bare `length`; write `Seq.length`, `Vector.length`, or `Array.length`"]],
+    ["a bare stage", "export let n(xs: Seq(Int)): Int = xs |> length\n",
+      ["no bare `length`; write `Seq.length`, `Vector.length`, or `Array.length`"]],
+  ])("%s reads as a reference, not a call", (_shape, source, messages) => {
+    expect(projectDiagnostics(source)).toEqual(messages);
+  });
+
+  /**
+   * Two shapes where rebuilding the call would answer a mistake with a second
+   * one: a **wrong arity**, where the dot form would drop an argument or invent
+   * a receiver, and a **multi-line argument**, whose newline has no place in a
+   * diagnostic. Both name the routes without pretending to rebuild the call.
+   */
+  test.each([
+    ["no arguments", "export let n: Int = hash()\n",
+      "no bare `hash`; write `Hash.hash()`"],
+    ["too many arguments", "export let n(a: Int, b: Int): Int = hash(a, b)\n",
+      "no bare `hash`; write `Hash.hash(a, b)`"],
+    ["an argument spanning lines",
+      "export let n(a: Int): Int =\n    hash(if a > 0 then\n        1\n    else\n        2)\n",
+      "no bare `hash`; write `Hash.hash`"],
+  ])("%s drops the dot form", (_shape, source, message) => {
+    expect(projectDiagnostics(source)[0]).toBe(message);
   });
 
   /** At a reference that is not a call, the qualified names alone. */
@@ -452,6 +592,35 @@ describe("the member channel: `show` only", () => {
       "export let same: Bool = equals(Span({lo = 1, hi = 2}), Span({lo = 1, hi = 2}))\n",
     );
     expect(main["same"]).toBe(true);
+  });
+
+  /**
+   * **The §4.6 monomorphic-denotation gap, at a spelling #742 newly routes
+   * through the carve-out.** Constraints §4.6 rules that a bare use elsewhere in
+   * the honoring module means *this binding* — monomorphic, at the honored type
+   * — so `compare(1, 2)` in a module honoring `Ord<Box>` should be refused: the
+   * binding is at `Box` and `1` is not one.
+   *
+   * It compiles, because what the carve-out puts back is the prelude's
+   * *polymorphic* member symbol and a member binding has no represented scheme
+   * to put back instead. That is the same gap
+   * `constraint-member-dispatch.test.ts`'s deferred baseline records at `Show`,
+   * reached at a second constraint now that `compare` has no other bare route.
+   * Pinned so the flip is a visible change to a stated expectation rather than a
+   * discovery; the follow-up owns the reversal.
+   */
+  test("a bare use at another type still resolves polymorphically — the §4.6 gap", () => {
+    const honoring =
+      "export record Box derives (Eq) = {n: Int}\n" +
+      "honor Ord<Box> =\n" +
+      "    compare(left, right) = Ord.compare(left.n, right.n)\n";
+    expect(projectDiagnostics(
+      `${honoring}export let own: Ordering = compare(Box({n = 1}), Box({n = 2}))\n`,
+    )).toEqual([]);
+    // Under §4.6's ruled reading this line has no meaning and the module is
+    // refused. Today it dispatches `Ord<Int>`.
+    expect(projectDiagnostics(`${honoring}export let other: Ordering = compare(1, 2)\n`))
+      .toEqual([]);
   });
 
   /** And a module that honors nothing of the name keeps the refusal. */

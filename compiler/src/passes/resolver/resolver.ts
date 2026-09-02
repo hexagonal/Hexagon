@@ -267,6 +267,16 @@ interface PreludeRoute {
    * parameter names (§5.5).
    */
   readonly dotCallable?: true;
+  /**
+   * The declared parameter count, where the export is a function.
+   *
+   * The dot form is offered only where the call's own arity matches it. A call
+   * written at the wrong arity is a mistake this refusal is not reporting, and
+   * `hash(a, b)` rendered as `(a).hash(b)` would answer it with a second one —
+   * so the message drops to the non-call shape and names the routes without
+   * pretending to rebuild the call.
+   */
+  readonly arity?: number;
 }
 
 /**
@@ -322,8 +332,13 @@ function annotationCompanion(annotation: Resolved.TypeAnnotation): string | unde
 interface WrittenArguments {
   /** Each argument's source text, for the qualified spellings' argument lists. */
   readonly texts: readonly string[];
-  /** The first argument as a receiver, parenthesised where the dot would misread it. */
-  readonly receiver: string;
+  /**
+   * The first argument as a receiver, parenthesised where the dot would misread
+   * it — or `undefined` where **no dot form exists to offer**: a structural
+   * value has no companion module to dispatch to (Method Syntax §5), so a tuple,
+   * `()`, or a record literal takes the qualified route alone.
+   */
+  readonly receiver: string | undefined;
 }
 
 /**
@@ -331,10 +346,12 @@ interface WrittenArguments {
  * parenthesised first.
  *
  * Three can because the dot cannot reach into their text: a plain name, a field
- * or module access (a dot chain already), and a call. Four more can because
- * their text is **already fully parenthesised** by the grammar that wrote it —
- * a group, a tuple, an ascription, and `()` — and a second pair would only
- * double what is there.
+ * or module access (a dot chain already), and a call. Two more can because their
+ * text is **already fully parenthesised** by the grammar that wrote it — a group
+ * and an ascription — and a second pair would only double what is there. A tuple
+ * and `()` are parenthesised too and are deliberately *not* here: they are not
+ * dot receivers at all (`structuralReceiver` below), so the question never
+ * reaches this predicate for them.
  *
  * Everything else is parenthesised, which is always legal (a parenthesised
  * receiver dispatches exactly as a bare one does — probed at every literal
@@ -346,8 +363,29 @@ interface WrittenArguments {
 function dispatchesAsWritten(expression: Parsed.Expr): boolean {
   return expression.kind === "Name" || expression.kind === "Access" ||
     expression.kind === "Call" || expression.kind === "Group" ||
-    expression.kind === "Tuple" || expression.kind === "Ascription" ||
-    expression.kind === "Unit";
+    expression.kind === "Ascription";
+}
+
+/**
+ * Whether an expression is a **structural value written out** — a tuple, `()`,
+ * or a record literal — and so has no dot form to be offered (Modules §5.5's
+ * rider; Method Syntax §5).
+ *
+ * Dot dispatch reads the receiver's type and looks for the operation in that
+ * type's home module. A structural type has none: there is no module addressable
+ * under "tuple", and `(1, 2).hash()` cannot resolve however it is spelled. The
+ * refusal names the qualified route alone rather than offering a form that
+ * cannot work.
+ *
+ * Read through a group, so a writer's own parentheses do not hide the shape.
+ * Read off the *written* expression and nothing else: a **name** of structural
+ * type stays offered, because resolution has no types and a rule that guessed
+ * would be wrong in the other direction — the qualified route beside it is
+ * correct either way.
+ */
+function structuralReceiver(expression: Parsed.Expr): boolean {
+  const inner = expression.kind === "Group" ? expression.expression : expression;
+  return inner.kind === "Tuple" || inner.kind === "Unit" || inner.kind === "Record";
 }
 
 /** `Home.name(…)` — one route's qualified spelling, carrying the call's arguments. */
@@ -388,12 +426,14 @@ function refusedBarePreludeMessage(
   written: WrittenArguments | undefined,
 ): string {
   const spellings: string[] = [];
-  const dotted = written === undefined || written.texts.length === 0
+  const dotted = written === undefined || written.receiver === undefined
     ? undefined
-    : routes.find((route) => route.dotCallable === true);
+    : routes.find((route) =>
+      route.dotCallable === true && route.arity === written.texts.length
+    );
   if (dotted !== undefined) {
     const rest = written!.texts.slice(1);
-    spellings.push(`\`${written!.receiver}.${name}(${rest.join(", ")})\``);
+    spellings.push(`\`${written!.receiver!}.${name}(${rest.join(", ")})\``);
   }
   for (const route of routes) {
     spellings.push(qualifiedSpelling(name, route.home, written?.texts));
@@ -1019,6 +1059,29 @@ class Resolver {
   #inDefaultBody = false;
   /** Where this module's `honor` declarations bind each spelling (§4.6). */
   readonly #honoredMemberLines = new Map<string, HonoredMemberLine[]>();
+  /**
+   * The member spellings this module **binds at module level** — the members an
+   * `honor` block *writes* (Constraints §4.6), and nothing else.
+   *
+   * Deliberately narrower than `#honoredMemberLines` beside it, which is the
+   * index §4.6's three *laws* read and therefore covers every member an instance
+   * binds however it came by one: a `derives` clause's, and a block's defaulted
+   * members too. Those laws are about what a spelling *means* here, and they are
+   * right to reach that wide.
+   *
+   * Modules §5.5's carve-out is a different question — which spellings this
+   * module puts back into bare scope — and it turns on the module having written
+   * a block. A `derives (Ord)` writes none: the instance is the compiler's, and a
+   * module that derived one was never *writing* the member. Seeding off the wider
+   * index gave such a module nineteen bare names and let `compare(1, 2)` compile
+   * in it, which is ruling 4 undone by an implementation detail (#753 review).
+   *
+   * A written block contributes its **completed** member set, defaults included:
+   * an omitted default is bound here too, as the wrapper seat the emitter hoists
+   * for it, and the corpus has pinned its bare reachability since Constraints
+   * §2's defaults landed.
+   */
+  readonly #boundHonoredMembers = new Set<string>();
   readonly #unions: Resolved.Union[] = [];
   readonly #records: Resolved.RecordDeclaration[] = [];
   readonly #externTypes: Resolved.ExternTypeDeclaration[] = [];
@@ -1058,6 +1121,13 @@ class Resolver {
    * takes the non-call form.
    */
   #calleeOf: Parsed.CallExpr | undefined;
+  /**
+   * The expression standing as the right operand of a `|>`, while it is being
+   * resolved — the one call shape whose written arguments are not the call's
+   * own (see `#writtenArguments`). Parked by the `Binary` case exactly as
+   * `#calleeOf` is by the `Call` case, and compared by identity.
+   */
+  #pipeStage: Parsed.Expr | undefined;
   readonly #preludeScope = new Scope();
   /** Every scope opened, in the order they were opened — see `Module.scopes`. */
   readonly #openScopes: Scope[] = [];
@@ -1624,14 +1694,14 @@ class Resolver {
      * the enumeration comes out in prelude order.
      */
     const route = (name: string, channel: PreludeRoute["channel"], subject?: string): void => {
-      const first = channel === "constructor"
-        ? undefined
-        : parametersByName.get(name)?.[0]?.annotation;
+      const parameters = channel === "constructor" ? undefined : parametersByName.get(name);
+      const first = parameters?.[0]?.annotation;
       this.#qualifiedOnlyPreludeNames.set(name, [
         ...this.#qualifiedOnlyPreludeNames.get(name) ?? [],
         {
           home: moduleName === "" ? specifier : moduleName,
           channel,
+          ...(parameters === undefined ? {} : { arity: parameters.length }),
           ...(first !== undefined &&
               (subject === undefined
                 ? annotationCompanion(first) === moduleName
@@ -3717,12 +3787,17 @@ class Resolver {
           ...expression,
           operand: this.#resolveExpr(expression.operand, scope),
         };
-      case "Binary":
-        return {
-          ...expression,
-          left: this.#resolveExpr(expression.left, scope),
-          right: this.#resolveExpr(expression.right, scope),
-        };
+      case "Binary": {
+        const left = this.#resolveExpr(expression.left, scope);
+        // The right operand of a pipe is a *stage*, and a refused prelude name
+        // in its callee seat must not be described as an ordinary call (§5.5's
+        // "the program's own words" has no words for the receiver here).
+        const outerStage = this.#pipeStage;
+        if (expression.operator === "Pipe") this.#pipeStage = expression.right;
+        const right = this.#resolveExpr(expression.right, scope);
+        this.#pipeStage = outerStage;
+        return { ...expression, left, right };
+      }
       case "Comparison":
         return {
           ...expression,
@@ -4156,15 +4231,16 @@ class Resolver {
    * resolving. Refusing it here would replace three specific diagnostics with
    * one that misreads the program as a consumer's.
    *
-   * Read from `#honoredMemberLines`, which is the same index §4.6's laws are,
-   * so the two never disagree about which spellings this module claims; a
-   * spelling this module does not honor stays refused, and the routes recorded
-   * for it stay in place. The name is dropped from `#qualifiedOnlyPreludeNames`
-   * in the same breath, because a spelling cannot be both in the layer and
-   * refused for not being in it.
+   * Read from `#boundHonoredMembers` and **not** from the wider index §4.6's
+   * laws use: the carve-out is for a spelling this module *binds*, so a
+   * `derives` clause — which writes no member anywhere — puts nothing back, and
+   * neither does a block's defaulted member. A spelling this module does not
+   * bind stays refused, and the routes recorded for it stay in place. The name
+   * is dropped from `#qualifiedOnlyPreludeNames` in the same breath, because a
+   * spelling cannot be both in the layer and refused for not being in it.
    */
   #seedHonoredMemberSpellings(): void {
-    for (const name of this.#honoredMemberLines.keys()) {
+    for (const name of this.#boundHonoredMembers) {
       const symbol = this.#preludeMembersByName.get(name);
       if (symbol === undefined) continue;
       this.#preludeScope.define(name, symbol);
@@ -4204,14 +4280,27 @@ class Resolver {
     ) {
       return undefined;
     }
+    // A **pipe stage** is not a call the message can rebuild. `xs |> map(f)`
+    // writes `map(f)`, whose one written argument is the *transform*, not the
+    // receiver — rendering it as a call turned `map(f)` into `f.map()`, which
+    // names the wrong value in the wrong seat. The stage's real first argument
+    // is the pipe's left operand, which is not this node's to read, so the
+    // message drops to the non-call shape: the routes, named, with no arguments
+    // — which is what a bare stage (`xs |> length`) already draws.
+    if (this.#pipeStage === call) return undefined;
     const texts = call.arguments.map((argument) =>
       text.slice(argument.span.start.offset, argument.span.end.offset)
     );
+    // An argument spanning lines would put a newline inside a diagnostic, and a
+    // rewrite the reader has to reflow is not one. The routes are still named.
+    if (texts.some((argument) => argument.includes("\n"))) return undefined;
     const first = call.arguments[0];
     return {
       texts,
-      receiver: first === undefined || dispatchesAsWritten(first)
-        ? texts[0] ?? ""
+      receiver: first === undefined || structuralReceiver(first)
+        ? undefined
+        : dispatchesAsWritten(first)
+        ? texts[0]
         : `(${texts[0]})`,
     };
   }
@@ -5635,6 +5724,12 @@ class Resolver {
       for (const name of names) {
         const written = item.members.find((member) => member.name.text === name);
         record(name, { constraint, span: written?.span ?? item.span });
+        // §5.5's carve-out follows the **instance's completed member set** for a
+        // block this module wrote — a member it omits is still bound here, as
+        // the wrapper seat the emitter hoists for it (Constraints §2's defaults).
+        // What the carve-out does not follow is `derives`, above: that clause
+        // writes no block at all.
+        this.#boundHonoredMembers.add(name);
       }
     }
   }
