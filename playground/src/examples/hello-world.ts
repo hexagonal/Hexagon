@@ -47,8 +47,8 @@ let color(suit: Suit) = match suit
     Spades => "black"
 
 // log writes to the debugging console; the call produces Unit.
-log(greet("Hexagon"))
-log(greet2(5))
+Debug.log(greet("Hexagon"))
+Debug.log(greet2(5))
 `,
   specificationReferences: [],
 };

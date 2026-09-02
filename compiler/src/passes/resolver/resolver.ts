@@ -13,6 +13,7 @@ import {
   NON_REDECLARABLE_CONSTRAINTS,
   PRE_REGISTERED_CONSTRAINT_MEMBERS,
   preRegisteredConstraintIdentity,
+  STRUCTURAL_CONSTRAINTS,
 } from "../../constraints.js";
 import {
   INTRINSIC_INVENTORY,
@@ -238,6 +239,274 @@ function conjoin(parts: readonly string[], conjunction: "and" | "or"): string {
     : `${leading.join(", ")}, ${conjunction} ${last}`;
 }
 
+/**
+ * One route to a prelude name that is not in the bare set (Modules §5.5, #742):
+ * a module that exports it, and what a rewrite of a bare reference to it looks
+ * like when spelled through that module.
+ *
+ * A name may have several — the collection vocabulary is shared by design
+ * (`empty` has four homes) — and they are recorded in prelude order, which is
+ * the order §10 says the refusal enumerates them in.
+ */
+interface PreludeRoute {
+  /** The exporting module's basename, which is the alias its qualified spelling uses. */
+  readonly home: string;
+  /**
+   * Which of §5.5's channels this route belongs to. A constructor names only its
+   * qualified spelling; a member names the declaring module; a function names
+   * every exporter.
+   */
+  readonly channel: "function" | "member" | "constructor";
+  /**
+   * Whether the first parameter's type is the one the dot dispatches on — the
+   * home module's own type for a function (Method Syntax §4.2), the constraint's
+   * subject for a member (Method Syntax §7). The dot form is offered exactly
+   * where this holds; `Num.fromNat(value)` has no receiver to write it with.
+   *
+   * Read off the **declaration**, which is where the fact lives; the message
+   * then spells the form with the *call's* arguments, never the declaration's
+   * parameter names (§5.5).
+   */
+  readonly dotCallable?: true;
+  /**
+   * The declared parameter count, where the export is a function.
+   *
+   * The dot form is offered only where the call's own arity matches it. A call
+   * written at the wrong arity is a mistake this refusal is not reporting, and
+   * `hash(a, b)` rendered as `(a).hash(b)` would answer it with a second one —
+   * so the message drops to the non-call shape and names the routes without
+   * pretending to rebuild the call.
+   */
+  readonly arity?: number;
+  /**
+   * Set on a member of a constraint whose instances at structural types are
+   * **automatic** (`STRUCTURAL_CONSTRAINTS` — `Eq`, `Ord`, `Show`, `Hash`;
+   * Constraints §4.5's structural bullet).
+   *
+   * Such an instance is not in Method Syntax §4.2's honored table, so the dot
+   * does not fire at a structural receiver even though the constraint is
+   * satisfied there: `[1, 2]` has `Hash`, and `([1, 2]).hash()` is still
+   * refused. The refusal reads this to drop the dot form at a written vector
+   * literal, where the two facts meet.
+   *
+   * Keyed off the **declaring constraint's identity**, never its spelling. What
+   * that buys is narrow and worth stating exactly: it is about a *second prelude
+   * constraint* declaring a same-spelled member — `Hash`'s `hash` is structural,
+   * another prelude constraint's `hash` is not, and only the identity tells them
+   * apart. A **user's** constraint is not the case: its member occludes the
+   * prelude layer whole (§5.4), so no refusal is reached at all and no route of
+   * the prelude's is consulted.
+   *
+   * No program distinguishes the two keyings *today*, and that is a property of
+   * the inventory rather than of this code: every structural constraint is
+   * pre-registered and non-redeclarable, so a structural member's spelling is
+   * always declared by its own structural constraint, which is always seated —
+   * and the dot is gated on *any* structural route, so marking a second one
+   * changes no message. `prelude-bare-set.test.ts` pins that property, so a
+   * structural constraint that is not pre-registered reddens a row rather than
+   * silently widening this flag. The identity is what stays right when it does.
+   */
+  readonly structural?: true;
+}
+
+/**
+ * The basename of the module a value of this annotation's type dispatches to,
+ * or `undefined` where nothing does.
+ *
+ * Method Syntax §4.2 reads the receiver's type and looks for the operation in
+ * that type's home module — its companion for a primitive (`Int.hex` for `Int`),
+ * its declaring module for a nominal, and the compiler-owned collections'
+ * own modules for `Vector`, `Map` and `Set`. That is the whole question a
+ * refusal has to answer before it offers a dot form, and it is answerable here,
+ * without types, because a prelude signature's first parameter is written out.
+ *
+ * Conservative by construction: a shape not listed answers `undefined`, and the
+ * refusal falls back to naming the qualified spelling alone — a message that is
+ * never wrong, only less helpful.
+ */
+function annotationCompanion(annotation: Resolved.TypeAnnotation): string | undefined {
+  switch (annotation.kind) {
+    case "Primitive":
+      return annotation.name;
+    case "Union":
+    case "RecordDeclaration":
+    case "ExternType":
+      return annotation.name;
+    case "Vector":
+      return "Vector";
+    case "Map":
+      return "Map";
+    case "Set":
+      return "Set";
+    case "Array":
+      return "Array";
+    case "JsValue":
+      return "JsValue";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * A refused call's arguments as the program wrote them, with the first one also
+ * rendered as a **dot-call receiver** (Modules §10, #742).
+ *
+ * The two differ, and have to: a qualified spelling takes each argument
+ * unchanged inside its parentheses, while a dot form puts the first one in front
+ * of a `.` where the grammar reads it as far as it can. `-7` written there
+ * changes the program — `-7.div(2)` parses as `-(7.div(2))` and answers −3 where
+ * `Integral.div(-7, 2)` answers −4 — so the two routes one message offers would
+ * not be the same operation. The receiver carries whatever parentheses that
+ * costs; the argument list never does.
+ */
+interface WrittenArguments {
+  /** Each argument's source text, for the qualified spellings' argument lists. */
+  readonly texts: readonly string[];
+  /**
+   * The first argument as a receiver, parenthesised where the dot would misread
+   * it — or `undefined` where **no dot form exists to offer**: a structural
+   * value has no companion module to dispatch to (Method Syntax §5), so a tuple,
+   * `()`, or a record literal takes the qualified route alone.
+   */
+  readonly receiver: string | undefined;
+  /**
+   * Whether the receiver is a **written vector literal**. Paired with a route's
+   * `structural`, it is the one shape where a dot-callable member still has no
+   * dot: `hash([1, 2])` names the qualified route alone, while `length([1, 2])`
+   * keeps `([1, 2]).length()` (Modules §5.5).
+   */
+  readonly vectorLiteral: boolean;
+}
+
+/**
+ * Whether an expression can stand in front of a `.` **as written**, or has to be
+ * parenthesised first.
+ *
+ * Three can because the dot cannot reach into their text: a plain name, a field
+ * or module access (a dot chain already), and a call. Two more can because their
+ * text is **already fully parenthesised** by the grammar that wrote it — a group
+ * and an ascription — and a second pair would only double what is there. A tuple
+ * and `()` are parenthesised too and are deliberately *not* here: they are not
+ * dot receivers at all (`structuralReceiver` below), so the question never
+ * reaches this predicate for them.
+ *
+ * Everything else is parenthesised, which is always legal (a parenthesised
+ * receiver dispatches exactly as a bare one does — probed at every literal
+ * class) and is only ever noise where it is unnecessary: the message may be
+ * wordier than a human would write, never wrong. That asymmetry is the whole
+ * reason the test is a small allowlist rather than a list of the shapes that
+ * need help — a shape nobody thought of gets parentheses and stays correct.
+ */
+function dispatchesAsWritten(expression: Parsed.Expr): boolean {
+  return expression.kind === "Name" || expression.kind === "Access" ||
+    expression.kind === "Call" || expression.kind === "Group" ||
+    expression.kind === "Ascription";
+}
+
+/**
+ * Whether an expression is a **structural value written out** — a tuple, `()`,
+ * or a record literal — and so has no dot form to be offered (Modules §5.5's
+ * rider; Method Syntax §5).
+ *
+ * Dot dispatch reads the receiver's type and looks for the operation in that
+ * type's home module. A structural type has none: there is no module addressable
+ * under "tuple", and `(1, 2).hash()` cannot resolve however it is spelled. The
+ * refusal names the qualified route alone rather than offering a form that
+ * cannot work.
+ *
+ * Read through a group, so a writer's own parentheses do not hide the shape.
+ * Read off the *written* expression and nothing else: a **name** of structural
+ * type stays offered, because resolution has no types and a rule that guessed
+ * would be wrong in the other direction — the qualified route beside it is
+ * correct either way.
+ */
+function structuralReceiver(expression: Parsed.Expr): boolean {
+  const inner = expression.kind === "Group" ? expression.expression : expression;
+  return inner.kind === "Tuple" || inner.kind === "Unit" || inner.kind === "Record";
+}
+
+/**
+ * Whether an expression is a **written vector literal** — the receiver half of
+ * the structural-member narrowing (Modules §5.5).
+ *
+ * A `Vector` is not a structural *value* the way a tuple is: it has a companion
+ * module, and `([1, 2]).length()` and `([1, 2]).toSeq()` both compile. What it
+ * does not have is a place in Method Syntax §4.2's honored table for `Eq`, `Ord`
+ * and `Hash`, whose instances at it are automatic (Constraints §4.5) — so those
+ * members alone have no dot at a vector. The narrowing is therefore by *name*
+ * rather than by receiver: it asks whether any route this name has is one of
+ * those members, and drops the dot form for the whole message when one is.
+ *
+ * Read through a group for `structuralReceiver`'s reason, and off the *written*
+ * expression only: a name bound to a vector keeps its dot form, since resolution
+ * has no types to know it by.
+ */
+function vectorLiteralReceiver(expression: Parsed.Expr): boolean {
+  const inner = expression.kind === "Group" ? expression.expression : expression;
+  return inner.kind === "Vector";
+}
+
+/** `Home.name(…)` — one route's qualified spelling, carrying the call's arguments. */
+function qualifiedSpelling(
+  name: string,
+  home: string,
+  written: readonly string[] | undefined,
+): string {
+  return written === undefined
+    ? `\`${home}.${name}\``
+    : `\`${home}.${name}(${written.join(", ")})\``;
+}
+
+/**
+ * Modules §10's refusal of a bare reference to a prelude name outside the bare
+ * set — **one message shape across all three channels**, differing only in the
+ * routes it lists (§5.5's last-but-one bullet).
+ *
+ * The routes are spelled **in the program's own words**: at a call, with the
+ * call's own arguments, so `map(things, f)` draws `things.map(f)`,
+ * `Seq.map(things, f)`, `Stream.map(things, f)`; at a reference that is not a
+ * call, the qualified names alone. The message invents no identifier the program
+ * does not contain — a rewrite naming an argument the reader cannot see is not a
+ * rewrite, and the declared parameter names are the callee's words, not theirs.
+ *
+ * The dot comes first where the function is dot-callable, because it is the
+ * everyday surface the design leans on; then **every** visible exporter's
+ * qualified spelling, in prelude order, with no elision — a reader deciding
+ * between `Seq` and `Stream` needs both spellings in front of them, and the one
+ * the dot would have chosen is not knowable here.
+ *
+ * **No import route is ever named** (ruling 5). The accidental per-name opt-in is
+ * not a designed door, and #750 holds the design of one.
+ */
+function refusedBarePreludeMessage(
+  name: string,
+  routes: readonly PreludeRoute[],
+  written: WrittenArguments | undefined,
+): string {
+  const spellings: string[] = [];
+  // The structural narrowing is a property of the **name at this receiver**, not
+  // of one route: `routes.find` picking some *other* qualifying route would put
+  // the broken dot form back the moment a second prelude constraint spelled a
+  // structurally-instanced member's name. So it gates the whole dot form.
+  const noDotAtVector = written !== undefined && written.vectorLiteral &&
+    routes.some((route) => route.structural === true);
+  const dotted = written === undefined || written.receiver === undefined ||
+      noDotAtVector
+    ? undefined
+    : routes.find((route) =>
+      route.dotCallable === true && route.arity === written.texts.length
+    );
+  if (dotted !== undefined) {
+    const rest = written!.texts.slice(1);
+    spellings.push(`\`${written!.receiver!}.${name}(${rest.join(", ")})\``);
+  }
+  for (const route of routes) {
+    spellings.push(qualifiedSpelling(name, route.home, written?.texts));
+  }
+  return `no bare \`${name}\`; write ` +
+    (spellings.length === 1 ? spellings[0]! : conjoin(spellings, "or"));
+}
+
 /** Two spans in the order a reader meets them, so a diagnostic can point in source order. */
 function orderedBySource(a: Source.Span, b: Source.Span): readonly [Source.Span, Source.Span] {
   return a.start.offset <= b.start.offset ? [a, b] : [b, a];
@@ -323,6 +592,15 @@ export interface ResolveOptions {
    * never by the module's text — a file does not know where it lives.
    */
   readonly path?: string;
+  /**
+   * This module's source text, for the one diagnostic that quotes the program
+   * back to itself: Modules §10's refusal of a bare prelude name, whose routes
+   * are spelled **with the call's own arguments** (§5.5 — "the message invents
+   * no identifier the program does not contain"). Nothing else reads it, and a
+   * caller that omits it gets the non-call form of that message, which names
+   * qualified spellings alone and is always well-formed.
+   */
+  readonly text?: string;
   /**
    * This module's **brand identity** (`spec/exceptions.md` §7.1, #488): the
    * string every exception declared here carries as `$hex`, and the literal its
@@ -846,6 +1124,29 @@ class Resolver {
   #inDefaultBody = false;
   /** Where this module's `honor` declarations bind each spelling (§4.6). */
   readonly #honoredMemberLines = new Map<string, HonoredMemberLine[]>();
+  /**
+   * The member spellings this module **binds at module level** — the members an
+   * `honor` block *writes* (Constraints §4.6), and nothing else.
+   *
+   * Deliberately narrower than `#honoredMemberLines` beside it, which is the
+   * index §4.6's three *laws* read and therefore covers every member an instance
+   * binds however it came by one: a `derives` clause's, and a block's defaulted
+   * members too. Those laws are about what a spelling *means* here, and they are
+   * right to reach that wide.
+   *
+   * Modules §5.5's carve-out is a different question — which spellings this
+   * module puts back into bare scope — and it turns on the module having written
+   * a block. A `derives (Ord)` writes none: the instance is the compiler's, and a
+   * module that derived one was never *writing* the member. Seeding off the wider
+   * index gave such a module nineteen bare names and let `compare(1, 2)` compile
+   * in it, which is ruling 4 undone by an implementation detail (#753 review).
+   *
+   * A written block contributes its **completed** member set, defaults included:
+   * an omitted default is bound here too, as the wrapper seat the emitter hoists
+   * for it, and the corpus has pinned its bare reachability since Constraints
+   * §2's defaults landed.
+   */
+  readonly #boundHonoredMembers = new Set<string>();
   readonly #unions: Resolved.Union[] = [];
   readonly #records: Resolved.RecordDeclaration[] = [];
   readonly #externTypes: Resolved.ExternTypeDeclaration[] = [];
@@ -871,6 +1172,27 @@ class Resolver {
   readonly #path: string | undefined;
   /** This module's brand identity; see `ResolveOptions.identity`. */
   readonly #identity: string;
+  /** This module's source text; see `ResolveOptions.text`. */
+  readonly #text: string | undefined;
+  /**
+   * The call whose callee is being resolved, when that callee is a bare name.
+   *
+   * Modules §5.5 spells a refused prelude name's routes with **the call's own
+   * arguments**, and the refusal is raised where the name fails to resolve — one
+   * frame below the call. Rather than thread a context parameter through every
+   * expression form, the `Call` case parks its own node here for exactly the
+   * length of its callee's resolution, and the refusal reads it by identity: a
+   * name that is not this call's callee (an argument, say) finds nothing and
+   * takes the non-call form.
+   */
+  #calleeOf: Parsed.CallExpr | undefined;
+  /**
+   * The expression standing as the right operand of a `|>`, while it is being
+   * resolved — the one call shape whose written arguments are not the call's
+   * own (see `#writtenArguments`). Parked by the `Binary` case exactly as
+   * `#calleeOf` is by the `Call` case, and compared by identity.
+   */
+  #pipeStage: Parsed.Expr | undefined;
   readonly #preludeScope = new Scope();
   /** Every scope opened, in the order they were opened — see `Module.scopes`. */
   readonly #openScopes: Scope[] = [];
@@ -937,6 +1259,31 @@ class Resolver {
    * which sees only the first.
    */
   readonly #preludeHomesByName = new Map<string, string[]>();
+  /**
+   * Every prelude term name **outside the bare set** (Modules §5.5, #742), with
+   * the routes its refusal names — in prelude order, one entry per visible
+   * exporter.
+   *
+   * The bare layer holds sixteen names; every other prelude export reaches a
+   * consumer by the dot or the qualified spelling, and a bare reference to one
+   * is not an unknown name but a name whose routes the reader has to be told
+   * (§10's three rows). Recording the routes at seeding time is the only place
+   * the facts are all present at once: the exporter's basename is the alias
+   * `#preludeModuleAliases` was keyed by, the parameter names are the
+   * declaration's, and the visible prefix is what decides which exporters count.
+   *
+   * Keyed by *visible* homes for the same reason `#preludeHomesByName` is: a
+   * prelude module sees only its predecessors, so inside `Result.hex` a name
+   * `Vector.hex` also exports has one route here, not two.
+   */
+  readonly #qualifiedOnlyPreludeNames = new Map<string, PreludeRoute[]>();
+  /**
+   * Every prelude **constraint member** the bare layer does not hold, by name —
+   * the symbols `#seedHonoredMemberSpellings` puts back for a module that honors
+   * the constraint (Modules §5.5's "a member's *in-module* spelling is
+   * untouched").
+   */
+  readonly #preludeMembersByName = new Map<string, Resolved.SymbolId>();
   readonly #explicitlyImported = new Set<Resolved.SymbolId>();
   /**
    * The members a **named constraint import** brought into this module, each
@@ -1069,6 +1416,7 @@ class Resolver {
     this.#companionPrimitive = options.companionPrimitive;
     this.#path = options.path;
     this.#identity = options.identity ?? "";
+    this.#text = options.text;
     this.#nextSymbol = options.symbolBase ?? 0;
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
@@ -1359,26 +1707,78 @@ class Resolver {
     // the same name is a module-level binding and wins, per §5.4.
     const moduleName = specifier.slice(specifier.lastIndexOf("/") + 1).replace(/\.js$/u, "");
     if (moduleName !== "") this.#preludeModuleAliases.set(moduleName, prelude);
-    // The **qualified-only unions** of the prelude inventory (`spec/ffi.md`
-    // §12). Their constructors reach a consumer through the companion module
-    // alone — `JsKind.Null`, never a bare `Null` — so they take no bare-scope
-    // binding and count for nothing in §5.5's collision arithmetic, exactly as a
-    // `widens` binding does one loop below.
+    // **Modules §5.5's channel rules, as three lookups (#742).** Nothing in the
+    // term namespace is seeded bare by default; the sets below are what a name
+    // has to be in to reach a consumer's bare scope.
     //
-    // Every other registration in the terms loop they keep, and that is what
-    // makes the qualified spelling work: `#preludeTermsByName` is the dot-call
-    // channel, and `#preludeTerms`/`#importedSymbols` are what let
+    // Every other registration in the terms loop a refused name keeps, and that
+    // is what makes its qualified spelling work: `#preludeTermsByName` is the
+    // dot-call channel, and `#preludeTerms`/`#importedSymbols` are what let
     // `#qualifiedConstructor` — the same `Geo.Circle(r)` door a user union uses,
     // in expressions and in patterns alike — resolve and synthesize its import.
-    // Runtime representations are untouched: a `JsKind` is still its
+    // Runtime representations are untouched: an `Ordering` is still its
     // name-string.
+    const openConstructors = new Set<string>();
     const qualifiedOnlyConstructors = new Set<string>();
     for (const [name, union] of prelude.unions) {
-      if (!QUALIFIED_ONLY_PRELUDE_UNIONS.has(name)) continue;
       for (const constructor of union.constructors) {
-        qualifiedOnlyConstructors.add(constructor.binding.name);
+        (OPEN_PRELUDE_UNIONS.has(name) ? openConstructors : qualifiedOnlyConstructors)
+          .add(constructor.binding.name);
       }
     }
+    // A nominal record's constructor is a term of the same name (Modules §4.2),
+    // and it is a constructor for this rule like any other: `JsConversionError`
+    // is spelled `JsValue.JsConversionError`, in a pattern as in an expression.
+    for (const name of prelude.records.keys()) qualifiedOnlyConstructors.add(name);
+    // The **exception category** (ruling 3): every prelude exception constructor
+    // is bare, with no list and no ruling owed by a future one. The `…Error`
+    // suffix is the category's own qualifier.
+    const exceptionConstructors = new Set(prelude.exceptions.keys());
+    const pervasive = (name: string): boolean =>
+      PERVASIVE_PRELUDE_TERMS.has(`${moduleName}.${name}`);
+    // Declared parameter names, per exported term, for the refusal's rewrites
+    // (§10). Read off the declaration rather than the symbol, which carries no
+    // signature — and off `module.items` rather than the interface, which is the
+    // only place a door declaration's parameters survive.
+    const parametersByName = new Map<string, readonly Resolved.Parameter[]>();
+    for (const item of prelude.module.items) {
+      if (item.kind === "Fun") parametersByName.set(item.binding.name, item.value.parameters);
+      else if (item.kind === "Let" && item.value.kind === "Lambda") {
+        parametersByName.set(item.binding.name, item.value.parameters);
+      } else if (item.kind === "ExternBlock") {
+        for (const declaration of item.declarations) {
+          if (declaration.kind === "ExternFun") {
+            parametersByName.set(declaration.binding.name, declaration.parameters);
+          }
+        }
+      }
+    }
+    /**
+     * Records the route a refused bare reference to `name` is rewritten through
+     * (§10's three rows), appending to the routes earlier members contributed so
+     * the enumeration comes out in prelude order.
+     */
+    const route = (name: string, channel: PreludeRoute["channel"], subject?: string): void => {
+      const parameters = channel === "constructor" ? undefined : parametersByName.get(name);
+      const first = parameters?.[0]?.annotation;
+      this.#qualifiedOnlyPreludeNames.set(name, [
+        ...this.#qualifiedOnlyPreludeNames.get(name) ?? [],
+        {
+          home: moduleName === "" ? specifier : moduleName,
+          channel,
+          ...(parameters === undefined ? {} : { arity: parameters.length }),
+          ...(channel === "member" && structuralMembers.has(name)
+            ? { structural: true as const }
+            : {}),
+          ...(first !== undefined &&
+              (subject === undefined
+                ? annotationCompanion(first) === moduleName
+                : first.kind === "TypeVariable" && first.name === subject)
+            ? { dotCallable: true as const }
+            : {}),
+        },
+      ]);
+    };
     for (const [name, symbol] of prelude.terms) {
       // A **`widens` binding** is qualifiable, not a bare export (Constraints
       // §4.7, Modules §5.3): it inherits the visibility rule of the member it widens,
@@ -1389,7 +1789,21 @@ class Resolver {
       // own: `#preludeTermsByName` is the *dot-call* channel and nothing else
       // (`#noteCompanionCandidate`), and the last three are what let the
       // qualified spelling resolve and its import be synthesized.
-      if (!prelude.widensBindings.has(name) && !qualifiedOnlyConstructors.has(name)) {
+      //
+      // §5.5's channels decide the rest. An **open union's** constructor and an
+      // **exception** constructor are bare; a **pervasive term** is bare; every
+      // other export takes a route instead of a binding, and a `widens` binding
+      // takes neither — it is not an exporter at all, so naming it as a route
+      // would offer `Float.pow` where §10's member row says the declaring
+      // module.
+      const constructor = openConstructors.has(name) || qualifiedOnlyConstructors.has(name);
+      const bare = openConstructors.has(name) || exceptionConstructors.has(name) ||
+        (!constructor && pervasive(name));
+      if (prelude.widensBindings.has(name)) {
+        // nothing: neither a bare binding nor a route.
+      } else if (!bare) {
+        route(name, constructor ? "constructor" : "function");
+      } else {
         this.#preludeScope.define(name, symbol.id);
         // The home a refused bare reference is rewritten to. `moduleName` is the
         // same string `#preludeModuleAliases` was keyed by just above, so the
@@ -1412,24 +1826,54 @@ class Resolver {
       // the terms actually referenced) and are excluded from id-base progression.
       this.#importedSymbols.set(symbol.id, symbol);
     }
-    // A constraint member is an export of its declaring module (#335), and a
-    // prelude module's exports are in bare scope everywhere — so the members
-    // seed exactly as the terms above do: same fallback scope, same collision
-    // arithmetic, same synthesized-import channel. `constraintMembers` holds
-    // only the members of constraints this module *declares* (see
-    // `ModuleInterface`), never the member bindings of an `honor` block, which
-    // is the boundary the note's §5 item 8 requires: bare `show` in a consumer
-    // has exactly one exporter, `Show.hex` — an honoring module's binding is
-    // reached only qualified, or bare from inside that module.
+    // A constraint member is an export of its declaring module (#335), so the
+    // members seed exactly as the terms above do — same fallback scope, same
+    // collision arithmetic, same synthesized-import channel — under §5.5's
+    // member rule, which admits `Show.show` and nothing else (#742). Every other
+    // member takes a route: the dot where it is subject-first, the declaring
+    // module always.
+    //
+    // `constraintMembers` holds only the members of constraints this module
+    // *declares* (see `ModuleInterface`), never the member bindings of an
+    // `honor` block, which is the boundary the note's §5 item 8 requires: bare
+    // `show` in a consumer has exactly one exporter, `Show.hex` — an honoring
+    // module's binding is reached only qualified, or bare from inside that
+    // module.
+    const subjects = new Map<string, string>();
+    /** Members of a structurally-instanced constraint, by spelling (see `PreludeRoute`). */
+    const structuralMembers = new Set<string>();
+    // The bare member is the one its *declaration's identity* names (§5.5), so
+    // the seat is collected here, off the declarations this module exports,
+    // rather than tested against the member's spelling below.
+    const pervasiveMembers = new Set<string>();
+    for (const declaration of prelude.constraints.values()) {
+      if (PERVASIVE_PRELUDE_MEMBERS.get(declaration.identity) !== undefined) {
+        pervasiveMembers.add(PERVASIVE_PRELUDE_MEMBERS.get(declaration.identity)!);
+      }
+      for (const member of declaration.members) {
+        subjects.set(member.binding.name, declaration.subject);
+        if (STRUCTURAL_CONSTRAINT_IDENTITIES.has(declaration.identity)) {
+          structuralMembers.add(member.binding.name);
+        }
+        if (!parametersByName.has(member.binding.name)) {
+          parametersByName.set(member.binding.name, member.parameters);
+        }
+      }
+    }
     for (const [name, symbol] of prelude.constraintMembers) {
-      this.#preludeScope.define(name, symbol.id);
+      if (pervasiveMembers.has(name)) {
+        this.#preludeScope.define(name, symbol.id);
+        this.#preludeHomesByName.set(name, [
+          ...this.#preludeHomesByName.get(name) ?? [],
+          moduleName === "" ? specifier : moduleName,
+        ]);
+      } else {
+        route(name, "member", subjects.get(name));
+        this.#preludeMembersByName.set(name, symbol.id);
+      }
       this.#preludeTermsByName.set(name, [
         ...this.#preludeTermsByName.get(name) ?? [],
         symbol.id,
-      ]);
-      this.#preludeHomesByName.set(name, [
-        ...this.#preludeHomesByName.get(name) ?? [],
-        moduleName === "" ? specifier : moduleName,
       ]);
       this.#preludeTerms.set(symbol.id, symbol);
       this.#preludeSpecifierBySymbol.set(symbol.id, specifier);
@@ -1535,6 +1979,7 @@ class Resolver {
     this.#moduleScope = scope;
     this.#predeclareExternTerms(module.items, scope);
     this.#indexHonoredMemberLines(module.items);
+    this.#seedHonoredMemberSpellings();
     const walked = this.#resolveItems(module.items, scope);
     this.#claimHonoredMembers(walked, scope);
     // After the claim and before everything downstream: the members a `widens`
@@ -3214,7 +3659,13 @@ class Resolver {
         if (
           expression.callee.kind === "Name" &&
           expression.callee.name.text === "hash" &&
-          scope.lookup("hash") === undefined
+          scope.lookup("hash") === undefined &&
+          // `hash` is `Hash.hex`'s member, and since #742 the member channel
+          // seeds nothing bare — so the scope lookup alone no longer says the
+          // spelling is free. Without this second question the inversion would
+          // hand bare `hash(x)` the compiler's own intrinsic form and re-open by
+          // accident exactly the spelling ruling 4 closed.
+          !this.#qualifiedOnlyPreludeNames.has("hash")
         ) {
           if (expression.arguments.length !== 1) {
             this.#diagnostics.add({
@@ -3285,9 +3736,16 @@ class Resolver {
         ) {
           this.#noteCompanionCandidate(expression.callee.field.text);
         }
+        // The callee resolves inside this frame so that a refused bare prelude
+        // name can spell its routes with the arguments written here (§5.5).
+        // Restored rather than cleared: an argument may itself be a call.
+        const outerCall = this.#calleeOf;
+        this.#calleeOf = expression;
+        const resolvedCallee = this.#resolveExpr(expression.callee, scope);
+        this.#calleeOf = outerCall;
         return {
           ...expression,
-          callee: this.#resolveExpr(expression.callee, scope),
+          callee: resolvedCallee,
           arguments: expression.arguments.map((argument) =>
             this.#resolveExpr(argument, scope),
           ),
@@ -3402,12 +3860,17 @@ class Resolver {
           ...expression,
           operand: this.#resolveExpr(expression.operand, scope),
         };
-      case "Binary":
-        return {
-          ...expression,
-          left: this.#resolveExpr(expression.left, scope),
-          right: this.#resolveExpr(expression.right, scope),
-        };
+      case "Binary": {
+        const left = this.#resolveExpr(expression.left, scope);
+        // The right operand of a pipe is a *stage*, and a refused prelude name
+        // in its callee seat must not be described as an ordinary call (§5.5's
+        // "the program's own words" has no words for the receiver here).
+        const outerStage = this.#pipeStage;
+        if (expression.operator === "Pipe") this.#pipeStage = expression.right;
+        const right = this.#resolveExpr(expression.right, scope);
+        this.#pipeStage = outerStage;
+        return { ...expression, left, right };
+      }
       case "Comparison":
         return {
           ...expression,
@@ -3617,6 +4080,16 @@ class Resolver {
         const later = symbol === undefined
           ? this.#findLaterDeclaration(pattern.name.text)
           : undefined;
+        // §5.5's refusal is one shape for both positions (§10), so a
+        // qualified-only constructor draws it here exactly as in an expression —
+        // never the bare `unknown constructor`, which says nothing about the
+        // union standing one qualifier away.
+        if (
+          symbol === undefined && later === undefined &&
+          this.#refusedBarePrelude(pattern.name)
+        ) {
+          return { kind: "Wildcard", span: pattern.span };
+        }
         this.#diagnostics.add(
           later === undefined
             ? {
@@ -3799,6 +4272,113 @@ class Resolver {
    * every member's term precisely so an occluded one stays reachable. Dot call is
    * the mitigation this ruling leans on, so it must not be collateral.
    */
+  /**
+   * Refuses a bare reference to a prelude name **outside the bare set**, naming
+   * the routes that do reach it (Modules §5.5, §10's three rows; #742).
+   *
+   * The name resolved to nothing, because §5.5 seeds nothing in the term
+   * namespace by default — so without this the reader would get `unknown name
+   * \`map\`` for an operation the prelude exports four times over, or the bare
+   * `unknown constructor \`Null\`` the boundary unions used to draw. One message
+   * shape serves all three channels; only the routes differ.
+   *
+   * Answers whether it reported, so the caller can poison the expression the way
+   * an unknown name does — one diagnostic for the program, not a cascade.
+   *
+   * Read only where the ordinary lookup has already failed *and* no later
+   * declaration explains it. A module that declares the spelling owns it, above
+   * the declaration as below (§5.4's reservation), and the declared-later error
+   * is the truer sentence there.
+   */
+  /**
+   * Puts a prelude constraint member's spelling back into the bare layer for a
+   * module that **honors** the constraint — Modules §5.5's own carve-out: "a
+   * member's *in-module* spelling is untouched: an honoring module binds its
+   * members at module level (Constraints §4.6)".
+   *
+   * #742 took the member channel's bare seeding from *consumers*, and the
+   * honoring module is not one: `subtract(left, right) = multiply(left, right)`
+   * reads a sibling of the block it is written in, and every law that governs
+   * that read — §4.6's own-name refusal, its ambiguity-between-constraints
+   * refusal, its declared-later error — is written against the spelling
+   * resolving. Refusing it here would replace three specific diagnostics with
+   * one that misreads the program as a consumer's.
+   *
+   * Read from `#boundHonoredMembers` and **not** from the wider index §4.6's
+   * laws use: the carve-out is for a spelling this module *binds*, so a
+   * `derives` clause — which writes no member anywhere — puts nothing back, and
+   * neither does a block's defaulted member. A spelling this module does not
+   * bind stays refused, and the routes recorded for it stay in place. The name
+   * is dropped from `#qualifiedOnlyPreludeNames` in the same breath, because a
+   * spelling cannot be both in the layer and refused for not being in it.
+   */
+  #seedHonoredMemberSpellings(): void {
+    for (const name of this.#boundHonoredMembers) {
+      const symbol = this.#preludeMembersByName.get(name);
+      if (symbol === undefined) continue;
+      this.#preludeScope.define(name, symbol);
+      this.#qualifiedOnlyPreludeNames.delete(name);
+    }
+  }
+
+  #refusedBarePrelude(name: Parsed.Name): boolean {
+    const routes = this.#qualifiedOnlyPreludeNames.get(name.text);
+    if (routes === undefined || routes.length === 0) return false;
+    this.#diagnostics.add({
+      severity: "error",
+      message: refusedBarePreludeMessage(name.text, routes, this.#writtenArguments(name)),
+      primary: name.span,
+    });
+    return true;
+  }
+
+  /**
+   * The source text of each argument of the call this name is the callee of, or
+   * `undefined` where it is not a callee — Modules §5.5's "the program's own
+   * words".
+   *
+   * Read from the module's text by span, because that is the only rendering that
+   * cannot invent a spelling: a pretty-printer over the parsed argument would
+   * normalize whitespace, quoting and parentheses, and a rewrite the reader
+   * cannot find in their own line is worse than no rewrite. Answers `undefined`
+   * when the caller supplied no text (a bare `resolve` in a test), which degrades
+   * to the non-call form rather than to a wrong one.
+   */
+  #writtenArguments(name: Parsed.Name): WrittenArguments | undefined {
+    const call = this.#calleeOf;
+    const text = this.#text;
+    if (
+      call === undefined || text === undefined ||
+      call.callee.kind !== "Name" || call.callee.name !== name
+    ) {
+      return undefined;
+    }
+    // A **pipe stage** is not a call the message can rebuild. `xs |> map(f)`
+    // writes `map(f)`, whose one written argument is the *transform*, not the
+    // receiver — rendering it as a call turned `map(f)` into `f.map()`, which
+    // names the wrong value in the wrong seat. The stage's real first argument
+    // is the pipe's left operand, which is not this node's to read, so the
+    // message drops to the non-call shape: the routes, named, with no arguments
+    // — which is what a bare stage (`xs |> length`) already draws.
+    if (this.#pipeStage === call) return undefined;
+    const texts = call.arguments.map((argument) =>
+      text.slice(argument.span.start.offset, argument.span.end.offset)
+    );
+    // An argument spanning lines would put a newline inside a diagnostic, and a
+    // rewrite the reader has to reflow is not one. The routes are still named.
+    if (texts.some((argument) => argument.includes("\n"))) return undefined;
+    const first = call.arguments[0];
+    return {
+      texts,
+      receiver: first === undefined || structuralReceiver(first)
+        ? undefined
+        : dispatchesAsWritten(first)
+        ? texts[0]
+        : `(${texts[0]})`,
+      vectorLiteral: first !== undefined && vectorLiteralReceiver(first),
+    };
+  }
+
   #refusedAmbiguousPrelude(name: Parsed.Name, scope: Scope): boolean {
     if (scope.lookupOwner(name.text) !== this.#preludeScope) return false;
     const homes = this.#preludeHomesByName.get(name.text) ?? [];
@@ -3857,13 +4437,13 @@ class Resolver {
     this.#diagnostics.add({
       severity: "error",
       message: "`console.log` is not a Hexagon operation; the debugging probe " +
-        "is `log` (`Debug.log`)",
+        "is `Debug.log`",
       primary: callee.span,
       ...(expression.arguments.length === 1
         ? {
           fixes: [{
-            message: "write `log`",
-            edits: [{ span: callee.span, replacement: "log" }],
+            message: "write `Debug.log`",
+            edits: [{ span: callee.span, replacement: "Debug.log" }],
           }],
         }
         : {}),
@@ -3966,6 +4546,12 @@ class Resolver {
     }
 
     const later = this.#findLaterDeclaration(expression.name.text);
+    // §5.5's refusal is read *after* the declared-later one and before the
+    // unknown name: a module that declares the spelling lower down means its
+    // own, and §5.4's reservation has already made the prelude invisible there.
+    if (later === undefined && this.#refusedBarePrelude(expression.name)) {
+      return { kind: "ErrorExpr", span: expression.span };
+    }
     this.#diagnostics.add(
       later === undefined
         ? {
@@ -5212,6 +5798,12 @@ class Resolver {
       for (const name of names) {
         const written = item.members.find((member) => member.name.text === name);
         record(name, { constraint, span: written?.span ?? item.span });
+        // §5.5's carve-out follows the **instance's completed member set** for a
+        // block this module wrote — a member it omits is still bound here, as
+        // the wrapper seat the emitter hoists for it (Constraints §2's defaults).
+        // What the carve-out does not follow is `derives`, above: that clause
+        // writes no block at all.
+        this.#boundHonoredMembers.add(name);
       }
     }
   }
@@ -6104,42 +6696,75 @@ export const PROVIDED_ROW_ALIASES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * The prelude unions whose constructors are **qualified-only** (`spec/ffi.md`
- * §12): reachable as `JsKind.Null` and never as a bare `Null`, in expressions
- * and in patterns alike.
+ * The **open unions** of the prelude (Modules §5.5, #742): the three whose
+ * constructors are seeded into a consumer's bare term scope, in expressions and
+ * in patterns alike.
+ *
+ * The list inverts the sense of the one it replaces. Until #742 the compiler
+ * held the *hidden* unions — `spec/ffi.md` §12's four boundary utilities, whose
+ * constructors were qualified-only against a bare-by-default rule. The default
+ * is now qualified-only for every prelude union, so §12's four fall out with no
+ * entry anywhere and this list carries the exceptions instead: `Bool`,
+ * `Option`, `Result` — the Rust carve, six names.
+ *
+ * `Ordering` is deliberately absent (ruling 2). Its constructors are matched
+ * rarely, because `<`, `==` and `>` already carry the comparison vocabulary, so
+ * `Ordering.Less` costs little where it is written — and `stdlib/Ordering.hex`
+ * exists to be the module that spelling names (Modules §3.3).
  *
  * The designation is the compiler's, because there is no source form for it and
- * there is deliberately none: §12 is a finding about *this inventory*, and its
- * resolution qualifies each whole union rather than the offending constructors
- * alone, so that a union's constructor surface stays one rule. A user's own
- * union spelled `JsKind` is untouched: this list is consulted only while seeding
- * the prelude.
- *
- * The four members enter on **two** grounds, and both are §12's:
- *
- * - **Collision.** `Undefined` and `Null` are constructors of both
- *   `NullableCase(a)` (Part 2 §3) and `JsKind` (Part 11 §3), which the prelude
- *   cannot auto-import unqualified (Modules §5.5).
- * - **User vocabulary** *(§12's extension, #511).* `JsConversionReason` and
- *   `JsPathSegment` collide with nothing, and are here because the prelude
- *   should not *spend* `Shape`, `Range`, `Cycle`, `Field`, `Index`, `MapKey`,
- *   `MapValue` and `SetElement` — eight ordinary words for a user's own
- *   declarations. Occlusion would not save such a user either: it is
- *   per-namespace, so a `union Shape = Circle | Square` introduces no
- *   *constructor* named `Shape` and leaves the prelude's standing in term
- *   position (Modules §5.4), where the message it draws names a union that
- *   appears nowhere in the program. Boundary-error vocabulary is overwhelmingly
- *   matched and rarely constructed, so the qualified spelling costs little
- *   exactly where these names are used.
- *
- * `NullableCase` is §12's fourth member and is not here, because it does not
- * exist yet (FFI Part 2 §3 is unimplemented). Its entry lands with it.
+ * there is deliberately none: bare seeding is a fact about *this inventory*, not
+ * a property a declaration can claim. A user's own union spelled `Option` is
+ * untouched — this list is consulted only while seeding the prelude.
  */
-const QUALIFIED_ONLY_PRELUDE_UNIONS: ReadonlySet<string> = new Set([
-  "JsKind",
-  "JsConversionReason",
-  "JsPathSegment",
+const OPEN_PRELUDE_UNIONS: ReadonlySet<string> = new Set([
+  "Bool",
+  "Option",
+  "Result",
 ]);
+
+/**
+ * The **pervasive term** of the prelude's function channel (Modules §5.5, #742) —
+ * the one ordinary binding seeded bare — keyed by the exporting module's basename
+ * *and* the name, so that a same-spelled export somewhere else in the prelude
+ * never rides in on this entry.
+ *
+ * `ignore` is here on its own ground: Statements §3.2's discard diagnostic names
+ * the bare spelling as its own rewrite, and nobody declares the word. Nothing
+ * else is, and the entry is not a precedent.
+ */
+const PERVASIVE_PRELUDE_TERMS: ReadonlySet<string> = new Set([
+  "Prelude.ignore",
+]);
+
+/**
+ * The **pervasive constraint member** (Modules §5.5, #742), keyed by its
+ * declaration's *identity* rather than by any spelling: `show` is bare because
+ * `Show.hex`'s declaration is the one seeding it, so a second constraint
+ * declaring a member spelled `show` seeds nothing and the collided-name rule
+ * never meets a second exporter.
+ *
+ * It is on the list "only for teachability purposes" (James, ruling 4) — the
+ * display idiom the book teaches bare, dot, and qualified in equal measure — and
+ * that ground is explicitly not a precedent. Every other member is reached by
+ * the dot where it is subject-first, and qualified always.
+ */
+const PERVASIVE_PRELUDE_MEMBERS: ReadonlyMap<string, string> = new Map([
+  [preRegisteredConstraintIdentity("Show"), "show"],
+]);
+
+/**
+ * The identities of the constraints whose instances at structural types are
+ * automatic (`STRUCTURAL_CONSTRAINTS`), for `PreludeRoute.structural`.
+ *
+ * Derived from the one inventory rather than transcribed, so a constraint
+ * joining or leaving the structural set carries this reading with it; and held
+ * as identities rather than names, so that only the prelude's own declarations
+ * answer to it.
+ */
+const STRUCTURAL_CONSTRAINT_IDENTITIES: ReadonlySet<string> = new Set(
+  STRUCTURAL_CONSTRAINTS.map(preRegisteredConstraintIdentity),
+);
 
 /**
  * The operations a primitive companion is asked for and deliberately does not

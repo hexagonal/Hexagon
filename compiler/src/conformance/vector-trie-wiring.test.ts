@@ -888,14 +888,14 @@ describe("§8 instances over the trie", () => {
         "        acc := acc.prepend(n - i + 1)\n" +
         "    acc\n" +
         "export let sameHundred: Bool = ups(100) == downs(100)\n" +
-        "export let sameHash: Bool = hash(ups(100)) == hash(downs(100))\n" +
+        "export let sameHash: Bool = Hash.hash(ups(100)) == Hash.hash(downs(100))\n" +
         "export let slicedEquals: Bool = ups(50)[10..20] == ups(20)[10..20]\n" +
         "export let differs: Bool = ups(100) == ups(99)\n" +
         "export let shown: String = \"${[1, 2, 3]}\"\n" +
         "export let blankShown: String = \"${Vector.empty}\"\n" +
         "export let nested: Bool = [[1, 2], [3]] == [[1, 2], [3]]\n" +
         "export let nestedShown: String = \"${[[1, 2], [3]]}\"\n" +
-        "export let nestedHash: Bool = hash([[1, 2], [3]]) == hash([[1, 2], [3]])\n" +
+        "export let nestedHash: Bool = Hash.hash([[1, 2], [3]]) == Hash.hash([[1, 2], [3]])\n" +
         "export let prefixLess: Bool = [1, 2] < [1, 2, 0]\n" +
         "export let firstUnequalDecides: Bool = [1, 3] > [1, 2, 99]\n" +
         "export let equalOrder: Bool = [1, 2] <= [1, 2]\n" +

@@ -37,9 +37,9 @@ let empty = emptyBox()
 let boxedNumber: Box(Int) = empty
 let boxedWord: Box(String) = empty
 
-log("\${Seq.length(numbers)} \${Seq.length(words)}")
-log("\${Vector.length(counts)} \${Vector.length(labels)}")
-log("\${openBox(boxedNumber)} \${openBox(boxedWord)}")
+Debug.log("\${Seq.length(numbers)} \${Seq.length(words)}")
+Debug.log("\${Vector.length(counts)} \${Vector.length(labels)}")
+Debug.log("\${openBox(boxedNumber)} \${openBox(boxedWord)}")
 `,
   specificationReferences: [
     "spec/functions.md",

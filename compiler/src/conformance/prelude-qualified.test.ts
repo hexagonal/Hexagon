@@ -104,7 +104,7 @@ describe("a prelude member is reachable by name", () => {
       "export let a: Option(Int) = Option.Some(1)\n" +
       "export let b: Option(Int) = Option.None\n" +
       "export let c: Result(Int, String) = Result.Ok(1)\n" +
-      "export let d: Ordering = Prelude.Less\n",
+      "export let d: Ordering = Ordering.Less\n",
     )).toEqual([]);
   });
 
@@ -115,12 +115,16 @@ describe("a prelude member is reachable by name", () => {
     )).toEqual([]);
   });
 
-  test("the bare spellings are untouched", () => {
+  test("the open unions' bare spellings are untouched", () => {
     expect(diagnostics(
       "export let a: Option(Int) = Some(1)\n" +
-      "export let b: Result(Int, String) = Ok(1)\n" +
-      "export let c: Ordering = Less\n",
+      "export let b: Result(Int, String) = Ok(1)\n",
     )).toEqual([]);
+    // `Ordering` is not an open union (#742, ruling 2), so its constructors have
+    // only the qualified spelling — and the bare one draws §5.5's refusal
+    // naming it, never an unknown name.
+    expect(diagnostics("export let c: Ordering = Less\n"))
+      .toEqual(["no bare `Less`; write `Ordering.Less`"]);
   });
 
   test("a member that does not export the name still says so", () => {
@@ -202,8 +206,8 @@ describe("the qualified spelling runs (PR #90 finding F1)", () => {
   test("a qualified value from a second member produces the value", async () => {
     const module = await run([[
       "/main.hex",
-      "export let ordered: Ordering = Prelude.Less\n" +
-      "export let isLess: Bool = ordered == Less\n",
+      "export let ordered: Ordering = Ordering.Less\n" +
+      "export let isLess: Bool = ordered == Ordering.Less\n",
     ]]);
     expect(module["isLess"]).toBe(true);
   });

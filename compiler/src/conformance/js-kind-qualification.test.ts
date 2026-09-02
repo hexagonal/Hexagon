@@ -80,30 +80,45 @@ const UTILITY_CONSTRUCTORS = [
   "SetElement",
 ] as const;
 
+/** Which union each of the eight is spelled through (Modules §5.5). */
+const UTILITY_HOMES: Readonly<Record<string, string>> = {
+  Shape: "JsConversionReason",
+  Range: "JsConversionReason",
+  Cycle: "JsConversionReason",
+  Field: "JsPathSegment",
+  Index: "JsPathSegment",
+  MapKey: "JsPathSegment",
+  MapValue: "JsPathSegment",
+  SetElement: "JsPathSegment",
+};
+
 describe("the ten constructors are not bare prelude terms (ffi.md §12)", () => {
   /**
-   * Expression position. The refusal is the ordinary unknown-name error: §12
-   * designs no diagnostic of its own, because the constructor is simply not in
-   * scope — there is nothing special to say about a name that was never bound.
+   * Expression position. Since #742 the refusal is §5.5's own, not an
+   * unknown-name error: the constructor is qualified-only by the prelude's
+   * default rather than absent, and the message says so and names the spelling
+   * that works. `unknown name \`Null\`` was the wording until the inversion, and
+   * it said nothing about the union standing one qualifier away.
    */
-  test.each(KINDS)("bare `%s` in an expression is an unknown name", (constructor) => {
+  test.each(KINDS)("bare `%s` in an expression names its qualified spelling", (constructor) => {
     expect(projectDiagnostics(`export let k: JsKind = ${constructor}\n`))
-      .toEqual([`unknown name \`${constructor}\``]);
+      .toEqual([`no bare \`${constructor}\`; write \`JsKind.${constructor}\``]);
   });
 
   /**
    * Pattern position, which Modules §5.4 reads as one scope with value
-   * position — so the same absence produces the pattern wording. This is the
-   * seat that matters most: a capitalized name in a pattern is a *constructor*
-   * pattern, never a binder, so an unbound one is refused rather than silently
-   * matching everything.
+   * position — and §10 gives the refusal **one shape for both**, so the sentence
+   * here is the sentence above, character for character. This is the seat that
+   * matters most: a capitalized name in a pattern is a *constructor* pattern,
+   * never a binder, so an unbound one is refused rather than silently matching
+   * everything.
    */
-  test.each(KINDS)("bare `%s` in a pattern is an unknown constructor", (constructor) => {
+  test.each(KINDS)("bare `%s` in a pattern draws the same sentence", (constructor) => {
     expect(projectDiagnostics(
       "export let f(k: JsKind): Int = match k\n" +
         `    ${constructor} => 1\n` +
         "    _ => 2\n",
-    )[0]).toBe(`unknown constructor \`${constructor}\``);
+    )[0]).toBe(`no bare \`${constructor}\`; write \`JsKind.${constructor}\``);
   });
 
   /**
@@ -288,22 +303,22 @@ describe("the extension gives the eight words back (§12's extension, #511)", ()
    * so it is asserted name by name.
    */
   test.each(UTILITY_CONSTRUCTORS)(
-    "bare `%s` in an expression is an unknown name",
+    "bare `%s` in an expression names its qualified spelling",
     (constructor) => {
       expect(projectDiagnostics(`export let n: Int = ${constructor}\n`)[0])
-        .toBe(`unknown name \`${constructor}\``);
+        .toBe(`no bare \`${constructor}\`; write \`${UTILITY_HOMES[constructor]}.${constructor}\``);
     },
   );
 
   /** Pattern position, the seat where an unbound capitalized name is refused. */
   test.each(["Shape", "Range", "Cycle"] as const)(
-    "bare `%s` in a pattern is an unknown constructor",
+    "bare `%s` in a pattern draws the same sentence",
     (constructor) => {
       expect(projectDiagnostics(
         "export let f(r: JsConversionReason): Int = match r\n" +
           `    ${constructor} => 1\n` +
           "    _ => 2\n",
-      )[0]).toBe(`unknown constructor \`${constructor}\``);
+      )[0]).toBe(`no bare \`${constructor}\`; write \`JsConversionReason.${constructor}\``);
     },
   );
 
@@ -386,14 +401,24 @@ describe("the extension gives the eight words back (§12's extension, #511)", ()
 
   /**
    * `JsConversionError` is a **record**, not one of the three unions, and its
-   * constructor is its own type's spelling rather than a common word. It stays
-   * an ordinary bare prelude term, which is the boundary of the extension.
+   * constructor is its own type's spelling rather than a common word. Until #742
+   * that difference bought it a bare binding; the inverted default reads a
+   * record's constructor as a constructor like any other, so it is spelled
+   * through its home too — and the *type* name stays bare, which is the half a
+   * user's annotation needs.
    */
-  test("`JsConversionError` stays a bare prelude term", () => {
+  test("`JsConversionError` is spelled through `JsValue`, its type name bare", () => {
+    expect(projectDiagnostics(
+      "export let e: JsConversionError =\n" +
+        "    JsValue.JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n",
+    )).toEqual([]);
     expect(projectDiagnostics(
       "export let e: JsConversionError =\n" +
         "    JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n",
-    )).toEqual([]);
+    )).toEqual([
+      "no bare `JsConversionError`; write " +
+        "`JsValue.JsConversionError({ reason = JsConversionReason.Shape, path = [] })`",
+    ]);
   });
 });
 

@@ -33,9 +33,13 @@ export interface PreludeModule {
  *
  * A constraint member is an export of its declaring module, so all **eleven**
  * declarations the compiler holds are `.hex` files here, and their seats are
- * what put `show`, `equals`, `compare`, `add`, `div`, `toSeq` and the rest into
- * bare scope everywhere. The rule placing them is the same seats-before-uses
- * rule as for any other member, read through a declaration's *signature types*:
+ * what make `Show.show`, `Eq.equals`, `Ord.compare`, `Num.add`, `Integral.div`
+ * and `Iterable.toSeq` spellable everywhere. (Their seats no longer put those
+ * *names* into bare scope: since #742 the member channel seeds `show` alone,
+ * and every other member is reached by the dot where it is subject-first and
+ * qualified always — Modules §5.5.) The rule placing them is the same
+ * seats-before-uses rule as for any other member, read through a declaration's
+ * *signature types*:
  * **a constraint declaration sits as early as the types its member headers name
  * allow**, and no earlier.
  *
@@ -57,8 +61,17 @@ export interface PreludeModule {
  *   without one — so the derivation needs only the pre-registered `hex:Eq`
  *   identity, which is import-free.
  * - `Hash.hex` follows `Eq.hex`, its base constraint.
- * - `Prelude.hex` seats `Ordering`, so `Ord.hex` must follow it: `compare`
- *   answers `Ordering`. `Ord` is also why `Eq` had to be seated by here.
+ * - `Ordering.hex` seats the `Ordering` union, so `Ord.hex` must follow it:
+ *   `compare` answers `Ordering`. `Ord` is also why `Eq` had to be seated by
+ *   here, and `Show`/`Eq` are why `Ordering.hex` cannot sit earlier than it
+ *   does — it `derives` both. The union has a **module of its own** (#742) for
+ *   the reason `JsKind.hex` does: its constructors are qualified-only under
+ *   Modules §5.5's bare set, and a qualified constructor is spelled through the
+ *   module that declares it (Modules §3.3), so the home must be addressable
+ *   under the union's own name. `Ordering.Less` resolves; `Prelude.Less`, the
+ *   only spelling the old seat offered, does not exist.
+ * - `Prelude.hex` follows it, and holds `ignore` alone — the one prelude
+ *   function in the bare set (Modules §5.5).
  * - `Integral.hex` follows both of its bases, `Num` and `Ord`.
  *
  * `Iterable.hex` is the eleventh, and the one declaration that cannot sit with
@@ -137,11 +150,12 @@ export interface PreludeModule {
  * it sits after `Option.hex`. Everything else about the seat is deliberate
  * rather than forced. It is **late** because its two exports are `length` and
  * `get`, and a prelude module sees the members before it: seated early, every
- * later companion that writes a bare `length(values)` or `get(m, k)` over its
- * own declaration would be weighing that spelling against this file's, for no
- * gain. From here it is visible to no prelude module that spells either word,
- * and the collision arithmetic (Modules §5.5) is settled where it belongs —
- * in user code, where the whole prelude arrives at once. Nothing forces it
+ * later companion declaring either word would be weighing its own spelling
+ * against this file's, for no gain. From here it is visible to no prelude
+ * module that spells either word. (Since #742 that arithmetic decides only how
+ * many routes a refusal enumerates — nothing is seeded bare either way — so the
+ * seat is now a courtesy to the reader rather than a load-bearing fact.)
+ * Nothing forces it
  * before `JsValue.hex` either: `Array(a)` is a compiler-owned type with no
  * declaration site, so `JsValue.toArray`'s `Result(Array(JsValue), …)` spells
  * the type through the fallback (Modules §5.5) and not through this module.
@@ -178,10 +192,10 @@ export interface PreludeModule {
  * `Option`. It is a module of its own for the reason `JsKind.hex` is: FFI
  * Part 11 §7 spells the accessors `JsError.message` and `JsError.stack`, and a
  * qualified spelling needs a module addressable under the name (Modules §3.3).
- * The seat is also what makes the two bare names it exports — `message` and
- * `stack` — visible to no prelude module at all, so the collision arithmetic
- * (Modules §5.5) is settled in user code, where the whole prelude arrives at
- * once.
+ * The seat is also what makes the two names it exports — `message` and
+ * `stack` — visible to no prelude module at all. Since #742 neither is a *bare*
+ * name anywhere: both are reached as `JsError.message(e)` or by the dot, like
+ * every other prelude function (Modules §5.5).
  *
  * `Debug.hex` is last (#407), and its seat is the opposite kind of fact: almost
  * no signature here forces it. Both members name `Show` and nothing else — `log`
@@ -190,11 +204,11 @@ export interface PreludeModule {
  * what the seat *denies* rather than for anything it needs. A member sees only the members
  * before it, so from the last seat `log` and `trace` are visible to no prelude
  * module at all: nothing in the standard library can quietly acquire a probe,
- * and every print in it would have to be a deliberate import. The collision
- * arithmetic (Modules §5.5) follows the same way round — no prelude module's
- * own bare names ever stand against these two, because none of them is in
- * scope where the other is — so the two names first have to be weighed in user
- * code, where the whole prelude arrives at once regardless of seat order.
+ * and every print in it would have to be a deliberate import. #742 settled the
+ * other half of the same worry for good: the two are reached as `Debug.log` and
+ * `Debug.trace` in user code too — James's ruling 1b, against a bare `log` he
+ * had been bitten by — so the vocabulary this file spends is now nothing at
+ * all, whatever its seat.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Show.hex",
@@ -206,6 +220,7 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Bool.hex",
   "Eq.hex",
   "Hash.hex",
+  "Ordering.hex",
   "Prelude.hex",
   "Ord.hex",
   "Integral.hex",

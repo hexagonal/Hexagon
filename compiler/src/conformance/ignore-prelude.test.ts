@@ -71,7 +71,7 @@ async function written(body: () => Promise<void>): Promise<unknown[]> {
  * many times did it run?" are both readable.
  */
 const audit = 'let audit(label: String): Int =\n' +
-  '    log(label)\n' +
+  '    Debug.log(label)\n' +
   '    17\n';
 
 /** `/main.hex`'s emitted JavaScript, with the project asserted clean. */
@@ -251,7 +251,7 @@ describe("value position yields `Unit`, never the operand (§3.3)", () => {
       const module = await runProject(
         [["/main.hex",
           audit + 'let step(): Unit =\n' +
-          '    log("step")\n' +
+          '    Debug.log("step")\n' +
           '    ignore(audit("tail"))\n' +
           'export let consumed(): Unit = step()\n']],
         { transform: distinct("tail") },
@@ -348,7 +348,7 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
     const javascript = emitted(
       audit +
       'export let ignore(value: Int): Unit =\n' +
-      '    log("user ignore ran")\n' +
+      '    Debug.log("user ignore ran")\n' +
       'export let go(): Int =\n' +
       '    ignore(audit("occluded"))\n' +
       '    1\n',
@@ -362,7 +362,7 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
         [["/main.hex",
           audit +
           'export let ignore(value: Int): Unit =\n' +
-          '    log("user ignore ran")\n' +
+          '    Debug.log("user ignore ran")\n' +
           'export let go(): Int =\n' +
           '    ignore(audit("occluded-run"))\n' +
           '    1\n']],
@@ -381,7 +381,7 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
         [["/main.hex",
           audit +
           'export let ignore(value: Int): Unit =\n' +
-          '    log("user ignore ran")\n' +
+          '    Debug.log("user ignore ran")\n' +
           'export let go(): Int =\n' +
           '    Prelude.ignore(audit("qualified-past-occlusion"))\n' +
           '    1\n']],
@@ -398,7 +398,7 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
         [
           ["/mine.hex",
             'export let ignore(value: Int): Unit =\n' +
-            '    log("imported ignore ran")\n'],
+            '    Debug.log("imported ignore ran")\n'],
           ["/main.hex",
             audit +
             'import { ignore } from "./mine"\n' +
@@ -459,7 +459,7 @@ describe("the book's `ignore` examples compile (ch.1, 3, 6, 7, 17)", () => {
       "let auditOrder(order: Order): AuditReport = AuditReport({lines = 1})\n" +
       "export let prepareOrder(order: Order): Order =\n" +
       "    ignore(auditOrder(order))\n" +
-      '    log("Preparing order")\n' +
+      '    Debug.log("Preparing order")\n' +
       "    order\n",
     )).toEqual([]);
   });

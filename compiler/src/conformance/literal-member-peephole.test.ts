@@ -234,7 +234,7 @@ describe("the guard refuses, and the selection reads off the binding", () => {
     const lines = await written(async () => {
       const module = await runProject([["/main.hex",
         "let mark(label: String): Unit =\n" +
-          "    log(label)\n" +
+          "    Debug.log(label)\n" +
           "    ()\n" +
           'export let text(): String = "u = ${mark("unit-operand")}"\n',
       ]], { transform: distinct("unit-operand") });
@@ -308,7 +308,7 @@ describe("a reduced site evaluates its arguments exactly once, in order", () => 
     const lines = await written(async () => {
       const module = await runProject([["/main.hex",
         "let audit(label: String): Bool =\n" +
-          "    log(label)\n" +
+          "    Debug.log(label)\n" +
           "    True\n" +
           'export let line(): String = "answer: ${audit("once")}"\n',
       ]], { transform: distinct("argument-once") });
@@ -322,7 +322,7 @@ describe("a reduced site evaluates its arguments exactly once, in order", () => 
     const lines = await written(async () => {
       const module = await runProject([["/main.hex",
         "let stamp(label: String): Int =\n" +
-          "    log(label)\n" +
+          "    Debug.log(label)\n" +
           "    1\n" +
           "export let same(): Bool =\n" +
           '    {n = stamp("left")} == {n = stamp("right")}\n',

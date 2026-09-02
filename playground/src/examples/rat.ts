@@ -10,9 +10,9 @@ let fiveSixths = half + third
 let threeHalves = half / third
 let tenTwelfths = Rat.create(10, 12)
 
-log("1/2 + 1/3 = \${fiveSixths}")
-log("1/2 / 1/3 = \${threeHalves}")
-log("Does 10/12 = 5/6? \${tenTwelfths == fiveSixths}")
+Debug.log("1/2 + 1/3 = \${fiveSixths}")
+Debug.log("1/2 / 1/3 = \${threeHalves}")
+Debug.log("Does 10/12 = 5/6? \${tenTwelfths == fiveSixths}")
 `,
   specificationReferences: [
     "spec/rat.md",

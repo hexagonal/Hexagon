@@ -103,8 +103,8 @@ describe("resolve", () => {
     expect(module.diagnostics).toMatchObject([{
       severity: "error",
       message: "`console.log` is not a Hexagon operation; the debugging probe " +
-        "is `log` (`Debug.log`)",
-      fixes: [{ message: "write `log`" }],
+        "is `Debug.log`",
+      fixes: [{ message: "write `Debug.log`" }],
     }]);
     // The rewrite replaces exactly the callee, leaving the argument where the
     // writer put it.
@@ -112,7 +112,7 @@ describe("resolve", () => {
     expect(
       source.slice(0, edit.span.start.offset) + edit.replacement +
         source.slice(edit.span.end.offset),
-    ).toBe('log("hello")');
+    ).toBe('Debug.log("hello")');
   });
 
   test("offers no rewrite where no single argument makes one honest", () => {
@@ -122,7 +122,7 @@ describe("resolve", () => {
       expect(module.diagnostics).toMatchObject([{
         severity: "error",
         message: "`console.log` is not a Hexagon operation; the debugging probe " +
-          "is `log` (`Debug.log`)",
+          "is `Debug.log`",
       }]);
       expect(module.diagnostics[0]!.fixes).toBeUndefined();
     }
@@ -137,7 +137,7 @@ describe("resolve", () => {
     // the writer nothing beyond the sentence it adds.
     expect(refused.diagnostics.map(({ message }) => message)).toEqual([
       "`console.log` is not a Hexagon operation; the debugging probe is " +
-        "`log` (`Debug.log`)",
+        "`Debug.log`",
       "unknown name `nmae`",
     ]);
     expect(absent.diagnostics.map(({ message }) => message)).toEqual([

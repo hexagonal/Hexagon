@@ -112,10 +112,10 @@ describe("a type-only prelude mention has its instances", () => {
     expect(diagnostics([["/main.hex", source]])).toEqual([]);
 
     const javascript = emitted([["/main.hex", source]], "/main.hex");
-    // Imported from `Prelude.js`, which declares it — not from an intermediate,
+    // Imported from `Ordering.js`, which declares it — not from an intermediate,
     // and not re-exported onward.
     expect(importLines(javascript)).toEqual([
-      'import { __Eq_Ordering } from "./Prelude.js";',
+      'import { __Eq_Ordering } from "./Ordering.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { f };"]);
     expect(danglingImports([["/main.hex", source]])).toEqual([]);
@@ -166,7 +166,7 @@ describe("a type-only prelude mention has its instances", () => {
     const source = 'export fun f(a: Ordering): String = "v: ${a}"\n';
     expect(diagnostics([["/main.hex", source]])).toEqual([]);
     expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
-      'import { __Show_Ordering } from "./Prelude.js";',
+      'import { __Show_Ordering } from "./Ordering.js";',
     ]);
   });
 
@@ -181,7 +181,7 @@ describe("a type-only prelude mention has its instances", () => {
       "/main.hex",
       "export fun g(a: Ordering): Int =\n" +
       "    match a\n" +
-      "        Less => 0\n" +
+      "        Ordering.Less => 0\n" +
       "        _ => 1\n" +
       "export fun f(a: Ordering, b: Ordering): Bool = a == b\n",
     ]])).toEqual([]);
@@ -327,9 +327,9 @@ describe("an explicit import of a prelude module coexists with the channel", () 
    */
   test("no duplicate binding when the prelude module is imported explicitly", async () => {
     const source =
-      'import { Less } from "./Prelude"\n' +
+      'import { Less } from "./Ordering"\n' +
       "export fun f(a: Ordering, b: Ordering): Bool = a == b\n" +
-      "export let first: Ordering = Less\n";
+      "export let first: Ordering = Ordering.Less\n";
     expect(diagnostics([["/main.hex", source]])).toEqual([]);
 
     const javascript = emitted([["/main.hex", source]], "/main.hex");
@@ -339,7 +339,7 @@ describe("an explicit import of a prelude module coexists with the channel", () 
       line.includes("__Eq_Ordering")
     );
     expect(binding).toEqual([
-      'import { __Eq_Ordering } from "./Prelude.js";',
+      'import { __Eq_Ordering } from "./Ordering.js";',
     ]);
     // And nothing re-exports it: the channel never calls `#exportEvidence`, and
     // the import item has no evidence to export (#263).

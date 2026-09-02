@@ -61,7 +61,7 @@ describe("emitJavaScript", () => {
         "export let second: Int = values[2]\n" +
         "export let window: Vector(Int) = values[2..99]\n" +
         "export let letter: String = \"héllo\"[2]\n" +
-        "export let fingerprint: Int = hash((values, {name = \"hex\"}))\n" +
+        "export let fingerprint: Int = Hash.hash((values, {name = \"hex\"}))\n" +
         "export let first: Int = match values\n" +
         "    [head, ...rest] => head\n" +
         "    [] => 0",
@@ -273,8 +273,8 @@ describe("emitJavaScript", () => {
     const source =
       "let left = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
         "let right = Map.fromVector([(2, \"two\"), (1, \"one\")])\n" +
-        "fun mapFacts<k: Hash, v: Hash>(a: Map(k, v), b: Map(k, v)) = (a == b, hash(a) == hash(b))\n" +
-        "fun setFacts<a: Hash>(a: Set(a), b: Set(a)) = (a == b, hash(a) == hash(b))\n" +
+        "fun mapFacts<k: Hash, v: Hash>(a: Map(k, v), b: Map(k, v)) = (a == b, Hash.hash(a) == Hash.hash(b))\n" +
+        "fun setFacts<a: Hash>(a: Set(a), b: Set(a)) = (a == b, Hash.hash(a) == Hash.hash(b))\n" +
         "let first = Set.fromVector([1, 2, 3])\n" +
         "let second = Set.fromVector([3, 4])\n" +
         "let combined = Set.union(first, second)\n" +
@@ -285,7 +285,7 @@ describe("emitJavaScript", () => {
         "let mapEvidence = mapFacts(left, right)\n" +
         "let setEvidence = setFacts(first, Set.fromVector([3, 2, 1]))\n" +
         "export let result: (Bool, Bool, Int, Int, Int, Bool, Vector(Int), String, String, (Bool, Bool), (Bool, Bool)) =\n" +
-        "    (left == right, hash(left) == hash(right), Set.size(combined), Set.size(common), Set.size(rest), subset, keys, \"${first}\", \"${left}\", mapEvidence, setEvidence)\n";
+        "    (left == right, Hash.hash(left) == Hash.hash(right), Set.size(combined), Set.size(common), Set.size(rest), subset, keys, \"${first}\", \"${left}\", mapEvidence, setEvidence)\n";
     const files = [["/main.hex", source]] as const;
 
     // Linked and run rather than evaluated as one text: `Vector.fromSeq` is an
@@ -333,12 +333,12 @@ describe("emitJavaScript", () => {
         "    toSeq(bag) = bag.items\n" +
         "let bag = Bag({items = Seq.take(Seq.iterate(1, x => x + 1), 2)})\n" +
         "for value in bag\n" +
-        "    log(\"${value}\")\n" +
+        "    Debug.log(\"${value}\")\n" +
         "for value in [1, 2]\n" +
-        "    log(\"${value}\")\n" +
+        "    Debug.log(\"${value}\")\n" +
         "let pairs: Map(Int, String) = Map.set(Map.empty, 1, \"one\")\n" +
         "for (key, value) in pairs\n" +
-        "    log(\"${key} ${value}\")",
+        "    Debug.log(\"${key} ${value}\")",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -417,9 +417,9 @@ describe("emitJavaScript", () => {
     const module = coreSource(
       "fun visit(): Unit =\n" +
         "    for number in 1..3\n" +
-        "        log(\"${number}\")\n" +
+        "        Debug.log(\"${number}\")\n" +
         "    for character in \"ab\"\n" +
-        "        log(\"${character}\")",
+        "        Debug.log(\"${character}\")",
     );
 
     expect(module.diagnostics).toEqual([]);
@@ -443,7 +443,7 @@ describe("emitJavaScript", () => {
         "    .take(5)\n" +
         "let selected2 = numbers |> Seq.filter(number => number > 3) |> Seq.map(number => number * 2) |> Seq.take(5)\n" +
         "for number in selected\n" +
-        "    log(\"${number}\")",
+        "    Debug.log(\"${number}\")",
     );
 
     const output = emitJavaScript(module);
@@ -1456,9 +1456,9 @@ describe("emitJavaScript", () => {
     // function), so the emitted module is a real ES module.
     const files = [["/main.hex",
       "fun normalize<a: Integral>(n: a, d: a): (a, a) =\n" +
-        "    let g = gcd(n, d)\n" +
-        "    let n2 = quot(n, g)\n" +
-        "    let d2 = quot(d, g)\n" +
+        "    let g = Integral.gcd(n, d)\n" +
+        "    let n2 = Integral.quot(n, g)\n" +
+        "    let d2 = Integral.quot(d, g)\n" +
         "    (n2, d2)\n" +
         "export let result: (BigInt, BigInt) = normalize(4n, 6n)\n",
     ]] as const;

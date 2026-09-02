@@ -18,14 +18,14 @@ let opposite(direction: Direction) = match direction
     South => North
     West => East
 
-log("Opposite of North: \${opposite(North)}")
+Debug.log("Opposite of North: \${opposite(North)}")
 
 fun attendanceLabel(count: Int) = match count
     0 => "none"
     1 => "one"
     _ => "many"
 
-log("Guests: \${attendanceLabel(1)}")
+Debug.log("Guests: \${attendanceLabel(1)}")
 
 fun tupleLabel(pair: (Bool, Int)) = match pair
     (True, _) => "active"
@@ -34,7 +34,7 @@ fun tupleLabel(pair: (Bool, Int)) = match pair
 fun unitLabel(value: Unit) = match value
     () => "unit"
 
-log("\${tupleLabel((True, 3))} \${unitLabel(())}")
+Debug.log("\${tupleLabel((True, 3))} \${unitLabel(())}")
 `,
   specificationReferences: ["spec/unions.md", "spec/pattern-matching.md"],
 };

@@ -140,7 +140,7 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
   });
 
   test("`Node` has no `Hash` instance", () => {
-    const messages = diagnose("export let h: Int = hash(Node.set(Node.empty(), 0, 1))\n", { runtime: true });
+    const messages = diagnose("export let h: Int = Hash.hash(Node.set(Node.empty(), 0, 1))\n", { runtime: true });
     expect(messages.some((m) => m.includes("Node") && m.includes("`Hash` instance"))).toBe(true);
   });
 

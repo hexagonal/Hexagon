@@ -175,18 +175,18 @@ describe("`BigInt.pow` — the exact power past `Int`'s range (Operators §6.3.1
 });
 
 describe("qualifiable, not bare: the one-exporter guarantee (Modules §5.3)", () => {
-  test("bare `pow` in a consumer is still the constraint member, at every type", async () => {
-    // Two companions now widen a `pow`, and neither reaches bare scope. If
-    // either did, §5.5 would refuse this name outright — the collision
-    // explosion the visibility rule exists to prevent.
+  test("`Pow.pow` in a consumer is the constraint member, at every type", async () => {
+    // Two companions widen a `pow`, and neither is an exporter for §5.5's
+    // arithmetic — so the one route a consumer's qualified spelling can take is
+    // the declaring constraint's, which is what the refusal below names too.
     const exports = await runMain(
       "// bare pow\n" +
-      "let raise<a: Pow>(base: a, exponent: Int): a = pow(base, exponent)\n" +
+      "let raise<a: Pow>(base: a, exponent: Int): a = Pow.pow(base, exponent)\n" +
       "export let polymorphic: Int = raise(2, 10)\n" +
-      "export let atInt: Int = pow(3, 4)\n" +
-      "export let atFloat: Float = pow(2.0, -1)\n" +
-      "export let atBigInt: BigInt = pow(2n, 10)\n" +
-      "export let atNat: Nat = pow(2, 5)\n",
+      "export let atInt: Int = Pow.pow(3, 4)\n" +
+      "export let atFloat: Float = Pow.pow(2.0, -1)\n" +
+      "export let atBigInt: BigInt = Pow.pow(2n, 10)\n" +
+      "export let atNat: Nat = Pow.pow(2, 5)\n",
     );
 
     expect(exports["polymorphic"]).toBe(1024);
@@ -196,13 +196,13 @@ describe("qualifiable, not bare: the one-exporter guarantee (Modules §5.3)", ()
     expect(exports["atNat"]).toBe(32);
   });
 
-  test("bare `pow` and both qualified doors coexist in one module", async () => {
-    // The single-exporter guarantee is not only about compiling: the bare name
-    // and the two doors are three different bindings that all have to survive
-    // into one emitted module, under names that do not collide.
+  test("the member's spelling and both qualified doors coexist in one module", async () => {
+    // The single-exporter guarantee is not only about compiling: the member's
+    // own spelling and the two doors are three different bindings that all have
+    // to survive into one emitted module, under names that do not collide.
     const exports = await runMain(
       "// three spellings\n" +
-      "export let bare: Int = pow(2, 5)\n" +
+      "export let bare: Int = Pow.pow(2, 5)\n" +
       "export let floatDoor: Float = Float.pow(2.0, 0.5)\n" +
       "export let bigDoor: BigInt = BigInt.pow(2n, 3n)\n",
     );
@@ -210,6 +210,14 @@ describe("qualifiable, not bare: the one-exporter guarantee (Modules §5.3)", ()
     expect(exports["bare"]).toBe(32);
     expect(exports["floatDoor"]).toBe(Math.sqrt(2));
     expect(exports["bigDoor"]).toBe(8n);
+  });
+
+  test("the bare spelling names the declaring constraint, and no widener", () => {
+    // The visibility rule under test, read through §10's refusal: a `widens`
+    // binding is qualifiable and not an exporter, so `Float` and `BigInt` do
+    // not appear among the routes even though both spell a `pow`.
+    expect(projectDiagnostics("export let n: Int = pow(2, 5)\n"))
+      .toEqual(["no bare `pow`; write `(2).pow(5)` or `Pow.pow(2, 5)`"]);
   });
 
   test("a local name of the door's spelling is an ordinary binding", () => {

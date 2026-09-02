@@ -115,7 +115,7 @@ describe("Primitive Types §5's codepoint order, executed", () => {
       'let firstAstral: String = "\\u{10000}"',
       "export let byCodepoint: Bool = lastOfPlane < firstAstral",
       "export let notTheOtherWay: Bool = firstAstral < lastOfPlane",
-      "export let ordered: Ordering = compare(firstAstral, lastOfPlane)",
+      "export let ordered: Ordering = Ord.compare(firstAstral, lastOfPlane)",
       "",
     ].join("\n"));
 
@@ -130,7 +130,7 @@ describe("Primitive Types §5's codepoint order, executed", () => {
       'export let alphabetical: Bool = "apple" < "banana"',
       'export let prefixFirst: Bool = "app" < "apple"',
       'export let upperFirst: Bool = "Zebra" < "apple"',
-      'export let ties: Ordering = compare("same", "same")',
+      'export let ties: Ordering = Ord.compare("same", "same")',
       'export let empty: Bool = "" < "a"',
       "",
     ].join("\n"));
@@ -147,7 +147,7 @@ describe("Primitive Types §5's codepoint order, executed", () => {
     const exports = await runMain([
       'let built: String = "ab" ++ "c"',
       'export let same: Bool = built == "abc"',
-      'export let hashesAgree: Bool = hash(built) == hash("abc")',
+      'export let hashesAgree: Bool = Hash.hash(built) == Hash.hash("abc")',
       'export let differs: Bool = "abc" != "abd"',
       'let keys: Set(String) = Set.add(Set.add(Set.empty, built), "abc")',
       "export let collapsed: Int = Set.size(keys)",
@@ -301,7 +301,7 @@ describe("Constraints §6.1's inlining survives the move", () => {
       'let alsoHere = Label({text = "north"})',
       "export let same: Bool = here == alsoHere",
       "export let shown: String = show(here)",
-      "export let hashed: Bool = hash(here) == hash(alsoHere)",
+      "export let hashed: Bool = Hash.hash(here) == Hash.hash(alsoHere)",
       "",
     ].join("\n");
     const exports = await runMain(source);
@@ -350,7 +350,7 @@ describe("`String.hex` is instances and nothing else", () => {
       "let least<a: Ord>(left: a, right: a): a = if left < right then left else right",
       "let render<a: Show>(value: a): String = show(value)",
       "let join5<a: Concat>(left: a, right: a): a = Concat.concat(left, right)",
-      "let key<a: Hash>(value: a): Int = hash(value)",
+      "let key<a: Hash>(value: a): Int = Hash.hash(value)",
       'export let all: String = render(join5(least("b", "a"), "c")) ++ show(key("z"))',
       "",
     ].join("\n"));

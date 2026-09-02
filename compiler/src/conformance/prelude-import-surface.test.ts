@@ -339,7 +339,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
     ]);
     // `Ordering` is on the channel, so its orphan still collides — the asymmetry
     // is `Bool`'s filter, not the explicit import.
-    expect(messages('import { Less } from "./Prelude"\nhonor Eq<Ordering> =\n    equals(a, b) = True\n'))
+    expect(messages('import { Less } from "./Ordering"\nhonor Eq<Ordering> =\n    equals(a, b) = True\n'))
       .toEqual([
         "orphan instance: this module declares neither `Eq` nor the instance subject",
         "duplicate instance of `Eq<Ordering>`",

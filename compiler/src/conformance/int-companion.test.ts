@@ -72,7 +72,7 @@ describe("the four spellings are one implementation", () => {
     const exports = await runMain([
       "export let qualified: Int = Int.div(-7, 2)",
       "export let dotted: Int = (-7).div(2)",
-      "export let bound<a: Integral>(left: a, right: a): a = div(left, right)",
+      "export let bound<a: Integral>(left: a, right: a): a = Integral.div(left, right)",
       "export let generic: Int = bound(-7, 2)",
       "",
     ].join("\n"));
@@ -178,7 +178,7 @@ describe("the guards moved into source and kept their names", () => {
   /** A generic body reaching the member gets the guard with it. */
   test("the guard travels through a dictionary, not only through the qualified call", async () => {
     const exports = await runMain([
-      "let halve<a: Integral>(value: a, by: a): a = div(value, by)",
+      "let halve<a: Integral>(value: a, by: a): a = Integral.div(value, by)",
       "export let fine: Int = halve(84, 2)",
       "export let boom(): Int = halve(84, 0)",
       "",
@@ -550,7 +550,7 @@ describe("Numeric Literals §4's defaulting follows the instances home", () => {
     const exports = await runMain([
       "let x = 1",
       "export let doubled: Int = x + x",
-      "export let common: Int = gcd(4, 6)",
+      "export let common: Int = Integral.gcd(4, 6)",
       "export let powered: Int = 2 ** 4",
       "export let compared: Bool = 3 < 4",
       "",
@@ -587,17 +587,18 @@ describe("`fromInt` gained a second exporter", () => {
   /**
    * `stdlib/Nat.hex` exports a conversion by that name beside `Signed.hex`'s
    * member, so the bare spelling takes Modules §5.5's refusal and names both
-   * qualified homes. The corpus had zero bare uses; this is the same accepted
-   * trade `Concat`'s member and `Seq.concat` made.
+   * qualified homes — since #742 in the refusal's own words rather than the
+   * ambiguity rule's, which is now the only difference the second exporter
+   * makes: the bare spelling was never going to resolve either way.
    */
   test("the bare spelling is refused, naming both homes", () => {
     expect(projectDiagnostics(
       "export let widen<a: Signed>(value: Int): a = fromInt(value)\n",
     )).toContain(
-      "the prelude name `fromInt` is ambiguous: exported by `Signed` and `Nat`; " +
-        "write `Signed.fromInt` or `Nat.fromInt`",
+      "no bare `fromInt`; write `Signed.fromInt(value)` or `Nat.fromInt(value)`",
     );
   });
+
 
   /** A user module's own `fromInt` is unaffected — it is not a prelude name. */
   test("a module exporting its own `fromInt` still works", async () => {
@@ -627,7 +628,7 @@ describe("Collections Part 2 §2.5's `Hash` row, now hand-written source", () =>
       "let alsoHere = Point({x = 3, y = 4})",
       "let elsewhere = Point({x = 4, y = 3})",
       "export let same: Bool = here == alsoHere",
-      "export let agree: Bool = hash(here) == hash(alsoHere)",
+      "export let agree: Bool = Hash.hash(here) == Hash.hash(alsoHere)",
       "export let distinct: Bool = here != elsewhere",
       "let seen: Set(Point) = Set.add(Set.add(Set.add(Set.empty, here), alsoHere), elsewhere)",
       "export let collapsed: Int = Set.size(seen)",

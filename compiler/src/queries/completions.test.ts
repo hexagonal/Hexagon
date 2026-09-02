@@ -130,6 +130,37 @@ describe("completions", () => {
     expect(offered).toContain("Some");
   });
 
+  /**
+   * **The offer list follows the bare layer, so #742 shrank it by construction.**
+   * Unqualified completions are built from the scope regions the resolver wrote
+   * down, and Modules §5.5 stopped seeding prelude functions and members into
+   * the outermost one — so `map`, `empty` and `compare` leave the offer with no
+   * completion-side change at all, while the qualified route stays whole.
+   *
+   * Both halves are asserted, because either alone would pass for the wrong
+   * reason: an empty list would satisfy the first, and a list ignoring scope
+   * would satisfy the second.
+   */
+  test("a now-qualified prelude name is not offered bare", () => {
+    const offered = namesIn(["let answer: Int = ‸", ""].join("\n"));
+    expect(offered).not.toContain("map");
+    expect(offered).not.toContain("empty");
+    expect(offered).not.toContain("compare");
+    expect(offered).not.toContain("log");
+    // The sixteen that survive are offered exactly as they were.
+    expect(offered).toContain("ignore");
+    expect(offered).toContain("show");
+    expect(offered).toContain("Some");
+    expect(offered).toContain("KeyError");
+  });
+
+  test("and is offered after `Seq.`, where it now has to be written", () => {
+    const offered = namesIn(["let answer: Seq(Int) = Seq.‸", ""].join("\n"));
+    expect(offered).toContain("map");
+    expect(offered).toContain("empty");
+    expect(offered).toContain("length");
+  });
+
   test("an imported name is offered under the spelling this module uses", () => {
     const helper = "export let two: Int = 2\n";
     const source = ['import {two as deux} from "./helper"', "", "let four: Int = ‸", ""]

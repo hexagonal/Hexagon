@@ -176,7 +176,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
         "    fun scores(): JsSet(Int)\n" +
         "\n" +
         "export fun twice(): Int =\n" +
-        "    let sequence = toSeq(scores!())\n" +
+        "    let sequence = Iterable.toSeq(scores!())\n" +
         "    Seq.length(sequence) + Seq.fold(sequence, 0, (acc, n) => acc + n)\n",
       { scores: "export function scores() { return new Set([10, 20, 30]); }\n" },
     );
@@ -190,7 +190,7 @@ describe("iteration over the real thing (Part 10 §6)", () => {
         "    fun prices(): JsMap(String, Int)\n" +
         "\n" +
         "export fun report(): Int =\n" +
-        "    let rows = toSeq(prices!())\n" +
+        "    let rows = Iterable.toSeq(prices!())\n" +
         "    let count = Seq.length(rows)\n" +
         "    count + Seq.fold(rows, 0, (acc, pair) =>\n" +
         "        match pair\n" +

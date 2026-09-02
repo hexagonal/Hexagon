@@ -15,7 +15,7 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
     new Source.File(
       Source.fileId(1),
       "/app/telemetry.hex",
-      'log("loaded")',
+      'Debug.log("loaded")',
     ),
     new Source.File(
       Source.fileId(2),
@@ -242,12 +242,12 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import { plus } from "./math"\nlog("${plus(20, 22)}")',
+      'import { plus } from "./math"\nDebug.log("${plus(20, 22)}")',
     ),
     new Source.File(
       Source.fileId(2),
       "/namespace.hex",
-      'import module Math from "./math"\nlog("${Math.plus(20, 22)}")',
+      'import module Math from "./math"\nDebug.log("${Math.plus(20, 22)}")',
     ),
   ]);
 
@@ -360,7 +360,7 @@ test("the implicit prelude supplies Ordering to Ord instances", () => {
       "export record Point derives (Eq) = {x: Int}\n" +
         "honor Ord<Point> =\n" +
         "    compare(left, right) =\n" +
-        "        if left.x < right.x then Less else if left.x > right.x then Greater else Equal",
+        "        if left.x < right.x then Ordering.Less else if left.x > right.x then Ordering.Greater else Ordering.Equal",
     ),
   ]);
 
@@ -369,10 +369,10 @@ test("the implicit prelude supplies Ordering to Ord instances", () => {
   expect(point.typed.diagnostics).toEqual([]);
   // Only the referenced constructors are imported from the implicit prelude.
   expect(point.javascript.text).toContain(
-    'import { Less, Greater, Equal } from "./Prelude.js";',
+    'import { Less, Greater, Equal } from "./Ordering.js";',
   );
   // The prelude module is emitted because a module imports from it.
-  expect(project.modules.map(({ source }) => source.path)).toContain("/Prelude.hex");
+  expect(project.modules.map(({ source }) => source.path)).toContain("/Ordering.hex");
 });
 
 test("a project that never touches the prelude does not emit it", () => {

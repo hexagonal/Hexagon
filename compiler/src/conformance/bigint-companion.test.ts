@@ -72,7 +72,7 @@ describe("the four spellings are one implementation", () => {
     const exports = await runMain([
       "export let qualified: BigInt = BigInt.div(-7n, 2n)",
       "export let dotted: BigInt = (-7n).div(2n)",
-      "export let bound<a: Integral>(left: a, right: a): a = div(left, right)",
+      "export let bound<a: Integral>(left: a, right: a): a = Integral.div(left, right)",
       "export let generic: BigInt = bound(-7n, 2n)",
       "",
     ].join("\n"));
@@ -123,7 +123,7 @@ describe("the four spellings are one implementation", () => {
     const exports = await runMain([
       "export let qualified: Ordering = BigInt.compare(1n, 2n)",
       "export let dotted: Ordering = 1n.compare(2n)",
-      "export let bound<a: Ord>(left: a, right: a): Ordering = compare(left, right)",
+      "export let bound<a: Ord>(left: a, right: a): Ordering = Ord.compare(left, right)",
       "export let generic: Ordering = bound(1n, 2n)",
       "export let operator: Bool = 1n < 2n",
       "export let reversed: Ordering = BigInt.compare(2n, 1n)",
@@ -320,7 +320,7 @@ describe("negative exponents (Pow, delta 4)", () => {
 
   test("`pow` under a written bound reaches the same guard", async () => {
     const exports = await runMain([
-      "export let raise<a: Pow>(base: a, exponent: Int): a = pow(base, exponent)",
+      "export let raise<a: Pow>(base: a, exponent: Int): a = Pow.pow(base, exponent)",
       "export let big: BigInt = raise(3n, 4)",
       "export let boom(): BigInt = raise(3n, -4)",
       "",
@@ -489,12 +489,12 @@ describe("`Eq` and `Hash` at BigInt", () => {
 
   test("hashing agrees with equality and is usable as a Map key", async () => {
     const exports = await runMain([
-      "export let sameHash: Bool = hash(123456789012345678901n) == hash(123456789012345678901n)",
+      "export let sameHash: Bool = Hash.hash(123456789012345678901n) == Hash.hash(123456789012345678901n)",
       "export let direct: Int = BigInt.hash(7n)",
       "export let dotted: Int = 7n.hash()",
       // Hash's law is what the derivable-only rule protects, and the carve-out
       // moved the obligation into the companion, where `Eq` sits beside it.
-      "export let lawful: Bool = 7n == 7n and hash(7n) == hash(7n)",
+      "export let lawful: Bool = 7n == 7n and Hash.hash(7n) == Hash.hash(7n)",
       "",
     ].join("\n"));
 
@@ -640,8 +640,8 @@ describe("the companion is an ordinary module (Modules §5.3, §5.4)", () => {
    */
   test("bare `div` in a consumer is still the polymorphic member", async () => {
     const exports = await runMain([
-      "export let atBig: BigInt = div(-9n, 4n)",
-      "export let atInt: Int = div(-9, 4)",
+      "export let atBig: BigInt = Integral.div(-9n, 4n)",
+      "export let atInt: Int = Integral.div(-9, 4)",
       "",
     ].join("\n"));
 

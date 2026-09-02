@@ -13,15 +13,15 @@ export const temperatures: PlaygroundExample = {
 let toCelsius(f: Int): Float = (f - 32) * 5 / 9
 let toFahrenheit(c: Int): Float = c * 9 / 5 + 32
 
-log("212F = \${toCelsius(212)}C")
-log("98F = \${toCelsius(98)}C")
-log("37C = \${toFahrenheit(37)}F")
+Debug.log("212F = \${toCelsius(212)}C")
+Debug.log("98F = \${toCelsius(98)}C")
+Debug.log("37C = \${toFahrenheit(37)}F")
 
 // Want exactness instead of floating point? Write Rat as the face: the same
 // expression, exact — the division is rational arithmetic, not rounded.
 let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9
 
-log("98F is exactly \${exactCelsius(98)}C")
+Debug.log("98F is exactly \${exactCelsius(98)}C")
 
 // And with no written type at all, Hexagon refuses rather than truncates:
 // let broken(f: Int) = (f - 32) * 5 / 9   -- error: type \`Int\` has no \`Frac\` instance

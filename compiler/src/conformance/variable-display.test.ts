@@ -37,7 +37,7 @@ describe("the law: a survivor reaching a report is named", () => {
     expect(main(
       "export record Box(a) = {value: a}\n" +
         "\n" +
-        "export fun go(): Int = hash(Box({value = 1}))\n",
+        "export fun go(): Int = Hash.hash(Box({value = 1}))\n",
     )).toEqual([
       "type `Box(a)` has no `Hash` instance; `Hash` instances must be derived, " +
       "so the only repair is `derives (Eq, Hash)` on the declaration of `Box` " +
@@ -74,7 +74,7 @@ describe("the law: a survivor reaching a report is named", () => {
       "export let n: Int = ((y) => y)\n",
       "export let n: {a: Int} = []\n",
       "export let v: Vector(Int) = [].nope(3)\n",
-      "export record Box(a) = {value: a}\n\nexport fun go(): Int = hash(Box({value = 1}))\n",
+      "export record Box(a) = {value: a}\n\nexport fun go(): Int = Hash.hash(Box({value = 1}))\n",
       "export fun f(o: Option(a)): Int = 1\n\nexport fun go(): Int = f([])\n",
       "export fun go(f: (b) ->? b): Int =\n    let n: String = (f, [])\n    1\n",
     ];
@@ -91,7 +91,7 @@ describe("fresh names dedupe against every name already visible", () => {
     expect(main(
       "export record Pair(a, b) = {left: a, right: b}\n" +
         "\n" +
-        "export fun go(x: a): Int = hash(Pair({left = x, right = 1}))\n",
+        "export fun go(x: a): Int = Hash.hash(Pair({left = x, right = 1}))\n",
     )).toEqual([
       "type `Pair(a, b)` has no `Hash` instance; `Hash` instances must be " +
       "derived, so the only repair is `derives (Eq, Hash)` on the declaration " +

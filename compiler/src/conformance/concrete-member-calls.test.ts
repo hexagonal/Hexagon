@@ -134,9 +134,16 @@ describe("§6.1 — a ground instance's members hoist to member seats", () => {
   test("a derived instance's generated members take seats too", () => {
     // §4.5: "a derived instance is an ordinary instance thereafter." The seat
     // set is the constraint's members, so `Eq` gets both of its own.
+    //
+    // The call is the dot form because `derives` writes no member binding, so
+    // Modules §5.5's in-module carve-out does not reach it (#742): a deriving
+    // module is an ordinary consumer of the spelling. Which route reaches the
+    // seat is not what this test is about — the seat set is — and the dot is the
+    // one the language teaches.
     const text = emitted(
       "record Pair derives Eq = {left: Int, right: Int}\n" +
-        "export let same: Bool = equals(Pair({left = 1, right = 2}), Pair({left = 1, right = 2}))\n",
+        "export let same: Bool =\n" +
+        "    Pair({left = 1, right = 2}).equals(Pair({left = 1, right = 2}))\n",
     );
 
     expect(text).toContain(
@@ -290,7 +297,7 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
   });
 
   test("a defaulted member at a concrete head reaches the wrapper seat", async () => {
-    const source = "export let differs: Bool = notEquals(2, 3)\n";
+    const source = "export let differs: Bool = Eq.notEquals(2, 3)\n";
     const text = emitted(source);
 
     expect(text).toContain('import { __Eq_Int_notEquals as notEquals } from "./Int.js";');

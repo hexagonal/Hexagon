@@ -101,9 +101,12 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // The sentence is conditioned on a type existing — "mentioning the type if
     // one exists". With no type there is nothing to mention, and claiming one
     // would be false.
+    // The specimen is a word the prelude does not use at all: since #742's
+    // qualified-only default, `Shape` is `JsConversionReason`'s constructor and
+    // draws §5.5's refusal rather than the unknown name this seat is about.
     expect(messages([
-      ["/main.hex", "export let n: Float = Shape.area(1.0)\n"],
-    ])).toEqual(["unknown name `Shape`"]);
+      ["/main.hex", "export let n: Float = Chevron.area(1.0)\n"],
+    ])).toEqual(["unknown name `Chevron`"]);
   });
 
   test("a non-uppercase receiver is not rule 1's at all", () => {

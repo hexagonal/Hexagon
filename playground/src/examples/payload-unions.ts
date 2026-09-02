@@ -20,7 +20,7 @@ let preserve(shape: Shape) = match shape
     Rectangle(_, _) as whole => whole
     Point as whole => whole
 
-log("Circle area: \${area(preserve(Circle(3)))}")
+Debug.log("Circle area: \${area(preserve(Circle(3)))}")
 
 union Reply =
     | Accepted(details: (String, Int))
@@ -30,7 +30,7 @@ let describe(reply: Reply) = match reply
     Accepted((name, _)) => name
     Rejected({message = reason}) => reason
 
-log(describe(Accepted(("Ada", 2))))
+Debug.log(describe(Accepted(("Ada", 2))))
 `,
   specificationReferences: ["spec/unions.md", "spec/pattern-matching.md"],
 };
