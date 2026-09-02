@@ -2,8 +2,8 @@
 
 ## Purpose
 
-Teach files as modules, private-by-default declarations, the single module-import form, named
-exports, opaque records and unions, companion modules, acyclic loading, top-level
+Teach files as modules, private-by-default declarations, the single module-import
+form, named exports, opaque records and unions, companion modules, acyclic loading, top-level
 effects, root execution, and the global visibility of instances.
 
 ## Reader outcome
@@ -16,7 +16,8 @@ and execution without looking for a special `main` function.
 
 1. One file is one module; paths supply identity.
 2. Private-by-default declarations and named exports.
-3. The module import — one form; a bare name is a declaration, a companion fallback, or a `match`-arm constructor.
+3. The module import — one form; a bare name is a declaration, a companion fallback,
+   or a `match`-arm constructor.
 4. Module aliases and the companion-module idiom.
 5. `opaque` for records and unions.
 6. Public-signature visibility and instance globality.
