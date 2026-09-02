@@ -868,8 +868,15 @@ export interface PreludeTypeImport {
   readonly explicitLocal?: string;
 }
 
+/**
+ * Two forms reach emission, and only one of them has a source spelling. A
+ * **module** import is the one an `import` line writes (Modules §3, #762): the
+ * alias, with the qualified locals `Alias.name` the body may reach through it.
+ * A **named** import is the resolver's own — the synthesized prelude term
+ * import (#263) — which has no source line and binds bare locals by
+ * construction.
+ */
 export type ImportForm =
-  | { readonly kind: "Effect" }
   | { readonly kind: "Namespace"; readonly alias: string; readonly names: readonly ImportName[] }
   | { readonly kind: "Named"; readonly names: readonly ImportName[] };
 
@@ -1047,7 +1054,42 @@ export interface RecordPatternField {
 
 export interface ConstructorPattern {
   readonly kind: "Constructor";
-  readonly symbol: SymbolId;
+  /**
+   * The constructor this head names — **absent while `open` is set**, and the
+   * one field of a resolved tree the checker writes.
+   *
+   * Pattern Matching §2.2's door (#763) resolves a constructor pattern's head
+   * in scope first and then in the **expected type**, and the expected type is
+   * not a thing the resolver can see. So the resolver answers where it can and
+   * marks the head `open` where it cannot; the checker fills this seat at the
+   * moment the pattern is checked, from the type the pattern's position had
+   * already fixed. A head the door refuses keeps `undefined` and is a broken
+   * pattern (§7.3's fourth tier), read as `_` by coverage and materialized as
+   * a wildcard.
+   *
+   * The seat is a *hole the resolver declares*, not a rewrite of the tree: the
+   * node, its span, its `text` and every binder beneath it are the resolver's
+   * and are never rebuilt, which is what keeps the occurrence index, the
+   * reading-law reports and the occlusion checks reading the same nodes they
+   * always read.
+   */
+  symbol?: SymbolId;
+  /**
+   * Scope bound nothing for this head, so the expected type owes it (§2.2).
+   * Set by the resolver; never true on a head scope answered, which is what
+   * makes "scope first" mechanical — the door is not consulted at all where
+   * the resolver had an answer.
+   */
+  readonly open?: true;
+  /**
+   * The qualified spellings this module could write for a constructor of this
+   * head's spelling (`Pairs.Pair`), for the closed-door refusal's rewrite
+   * (Pattern Matching §12). Present only beside `open`, and computed here
+   * because it is a property of *this* module's aliases: the checker's own
+   * spelling tables (§7.3's tiers) are keyed by symbol, and a head no scope
+   * resolved has no symbol to key on.
+   */
+  readonly qualifications?: readonly string[];
   /**
    * The constructor as *written here* — the local spelling. A qualified pattern
    * carries the constructor half alone, so this is always the identifier that
@@ -1385,7 +1427,26 @@ export type Expr =
 export interface NameExpr {
   readonly kind: "Name";
   readonly symbol: SymbolId;
+  /**
+   * The spelling the **source** wrote, which every diagnostic quotes back.
+   *
+   * It is also the emitted spelling wherever the two agree, which is
+   * everywhere but rule 3's fallback — see `emitted`.
+   */
   readonly text: string;
+  /**
+   * The spelling the **emitted module** must use, where it is not `text`.
+   *
+   * Modules §5.1 rule 3's fallback is the one reader that parts them: a bare
+   * `Tag(7)` under `import Tag from "./tag"` is written bare and *emitted* as
+   * the qualified access on the alias's local (`Tag.Tag(7)`, §11.2's own
+   * golden), because in the emitted module the bare spelling is the alias's
+   * namespace binding and calling it would throw. A reference that carried the
+   * qualified spelling in `text` would emit correctly and then quote a word
+   * the reader never wrote — `` `Red.Red` is a value, not a function `` — so
+   * the two spellings are two fields.
+   */
+  readonly emitted?: string;
   /**
    * The instance subject this reference is pinned at, for a member reached
    * through **qualified access to an honoring module** (Modules §5.3).
@@ -1515,6 +1576,25 @@ export interface LambdaExpr {
 export interface TypeParameter {
   readonly name: string;
   readonly constraints: readonly string[];
+  /**
+   * The identity each name in `constraints` resolved to **here** (Constraints
+   * §5.1.1), positionally.
+   *
+   * A binder's constraints are spellings, and a spelling belongs to the module
+   * that wrote it. On an `honor` head that crosses a module boundary, the
+   * importer used to re-resolve the word in its own namespace and get the same
+   * declaration only because a named import had put the name in scope there —
+   * which no import does any more (Modules §3, #762). So the head carries the
+   * identity it resolved to at home, and a consumer instantiating the instance
+   * demands *that* declaration rather than whatever the word means in its own
+   * file.
+   *
+   * Present on `honor` heads; absent wherever a binder is not an instance
+   * context's (a function's own binders are resolved in the module that wrote
+   * them and never travel), and absent on a synthesized head with no source
+   * spelling to resolve.
+   */
+  readonly constraintIdentities?: readonly string[];
   readonly span: Source.Span;
 }
 

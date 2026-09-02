@@ -103,10 +103,10 @@ describe("two imported constraints sharing a word take two seats", () => {
   ] as const;
 
   const INFERRED = [
-    'import { useOne } from "./lib1.hex"',
-    'import { useTwo } from "./lib2.hex"',
+    'import Lib1 from "./lib1.hex"',
+    'import Lib2 from "./lib2.hex"',
     "",
-    "let both(v) = useOne(v) + useTwo(v)",
+    "let both(v) = Lib1.useOne(v) + Lib2.useTwo(v)",
     "export let r: Int = both(1)",
     "",
   ].join("\n");
@@ -117,7 +117,7 @@ describe("two imported constraints sharing a word take two seats", () => {
     // `lib2`'s dictionary — `__Describe_a.one is not a function`.
     expect(emittedMain(files(INFERRED))).toContain(
       "const both = (v, __Describe_a, __Describe_a_1) => " +
-        "__Describe_a.Num.add(useOne(v, __Describe_a), useTwo(v, __Describe_a_1));",
+        "__Describe_a.Num.add(__useOne(v, __Describe_a), __useTwo(v, __Describe_a_1));",
     );
   });
 
@@ -140,17 +140,17 @@ describe("two imported constraints sharing a word take two seats", () => {
     // decided by list order at the Typed boundary, and the answer has to be the
     // *same* dictionary the source's own first call reads — `lib1`'s.
     const main = [
-      'import { useOne } from "./lib1.hex"',
-      'import { useTwo } from "./lib2.hex"',
+      'import Lib1 from "./lib1.hex"',
+      'import Lib2 from "./lib2.hex"',
       "",
-      "let sum(v) = useOne(v) + useTwo(v) + v",
+      "let sum(v) = Lib1.useOne(v) + Lib2.useTwo(v) + v",
       "export let r: Int = sum(1)",
       "",
     ].join("\n");
     expect(emittedMain(files(main))).toContain(
       "const sum = (v, __Describe_a, __Describe_a_1) => " +
         "__Describe_a.Num.add(__Describe_a.Num.add(" +
-        "useOne(v, __Describe_a), useTwo(v, __Describe_a_1)), v);",
+        "__useOne(v, __Describe_a), __useTwo(v, __Describe_a_1)), v);",
     );
     const exports = await runProject([...files(main)], {
       transform: distinct("seat-identity-route"),
@@ -162,11 +162,11 @@ describe("two imported constraints sharing a word take two seats", () => {
     // Two seats can be got right by accident — a swap and a shadow look alike
     // when there are only two names to hand out. Three cannot.
     const main = [
-      'import { useOne } from "./lib1.hex"',
-      'import { useTwo } from "./lib2.hex"',
-      'import { useThree } from "./lib3.hex"',
+      'import Lib1 from "./lib1.hex"',
+      'import Lib2 from "./lib2.hex"',
+      'import Lib3 from "./lib3.hex"',
       "",
-      "let all(v) = useOne(v) + useTwo(v) + useThree(v)",
+      "let all(v) = Lib1.useOne(v) + Lib2.useTwo(v) + Lib3.useThree(v)",
       "export let r: Int = all(1)",
       "",
     ].join("\n");
@@ -179,8 +179,8 @@ describe("two imported constraints sharing a word take two seats", () => {
     expect(emittedMain(graph)).toContain(
       "const all = (v, __Describe_a, __Describe_a_1, __Describe_a_2) => " +
         "__Describe_a.Num.add(__Describe_a.Num.add(" +
-        "useOne(v, __Describe_a), useTwo(v, __Describe_a_1)), " +
-        "useThree(v, __Describe_a_2));",
+        "__useOne(v, __Describe_a), __useTwo(v, __Describe_a_1)), " +
+        "__useThree(v, __Describe_a_2));",
     );
     const exports = await runProject([...graph], {
       transform: distinct("seat-identity-three"),
@@ -201,11 +201,19 @@ describe("the binders a signature writes down seat the same way", () => {
     ["/main.hex", main],
   ] as const;
 
+  // Under #762 an import binds a module alias and nothing smaller, so neither
+  // constraint can be renamed by the import line any more (`Describe as
+  // Describe2` has no seat left) — both are reached through their module
+  // aliases instead, `Lib1.Describe` and `Lib2.Describe`, which is what makes
+  // this door distinct from the inferred block above: the binder list is
+  // *written*, and only the qualified spelling can write two same-named
+  // constraints into one.
   const WRITTEN = [
-    'import { Describe, useOne } from "./lib1.hex"',
-    'import { Describe as Describe2, useTwo } from "./lib2.hex"',
+    'import Lib1 from "./lib1.hex"',
+    'import Lib2 from "./lib2.hex"',
     "",
-    "let both<a: (Describe, Describe2)>(n: a): a = useOne(n) + useTwo(n)",
+    "let both<a: (Lib1.Describe, Lib2.Describe)>(n: a): a = " +
+      "Lib1.useOne(n) + Lib2.useTwo(n)",
     "export let r: Int = both(1)",
     "",
   ].join("\n");
@@ -216,7 +224,7 @@ describe("the binders a signature writes down seat the same way", () => {
     // takes the probe's suffix.
     expect(emittedMain(files(WRITTEN))).toContain(
       "const both = (n, __Describe_a, __Describe_a_1) => " +
-        "__Describe_a.Num.add(useOne(n, __Describe_a), useTwo(n, __Describe_a_1));",
+        "__Describe_a.Num.add(__useOne(n, __Describe_a), __useTwo(n, __Describe_a_1));",
     );
   });
 
@@ -235,16 +243,16 @@ describe("an instance head's own binders", () => {
   // had to be resolved, which the declaring module is the authority for, a
   // header being able to spell only what is in scope where it is written.
   const HONOR = [
-    'import { Tag, useOne } from "./lib1.hex"',
-    'import { Tag as Tag2, useTwo } from "./lib2.hex"',
+    'import Lib1 from "./lib1.hex"',
+    'import Lib2 from "./lib2.hex"',
     "",
     "record Box(x) = {value: x}",
     "",
-    "honor<x: (Tag, Tag2)> Tag<Box(x)> =",
-    '    one(box) = "${useOne(box.value)}/${useTwo(box.value)}"',
+    "honor<x: (Lib1.Tag, Lib2.Tag)> Lib1.Tag<Box(x)> =",
+    '    one(box) = "${Lib1.useOne(box.value)}/${Lib2.useTwo(box.value)}"',
     "",
     "let box: Box(Int) = Box({value = 1})",
-    "export let r: String = useOne(box)",
+    "export let r: String = Lib1.useOne(box)",
     "",
   ].join("\n");
 
@@ -257,7 +265,7 @@ describe("an instance head's own binders", () => {
   test("hand each member body the dictionary its own constraint demanded", () => {
     expect(emittedMain(files)).toContain(
       "const __instance = { one: box => " +
-        'useOne(box.value, __Tag_x) + "/" + useTwo(box.value, __Tag_x_1) };',
+        '__useOne(box.value, __Tag_x) + "/" + __useTwo(box.value, __Tag_x_1) };',
     );
   });
 
@@ -296,15 +304,15 @@ describe("a program whose constraint names are unambiguous is unmoved", () => {
       emittedMain([
         ["/lib1.hex", LIB1],
         ["/main.hex", [
-          'import { useOne } from "./lib1.hex"',
+          'import Lib1 from "./lib1.hex"',
           "",
-          "let once(v) = useOne(v) + v",
+          "let once(v) = Lib1.useOne(v) + v",
           "export let r: Int = once(1)",
           "",
         ].join("\n")],
       ]),
     ).toContain(
-      "const once = (v, __Describe_a) => __Describe_a.Num.add(useOne(v, __Describe_a), v);",
+      "const once = (v, __Describe_a) => __Describe_a.Num.add(__useOne(v, __Describe_a), v);",
     );
   });
 });

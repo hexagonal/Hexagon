@@ -142,7 +142,7 @@ describe("a user record occludes a same-named intrinsic, coherently", () => {
 
   test("companion dispatch reaches an imported home module", () => {
     expect(diagnostics(
-      "import module Boxes from \"./boxes\"\n" +
+      "import Boxes from \"./boxes\"\n" +
       "export fun use(box: Boxes.Vector(Int)): Int = box.doubled()\n",
       [["/boxes.hex",
         "export record Vector(a) = { item: a }\n" +
@@ -282,7 +282,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     // The discriminator is the field: only the record has one. Under the old
     // order the annotation was the intrinsic and this read was a mismatch.
     expect(diagnostics(
-      'import module Array from "./arr"\n' +
+      'import Array from "./arr"\n' +
       "export fun item(a: Array(Int)): Int = a.item\n",
       [ARR],
     )).toEqual([]);
@@ -290,7 +290,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
 
   test("`Array` — a constructed value meets the annotation, no same-name mismatch", () => {
     expect(diagnostics(
-      'import module Array from "./arr"\n' +
+      'import Array from "./arr"\n' +
       "export fun wrap(item: Int): Array(Int) = Array.Array({ item = item })\n",
       [ARR],
     )).toEqual([]);
@@ -301,7 +301,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     // answered before the fallback existed. If it had not, the extern row would
     // draw `unknown generic type \`Array\``.
     expect(diagnostics(
-      'import module Array from "./arr"\n' +
+      'import Array from "./arr"\n' +
       'extern from "host"\n    fun rows(): Array(Int)\n' +
       "export let first: Array(Int) = rows!()\n" +
       "export let n: Int = Array.count()\n",
@@ -311,12 +311,12 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
 
   test("`Nullable` — the same pair", () => {
     expect(diagnostics(
-      'import module Nullable from "./nul"\n' +
+      'import Nullable from "./nul"\n' +
       "export fun item(a: Nullable(Int)): Int = a.item\n",
       [NUL],
     )).toEqual([]);
     expect(diagnostics(
-      'import module Nullable from "./nul"\n' +
+      'import Nullable from "./nul"\n' +
       'extern from "host"\n    fun maybe(): Nullable(Int)\n' +
       "export let first: Nullable(Int) = maybe!()\n" +
       "export let n: Int = Nullable.count()\n",
@@ -331,14 +331,14 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     expect(grantedDiagnostics([
       ["/mynode.hex", "export record Node(a) = { item: a }\n"],
       ["/rt.hex",
-        'import module Node from "./mynode"\n' +
+        'import Node from "./mynode"\n' +
         "fun item(n: Node(Int)): Int = n.item\n" +
         "export let answer: Int = item(Node.Node({ item = 1 }))\n"],
     ], ["/rt.hex"])).toEqual([]);
     expect(grantedDiagnostics([
       ["/mynode.hex", "export fun count(): Int = 1\n"],
       ["/rt.hex",
-        'import module Node from "./mynode"\n' +
+        'import Node from "./mynode"\n' +
         // The annotation is the whole assertion: with no `Node` type behind the
         // alias the hidden intrinsic answers it, and without the intrinsic
         // there would be no type at all ("unknown generic type `Node`"). The
@@ -354,7 +354,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     // JS views are not among them, so conservativity there is exact: a
     // same-spelled alias over a same-spelled export changes nothing.
     expect(diagnostics(
-      'import module Vector from "./myvec"\n' +
+      'import Vector from "./myvec"\n' +
       "export fun first(values: Vector(Int)): Int = values[0]\n",
       [["/myvec.hex", "export record Vector(a) = { item: a }\n"]],
     )).toEqual([]);
@@ -408,7 +408,7 @@ describe("the term-level yield stays pinned", () => {
   // namespace has now been brought into line with; pin it against drift.
   test("a module alias named `Seq` takes `Seq.iterate`", () => {
     expect(diagnostics(
-      "import module Seq from \"./myseq\"\n" +
+      "import Seq from \"./myseq\"\n" +
       "export fun use(): Int = Seq.iterate(1, x => x + 1)\n",
       [["/myseq.hex", "export fun iterate(seed: Int, step: (Int) -> Int): Int = step(seed)\n"]],
     )).toEqual([]);
@@ -416,7 +416,7 @@ describe("the term-level yield stays pinned", () => {
 
   test("a module alias named `Vector` takes `Vector.length`", () => {
     expect(diagnostics(
-      "import module Vector from \"./myvec\"\n" +
+      "import Vector from \"./myvec\"\n" +
       "export fun use(): Int = Vector.length(7)\n",
       [["/myvec.hex", "export fun length(n: Int): Int = n\n"]],
     )).toEqual([]);

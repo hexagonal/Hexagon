@@ -17,7 +17,7 @@ describe("compileSource", () => {
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     // `Vector` is a prelude module, not Playground equipment, so nothing
-    // prepends `import module Vector`: the members arrive named, through the same
+    // prepends `import Vector`: the members arrive named, through the same
     // channel `Seq`'s `take`/`iterate` arrive on, and the calls are bare.
     expect(response.javascript).toContain(
       'import { fromSeq, append, set, at, get } from "./stdlib/Vector.js";',
@@ -699,7 +699,7 @@ describe("compileSource", () => {
   test("compiles a buffer that writes the equipment import itself", () => {
     const response = compileSource(
       20,
-      "import module Rat from \"./stdlib/Rat\"\n" +
+      "import Rat from \"./stdlib/Rat\"\n" +
         "let half = Rat.create(1, 2)\n" +
         "Debug.log(\"${half}\")\n",
     );
@@ -719,9 +719,8 @@ describe("compileSource", () => {
     // spelling does, and each drew the collision back when the equipment read
     // the buffer's lines instead of its tokens.
     const shapes = [
-      "import (* the exact one *) module Rat from \"./stdlib/Rat\"\n",
-      "import module (* the exact one *) Rat from \"./stdlib/Rat\"\n",
-      "import\n    module Rat from \"./stdlib/Rat\"\n",
+      "import (* the exact one *) Rat from \"./stdlib/Rat\"\n",
+      "import\n    Rat from \"./stdlib/Rat\"\n",
     ];
 
     for (const head of shapes) {
@@ -743,7 +742,7 @@ describe("compileSource", () => {
       "module Helper\n" +
         "    export let twice(n: Int): Int = n * 2\n" +
         "end module Helper\n" +
-        "import module Rat from \"./Helper\"\n" +
+        "import Rat from \"./Helper\"\n" +
         "Debug.log(\"${Rat.twice(3)}\")\n",
     );
 
@@ -754,18 +753,18 @@ describe("compileSource", () => {
     expect(response.javascript).not.toContain("./stdlib/Rat.js");
   });
 
-  test("compiles a buffer whose own import is the companion's named half", () => {
+  test("compiles a buffer whose own import is the companion's, both faces used", () => {
     const response = compileSource(
       22,
-      "import { Rat } from \"./stdlib/Rat\"\n" +
+      "import Rat from \"./stdlib/Rat\"\n" +
         "let half: Rat = Rat.create(1, 2)\n" +
         "Debug.log(\"${half}\")\n",
     );
 
-    // #537's headline case, and the half the fix deliberately does not cover:
-    // the named import binds a type, the injected line binds an alias, and
-    // `Rat.create` needs the alias. Both faces are used above, and the two
-    // lines sit together with nothing between them to collide.
+    // #537's headline case, respelt for #762: the buffer's own alias is the
+    // one the injected line would otherwise have written, and the scan has to
+    // see it and stand down. Both faces of the alias are used above — the type,
+    // through §5.1 rule 2's companion fallback, and the qualified `Rat.create`.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.javascript).toContain('from "./stdlib/Rat.js"');

@@ -52,6 +52,36 @@ const infix = new Map<TokenKind, Infix>([
 const itemEnds = new Set<TokenKind>(["VSep", "Semicolon", "VClose", "Eof"]);
 
 /**
+ * The slot a refused import head names where the specifier yields no
+ * uppercase-start identifier — `import <Alias> from "./2d-utils"` (Modules
+ * §3.1). The rewrite names the seat rather than a spelling the language would
+ * refuse a second time.
+ */
+const ALIAS_SLOT = "<Alias>";
+
+/**
+ * The alias a refused import head is told to write: the specifier's basename,
+ * each `-`, `_`, or `.`-separated segment upper-cased at its start and joined
+ * (Modules §3.1, §10). `geometry` → `Geometry`, `search-params` →
+ * `SearchParams`; where the derivation yields no uppercase-start identifier
+ * the message names the slot instead.
+ *
+ * The derivation reads the *specifier*, never the file system: the parser has
+ * no module graph, and the rewrite has to be spellable from the one line the
+ * author wrote. It is deliberately not a general identifier sanitiser — a
+ * segment that is not already identifier-shaped fails the whole derivation
+ * rather than being mangled into something the author never chose.
+ */
+function derivedAlias(specifier: string): string {
+  const basename = specifier.split("/").at(-1) ?? "";
+  const alias = basename
+    .split(/[-_.]/)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join("");
+  return /^[A-Z][A-Za-z0-9_]*$/.test(alias) ? alias : ALIAS_SLOT;
+}
+
+/**
  * The lead of Functions §10's three retirement rows: `fun` has no `name = …`
  * production, in a block or fused (#700). One sentence, three rewrites.
  */
@@ -950,112 +980,198 @@ class Parser {
     );
   }
 
-  #parseImport(): Parsed.ImportItem {
+  /**
+   * `import Geo from "./geometry"` — the one binding form (Modules §3.1, #762).
+   *
+   * An `import` binds a module and nothing smaller, so the grammar has one
+   * alias seat and no items. Four heads a reader's muscle memory produces
+   * reach here and are refused under the Rewrite Rule (Declarations Preamble
+   * §1.1), each naming the module form: JavaScript's named list and its
+   * namespace glob, this form's own earlier spelling `import module` (#565),
+   * and the effect import `import "./telemetry"` (§3.3). The alias's
+   * mandatory uppercase start is the fifth refusal and the form's visible
+   * tell against JavaScript's default import, which it is spelled like and is
+   * not.
+   *
+   * Recovery differs by what the head wrote, and the difference is the one
+   * this parser makes everywhere: a head that named an alias recovers as the
+   * import it was reaching for — one diagnostic, and the module still
+   * resolves, which is what keeps a whole file of a stale spelling from
+   * cascading during a migration — while a head that named none has nothing
+   * to bind and recovers as an `ErrorItem`.
+   */
+  #parseImport(): Parsed.ImportItem | Parsed.ErrorItem {
     const start = this.#advance();
-    let form: Parsed.ImportForm;
     if (this.#at("String")) {
       const specifier = this.#parseImportSpecifier();
-      return {
-        kind: "Import",
-        specifier: specifier.value,
-        form: { kind: "Effect" },
-        span: spanFrom(start.span, specifier.span),
-      };
+      const span = spanFrom(start.span, specifier.span);
+      this.#errorAt(
+        span,
+        "Hexagon has no effect import; a module is imported for its names — " +
+          `\`import ${derivedAlias(specifier.value)} from ${JSON.stringify(specifier.value)}\`` +
+          " — or run as a root",
+      );
+      return { kind: "ErrorItem", span };
     }
+    if (this.#at("LeftBrace")) return this.#refuseNamedList(start);
+    let glob: Source.Span | undefined;
+    let staleHead: Source.Span | undefined;
     if (this.#at("Star")) {
-      this.#refuseJavaScriptNamespaceHead();
-      form = { kind: "Namespace", alias: this.#parseNamespaceAlias() };
+      glob = this.#refuseJavaScriptNamespaceHead();
     } else if (this.#atContextual("module")) {
-      // Modules §3.3 / Lexer §4.2: `module` is contextual here and nowhere
-      // else. Recognition is unconditional rather than gated on an uppercase
-      // name ahead, because the position admits no name at all — which is what
-      // makes it total, and what makes `import module module` die in the alias
-      // seat by start class rather than by a special case of its own.
-      this.#advance();
-      form = { kind: "Namespace", alias: this.#parseNamespaceAlias() };
-    } else {
-      this.#expect("LeftBrace", "expected `{`, `module`, or a module string after `import`");
-      const names: Parsed.ImportName[] = [];
-      while (!this.#at("RightBrace") && !this.#at("Eof")) {
-        const token = this.#current();
-        if (token.kind !== "NonUpperName" && token.kind !== "UpperName") {
-          this.#error("expected an imported name");
-          break;
-        }
-        this.#advance();
-        const imported = parsedName(token);
-        let local = imported;
-        if (this.#atContextual("as")) {
-          this.#advance();
-          const expected = imported.startClass === "non-upper" ? "NonUpperName" : "UpperName";
-          const alias = this.#takeName(expected, "import alias start class must match what it names");
-          if (alias !== undefined) local = parsedName(alias);
-        }
-        names.push({ imported, local, span: spanFrom(imported.span, local.span) });
-        if (!this.#at("Comma")) break;
-        this.#advance();
-      }
-      this.#expect("RightBrace", "expected `}` after imported names");
-      form = { kind: "Named", names };
+      // Modules §3.1 / Lexer §4.2: the word is gone from the grammar with the
+      // head that carried it, so `module` is an ordinary name everywhere and
+      // is recognised here only to redirect. Recognition is unconditional
+      // rather than gated on an uppercase name ahead, because the position
+      // admits no name at all — which is what makes it total, and what makes
+      // `import module` die in the alias seat by start class rather
+      // than by a special case of its own.
+      staleHead = this.#advance().span;
     }
+    // The alias seat is *read*, not refused at the token: every message this
+    // head can give names the specifier, which is two tokens further on, so
+    // the seat takes whatever name stands in it and the report waits for the
+    // path. Two spellings are declined rather than taken — `from` standing
+    // immediately before the path, which is the head's own word and not an
+    // alias, and anything that is no name at all — and each leaves the seat
+    // empty, which the one refusal below names.
+    const takeable = this.#at("UpperName") ||
+      (this.#at("NonUpperName") &&
+        !(this.#atContextual("from") && this.#peek(1).kind === "String"));
+    const aliasToken = takeable ? (this.#advance() as Lexed.NameToken) : undefined;
+    const written = aliasToken?.kind === "UpperName";
+    const alias: Parsed.Name = aliasToken === undefined
+      ? { text: "Invalid", startClass: "upper" as const, span: this.#current().span }
+      : parsedName(aliasToken);
     this.#expectContextual("from", "expected `from` before the module path");
     const specifier = this.#parseImportSpecifier();
+    const rewriteAlias = written ? alias.text : derivedAlias(specifier.value);
+    const rewrite = `import ${rewriteAlias} from ${JSON.stringify(specifier.value)}`;
+    const staleSpan = glob ?? staleHead;
+    if (staleSpan !== undefined) {
+      // The glob head keeps the alias it wrote and carries no item clause —
+      // the program names no item; the `import module` head's rewrite drops
+      // the word. One sentence, one edit: the head's own tokens go away.
+      //
+      // The edit reaches **to the alias**, not to the head's last token, so the
+      // whitespace the head spent goes with it and the applied edit is the
+      // sentence the message prints, byte for byte. Deleting the tokens alone
+      // leaves `import  Geo from "./geometry"`, which compiles and is not what
+      // the reader was told to write — the Rewrite Rule's whole demand is that
+      // the offered line is the line.
+      const edit = aliasToken === undefined ? staleSpan : {
+        fileId: staleSpan.fileId,
+        start: staleSpan.start,
+        end: aliasToken.span.start,
+      };
+      this.#diagnostics.add({
+        severity: "error",
+        message: `Hexagon imports bind modules: write \`${rewrite}\``,
+        primary: staleSpan,
+        fixes: [{ message: "write `import`", edits: [{ span: edit, replacement: "" }] }],
+      });
+    } else if (!written) {
+      // The seat's own rule, which settles every degenerate spelling by start
+      // class alone — an empty seat included, since a head with no alias is a
+      // head whose alias is not uppercase-start.
+      this.#refuseAliasSeat(alias, specifier.value, aliasToken !== undefined);
+    }
     return {
       kind: "Import",
       specifier: specifier.value,
-      form,
+      alias,
       span: spanFrom(start.span, specifier.span),
     };
   }
 
   /**
-   * The alias seat of a namespace import, shared by the `import module` head
-   * and by recovery from JavaScript's refused one. Uppercase-start is the seat's
-   * own demand (Modules §3.3), so it is stated once here and every spelling that
-   * reaches the seat — `import module module` included — is refused by it.
+   * JavaScript's named list, refused under the Rewrite Rule with the module
+   * form named (Modules §3.1, §10; #762).
+   *
+   * The message names the first listed item and an alias derived from the
+   * specifier's basename, which is the whole rewrite the author needs: the
+   * one line they wrote becomes one line that works, and the item they named
+   * becomes the qualified spelling that reaches it. The list binds nothing,
+   * so the item recovers as an `ErrorItem` — there is no alias here to
+   * recover a binding under, and minting the derived one would put a name in
+   * scope that the source never wrote.
    */
-  #parseNamespaceAlias(): Parsed.Name {
-    const aliasToken = this.#takeName("UpperName", "module aliases must be uppercase-start names");
-    return aliasToken === undefined
-      ? { text: "Invalid", startClass: "upper" as const, span: this.#current().span }
-      : parsedName(aliasToken);
+  #refuseNamedList(start: LaidOut.Token): Parsed.ErrorItem {
+    this.#advance();
+    let first: string | undefined;
+    while (!this.#at("RightBrace") && !this.#at("Eof")) {
+      const token = this.#current();
+      if (token.kind !== "NonUpperName" && token.kind !== "UpperName") break;
+      this.#advance();
+      first ??= token.text;
+      if (this.#atContextual("as")) {
+        this.#advance();
+        if (this.#at("NonUpperName") || this.#at("UpperName")) this.#advance();
+      }
+      if (!this.#at("Comma")) break;
+      this.#advance();
+    }
+    if (this.#at("RightBrace")) this.#advance();
+    if (this.#atContextual("from")) this.#advance();
+    const specifier = this.#at("String") ? this.#parseImportSpecifier() : undefined;
+    const span = spanFrom(start.span, this.#previous().span);
+    const alias = derivedAlias(specifier?.value ?? "");
+    const path = JSON.stringify(specifier?.value ?? "./module");
+    this.#diagnostics.add({
+      severity: "error",
+      message: `Hexagon imports bind modules: write \`import ${alias} from ${path}\`` +
+        (first === undefined ? "" : ` and reach \`${first}\` as \`${alias}.${first}\``),
+      primary: span,
+    });
+    return { kind: "ErrorItem", span };
   }
 
   /**
-   * JavaScript's namespace head, refused under the Rewrite Rule (Modules §3.3,
-   * §10; #565). Hexagon spells this form `import module Geo from "./geometry"`,
-   * and `*` no longer appears in the import grammar at all — so the one place a
-   * JS author's muscle memory fires gets a redirect rather than a bare "expected
-   * `{`".
-   *
-   * The message carries the spec's exemplar and the fix-it carries the user's
-   * own line: `* as` — the two tokens the head spends, whitespace between them
-   * included — is replaced by the one word `module`, leaving the alias and path
-   * exactly as written. That division follows `#redirectTypeArrow`, whose prose
-   * shows `Int -> Int` while its edit rewrites the arrow the user typed.
-   *
-   * With no `as` to pair with, there is no two-token span to rewrite and the
-   * redirect stands on its message alone — the same restraint the lexer's
-   * JavaScript-block-comment redirect shows when it finds no closer. Parsing
-   * then continues into the alias seat either way, so one pasted JavaScript line
-   * costs one diagnostic and the rest of the module still resolves.
+   * A non-uppercase-start alias (Modules §3.1, §10). The seat settles every
+   * degenerate spelling by start class alone, and the rewrite is the same
+   * derivation the refused heads use — the specifier's own basename, which is
+   * what the author was naming the module after anyway.
    */
-  #refuseJavaScriptNamespaceHead(): void {
-    const star = this.#advance();
-    const message =
-      "namespace imports are spelled `import module Geo from \"./geometry\"`";
-    if (!this.#atContextual("as")) {
-      this.#errorAt(star.span, message);
-      return;
-    }
-    const as = this.#advance();
-    const span = spanFrom(star.span, as.span);
+  #refuseAliasSeat(alias: Parsed.Name, specifier: string, occupied: boolean): void {
+    const derived = derivedAlias(specifier);
     this.#diagnostics.add({
       severity: "error",
-      message,
-      primary: span,
-      fixes: [{ message: "write `import module`", edits: [{ span, replacement: "module" }] }],
+      message: "a module alias is uppercase-start; write " +
+        `\`import ${derived} from ${JSON.stringify(specifier)}\``,
+      primary: alias.span,
+      // The fix-it needs a word to replace. An *empty* seat has none — the span
+      // is the next token's, which the edit must not eat — so the message
+      // stands alone there, the restraint every other seat in this parser keeps
+      // when it has no text to rewrite.
+      ...(!occupied || derived === ALIAS_SLOT
+        ? {}
+        : {
+            fixes: [{
+              message: `write \`${derived}\``,
+              edits: [{ span: alias.span, replacement: derived }],
+            }],
+          }),
     });
+  }
+
+  /**
+   * JavaScript's namespace head, refused under the Rewrite Rule (Modules
+   * §3.1, §10; #762). `*` no longer appears in the import grammar at all, so
+   * the one place a JS author's muscle memory fires gets a redirect rather
+   * than a bare "expected an alias".
+   *
+   * The span returned covers `* as` — the two tokens the head spends,
+   * whitespace between them included — so the caller can report against it
+   * once the rewrite is spellable: the message names the specifier, and the
+   * specifier is three tokens further on. With no `as` to pair with there is
+   * no two-token span and the star's own stands, the same restraint the
+   * lexer's JavaScript-block-comment redirect shows when it finds no closer.
+   */
+  #refuseJavaScriptNamespaceHead(): Source.Span {
+    const star = this.#advance();
+    if (!this.#atContextual("as")) return star.span;
+    const as = this.#advance();
+    return spanFrom(star.span, as.span);
   }
 
   #parseExtern(): Parsed.ExternBlockItem | Parsed.ExternImportItem | Parsed.ErrorItem {

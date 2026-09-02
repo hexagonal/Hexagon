@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
-import { compileFiles, projectDiagnostics, runMain, runProject } from "../support/test-project.js";
+import { projectDiagnostics, runMain } from "../support/test-project.js";
 
 /**
  * Conformance for the prelude occlusion rule (Modules §5.4;
@@ -84,23 +84,6 @@ function matchesControl(
   sameAsControl(
     projectDiagnostics(at(...preludeNames)),
     projectDiagnostics(at(...freshNames)),
-    preludeNames,
-    freshNames,
-  );
-}
-
-/** The same, where the shape needs a second module — an import's exporter. */
-function matchesProjectControl(
-  at: (...names: readonly string[]) => readonly (readonly [string, string])[],
-  preludeNames: readonly string[],
-  freshNames: readonly string[],
-): void {
-  const messages = (files: readonly (readonly [string, string])[]): readonly string[] =>
-    compileFiles(files).diagnostics.map(({ message }) => message);
-
-  sameAsControl(
-    messages(at(...preludeNames)),
-    messages(at(...freshNames)),
     preludeNames,
     freshNames,
   );
@@ -449,70 +432,16 @@ describe("module-wide is enforced the same way (§5.4's reservation, defect 2)",
   });
 });
 
-describe("an import occludes and reserves too (§5.4's \"or import\")", () => {
-  // An explicit import enters the *same* layer as a local binding, so it takes a
-  // prelude name over module-wide and reserves it exactly as a `let` would. The
-  // control here is the shape at a name the prelude does not bind, and this pin
-  // follows it wherever it goes — which #465 moved: a term reference above the
-  // import that binds it is the declared-later error now (Modules §3), not an
-  // unknown name, so that is what the prelude name draws too. The invariant is
-  // untouched, being stated over the control rather than over any one message.
-
-  test("a use above an occluding import reads as the control does", () => {
-    // Before this, the shape compiled with zero diagnostics and two meanings:
-    // `early` was the prelude's "1", `late` the import's "custom".
-    matchesProjectControl(
-      (name) => [
-        ["/lib.hex", `export fun ${name}(x: Int): String = "custom"\n`],
-        ["/main.hex",
-          `export let early: String = ${name}(1)\n` +
-          `import { ${name} } from "./lib"\n` +
-          `export let late: String = ${name}(2)\n`],
-      ],
-      ["show"],
-      ["zork"],
-    );
-    expect(compileFiles([
-      ["/lib.hex", "export fun show(x: Int): String = \"custom\"\n"],
-      ["/main.hex",
-        "export let early: String = show(1)\n" +
-        "import { show } from \"./lib\"\n" +
-        "export let late: String = show(2)\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual([
-      "`show` is declared later in this block; declarations are read top-down — " +
-        "move the import above this use",
-    ]);
-  });
-
-  test("below the import the local meaning stands, and it is the import's", async () => {
-    const exports = await runProject([
-      ["/lib.hex", "export fun show(x: Int): String = \"imported ${x}\"\n"],
-      ["/main.hex",
-        "import { show } from \"./lib\"\n" +
-        "export let late: String = show(2)\n"],
-    ]);
-
-    expect(exports.late).toBe("imported 2");
-  });
-
-  test("a constraint's members arrive with it and reserve the same way", () => {
-    // Modules §3.1: members are not importable severally, so the constraint's
-    // name is the only spelling at the import line — and every member it brings
-    // occludes, the pattern's author never having written those names either.
-    matchesProjectControl(
-      (name) => [
-        ["/lib.hex",
-          "export constraint Labelled<a> =\n" +
-          `    ${name}(subject: a): String\n`],
-        ["/main.hex",
-          `export let early: String = ${name}(1)\n` +
-          "import { Labelled } from \"./lib\"\n"],
-      ],
-      ["show"],
-      ["zork"],
-    );
-  });
-});
+// #762 retired "an import occludes and reserves too (§5.4's 'or import')" —
+// three pins over a named import binding a bare prelude name (`show`, and a
+// constraint's member) and reserving it exactly as a `let` would. No import
+// binds a name smaller than a module any more, so the shape has no seat left:
+// a module alias is uppercase-start and lives in its own namespace, which
+// never overlaps the prelude's lowercase bare set, so an import can no longer
+// occlude a prelude term at all. The reservation §5.4 still grants — for
+// `let`, `fun`, and every other module-level binder form — is pinned in full
+// by the describes around this one; what is gone is only the *import* as a
+// sixth way to reach the same layer.
 
 describe("a declaration's constructor names occlude too (#466)", () => {
   /**
@@ -672,56 +601,18 @@ describe("a declaration's constructor names occlude too (#466)", () => {
     ]);
   });
 
-  test("and a declared constructor still fights an imported one", () => {
-    expect(compileFiles([
-      ["/lib.hex", "export union A = Dup | X\n"],
-      ["/main.hex",
-        "import { A, Dup, X } from \"./lib\"\n" +
-        "union B = Dup | Y\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual([
-      "`Dup` is already bound (line 1); Hexagon does not allow rebinding — " +
-        "choose a different name.",
-    ]);
-  });
-
-  test("an imported constructor occludes and reserves like any other import", () => {
-    // The import arm §5.4 already covered, now reachable at a constructor: the
-    // exporting module could not even declare `Less` before #466.
-    matchesProjectControl(
-      (name, other) => [
-        ["/lib.hex", `export union Direction = ${name} | ${other}\n`],
-        ["/main.hex",
-          `import { Direction, ${name}, ${other} } from "./lib"\n` +
-          `export let d: Direction = ${name}\n`],
-      ],
-      ["Less", "Greater"],
-      ["Zork", "Zap"],
-    );
-    matchesProjectControl(
-      (name, other) => [
-        ["/lib.hex", `export union Direction = ${name} | ${other}\n`],
-        ["/main.hex",
-          `export let early: Direction = ${name}\n` +
-          `import { Direction, ${name}, ${other} } from "./lib"\n`],
-      ],
-      ["Less", "Greater"],
-      ["Zork", "Zap"],
-    );
-    expect(compileFiles([
-      ["/lib.hex", "export union Direction = Less | Greater\n"],
-      ["/main.hex",
-        "export let early: Direction = Less\n" +
-        "import { Direction, Less, Greater } from \"./lib\"\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual([
-      // One diagnostic, and it is about the term. The *type* `Direction` above
-      // the import is legal since #465 — an import's type-namespace half is
-      // order-insensitive like the declaration it imports — so the annotation
-      // types, and what is left is the constructor, which was the prelude's
-      // `Less` silently before #466 and is now the import's, read top-down.
-      "`Less` is declared later in this block; declarations are read top-down — " +
-        "move the import above this use",
-    ]);
-  });
+  // #762 + #763 retired both "and a declared constructor still fights an
+  // imported one" and "an imported constructor occludes and reserves like any
+  // other import". Neither shape survives: a named import no longer binds a
+  // constructor bare (nothing collides with the declared `Dup` any more), and
+  // a constructor reached bare in a pattern goes through #763's door — scope,
+  // then the pattern's expected type — which reads directly off the source
+  // module's own constructor set rather than through any binding this
+  // module's import could occlude or reserve. There is no longer an import
+  // arm of the constructor-occlusion story to pin; what a bare constructor
+  // pattern resolves to when an alias and a local declaration could both
+  // supply the spelling is `qualified-constructor-patterns.test.ts`'s
+  // question, not this file's.
 });
 
 describe("in prelude source, the prelude layer is the §5.5 visible prefix", () => {

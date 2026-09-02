@@ -308,14 +308,22 @@ describe("class 4 — the exception itself named `Error`, which compiled nowhere
 });
 
 describe("the universe decides — per file, per spelling", () => {
-  test("a source-written named import of a type genuinely named `Iterable`", async () => {
+  test("a source-written type alias reaching a type genuinely named `Iterable`", async () => {
     // Nothing refuses a Hexagon module exporting a type named `Iterable`, so the
-    // capture travels: the *home* file qualifies its own faces, and the
-    // importer's local puts the spelling in the importer's type space, so that
-    // file qualifies too. The import itself keeps working — Part 1 §10 again.
+    // capture travels: the *home* file qualifies its own faces, and Modules
+    // §3.2's ordinary respelling — `export type Iterable = Lib.Iterable` — puts
+    // the spelling in the importer's own type space too, because it is a
+    // genuine declaration there rather than an alias the compiler minted; only
+    // a *compiler*-chosen spelling gets probed away from the vocabulary
+    // (`compiler-chosen spellings never contest it` below), never a
+    // source-written one. That file's own `Seq` face qualifies in turn. The
+    // qualified spelling at `f`'s own parameter is a separate, unrelated fact —
+    // a transparent alias always renders through its origin, alias or not —
+    // and not a claim this test makes.
     const compiled = project({
       "/lib.hex": "export record Iterable = {x: Int}\n" + SEQ_FACE,
-      "/main.hex": 'import { Iterable } from "./lib"\n' +
+      "/main.hex": 'import Lib from "./lib"\n' +
+        "export type Iterable = Lib.Iterable\n" +
         "export let f(p: Iterable): Int = p.x\n" + SEQ_FACE,
     });
 
@@ -323,8 +331,9 @@ describe("the universe decides — per file, per spelling", () => {
       "export declare const twice: (s: globalThis.Iterable<number>) => number;",
     );
     expect(declarations(compiled)).toBe(
-      'import type { Iterable } from "./lib.js";\n' +
-        "export declare const f: (p: Iterable) => number;\n" +
+      'import type * as Lib from "./lib.js";\n' +
+        "export type Iterable = Lib.Iterable;\n" +
+        "export declare const f: (p: Lib.Iterable) => number;\n" +
         "export declare const twice: (s: globalThis.Iterable<number>) => number;\n",
     );
     expect(
@@ -363,7 +372,7 @@ describe("the universe decides — per file, per spelling", () => {
     // — and the face therefore emits the bare text it always emitted.
     const text = declarations(project({
       "/lib.hex": "export record Point = {x: Int}\nexport let zero: Int = 0\n",
-      "/main.hex": 'import module Iterable from "./lib"\n' +
+      "/main.hex": 'import Iterable from "./lib"\n' +
         "export let n: Int = Iterable.zero\n" + SEQ_FACE,
     }));
 
@@ -382,7 +391,7 @@ describe("the universe decides — per file, per spelling", () => {
     // own source spelling, which is the half a yielding rule would have moved.
     const compiled = project({
       "/lib.hex": "export record Point = {x: Int}\n",
-      "/main.hex": 'import module Iterable from "./lib"\n' +
+      "/main.hex": 'import Iterable from "./lib"\n' +
         "export let f(p: Iterable.Point): Int = p.x\n" + SEQ_FACE,
     });
     const text = declarations(compiled);
@@ -420,16 +429,18 @@ describe("the universe decides — per file, per spelling", () => {
 
 describe("compiler-chosen spellings never contest the vocabulary (§1.1 half 1)", () => {
   test("a minted local moves off `Iterable` — and the face then stays bare", async () => {
-    // §2.4 rung 5's minted local takes the foreign type's *own name* first, so a
-    // module exporting a record genuinely named `Iterable` would have been
-    // imported here under `Iterable` and captured this file's `Seq` face — a
-    // compiler-chosen spelling breaking a face, which half 1 forbids outright.
-    // It probes to `Iterable_1`, and because nothing then binds the bare
-    // spelling in this file, the face needs no qualification at all: the two
-    // halves are complementary, not belt-and-braces.
+    // §2.4 rung 5's minted local takes the foreign type's *own name* first:
+    // `Holder` is transparent to `Iterable` (Modules §3.2's companion fallback
+    // reaches it under its own alias, `Holder`, not under `Iterable`), so
+    // rendering `f`'s parameter has to name `Iterable` itself and would capture
+    // this file's `Seq` face doing it — a compiler-chosen spelling breaking a
+    // face, which half 1 forbids outright. It probes to `Iterable_1`, and
+    // because nothing then binds the bare spelling in this file, the face
+    // needs no qualification at all: the two halves are complementary, not
+    // belt-and-braces.
     const compiled = project({
       "/lib.hex": "export record Iterable = {x: Int}\nexport type Holder = Iterable\n",
-      "/main.hex": 'import { Holder } from "./lib"\n' +
+      "/main.hex": 'import Holder from "./lib"\n' +
         "export let f(h: Holder): Int = h.x\n" + SEQ_FACE,
     });
     const text = declarations(compiled);
@@ -463,7 +474,7 @@ describe("the negatives — nothing else moves", () => {
   // the guard. Multi-module, so a cross-file import line is in the picture too.
   const UNCONTESTED = {
     "/lib.hex": "export record Point = {x: Int}\n",
-    "/main.hex": 'import { Point } from "./lib"\n' +
+    "/main.hex": 'import Point from "./lib"\n' +
       'extern from "./x.js"\n' +
       "    fun rows(): Array(Int)\n" +
       "    fun table(): JsMap(String, Int)\n" +

@@ -68,8 +68,8 @@ describe("an uncontested spelling is bare on both sides", () => {
         '    show(c) = "crate ${c.size}"\n' +
         "export fun crate(size: Int): Crate = Crate({size = size})\n"],
       ["/b.hex",
-        'import { crate } from "./a"\n' +
-        'export fun label(size: Int): String = "${crate(size)}"\n'],
+        'import A from "./a"\n' +
+        'export fun label(size: Int): String = "${A.crate(size)}"\n'],
     ] as const;
 
     const a = emitted(files, "/a.hex");
@@ -94,8 +94,8 @@ describe("an uncontested spelling is bare on both sides", () => {
     const main = await runProject([
       ...files,
       ["/main.hex",
-        'import { label } from "./b"\n' +
-        "export fun run(size: Int): String = label(size)\n"],
+        'import B from "./b"\n' +
+        "export fun run(size: Int): String = B.label(size)\n"],
     ]);
     expect((main["run"] as (size: number) => string)(3)).toBe("crate 3");
   });
@@ -116,9 +116,9 @@ describe("an uncontested spelling is bare on both sides", () => {
         "    equals(l, r) = l.count == r.count\n" +
         "export fun tally(count: Int): Tally = Tally({count = count})\n"],
       ["/b.hex",
-        'import { tally } from "./a"\n' +
-        'export fun twice(n: Int): String = "${tally(n)}${tally(n)}"\n' +
-        "export fun same(n: Int): Bool = tally(n) == tally(n)\n"],
+        'import A from "./a"\n' +
+        'export fun twice(n: Int): String = "${A.tally(n)}${A.tally(n)}"\n' +
+        "export fun same(n: Int): Bool = A.tally(n) == A.tally(n)\n"],
     ] as const;
 
     for (const path of ["/a.hex", "/b.hex"]) {
@@ -147,11 +147,11 @@ describe("a re-export chain stops compounding", () => {
         "honor Show<Relayed> =\n" +
         '    show(r) = "relayed ${r.tag}"\n'],
       ["/b.hex",
-        'import { Relayed } from "./a"\n' +
-        "export fun viaB(tag: Int): Relayed = Relayed({tag = tag})\n"],
+        'import A from "./a"\n' +
+        "export fun viaB(tag: Int): A.Relayed = A.Relayed({tag = tag})\n"],
       ["/c.hex",
-        'import { viaB } from "./b"\n' +
-        'export fun render(tag: Int): String = "${viaB(tag)}"\n'],
+        'import B from "./b"\n' +
+        'export fun render(tag: Int): String = "${B.viaB(tag)}"\n'],
     ] as const;
 
     for (const path of ["/b.hex", "/c.hex"]) {
@@ -169,8 +169,8 @@ describe("a re-export chain stops compounding", () => {
     const main = await runProject([
       ...files,
       ["/main.hex",
-        'import { render } from "./c"\n' +
-        "export fun run(tag: Int): String = render(tag)\n"],
+        'import C from "./c"\n' +
+        "export fun run(tag: Int): String = C.render(tag)\n"],
     ]);
     expect((main["run"] as (tag: number) => string)(7)).toBe("relayed 7");
   });
@@ -194,12 +194,12 @@ describe("a contested spelling suffixes every contestant", () => {
         '    show(l) = "a-ledger ${l.rows}"\n' +
         "export fun aLedger(rows: Int): Ledger = Ledger({rows = rows})\n"],
       ["/b.hex",
-        'import { aLedger } from "./a"\n' +
+        'import A from "./a"\n' +
         "export record Ledger = {name: String}\n" +
         "honor Show<Ledger> =\n" +
         '    show(l) = "b-ledger ${l.name}"\n' +
         'export fun mine(name: String): String = "${Ledger({name = name})}"\n' +
-        'export fun theirs(rows: Int): String = "${aLedger(rows)}"\n'],
+        'export fun theirs(rows: Int): String = "${A.aLedger(rows)}"\n'],
     ] as const;
 
     const b = emitted(files, "/b.hex");
@@ -231,8 +231,8 @@ describe("a contested spelling suffixes every contestant", () => {
     const files2 = [
       ...files,
       ["/c.hex",
-        'import { Ledger } from "./b"\n' +
-        'export fun show(name: String): String = "${Ledger({name = name})}"\n'],
+        'import B from "./b"\n' +
+        'export fun show(name: String): String = "${B.Ledger({name = name})}"\n'],
     ] as const;
     const c = emitted(files2, "/c.hex");
     // Both of `b.hex`'s exported dictionaries transit, and both spellings are
@@ -247,9 +247,9 @@ describe("a contested spelling suffixes every contestant", () => {
     const main = await runProject([
       ...files,
       ["/main.hex",
-        'import { mine, theirs } from "./b"\n' +
-        "export fun runMine(name: String): String = mine(name)\n" +
-        "export fun runTheirs(rows: Int): String = theirs(rows)\n"],
+        'import B from "./b"\n' +
+        "export fun runMine(name: String): String = B.mine(name)\n" +
+        "export fun runTheirs(rows: Int): String = B.theirs(rows)\n"],
     ]);
     expect((main["runMine"] as (name: string) => string)("q")).toBe("b-ledger q");
     expect((main["runTheirs"] as (rows: number) => string)(2)).toBe("a-ledger 2");
@@ -271,14 +271,14 @@ describe("a contested spelling suffixes every contestant", () => {
         '    show(x) = "a-note ${x.n}"\n' +
         "export fun aNote(n: Int): Note = Note({n = n})\n"],
       ["/b.hex",
-        'import { aNote } from "./a"\n' +
+        'import A from "./a"\n' +
         "export record Note = {m: Int}\n" +
         "export record Note_1 = {k: Int}\n" +
         "honor Show<Note> =\n" +
         '    show(x) = "b-note ${x.m}"\n' +
         "honor Show<Note_1> =\n" +
         '    show(x) = "b-note-1 ${x.k}"\n' +
-        'export fun a(n: Int): String = "${aNote(n)}"\n' +
+        'export fun a(n: Int): String = "${A.aNote(n)}"\n' +
         'export fun b(m: Int): String = "${Note({m = m})}"\n' +
         'export fun c(k: Int): String = "${Note_1({k = k})}"\n'],
     ] as const;

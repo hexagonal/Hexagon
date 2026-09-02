@@ -221,8 +221,8 @@ describe("§6.1 — a ground instance's members hoist to member seats", () => {
           "honor Show<Chip> =\n" +
           '    show(c) = "chip ${c.value}"\n'],
         ["/main.hex",
-          'import { Chip } from "./tokens"\n' +
-          "export let one: String = show(Chip({value = 9}))\n"],
+          'import Tokens from "./tokens"\n' +
+          "export let one: String = show(Tokens.Chip({value = 9}))\n"],
       ],
       "/tokens.hex",
     );
@@ -279,7 +279,7 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     const files = [
       ["/Rat.hex", RAT],
       ["/main.hex",
-        'import module Rat from "./Rat"\n' +
+        'import Rat from "./Rat"\n' +
         "export let third: String = Rat.show(Rat.fromInt(3))\n"],
     ] as const;
     const text = emittedFrom(files, "/main.hex");
@@ -504,11 +504,11 @@ describe("§8 — the seats travel to the declaring module, not the transit one"
         "honor Show<Coin2> =\n" +
         '    show(c) = "coin2 ${c.edge}"\n'],
       ["/purse.hex",
-        'import { Coin2 } from "./mint"\n' +
-        "export let struck(edge: Int): Coin2 = Coin2({edge = edge})\n"],
+        'import Mint from "./mint"\n' +
+        "export let struck(edge: Int): Mint.Coin2 = Mint.Coin2({edge = edge})\n"],
       ["/main.hex",
-        'import { struck } from "./purse"\n' +
-        "export let one: String = show(struck(3))\n"],
+        'import Purse from "./purse"\n' +
+        "export let one: String = show(Purse.struck(3))\n"],
     ] as const;
     // Behavioral first, because it is the half that cannot be satisfied by a
     // plausible-looking wrong answer: importing the seat from the transit
@@ -522,7 +522,7 @@ describe("§8 — the seats travel to the declaring module, not the transit one"
     const text = emittedFrom(files, "/main.hex");
     expect(text).toContain('import { __Show_Coin2 } from "./purse.js";');
     expect(text).toContain('import { __Show_Coin2_show as show } from "./mint.js";');
-    expect(text).toContain("const one = show(struck(3));");
+    expect(text).toContain("const one = show(Purse.struck(3));");
   });
 
   test("importing a seat keeps its module in the emitted graph", () => {

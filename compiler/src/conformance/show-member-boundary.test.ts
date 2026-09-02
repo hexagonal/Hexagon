@@ -32,7 +32,7 @@ describe("an honoring module's member is not a bare export (the §5 item 8 bound
     const exports = await runProject([
       box,
       ["/main.hex", [
-        "import { Box } from \"./box\"",
+        "import Box from \"./box\"",
         "",
         "export let atInt: String = show(42)",
         "export let atBox: String = show(Box({value = 3}))",
@@ -44,14 +44,24 @@ describe("an honoring module's member is not a bare export (the §5 item 8 bound
     expect(exports.atBox).toBe("Box(3)");
   });
 
-  test("the honoring module exports no `show` an importer could name", () => {
+  /**
+   * Respelt for #762: a member was never nameable as a bare import, and now
+   * neither is anything else — `import { show } from "./box"` is refused at
+   * the parser, before any export list is consulted, so the boundary this file
+   * is about shows up one layer earlier than it used to. The member stays
+   * reachable, at its honored type, through the module alias (`Box.show`,
+   * Modules §3.2, #762) or bare via the polymorphic member itself, pinned
+   * above.
+   */
+  test("a named import of the member is a parse error, not an export refusal", () => {
     const compiled = compileFiles([
       box,
       ["/main.hex", 'import { show } from "./box"\nexport let r: String = show(42)\n'],
     ]);
 
     expect(compiled.diagnostics.map(({ message }) => message)).toContain(
-      "module `./box` does not export `show`",
+      "Hexagon imports bind modules: write `import Box from \"./box\"` and reach " +
+        "`show` as `Box.show`",
     );
   });
 });

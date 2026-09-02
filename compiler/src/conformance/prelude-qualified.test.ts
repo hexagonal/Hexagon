@@ -83,7 +83,7 @@ async function run(files: readonly (readonly [string, string])[]): Promise<Recor
  * half that has to work.
  *
  * A prelude member is addressable as a **fallback** layer: an explicit
- * `import module` of the same name is a module-level binding and wins (§5.4).
+ * `import` of the same name is a module-level binding and wins (§5.4).
  */
 
 function diagnostics(source: string): readonly string[] {
@@ -152,14 +152,14 @@ describe("qualified access is what makes occlusion survivable (§5.4 + §6.4)", 
 });
 
 describe("an explicit alias is a module-level binding and wins", () => {
-  test("`import module Option` of a different module shadows the prelude member", () => {
+  test("`import Option` of a different module shadows the prelude member", () => {
     // §5.4: explicit imports enter the same layer as local bindings. The prelude
     // member is only a fallback, so this must resolve to the imported module —
     // and must not collide, which is what a same-layer registration would cause.
     expect(withModule(
       "/mine.hex",
       "export let greet(name: String): String = name\n",
-      "import module Option from \"./mine\"\n" +
+      "import Option from \"./mine\"\n" +
       "export let a: String = Option.greet(\"x\")\n",
     )).toEqual([]);
   });
@@ -168,7 +168,7 @@ describe("an explicit alias is a module-level binding and wins", () => {
     expect(withModule(
       "/mine.hex",
       "export let greet(name: String): String = name\n",
-      "import module Option from \"./mine\"\n" +
+      "import Option from \"./mine\"\n" +
       "export let a: Option(Int) = Some(1)\n" +
       "export let b: String = Option.greet(\"x\")\n",
     )).toEqual([]);
@@ -177,7 +177,7 @@ describe("an explicit alias is a module-level binding and wins", () => {
 
 describe("the qualified spelling runs (PR #90 finding F1)", () => {
   // Resolving the name is half the job. A prelude member has no namespace object
-  // to dot into — unlike an explicit `import module`, nothing declares one — so the
+  // to dot into — unlike an explicit `import`, nothing declares one — so the
   // first fix emitted a bare `Option.Some(1)` with no import at all: a clean
   // compile and a `ReferenceError` on load. These assertions are on *values*
   // produced by executing the emitted module, which is the only level at which
@@ -260,11 +260,15 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
    * next prelude member inherits it.
    */
 
-  test("an explicit named import does not collide with a qualified prelude term", async () => {
+  test("an explicit local binding does not collide with a qualified prelude term", async () => {
+    // #762 left no named import to bind `take` bare; Modules §3.2's ordinary
+    // route for a value bare under another module's name — an explicit `let`
+    // — is the modern shape of the same collision risk.
     const module = await run([
       ["/lib.hex", "export let take(value: Int): Int = value + 1\n"],
       ["/main.hex",
-        "import { take } from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
+        "let take = Lib.take\n" +
         "let source: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
         "export let mine: Int = take(1)\n" +
         "export let theirs: Vector(Int) = Vector.fromSeq(Seq.take(source, 2))\n"],

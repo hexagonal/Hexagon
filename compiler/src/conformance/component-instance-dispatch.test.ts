@@ -267,11 +267,11 @@ describe("across module boundaries and through `opaque`", () => {
     "    show(value) = \"LOUD\"\n";
 
   const container =
-    "import { Metre, metre } from \"./metre\"\n" +
-    "export record Journey derives (Eq, Ord, Show) = {leg: Metre}\n" +
-    "export let shortFirst: Bool = Journey({leg = metre(1)}) < Journey({leg = metre(2)})\n" +
-    "export let longFirst: Bool = Journey({leg = metre(2)}) < Journey({leg = metre(1)})\n" +
-    "export let shown: String = \"${Journey({leg = metre(1)})}\"\n";
+    "import Metre from \"./metre\"\n" +
+    "export record Journey derives (Eq, Ord, Show) = {leg: Metre.Metre}\n" +
+    "export let shortFirst: Bool = Journey({leg = Metre.metre(1)}) < Journey({leg = Metre.metre(2)})\n" +
+    "export let longFirst: Bool = Journey({leg = Metre.metre(2)}) < Journey({leg = Metre.metre(1)})\n" +
+    "export let shown: String = \"${Journey({leg = Metre.metre(1)})}\"\n";
 
   test("the imported instance answers, and the representation is never touched", async () => {
     const module = await runProject([["/metre.hex", component], ["/main.hex", container]]);

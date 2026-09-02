@@ -388,7 +388,10 @@ describe("`String.hex` is instances and nothing else", () => {
    * A user module may still export names the companion does not, and reach them
    * bare — `String.hex` claiming the module name takes nothing out of the
    * bare namespace, because a companion's instances bind qualifiably rather
-   * than as bare exports (Constraints §4.6's one-exporter law).
+   * than as bare exports (Constraints §4.6's one-exporter law). What stands
+   * where the named import stood (§3.2, #762): the ordinary declarations
+   * `let length = Text.length` and `let join = Text.join` are what want the
+   * spellings bare.
    */
   test("a user module's own `length` and `join` are unaffected", async () => {
     const exports = await runProjectLike();
@@ -405,7 +408,9 @@ async function runProjectLike(): Promise<Record<string, unknown>> {
       "export let length(value: String): Int = 3\n" +
       "export let join(left: String, right: String): String = left ++ \"/\" ++ right\n"],
     ["/main.hex",
-      'import { length, join } from "./text"\n' +
+      'import Text from "./text"\n' +
+      "let length = Text.length\n" +
+      "let join = Text.join\n" +
       'export let size: Int = length("abc")\n' +
       'export let joined: String = join("a", "b")\n'],
   ] as const;

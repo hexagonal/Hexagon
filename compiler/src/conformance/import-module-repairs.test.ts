@@ -4,9 +4,9 @@ import { compileFiles } from "../support/test-project.js";
 import { resolveSpecifier, specifierFor } from "../project.js";
 
 /**
- * Conformance for the **`import module` repair family** — Modules §5.1 rule 1's
+ * Conformance for the **module-import repair family** — Modules §5.1 rule 1's
  * type-not-module seat and the two constraint seats Constraints §8 sends here
- * (#577).
+ * (#577), each respelt for the one import form there is (#762).
  *
  * One shape, three refusals. An author reaches for a name through a route the
  * language spells with an import line, the name resolves nowhere, and before
@@ -36,8 +36,7 @@ function messages(files: readonly (readonly [string, string])[]): readonly strin
 
 /** Rule 1's sentence, as §5.1 and §10 both write it. */
 const TYPE_NOT_A_MODULE = "`Shape` is a type, not a module; import its home " +
-  "module with `import module` for qualified access, or import the " +
-  "constructor/function you need";
+  "module to qualify through it";
 
 /** A union and an ordinary function over it: the type-only import's fixture. */
 const SHAPE = [
@@ -53,14 +52,16 @@ const SCALE = [
 ] as const;
 
 describe("the type seat (Modules §5.1 rule 1)", () => {
-  test("a type-only import qualified as a module is told which namespace it is in", () => {
-    // The filing's own probe. `import { Shape }` of a *union* binds the type and
-    // no term, so `Shape.` finds no module alias, no term, and a type — which is
-    // exactly the state rule 1's sentence is written about.
+  test("a bare type qualified as a module is told which namespace it is in", () => {
+    // The filing's own probe, respelt for #762: a transparent alias of this
+    // module's own puts `Shape` in the type namespace and no term (§3.2), so
+    // `Shape.` finds no module alias, no term, and a type — which is exactly
+    // the state rule 1's sentence is written about.
     expect(messages([
       SHAPE,
       ["/main.hex",
-        'import { Shape } from "./shape"\n' +
+        'import S from "./shape"\n' +
+        "type Shape = S.Shape\n" +
         "export fun go(s: Shape): Float = Shape.area(s)\n"],
     ])).toEqual([TYPE_NOT_A_MODULE]);
   });
@@ -77,11 +78,11 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     expect(messages([
       ["/lib.hex", "export type Meters = Float\n"],
       ["/main.hex",
-        'import { Meters } from "./lib"\n' +
+        'import Lib from "./lib"\n' +
+        "type Meters = Lib.Meters\n" +
         "export let n: Float = Meters.zero\n"],
     ])).toEqual([
-      "`Meters` is a type, not a module; import its home module with " +
-        "`import module` for qualified access, or import the constructor/function you need",
+      "`Meters` is a type, not a module; import its home module to qualify through it",
     ]);
   });
 
@@ -92,7 +93,8 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     expect(messages([
       SHAPE,
       ["/main.hex",
-        'import { Shape } from "./shape"\n' +
+        'import S from "./shape"\n' +
+        "type Shape = S.Shape\n" +
         "export fun go(s: Shape): Float = Shape.area(s) + Shape.area(s)\n"],
     ])).toEqual([TYPE_NOT_A_MODULE, TYPE_NOT_A_MODULE]);
   });
@@ -159,16 +161,15 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
 
   test("the constructor-bound shape is untouched — v1 is failed resolution only", () => {
     // The #577 ruling's carve-out, pinned so the boundary is visible rather than
-    // implied: a record import binds the constructor, `Shape` resolves as a
+    // implied: a record declaration binds the constructor, `Shape` resolves as a
     // term, and `.make` is a field access against it. The inverted mismatch that
     // results is #642's, not this one's — what this test asserts is that nothing
-    // here reclassified it.
+    // here reclassified it. Written against the module's *own* record since
+    // #762: a bare constructor abroad is rule 3's fallback, which puts a module
+    // alias at the spelling and so answers `Shape.` before rule 1 is asked.
     const reported = messages([
-      ["/shape.hex",
-        "export record Shape = {n: Int}\n" +
-        "export fun make(n: Int): Shape = Shape({n = n})\n"],
       ["/main.hex",
-        'import { Shape } from "./shape"\n' +
+        "export record Shape = {n: Int}\n" +
         "export let s: Shape = Shape.make(3)\n"],
     ]);
     // The claim is that the writer is shown a *mismatch*, with the constructor
@@ -190,7 +191,7 @@ describe("the `widens` head seat (Constraints §8's row)", () => {
         "widens Scale.scale(value: Metre, factor: Float): Metre = value\n"],
     ])).toEqual([
       "unknown module `Scale`; a `widens` head names its member through a " +
-        "module alias; import the member's home module with `import module Scale`",
+        "module alias; import the member's home module under the alias `Scale`",
     ]);
   });
 
@@ -201,7 +202,7 @@ describe("the `widens` head seat (Constraints §8's row)", () => {
         "widens Sizing.scale(value: Metre, factor: Float): Metre = value\n"],
     ])).toEqual([
       "unknown module `Sizing`; a `widens` head names its member through a " +
-        "module alias; import the member's home module with `import module Sizing`",
+        "module alias; import the member's home module under the alias `Sizing`",
     ]);
   });
 
@@ -210,7 +211,7 @@ describe("the `widens` head seat (Constraints §8's row)", () => {
     expect(messages([
       SCALE,
       ["/main.hex",
-        'import module Scale from "./scale"\n' +
+        'import Scale from "./scale"\n' +
         "export record Metre = {m: Float}\n" +
         "widens Scale.stretch(value: Metre, factor: Float): Metre = value\n"],
     ])).toEqual([
@@ -227,8 +228,8 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
         "export record Metre = {m: Float}\n" +
         "honor Scale<Metre> =\n    scale(value, factor) = value\n"],
     ])).toEqual([
-      "unknown constraint `Scale`; import its home module with " +
-        "`import module Scale` for qualified access, or import the constraint by name",
+      "unknown constraint `Scale`; import its home module under the alias " +
+        "`Scale` for qualified access",
     ]);
   });
 
@@ -237,23 +238,26 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
       SCALE,
       ["/main.hex", "export fun go<a: Scale>(x: a): a = x\n"],
     ])).toEqual([
-      "unknown constraint `Scale`; import its home module with " +
-        "`import module Scale` for qualified access, or import the constraint by name",
+      "unknown constraint `Scale`; import its home module under the alias " +
+        "`Scale` for qualified access",
     ]);
   });
 
-  test("both routes the sentence names compile", () => {
-    // The message earns its two clauses: each is a program.
+  test("both spellings the route opens compile", () => {
+    // The message earns its clause: the line it names is a program, and it
+    // opens both spellings the alias reaches — the qualified one, and the bare
+    // one §5.1 rule 2's companion fallback answers where the alias is spelled
+    // like the constraint.
     expect(messages([
       SCALE,
       ["/main.hex",
-        'import module Scale from "./scale"\n' +
+        'import Scale from "./scale"\n' +
         "export fun go<a: Scale.Scale>(x: a): a = x\n"],
     ])).toEqual([]);
     expect(messages([
       SCALE,
       ["/main.hex",
-        'import { Scale } from "./scale"\n' +
+        'import Scale from "./scale"\n' +
         "export fun go<a: Scale>(x: a): a = x\n"],
     ])).toEqual([]);
   });
@@ -265,19 +269,18 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     expect(messages([
       ["/render.hex", "export constraint Render<a> =\n    render(value: a): String\n"],
       ["/main.hex",
-        'import module R from "./render"\n' +
+        'import R from "./render"\n' +
         "export fun label<a: R>(x: a): String = R.render(x)\n"],
     ])).toContain(
       "unknown constraint `R`; `R` is a module alias — write `R.Render` for the " +
-        'constraint it exports, name it bare with `import { Render } from "./render"`, ' +
-        "or realias as `import module Render`",
+        'constraint it exports, or realias as `import Render from "./render"`',
     );
     expect(messages([
       ["/lib.hex",
         "export constraint One<a> =\n    one(value: a): Int\n" +
         "export constraint Two<a> =\n    two(value: a): Int\n"],
       ["/main.hex",
-        'import module Lib from "./lib"\n' +
+        'import Lib from "./lib"\n' +
         "export fun size<a: Lib>(x: a): Int = 1\n"],
     ])).toContain(
       "unknown constraint `Lib`; `Lib` is a module alias — the constraints it " +
@@ -287,11 +290,11 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
 
   test("a qualified head keeps the plain refusal — its repair is not an import line", () => {
     // §4.1's `Alias.Name` spelling arrives under its whole dotted name. That
-    // writer already holds an alias; `import module D.NotThere` names no module.
+    // writer already holds an alias; `import D.NotThere` names no module.
     expect(messages([
       ["/describe.hex", "export constraint Describe<a> =\n    describe(value: a): String\n"],
       ["/main.hex",
-        'import module D from "./describe"\n' +
+        'import D from "./describe"\n' +
         "export record Box = {n: Int}\n" +
         'honor D.NotThere<Box> =\n    describe(value) = "x"\n'],
     ])).toEqual(["unknown constraint `D.NotThere`"]);

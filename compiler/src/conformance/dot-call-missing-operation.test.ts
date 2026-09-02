@@ -130,7 +130,10 @@ describe("a member name with no instance behind it is still a misspelling", () =
         ],
         [
           "/main.hex",
-          'import { Token } from "./vault"\n' +
+          // Rule 3's companion fallback (Modules §3.2, #762): the alias's own
+          // spelling `Token` equals the exported record's, so the annotation
+          // reaches it bare with no named import to write.
+          'import Token from "./vault"\n' +
             "export fun probe(t: Token): Int = t.show(1)\n",
         ],
       ]),

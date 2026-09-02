@@ -33,6 +33,17 @@ import { compileFiles, projectDiagnostics, runProject } from "../support/test-pr
  * seeded into every module, so `(2.0).pow(0.5)` never noticed. The last suite
  * pins that control unmoved.
  *
+ * Under #762 an import binds a module alias and nothing smaller, so the
+ * historical axis this file used to measure against — "the named-import
+ * spelling versus the module-import spelling" — no longer has two members: every
+ * import is the module form now. What survives, and is still the whole of #585,
+ * is that the alias's own text never names the operations the dot reaches: a
+ * call site can bring in a module alias, spell out the constructor and one
+ * function through it, and still reach a dot-callable operation its text
+ * mentions nowhere at all. Tests that only compared the two now-collapsed
+ * spellings are removed, with the reason recorded where they stood; tests that
+ * pin the reach itself are respelled and kept.
+ *
  * Fixtures deliberately differ in their record names, their strings and their
  * numbers: two modules that emit byte-identical JavaScript share one ESM `data:`
  * module instance in the test linker, which would quietly make two programs one.
@@ -45,12 +56,12 @@ function messages(files: readonly (readonly [string, string])[]): readonly strin
 
 /**
  * The plainest exhibit there is: a record, one exported function taking it
- * first, and a call site that imported the *type* by name and nothing else.
+ * first, and a call site that names the constructor and one function through
+ * the module alias, and nothing else.
  *
  * No constraint, no instance, no `widens` — nothing in this program but §4.2's
- * first clause. `Box({…}).double()` was refused here and accepted under
- * `import module`, which is the whole of #585 with every other mechanism
- * removed.
+ * first clause. `Box.Box({…}).double()` was refused here before the repair and
+ * is accepted now, with `double` written nowhere but at the dot.
  */
 const BOX = [
   "/box.hex",
@@ -59,38 +70,39 @@ const BOX = [
     "export fun reading(value: Box): Float = value.n\n",
 ] as const;
 
-/** The named-import call site, shared by the compile and the run below. */
-const BOX_NAMED = [
+/** The call site: the module alias, and `double` written nowhere but the dot. */
+const BOX_CALL = [
   BOX,
   ["/main.hex",
-    'import { Box, reading } from "./box"\n' +
-    "export let out: Float = reading(Box({n = 1.5}).double())\n"],
+    'import Box from "./box"\n' +
+    "export let out: Float = Box.reading(Box.Box({n = 1.5}).double())\n"],
 ] as const;
 
 describe("the ordinary operation: one `export fun`, no constraint in sight (#585)", () => {
-  test("a named import of the type alone reaches the companion's operation", () => {
-    // The named import binds `Box` and `reading`; nothing in this file mentions
+  test("the module alias reaches the companion's operation the text never names", () => {
+    // The import binds `Box` — the module alias — and the body spells out
+    // `Box.Box` and `Box.reading` through it; nothing in this file mentions
     // `double`. §4.2 says the dot reaches it anyway, because the set belongs to
     // `/box.hex`.
-    expect(messages(BOX_NAMED)).toEqual([]);
+    expect(messages(BOX_CALL)).toEqual([]);
   });
 
-  test("— and the program runs, calling an operation it never imported", async () => {
+  test("— and the program runs, calling an operation it never named", async () => {
     // Compiling is the smaller half (§8.2): the emitted file has to *import*
     // `double` from a module its source never named it in, or the call is a
     // `ReferenceError` after a clean compile. Read back, so a name that resolved
     // to nothing cannot pass.
-    expect((await runProject(BOX_NAMED))["out"]).toBe(3);
+    expect((await runProject(BOX_CALL))["out"]).toBe(3);
   });
 
-  test("the module-import spelling is the control, and it agrees", () => {
-    // The spelling that always compiled. Compared against the named-import case
-    // above rather than merely asserted clean: the claim is not "both work" but
-    // "the import line does not decide", which is §4.2's sentence.
+  test("a renamed alias reaches the same companion — the dot does not read the alias's spelling", () => {
+    // §4.2's claim generalizes past the collapsed import axis: `CompanionOf` is
+    // keyed on the type's identity, never on what the importer chose to call its
+    // alias. `B` here names nothing `/box.hex` itself would call `B`.
     expect(messages([
       BOX,
       ["/main.hex",
-        'import module B from "./box"\n' +
+        'import B from "./box"\n' +
         "export let out: Float = B.reading(B.Box({n = 1.5}).double())\n"],
     ])).toEqual([]);
   });
@@ -100,15 +112,15 @@ describe("the no-such-operation diagnostic tells the truth again (#585)", () => 
   test("a genuinely absent name still refuses, with the full three-clause message", () => {
     // The refusal itself is untouched: `Crate` has no `quadrupled` anywhere, and
     // every clause of §9's message is true of this program. Pinned beside the
-    // now-compiling `Box.double` so that the repair is visibly a narrowing of
-    // *when* the message fires and not a weakening of the message.
+    // now-compiling `Box.Box(…).double()` so that the repair is visibly a
+    // narrowing of *when* the message fires and not a weakening of the message.
     expect(messages([
       ["/crate.hex",
         "export record Crate = {n: Float}\n" +
         "export fun tripled(value: Crate): Float = value.n * 3.0\n"],
       ["/main.hex",
-        'import { Crate } from "./crate"\n' +
-        "export let out: Float = Crate({n = 1.0}).quadrupled()\n"],
+        'import Crate from "./crate"\n' +
+        "export let out: Float = Crate.Crate({n = 1.0}).quadrupled()\n"],
     ])).toEqual([
       "`Crate` has no field `quadrupled`, its companion exports no operation " +
       "`quadrupled`, and no constraint honored at `Crate` has a subject-first " +
@@ -120,16 +132,16 @@ describe("the no-such-operation diagnostic tells the truth again (#585)", () => 
     // The false clause was the defect's own voice. `/tin.hex` exports `flatten`
     // with a `Tin` first parameter, so the middle clause was a statement about
     // the companion that the companion contradicted — and the message was the
-    // *only* thing the user could see, since the operation was one import line
-    // away from working. No message at all is the pin.
+    // *only* thing the user could see, since the operation reached the same
+    // module alias already in scope. No message at all is the pin.
     expect(messages([
       ["/tin.hex",
         "export record Tin = {depth: Float}\n" +
         "export fun flatten(value: Tin): Tin = Tin({depth = 0.0})\n" +
         "export fun depthOf(value: Tin): Float = value.depth\n"],
       ["/main.hex",
-        'import { Tin, depthOf } from "./tin"\n' +
-        "export let out: Float = depthOf(Tin({depth = 7.0}).flatten())\n"],
+        'import Tin from "./tin"\n' +
+        "export let out: Float = Tin.depthOf(Tin.Tin({depth = 7.0}).flatten())\n"],
     ])).toEqual([]);
   });
 });
@@ -153,7 +165,7 @@ const GAUGE = [
 
 const PANEL = [
   "/panel.hex",
-  'import module G from "./gauge"\n' +
+  'import G from "./gauge"\n' +
     "export record Panel = {span: Float}\n" +
     "widens G.stretch(value: Panel, factor: Float): Panel = " +
     "Panel({span = value.span * factor})\n" +
@@ -164,13 +176,13 @@ const PANEL = [
     "export let bareHere: Float = spanOf(stretch(Panel({span = 2.0}), 1.5))\n",
 ] as const;
 
-/** The one call, written the three ways an importer can arrange its imports. */
-const NAMED_ONLY = [
+/** The one call, through the module alias #762 leaves as the only route. */
+const PANEL_CALL = [
   GAUGE,
   PANEL,
   ["/main.hex",
-    'import { Panel, spanOf } from "./panel"\n' +
-    "export let out: Float = spanOf(Panel({span = 1.5}).stretch(2.5))\n"],
+    'import Panel from "./panel"\n' +
+    "export let out: Float = Panel.spanOf(Panel.Panel({span = 1.5}).stretch(2.5))\n"],
 ] as const;
 
 describe("the widened member reached across a module boundary (#585)", () => {
@@ -181,33 +193,33 @@ describe("the widened member reached across a module boundary (#585)", () => {
     expect(messages([GAUGE, PANEL, ["/main.hex", "export let n: Int = 1\n"]])).toEqual([]);
   });
 
-  test("a named import of the type alone: the `Float` factor is accepted", () => {
+  test("the module alias reaches it: the `Float` factor is accepted", () => {
     // The filed refusal was `type mismatch: expected Int, found Float` at this
     // exact call — the member's restriction answering, because the companion
     // operation was missing from the index and so lost §6.1's carve.
-    expect(messages(NAMED_ONLY)).toEqual([]);
+    //
+    // (What this test compared against before #762 — a "named import" spelling
+    // that bound only `Panel` and `spanOf` — is gone: an import binds a module
+    // alias and nothing smaller now, so there is exactly one spelling of "the
+    // call site imports `/panel.hex`", and this is it.)
+    expect(messages(PANEL_CALL)).toEqual([]);
   });
 
-  test("— under a module import, which is the spelling that always compiled", () => {
+  test("— and under two aliases for the same module at once", () => {
+    // The arrangement that made the defect unmistakable when there were two
+    // import *forms*: adding a second, unused binding of the same module
+    // changed whether the call typechecked. With only one form left, the
+    // analogous arrangement is two *aliases* of the one module — `P` alongside
+    // `Panel`, with `P` mentioned nowhere in the call — which is the same claim
+    // in the vocabulary #762 leaves: an alias binding the call never reads still
+    // must not change the answer.
     expect(messages([
       GAUGE,
       PANEL,
       ["/main.hex",
-        'import module P from "./panel"\n' +
-        "export let out: Float = P.spanOf(P.panel(1.5).stretch(2.5))\n"],
-    ])).toEqual([]);
-  });
-
-  test("— and under both import lines at once", () => {
-    // The arrangement that made the defect unmistakable: adding an import that
-    // the call does not use changed whether the call typechecked.
-    expect(messages([
-      GAUGE,
-      PANEL,
-      ["/main.hex",
-        'import module P from "./panel"\n' +
-        'import { Panel, spanOf } from "./panel"\n' +
-        "export let out: Float = spanOf(Panel({span = 1.5}).stretch(2.5))\n"],
+        'import P from "./panel"\n' +
+        'import Panel from "./panel"\n' +
+        "export let out: Float = Panel.spanOf(Panel.Panel({span = 1.5}).stretch(2.5))\n"],
     ])).toEqual([]);
   });
 
@@ -219,7 +231,7 @@ describe("the widened member reached across a module boundary (#585)", () => {
       GAUGE,
       PANEL,
       ["/main.hex",
-        'import module P from "./panel"\n' +
+        'import P from "./panel"\n' +
         "export let out: Float = P.spanOf(P.stretch(P.panel(1.5), 2.5))\n"],
     ])).toEqual([]);
   });
@@ -228,7 +240,7 @@ describe("the widened member reached across a module boundary (#585)", () => {
     // The load-bearing read-back. A restriction that had somehow answered would
     // be `Int`-seated and could not have multiplied by 2.5 at all; 1.5 × 2.5 is
     // the widened body and nothing else.
-    expect((await runProject(NAMED_ONLY))["out"]).toBe(3.75);
+    expect((await runProject(PANEL_CALL))["out"]).toBe(3.75);
   });
 });
 
@@ -244,9 +256,9 @@ describe("the adjacent non-defect stays refused (#585)", () => {
       GAUGE,
       PANEL,
       ["/main.hex",
-        'import module G from "./gauge"\n' +
-        'import { Panel } from "./panel"\n' +
-        "export let out: Panel = G.stretch(Panel({span = 1.5}), 2.5)\n"],
+        'import G from "./gauge"\n' +
+        'import Panel from "./panel"\n' +
+        "export let out: Panel.Panel = G.stretch(Panel.Panel({span = 1.5}), 2.5)\n"],
     ])).toEqual(["type mismatch: expected Int, found Float"]);
   });
 });
@@ -267,11 +279,11 @@ const TRANSITIVE = [
     "export record Barrel = {litres: Float}\n" +
     "export fun fill(value: Barrel): Float = value.litres + 10.0\n"],
   ["/depot.hex",
-    'import { Barrel } from "./barrel"\n' +
-    "export fun stock(litres: Float): Barrel = Barrel({litres = litres})\n"],
+    'import Barrel from "./barrel"\n' +
+    "export fun stock(litres: Float): Barrel.Barrel = Barrel.Barrel({litres = litres})\n"],
   ["/main.hex",
-    'import { stock } from "./depot"\n' +
-    "export let out: Float = stock(4.0).fill()\n"],
+    'import Depot from "./depot"\n' +
+    "export let out: Float = Depot.stock(4.0).fill()\n"],
 ] as const;
 
 describe("a type whose home module the call site never imported at all (#585)", () => {
@@ -312,8 +324,8 @@ const BAG = [
     "export record Bag = {n: Int}\n" +
     'export fun labelled<a: Show>(value: Bag, extra: a): String = "${value.n}/${show(extra)}"\n'],
   ["/main.hex",
-    'import { Bag } from "./bag"\n' +
-    "export let out: String = Bag({n = 2}).labelled(7)\n"],
+    'import Bag from "./bag"\n' +
+    "export let out: String = Bag.Bag({n = 2}).labelled(7)\n"],
 ] as const;
 
 describe("a constrained companion operation reached the same way (#585)", () => {
@@ -322,8 +334,15 @@ describe("a constrained companion operation reached the same way (#585)", () => 
   });
 
   test("— the import binds the exporter's internal spelling, and the call runs", async () => {
+    // The call site's evidence is fully known (`extra: Int`, and `Int` honors
+    // `Show` directly), so #440's specialized-call-site route also fires: the
+    // emitted import brings in both the general `__labelled` and the
+    // specialized `labelledInt` the call itself uses. Either name is evidence
+    // that the synthesized import read the exporter's own enumeration rather
+    // than guessing a plain `labelled`, which is #585's own claim; which of the
+    // two the call resolves to is #440's, not this issue's.
     const main = compileFiles(BAG).modules.find(({ source }) => source.path === "/main.hex")!;
-    expect(main.javascript.text).toContain('import { __labelled as labelled } from "./bag.js";');
+    expect(main.javascript.text).toContain('import { __labelled, labelledInt } from "./bag.js";');
     expect((await runProject(BAG))["out"]).toBe("2/7");
   });
 });

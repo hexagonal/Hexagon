@@ -493,10 +493,10 @@ export let z: Int = mk()((n) => n)
         ["/main.hex", `extern from "./world.js"
     export fun save(document: String): Unit
 
-import { mk } from "./maker"
+import Maker from "./maker"
 
-export let pureUse(): Int = mk()((n) => n)
-export let impureUse(): Int = mk()!((n) =>
+export let pureUse(): Int = Maker.mk()((n) => n)
+export let impureUse(): Int = Maker.mk()!((n) =>
     save!("x")
     n)
 `],

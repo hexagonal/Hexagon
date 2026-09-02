@@ -195,40 +195,46 @@ describe("a concrete call across a source-written import", () => {
       ["/math.hex", "export let plus<a: Num>(x: a, y: a): a = x + y\n"],
       [
         "/main.hex",
-        'import { plus } from "./math"\nexport let answer: Int = plus(20, 22)\n',
+        'import Math from "./math"\nexport let answer: Int = Math.plus(20, 22)\n',
       ],
     ]);
 
-    // One line per specifier: the generic edition's binding is emitted because
-    // the source asked for it, not because the body reaches it, and the edition
-    // joins it there rather than opening a second line over the same module.
-    expect(javascript).toContain(
-      'import { __plus as plus, plusInt } from "./math.js";',
-    );
+    // Two lines, not one merged line: since #762 the source's own import is a
+    // namespace import (`import * as Math`), which is not a named list an
+    // edition's binding can join — so the specializer opens its own line for
+    // the generic name and the edition beside it, and no *third* line repeats
+    // either. `__plus` rides bare, unaliased, because nothing in the source
+    // binds the local name `plus` any more — only `Math` is bound.
+    expect(javascript).toContain('import * as Math from "./math.js";');
+    expect(javascript).toContain('import { __plus, plusInt } from "./math.js";');
     expect(javascript).toContain("const answer = plusInt(20, 22);");
     expect(javascript).not.toContain("__Num_Int");
     expect(importLines(javascript).filter((line) => line.includes('"./math.js"')))
-      .toHaveLength(1);
+      .toHaveLength(2);
   });
 
   /**
-   * The merge takes the line at its **source position**, not at the top of the
-   * file: `Import` items render last so the line can know its editions, but
-   * they keep their seats in the entries stream.
+   * Both lines take their **source position**, not the top of the file:
+   * `Import` items render last so the line can know its editions, but they
+   * keep their seat in the entries stream, and the specializer's line joins
+   * immediately after the namespace import it rides beside.
    */
-  test("keeps the merged line where the source wrote the import", () => {
+  test("keeps both lines where the source wrote the import", () => {
     const javascript = emitted([
       ["/math.hex", "export let plus<a: Num>(x: a, y: a): a = x + y\n"],
       [
         "/main.hex",
         "let before: Int = 1\n" +
-          'import { plus } from "./math"\n' +
-          "export let answer: Int = plus(before, 41)\n",
+          'import Math from "./math"\n' +
+          "export let answer: Int = Math.plus(before, 41)\n",
       ],
     ]);
 
     expect(javascript.indexOf("const before = 1;")).toBeLessThan(
-      javascript.indexOf('import { __plus as plus, plusInt } from "./math.js";'),
+      javascript.indexOf('import * as Math from "./math.js";'),
+    );
+    expect(javascript.indexOf('import * as Math from "./math.js";')).toBeLessThan(
+      javascript.indexOf('import { __plus, plusInt } from "./math.js";'),
     );
   });
 
@@ -237,13 +243,14 @@ describe("a concrete call across a source-written import", () => {
       ["/pair.hex", SHOW_PAIR],
       [
         "/main.hex",
-        'import { pair } from "./pair"\n' +
-          'export let answer: String = pair(1, "x")\n',
+        'import Pair from "./pair"\n' +
+          'export let answer: String = Pair.pair(1, "x")\n',
       ],
     ]);
 
+    expect(javascript).toContain('import * as Pair from "./pair.js";');
     expect(javascript).toContain(
-      'import { __pair as pair, pairIntString } from "./pair.js";',
+      'import { __pair, pairIntString } from "./pair.js";',
     );
     expect(javascript).toContain('const answer = pairIntString(1, "x");');
   });
@@ -254,8 +261,8 @@ describe("a concrete call across a source-written import", () => {
         ["/pair.hex", SHOW_PAIR],
         [
           "/main.hex",
-          'import { pair } from "./pair"\n' +
-            'export let answer: String = pair(1, "x")\n',
+          'import Pair from "./pair"\n' +
+            'export let answer: String = Pair.pair(1, "x")\n',
         ],
       ],
       { transform: distinct("specialized call sites: cartesian edition") },
@@ -271,15 +278,18 @@ describe("everything else keeps its trailing evidence", () => {
       ["/pair.hex", SHOW_PAIR],
       [
         "/main.hex",
-        'import { pair } from "./pair"\n' +
-          "export let half<b: Show>(y: b): String = pair(1, y)\n",
+        'import Pair from "./pair"\n' +
+          "export let half<b: Show>(y: b): String = Pair.pair(1, y)\n",
       ],
     ]);
 
     // The dictionary is this module's own parameter, spelled after the binder
     // `half` declares rather than after the one `pair` was written with (#425).
+    // The callee is `__pair` bare, not aliased to `pair`, because the source's
+    // own binding is `Pair` the module alias — no local `pair` for #425's
+    // on-collision rule to protect (#762).
     expect(javascript).toMatch(
-      /const half = \(y, (__Show_a)\) => pair\(1, y, __Show_Int, \1\);/u,
+      /const half = \(y, (__Show_a)\) => __pair\(1, y, __Show_Int, \1\);/u,
     );
   });
 
@@ -299,7 +309,7 @@ describe("everything else keeps its trailing evidence", () => {
       ],
       [
         "/main.hex",
-        'import { Point } from "./point"\n' +
+        'import Point from "./point"\n' +
           "export let answer: String = show(Point({x = 1}))\n",
       ],
     ]);
@@ -324,7 +334,7 @@ describe("everything else keeps its trailing evidence", () => {
       ],
       [
         "/main.hex",
-        'import { alias } from "./alias"\nexport let answer: String = alias(4)\n',
+        'import Alias from "./alias"\nexport let answer: String = Alias.alias(4)\n',
       ],
     ] as const;
     const javascript = emitted(files);
@@ -420,13 +430,14 @@ describe("the two fundamentals that name no primitive", () => {
       ["/pair.hex", SHOW_PAIR],
       [
         "/main.hex",
-        'import { pair } from "./pair"\n' +
-          "export let answer: String = pair(1, True)\n",
+        'import Pair from "./pair"\n' +
+          "export let answer: String = Pair.pair(1, True)\n",
       ],
     ]);
 
+    expect(javascript).toContain('import * as Pair from "./pair.js";');
     expect(javascript).toContain(
-      'import { __pair as pair, pairIntBool } from "./pair.js";',
+      'import { __pair, pairIntBool } from "./pair.js";',
     );
     expect(javascript).toContain("const answer = pairIntBool(1, true);");
   });
@@ -436,8 +447,8 @@ describe("the two fundamentals that name no primitive", () => {
       ["/pair.hex", SHOW_PAIR],
       [
         "/main.hex",
-        'import { pair } from "./pair"\n' +
-          "export let half<b: Show>(y: b): String = pair(True, y)\n",
+        'import Pair from "./pair"\n' +
+          "export let half<b: Show>(y: b): String = Pair.pair(True, y)\n",
       ],
     ]);
 
@@ -454,7 +465,7 @@ describe("the two fundamentals that name no primitive", () => {
       'const __Show_Bool = ({ show: __value => (__value ? "True" : "False") });',
     );
     expect(javascript).toContain(
-      "const half = (y, __Show_a) => pair(true, y, __Show_Bool, __Show_a);",
+      "const half = (y, __Show_a) => __pair(true, y, __Show_Bool, __Show_a);",
     );
     expect(javascript).toContain("return pairBoolInt(true, y);");
   });
@@ -464,8 +475,8 @@ describe("the two fundamentals that name no primitive", () => {
       ["/pair.hex", SHOW_PAIR],
       [
         "/main.hex",
-        'import { pair } from "./pair"\n' +
-          "export let answer: String = pair(True, ())\n",
+        'import Pair from "./pair"\n' +
+          "export let answer: String = Pair.pair(True, ())\n",
       ],
     ] as const;
 
@@ -572,14 +583,15 @@ describe("a declared constraint's `Bool` edition", () => {
       ["/describe.hex", DESCRIBE],
       [
         "/main.hex",
-        'import { Describe, tell } from "./describe"\n' +
-          "export let atBool: String = tell(True)\n",
+        'import Describe from "./describe"\n' +
+          "export let atBool: String = Describe.tell(True)\n",
       ],
     ] as const;
     const javascript = emitted(files);
 
+    expect(importLines(javascript)).toContain('import * as Describe from "./describe.js";');
     expect(importLines(javascript)).toContain(
-      'import { __tell as tell, tellBool } from "./describe.js";',
+      'import { __tell, tellBool } from "./describe.js";',
     );
     expect(javascript).toContain("const atBool = tellBool(true);");
     expect(danglingImports(files)).toEqual([]);

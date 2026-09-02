@@ -109,7 +109,7 @@ describe("completions", () => {
       "export fun triple(value: Int): Int = value * 3",
       "",
     ].join("\n");
-    const source = ['import module H from "./helper"', "", "let answer: Int = H.‸", ""].join("\n");
+    const source = ['import H from "./helper"', "", "let answer: Int = H.‸", ""].join("\n");
     const offered = completionsIn(source, { "/helper.hex": helper });
     expect(offered).toEqual(["triple:function", "two:value"]);
   });
@@ -163,7 +163,7 @@ describe("completions", () => {
 
   test("an imported name is offered under the spelling this module uses", () => {
     const helper = "export let two: Int = 2\n";
-    const source = ['import {two as deux} from "./helper"', "", "let four: Int = ‸", ""]
+    const source = ['import H from "./helper"', "let deux: Int = H.two", "", "let four: Int = ‸", ""]
       .join("\n");
     const offered = namesIn(source, { "/helper.hex": helper });
     expect(offered).toContain("deux");
@@ -376,23 +376,29 @@ describe("completions", () => {
       // record exports no constructor, so the importing module has only the
       // type name to offer.
       const offered = documented(
-        'import {Box} from "./helper"\n\nlet probe: Int = ‸\n',
+        'import Box from "./helper"\n\nlet probe: Int = ‸\n',
         { "/helper.hex": DOCUMENTED },
       );
       expect(offered).toContain("Box :: A box, sealed.");
     });
 
-    test("an imported name brings its declaring module's documentation", () => {
+    test("a name bound from an import carries its own declaration's documentation", () => {
+      // What stands where the named import stood (§3.2, #762): an ordinary
+      // binding, which is documented by whatever the author wrote above it —
+      // the declaring module's doc no longer travels, because no import line
+      // carries the name any more. The declaring module's own documentation is
+      // reached through the qualified offer below.
       const offered = documented(
-        'import {brighten} from "./helper"\n\nlet probe: Int = ‸\n',
+        'import H from "./helper"\n(** The local one. *)\nlet brighten = H.brighten\n\n' +
+          "let probe: Int = ‸\n",
         { "/helper.hex": DOCUMENTED },
       );
-      expect(offered).toContain("brighten :: Brightens it.");
+      expect(offered).toContain("brighten :: The local one.");
     });
 
     test("a qualified offer carries it too", () => {
       const offered = documented(
-        'import module Helper from "./helper"\n\nlet probe: Int = Helper.‸\n',
+        'import Helper from "./helper"\n\nlet probe: Int = Helper.‸\n',
         { "/helper.hex": DOCUMENTED },
       );
       expect(offered).toContain("brighten :: Brightens it.");

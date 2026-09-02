@@ -9,15 +9,19 @@ import { compileFiles } from "../support/test-project.js";
  * spelling exists, the message says where the constructor lives and names a
  * repair that works.
  *
- * Three tiers are judged per constructor *occurrence*:
+ * Three tiers are judged per constructor *occurrence*, re-cut by #763 and
+ * #762:
  *
- * 1. **bare**, the ordinary case, byte-identical to what the reporter said
- *    before this rule (the #594/#600/#605 witness pins are the wall);
- * 2. **qualified**, where bare would be wrong or absent — `Bool.True` past a
- *    local `True` that occludes the prelude's, `A.Off` through a module alias;
- * 3. **bare with the route stated**, where neither exists — one clause per
- *    declaring module, the exported inventory choosing between the named
- *    import and the module import.
+ * 1. **bare**, the ordinary case and since the door nearly the whole of it —
+ *    a spelling in scope that denotes this constructor, *or* a spelling scope
+ *    has nothing for, which §2.2's door reaches from the expected type
+ *    (#594/#600/#605's witness pins are the wall);
+ * 2. **qualified**, where bare would be wrong — `Bool.True` past a local
+ *    `True` that occludes the prelude's, `A.Off` past a local `Off` of this
+ *    module's own;
+ * 3. **bare with the route stated**, where neither exists — the taken-spelling
+ *    case, whose route is the module import alone (#762), one clause per
+ *    declaring module.
  *
  * The section's fourth clause is the **error-program obligation**, and it is
  * coverage behaviour rather than spelling: a pattern that failed to type must
@@ -64,17 +68,20 @@ describe("tier 1: the bare spelling, where it denotes this constructor", () => {
     ])).toEqual(["match is missing cases: `Off`"]);
   });
 
-  test("a renamed import prints the name the import bound, which is what pastes", () => {
+  test("an imported union's constructor prints bare, which is what the door pastes", () => {
+    // #763's widening of tier 1: nothing is in scope for `On`, and the door
+    // reaches it from the scrutinee's type, so the barest spelling is the one
+    // that works — and nothing about the witness changed byte for byte.
     expect(diagnostics([
       FLAGS,
       [
         "/main.hex",
-        "import { Flag, On as Yes, Off } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
+        'import Flags from "./flags"\n' +
+        "export fun f(x: Flags.Flag): Int =\n" +
         "    match x\n" +
         "        Off => 0\n",
       ],
-    ])).toEqual(["match is missing cases: `Yes`"]);
+    ])).toEqual(["match is missing cases: `On`"]);
   });
 
   test("the printed spelling pastes", () => {
@@ -82,11 +89,11 @@ describe("tier 1: the bare spelling, where it denotes this constructor", () => {
       FLAGS,
       [
         "/main.hex",
-        "import { Flag, On as Yes, Off } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
+        'import Flags from "./flags"\n' +
+        "export fun f(x: Flags.Flag): Int =\n" +
         "    match x\n" +
         "        Off => 0\n" +
-        "        Yes => 1\n",
+        "        On => 1\n",
       ],
     ])).toEqual([]);
   });
@@ -118,28 +125,66 @@ describe("tier 2: the qualified spelling", () => {
     ])).toEqual([]);
   });
 
-  test("a constructor reached through a module alias prints through the alias", () => {
+  test("a spelling rule 3 answers for is taken, so a witness qualifies past it", () => {
+    // §5.1 rule 3's fallback answers a bare spelling without *binding* it, so a
+    // scope-derived table reads the word as free and offers it as pastable —
+    // which it is not: bare `Box` under `import Box from "./box"` means that
+    // module's `Box`, not the constructor the witness is naming. The table
+    // carries the fallback's answers, and tier 2 takes over.
+    expect(diagnostics([
+      ["/box.hex", "export union Box = Box(n: Int) | Lid\n"],
+      ["/shapes.hex", "export union Shape = Box(n: Int) | Round\n"],
+      [
+        "/main.hex",
+        'import Shapes from "./shapes"\n' +
+        'import Box from "./box"\n' +
+        "export fun f(s: Shapes.Shape): Int =\n" +
+        "    match s\n" +
+        "        Round => 1\n",
+      ],
+    ])).toEqual(["match is missing cases: `Shapes.Box(_)`"]);
+  });
+
+  test("— and the control, with no rival alias, keeps the bare witness", () => {
+    expect(diagnostics([
+      ["/shapes.hex", "export union Shape = Box(n: Int) | Round\n"],
+      [
+        "/main.hex",
+        'import Shapes from "./shapes"\n' +
+        "export fun f(s: Shapes.Shape): Int =\n" +
+        "    match s\n" +
+        "        Round => 1\n",
+      ],
+    ])).toEqual(["match is missing cases: `Box(_)`"]);
+  });
+
+  test("a taken bare spelling prints through the alias that reaches the real one", () => {
+    // Tier 2's surviving second case since the door: bare `Off` in this module
+    // means the *local* union's constructor, so the witness would name the
+    // wrong one — and an in-scope alias reaches the right one.
     expect(diagnostics([
       FLAGS,
       [
         "/main.hex",
-        "import module A from \"./flags\"\n" +
+        'import A from "./flags"\n' +
+        "union Local = Off | Other\n" +
         "export fun f(x: A.Flag): Int =\n" +
         "    match x\n" +
-        "        A.On => 1\n",
+        "        On => 1\n",
       ],
     ])).toEqual(["match is missing cases: `A.Off`"]);
   });
 
-  test("and `A.Off` pastes", () => {
+  test("and `A.Off` pastes, which bare `Off` would not", () => {
     expect(diagnostics([
       FLAGS,
       [
         "/main.hex",
-        "import module A from \"./flags\"\n" +
+        'import A from "./flags"\n' +
+        "union Local = Off | Other\n" +
         "export fun f(x: A.Flag): Int =\n" +
         "    match x\n" +
-        "        A.On => 1\n" +
+        "        On => 1\n" +
         "        A.Off => 0\n",
       ],
     ])).toEqual([]);
@@ -153,150 +198,169 @@ describe("the tiers reach the nominal record's constructor too", () => {
     "export let mk = (): Box => Box({n = 1, m = True})\n",
   ] as const;
 
-  test("a record reached through an alias prints its witness through the alias", () => {
+  test("a record reached through an alias prints its witness bare, the door reaching it", () => {
     expect(diagnostics([
       BOX,
       [
         "/main.hex",
-        "import module H from \"./h\"\n" +
+        'import H from "./h"\n' +
+        "export fun f(b: H.Box): Int =\n" +
+        "    match b\n" +
+        "        H.Box({m = True}) => 1\n",
+      ],
+    ])).toEqual(["match is missing cases: `Box({m = False})`"]);
+  });
+
+  test("and that spelling pastes — §2.2's door reaches a nominal record's constructor", () => {
+    expect(diagnostics([
+      BOX,
+      [
+        "/main.hex",
+        'import H from "./h"\n' +
+        "export fun f(b: H.Box): Int =\n" +
+        "    match b\n" +
+        "        H.Box({m = True}) => 1\n" +
+        "        Box({m = False}) => 0\n",
+      ],
+    ])).toEqual([]);
+  });
+
+  test("a taken spelling sends the record's witness through the alias", () => {
+    expect(diagnostics([
+      BOX,
+      [
+        "/main.hex",
+        'import H from "./h"\n' +
+        "record Box = {q: Int}\n" +
         "export fun f(b: H.Box): Int =\n" +
         "    match b\n" +
         "        H.Box({m = True}) => 1\n",
       ],
     ])).toEqual(["match is missing cases: `H.Box({m = False})`"]);
   });
-
-  test("and that spelling pastes, which the bare one would not", () => {
-    expect(diagnostics([
-      BOX,
-      [
-        "/main.hex",
-        "import module H from \"./h\"\n" +
-        "export fun f(b: H.Box): Int =\n" +
-        "    match b\n" +
-        "        H.Box({m = True}) => 1\n" +
-        "        H.Box({m = False}) => 0\n",
-      ],
-    ])).toEqual([]);
-  });
 });
 
 describe("tier 3: the bare name with the route stated", () => {
-  test("a partially imported union routes through the named import", () => {
-    expect(diagnostics([
-      FLAGS,
-      [
-        "/main.hex",
-        "import { Flag, On } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
-        "    match x\n" +
-        "        On => 1\n",
-      ],
-    ])).toEqual([
-      "match is missing cases: `Off` — `Off` is declared in `./flags`; " +
-      "`import { Off } from \"./flags\"` to spell it here",
-    ]);
-  });
+  /**
+   * The tier's one remaining shape since #763 and #762: a constructor the door
+   * cannot reach because **this module binds another of its spelling**, and no
+   * alias reaches the real one. The route is the module import alone — no
+   * per-name import exists — and the witness pastes qualified through the alias
+   * that edit binds.
+   */
+  const TAKEN = "union Local = Off | Other\n";
 
-  test("and the named import the clause prints is accepted", () => {
+  test("a taken bare spelling routes through the module import", () => {
     expect(diagnostics([
       FLAGS,
       [
         "/main.hex",
-        "import { Flag, On } from \"./flags\"\n" +
-        "import { Off } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
+        'import F from "./flags"\n' +
+        TAKEN +
+        "export fun f(x: F.Flag): Int =\n" +
         "    match x\n" +
         "        On => 1\n" +
-        "        Off => 0\n",
+        "        F.Off => 0\n" +
+        "        Dummy => 2\n",
       ],
-    ])).toEqual([]);
-  });
-
-  test("a taken bare spelling routes through the module import instead", () => {
+    ])[0]).toMatch(/no constructor `Dummy`/u);
+    // The alias-less shape: nothing this module holds reaches `Off`.
     expect(diagnostics([
       FLAGS,
       [
         "/main.hex",
-        "import { Flag, On } from \"./flags\"\n" +
         "union Local = Off | Other\n" +
         "export fun f(x: Flag): Int =\n" +
         "    match x\n" +
         "        On => 1\n",
       ],
-    ])).toEqual([
-      "match is missing cases: `Off` — `Off` is declared in `./flags`, and this " +
-      "module binds another `Off`; `import module Flags from \"./flags\"` and " +
-      "spell it `Flags.Off`",
-    ]);
+    ])[0]).toMatch(/unknown type `Flag`/u);
   });
 
-  test("and that repair compiles verbatim, where the named import would not", () => {
-    const taken = "import { Flag, On } from \"./flags\"\nunion Local = Off | Other\n";
-    expect(diagnostics([
+  test("the clause names the module import, and it compiles verbatim", () => {
+    // The union arrives by an imported signature, so this module names no
+    // alias for `./flags` at all — and it binds another `Off`, so the door
+    // does not open on the spelling.
+    const files = (extra: string) => [
       FLAGS,
+      ["/b.hex", 'import F from "./flags"\nexport fun make(): F.Flag = F.On\n'],
       [
         "/main.hex",
-        `${taken}import module Flags from "./flags"\n` +
-        "export fun f(x: Flag): Int =\n" +
-        "    match x\n" +
+        'import B from "./b"\n' +
+        TAKEN +
+        extra +
+        "export fun f(): Int =\n" +
+        "    match B.make()\n" +
+        "        On => 1\n",
+      ],
+    ] as const;
+
+    expect(diagnostics(files("") as never)).toEqual([
+      "match is missing cases: `Off` — `Off` is declared in `./flags`, and this " +
+      "module binds another `Off`; `import Flags from \"./flags\"` and " +
+      "spell it `Flags.Off`",
+    ]);
+    // The named edit, applied: the witness now pastes through the alias it
+    // bound, which is the clause's own precondition.
+    expect(diagnostics([
+      FLAGS,
+      ["/b.hex", 'import F from "./flags"\nexport fun make(): F.Flag = F.On\n'],
+      [
+        "/main.hex",
+        'import B from "./b"\n' +
+        TAKEN +
+        'import Flags from "./flags"\n' +
+        "export fun f(): Int =\n" +
+        "    match B.make()\n" +
         "        On => 1\n" +
         "        Flags.Off => 0\n",
       ],
     ])).toEqual([]);
-    expect(diagnostics([
-      FLAGS,
-      [
-        "/main.hex",
-        `${taken}import { Off } from "./flags"\n` +
-        "export fun f(x: Flag): Int =\n" +
-        "    match x\n" +
-        "        On => 1\n" +
-        "        Off => 0\n",
-      ],
-    ])[0]).toMatch(/already bound/u);
   });
 
   test("the derived alias dodges a spelling already taken here", () => {
     expect(diagnostics([
       FLAGS,
+      ["/b.hex", 'import F from "./flags"\nexport fun make(): F.Flag = F.On\n'],
       [
         "/main.hex",
-        "import { Flag, On } from \"./flags\"\n" +
+        'import B from "./b"\n' +
         "union Local = Off | Flags\n" +
-        "export fun f(x: Flag): Int =\n" +
-        "    match x\n" +
+        "export fun f(): Int =\n" +
+        "    match B.make()\n" +
         "        On => 1\n",
       ],
     ])).toEqual([
       "match is missing cases: `Off` — `Off` is declared in `./flags`, and this " +
-      "module binds another `Off`; `import module Flags_1 from \"./flags\"` and " +
+      "module binds another `Off`; `import Flags_1 from \"./flags\"` and " +
       "spell it `Flags_1.Off`",
     ]);
   });
 
-  test("a union reached only through an imported signature routes the same way (#605)", () => {
+  test("a union reached only through an imported signature is spellable by the door (#605)", () => {
+    // The signature route no longer needs a route clause at all: nothing in
+    // this module binds either spelling, so the door reaches both.
     expect(diagnostics([
       FLAGS,
-      ["/b.hex", "import { Flag, On } from \"./flags\"\nexport fun make(): Flag = On\n"],
+      ["/b.hex", 'import F from "./flags"\nexport fun make(): F.Flag = F.On\n'],
       [
         "/main.hex",
-        "import { make } from \"./b\"\n" +
+        'import B from "./b"\n' +
         "export fun probe(): Int =\n" +
-        "    match make()\n" +
-        "        _ => 1\n" +
-        "        _ => 2\n",
+        "    match B.make()\n" +
+        "        On => 1\n",
       ],
-    ])[0]).toMatch(/unreachable/u);
+    ])).toEqual(["match is missing cases: `Off`"]);
     expect(diagnostics([
       FLAGS,
-      ["/b.hex", "import { Flag, On } from \"./flags\"\nexport fun make(): Flag = On\n"],
+      ["/b.hex", 'import F from "./flags"\nexport fun make(): F.Flag = F.On\n'],
       [
         "/main.hex",
-        "import { make } from \"./b\"\n" +
-        "export fun probe(): Bool =\n" +
-        "    match make()\n" +
-        "        x => True\n",
+        'import B from "./b"\n' +
+        "export fun probe(): Int =\n" +
+        "    match B.make()\n" +
+        "        On => 1\n" +
+        "        Off => 0\n",
       ],
     ])).toEqual([]);
   });
@@ -306,7 +370,7 @@ describe("tier 3: the bare name with the route stated", () => {
       ["/bool.hex", "export let x: Int = 1\n"],
       [
         "/main.hex",
-        "import module Bool from \"./bool\"\n" +
+        'import Bool from "./bool"\n' +
         "union Flag = True | Maybe\n" +
         "export fun f(b: Bool): Int =\n" +
         "    match b\n" +
@@ -324,7 +388,7 @@ describe("tier 3: the bare name with the route stated", () => {
       ["/bool.hex", "export let x: Int = 1\n"],
       [
         "/main.hex",
-        "import module Mine from \"./bool\"\n" +
+        'import Mine from "./bool"\n' +
         "union Flag = True | Maybe\n" +
         "export fun f(b: Bool): Int =\n" +
         "    match b\n" +
@@ -336,39 +400,51 @@ describe("tier 3: the bare name with the route stated", () => {
 });
 
 describe("aggregation: one clause per declaring module", () => {
+  /** A module whose signature carries a union it does not re-export by name. */
+  const WIDE_MAKER = [
+    "/b.hex",
+    'import F from "./flags"\nexport fun make(): F.Flag = F.On\n',
+  ] as const;
+
   test("two unspellable names from one home share a clause", () => {
     expect(diagnostics([
       WIDE,
+      WIDE_MAKER,
       [
         "/main.hex",
-        "import { Flag, On, Warm, Cool } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
-        "    match x\n" +
+        'import B from "./b"\n' +
+        "union Local = Off | Dim | Other\n" +
+        "export fun f(): Int =\n" +
+        "    match B.make()\n" +
         "        On => 1\n" +
         "        Warm => 2\n" +
         "        Cool => 3\n",
       ],
     ])).toEqual([
       "match is missing cases: `Off`, `Dim` — `Off` and `Dim` are declared in " +
-      "`./flags`; `import { Off, Dim } from \"./flags\"` to spell them here",
+      "`./flags`, and this module binds another `Off` and another `Dim`; " +
+      "`import Flags from \"./flags\"` and spell them `Flags.Off` and `Flags.Dim`",
     ]);
   });
 
   test("a name a shallower tier already spelled is not swept into the clause", () => {
     expect(diagnostics([
       WIDE,
+      WIDE_MAKER,
       [
         "/main.hex",
-        "import { Flag, On, Off, Warm } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
-        "    match x\n" +
+        'import B from "./b"\n' +
+        "union Local = Dim | Cool | Other\n" +
+        "export fun f(): Int =\n" +
+        "    match B.make()\n" +
         "        On => 1\n" +
         "        Warm => 2\n",
       ],
     ])).toEqual([
       "match is missing cases: `Off`, `Dim`, `Cool` — `Dim` and `Cool` are " +
-      "declared in `./flags`; `import { Dim, Cool } from \"./flags\"` to spell " +
-      "them here",
+      "declared in `./flags`, and this module binds another `Dim` and another " +
+      "`Cool`; `import Flags from \"./flags\"` and spell them `Flags.Dim` and " +
+      "`Flags.Cool`",
     ]);
   });
 
@@ -379,19 +455,23 @@ describe("aggregation: one clause per declaring module", () => {
     expect(diagnostics([
       ["/a.hex", "export union A = A1 | A2\n"],
       ["/b.hex", "export union B = B1 | B2\n"],
+      ["/mid.hex",
+        'import A from "./a"\nimport B from "./b"\n' +
+        "export fun x(): A.A = A.A1\nexport fun y(): B.B = B.B1\n"],
       [
         "/main.hex",
-        "import { A, A1 } from \"./a\"\n" +
-        "import { B, B1 } from \"./b\"\n" +
-        "export fun f(x: A, y: B): Int =\n" +
-        "    match (x, y)\n" +
+        'import Mid from "./mid"\n' +
+        "union Local = A2 | B2\n" +
+        "export fun f(): Int =\n" +
+        "    match (Mid.x(), Mid.y())\n" +
         "        (A1, B1) => 1\n" +
         "        (_, B1) => 2\n",
       ],
     ])).toEqual([
-      "match is missing cases: `(A2, B2)` — `A2` is declared in `./a`; " +
-      "`import { A2 } from \"./a\"` to spell it here — `B2` is declared in " +
-      "`./b`; `import { B2 } from \"./b\"` to spell it here",
+      "match is missing cases: `(A2, B2)` — `A2` is declared in `./a`, and this " +
+      "module binds another `A2`; `import A from \"./a\"` and spell it `A.A2` — " +
+      "`B2` is declared in `./b`, and this module binds another `B2`; " +
+      "`import B from \"./b\"` and spell it `B.B2`",
     ]);
   });
 
@@ -399,38 +479,45 @@ describe("aggregation: one clause per declaring module", () => {
     expect(diagnostics([
       WIDE,
       ["/other.hex", "export union G = G1 | G2\n"],
+      ["/mid.hex",
+        'import F from "./flags"\nimport O from "./other"\n' +
+        "export fun x(): F.Flag = F.On\nexport fun y(): O.G = O.G1\n"],
       [
         "/main.hex",
-        "import { Flag, On } from \"./flags\"\n" +
-        "import { G, G1 } from \"./other\"\n" +
-        "export fun f(x: Flag, y: G): Int =\n" +
-        "    match (x, y)\n" +
+        'import Mid from "./mid"\n' +
+        "union Local = Off | Dim | Warm | G2\n" +
+        "export fun f(): Int =\n" +
+        "    match (Mid.x(), Mid.y())\n" +
         "        (On, G1) => 1\n" +
         "        (_, G1) => 2\n",
       ],
     ])).toEqual([
       "match is missing cases: `(Off, G2)`, `(Dim, G2)`, `(Warm, G2)` …and 1 " +
-      "more — `Off`, `Dim` and `Warm` are declared in `./flags`; " +
-      "`import { Off, Dim, Warm } from \"./flags\"` to spell them here — " +
-      "`G2` is declared in `./other`; `import { G2 } from \"./other\"` to " +
-      "spell it here",
+      "more — `Off`, `Dim` and `Warm` are declared in `./flags`, and this " +
+      "module binds another `Off`, another `Dim` and another `Warm`; " +
+      "`import Flags from \"./flags\"` and spell them `Flags.Off`, `Flags.Dim` " +
+      "and `Flags.Warm` — `G2` is declared in `./other`, and this module binds " +
+      "another `G2`; `import Other from \"./other\"` and spell it `Other.G2`",
     ]);
   });
 
   test("the `…and N more` tail names no constructors, so it routes none", () => {
     expect(diagnostics([
       WIDE,
+      WIDE_MAKER,
       [
         "/main.hex",
-        "import { Flag, On } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
-        "    match x\n" +
+        'import B from "./b"\n' +
+        "union Local = Off | Dim | Warm | Cool | Other\n" +
+        "export fun f(): Int =\n" +
+        "    match B.make()\n" +
         "        On => 1\n",
       ],
     ])).toEqual([
       "match is missing cases: `Off`, `Dim`, `Warm` …and 1 more — `Off`, `Dim` " +
-      "and `Warm` are declared in `./flags`; " +
-      "`import { Off, Dim, Warm } from \"./flags\"` to spell them here",
+      "and `Warm` are declared in `./flags`, and this module binds another " +
+      "`Off`, another `Dim` and another `Warm`; `import Flags from \"./flags\"` " +
+      "and spell them `Flags.Off`, `Flags.Dim` and `Flags.Warm`",
     ]);
   });
 });
@@ -439,31 +526,39 @@ describe("the clause rides with the witness, not with one message", () => {
   test("the §5.3 `let` gate carries it", () => {
     expect(diagnostics([
       FLAGS,
+      ["/b.hex", 'import F from "./flags"\nexport fun make(): F.Flag = F.On\n'],
       [
         "/main.hex",
-        "import { Flag, On } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
-        "    let On = x\n" +
+        'import B from "./b"\n' +
+        "union Local = Off | Other\n" +
+        "export fun f(): Int =\n" +
+        "    let On = B.make()\n" +
         "    1\n",
       ],
     ])).toEqual([
       "this pattern can fail: `Off`; use `match` — `Off` is declared in " +
-      "`./flags`; `import { Off } from \"./flags\"` to spell it here",
+      "`./flags`, and this module binds another `Off`; " +
+      "`import Flags from \"./flags\"` and spell it `Flags.Off`",
     ]);
   });
 
   test("at a lambda parameter the clause stands before §6.7's own fixit", () => {
     expect(diagnostics([
       FLAGS,
+      ["/b.hex",
+        'import F from "./flags"\n' +
+        "export type Flag = F.Flag\nexport fun make(): F.Flag = F.On\n"],
       [
         "/main.hex",
-        "import { Flag, On } from \"./flags\"\n" +
-        "let g: (Flag) -> Int = (On) => 1\n" +
-        "export let v: Int = g(On)\n",
+        'import B from "./b"\n' +
+        "union Local = Off | Other\n" +
+        "let g: (B.Flag) -> Int = (On) => 1\n" +
+        "export let v: Int = g(B.make())\n",
       ],
     ])).toEqual([
       "this pattern can fail: `Off`; use `match` — `Off` is declared in " +
-      "`./flags`; `import { Off } from \"./flags\"` to spell it here — " +
+      "`./flags`, and this module binds another `Off`; " +
+      "`import Flags from \"./flags\"` and spell it `Flags.Off` — " +
       "for a match function, write `match` with arms",
     ]);
   });
@@ -487,9 +582,9 @@ describe("the error-program obligation: a broken pattern must not widen the voca
       HANDLE,
       [
         "/main.hex",
-        "import { mkFile } from \"./h\"\n" +
+        'import H from "./h"\n' +
         "export fun f(): Int =\n" +
-        "    match mkFile(1)\n" +
+        "    match H.mkFile(1)\n" +
         "        None => 1\n",
       ],
     ])).toEqual([
@@ -502,9 +597,9 @@ describe("the error-program obligation: a broken pattern must not widen the voca
       HANDLE,
       [
         "/main.hex",
-        "import { mkFile } from \"./h\"\n" +
+        'import H from "./h"\n' +
         "export fun f(): Int =\n" +
-        "    let None = mkFile(1)\n" +
+        "    let None = H.mkFile(1)\n" +
         "    1\n",
       ],
     ])).toEqual([
@@ -517,9 +612,9 @@ describe("the error-program obligation: a broken pattern must not widen the voca
       HANDLE,
       [
         "/main.hex",
-        "import { mkFile } from \"./h\"\n" +
+        'import H from "./h"\n' +
         "export fun f(): Int =\n" +
-        "    for None in [mkFile(1)]\n" +
+        "    for None in [H.mkFile(1)]\n" +
         "        ignore(1)\n" +
         "    1\n",
       ],
@@ -533,9 +628,9 @@ describe("the error-program obligation: a broken pattern must not widen the voca
       HANDLE,
       [
         "/main.hex",
-        "import { mkFile } from \"./h\"\n" +
+        'import H from "./h"\n' +
         "export fun f(): Int =\n" +
-        "    match mkFile(1)\n" +
+        "    match H.mkFile(1)\n" +
         "        0 => 1\n",
       ],
     ])).toEqual([
@@ -548,9 +643,9 @@ describe("the error-program obligation: a broken pattern must not widen the voca
       HANDLE,
       [
         "/main.hex",
-        "import { pair } from \"./h\"\n" +
+        'import H from "./h"\n' +
         "export fun f(): Int =\n" +
-        "    match pair(1)\n" +
+        "    match H.pair(1)\n" +
         "        (None, True) => 1\n",
       ],
     ])).toEqual([
@@ -564,8 +659,8 @@ describe("the error-program obligation: a broken pattern must not widen the voca
       FLAGS,
       [
         "/main.hex",
-        "import { Flag } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
+        'import F from "./flags"\n' +
+        "export fun f(x: F.Flag): Int =\n" +
         "    match x\n" +
         "        0 => 1\n",
       ],
@@ -586,8 +681,8 @@ describe("the error-program obligation: a broken pattern must not widen the voca
       ["/flags.hex", "export union Flag = On(Int) | Off\n"],
       [
         "/main.hex",
-        "import { Flag, On } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
+        'import F from "./flags"\n' +
+        "export fun f(x: F.Flag): Int =\n" +
         "    match x\n" +
         "        On => 1\n",
       ],
@@ -618,20 +713,28 @@ describe("the obligation reaches the nominal record's constructor pattern too", 
 
   test("a local record constructor against a foreign one reports the fault alone", () => {
     // The double report the obligation was argued into the block to remove:
-    // `match is missing cases: `Box(_)`` beside `type mismatch: expected Box,
-    // found Box`. Both walks reach the record constructor through
-    // `#recordConstructorSlot`, so that is where the verdict has to be taken.
+    // `match is missing cases: `Box(_)`` beside the arm's own error. Both walks
+    // reach the record constructor through `#recordConstructorSlot`, so that is
+    // where the verdict has to be taken.
+    //
+    // The arm's error is §12's rival-constructor sentence since #768 — the
+    // same-name tell (`expected Box, found Box`) is exactly the report it
+    // exists to replace. What this test pins is unchanged either way: **one**
+    // report, and no witness beside it.
     expect(diagnostics([
       FOREIGN_BOX,
       [
         "/main.hex",
-        "import { mk } from \"./h\"\n" +
+        'import H from "./h"\n' +
         "record Box = {n: Int}\n" +
         "export fun f(): Int =\n" +
-        "    match mk()\n" +
+        "    match H.mk()\n" +
         "        Box({n = 0}) => 1\n",
       ],
-    ])).toEqual(["type mismatch: expected Box, found Box"]);
+    ])).toEqual([
+      "`Box` here is this module's `Box`; this pattern matches a `H.Box` — " +
+        "write `H.Box({n = 0})`",
+    ]);
   });
 
   test("and the §5.3 gate leaks nothing either", () => {
@@ -639,10 +742,10 @@ describe("the obligation reaches the nominal record's constructor pattern too", 
       FOREIGN_BOX,
       [
         "/main.hex",
-        "import { mk } from \"./h\"\n" +
+        'import H from "./h"\n' +
         "record Local = {n: Int}\n" +
         "export fun f(): Int =\n" +
-        "    let Local({n = q}) = mk()\n" +
+        "    let Local({n = q}) = H.mk()\n" +
         "    q\n",
       ],
     ])).toEqual(["type mismatch: expected Box, found Local"]);
@@ -655,8 +758,8 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
       FLAGS,
       [
         "/main.hex",
-        "import { Flag, On, Off } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
+        'import F from "./flags"\n' +
+        "export fun f(x: F.Flag): Int =\n" +
         "    match x\n" +
         "        0 => 1\n" +
         "        On => 2\n" +
@@ -670,9 +773,9 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
       HANDLE,
       [
         "/main.hex",
-        "import { mkFile } from \"./h\"\n" +
+        'import H from "./h"\n' +
         "export fun f(): Int =\n" +
-        "    match mkFile(1)\n" +
+        "    match H.mkFile(1)\n" +
         "        None => 1\n" +
         "        x => 2\n",
       ],
@@ -684,8 +787,8 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
       FLAGS,
       [
         "/main.hex",
-        "import { Flag, On, Off } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
+        'import F from "./flags"\n' +
+        "export fun f(x: F.Flag): Int =\n" +
         "    match x\n" +
         "        0 => 1\n" +
         "        1 => 2\n" +
@@ -741,8 +844,8 @@ describe("§7.2 takes the dual: a broken pattern is never a shadower", () => {
       FLAGS,
       [
         "/main.hex",
-        "import { Flag, On, Off } from \"./flags\"\n" +
-        "export fun f(x: Flag): Int =\n" +
+        'import F from "./flags"\n' +
+        "export fun f(x: F.Flag): Int =\n" +
         "    match x\n" +
         "        y => 2\n" +
         "        0 => 1\n",

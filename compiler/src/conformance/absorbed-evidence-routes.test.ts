@@ -287,37 +287,63 @@ describe("the binder set an export is told to write", () => {
     // What each of the three is *spelled* as is Constraints §5.1.1's law, and
     // its own file pins the tiers (`advised-constraint-spellings.test.ts`).
     // Absorption is the claim here, and it holds in all three: `Num` is gone.
+    //
+    // Under #762 an import binds a module alias and nothing smaller, which
+    // closes the old middle tier outright: a *renamed* bare import no longer
+    // exists, so there is no way to bind a bare local word for `Heft` other
+    // than the fallback's own (an alias literally spelled `Heft`). It also
+    // closes the easy way to reconstruct the first tier ("no spelling here at
+    // all"): calling `useHeft` needs *some* alias for `/lib.hex` in scope, and
+    // once one is, `Alias.Heft` is always a reachable qualified spelling — so
+    // reaching `useHeft` and having no route to `Heft` are no longer
+    // separable in one module. `HEFT_MID` is what keeps them separable: it
+    // imports `/lib.hex` and calls `useHeft` on `caller`'s behalf, so
+    // `caller` picks up the `Heft` requirement *transitively*, through
+    // `Mid.forward`, with no alias for `/lib.hex` itself ever appearing in
+    // `/main.hex` unless a row adds one for the spelling test alone.
+    const HEFT_MID = [
+      'import Lib from "./lib.hex"',
+      "export let forward<a: Lib.Heft>(n: a): a = Lib.useHeft(n)",
+      "",
+    ].join("\n");
     const caller =
-      "export let caller(n, stop: Bool) = if stop then n + n else useHeft(n)\n";
-    // No spelling here at all: the law routes (#715).
+      "export let caller(n, stop: Bool) = if stop then n + n else Mid.forward(n)\n";
+    // No spelling here at all: `/main.hex` never imports `/lib.hex`, only
+    // `/mid.hex` — so the law routes (#715).
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
-      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' + caller],
+      ["/mid.hex", HEFT_MID],
+      ["/main.hex", 'import Mid from "./mid.hex"\n' + caller],
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `caller` must declare every constraint in its signature; " +
       "write `<a: Lib.Heft>` — `Heft` is declared in `./lib`; " +
-      "`import module Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "`import Lib from \"./lib\"` and spell it `Lib.Heft`",
     ]);
-    // Spellable, but not under the declaration's own word — the law's first
-    // tier is the word the renaming import bound, not the word lib.hex wrote.
+    // Spellable bare, through a second alias of `/lib.hex` spelled `Heft` —
+    // the companion fallback's own route, needing no further word.
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
-      ["/main.hex", 'import { Heft as Weigh, useHeft } from "./lib.hex"\n' + caller],
+      ["/mid.hex", HEFT_MID],
+      ["/main.hex", 'import Mid from "./mid.hex"\nimport Heft from "./lib.hex"\n' + caller],
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
-      "exported function `caller` must declare every constraint in its signature; write `<a: Weigh>`",
+      "exported function `caller` must declare every constraint in its signature; write `<a: Heft>`",
     ]);
-    // Spellable, and the word means something else here entirely (§5.1.1).
+    // Spellable, and the word means something else here entirely (§5.1.1): a
+    // local declaration of `Heft` occludes the fallback (`companion-fallback.
+    // test.ts`'s occlusion law), so only the qualified route is offered, and
+    // the message says why.
     expect(graphDiagnostics([
       ["/lib.hex", HEFT_LIB],
-      ["/main.hex", 'import { useHeft } from "./lib.hex"\n' +
+      ["/mid.hex", HEFT_MID],
+      ["/main.hex", 'import Mid from "./mid.hex"\n' +
         "constraint Heft<a> =\n    other(value: a): a\n" + caller],
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `caller` must declare every constraint in its signature; " +
       "write `<a: Lib.Heft>` — `Heft` is declared in `./lib`, and this module binds " +
-      "another `Heft`; `import module Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "another `Heft`; `import Lib from \"./lib\"` and spell it `Lib.Heft`",
     ]);
   });
 
@@ -328,16 +354,16 @@ describe("the binder set an export is told to write", () => {
     const project = compileFiles([
       ["/lib.hex", HEFT_LIB],
       ["/main.hex", [
-        'import { Heft, useHeft } from "./lib.hex"',
-        "export let caller<a: Heft>(n: a, stop: Bool): a =",
-        "    if stop then n + n else useHeft(n)",
+        'import Lib from "./lib.hex"',
+        "export let caller<a: Lib.Heft>(n: a, stop: Bool): a =",
+        "    if stop then n + n else Lib.useHeft(n)",
         "",
       ].join("\n")],
     ]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(
       project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text,
-    ).toContain("return stop ? __Heft_a.Num.add(n, n) : useHeft(n, __Heft_a);");
+    ).toContain("return stop ? __Heft_a.Num.add(n, n) : __useHeft(n, __Heft_a);");
   });
 });
 

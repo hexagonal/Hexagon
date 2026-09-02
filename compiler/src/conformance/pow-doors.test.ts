@@ -231,38 +231,18 @@ describe("qualifiable, not bare: the one-exporter guarantee (Modules §5.3)", ()
     expect(diagnostics).toEqual([]);
   });
 
-  test("a consumer may not import a `widens` binding severally, any more than the member", () => {
-    // The same law one step out (Constraints §4.7): a named import is bare
-    // scope, and the binding does not enter one.
-    const diagnostics = compileFiles([
-      ["/box.hex", [
-        "// importable door",
-        "export record Box = {value: Float}",
-        "",
-        "honor Num<Box> =",
-        "    add(left, right) = Box({value = left.value + right.value})",
-        "    multiply(left, right) = Box({value = left.value * right.value})",
-        "    fromNat(value) = Box({value = Float.fromNat(value)})",
-        "",
-        "widens Pow.pow(value: Box, exponent: Float): Box =",
-        "    Box({value = Float.pow(value.value, exponent)})",
-        "",
-        "honor Pow<Box> =",
-        "    pow = widened",
-        "",
-      ].join("\n")],
-      ["/main.hex", [
-        "// severally",
-        "import { pow } from \"./box\"",
-        "",
-      ].join("\n")],
-    ]).diagnostics.map(({ message }) => message);
-
-    expect(diagnostics).toEqual([
-      "`pow` is a constraint member's wider face; it is qualifiable, not a bare " +
-        "export — reach it through `import module` and its qualified spelling",
-    ]);
-  });
+  // #762 retired the case this section used to close with: a named import
+  // singling out `pow` used to draw its own refusal ("`pow` is a constraint
+  // member's wider face; it is qualifiable, not a bare export …"), one step
+  // out from the bare-use refusal above. An import binds a module alias and
+  // nothing smaller now, so no import syntax exists that could single out
+  // `pow` in the first place — every attempt is the general parse-time
+  // "Hexagon imports bind modules" refusal, unconnected to this file's own
+  // subject. The widens binding's qualified reach is untouched: a consumer
+  // may still write `let pow = Box.pow` and forward it, same as any other
+  // export (Modules §3.2) — nothing about the door makes that spelling
+  // special, so the diagnostic this test pinned has no successor to re-aim
+  // at and is deleted outright.
 });
 
 describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", () => {
@@ -312,7 +292,7 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
       ].join("\n")],
       ["/quiet.hex", [
         "// quiet",
-        "import module Gauge from \"./gauge\"",
+        "import Gauge from \"./gauge\"",
         "",
         "export constraint Quiet<a> =",
         "    describe(value: a): String",
@@ -323,8 +303,8 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
       ].join("\n")],
       ["/main.hex", [
         "// rivals",
-        "import module Gauge from \"./gauge\"",
-        "import module Quiet from \"./quiet\"",
+        "import Gauge from \"./gauge\"",
+        "import Quiet from \"./quiet\"",
         "",
         "export let r: String = Gauge.Gauge({reading = 1}).describe(2)",
         "",
@@ -574,7 +554,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       ].join("\n")],
       ["/matrix.hex", [
         "// matrix",
-        "import module Scale from \"./scale\"",
+        "import Scale from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -695,7 +675,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "",
     ].join("\n"))).toEqual([
       "unknown module `Qow`; a `widens` head names its member through a module " +
-        "alias; import the member's home module with `import module Qow`",
+        "alias; import the member's home module under the alias `Qow`",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",
     ]);
@@ -732,7 +712,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       ].join("\n")],
       ["/matrix.hex", [
         "// matrix",
-        "import module Scale from \"./scale\"",
+        "import Scale from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -761,8 +741,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "",
     ].join("\n"))).toEqual([
       "unknown module `Nowhere`; a `widens` head names its member through a " +
-        "module alias; import the member's home module with " +
-        "`import module Nowhere`",
+        "module alias; import the member's home module under the alias " +
+        "`Nowhere`",
     ]);
   });
 });
@@ -772,7 +752,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
  * one member and it is required: a **defaulted** member reached by the supply
  * route, and a member with **two** widenable seats. Both want a user constraint
  * of their own, in its own module, reached the way the law says a door-builder
- * reaches one — `import module`, the module and not the constraint.
+ * reaches one — a module import (Modules §3.2), the module and not the
+ * constraint.
  */
 describe("what the supply route serves, beyond one required member (§4.7)", () => {
   /** A constraint whose second member is **defaulted** over the first. */
@@ -804,7 +785,7 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
       ["/scale.hex", scale],
       ["/matrix.hex", [
         "// matrix, defaulted member widened",
-        "import module Scale from \"./scale\"",
+        "import Scale from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -837,7 +818,7 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
       ["/scale.hex", scale],
       ["/matrix.hex", [
         "// matrix, defaulted member unaccounted",
-        "import module Scale from \"./scale\"",
+        "import Scale from \"./scale\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -864,7 +845,7 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
       ["/blend.hex", blend],
       ["/matrix.hex", [
         "// matrix, two seats widened",
-        "import module Blend from \"./blend\"",
+        "import Blend from \"./blend\"",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -903,7 +884,7 @@ describe("several same-spelled members: widen all of them or none (§4.7)", () =
   function boxModule(...tail: readonly string[]): string {
     return [
       "// box",
-      "import module Mul from \"./mul\"",
+      "import Mul from \"./mul\"",
       "",
       "export record Box = {value: Float}",
       "",

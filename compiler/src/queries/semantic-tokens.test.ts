@@ -241,10 +241,10 @@ describe("semantic tokens", () => {
       "",
     ].join("\n");
     const main = [
-      'import {compute, version} from "./helper"',
+      'import Helper from "./helper"',
       "",
-      "let answer: Int = compute!(1)",
-      "let label: String = version",
+      "let answer: Int = Helper.compute!(1)",
+      "let label: String = Helper.version",
       "",
     ].join("\n");
     const session = sessionOf({ "/helper.hex": helper, "/main.hex": main });

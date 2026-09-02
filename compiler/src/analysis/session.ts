@@ -686,11 +686,11 @@ export class AnalysisSession {
   }
 
   /**
-   * The workspace tier of Modules §5.1's **`import module` repair family** — the
+   * The workspace tier of Modules §5.1's **module-import repair family** — the
    * one code action all three seats share (#577).
    *
    * The split the two tiers are drawn on is what makes this method small. The
-   * compiler already decided that this refusal names `import module` as a
+   * compiler already decided that this refusal names the module import as a
    * repair, and said so in a marker rather than in a sentence to be re-read
    * (`Diagnostics.Diagnostic.importModuleRepair`); the only thing left that the
    * compiler could not know is *which module* — a question about the workspace,
@@ -712,7 +712,7 @@ export class AnalysisSession {
    * defensive: `compileProject` returns every module the program *reached*, and
    * a program that reaches `Prelude.hex` — one mention of a prelude name does
    * it — puts a compiler-injected module in the inventory. Offering it would
-   * write `import module Ordering from "./Prelude"` into the user's source,
+   * write `import Ordering from "./Prelude"` into the user's source,
    * which repairs nothing (`` module `Ordering` does not export `rank` ``) and
    * emits `import * as Ordering from "./Prelude.js"` into their JavaScript.
    * Injected sources are not what the user wrote (`isInjectedModule`'s own
@@ -735,7 +735,7 @@ export class AnalysisSession {
       .exportersOf(repair.name, repair.namespace)
       .filter((exporter) => exporter !== path && this.#texts.has(exporter));
     if (exporters.length === 0) return undefined;
-    const title = `import module \`${repair.name}\``;
+    const title = `import \`${repair.name}\``;
     if (exporters.length > 1) {
       return {
         title,
@@ -762,7 +762,7 @@ export class AnalysisSession {
       edits: [{
         path,
         span: file.span(offset, offset),
-        replacement: `import module ${repair.name} from ${JSON.stringify(specifier)}\n`,
+        replacement: `import ${repair.name} from ${JSON.stringify(specifier)}\n`,
       }],
     };
   }
@@ -1205,10 +1205,7 @@ class Analysis {
       this.#pathsByFileId.set(Number(module.source.id), path);
       this.#typedByPath.set(path, module.typed);
       const types = collectTypeOccurrences(module.typed);
-      const occurrences = collectOccurrences(module, {
-        fileOfSpecifier: (specifier) => fileIdsByPath.get(resolveSpecifier(path, specifier)),
-        typeOccurrences: types,
-      });
+      const occurrences = collectOccurrences(module, { typeOccurrences: types });
       this.#occurrencesByPath.set(path, occurrences);
       this.#resolvedByPath.set(path, module.resolved);
       for (const occurrence of occurrences) {
@@ -1463,7 +1460,7 @@ function locate(
 }
 
 /**
- * Where an inserted `import module` line goes in a file that already has text
+ * Where an inserted import line goes in a file that already has text
  * in it (Modules §5.1's "placed so the file stays well-formed and any
  * term-position use sits below it", #577).
  *

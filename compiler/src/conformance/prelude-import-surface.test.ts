@@ -250,13 +250,21 @@ describe("an explicit import of a prelude module carries no evidence", () => {
    * no consumer reads, because every module reaches `Option`'s instances
    * directly.
    */
-  test("a named import of a prelude module imports and re-exports no dictionary", () => {
+  test("a module import of a prelude module imports and re-exports no dictionary", () => {
     const javascript = emitted([[
       "/a.hex",
-      'import { Some } from "./Option"\n' +
-      "export fun mk(x: Int): Option(Int) = Some(x)\n",
+      'import Option from "./Option"\n' +
+      "export fun mk(x: Int): Option(Int) = Option.Some(x)\n",
     ]], "/a.hex");
-    expect(importLines(javascript)).toEqual(['import { Some } from "./Option.js";']);
+    // The constructor reference `Option.Some` resolves to the declaration and
+    // is emitted through its own binding, same as any other constructor
+    // reference — a fact §3.2's respelling did not change — beside the
+    // namespace import the module alias itself always carries. Neither is a
+    // dictionary: that is the property this test is about.
+    expect(importLines(javascript)).toEqual([
+      'import { Some } from "./Option.js";',
+      'import * as Option from "./Option.js";',
+    ]);
     expect(exportLines(javascript)).toEqual(["export { mk };"]);
   });
 
@@ -264,7 +272,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
   test("a namespace import of a prelude module carries none either", () => {
     const javascript = emitted([[
       "/a.hex",
-      'import module Option from "./Option"\n' +
+      'import Option from "./Option"\n' +
       "export fun mk(x: Int): Option(Int) = Option.Some(x)\n",
     ]], "/a.hex");
     expect(javascript).not.toContain("__");
@@ -280,9 +288,9 @@ describe("an explicit import of a prelude module carries no evidence", () => {
    */
   test("a used instance beside an explicit import binds one dictionary", async () => {
     const source =
-      'import { Some } from "./Option"\n' +
+      'import Option from "./Option"\n' +
       "export fun same(a: Option(Int), b: Option(Int)): Bool = a == b\n" +
-      "export fun mk(x: Int): Option(Int) = Some(x + 20)\n";
+      "export fun mk(x: Int): Option(Int) = Option.Some(x + 20)\n";
     const javascript = emitted([["/main.hex", source]], "/main.hex");
     // The `Eq<Int>` line is the *component* instance `Eq<Option(Int)>` selects
     // (#278), and it is an import since #344 because `Int`'s instances are
@@ -292,6 +300,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
       'import { __Eq_Option } from "./Option.js";',
       'import { __Eq_Int } from "./Int.js";',
       'import { Some } from "./Option.js";',
+      'import * as Option from "./Option.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { same };", "export { mk };"]);
 
@@ -331,7 +340,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
     const orphan = "honor Eq<Bool> =\n    equals(a, b) = True\n";
     const messages = (source: string): readonly string[] =>
       compileFiles([["/main.hex", source]]).diagnostics.map(({ message }) => message);
-    expect(messages(`import { True } from "./Bool"\n${orphan}`)).toEqual([
+    expect(messages(`import Bool from "./Bool"\n${orphan}`)).toEqual([
       "orphan instance: this module declares neither `Eq` nor the instance subject",
     ]);
     expect(messages(orphan)).toEqual([
@@ -339,7 +348,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
     ]);
     // `Ordering` is on the channel, so its orphan still collides — the asymmetry
     // is `Bool`'s filter, not the explicit import.
-    expect(messages('import { Less } from "./Ordering"\nhonor Eq<Ordering> =\n    equals(a, b) = True\n'))
+    expect(messages('import Ordering from "./Ordering"\nhonor Eq<Ordering> =\n    equals(a, b) = True\n'))
       .toEqual([
         "orphan instance: this module declares neither `Eq` nor the instance subject",
         "duplicate instance of `Eq<Ordering>`",
@@ -361,15 +370,19 @@ describe("non-prelude instance evidence still transits", () => {
         "honor Show<Box> =\n" +
         '    show(b) = "box"\n'],
       ["/b.hex",
-        'import { Box } from "./a"\n' +
+        // The alias's own spelling equals the exported record's, so `Box` is
+        // reached bare through rule 3's companion fallback (Modules §3.2,
+        // #762) — nothing binds it, so there is nothing new for the
+        // collision rule to find.
+        'import Box from "./a"\n' +
         "export fun mk(v: Int): Box = Box({v = v})\n"],
       ["/c.hex",
-        'import { mk } from "./b"\n' +
-        'export fun s(v: Int): String = "${mk(v)}"\n'],
+        'import B from "./b"\n' +
+        'export fun s(v: Int): String = "${B.mk(v)}"\n'],
     ] as const;
     const b = emitted(files, "/b.hex");
     expect(importLines(b)).toEqual([
-      'import { Box } from "./a.js";',
+      'import * as Box from "./a.js";',
       'import { __Show_Box } from "./a.js";',
     ]);
     expect(exportLines(b)).toEqual([
@@ -387,8 +400,8 @@ describe("non-prelude instance evidence still transits", () => {
     const main = await runProject([
       ...files.slice(0, 2),
       ["/main.hex",
-        'import { mk } from "./b"\n' +
-        'export fun t(v: Int): String = "<${mk(v)}>"\n'],
+        'import B from "./b"\n' +
+        'export fun t(v: Int): String = "<${B.mk(v)}>"\n'],
     ] as const);
     expect((main["t"] as (v: number) => string)(1)).toBe("<box>");
   });

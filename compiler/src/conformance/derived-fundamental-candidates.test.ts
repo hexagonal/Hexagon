@@ -459,16 +459,16 @@ describe("a declared constraint's candidates are its own instances", () => {
         "",
       ].join("\n")],
       ["/tell.hex", [
-        "import { Describe } from \"./describe\"",
+        "import Describe from \"./describe\"",
         "",
-        "export fun tell<a: Describe>(x: a): String = describe(x)",
+        "export fun tell<a: Describe>(x: a): String = Describe.describe(x)",
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { tell } from \"./tell\"",
+        "import Tell from \"./tell\"",
         "",
         "let one: Int = 1",
-        "export let told: String = tell(one)",
+        "export let told: String = Tell.tell(one)",
         "",
       ].join("\n")],
     ]);
@@ -501,10 +501,14 @@ describe("a declared constraint's candidates are its own instances", () => {
     expect(recomputed).toEqual(published);
 
     // And the emission that rests on it: C reaches the edition by name, from B,
-    // naming A nowhere at all.
+    // naming A nowhere at all. `tell` is never called bare in `/main.hex` —
+    // it is reached `Tell.tell` (#762) — so the named line carries the raw
+    // private name rather than a `tell`-aliased one; the module-alias line
+    // beside it is #762's "emission is unchanged in shape" clause.
     const javascript = compiled.modules
       .find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(javascript).toContain('import { __tell as tell, tellInt } from "./tell.js";');
+    expect(javascript).toContain('import * as Tell from "./tell.js";');
+    expect(javascript).toContain('import { __tell, tellInt } from "./tell.js";');
     expect(javascript).toContain("const told = tellInt(one);");
     expect(javascript).not.toContain("./describe.js");
   });

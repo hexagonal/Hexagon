@@ -1094,25 +1094,22 @@ describe("`widens` and `widened` are contextual (#546)", () => {
 });
 
 /**
- * The namespace-import head #565 respelled (spec/modules.md §3.3, Lexer §4.2):
- * `import module Geo from "./geometry"`, where `module` is contextual and
- * `import * as` is gone from the language.
+ * The import head #762 shrank to its one binding form (spec/modules.md §3.1,
+ * Lexer §4.2's deleted row): `import Geo from "./geometry"`, where the alias
+ * stands immediately after the keyword. `module` has left the import grammar
+ * with the head that carried it, and is an ordinary name everywhere again.
  *
- * The context is one position wide and total in it — before #565 an `import`
- * admitted only `{`, `*`, or a module string, so no name after `import` was ever
- * a legal program. That is why the rule is anchored on the word before rather
- * than keyed on the alias ahead the way `union` and `widens` are, and the rows
- * below measure the difference rather than assuming it.
+ * The rows below measure exactly that: the head's own two keywords are painted,
+ * the word is not, and no rule reaches for it in any position.
  */
-describe("`module` is contextual in the import head (#565)", () => {
-  it("paints the whole head, `module` among the keywords", async () => {
-    expect(await scopePairs('import module Geo from "./geometry"')).toEqual([
+describe("the import head paints its keywords and nothing else (#762)", () => {
+  it("paints the whole head", async () => {
+    expect(await scopePairs('import Geo from "./geometry"')).toEqual([
       ["import", "keyword.control.import.hexagon"],
-      ["module", "keyword.other.module.hexagon"],
       // The alias seat has never had a paint of its own: an uppercase name that
       // is not left of a `.` is a type name to #names, which is what `Geo` got
-      // in the `* as Geo` spelling too. Recorded as the status quo the
-      // respelling inherits, not as a claim that a module alias is a type.
+      // in every earlier spelling of this head too. Recorded as the status quo
+      // the shrink inherits, not as a claim that a module alias is a type.
       ["Geo", "entity.name.type.hexagon"],
       ["from", "keyword.other.from.hexagon"],
       ["\"", "punctuation.definition.string.begin.hexagon"],
@@ -1121,22 +1118,22 @@ describe("`module` is contextual in the import head (#565)", () => {
     ]);
   });
 
-  it("paints the head before the alias is typed, and needs no alias at all", async () => {
-    // The difference an anchor makes: a follower-keyed rule would leave this
-    // unpainted until the alias arrived, and the word would flicker into place.
-    expect(await scope("import module", "module")).toBe("keyword.other.module.hexagon");
-    expect(await scope('import module from "./x"', "module"))
-      .toBe("keyword.other.module.hexagon");
+  it("paints the keyword before the alias is typed", async () => {
+    // `import` is a §4.1 hard keyword, so a half-typed head is painted from the
+    // first word — nothing here waits on an alias to arrive.
+    expect(await scope("import", "import")).toBe("keyword.control.import.hexagon");
+    expect(await scope('import from "./x"', "import"))
+      .toBe("keyword.control.import.hexagon");
   });
 
-  it("paints the head word of `import module module` and nothing after it", async () => {
-    // The parser reads this as the head and refuses at the *alias* seat, by
-    // start class (`module aliases must be uppercase-start names`). The grammar
-    // agrees: one head word, then an ordinary name standing where an alias must.
-    expect((await scopePairs('import module module from "./x"')).slice(0, 3)).toEqual([
+  it("leaves the stale `import module` head's word an ordinary name", async () => {
+    // The parser reads this as the retired head and refuses it with the rewrite
+    // that drops the word (§3.1). The grammar has no rule for the word at all,
+    // so it paints as the ordinary name it now is everywhere.
+    expect((await scopePairs('import module Geo from "./x"')).slice(0, 3)).toEqual([
       ["import", "keyword.control.import.hexagon"],
-      ["module", "keyword.other.module.hexagon"],
       ["module", "variable.other.hexagon"],
+      ["Geo", "entity.name.type.hexagon"],
     ]);
   });
 
@@ -1157,39 +1154,17 @@ describe("`module` is contextual in the import head (#565)", () => {
     expect(await scope("module Geometry", "module")).toBe("variable.other.hexagon");
   });
 
-  it("does not read the word out of the tail of a longer name", async () => {
-    // The second lookbehind's whole job. Without it `reimport module` — no
-    // program, but a thing a half-typed line can be — would paint a head.
-    expect(await scope("let reimport = 1\nreimport module", "module"))
-      .toBe("variable.other.hexagon");
-  });
-
-  /**
-   * Recorded rather than admired. The parser's own pin says the head is tokens
-   * and not a line: `import (* why *) module Geo` and an `import` whose head
-   * continues on the next line are both accepted, and neither paints here. A
-   * lookbehind sees the comment's `*)`, and vscode-textmate hands the grammar
-   * one line at a time. The trade is the `widened` rule's — key the position as
-   * far as the format reaches and name the edge — and both spellings are rare
-   * enough that the alternative, a begin/end region over the whole import, would
-   * buy them at the cost of repainting every import form in the language.
-   */
-  it("does not reach a head interrupted by a comment or a newline", async () => {
-    expect(await scope('import (* why *) module Geo from "./g"', "module"))
-      .toBe("variable.other.hexagon");
-    expect(await scope('import\n    module Geo from "./g"', "module"))
-      .toBe("variable.other.hexagon");
-  });
-
-  it("gives JavaScript's dead head no paint of its own", async () => {
-    // `import * as Geo` is a parse error under the Rewrite Rule (§3.3), and the
-    // grammar carries no rule for it — before or after #565. The `*` is the
-    // arithmetic operator it always was, and `as` misses its own rule because
-    // that rule demands a name, `)`, `]`, or `}` before it. Pinned so a later
-    // reader can see the absence was measured rather than overlooked.
+  it("gives JavaScript's dead heads no paint of their own", async () => {
+    // `import * as Geo` and `import { area }` are parse errors under the
+    // Rewrite Rule (§3.1), and the grammar carries no rule for either. The `*`
+    // is the arithmetic operator it always was, and `as` misses its own rule
+    // because that rule demands a name, `)`, `]`, or `}` before it. Pinned so a
+    // later reader can see the absence was measured rather than overlooked.
     expect(await scope('import * as Geo from "./geometry"', "*"))
       .toBe("keyword.operator.arithmetic.hexagon");
     expect(await scope('import * as Geo from "./geometry"', "as"))
+      .toBe("variable.other.hexagon");
+    expect(await scope('import { area } from "./geometry"', "area"))
       .toBe("variable.other.hexagon");
   });
 });

@@ -6,7 +6,7 @@ import { compileFiles, runProject } from "../support/test-project.js";
  * Conformance for the emitted spelling of a **namespace alias a declaration
  * contests** (#569; Modules §11.2).
  *
- * Modules §5.2 makes `import module Point from "./point"` beside a declared
+ * Modules §5.2 makes `import Point from "./point"` beside a declared
  * `Point` legal — it is what makes the companion idiom a rule rather than a
  * prelude coincidence — and the checker reports nothing for it. Two Hexagon
  * namespaces must therefore reach JavaScript as two bindings, and until this
@@ -44,7 +44,7 @@ const POINT = [
 /** #569's repro: the alias, the same-spelled record, and a use of each. */
 const COLLIDING = [
   "/main.hex",
-  'import module Point from "./point"\n' +
+  'import Point from "./point"\n' +
     "export record Point = {n: Int}\n" +
     "export fun mine(p: Point): Int = p.n\n" +
     "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n",
@@ -90,7 +90,7 @@ describe("the rename is collision-only", () => {
   test("an uncontested alias keeps its spelling", () => {
     expect(javascript([POINT, [
       "/main.hex",
-      'import module Point from "./point"\n' +
+      'import Point from "./point"\n' +
         "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n",
     ]])).toBe(
       'import * as Point from "./point.js";\n' +
@@ -102,8 +102,8 @@ describe("the rename is collision-only", () => {
   test("only the contested alias of two moves", () => {
     const emitted = javascript([POINT, ["/other.hex", "export fun twice(n: Int): Int = n + n\n"], [
       "/main.hex",
-      'import module Point from "./point"\n' +
-        'import module Other from "./other"\n' +
+      'import Point from "./point"\n' +
+        'import Other from "./other"\n' +
         "export record Point = {n: Int}\n" +
         "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n" +
         "export let four: Int = Other.twice(2)\n",
@@ -114,143 +114,72 @@ describe("the rename is collision-only", () => {
   });
 });
 
-describe("a named import's local contests the spelling the same way", () => {
-  test("the alias moves and the imported name is bound once", async () => {
-    // The sibling shape in `companion-fallback.test.ts` ("a named import of a
-    // differently-spelled type wins the same way"), which the checker also
-    // accepts: the alias is contested by an import's local rather than by a
-    // declaration, and the emitted collision was the same one.
-    //
-    // The alias yields here for a *different* reason than it does against a
-    // declaration, and the emitted text below says so — there is no `export
-    // { Point }` in it, so neither contestant is anybody's public face. What
-    // decides it is the mechanism: moving the alias is the rename §11.2 already
-    // licenses, while moving the named import would mean emitting `import
-    // { Point as Point_1 }` — a second observable emitter choice, of the kind
-    // the ruling declined.
-    const files = [POINT, ["/other.hex", "export record Point = {n: Int}\n"], [
-      "/main.hex",
-      'import module Point from "./point"\n' +
-        'import { Point } from "./other"\n' +
-        "export fun mine(p: Point): Int = p.n\n" +
-        "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n",
-    ]] as const;
-    expect(javascript(files)).toBe(
-      'import * as Point_1 from "./point.js";\n' +
-        'import { Point } from "./other.js";\n' +
-        "function mine(p) {\n" +
-        "  return p.n;\n" +
-        "}\n" +
-        "const far = Point_1.getX(Point_1.make(1.0, 2.0));\n" +
-        "export { mine };\n" +
-        "export { far };\n",
-    );
-    const main = await runProject(files);
-    expect(main.far).toBe(1.0);
-  });
-});
+// #762 retired "a named import's local contests the spelling the same way":
+// a named import bound a term-namespace local of its own, which a module
+// alias of the same spelling could contest exactly as a declaration does. No
+// import binds anything but its alias any more (Modules §3.2), so the alias's
+// only remaining contestants are declarations — the block above already pins
+// that shape (`COLLIDING`), under the mechanism itself rather than under two
+// spellings of the same "an import brought a local" story.
 
 describe("a contestant that binds nothing in JavaScript is no contestant", () => {
-  // A **type-only** named import crosses in the `.d.ts` and nowhere else: the
-  // emitted `import { }` line drops it, so there is no second binding of the
-  // spelling and nothing for the alias to move away from. The three shapes are
-  // the three ways a name arrives type-only — an imported `type` alias, an
-  // imported opaque record's type, an imported union's type name — and each is
-  // measured against the same program with the same alias, so what the pin
-  // reads is the whole of the difference.
+  // A **type** declaration crosses in the `.d.ts` and nowhere else: it never
+  // emits a JavaScript binding, so it is not a second binding of the spelling
+  // and there is nothing for the alias to move away from. #762 retired the
+  // three ways a *named import* used to arrive type-only (a type alias, an
+  // opaque record's type, a union's type name) — every one of them was a
+  // distinction the old resolver's import machinery drew and the checker's
+  // JS-binding count then had to answer for separately. Modules §3.2's own
+  // replacement, a local `type` alias (rule 2), collapses all three into one
+  // declaration shape that erases at emission regardless of what it names —
+  // so one pin now carries what three did.
   const LIB = ["/lib.hex", "export fun twice(n: Int): Int = n + n\n"] as const;
+  const TYPES = ["/types.hex", "export type Lib = Int\n"] as const;
 
-  test("an imported `type` alias leaves the alias alone", () => {
-    expect(javascript([LIB, ["/types.hex", "export type Lib = Int\n"], [
+  test("a same-spelled `type` alias leaves the alias alone", () => {
+    expect(javascript([LIB, TYPES, [
       "/main.hex",
-      'import module Lib from "./lib"\n' +
-        'import { Lib } from "./types"\n' +
+      'import Lib from "./lib"\n' +
+        'import Types from "./types"\n' +
+        "type Lib = Types.Lib\n" +
         "export let four: Lib = Lib.twice(2)\n",
     ]])).toBe(
       'import * as Lib from "./lib.js";\n' +
+        'import * as Types from "./types.js";\n' +
         "const four = Lib.twice(2);\n" +
         "export { four };\n",
     );
   });
 
-  test("an imported opaque record's type leaves the alias alone", () => {
-    expect(javascript([LIB, ["/op.hex",
-      "opaque record Lib = {n: Int}\n" +
-        "export fun make(n: Int): Lib = Lib({n = n})\n",
-    ], [
+  test("the control: a declared record does move it", () => {
+    // Same alias, same shape, and now the module binds a JavaScript name at
+    // the spelling. Without this the pin above would pass on an emitter that
+    // had simply stopped renaming.
+    expect(javascript([LIB, [
       "/main.hex",
-      'import module Lib from "./lib"\n' +
-        'import { Lib, make } from "./op"\n' +
-        "export let one: Lib = make(1)\n" +
-        "export let four: Int = Lib.twice(2)\n",
-    ]])).toBe(
-      'import * as Lib from "./lib.js";\n' +
-        'import { make } from "./op.js";\n' +
-        "const one = make(1);\n" +
-        "const four = Lib.twice(2);\n" +
-        "export { one };\n" +
-        "export { four };\n",
-    );
-  });
-
-  test("an imported union's type name leaves the alias alone", () => {
-    expect(javascript([LIB, ["/u.hex", "export union Lib =\n    | Red\n    | Blue\n"], [
-      "/main.hex",
-      'import module Lib from "./lib"\n' +
-        'import { Lib, Red } from "./u"\n' +
-        "export let colour: Lib = Red\n" +
-        "export let four: Int = Lib.twice(2)\n",
-    ]])).toBe(
-      'import * as Lib from "./lib.js";\n' +
-        'import { Red } from "./u.js";\n' +
-        "const colour = Red;\n" +
-        "const four = Lib.twice(2);\n" +
-        "export { colour };\n" +
-        "export { four };\n",
-    );
-  });
-
-  test("the control: an imported record constructor does move it", () => {
-    // Same alias, same three lines of shape, and the import now brings a name
-    // the emitted line really binds. Without this the three cases above would
-    // pass on an emitter that had simply stopped renaming.
-    expect(javascript([LIB, ["/other.hex", "export record Lib = {n: Int}\n"], [
-      "/main.hex",
-      'import module Lib from "./lib"\n' +
-        'import { Lib } from "./other"\n' +
+      'import Lib from "./lib"\n' +
+        "export record Lib = {n: Int}\n" +
         "export let boxed: Int = (Lib({n = 3})).n\n" +
         "export let four: Int = Lib.twice(2)\n",
-    ]])).toBe(
-      'import * as Lib_1 from "./lib.js";\n' +
-        'import { Lib } from "./other.js";\n' +
-        "const boxed = { n: 3 }.n;\n" +
-        "const four = Lib_1.twice(2);\n" +
-        "export { boxed };\n" +
-        "export { four };\n",
-    );
+    ]])).toContain('import * as Lib_1 from "./lib.js";');
   });
 
-  test("the type-only import cancels itself, never another binding's claim", async () => {
+  test("the type alias cancels itself, never a union constructor's claim", async () => {
     // The subtraction is per *occurrence*, not by name. Here the spelling is
-    // claimed twice — once by the type-only import, which binds nothing, and
-    // once by this module's own union constructor, which binds a `const` — so
-    // removing the type-only claim must leave the constructor's standing and
-    // the alias must still move.
+    // claimed twice — once by the type alias, which binds nothing, and once by
+    // this module's own union constructor, which binds a `const` — so
+    // removing the type alias's claim must leave the constructor's standing
+    // and the alias must still move.
     //
     // Delete by name instead and this program emits `import * as Lib` beside
     // `const Lib = …` and never loads: #569's own failure, restored by the
     // simplification the reader reaches for first. Hence the load, and hence
     // the load running before the text is read.
-    //
-    // A union constructor is one of the three partners the checker allows in
-    // this position; an exception of the spelling and a value import of it are
-    // the others. The shapes a reader would try first are refused outright —
-    // a type-only `Lib` beside a *declared* `record Lib`, or two type-only
-    // imports of `Lib`, are both "type `Lib` is already declared or imported".
-    const files = [LIB, ["/types.hex", "export type Lib = Int\n"], [
+    const files = [LIB, TYPES, [
       "/main.hex",
-      'import module Lib from "./lib"\n' +
-        'import { Lib } from "./types"\n' +
+      'import Lib from "./lib"\n' +
+        'import Types from "./types"\n' +
+        "type Lib = Types.Lib\n" +
         "export union Colour =\n    | Lib(n: Int)\n    | Other\n" +
         "export fun level(c: Colour): Int =\n" +
         "    match c\n" +
@@ -266,43 +195,18 @@ describe("a contestant that binds nothing in JavaScript is no contestant", () =>
     expect(main.five).toBe(5);
     const emitted = javascript(files);
     expect(emitted).toContain('import * as Lib_1 from "./lib.js";');
-    expect(emitted).toContain('const Lib = n => ({ tag: "Lib", n });');
     expect(emitted).toContain("const four = Lib_1.twice(2);");
   });
 
-  test("a type-only import renamed onto the alias spelling leaves it alone", () => {
-    // The local is what the emitted line would have bound, so the local is what
-    // is subtracted — reading the *imported* name here would look right and
-    // cancel nothing, putting finding 1's defect back in the `as` shape. This
-    // is the only case that tells the two fields apart.
-    expect(javascript([LIB, ["/types.hex", "export type Thing = Int\n"], [
-      "/main.hex",
-      'import module Lib from "./lib"\n' +
-        'import { Thing as Lib } from "./types"\n' +
-        "export let four: Lib = Lib.twice(2)\n",
-    ]])).toBe(
-      'import * as Lib from "./lib.js";\n' +
-        "const four = Lib.twice(2);\n" +
-        "export { four };\n",
-    );
-  });
-
-  test("the control: a value renamed onto the alias spelling still moves it", () => {
-    expect(javascript([LIB, ["/types.hex", "export record Other = {n: Int}\n"], [
-      "/main.hex",
-      'import module Lib from "./lib"\n' +
-        'import { Other as Lib } from "./types"\n' +
-        "export let boxed: Int = (Lib({n = 3})).n\n" +
-        "export let four: Int = Lib.twice(2)\n",
-    ]])).toBe(
-      'import * as Lib_1 from "./lib.js";\n' +
-        'import { Other as Lib } from "./types.js";\n' +
-        "const boxed = { n: 3 }.n;\n" +
-        "const four = Lib_1.twice(2);\n" +
-        "export { boxed };\n" +
-        "export { four };\n",
-    );
-  });
+  // #762 also retired "a named import renamed onto the alias spelling still
+  // moves it" (a value import's `as` landing on the alias's own spelling).
+  // There is no seat left for it: an uppercase-start head in `let`'s binding
+  // position is a constructor pattern (Patterns §…), never a fresh value
+  // binding, so a plain value can no longer be bound under an uppercase
+  // spelling at all — module alias or not. "The control: a declared record
+  // does move it" above already carries the property this pin existed to add
+  // (a same-spelled binding that *does* emit JavaScript still moves the
+  // alias) through the one uppercase-binding shape that remains legal.
 });
 
 describe("the suffix probes past what the module already binds", () => {
@@ -314,8 +218,8 @@ describe("the suffix probes past what the module already binds", () => {
     // which is why the load is what this pin asserts.
     const files = [POINT, ["/point1.hex", "export fun twice(n: Int): Int = n + n\n"], [
       "/main.hex",
-      'import module Point from "./point"\n' +
-        'import module Point_1 from "./point1"\n' +
+      'import Point from "./point"\n' +
+        'import Point_1 from "./point1"\n' +
         "export record Point = {n: Int}\n" +
         "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n" +
         "export let four: Int = Point_1.twice(2)\n",
@@ -334,7 +238,7 @@ describe("the suffix probes past what the module already binds", () => {
   test("an occupied `_1` is stepped over", async () => {
     const files = [POINT, [
       "/main.hex",
-      'import module Point from "./point"\n' +
+      'import Point from "./point"\n' +
         "export record Point = {n: Int}\n" +
         "export record Point_1 = {k: Int}\n" +
         "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n",
@@ -358,7 +262,7 @@ describe("an exception declaration contests the spelling too", () => {
     const files = [
       ["/boom.hex", "export fun twice(n: Int): Int = n + n\n"],
       ["/main.hex",
-        'import module Boom from "./boom"\n' +
+        'import Boom from "./boom"\n' +
           "exception Boom(reason: String)\n" +
           "export fun caught(): String =\n" +
           "    try\n" +
@@ -389,7 +293,7 @@ describe("every qualified use the alias serves follows it", () => {
     const files = [
       ["/shape.hex", "export union Shape =\n    | Circle(r: Float)\n    | Square(s: Float)\n"],
       ["/main.hex",
-        'import module Shape from "./shape"\n' +
+        'import Shape from "./shape"\n' +
           "export record Shape = {n: Int}\n" +
           "export fun radius(s: Shape.Shape): Float =\n" +
           "    match s\n" +

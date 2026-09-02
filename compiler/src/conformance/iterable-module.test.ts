@@ -288,16 +288,6 @@ describe("the qualified spellings survive the retirement (Modules §5.3)", () =>
       "export let main(): Int = Seq.length(Map.toSeq([1, 2]))\n",
     )).not.toEqual([]);
   });
-
-  /**
-   * The name is no longer importable from the companion, which is the same fact
-   * the surface tests state from the export side.
-   */
-  test("`toSeq` cannot be imported from a companion", () => {
-    expect(messagesOf([
-      ["/main.hex", 'import { toSeq } from "./Vector"\nexport let main(): Int = 1\n'],
-    ])).toContain("module `./Vector` does not export `toSeq`");
-  });
 });
 
 describe("occlusion (Modules §5.4, per Part 5 §2.3)", () => {
@@ -339,8 +329,8 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
     expect(messagesOf([
       ["/app/bag.hex", BAG],
       ["/app/main.hex",
-        'import { Bag, Empty } from "./bag"\n' +
-          "let bag: Bag(Int) = Empty\n" +
+        'import Bag from "./bag"\n' +
+          "let bag: Bag(Int) = Bag.Empty\n" +
           "export fun run(): Unit =\n" +
           "    for item in bag\n" +
           "        ()\n",
@@ -361,8 +351,8 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
    */
   test("the declaring file is named relative to the module doing the iterating", () => {
     const iterate = (specifier: string): string =>
-      `import { Bag, Empty } from "${specifier}"\n` +
-      "let bag: Bag(Int) = Empty\n" +
+      `import Bag from "${specifier}"\n` +
+      "let bag: Bag(Int) = Bag.Empty\n" +
       "export fun run(): Unit =\n" +
       "    for item in bag\n" +
       "        ()\n";
@@ -405,7 +395,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
     const messages = messagesOf([
       ["/app/pair.hex", "export record Pair(left, right) = {first: left, second: right}\n"],
       ["/app/main.hex",
-        'import { Pair } from "./pair"\n' +
+        'import Pair from "./pair"\n' +
           'let pair: Pair(Int, String) = Pair({first = 1, second = "a"})\n' +
           "export fun run(): Unit =\n" +
           "    for item in pair\n" +
@@ -424,7 +414,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
     expect(messagesOf([
       ["/app/widget.hex", "export record Widget = {size: Int}\n"],
       ["/app/main.hex",
-        'import { Widget } from "./widget"\n' +
+        'import Widget from "./widget"\n' +
           "let widget: Widget = Widget({size = 1})\n" +
           "export fun run(): Unit =\n" +
           "    for item in widget\n" +
@@ -448,13 +438,13 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
     expect(messagesOf([
       ["/app/lib/bag.hex", BAG],
       ["/app/middle.hex",
-        'import { Bag, Empty } from "./lib/bag"\n' +
-          "export fun make(): Bag(Int) = Empty\n",
+        'import Bag from "./lib/bag"\n' +
+          "export fun make(): Bag(Int) = Bag.Empty\n",
       ],
       ["/app/src/main.hex",
-        'import { make } from "../middle"\n' +
+        'import Middle from "../middle"\n' +
           "export fun run(): Unit =\n" +
-          "    for item in make()\n" +
+          "    for item in Middle.make()\n" +
           "        ()\n",
       ],
     ]).join("\n")).toContain(

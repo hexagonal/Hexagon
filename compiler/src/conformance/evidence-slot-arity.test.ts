@@ -67,8 +67,8 @@ describe("two constrained variables at one type keep two slots", () => {
         ["/pair.hex", SHOW_PAIR],
         [
           "/main.hex",
-          'import { pair } from "./pair"\n' +
-            "export let answer: String = pair(2, 3)\n",
+          'import Pair from "./pair"\n' +
+            "export let answer: String = Pair.pair(2, 3)\n",
         ],
       ],
       { transform: distinct("evidence slot arity: imported pair") },
@@ -100,14 +100,14 @@ describe("two constrained variables at one type keep two slots", () => {
       ["/pair.hex", SHOW_PAIR],
       [
         "/main.hex",
-        'import { Point } from "./point"\n' +
-          'import { pair } from "./pair"\n' +
-          "export let answer: String = pair(Point({x = 1}), Point({x = 2}))\n",
+        'import Point from "./point"\n' +
+          'import Pair from "./pair"\n' +
+          "export let answer: String = Pair.pair(Point.Point({x = 1}), Point.Point({x = 2}))\n",
       ],
     ]);
 
     expect(javascript).toContain(
-      "const answer = pair({ x: 1 }, { x: 2 }, __Show_Point, __Show_Point);",
+      "const answer = __pair({ x: 1 }, { x: 2 }, __Show_Point, __Show_Point);",
     );
   });
 
@@ -196,8 +196,8 @@ describe("routing, once the arity is right", () => {
       ["/pair.hex", SHOW_PAIR],
       [
         "/main.hex",
-        'import { pair } from "./pair"\n' +
-          "export let answer: String = pair(2, 3)\n",
+        'import Pair from "./pair"\n' +
+          "export let answer: String = Pair.pair(2, 3)\n",
       ],
     ]);
 
@@ -211,9 +211,9 @@ describe("routing, once the arity is right", () => {
         ["/pair.hex", SHOW_PAIR],
         [
           "/main.hex",
-          'import { pair } from "./pair"\n' +
-            "export let cartesian: String = pair(1, \"x\")\n" +
-            "export let repeated: String = pair(2, 3)\n",
+          'import Pair from "./pair"\n' +
+            "export let cartesian: String = Pair.pair(1, \"x\")\n" +
+            "export let repeated: String = Pair.pair(2, 3)\n",
         ],
       ],
       { transform: distinct("evidence slot arity: routed editions") },
@@ -235,13 +235,13 @@ describe("evidence threaded from an enclosing polymorphic body", () => {
       ["/pair.hex", SHOW_PAIR],
       [
         "/main.hex",
-        'import { pair } from "./pair"\n' +
-          "export let half<b: Show>(y: b): String = pair(1, y)\n",
+        'import Pair from "./pair"\n' +
+          "export let half<b: Show>(y: b): String = Pair.pair(1, y)\n",
       ],
     ]);
 
     expect(javascript).toMatch(
-      /const half = \(y, (__Show_a)\) => pair\(1, y, __Show_Int, \1\);/u,
+      /const half = \(y, (__Show_a)\) => __pair\(1, y, __Show_Int, \1\);/u,
     );
   });
 
@@ -255,13 +255,13 @@ describe("evidence threaded from an enclosing polymorphic body", () => {
       ["/pair.hex", SHOW_PAIR],
       [
         "/main.hex",
-        'import { pair } from "./pair"\n' +
-          "export let twin<b: Show>(y: b): String = pair(y, y)\n",
+        'import Pair from "./pair"\n' +
+          "export let twin<b: Show>(y: b): String = Pair.pair(y, y)\n",
       ],
     ]);
 
     expect(javascript).toMatch(
-      /const twin = \(y, (__Show_a)\) => pair\(y, y, \1, \1\);/u,
+      /const twin = \(y, (__Show_a)\) => __pair\(y, y, \1, \1\);/u,
     );
   });
 
@@ -271,8 +271,8 @@ describe("evidence threaded from an enclosing polymorphic body", () => {
         ["/pair.hex", SHOW_PAIR],
         [
           "/main.hex",
-          'import { pair } from "./pair"\n' +
-            "let twin<b: Show>(y: b): String = pair(y, y)\n" +
+          'import Pair from "./pair"\n' +
+            "let twin<b: Show>(y: b): String = Pair.pair(y, y)\n" +
             'export let answer: String = twin("q")\n',
         ],
       ],

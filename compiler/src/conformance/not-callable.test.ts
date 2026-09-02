@@ -351,9 +351,13 @@ fun
     // What stays pinned is the boundary the split has to keep either way: this
     // is the exception arm and not the union-constructor one, so no fixit
     // deleting the `()` rides along — that offer belongs to §2.2's hint.
+    //
+    // No import binds `Missing` any more (#762); the alias spelled `Missing`
+    // reaches it bare through rule 3's same-spelled-alias fallback (§3.2)
+    // instead, which is what "imported" now means for a nullary constructor.
     const compiled = compileFiles([
       ["/lib.hex", "export exception Missing\n"],
-      ["/main.hex", 'import { Missing } from "./lib"\nexport let bad: Exn = Missing()\n'],
+      ["/main.hex", 'import Missing from "./lib"\nexport let bad: Exn = Missing()\n'],
     ]);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "`Missing` is a value, not a function; write it without `()`",
@@ -366,7 +370,13 @@ fun
     // does; this is the only pin on that channel, and on the fixit landing in
     // the file the call was written in — `AnalysisSession` drops a code action
     // whose file does not resolve, silently.
-    const mainSource = 'import { Colour, Red } from "./lib"\nexport let bad: Colour = Red()\n';
+    //
+    // Two aliases over the one module (#762, rule 3): `Colour` reaches the
+    // type bare, `Red` reaches the constructor bare — the same trick
+    // `companion-fallback.test.ts` and `qualified-exception-patterns.test.ts`
+    // use to keep one imported name's bare spelling under test.
+    const mainSource =
+      'import Colour from "./lib"\nimport Red from "./lib"\nexport let bad: Colour = Red()\n';
     const compiled = compileFiles([
       ["/lib.hex", "export union Colour = Red | Mixed(Int)\n"],
       ["/main.hex", mainSource],

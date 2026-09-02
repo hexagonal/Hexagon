@@ -605,8 +605,10 @@ describe("the constructor channel: the open unions only", () => {
 
   /**
    * `Ordering` is not an open union (ruling 2: `<`, `==` and `>` already carry
-   * the comparison vocabulary), so its three constructors are qualified-only —
-   * and §10 gives the refusal **one shape for both positions**.
+   * the comparison vocabulary), so its three constructors are qualified-only in
+   * *expression* position — §10's refusal. #763's door reaches them bare in a
+   * pattern regardless, exactly as it reaches any other union's constructors
+   * (pinned below); the qualified spelling stays legal there too.
    */
   test("`Ordering`'s constructors are qualified in both positions", async () => {
     expect(projectDiagnostics(
@@ -629,7 +631,12 @@ describe("the constructor channel: the open unions only", () => {
     expect([main["below"], main["above"]]).toEqual([-1, 1]);
   });
 
-  test("and the bare spellings are refused, in the same words, in both positions", () => {
+  test("the bare spelling is refused in expression position; #763's door reaches it in a pattern", () => {
+    // §10's "both positions" is no longer one refusal: #763 gave a pattern's
+    // head a door — scope, then the pattern's expected type — and the door
+    // reaches every union alike, including a prelude qualified-only one, so
+    // `Less` bare in a `match` over `Ordering` now resolves through it. There
+    // is no expression-side door, so the expression position is unchanged.
     expect(projectDiagnostics("export let a: Ordering = Less\n"))
       .toEqual(["no bare `Less`; write `Ordering.Less`"]);
     expect(projectDiagnostics(
@@ -637,7 +644,7 @@ describe("the constructor channel: the open unions only", () => {
       "    match o\n" +
       "        Less => -1\n" +
       "        _ => 0\n",
-    )[0]).toBe("no bare `Less`; write `Ordering.Less`");
+    )).toEqual([]);
   });
 
   /**
@@ -654,15 +661,18 @@ describe("the constructor channel: the open unions only", () => {
    * (`spec/ffi.md` §12 reduced to a note), and they draw §5.5's refusal rather
    * than the bare `unknown constructor` they drew before.
    */
-  test("the boundary unions' constructors draw the refusal, not an unknown name", () => {
+  test("the boundary unions' constructors draw the refusal in expression position; the door reaches them in a pattern", () => {
     expect(projectDiagnostics("export let k: JsKind = Null\n"))
       .toEqual(["no bare `Null`; write `JsKind.Null`"]);
+    // #763's door reaches a prelude qualified-only constructor the same way it
+    // reaches a project one — `JsKind.Null` bare over a `JsKind` is the
+    // brief's own example.
     expect(projectDiagnostics(
       "export fun f(k: JsKind): Int =\n" +
       "    match k\n" +
       "        Null => 1\n" +
       "        _ => 0\n",
-    )[0]).toBe("no bare `Null`; write `JsKind.Null`");
+    )).toEqual([]);
     expect(projectDiagnostics("export let r: JsConversionReason = Shape\n"))
       .toEqual(["no bare `Shape`; write `JsConversionReason.Shape`"]);
   });
@@ -671,12 +681,16 @@ describe("the constructor channel: the open unions only", () => {
   test("an unknown name keeps its own message", () => {
     expect(projectDiagnostics("export let n: Int = frobnicate\n"))
       .toEqual(["unknown name `frobnicate`"]);
+    // #763: the pattern's expected type is known here (`Option(Int)`, from the
+    // scrutinee) and its constructor set lacks the spelling, so the door's
+    // closed-door refusal fires — naming the type, not the bare
+    // "unknown constructor" a pattern with no determined expected type draws.
     expect(projectDiagnostics(
       "export fun f(o: Option(Int)): Int =\n" +
       "    match o\n" +
       "        Frobnicate => 1\n" +
       "        _ => 0\n",
-    )[0]).toBe("unknown constructor `Frobnicate`");
+    )[0]).toBe("`Option(Int)` has no constructor `Frobnicate`");
   });
 });
 

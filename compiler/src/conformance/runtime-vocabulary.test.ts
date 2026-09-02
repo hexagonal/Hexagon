@@ -327,62 +327,39 @@ describe("the two `SyntaxError` classes — the module never parsed at all", () 
     expect(exports["arguments"]).toBe(8);
   });
 
-  test("`import { await }` aliases its local, and every reference follows", async () => {
-    // The rename's missing leg (§1.2 rule 4): the export seat already renamed,
-    // so `export let await` emitted correctly while `import { await }` emitted
-    // the spelling verbatim and the *importer* failed to parse.
-    const FILES = [
-      ["/lib.hex", "export let await: Int = 4\n"],
-      ["/main.hex", 'import { await } from "./lib"\nexport let n: Int = await + 1\n'],
-    ] as const;
-
-    expect(javascript(FILES)).toBe(
-      'import { await as __binding0 } from "./lib.js";\n' +
-        "const n = __binding0 + 1;\n" +
-        "export { n };\n",
-    );
-
-    const exports = await runProject(FILES);
-    expect(exports["n"]).toBe(5);
-  });
+  // `import { await }` — the rename's former missing leg (§1.2 rule 4) — is
+  // retired outright by #762 rather than re-aimable: the sole import form
+  // binds a mandatory uppercase-start module alias, which by Lexer §3.2's own
+  // case split can never collide with a lowercase JavaScript reserved word,
+  // so no import can introduce a hazardous local again. The Modules §3.2
+  // respelling that reaches `await` bare — `let await = Lib.await` — is not a
+  // new leg either: it is an ordinary declaration binding the name `await`,
+  // the same rename path `export let eval` and `export let arguments` already
+  // pin below.
 });
 
-describe("the trigger's two cross-module legs", () => {
-  test("a named import's local contests, and the importer qualifies", async () => {
-    // Import locals capture exactly like declarations: `import { Error }` binds
-    // `Error` in the *importing* module, where the helper lives. The import
-    // itself keeps working — Part 1 §10 again — and the exporting module
-    // qualifies on its own account.
-    const FILES = [
-      ["/lib.hex", "export record Error = {code: Int}\n"],
-      ["/main.hex", 'import { Error } from "./lib"\n' +
-        "exception Boom(value: Int)\n" +
-        "export let raise(): Int = throw(Boom(3))\n" +
-        "export let mine: Int = 1\n"],
-    ] as const;
-    const text = javascript(FILES);
-
-    expect(text).toContain('import { __Error } from "./hex.js";');
-    expect(text).toContain("new __Error(__message)");
-    expect(text).toContain('import { Error } from "./lib.js";');
-
-    const exports = await runProject(FILES);
-    expect(thrown(exports["raise"] as () => number)).toMatchObject({
-      name: "Boom",
-      isError: true,
-    });
-  });
-
-  test("a namespace alias contests too — the leg on which the two rules diverge", async () => {
+// Pre-#762 this held two legs — a named import's local (`import { Error }`,
+// binding `Error` verbatim) and a module alias (`import Error`,
+// lowering to `import * as Error`) — because the two forms landed in
+// JavaScript differently and only one of them read as a TypeScript namespace
+// import. #762 leaves exactly the second shape: every import is a module
+// alias, always `import * as Alias`, so the two legs are one. The alias
+// remains a live trigger leg in its own right, because an alias's spelling is
+// the module's own uppercase-start choice and can still land on a vocabulary
+// word — that is what the surviving test below measures. A named import's
+// distinct JavaScript shape has no seat left to re-aim: nothing in the
+// grammar emits `import { X }` for a user-chosen local any more.
+describe("the trigger's cross-module leg", () => {
+  test("an alias contests too — the leg a namespace import sits on", async () => {
     // Named in §1.2's trigger deliberately, against §1.1's grain: `import
-    // module Error` lowers to `import * as Error`, which occupies JavaScript's
-    // value-name space like any binding, where a TypeScript namespace import
-    // leaves the plain type-name space alone (§1.1's measured control). The
-    // alias keeps its own spelling; what steps aside is the compiler's
-    // reference.
+    // Error from "./lib"` lowers to `import * as Error`, which occupies
+    // JavaScript's value-name space like any binding, where a TypeScript
+    // namespace import leaves the plain type-name space alone (§1.1's
+    // measured control). The alias keeps its own spelling; what steps aside
+    // is the compiler's reference.
     const FILES = [
       ["/lib.hex", "export let zero: Int = 0\n"],
-      ["/main.hex", 'import module Error from "./lib"\n' +
+      ["/main.hex", 'import Error from "./lib"\n' +
         "exception Boom(value: Int)\n" +
         "export let raise(): Int = throw(Boom(3))\n" +
         "export let z: Int = Error.zero\n"],
@@ -414,25 +391,28 @@ describe("the trigger's two cross-module legs", () => {
 
 describe("the minted-local negative — the trigger reads source bindings only", () => {
   test("a companion operation named `undefined` aliases, and Unit stays `undefined`", async () => {
-    // §1.2 rule 1: the minted import local is the one compiler-chosen `.js`
-    // spelling that can mirror an export's, so the vocabulary and the reserved
-    // words join its probe. A companion export named `undefined` is legal
-    // Hexagon, and a dot call reaches it with no import of its own to name it.
+    // A companion export named `undefined` is legal Hexagon, and a dot call
+    // reaches it through the record's own module alias — `Box` here, doing
+    // double duty as the bare type (rule 2's companion fallback) and the
+    // namespace `b.undefined()` lowers into. `Box.undefined` is a *member*
+    // access, never an identifier binding, so the hazard pre-#762's dot call
+    // routed around — a private import minted just to carry the spelling
+    // safely — has no seat to land on any more: #762's alias is already a
+    // safe reference, for every spelling alike.
     //
-    // The second half is what makes this the *negative*: rule 1's aliasing runs
-    // after rule 2's trigger and puts nothing into it, so this module — which
-    // binds no vocabulary spelling of its own — keeps `undefined` for Unit.
+    // What the test still pins, and the reason it survives as a *negative*:
+    // this module binds no vocabulary spelling of its own, so it keeps
+    // `undefined` for Unit.
     const FILES = [
       ["/lib.hex", "export record Box = {n: Int}\nexport let undefined(b: Box): Int = b.n\n"],
-      ["/main.hex", 'import { Box } from "./lib"\n' +
+      ["/main.hex", 'import Box from "./lib"\n' +
         "export let use(b: Box): Int = b.undefined()\n" +
         "export let unit(): Unit = ()\n"],
     ] as const;
 
     expect(javascript(FILES)).toBe(
-      'import { undefined as __undefined } from "./lib.js";\n' +
-        'import { Box } from "./lib.js";\n' +
-        "const use = b => __undefined(b);\n" +
+      'import * as Box from "./lib.js";\n' +
+        "const use = b => Box.undefined(b);\n" +
         "const unit = () => undefined;\n" +
         "export { use };\n" +
         "export { unit };\n",
@@ -444,13 +424,15 @@ describe("the minted-local negative — the trigger reads source bindings only",
   });
 
   /**
-   * The second minted channel, and the one that reaches furthest: importing a
-   * constraint puts every member in scope (Modules §3.1), so a polymorphic call
-   * of a member binds a local under the member's own spelling in a module that
-   * named only the constraint. Both hazard classes are live there, and both were
-   * measured before the probe: `undefined` gave the importing module a local
-   * that every Unit in it then read, and `eval` gave it a binding strict mode
-   * refuses — a module that never parsed.
+   * The second minted channel, and the one that reaches furthest: a
+   * constraint member is always reached through the alias now (Modules §3.2:
+   * `Boxy.${member}(x)`), even inside a function polymorphic over the
+   * constraint — and the generic dispatcher that call compiles to is named
+   * `__` + the member's own spelling, never the bare spelling. Both hazard
+   * classes are exercised here to pin that the dispatcher's own name needs no
+   * further rename on either: `__undefined` and `__eval` are already safe
+   * JavaScript identifiers, so nothing about reaching them contests the
+   * importing module's own vocabulary.
    */
   const CONSTRAINT = (member: string): readonly (readonly [string, string])[] => [
     ["/lib.hex", [
@@ -463,8 +445,8 @@ describe("the minted-local negative — the trigger reads source bindings only",
       "",
     ].join("\n")],
     ["/main.hex", [
-      'import { Boxy } from "./lib"',
-      `export let twice<a: Boxy>(x: a): Int = ${member}(x) + ${member}(x)`,
+      'import Boxy from "./lib"',
+      `export let twice<a: Boxy>(x: a): Int = Boxy.${member}(x) + Boxy.${member}(x)`,
       "export let unit(): Unit = ()",
       "",
     ].join("\n")],
@@ -473,7 +455,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
   test("a constraint member named `undefined`, called polymorphically", async () => {
     const text = javascript(CONSTRAINT("undefined"));
 
-    expect(text).toContain('import { __undefined as __binding0 } from "./lib.js";');
+    expect(text).toContain('import { __undefined } from "./lib.js";');
     // The importer binds no vocabulary spelling of its own, so its Unit is bare.
     expect(text).toContain("const unit = () => undefined;");
 
@@ -500,9 +482,9 @@ describe("the minted-local negative — the trigger reads source bindings only",
   test("a constraint member named `eval`, on both sides of the import", async () => {
     const text = javascript(CONSTRAINT("eval"));
 
-    expect(text).toContain('import { __eval as __binding0 } from "./lib.js";');
+    expect(text).toContain('import { __eval } from "./lib.js";');
     // The declaring module's own forwarder took the rename at its export seat,
-    // which the emitter already did; this is the importer's missing leg.
+    // which the emitter already did; the import above is the reading leg.
     expect(javascript(CONSTRAINT("eval"), "/lib.hex")).toContain(
       "export { __binding0 as __eval };",
     );
@@ -540,18 +522,19 @@ describe("the minted-local negative — the trigger reads source bindings only",
   });
 
   test("a minted local is subtracted from the trigger, so the importer stays uncontested", () => {
-    // Rule 1 and rule 2 read together. A constraint member named `console` puts
-    // the spelling into `moduleLevelBindings` through the import line, but rule 1
-    // has already decided that the minted local does not take it — so the
-    // *source* quantity rule 2 reads does not contain it either, and the
-    // importing module owes the runtime module nothing.
+    // Rule 1 and rule 2 read together, on the reach a qualified reference has
+    // now: `Lib.console` puts the *routed* internal local `__Boxy_Box_console`
+    // into the importer, and rule 1 has already decided that name does not
+    // mirror the hazard spelling — so the *source* quantity rule 2 reads never
+    // contains bare `console` either, and the importing module owes the
+    // runtime module nothing.
     //
-    // Left in, the module emitted `import { __console } from "./hex.js";` and
-    // referenced `__console` nowhere: an import line that is not the manifest
-    // §1.2 says it is, and an uncontested module that is no longer
-    // byte-identical. Measured, and the reach is `console` alone — a member is a
-    // term, so non-uppercase-start, and `undefined` is settled by the
-    // function-scope symbol check that an imported member never reaches.
+    // Left in, the module would emit `import { __console } from "./hex.js";`
+    // and reference `__console` nowhere: an import line that is not the
+    // manifest §1.2 says it is, and an uncontested module that is no longer
+    // byte-identical. Measured, and the reach is `console` alone — a member is
+    // a term, so non-uppercase-start, and `undefined` is settled by the
+    // function-scope symbol check that a routed member never reaches.
     const FILES = [
       ["/lib.hex", [
         "export constraint Boxy<a> =",
@@ -563,8 +546,8 @@ describe("the minted-local negative — the trigger reads source bindings only",
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import { Boxy, Box } from "./lib"',
-        "export let use(b: Box): Int = console(b)",
+        'import Lib from "./lib"',
+        "export let use(b: Lib.Box): Int = Lib.console(b)",
         "export let unit(): Unit = ()",
         "",
       ].join("\n")],
@@ -574,7 +557,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     expect(text).not.toContain("hex.js");
     expect(text).toBe(
       'import { __Boxy_Box_console } from "./lib.js";\n' +
-        'import { Box } from "./lib.js";\n' +
+        'import * as Lib from "./lib.js";\n' +
         'import { __Boxy_Box } from "./lib.js";\n' +
         "const use = b => __Boxy_Box_console(b);\n" +
         "const unit = () => undefined;\n" +
@@ -611,7 +594,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
         "",
       ].join("\n")],
       ["/main.hex", [
-        'import module Lib from "./lib"',
+        'import Lib from "./lib"',
         `export let use(b: Lib.Box): Int = Lib.${member}(b)`,
         "export let unit(): Unit = ()",
         "",

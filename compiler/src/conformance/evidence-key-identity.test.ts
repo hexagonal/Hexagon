@@ -229,7 +229,7 @@ const DECLARED_MODULE = [
 ].join("\n");
 
 const MAIN_MODULE = [
-  'import { Describe, tell, Pair } from "./declared"',
+  'import Declared from "./declared"',
   "export record Point derives (Eq, Ord, Show, Hash) = {x: Int, y: Int}",
   "export let shownPair: String = show((1, 2))",
   'export let interpolated: String = "pair ${(3, 4)}"',
@@ -251,8 +251,8 @@ const MAIN_MODULE = [
   "export fun hashed<a: Hash>(x: a): Int = Hash.hash(x)",
   "export fun joined<a: Concat>(x: a, y: a): a = x ++ y",
   "let one: Int = 1",
-  "export let told: String = tell(one)",
-  "export let toldPair: String = tell(Pair({left = one, right = True}))",
+  "export let told: String = Declared.tell(one)",
+  "export let toldPair: String = Declared.tell(Declared.Pair({left = one, right = True}))",
   "export let point: Point = Point({x = 1, y = 2})",
   "export let pointShown: String = show(point)",
   "export let pointsEqual: Bool = point == point",
@@ -269,8 +269,16 @@ describe("the live name-reads see pre-registered names only", () => {
     PRE_REGISTERED_CONSTRAINTS.some((name) => identity === `hex:${name}`);
 
   test("the corpus compiles clean, and the walk finds it", () => {
-    // Both halves matter. A rejected program satisfies the pins below for free,
-    // and so does a discriminator that has stopped matching anything.
+    // `MAIN_MODULE`'s `Declared.tell(Declared.Pair({...}))` demands
+    // `Describe<Pair(Int, Bool)>` from *outside* `/declared.hex`; that instance
+    // is `honor<a: Describe, b: Describe> Describe<Pair(a, b)>`, whose own
+    // binder list in turn demands `Describe<Int>` and `Describe<Bool>` — two
+    // instances that live in the very same external module. Since #762 the
+    // caller has no bare spelling for `Describe` at all, so the binder's
+    // constraint travels by the identity it resolved to at home rather than
+    // being re-resolved against a word nothing here binds.
+    // Both halves matter otherwise. A rejected program satisfies the pins below
+    // for free, and so does a discriminator that has stopped matching anything.
     expect(compiled.diagnostics).toEqual([]);
     expect(rows.length).toBeGreaterThan(500);
     expect(rows.some(({ identity }) => identity === "0:Describe")).toBe(true);
@@ -330,6 +338,11 @@ describe("the live name-reads see pre-registered names only", () => {
    * determine a declaration.
    */
   test("a module-declared constraint reaches neither seat", () => {
+    // One identity across the corpus, which is the claim: a binder's constraint
+    // on an `honor` head travels by the identity it resolved to at home
+    // (#762 — the consumer has no spelling for the word), so a parameterized
+    // instance's own recursive demand unifies with every other occurrence
+    // instead of minting a rival.
     const declared = rows.filter(({ identity }) => !identity.startsWith("hex:"));
 
     expect(declared.length).toBeGreaterThan(0);
@@ -357,27 +370,20 @@ describe("what keeps a pre-registered name canonical", () => {
     )).toEqual(["constraint `Eq` is pre-registered and cannot be redeclared"]);
   });
 
-  /**
-   * The other door onto the name, and the one the ban would leave open if it
-   * were about declarations alone: an import renaming a declared constraint
-   * onto a pre-registered spelling. Refused as a collision, so no program has a
-   * `Describe` that a `#validate` gate reading `requirement.name` would take
-   * for `Eq`.
-   */
-  test("a pre-registered name cannot be imported onto", () => {
-    const declared = "export constraint Describe<a> =\n    describe(subject: a): String\n";
-
-    expect(compileFiles([
-      ["/lib.hex", declared],
-      [
-        "/main.hex",
-        'import { Describe as Eq } from "./lib"\n' +
-          "export fun tell<a: Eq>(x: a): String = describe(x)\n",
-      ],
-    ]).diagnostics.map(({ message }) => message)).toContain(
-      "constraint `Eq` is already declared or imported",
-    );
-  });
+  // "The other door onto the name" this file used to pin here — an import
+  // renaming a declared constraint onto a pre-registered spelling, refused as
+  // a collision — has no seat left under #762. An import binds a module alias
+  // and nothing smaller: it does not bind the constraint's name at all, renamed
+  // or otherwise, so there is no route left by which importing can put a
+  // second `Eq` in the constraint namespace. (A module alias *can* be spelled
+  // `Eq`, but the companion-fallback tests pin that a module alias and a
+  // constraint of the same spelling occupy different namespaces and do not
+  // collide — `companion-fallback.test.ts`'s "the module's own record wins,
+  // with no diagnostic at all" is the type-namespace instance of the same
+  // fact.) So the property this test pinned — that `#validate` never sees a
+  // module-declared constraint reading back as `Eq` — is now guaranteed by a
+  // stronger fact than a collision refusal: nothing an importer writes can
+  // bind a constraint name at all.
 
   /**
    * Why a declared constraint cannot reach the `S|` seat even where the gate

@@ -33,7 +33,14 @@ function emitted(
   return module.javascript.text;
 }
 
-describe("importing a constraint brings its members (Modules §3.1)", () => {
+describe("importing a constraint brings its module, and members reach through it (Modules §3.1, #762)", () => {
+  // #762 retired the named import that used to put `Label` and its member
+  // bare in this module's scope: an import binds the module and nothing
+  // smaller, so both the constraint (in a binder or `honor` head) and its
+  // member (in a call) are reached through the module alias — `Labels.Label`,
+  // `Labels.label`. What the describe block still measures — the forwarder
+  // and the seats an importer's uses reach — is unchanged underneath the
+  // spelling.
   const files = [
     ["/labels.hex", [
       "export constraint Label<a> =",
@@ -44,19 +51,19 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
       "",
     ].join("\n")],
     ["/main.hex", [
-      "import { Label } from \"./labels\"",
+      "import Labels from \"./labels\"",
       "",
       "record Room = {number: Int}",
       "",
-      "honor Label<Room> =",
+      "honor Labels.Label<Room> =",
       "    label(r) = \"room ${r.number}\"",
       "",
       "let four: Int = 4",
-      "export fun describeRoom(): String = label(Room({number = 12}))",
-      "export fun describeCount(): String = label(four)",
+      "export fun describeRoom(): String = Labels.label(Room({number = 12}))",
+      "export fun describeCount(): String = Labels.label(four)",
       // The polymorphic control: `a` is a type variable at the call, so this is
       // the one route that still reaches the forwarder (#444).
-      "export fun describeAny<a: Label>(x: a): String = label(x)",
+      "export fun describeAny<a: Labels.Label>(x: a): String = Labels.label(x)",
       "",
     ].join("\n")],
   ] as const;
@@ -77,8 +84,8 @@ describe("importing a constraint brings its members (Modules §3.1)", () => {
     // trailing suffix as it always did.
     expect(emitted(files, "/labels.hex")).toContain("export { label as __label };");
     const main = emitted(files, "/main.hex");
-    expect(main).toContain('import { __label as label } from "./labels.js";');
-    expect(main).toContain("return label(x, __Label_a);");
+    expect(main).toContain('import { __label } from "./labels.js";');
+    expect(main).toContain("return __label(x, __Label_a);");
     // The two concrete calls reach their instances' seats instead — the local
     // one by name, the imported one through the declaring module (§6.1).
     expect(main).toContain('import { __Label_Int_label } from "./labels.js";');
@@ -125,18 +132,33 @@ describe("an unexported constraint stays private", () => {
     "",
   ].join("\n");
 
+  // #762 retired the named import that used to name `Whisper`/`whisper`
+  // directly; the route left is the module alias's dot, and the "does not
+  // export" report is the same one Modules §3.3's qualifier already owns for
+  // any name a module does not hand out — a private constraint's name and its
+  // member alike.
   test("its name is not an export", () => {
     expect(messagesOf([
       ["/quiet.hex", home],
-      ["/main.hex", "import { Whisper } from \"./quiet\"\n\nexport fun go(): Int = 1\n"],
-    ])).toEqual(["module `./quiet` does not export `Whisper`"]);
+      ["/main.hex", [
+        'import Quiet from "./quiet"',
+        "",
+        "export fun go<a: Quiet.Whisper>(x: a): Int = 1",
+        "",
+      ].join("\n")],
+    ])).toEqual(["unknown constraint `Quiet.Whisper`"]);
   });
 
   test("neither is a member of it", () => {
     expect(messagesOf([
       ["/quiet.hex", home],
-      ["/main.hex", "import { whisper } from \"./quiet\"\n\nexport fun go(): Int = 2\n"],
-    ])).toEqual(["module `./quiet` does not export `whisper`"]);
+      ["/main.hex", [
+        'import Quiet from "./quiet"',
+        "",
+        "export let go: Int = Quiet.whisper(1)",
+        "",
+      ].join("\n")],
+    ])).toEqual(["module `Quiet` does not export `whisper`"]);
   });
 
   test("its emission is unchanged by the feature", () => {
@@ -188,12 +210,12 @@ describe("base-constraint entailment through an imported constraint", () => {
   const files = [
     ["/units.hex", hierarchy],
     ["/main.hex", [
-      "import { Describe, Loud, Metre } from \"./units\"",
+      "import Units from \"./units\"",
       "",
-      "export fun banner<a: Loud>(subject: a): String =",
-      "    shout(subject) ++ \" (\" ++ describe(subject) ++ \")\"",
+      "export fun banner<a: Units.Loud>(subject: a): String =",
+      "    Units.shout(subject) ++ \" (\" ++ Units.describe(subject) ++ \")\"",
       "",
-      "export fun run(): String = banner(Metre({span = 5}))",
+      "export fun run(): String = banner(Units.Metre({span = 5}))",
       "",
     ].join("\n")],
   ] as const;
@@ -224,18 +246,18 @@ describe("base-constraint entailment through an imported constraint", () => {
     const exports = await runProject([
       ["/units.hex", hierarchy],
       ["/middle.hex", [
-        "import { Describe, Loud, Metre } from \"./units\"",
+        "import Units from \"./units\"",
         "",
-        "export fun banner<a: Loud>(subject: a): String =",
-        "    shout(subject) ++ \" (\" ++ describe(subject) ++ \")\"",
+        "export fun banner<a: Units.Loud>(subject: a): String =",
+        "    Units.shout(subject) ++ \" (\" ++ Units.describe(subject) ++ \")\"",
         "",
-        "export fun oneMetre(): Metre = Metre({span = 1})",
+        "export fun oneMetre(): Units.Metre = Units.Metre({span = 1})",
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { banner, oneMetre } from \"./middle\"",
+        "import Middle from \"./middle\"",
         "",
-        "export fun run(): String = banner(oneMetre())",
+        "export fun run(): String = Middle.banner(Middle.oneMetre())",
         "",
       ].join("\n")],
     ]);
@@ -257,7 +279,7 @@ describe("base-constraint entailment through an imported constraint", () => {
         "",
       ].join("\n")],
       ["/middle.hex", [
-        "import { Loud, tell } from \"./units\"",
+        "import Units from \"./units\"",
         "",
         "constraint Describe<a> =",
         "    narrate(subject: a): String",
@@ -267,14 +289,14 @@ describe("base-constraint entailment through an imported constraint", () => {
         "honor Describe<Note> =",
         "    narrate(n) = \"note\"",
         "",
-        "export fun banner<a: Loud>(subject: a): String = tell(subject)",
+        "export fun banner<a: Units.Loud>(subject: a): String = Units.tell(subject)",
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { banner } from \"./middle\"",
-        "import { Metre } from \"./units\"",
+        "import Middle from \"./middle\"",
+        "import Units from \"./units\"",
         "",
-        "export fun run(): String = banner(Metre({span = 2}))",
+        "export fun run(): String = Middle.banner(Units.Metre({span = 2}))",
         "",
       ].join("\n")],
     ]);
@@ -289,13 +311,13 @@ describe("base-constraint entailment through an imported constraint", () => {
     expect(messagesOf([
       ["/units.hex", hierarchy],
       ["/middle.hex", [
-        "import { Loud } from \"./units\"",
+        "import Units from \"./units\"",
         "",
-        "export fun banner<a: Loud>(subject: a): String = shout(subject)",
+        "export fun banner<a: Units.Loud>(subject: a): String = Units.shout(subject)",
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { banner } from \"./middle\"",
+        "import Middle from \"./middle\"",
         "",
         "record Siren = {pitch: Int}",
         "",
@@ -305,15 +327,15 @@ describe("base-constraint entailment through an imported constraint", () => {
         "honor Loud<Siren> =",
         "    blare(s) = \"weeee\"",
         "",
-        "export fun run(): String = banner(Siren({pitch = 3}))",
+        "export fun run(): String = Middle.banner(Siren({pitch = 3}))",
         "",
       ].join("\n")],
     ])).toEqual([
       // §7.6's **ordinary** clause, not its sealed one: `Loud` is exported, so
-      // `main` is one `import { Loud } from "./units"` away from writing the
-      // honor at its own type, and its own file is the home the report leads
-      // with. (`./units.hex` could not hold it — naming `Siren` there would need
-      // an import of `./main.hex`, which §7.3 forbids on this graph.)
+      // `main` is one `import Units from "./units"` away from writing the honor
+      // as `honor Units.Loud<Siren>`, and its own file is the home the report
+      // leads with. (`./units.hex` could not hold it — naming `Siren` there
+      // would need an import of `./main.hex`, which §7.3 forbids on this graph.)
       "type `Siren` has no `Loud` instance; it could only be declared in `./main.hex` " +
         "(declares `Siren`) or `./units.hex` (declares `Loud`)",
     ]);
@@ -362,12 +384,12 @@ describe("a base chain whose middle link the importer cannot name", () => {
   const files = [
     ["/scales.hex", chain],
     ["/main.hex", [
-      "import { Big, weigh, oneGram } from \"./scales\"",
+      "import Scales from \"./scales\"",
       "",
-      "export fun report<a: Big>(subject: a): String =",
-      "    big(subject) ++ \"/\" ++ weigh(subject)",
+      "export fun report<a: Scales.Big>(subject: a): String =",
+      "    Scales.big(subject) ++ \"/\" ++ Scales.weigh(subject)",
       "",
-      "export fun run(): String = report(oneGram())",
+      "export fun run(): String = report(Scales.oneGram())",
       "",
     ].join("\n")],
   ] as const;
@@ -404,11 +426,11 @@ describe("a base chain whose middle link the importer cannot name", () => {
     expect(messagesOf([
       ["/scales.hex", chain],
       ["/main.hex", [
-        "import { Big } from \"./scales\"",
+        "import Scales from \"./scales\"",
         "",
         "record Ounce = {drams: Int}",
         "",
-        "honor Big<Ounce> =",
+        "honor Scales.Big<Ounce> =",
         "    big(o) = \"ounce\"",
         "",
       ].join("\n")],
@@ -424,14 +446,14 @@ describe("the orphan rule reads files, never imports (Constraints §5.3)", () =>
     expect(messagesOf([
       ["/units.hex", hierarchy],
       ["/main.hex", [
-        "import { Describe } from \"./units\"",
+        "import Units from \"./units\"",
         "",
         "record Furlong = {chains: Int}",
         "",
-        "honor Describe<Furlong> =",
+        "honor Units.Describe<Furlong> =",
         "    describe(f) = \"${f.chains} chains\"",
         "",
-        "export fun run(): String = describe(Furlong({chains = 8}))",
+        "export fun run(): String = Units.describe(Furlong({chains = 8}))",
         "",
       ].join("\n")],
     ])).toEqual([]);
@@ -449,17 +471,17 @@ describe("the orphan rule reads files, never imports (Constraints §5.3)", () =>
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Describe } from \"./units\"",
-        "import { Rod } from \"./rods\"",
+        "import Units from \"./units\"",
+        "import Rods from \"./rods\"",
         "",
-        "honor Describe<Rod> =",
+        "honor Units.Describe<Rods.Rod> =",
         "    describe(r) = \"a rod\"",
         "",
         "export fun run(): Int = 0",
         "",
       ].join("\n")],
     ])).toEqual([
-      "orphan instance: this module declares neither `Describe` nor the instance subject",
+      "orphan instance: this module declares neither `Units.Describe` nor the instance subject",
     ]);
   });
 
@@ -476,7 +498,7 @@ describe("the orphan rule reads files, never imports (Constraints §5.3)", () =>
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Ring } from \"./broken\"",
+        "import Broken from \"./broken\"",
         "",
         "export fun run(): Int = 7",
         "",
@@ -507,15 +529,15 @@ describe("defaults hoist once, at home (Constraints §6.5)", () => {
   const files = [
     ["/stamps.hex", stamps],
     ["/main.hex", [
-      "import { Stamp, Seal } from \"./stamps\"",
+      "import Stamps from \"./stamps\"",
       "",
       "record Ticket = {serial: String}",
       "",
-      "honor Stamp<Ticket> =",
+      "honor Stamps.Stamp<Ticket> =",
       "    mark(t) = \"no. \" ++ t.serial",
       "",
-      "export fun homeSide(): String = stamped(Seal({sigil = \"wax\"}))",
-      "export fun awaySide(): String = stamped(Ticket({serial = \"117\"}))",
+      "export fun homeSide(): String = Stamps.stamped(Stamps.Seal({sigil = \"wax\"}))",
+      "export fun awaySide(): String = Stamps.stamped(Ticket({serial = \"117\"}))",
       "",
     ].join("\n")],
   ] as const;
@@ -572,20 +594,20 @@ describe("defaults hoist once, at home (Constraints §6.5)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Chime } from \"./chimes\"",
+        "import Chimes from \"./chimes\"",
         "",
         "record Bell = {tone: String}",
         "record Gong = {tone: String}",
         "",
-        "honor Chime<Bell> =",
+        "honor Chimes.Chime<Bell> =",
         "    note(b) = b.tone",
         "",
-        "honor Chime<Gong> =",
+        "honor Chimes.Chime<Gong> =",
         "    note(g) = g.tone",
         "    peal(g) = \"BONG\"",
         "",
-        "export fun inherited(): String = peal(Bell({tone = \"ding\"}))",
-        "export fun overridden(): String = peal(Gong({tone = \"low\"}))",
+        "export fun inherited(): String = Chimes.peal(Bell({tone = \"ding\"}))",
+        "export fun overridden(): String = Chimes.peal(Gong({tone = \"low\"}))",
         "",
       ].join("\n")],
     ]);
@@ -607,11 +629,11 @@ describe("a parameterized honor of an imported constraint", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Render } from \"./renders\"",
+        "import Renders from \"./renders\"",
         "",
         "union Nest(a) = Leaf(value: a) | Wrap(inner: Nest(a))",
         "",
-        "honor<a: Render> Render<Nest(a)> =",
+        "honor<a: Renders.Render> Renders.Render<Nest(a)> =",
         "    render(n) =",
         "        match n",
         // The sanctioned recursion spelling since #304/#335: a member cannot
@@ -622,7 +644,7 @@ describe("a parameterized honor of an imported constraint", () => {
         "            Wrap(inner) => \"(\" ++ inner.render() ++ \")\"",
         "",
         "let three: Int = 3",
-        "export fun run(): String = render(Wrap(Wrap(Leaf(three))))",
+        "export fun run(): String = Renders.render(Wrap(Wrap(Leaf(three))))",
         "",
       ].join("\n")],
     ]);
@@ -632,7 +654,11 @@ describe("a parameterized honor of an imported constraint", () => {
 });
 
 describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
-  test("an alias renames the constraint only; members keep their names", async () => {
+  // #762 retired the named import's own `as` — a module alias is the one
+  // rename left, and it substitutes for the *module's* word at every use
+  // (`Heft.Weigh`, `Heft.grams`); the member's own spelling is untouched
+  // either way, which is what these two still measure.
+  test("an alias renames the module only; members keep their names", async () => {
     const exports = await runProject([
       ["/weights.hex", [
         "export constraint Weigh<a> =",
@@ -640,14 +666,14 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { Weigh as Heft } from \"./weights\"",
+        "import Heft from \"./weights\"",
         "",
         "record Brick = {count: Int}",
         "",
-        "honor Heft<Brick> =",
+        "honor Heft.Weigh<Brick> =",
         "    grams(b) = b.count",
         "",
-        "export fun total<a: Heft>(subject: a): Int = grams(subject)",
+        "export fun total<a: Heft.Weigh>(subject: a): Int = Heft.grams(subject)",
         "export fun run(): Int = total(Brick({count = 900}))",
         "",
       ].join("\n")],
@@ -669,16 +695,16 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
         "",
       ].join("\n")],
       ["/middle.hex", [
-        "import { Weigh as Heft, Anvil } from \"./weights\"",
+        "import Heft from \"./weights\"",
         "",
-        "export fun weighed<a: Heft>(subject: a): Int = grams(subject)",
-        "export fun anvil(): Anvil = Anvil({mass = 40})",
+        "export fun weighed<a: Heft.Weigh>(subject: a): Int = Heft.grams(subject)",
+        "export fun anvil(): Heft.Anvil = Heft.Anvil({mass = 40})",
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import { weighed, anvil } from \"./middle\"",
+        "import Middle from \"./middle\"",
         "",
-        "export fun run(): Int = weighed(anvil())",
+        "export fun run(): Int = Middle.weighed(Middle.anvil())",
         "",
       ].join("\n")],
     ]);
@@ -696,7 +722,7 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import module Geo from \"./geo\"",
+        "import Geo from \"./geo\"",
         "",
         "record Triangle = {side: Int}",
         "",
@@ -725,7 +751,7 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import module Atlas from \"./atlas\"",
+        "import Atlas from \"./atlas\"",
         "",
         "export fun draw<a: Atlas.Hidden>(subject: a): String = \"x\"",
         "",
@@ -746,7 +772,7 @@ describe("aliased and namespace imports (Modules §3.2, §3.3)", () => {
         "",
       ].join("\n")],
       ["/main.hex", [
-        "import module Geo from \"./geo\"",
+        "import Geo from \"./geo\"",
         "",
         "export fun sized<a: Geo.Area>(subject: a): Int = Geo.area(subject)",
         "export fun run(): Int = sized(Geo.Square({side = 7}))",
@@ -777,9 +803,9 @@ describe("implied types project through an imported member", () => {
       "",
     ].join("\n")],
     ["/main.hex", [
-      "import { Source, Ledger } from \"./streams\"",
+      "import Streams from \"./streams\"",
       "",
-      "export fun first(): String = peek(Ledger({entries = []}))",
+      "export fun first(): String = Streams.peek(Streams.Ledger({entries = []}))",
       "",
     ].join("\n")],
   ] as const;
@@ -795,15 +821,15 @@ describe("implied types project through an imported member", () => {
     const exports = await runProject([
       files[0],
       ["/main.hex", [
-        "import { Source } from \"./streams\"",
+        "import Streams from \"./streams\"",
         "",
         "record Register = {rows: Int}",
         "",
-        "honor Source<Register> =",
+        "honor Streams.Source<Register> =",
         "    type Item = Int",
         "    peek(r) = r.rows",
         "",
-        "export fun rows(): Int = peek(Register({rows = 9}))",
+        "export fun rows(): Int = Streams.peek(Register({rows = 9}))",
         "",
       ].join("\n")],
     ]);
@@ -815,121 +841,45 @@ describe("implied types project through an imported member", () => {
     expect(messagesOf([
       files[0],
       ["/main.hex", [
-        "import { Source, Ledger } from \"./streams\"",
+        "import Streams from \"./streams\"",
         "",
-        "export fun first(): Int = peek(Ledger({entries = []}))",
+        "export fun first(): Int = Streams.peek(Streams.Ledger({entries = []}))",
         "",
       ].join("\n")],
     ])).toContain("type mismatch: expected Int, found String");
   });
 });
 
-describe("collisions (Modules §5.2)", () => {
-  test("an imported constraint collides with a local declaration of the name", () => {
-    expect(messagesOf([
-      ["/units.hex", hierarchy],
-      ["/main.hex", [
-        "import { Describe } from \"./units\"",
-        "",
-        "constraint Describe<a> =",
-        "    describe(subject: a): String",
-        "",
-      ].join("\n")],
-    ])).toContain("constraint `Describe` is already declared or imported");
-  });
-
-  test("two imported constraints of the same name collide at the second import", () => {
-    expect(messagesOf([
-      ["/units.hex", hierarchy],
-      ["/echoes.hex", [
-        "export constraint Describe<a> =",
-        "    describe(subject: a): String",
-        "",
-      ].join("\n")],
-      ["/main.hex", [
-        "import { Describe } from \"./units\"",
-        "import { Describe } from \"./echoes\"",
-        "",
-      ].join("\n")],
-    ])).toContain("constraint `Describe` is already declared or imported");
-  });
-
-  test("two imported constraints sharing a member name collide on the member", () => {
-    // Constraint members are ordinary module-scope terms (Constraints §2.2), so
-    // the collision is the ordinary rebinding one.
-    expect(messagesOf([
-      ["/units.hex", hierarchy],
-      ["/echoes.hex", [
-        "export constraint Narrate<a> =",
-        "    describe(subject: a): String",
-        "",
-      ].join("\n")],
-      ["/main.hex", [
-        "import { Describe } from \"./units\"",
-        "import { Narrate } from \"./echoes\"",
-        "",
-      ].join("\n")],
-    ]).some((message) => message.startsWith("`describe` is already bound"))).toBe(true);
-  });
-
-  test("a member arriving over a prelude name is occluded, not a collision", () => {
-    // §3.1's other half, and the one that must *not* error: the import item is
-    // the members' declaration site for collision purposes, but a prelude name
-    // is a shadowable outer layer (§5.4), so a constraint whose member is called
-    // `show` imports cleanly and takes the name module-wide.
-    expect(messagesOf([
-      ["/emblems.hex", [
-        "export constraint Emblem<a> =",
-        "    singleton(subject: a): String",
-        "",
-      ].join("\n")],
-      ["/main.hex", [
-        "import { Emblem } from \"./emblems\"",
-        "",
-        "record Crest = {motto: String}",
-        "",
-        "honor Emblem<Crest> =",
-        "    singleton(c) = c.motto",
-        "",
-        "export fun motto(): String = singleton(Crest({motto = \"ever\"}))",
-        "",
-      ].join("\n")],
-    ])).toEqual([]);
-  });
-
-  test("a local term of the member's name collides too", () => {
-    expect(messagesOf([
-      ["/units.hex", hierarchy],
-      ["/main.hex", [
-        "fun describe(n: Int): String = \"local\"",
-        "",
-        "import { Describe } from \"./units\"",
-        "",
-      ].join("\n")],
-    ]).some((message) => message.startsWith("`describe` is already bound"))).toBe(true);
-  });
-});
-
-describe("members cannot be imported severally (Modules §3.1, §12.4)", () => {
-  test("naming one gets the constraint it belongs to", () => {
-    expect(messagesOf([
-      ["/sizes.hex", [
-        "export constraint Sized<a> =",
-        "    magnitude(subject: a): Int",
-        "",
-      ].join("\n")],
-      ["/main.hex", [
-        "import { magnitude } from \"./sizes\"",
-        "",
-        "export fun go(): Int = 3",
-        "",
-      ].join("\n")],
-    ])).toEqual([
-      "`magnitude` is a member of constraint `Sized`; import the constraint — " +
-      "its members arrive with it",
-    ]);
-  });
-});
+/**
+ * Both describe blocks that used to stand here — "collisions (Modules §5.2)"
+ * and "members cannot be imported severally (Modules §3.1, §12.4)" — pinned
+ * consequences of one mechanism #762 deleted outright: a named import used to
+ * put a constraint *and its members* bare in the importer's own scope, which
+ * is exactly what made an import able to collide with a local declaration,
+ * with another import, or on a member name, and what made naming a bare
+ * member in an import list refusable with "import the constraint instead".
+ *
+ * An import binds a module and nothing smaller now (Modules §3.2), so none of
+ * that is reachable any more:
+ *
+ * - A local declaration answers a bare constraint name outright, with no
+ *   second meaning for a collision rule to find (the companion-fallback
+ *   arc's own reading, `companion-fallback.test.ts`'s "occlusion" suite).
+ * - Two module aliases never collide on a *constraint's* name, because
+ *   neither import binds one — they collide only if the two `import`
+ *   statements are given the same alias, which is a module-alias fact with
+ *   no constraint content, and belongs to the general import conformance
+ *   suite rather than here.
+ * - A member never arrives in bare scope at all, from one import or two, so
+ *   there is no member-vs-member, member-vs-prelude, or member-vs-local-term
+ *   collision left to have — and no bare member name to import severally
+ *   either, since `import { magnitude } from "./sizes"` is now the #762
+ *   parse error regardless of whether `magnitude` is a member of anything.
+ *
+ * Every specimen these blocks held is therefore removed rather than re-aimed:
+ * the property under test — an import binding a bare name that then collides
+ * — has no seat left to hold anywhere in the language.
+ */
 
 describe("`export honor` and `opaque constraint` (Modules §4.1, §10)", () => {
   test("`export honor` names the rule rather than the grammar", () => {
@@ -989,15 +939,15 @@ describe("internal names that contest one spelling (#430)", () => {
       "",
     ].join("\n")],
     ["/tills.hex", [
-      "import { Tally, Coin, default_log } from \"./ledger\"",
+      "import Ledger from \"./ledger\"",
       "",
       "record Note = {body: String}",
       "",
-      "honor Tally<Note> =",
+      "honor Ledger.Tally<Note> =",
       "    mark(n) = n.body",
       "",
-      "export fun bracketed(): String = default_log(Coin({face = \"gold\"}))",
-      "export fun logged(): String = log(Note({body = \"memo\"}))",
+      "export fun bracketed(): String = Ledger.default_log(Ledger.Coin({face = \"gold\"}))",
+      "export fun logged(): String = Ledger.log(Note({body = \"memo\"}))",
       "",
     ].join("\n")],
   ] as const;
@@ -1018,8 +968,11 @@ describe("internal names that contest one spelling (#430)", () => {
   test("the importer of both reaches the same two names", () => {
     const away = emitted(files, "/tills.hex");
 
-    expect(away).toContain("__default_log_1 as default_log");
-    expect(away).toMatch(/import \{[^}]*__default_log[,\s}]/u);
+    // The call site now spells the term `Ledger.default_log`, so the local
+    // JavaScript binding no longer has to keep the bare source name alive —
+    // it imports under a name of the emitter's own choosing, and that name
+    // is still the one the home module gave the resolved suffix.
+    expect(away).toContain('import { __default_log_1 as __default_log } from "./ledger.js";');
   });
 
   test("and the emitted program loads and runs", async () => {
@@ -1054,10 +1007,10 @@ describe("internal names that contest one spelling (#430)", () => {
         "",
       ].join("\n")],
       ["/gates.hex", [
-        "import { Fare, Token, default_log, default_log_1 } from \"./tolls\"",
+        "import Tolls from \"./tolls\"",
         "",
-        "export fun tenfold(): Int = default_log(Token({worth = 3}))",
-        "export fun hundredfold(): Int = default_log_1(Token({worth = 3}))",
+        "export fun tenfold(): Int = Tolls.default_log(Tolls.Token({worth = 3}))",
+        "export fun hundredfold(): Int = Tolls.default_log_1(Tolls.Token({worth = 3}))",
         "",
       ].join("\n")],
     ] as const;
@@ -1067,9 +1020,13 @@ describe("internal names that contest one spelling (#430)", () => {
     expect(home).toContain("export { default_log_1 as __default_log_1 };");
     expect(home).toContain("export { default_log as __default_log_2 };");
 
+    // The call sites now spell the terms `Tolls.default_log`/`Tolls.default_log_1`,
+    // so the local JavaScript bindings import under names of the emitter's own
+    // choosing rather than keeping the bare source spelling alive.
     const away = emitted(twins, "/gates.hex");
-    expect(away).toContain("__default_log_2 as default_log");
-    expect(away).toContain("__default_log_1 as default_log_1");
+    expect(away).toContain(
+      'import { __default_log_2 as __default_log, __default_log_1 } from "./tolls.js";',
+    );
 
     const exports = await runProject(twins, { entry: "/gates.hex" });
     expect((exports.tenfold as () => number)()).toBe(30);
@@ -1098,14 +1055,14 @@ describe("internal names that contest one spelling (#430)", () => {
         "",
       ].join("\n")],
       ["/desks.hex", [
-        "import { Stamp, Slip } from \"./marks\"",
+        "import Marks from \"./marks\"",
         "",
-        "export fun angled(): String = default_log(Slip({tag = \"blue\"}))",
-        "export fun noted(): String = log(Slip({tag = \"blue\"}))",
+        "export fun angled(): String = Marks.default_log(Marks.Slip({tag = \"blue\"}))",
+        "export fun noted(): String = Marks.log(Marks.Slip({tag = \"blue\"}))",
         // The polymorphic pair, which is what still binds the forwarders since
         // #444 — the two calls above are concrete and reach seats.
-        "export fun angledAny<a: Stamp>(x: a): String = default_log(x)",
-        "export fun notedAny<a: Stamp>(x: a): String = log(x)",
+        "export fun angledAny<a: Marks.Stamp>(x: a): String = Marks.default_log(x)",
+        "export fun notedAny<a: Marks.Stamp>(x: a): String = Marks.log(x)",
         "",
       ].join("\n")],
     ] as const;
@@ -1115,7 +1072,14 @@ describe("internal names that contest one spelling (#430)", () => {
     expect(home).toContain("export { default_log as __default_log_1 };");
 
     const away = emitted(marks, "/desks.hex");
-    expect(away).toContain("__default_log_1 as default_log");
+    // The two concrete calls reach the instance's own seats under the source
+    // names, borrowed straight off the honoring dictionary — no probe needed
+    // there. The polymorphic pair still needs the forwarders, and it is their
+    // import that carries the resolved suffix.
+    expect(away).toContain(
+      'import { __Stamp_Slip_default_log as default_log, __Stamp_Slip_log as log } from "./marks.js";',
+    );
+    expect(away).toContain('import { __log, __default_log_1 as __default_log } from "./marks.js";');
 
     const exports = await runProject(marks, { entry: "/desks.hex" });
     expect((exports.angled as () => string)()).toBe("<blue>");
@@ -1146,12 +1110,12 @@ describe("internal names that contest one spelling (#430)", () => {
         "",
       ].join("\n")],
       ["/racks.hex", [
-        "import { Note, Card, default_log } from \"./tags\"",
+        "import Tags from \"./tags\"",
         "",
-        "export fun squared(): String = default_log(Card({word = \"red\"}))",
-        "export fun braced(): String = default_log_1(Card({word = \"red\"}))",
-        "export fun banged(): String = log(Card({word = \"red\"}))",
-        "export fun bracedAny<a: Note>(x: a): String = default_log_1(x)",
+        "export fun squared(): String = Tags.default_log(Tags.Card({word = \"red\"}))",
+        "export fun braced(): String = Tags.default_log_1(Tags.Card({word = \"red\"}))",
+        "export fun banged(): String = Tags.log(Tags.Card({word = \"red\"}))",
+        "export fun bracedAny<a: Tags.Note>(x: a): String = Tags.default_log_1(x)",
         "",
       ].join("\n")],
     ] as const;
@@ -1162,8 +1126,14 @@ describe("internal names that contest one spelling (#430)", () => {
     expect(home).toContain("export { default_log as __default_log_2 };");
 
     const away = emitted(tags, "/racks.hex");
-    expect(away).toContain("__default_log_2 as default_log");
-    expect(away).toContain("__default_log_1 as default_log_1");
+    // `braced`/`banged` are concrete and reach the instance's own seats
+    // directly; `squared` and `bracedAny` are the ones that still need
+    // forwarders, and their imports carry the resolved suffixes.
+    expect(away).toContain(
+      'import { __Note_Card_default_log_1 as default_log_1, __Note_Card_log as log } from "./tags.js";',
+    );
+    expect(away).toContain('import { __default_log_1 } from "./tags.js";');
+    expect(away).toContain('import { __default_log_2 as __default_log } from "./tags.js";');
 
     const exports = await runProject(tags, { entry: "/racks.hex" });
     expect((exports.squared as () => string)()).toBe("[red]");
@@ -1237,8 +1207,8 @@ describe("internal names that contest one spelling (#430)", () => {
         "",
       ].join("\n")],
       ["/organ.hex", [
-        "import module Loud from \"./loudly\"",
-        "import module Soft from \"./softly\"",
+        "import Loud from \"./loudly\"",
+        "import Soft from \"./softly\"",
         "",
         "export record Pipe = {bore: Int}",
         "",

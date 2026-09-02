@@ -3,7 +3,12 @@ import { expect, test } from "vitest";
 import * as Source from "./support/source.js";
 import { compileProject } from "./project.js";
 
-test("compiles relative named, aliased, namespace, and effect imports", () => {
+test("compiles a relative module import, alongside a bystander import", () => {
+  // #762: there is one import form now — a module alias — so this no longer
+  // has a named/aliased/namespace/effect quartet to cover. What is left to
+  // pin: a module reached under its alias (`Geo`), and a second module
+  // imported for nothing its importer names at all (`Telemetry`, standing in
+  // for the retired effect import) still pulls its file into the project.
   const project = compileProject([
     new Source.File(
       Source.fileId(0),
@@ -20,10 +25,9 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
     new Source.File(
       Source.fileId(2),
       "/app/main.hex",
-      'import { Point, make as makePoint } from "./geometry"\n' +
-        'import module Geo from "./geometry"\n' +
-        'import "./telemetry"\n' +
-        "export let point: Point = makePoint(3)\n" +
+      'import Geo from "./geometry"\n' +
+        'import Telemetry from "./telemetry"\n' +
+        "export let point: Geo.Point = Geo.make(3)\n" +
         "export let answer: Int = point.coordinate()",
     ),
   ]);
@@ -46,9 +50,6 @@ test("compiles relative named, aliased, namespace, and effect imports", () => {
   const main = project.modules.at(-1)!;
   expect(main.typed.diagnostics).toEqual([]);
   expect(main.javascript.text).toContain(
-    'import { Point, make as makePoint } from "./geometry.js";',
-  );
-  expect(main.javascript.text).toContain(
     'import * as Geo from "./geometry.js";',
   );
   expect(main.javascript.text).toContain("const answer = Geo.coordinate(point);");
@@ -67,7 +68,7 @@ test("re-exports extern bindings and opaque types through Hexagon modules", () =
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import module Json from "./tiny-json"\n' +
+      'import Json from "./tiny-json"\n' +
         "export let document: Json.JsonValue = Json.parse!(\"{}\")",
     ),
   ]);
@@ -107,7 +108,7 @@ test("makes an imported module's coherent instances available to operators", () 
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import module Box from "./box"\n' +
+      'import Box from "./box"\n' +
         "export let answer: Box.Box = Box.create(20) + Box.create(22)",
     ),
   ]);
@@ -142,14 +143,14 @@ test("propagates coherent instances through the complete import graph", () => {
     new Source.File(
       Source.fileId(1),
       "/facade.hex",
-      'import module Box from "./box"\n' +
+      'import Box from "./box"\n' +
         "export type Box = Box.Box\n" +
         "export let makeAnswer(): Box.Box = Box.create(20)",
     ),
     new Source.File(
       Source.fileId(2),
       "/main.hex",
-      'import module Facade from "./facade"\n' +
+      'import Facade from "./facade"\n' +
         "export let answer: Facade.Box = Facade.makeAnswer() + Facade.makeAnswer()",
     ),
   ]);
@@ -185,19 +186,19 @@ test("deduplicates one coherent instance reached through a diamond import", () =
     new Source.File(
       Source.fileId(1),
       "/left.hex",
-      'import module Box from "./box"\nexport let left(): Box.Box = Box.create(20)',
+      'import Box from "./box"\nexport let left(): Box.Box = Box.create(20)',
     ),
     new Source.File(
       Source.fileId(2),
       "/right.hex",
-      'import module Box from "./box"\nexport let right(): Box.Box = Box.create(22)',
+      'import Box from "./box"\nexport let right(): Box.Box = Box.create(22)',
     ),
     new Source.File(
       Source.fileId(3),
       "/main.hex",
-      'import module Left from "./left"\n' +
-        'import module Right from "./right"\n' +
-        'import { Box } from "./box"\n' +
+      'import Left from "./left"\n' +
+        'import Right from "./right"\n' +
+        'import Box from "./box"\n' +
         "export let answer: Box = Left.left() + Right.right()",
     ),
   ]);
@@ -208,8 +209,8 @@ test("deduplicates one coherent instance reached through a diamond import", () =
 
 test("reports import cycles before project checking", () => {
   const project = compileProject([
-    new Source.File(Source.fileId(0), "/a.hex", 'import "./b"'),
-    new Source.File(Source.fileId(1), "/b.hex", 'import "./a"'),
+    new Source.File(Source.fileId(0), "/a.hex", 'import B from "./b"'),
+    new Source.File(Source.fileId(1), "/b.hex", 'import A from "./a"'),
   ]);
 
   expect(project.diagnostics.map(({ message }) => message)).toContain(
@@ -233,6 +234,12 @@ test("rejects extern linkage to a Hexagon source module", () => {
 });
 
 test("links constrained Hexagon exports through private ESM plumbing", () => {
+  // #762 retired the named import, which used to be this test's other half:
+  // a same-named local reaching the generic edition directly (`import { plus }
+  // from "./math"` emitting `import { __plus as plus, plusInt } ...`). There is
+  // one import form left — the module alias — so what remains to pin is that
+  // form's own plumbing: the private generic edition and the caller-driven
+  // concrete specialization both survive, reached through the alias.
   const project = compileProject([
     new Source.File(
       Source.fileId(0),
@@ -241,41 +248,21 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
     ),
     new Source.File(
       Source.fileId(1),
-      "/main.hex",
-      'import { plus } from "./math"\nDebug.log("${plus(20, 22)}")',
-    ),
-    new Source.File(
-      Source.fileId(2),
       "/namespace.hex",
-      'import module Math from "./math"\nDebug.log("${Math.plus(20, 22)}")',
+      'import Math from "./math"\nDebug.log("${Math.plus(20, 22)}")',
     ),
   ]);
 
   expect(project.diagnostics).toEqual([]);
   const math = project.modules.find(({ source }) => source.path === "/math.hex")!;
-  const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
   const namespace = project.modules.find(({ source }) =>
     source.path === "/namespace.hex"
   )!;
-  expect(main.typed.symbols.find(({ name }) => name === "plus")?.scheme.constraints)
-    .toHaveLength(1);
   expect(math.javascript.text).toContain("export { plus as __plus };");
   expect(math.javascript.text).toContain("export { plusInt };");
-  // The generic edition's import survives both forms, in both cases because the
-  // source asked for it: an explicit import's names are emitted whether the body
-  // reaches them or not. What moved at #440 is the *call*, which is concrete at
-  // `Int` in both modules and so reaches the edition `math.js` exports for it —
-  // by its public name in the named form, through the same name in the namespace
-  // one, since a namespace alias never reaches an edition as `Math.plusInt`.
-  //
-  // **One line per specifier.** The edition joins the bindings the source wrote,
-  // at the seat the source wrote them; in the namespace form it joins the second
-  // line that form already emits for the internal constrained exports.
-  expect(main.javascript.text).toContain(
-    'import { __plus as plus, plusInt } from "./math.js";',
-  );
-  expect(main.javascript.text).toMatch(/logString\(String\(plusInt\(20, 22\)\)\)/u);
-  expect(main.javascript.text).not.toContain("__Num_Int");
+  // The call is concrete at `Int`, so it reaches the edition `math.js` exports
+  // for it — a namespace alias never reaches an edition as `Math.plusInt`, so
+  // the private plumbing line the namespace form always emits is what carries it.
   expect(namespace.javascript.text).toContain(
     'import * as Math from "./math.js";',
   );
@@ -284,7 +271,6 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
   );
   expect(namespace.javascript.text).toMatch(/logString\(String\(plusInt\(20, 22\)\)\)/u);
   expect(math.javascript.diagnostics).toEqual([]);
-  expect(main.javascript.diagnostics).toEqual([]);
   expect(namespace.javascript.diagnostics).toEqual([]);
 });
 
@@ -298,7 +284,7 @@ test("compiles Unicode module paths and cultural M namespace aliases", () => {
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import module Mगणित from "./गणित"\n' +
+      'import Mगणित from "./गणित"\n' +
         "export let उत्तर: Int = Mगणित.जोड़(20, 22)",
     ),
   ]);
@@ -323,7 +309,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import module Vault from "./vault"\n' +
+      'import Vault from "./vault"\n' +
         "export let pair: Vault.Pair(Int) = (1, 2)\n" +
         "let token = Vault.issue(7)\n" +
         "export let answer: Int = Vault.reveal(token)",
@@ -341,7 +327,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
     new Source.File(
       Source.fileId(2),
       "/bad.hex",
-      'import module Vault from "./vault"\n' +
+      'import Vault from "./vault"\n' +
         "let token = Vault.issue(7)\n" +
         "let leaked = token.value",
     ),

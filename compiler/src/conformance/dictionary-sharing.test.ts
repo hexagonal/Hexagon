@@ -422,6 +422,14 @@ describe("§4, §5, §8 — the key, determinism, and the exported surface", () 
     // §7: two modules demanding one tree each hold one binding, and neither
     // reaches for the other's. The consumer imports the *factory*, not an
     // application of it.
+    //
+    // `/main.hex` reaches `honor<a: Render> Render<Box(a)>` only through
+    // `Lib.render`/`Lib.Box`, never a bare name, and that instance's own binder
+    // list in turn demands `Render<Int>`. Since #762 this module has no
+    // spelling for `Render` at all, so the binder's constraint travels by the
+    // identity it resolved to at home (`Resolved.TypeParameter`'s
+    // `constraintIdentities`) rather than being re-resolved here against a word
+    // nothing binds.
     const files = [
       [
         "/lib.hex",
@@ -435,9 +443,9 @@ describe("§4, §5, §8 — the key, determinism, and the exported surface", () 
       ],
       [
         "/main.hex",
-        'import { Render, Box } from "./lib"\n' +
-          "let boxed: Box(Int) = Box({value = 1})\n" +
-          "export let one: String = render(boxed)\n",
+        'import Lib from "./lib"\n' +
+          "let boxed: Lib.Box(Int) = Lib.Box({value = 1})\n" +
+          "export let one: String = Lib.render(boxed)\n",
       ],
     ] as const;
 
@@ -794,7 +802,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
       // is compiler-built at every use site (#441).
       [
         "/main.hex",
-        'import { Bool } from "./Bool"\nlet eagerSlot = 0\nexport let flag: Bool = True\n',
+        'import Boolean from "./Bool"\nlet eagerSlot = 0\nexport let flag: Bool = True\n',
       ],
     ] as const;
     const project = compileFiles(files);

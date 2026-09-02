@@ -160,10 +160,10 @@ describe("a built-in receiver reaches the module addressable under its name", ()
 
   /**
    * The other half of the same rule: the prelude member is not privileged here,
-   * *addressability under the name* is. A project's own `import module Vector`
+   * *addressability under the name* is. A project's own `import Vector`
    * makes that module addressable too, and its exported subject-first operations
    * become `Vector`'s alongside the prelude's — which is what keeps the
-   * Playground's `import module Vector from "/stdlib/Vector.hex"` working, and
+   * Playground's `import Vector from "/stdlib/Vector.hex"` working, and
    * what a project replacing the companion depends on.
    */
   test("a module addressable as `Vector` supplies the built-in's operations", async () => {
@@ -171,7 +171,7 @@ describe("a built-in receiver reaches the module addressable under its name", ()
       ["/vec.hex", "export fun doubled(values: Vector(Int)): Vector(Int) = values\n"],
       [
         "/main.hex",
-        'import module Vector from "./vec"\n' +
+        'import Vector from "./vec"\n' +
         "export let out: Vector(Int) = [1, 2].doubled()\n",
       ],
     ] as const;
@@ -191,7 +191,7 @@ describe("a built-in receiver reaches the module addressable under its name", ()
       ["/vec.hex", "export fun doubled(values: Vector(Int)): Vector(Int) = values\n"],
       [
         "/main.hex",
-        'import module Bag from "./vec"\n' +
+        'import Bag from "./vec"\n' +
         "export let out: Vector(Int) = [1, 2].doubled()\n",
       ],
     ]);
@@ -255,9 +255,12 @@ describe("the companion is the home module, and only the home module", () => {
 
   /**
    * A local of the same name loses to the home module's operation even though it
-   * is the name in scope — §1's "not UFCS" clause, cross-module. The home
-   * operation is imported under an alias, so the emitted call also proves the
-   * winner is spelled by its local binding rather than by its declared name.
+   * is the name in scope — §1's "not UFCS" clause, cross-module. `twice` is
+   * shadowed bare here (a module import binds only the alias `Box`, #762), so
+   * the emitted call also proves the winner is reached through the module
+   * qualification rather than miscalled as the local shadow: it can be spelled
+   * `Box.twice` in this module, and it is `Box.twice` — never the bare `twice`
+   * that would resolve to the shadow — the emitter writes.
    */
   test("a same-named local loses to the type's home module", async () => {
     const files = [
@@ -268,7 +271,7 @@ describe("the companion is the home module, and only the home module", () => {
       ],
       [
         "/main.hex",
-        'import { Box, twice as scaleBy } from "./box"\n' +
+        'import Box from "./box"\n' +
         "export fun twice(b: Box): Int = 0\n" +
         "export let out: Int = Box({value = 21}).twice()\n",
       ],
@@ -277,7 +280,7 @@ describe("the companion is the home module, and only the home module", () => {
     expect(diagnostics(files)).toEqual([]);
     const main = await runProject(files);
     expect(main["out"]).toBe(42);
-    expect(emitted(files, "/main.hex")).toContain("scaleBy(");
+    expect(emitted(files, "/main.hex")).toContain("Box.twice(");
   });
 
   /**

@@ -242,7 +242,7 @@ describe("the import surface", () => {
   test("a nested module reaches the runtime by a relative specifier", () => {
     const files = [
       ["/src/deep/inner.hex", "export let n: Int = Map.size(Map.singleton(1, 2))\n"],
-      ["/src/main.hex", "import { n } from \"./deep/inner\"\nexport let m: Int = n\n"],
+      ["/src/main.hex", "import Inner from \"./deep/inner\"\nexport let m: Int = Inner.n\n"],
     ] as const;
     const javascript = emitted(files, "/src/deep/inner.hex");
     // The common root is `/src`, so the injected trie sits at `/src/HashTrie.hex`

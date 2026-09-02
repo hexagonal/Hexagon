@@ -38,12 +38,15 @@ function emitted(compiled: ReturnType<typeof project>["compiled"], path: string)
 const MAGNET = "export record Magnet = {poles: Int}\n";
 
 describe("a plain exported record carries its fields across the import", () => {
-  test("the filed acceptance: field access through a named import (#285)", () => {
+  test("the filed acceptance: field access through the same-spelled alias (#285)", () => {
     const { compiled, messages } = project([
       ["/geo.hex", MAGNET],
       [
         "/main.hex",
-        'import { Magnet } from "./geo"\n' +
+        // Rule 3's companion fallback (Modules §3.2, #762): the alias's own
+        // spelling `Magnet` equals the exported record's, so the annotation
+        // reaches it bare with no separate import for the type.
+        'import Magnet from "./geo"\n' +
           "export fun poleCount(m: Magnet): Int = m.poles\n",
       ],
     ]);
@@ -53,12 +56,12 @@ describe("a plain exported record carries its fields across the import", () => {
     expect(emitted(compiled, "/main.hex").javascript.text).toContain("return m.poles;");
   });
 
-  test("the whole §4.1 row through a named import: construct, read, update", () => {
+  test("the whole §4.1 row through the same-spelled alias: construct, read, update", () => {
     const { compiled, messages } = project([
       ["/geo.hex", MAGNET],
       [
         "/main.hex",
-        'import { Magnet } from "./geo"\n' +
+        'import Magnet from "./geo"\n' +
           "export let north: Magnet = Magnet({poles = 2})\n" +
           "export fun poleCount(m: Magnet): Int = m.poles\n" +
           "export fun retune(m: Magnet): Magnet = {m with poles = 3}\n",
@@ -67,7 +70,7 @@ describe("a plain exported record carries its fields across the import", () => {
 
     expect(messages).toEqual([]);
     const javascript = emitted(compiled, "/main.hex").javascript.text;
-    expect(javascript).toContain('import { Magnet } from "./geo.js";');
+    expect(javascript).toContain('import * as Magnet from "./geo.js";');
     expect(javascript).toContain("const north = { poles: 2 };");
     expect(javascript).toContain("return m.poles;");
     expect(javascript).toContain("return { ...m, poles: 3 };");
@@ -78,7 +81,7 @@ describe("a plain exported record carries its fields across the import", () => {
       ["/geo.hex", MAGNET],
       [
         "/main.hex",
-        'import module Geo from "./geo"\n' +
+        'import Geo from "./geo"\n' +
           "export let north: Geo.Magnet = Geo.Magnet({poles = 2})\n" +
           "export fun poleCount(m: Geo.Magnet): Int = m.poles\n" +
           "export fun retune(m: Geo.Magnet): Geo.Magnet = {m with poles = 3}\n",
@@ -100,7 +103,7 @@ describe("a plain exported record carries its fields across the import", () => {
       ["/geo.hex", "export record Magnet = {poles: Int, show: (Int) -> Int}\n"],
       [
         "/main.hex",
-        'import { Magnet } from "./geo"\n' +
+        'import Magnet from "./geo"\n' +
           "export fun describe(m: Magnet): Int = m.show(1)\n",
       ],
     ]);
@@ -118,12 +121,15 @@ describe("opacity is unchanged — the control on §4.2", () => {
   const VAULT = "opaque record Token = {value: Int}\n" +
     "export fun issue(value: Int): Token = Token({value = value})\n";
 
-  test("an opaque record's fields stay private through a named import", () => {
+  test("an opaque record's fields stay private through the same-spelled alias", () => {
+    // Rule 3's companion fallback (#762) reaches the *type*, unopposed by
+    // opacity — companion-fallback.test.ts pins that the fallback answers the
+    // same type, not a looser one — but the fields it withholds stay withheld.
     const { messages } = project([
       ["/vault.hex", VAULT],
       [
         "/main.hex",
-        'import { Token, issue } from "./vault"\n' +
+        'import Token from "./vault"\n' +
           "export fun leak(t: Token): Int = t.value\n",
       ],
     ]);
@@ -138,7 +144,7 @@ describe("opacity is unchanged — the control on §4.2", () => {
       ["/vault.hex", VAULT],
       [
         "/main.hex",
-        'import module Vault from "./vault"\n' +
+        'import Vault from "./vault"\n' +
           "export fun bump(t: Vault.Token): Vault.Token = {t with value = 1}\n",
       ],
     ]);

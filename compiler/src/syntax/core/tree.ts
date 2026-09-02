@@ -497,6 +497,8 @@ export interface NameExpr extends ExpressionFields {
   readonly kind: "Name";
   readonly symbol: Resolved.SymbolId;
   readonly text: string;
+  /** See `Resolved.NameExpr.emitted`: the spelling emission must use, where it differs. */
+  readonly emitted?: string;
   /**
    * Evidence this value reference must close over; see `Typed.NameExpr`. Present
    * only on references that are *not* call callees, so emission can tell "apply

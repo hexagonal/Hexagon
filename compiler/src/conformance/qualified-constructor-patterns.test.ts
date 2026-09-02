@@ -15,7 +15,7 @@ import { compileFiles, compileMain, projectDiagnostics, runMain, runProject } fr
  * part of that grant, not a nicety beside it.
  *
  * Two qualifiers answer, exactly as in value position (`#namedModule`): an
- * explicit `import module` alias, and the declaring prelude module's own name
+ * explicit import alias, and the declaring prelude module's own name
  * (§6.4's guaranteed qualified home) — `Ordering.Less`, `Option.Some(v)`,
  * `Bool.True`.
  *
@@ -58,18 +58,18 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
       "    match Ord.compare(a, b)\n" +
       "        Ordering.Less => \"lt\"\n" +
       "        Ordering.Equal => \"eq\"\n",
-    // Named the way the reader has to write it: since #742 `Ordering`'s
-    // constructors are qualified-only, and the exhaustiveness report already
-    // spelled a qualified-only constructor through its module (`JsKind.Null`).
-    )).toEqual(["match is missing cases: `Ordering.Greater`"]);
+    // Bare, not qualified: Pattern Matching §7.3's witness tiers are re-cut for
+    // the door (#763) — "tier 1 is every constructor the door reaches", and the
+    // door reaches every constructor of the scrutinee's own type, `Ordering`'s
+    // qualified-only ones included. #742 made `Equal`/`Greater` qualified-only
+    // in *expression* position; it never touched the pattern-position witness.
+    )).toEqual(["match is missing cases: `Greater`"]);
   });
 
   /**
-   * The mixing this seat used to pin — a qualified arm beside a bare one — is
-   * gone at `Ordering`, because #742 took the bare spelling: its constructors
-   * are qualified-only in a pattern exactly as in an expression, and §10 gives
-   * the refusal **one shape for both positions**. What still mixes is an *open*
-   * union's, and `Option` is the seat that shows it.
+   * `Option` mixes qualified and bare arms because it is an *open* union —
+   * bare `None` was always in scope. `Ordering` mixes them too, but for a
+   * different reason: #763's door.
    */
   test("an open union still mixes qualified and bare arms, one pattern each", async () => {
     expect(projectDiagnostics(
@@ -90,20 +90,32 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
     expect(exports.r).toBe(7);
   });
 
-  test("a qualified-only constructor's bare arm is refused, in the same words", () => {
+  test("a qualified-only constructor's bare arm resolves through the door instead (#763)", async () => {
+    // §742 made every `Ordering` constructor qualified-only in *expression*
+    // position, and the bare-prelude refusal that enforces that never runs in
+    // pattern position at all (Pattern Matching §2.2): the scrutinee's type is
+    // determined at the top of a `match`, so the door reaches `Equal` and
+    // `Greater` exactly as it reaches an imported union's constructors. One
+    // pattern, two spellings — mixing them draws nothing.
     expect(projectDiagnostics(
       "export fun mixed(a: Int, b: Int): String =\n" +
       "    match Ord.compare(a, b)\n" +
       "        Ordering.Less => \"lt\"\n" +
       "        Equal => \"eq\"\n" +
       "        Greater => \"gt\"\n",
-    )).toEqual([
-      "no bare `Equal`; write `Ordering.Equal`",
-      "no bare `Greater`; write `Ordering.Greater`",
-      // The refused arm recovers as a wildcard, exactly as an unknown
-      // constructor does, so the arms behind it read as unreachable.
-      "this match arm is unreachable; an earlier pattern matches everything",
-    ]);
+    )).toEqual([]);
+
+    const exports = await runMain(
+      "export fun mixedArms(a: Int, b: Int): String =\n" +
+      "    match Ord.compare(a, b)\n" +
+      "        Ordering.Less => \"lt\"\n" +
+      "        Equal => \"eq\"\n" +
+      "        Greater => \"gt\"\n" +
+      "export let below: String = mixedArms(1, 2)\n" +
+      "export let same: String = mixedArms(2, 2)\n" +
+      "export let above: String = mixedArms(3, 2)\n",
+    );
+    expect([exports.below, exports.same, exports.above]).toEqual(["lt", "eq", "gt"]);
   });
 
   test("the same constructor twice, spelled both ways, is the unreachable-case report", () => {
@@ -153,7 +165,7 @@ describe("a module alias qualifies an imported union's constructors in patterns"
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun measure(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r\n" +
@@ -163,7 +175,7 @@ describe("a module alias qualifies an imported union's constructors in patterns"
     const exports = await runProject([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun size(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r * 2.0\n" +
@@ -181,69 +193,35 @@ describe("a module alias qualifies an imported union's constructors in patterns"
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun only(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
-      // #607: the witness prints through the alias, because that is what pastes
-      // here — bare `Square` is not in this module's scope at all (§7.3 tier 2).
-      "match is missing cases: `Lib.Square(_)`",
+      // #607, re-cut for #763: tier 1 is every constructor the door reaches,
+      // and `Square` is reached that way — the scrutinee's type (`Lib.Shape`)
+      // is determined at the top of this `match`, so the witness pastes back
+      // bare even though nothing in this module's own scope binds it.
+      "match is missing cases: `Square(_)`",
     ]);
   });
 
-  /**
-   * One `match`, one union, **one** way of saying each name — across the two
-   * halves of §7's reporting, when the module holds an alias *and* renaming
-   * imports and so has a different lawful spelling for each constructor.
-   *
-   * `Blue` was imported under no name, so §7.3 tier 2 qualifies it through the
-   * alias; `Red` and `Green` were, so tier 1's "imported by name" answers with
-   * the local spelling the import bound. The missing-cases witness has always
-   * read both of tier 1's halves. The unreachable-arm seat reads the same tiers
-   * for a name already written, and reading only the first half there made one
-   * `match` print `Crimson` in its missing-cases list and `G.Red` in the report
-   * beside it — the reader sent looking for two constructors where the file has
-   * one (#511).
-   */
-  test("the two reports agree, alias-qualified and aliased-bare alike", () => {
-    const COL = "export union Col = Red | Blue | Green\n";
-    const imports = "import module G from \"./g\"\n" +
-      "import { Col, Red as Crimson, Green as Emerald } from \"./g\"\n";
-
-    // The unspellable-bare constructor: no bare spelling exists for `Blue`, so
-    // both reports fall to tier 2 and both say `G.Blue`.
-    expect(compileFiles([
-      ["/g.hex", COL],
-      ["/main.hex",
-        imports +
-        "export fun name(c: Col): String =\n" +
-        "    match c\n" +
-        "        G.Blue => \"b\"\n" +
-        "        G.Blue => \"b again\"\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual([
-      "match is missing cases: `Crimson`, `Emerald`",
-      "this case is unreachable; `G.Blue` is already handled above",
-    ]);
-
-    // And the seat the skipped reading broke. The duplicated arm is written
-    // qualified, but a bare spelling for this very symbol *is* in scope, so
-    // tier 1 answers and both reports say `Crimson` — never the `G.Red` the arm
-    // happens to be written as, which tier 2 would have produced beside a
-    // missing-cases list already saying `Emerald`.
-    expect(compileFiles([
-      ["/g.hex", COL],
-      ["/main.hex",
-        imports +
-        "export fun name(c: Col): String =\n" +
-        "    match c\n" +
-        "        G.Red => \"r\"\n" +
-        "        G.Red => \"r again\"\n"],
-    ]).diagnostics.map(({ message }) => message)).toEqual([
-      "match is missing cases: `G.Blue`, `Emerald`",
-      "this case is unreachable; `Crimson` is already handled above",
-    ]);
-  });
+  // DELETED (#762 sweep): "the two reports agree, alias-qualified and
+  // aliased-bare alike" pinned #511 — a renaming import (`Red as Crimson`)
+  // giving one constructor a locally-bound bare spelling different from a
+  // sibling reached only through the alias, and checked both §7.1's
+  // missing-cases witness and §7.2's unreachable-arm report named it the
+  // same way. No import binds a name any smaller than a module now (#762),
+  // so that per-constructor local spelling has no replacement — rule 3's
+  // same-spelled-alias fallback is the only surviving way to get a bare
+  // constructor spelling from an import, and it is keyed to the *alias's*
+  // spelling, not a per-constructor one. Probing it as a substitute turned
+  // up a real spelling disagreement between the two reports (missing-cases
+  // prints a rule-3-reached constructor bare; the unreachable-arm report
+  // beside it prints the same constructor alias-qualified) — which may be
+  // this issue's #511 recurring under the new mechanism, but I did not judge
+  // it safe to pin without owner review of whether that is a defect or a
+  // deliberate tier split; flagged in the sweep report instead.
 });
 
 describe("the hatch #466 depends on: an occluding module still reaches the prelude's", () => {
@@ -317,12 +295,16 @@ describe("catch arms take the same form, and now reach as far", () => {
    * match.
    */
 
+  // `Boom` names both an alias (rule 3's own spelling) and, through the second
+  // alias `Lib`, the qualified form — no named import binds anything smaller
+  // than a module now (#762), so a same-spelled alias is what stands in for
+  // it here.
   const catchArm = (arm: string): readonly string[] =>
     compileFiles([
       ["/lib.hex", "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
-        "import { Boom } from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
+        "import Boom from \"./lib\"\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
         "        throw(Boom(3))\n" +
@@ -392,7 +374,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(p: Lib.Point): Int =\n" +
         "    match p\n" +
         "        Lib.Point(a, b) => a\n"],
@@ -400,7 +382,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
-        "import { Point } from \"./lib\"\n" +
+        "import Point from \"./lib\"\n" +
         "export fun f(p: Point): Int =\n" +
         "    match p\n" +
         "        Point(a, b) => a\n"],
@@ -408,7 +390,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(p: Lib.Point): Int =\n" +
         "    match p\n" +
         "        Lib.Point({x}) => x\n"],
@@ -423,7 +405,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export fun f(s: Lib.Shape): Int =\n" +
         "    match s\n" +
         "        Lib.Shape(r) => 1\n" +
@@ -432,7 +414,7 @@ describe("what a qualified constructor pattern refuses", () => {
     expect(compileFiles([
       ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import module Lib from \"./lib\"\n" +
+        "import Lib from \"./lib\"\n" +
         "export let s: Int = Lib.Shape\n"],
     ]).diagnostics.map(({ message: text }) => text)).toContain(message);
   });

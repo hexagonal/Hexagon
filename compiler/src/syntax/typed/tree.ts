@@ -908,6 +908,8 @@ export interface NameExpr extends ExpressionFields {
   readonly kind: "Name";
   readonly symbol: Resolved.SymbolId;
   readonly text: string;
+  /** See `Resolved.NameExpr.emitted`: the spelling emission must use, where it differs. */
+  readonly emitted?: string;
   /** Companion dot calls consume their subject before presenting this callable. */
   readonly receiverBound?: boolean;
   /**
