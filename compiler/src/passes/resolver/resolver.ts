@@ -190,9 +190,7 @@ interface LaterDeclaration {
 interface ImportTypeBindings {
   /** What this line put in the constraint namespace; see `ConstraintImport`. */
   readonly constraints: readonly Resolved.ConstraintImport[];
-  /** The named entries whose constraint name bound, by entry. */
-  readonly members: ReadonlyMap<Parsed.ImportName, Resolved.ConstraintItem>;
-  /** Whether the `import module` alias bound here — a duplicate (§3.2) binds none. */
+  /** Whether the alias bound here — a duplicate spelling (§5.2) binds none. */
   readonly aliasBound: boolean;
 }
 
@@ -503,6 +501,32 @@ function refusedBarePreludeMessage(
   for (const route of routes) {
     spellings.push(qualifiedSpelling(name, route.home, written?.texts));
   }
+  return `no bare \`${name}\`; write ` +
+    (spellings.length === 1 ? spellings[0]! : conjoin(spellings, "or"));
+}
+
+/**
+ * Modules §10's row for a bare constructor in an **expression** that neither
+ * scope nor rule 3's fallback reaches, but that a visible alias's module
+ * exports (#763): `Circle(1.0)` under `import Shape from "./shape"`.
+ *
+ * The same sentence shape as the prelude refusal above and for the same
+ * reason — one bare name, the routes it has, in the program's own words
+ * (§5.5's #742 rule). The routes here are qualified spellings only: expression
+ * position has no constructor door (§9.13), a constructor has no dot form, and
+ * the message names no import — the import the reader would need is already
+ * written, which is how the compiler knows the constructor at all.
+ */
+function bareConstructorMessage(
+  name: string,
+  qualifications: readonly string[],
+  written: WrittenArguments | undefined,
+): string {
+  const spellings = qualifications.map((qualified) =>
+    written === undefined
+      ? `\`${qualified}\``
+      : `\`${qualified}(${written.texts.join(", ")})\``
+  );
   return `no bare \`${name}\`; write ` +
     (spellings.length === 1 ? spellings[0]! : conjoin(spellings, "or"));
 }
@@ -1284,25 +1308,6 @@ class Resolver {
    * untouched").
    */
   readonly #preludeMembersByName = new Map<string, Resolved.SymbolId>();
-  readonly #explicitlyImported = new Set<Resolved.SymbolId>();
-  /**
-   * The members a **named constraint import** brought into this module, each
-   * mapped to the import item that brought it (Modules §3.1).
-   *
-   * Only a diagnostic reads this, and it reads it for two reasons. The member's
-   * own `bindingSpan` is a line in the *imported* file, so a collision reported
-   * against it names a line the reader cannot see — §3.1 says the import item is
-   * the members' declaration site, and the prior-binding reference has to be
-   * that item, in this module. And the collision has a repair worth teaching:
-   * the door-builder reaches the constraint through a namespace import, which
-   * binds the alias alone and leaves every member spelling free (§5.3's
-   * generalisation law, whose exemption never unseats an ordinary binding —
-   * Constraints §4.6 owns that boundary).
-   */
-  readonly #arrivedConstraintMembers = new Map<
-    Resolved.SymbolId,
-    { readonly span: Source.Span; readonly item: string }
-  >();
   readonly #moduleAliases = new Map<string, ModuleInterface>();
   /**
    * The specifier each alias was imported from, as the module wrote it.
@@ -1362,16 +1367,14 @@ class Resolver {
    * meant.
    */
   readonly #declaredConstraintNames = new Set<string>();
-  /** Imported constraints by the local name they bind (Modules §3.1/§3.2). */
-  readonly #importedConstraints = new Map<string, Resolved.ConstraintItem>();
-  /** Imported constraints by `Alias.Name`, for the §3.3 binder position. */
+  /** Imported constraints by `Alias.Name`, for the §3.1 binder position. */
   readonly #qualifiedConstraints = new Map<string, Resolved.ConstraintItem>();
   /**
    * Constraints the **companion fallback** answers with, by the bare name they
    * answer for (Modules §5.1 rule 2, #531).
    *
-   * Kept apart from `#importedConstraints` on purpose: an entry here binds
-   * nothing, so it is consulted last everywhere and enters no collision set.
+   * An entry here binds nothing, so it is consulted last everywhere and
+   * enters no collision set.
    * `#registerCompanionConstraints` fills it only for names the constraint
    * namespace left unclaimed.
    */
@@ -1466,25 +1469,81 @@ class Resolver {
     // (§5.1 rule 2): it answers only for names every table above left unclaimed,
     // and it answers with the *declaring* module's identity, exactly as an
     // import does — the fallback resolves to that declaration, not to a rival.
-    return this.#importedConstraints.get(name)?.identity ??
-      this.#companionConstraints.get(name)?.identity ??
+    return this.#companionConstraints.get(name)?.identity ??
       declaredConstraintIdentity(this.#fileId, name);
   }
 
   /** The declaration a constraint name denotes here, if this module can see it. */
   #namedConstraint(name: string): Resolved.ConstraintItem | undefined {
     return this.#qualifiedConstraints.get(name) ??
-      this.#importedConstraints.get(name) ??
       this.#companionConstraints.get(name);
   }
 
   /**
-   * A module addressable by name: an explicit `import module` alias first, then the
+   * A module addressable by name: an explicit import alias first, then the
    * prelude layer. Modules §6.4 requires every prelude name to have a qualified
    * home; §5.4 makes an explicit alias a module-level binding, so it wins.
    */
   #namedModule(name: string): ModuleInterface | undefined {
     return this.#moduleAliases.get(name) ?? this.#preludeModuleAliases.get(name);
+  }
+
+  /**
+   * Modules §5.1 rule 3's **companion fallback, term half** (#763): a bare
+   * `Name` the term namespace has nothing for resolves to the **constructor**
+   * `Name` exported by a visible module alias `Name` — in an expression and in
+   * a pattern alike, rule 2 one namespace over.
+   *
+   * It **answers, never binds**: nothing enters the term namespace, so a
+   * same-spelled declaration or binding wins outright with no collision and no
+   * refusal, and every call site sits *after* the ordinary lookup. What it
+   * answers with is exactly what `Name.Name` would have resolved to — the
+   * qualified path's own read, `terms` only — so opacity, arity and emission
+   * are identical for both spellings, and an opaque record's constructor stays
+   * out of reach abroad exactly as its qualified spelling is.
+   *
+   * `undefined` means declined; the caller proceeds to whatever answered before
+   * the fallback existed.
+   */
+  #companionConstructor(name: string): Resolved.SymbolId | undefined {
+    // Term position reads top-down (Functions §7.2): above the import line the
+    // alias is bound but not reached, and the caller reports the declared-later
+    // error rather than resolving through it.
+    if (this.#pendingImportAliases.has(name)) return undefined;
+    const symbol = this.#namedModule(name)?.terms.get(name);
+    if (
+      symbol === undefined ||
+      (symbol.kind !== "constructor" && symbol.kind !== "record-constructor")
+    ) {
+      return undefined;
+    }
+    this.#importedSymbols.set(symbol.id, symbol);
+    return symbol.id;
+  }
+
+  /**
+   * The qualified spellings this module can write for a constructor spelling —
+   * Modules §10's row for a bare constructor the alias's own name does not
+   * reach (`Circle(1.0)` under `import Shape from "./shape"`), and the
+   * closed-door refusal's rewrite in a pattern (Pattern Matching §12).
+   *
+   * Every visible alias is asked, so "exactly one" and "several" are answered
+   * by the same walk. A **pending** alias is skipped: its line is below the
+   * use, and the repair there is to move the import, not to qualify.
+   */
+  #constructorQualifications(name: string): readonly string[] {
+    const spellings: string[] = [];
+    for (const [alias, module] of this.#moduleAliases) {
+      if (this.#pendingImportAliases.has(alias)) continue;
+      const symbol = module.terms.get(name);
+      if (
+        symbol !== undefined &&
+        (symbol.kind === "constructor" || symbol.kind === "record-constructor")
+      ) {
+        spellings.push(`${alias}.${name}`);
+      }
+    }
+    return spellings;
   }
 
   /**
@@ -2135,43 +2194,31 @@ class Resolver {
       // An unresolvable specifier binds nothing, and the item reports it once.
       if (imported === undefined) continue;
       const constraints: Resolved.ConstraintImport[] = [];
-      const members = new Map<Parsed.ImportName, Resolved.ConstraintItem>();
       let aliasBound = false;
-      if (item.form.kind === "Namespace") {
-        if (this.#moduleAliases.has(item.form.alias.text)) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `module alias \`${item.form.alias.text}\` is already bound`,
-            primary: item.form.alias.span,
-          });
-        } else {
-          aliasBound = true;
-          this.#moduleAliases.set(item.form.alias.text, imported);
-          this.#moduleAliasSpecifiers.set(item.form.alias.text, item.specifier);
-          // Bound but not yet *reached*: the alias's term-position doors
-          // (`Lib.area`, `Lib.Circle`) stay shut until the walk passes the item.
-          this.#pendingImportAliases.set(item.form.alias.text, item.form.alias);
-          // §3.3: a constraint qualifies through the alias in a binder
-          // (`<a: Geo.C>`), and its members through it as ordinary terms
-          // (`Geo.describe(x)`). The alias is the module in both cases — but
-          // only the binder is type position, so only it is free of the line.
-          for (const declaration of imported.constraints.values()) {
-            const local = `${item.form.alias.text}.${declaration.name}`;
-            this.#qualifiedConstraints.set(local, declaration);
-            constraints.push({ local, declaration });
-          }
-        }
-      } else if (item.form.kind === "Named") {
-        for (const name of item.form.names) {
-          const declaration = imported.constraints.get(name.imported.text);
-          if (declaration !== undefined && this.#bindImportedConstraintName(declaration, name)) {
-            constraints.push({ local: name.local.text, declaration });
-            members.set(name, declaration);
-          }
-          this.#bindImportedTypeName(imported, name);
+      if (this.#moduleAliases.has(item.alias.text)) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `module alias \`${item.alias.text}\` is already bound`,
+          primary: item.alias.span,
+        });
+      } else {
+        aliasBound = true;
+        this.#moduleAliases.set(item.alias.text, imported);
+        this.#moduleAliasSpecifiers.set(item.alias.text, item.specifier);
+        // Bound but not yet *reached*: the alias's term-position doors
+        // (`Lib.area`, `Lib.Circle`) stay shut until the walk passes the item.
+        this.#pendingImportAliases.set(item.alias.text, item.alias);
+        // §3.1: a constraint qualifies through the alias in a binder
+        // (`<a: Geo.C>`), and its members through it as ordinary terms
+        // (`Geo.describe(x)`). The alias is the module in both cases — but
+        // only the binder is type position, so only it is free of the line.
+        for (const declaration of imported.constraints.values()) {
+          const local = `${item.alias.text}.${declaration.name}`;
+          this.#qualifiedConstraints.set(local, declaration);
+          constraints.push({ local, declaration });
         }
       }
-      this.#importTypeBindings.set(item, { constraints, members, aliasBound });
+      this.#importTypeBindings.set(item, { constraints, aliasBound });
     }
     this.#registerCompanionConstraints(items);
   }
@@ -2190,25 +2237,24 @@ class Resolver {
    * Run **after** every import has predeclared, which is what makes "answers,
    * never binds" mechanical rather than a promise: the bare name is registered
    * only when nothing else in the constraint namespace has claimed it — not the
-   * module's own declaration, not a named import anywhere in the file, not
-   * pre-registration — so no collision check exists for it to fail and nothing
-   * downstream ever sees two meanings for the word.
+   * module's own declaration, not pre-registration — so no collision check
+   * exists for it to fail and nothing downstream ever sees two meanings for
+   * the word.
    *
    * The fallback carries **no members**: the entry is the constraint's *name*
    * and nothing else, exactly as the qualified `Alias.Name` entry beside it is.
-   * The named import stays the members-carrying idiom (§3.1).
+   * Members are reached through the alias or by the dot (§3.2, #762).
    */
   #registerCompanionConstraints(items: readonly Parsed.Item[]): void {
     for (const item of items) {
-      if (item.kind !== "Import" || item.form.kind !== "Namespace") continue;
-      const alias = item.form.alias.text;
+      if (item.kind !== "Import") continue;
+      const alias = item.alias.text;
       const bound = this.#importTypeBindings.get(item);
-      // A duplicate `import module` bound no alias, so it reaches nothing either.
+      // A duplicate alias spelling bound nothing, so it reaches nothing either.
       if (bound === undefined || !bound.aliasBound) continue;
       if (
         isPreRegisteredConstraint(alias) ||
         this.#declaredConstraintNames.has(alias) ||
-        this.#importedConstraints.has(alias) ||
         this.#companionConstraints.has(alias)
       ) {
         continue;
@@ -2223,51 +2269,6 @@ class Resolver {
     }
   }
 
-  /**
-   * One named entry's type-namespace bindings: a union, a record, an alias, or
-   * an extern type, whichever the exporter has under that name.
-   *
-   * The prelude layer is exempt from the collision report for the reason §5.4
-   * gives — an import may occlude a prelude type name — and a union or record
-   * binds even when the report fires, which is what keeps a module with one
-   * duplicate-type mistake from reporting a second error at every use below it.
-   */
-  #bindImportedTypeName(imported: ModuleInterface, name: Parsed.ImportName): void {
-    const local = name.local.text;
-    const nominalTaken = (): boolean =>
-      this.#unionNames.has(local) || this.#recordNames.has(local);
-    const taken = (): boolean =>
-      nominalTaken() || this.#typeAliases.has(local) || this.#externTypeNames.has(local);
-    const contested = (already: boolean): boolean => {
-      if (!already || this.#preludeTypeNames.has(local)) return false;
-      this.#diagnostics.add({
-        severity: "error",
-        message: `type \`${local}\` is already declared or imported`,
-        primary: name.span,
-      });
-      return true;
-    };
-    const union = imported.unions.get(name.imported.text);
-    if (union !== undefined) {
-      contested(nominalTaken());
-      this.#unionNames.set(local, union.id);
-      this.#unionArities.set(local, union.parameters.length);
-    }
-    const record = imported.records.get(name.imported.text);
-    if (record !== undefined) {
-      contested(nominalTaken());
-      this.#recordNames.set(local, record.id);
-      this.#recordArities.set(local, record.parameters.length);
-    }
-    const alias = imported.aliases.get(name.imported.text);
-    if (alias !== undefined && !contested(taken())) {
-      this.#typeAliases.set(local, { ...alias, name: local });
-    }
-    const externType = imported.externTypes.get(name.imported.text);
-    if (externType !== undefined && !contested(taken())) {
-      this.#externTypeNames.set(local, externType.externType);
-    }
-  }
 
   #predeclareExternTerms(items: readonly Parsed.Item[], scope: Scope): void {
     for (const item of items) {
@@ -2413,32 +2414,16 @@ class Resolver {
           reserve(name.text);
         }
       } else if (item.kind === "Import") {
-        // Modules §3: an import item straddles the reading laws exactly as the
-        // declaration it imports does. Its **term**-namespace names — a value, a
-        // constructor, a constraint's members — are read top-down at the item,
-        // so they `declare` like any other term binding and a reference above
-        // them draws §7.2's declared-later error. The repair is the import's
-        // own, hence `move`: the names are not declared here, the line that
-        // brings them is what moves. (The **type**-namespace half is
-        // order-insensitive and never reaches this frame; `#predeclareImports`
-        // binds it before any item is walked.)
-        //
-        // §5.4 names the import among the occluders too, and the reservation is
-        // stated over all of them alike: an imported local takes the prelude's
-        // binding over module-wide, so a reference above the import line
-        // resolves as if the prelude did not bind the name — which now means the
-        // declared-later error a user-written name gets there, the control this
-        // rule is measured against.
-        //
-        // What the exporting module actually exports is the test, not what the
-        // import line asks for: an import that binds nothing occludes nothing,
-        // and declaring or reserving there would turn one reported error — a
-        // missing export, a member imported severally (§3.1) — into a second one
-        // at every use below it.
-        for (const name of this.#importTermNames(item)) {
-          declare({ name, fun: false, move: "the import" });
-          reserve(name.text);
-        }
+        // Modules §3 (#762): an import binds a module and nothing smaller, so
+        // it puts no *bare* name in this frame at all — nothing to declare,
+        // and nothing to reserve against the prelude layer. Its module alias
+        // is the whole of what it binds: order-insensitive in type and
+        // constraint position (`#predeclareImports` binds it before any item
+        // is walked) and top-down in term position, where
+        // `#pendingImportAliases` carries it. §5.4 still names the import
+        // among the prelude's occluders — an alias may occlude a prelude
+        // module's alias — and that contest is the alias namespace's, run at
+        // predeclaration and not in this frame.
       } else {
         // The term names a type-namespace declaration binds. Their references
         // read top-down like any other term reference (§7.2); the declarations
@@ -2491,7 +2476,7 @@ class Resolver {
             : this.#lookupTerm(member.name.text, scope);
           const pendingHit = this.#reportPendingRebinding(member.name, existing, scope);
           if (!pendingHit && existing !== undefined) {
-            this.#reportRebinding(member.name, existing, member.exported);
+            this.#reportRebinding(member.name, existing);
           }
           const binding = this.#declare(member.name, "fun");
           this.#predeclaredBindings.set(member, binding);
@@ -2509,29 +2494,17 @@ class Resolver {
       } else if (item.kind === "LetPattern") {
         for (const name of Parsed.patternNames(item.pattern)) frame.later.delete(name.text);
       } else if (item.kind === "Import") {
-        // The frame's invariant, kept: what remains in `later` is exactly what
-        // is still later than the reference being resolved. `#lookupTerm`
-        // answers below the line for every name an import defines, so most
-        // references never reach the frame at all — but the two sets are only
-        // the same set because `#importTermNames` names what *binds* rather than
-        // what the exporter exports. When they diverge, a stale entry answers a
-        // use below the line with "move the import above this use", pointing at
-        // a line already above it; that is what a refusal-blind
-        // `#importTermNames` produced for a constraint whose spelling the module
-        // had already declared, and the pin for the shape is in
-        // `declaration-order.test.ts`. This delete is why the divergence is
-        // reported as a stale *label* rather than as a phantom binding, and it
-        // is what keeps the invariant true of any name the two sets stop
-        // agreeing on.
-        for (const name of this.#importTermNames(item)) frame.later.delete(name.text);
-        // The alias's **term** half arrives here too, and only here: `Lib.area`
-        // and `Lib.Circle` are locals this line binds (Modules §3.3), so they
+        // The alias's **term** half arrives here, and only here: `Lib.area`
+        // and `Lib.Circle` are locals this line binds (Modules §3.1), so they
         // read top-down while `Lib.Point` in an annotation does not. The alias
         // itself was registered before the walk, for the type half's sake, so
         // the term door is gated on this set instead of on registration.
-        if (item.form.kind === "Namespace") {
-          this.#pendingImportAliases.delete(item.form.alias.text);
-        }
+        //
+        // An import puts no *bare* name in scope (§3, #762), so there is
+        // nothing for the block frame's `later` set to forget: the alias is
+        // the whole of what the line binds, and `#pendingImportAliases`
+        // carries its top-down half.
+        this.#pendingImportAliases.delete(item.alias.text);
       } else {
         for (const { name } of termNamesBound(item)) frame.later.delete(name.text);
       }
@@ -2540,51 +2513,6 @@ class Resolver {
     return resolved;
   }
 
-  /**
-   * The **bare** term-namespace names an `import` item binds — Modules §3's
-   * top-down half, and the only half a block frame ever sees.
-   *
-   * What **binds** decides it, never what the import line asks for, and binding
-   * takes two things: the exporter must export the name, and the name must have
-   * survived its collision contest here. A name that fails either binds nothing,
-   * so it is neither a later declaration nor an occluder — treating it as one
-   * would answer the module's one reported error (a missing export, a member
-   * imported severally, a constraint name the module had already declared) with
-   * a second error at every use of the spelling, above the line *and* below it.
-   *
-   * The two tests read from two places because they are decided in two places.
-   * The exporter's interface answers the first directly. The second was settled
-   * before the walk, by `#predeclareImports`, and is read back through
-   * `#importTypeBindings` — a constraint absent from that map lost its name to a
-   * local declaration or an earlier import, and the members it would have
-   * brought belong to whichever declaration won the word.
-   *
-   * A constraint arrives with its members (§3.1), which bind in the term
-   * namespace exactly as an imported function does — and are not importable
-   * severally, so the constraint's own name is the only spelling here that names
-   * them. They take the import line's span, having no source name node of their
-   * own; the label a diagnostic hangs there points at the line the reader must
-   * move, which is the repair either way.
-   *
-   * A namespace import binds `Alias.name`, not a bare name, so it contributes
-   * nothing: `#pendingImportAliases` carries its top-down half instead.
-   */
-  #importTermNames(item: Parsed.ImportItem): readonly Parsed.Name[] {
-    if (item.form.kind !== "Named") return [];
-    const exporter = this.#imports.get(item.specifier);
-    if (exporter === undefined) return [];
-    const bound = this.#importTypeBindings.get(item);
-    return item.form.names.flatMap((name): readonly Parsed.Name[] => [
-      ...(exporter.terms.has(name.imported.text) ? [name.local] : []),
-      ...(bound?.members.get(name)?.members ?? []).map(
-        (member): Parsed.Name => ({
-          text: member.binding.name,
-          startClass: "non-upper",
-          span: name.span,
-        }),
-      ),
-    ]);
-  }
 
   /** Expands declaration-header derivation sugar into ordinary instance items. */
   #derivedHonors(item: Resolved.Item): readonly Resolved.HonorItem[] {
@@ -2695,11 +2623,8 @@ class Resolver {
         // left here is the emission inventory, which is a table this module
         // publishes rather than a name anything resolves through — so it is
         // gathered where every other item gathers its own, in source order.
-        if (
-          typeHalf?.aliasBound === true && importedModule !== undefined &&
-          item.form.kind === "Namespace"
-        ) {
-          this.#includeNominals(importedModule, item.form.alias.text);
+        if (typeHalf?.aliasBound === true && importedModule !== undefined) {
+          this.#includeNominals(importedModule, item.alias.text);
           for (const symbol of importedModule.terms.values()) {
             this.#importedSymbols.set(symbol.id, symbol);
           }
@@ -2707,164 +2632,7 @@ class Resolver {
             this.#importedSymbols.set(symbol.id, symbol);
           }
         }
-        const names = item.form.kind === "Named"
-          ? item.form.names.flatMap((name): Resolved.ImportName[] => {
-              const term = importedModule?.terms.get(name.imported.text);
-              const union = importedModule?.unions.get(name.imported.text);
-              const record = importedModule?.records.get(name.imported.text);
-              const alias = importedModule?.aliases.get(name.imported.text);
-              const externType = importedModule?.externTypes.get(name.imported.text);
-              const constraint = importedModule?.constraints.get(name.imported.text);
-              // §3.1: "Members cannot be imported severally." Naming one is a
-              // near miss with an exact answer, so it gets the answer rather
-              // than the generic does-not-export report.
-              const severalMember = term === undefined && constraint === undefined
-                ? importedModule?.constraintMembers.get(name.imported.text)
-                : undefined;
-              if (severalMember !== undefined) {
-                const owner = [...importedModule!.constraints.values()].find(
-                  (declaration) =>
-                    declaration.members.some(
-                      ({ binding }) => binding.name === name.imported.text,
-                    ),
-                );
-                this.#diagnostics.add({
-                  severity: "error",
-                  message:
-                    `\`${name.imported.text}\` is a member of constraint ` +
-                    `\`${owner?.name ?? "?"}\`; import the constraint — its members ` +
-                    "arrive with it",
-                  primary: name.span,
-                });
-                return [];
-              }
-              // The same rule one step out (Constraints §4.7): a `widens`
-              // binding inherits the member's visibility, so it is no more
-              // importable severally than the member is. The route it *does*
-              // own is the qualified one, so that is what the message names.
-              if (term !== undefined && term.widens === true) {
-                this.#diagnostics.add({
-                  severity: "error",
-                  message:
-                    `\`${name.imported.text}\` is a constraint member's wider ` +
-                    "face; it is qualifiable, not a bare export — reach it " +
-                    "through `import module` and its qualified spelling",
-                  primary: name.span,
-                });
-                return [];
-              }
-              if (term === undefined && union === undefined && record === undefined && alias === undefined && externType === undefined && constraint === undefined) {
-                this.#diagnostics.add({
-                  severity: "error",
-                  message: `module \`${item.specifier}\` does not export \`${name.imported.text}\``,
-                  primary: name.span,
-                });
-              }
-              // The constraint's *name* bound before the walk; its **members**
-              // are terms and bind here, top-down (Modules §3). A name the
-              // pre-pass refused for a collision is absent from the map and
-              // brings no members, exactly as it brought none before.
-              const boundConstraint = typeHalf?.members.get(name);
-              const memberNames = boundConstraint === undefined
-                ? []
-                : this.#bindImportedConstraintMembers(
-                    importedModule!,
-                    boundConstraint,
-                    name,
-                    scope,
-                  );
-              if (term !== undefined) {
-                const existing = scope.lookup(name.local.text);
-                // A prelude name is a shadowable fallback: an explicit import of
-                // the same local name overrides it silently (and takes over its
-                // emission, so it is excluded from the synthesized prelude import).
-                if (existing !== undefined && !this.#preludeTerms.has(existing)) {
-                  this.#reportRebinding(name.local, existing);
-                } else {
-                  scope.define(name.local.text, term.id);
-                }
-                this.#explicitlyImported.add(term.id);
-                this.#importedSymbols.set(term.id, term);
-              }
-              // The type names bound before the walk (`#predeclareImports`), so
-              // what is left of the type half here is the **emission
-              // inventory**: the nominal tables this module publishes, gathered
-              // in source order like every other item's. The `#…Names` maps are
-              // the record of what actually bound, so an entry a collision
-              // refused adds nothing here either.
-              if (union !== undefined && this.#unionNames.get(name.local.text) === union.id) {
-                if (!this.#unions.some(({ id }) => id === union.id)) this.#unions.push({ ...union, representationVisible: false });
-              }
-              if (record !== undefined && this.#recordNames.get(name.local.text) === record.id) {
-                const importedRecord = { ...record, representationVisible: false };
-                if (!this.#records.some(({ id }) => id === record.id)) this.#records.push(importedRecord);
-              }
-              if (
-                externType !== undefined &&
-                this.#externTypeNames.get(name.local.text) === externType.externType
-              ) {
-                if (!this.#externTypes.some(({ externType: id }) => id === externType.externType)) {
-                  this.#externTypes.push({ ...externType, localName: name.local.text });
-                }
-              }
-              const typeBinding = union !== undefined || record !== undefined ||
-                alias !== undefined || externType !== undefined;
-              // §2.4 channel 1: this import owns every name it binds, so the
-              // prelude channel must not offer a second line for the same
-              // identity. Matched by identity, never by spelling — a rename
-              // still takes the entry over, and the entry's faces spell the
-              // local the source chose.
-              if (typeBinding) {
-                for (const entry of this.#preludeTypeImports) {
-                  const owned = (union !== undefined && entry.union === union.id) ||
-                    (record !== undefined && entry.record === record.id) ||
-                    (externType !== undefined && entry.externType === externType.externType);
-                  if (owned) entry.explicitLocal = name.local.text;
-                }
-              }
-              // A constraint name binds in neither the term nor the type
-              // namespace and has no `.js` or `.d.ts` face (Constraints §6.4),
-              // so it contributes no entry of its own — only its members do.
-              const own: readonly Resolved.ImportName[] =
-                term === undefined && !typeBinding && constraint !== undefined
-                  ? []
-                  : [{
-                      imported: name.imported.text,
-                      local: name.local.text,
-                      ...(term === undefined ? {} : { symbol: term.id }),
-                      ...(term === undefined && typeBinding ? { typeOnly: true } : {}),
-                      ...(typeBinding ? { typeBinding: true } : {}),
-                      // The identity the type half binds (§2.4 rung 2), so the
-                      // declaration emitter can answer by identity and spell the
-                      // face with the local this line chose. A type *alias* is
-                      // deliberately absent: faces carry its expansion, so no
-                      // face ever answers with its name (#618).
-                      //
-                      // Gated on the `#…Names` maps for the reason the emission
-                      // inventory above is: those are the record of what really
-                      // bound, so a name a collision refused answers for nothing
-                      // and the face falls to a rung that can name it.
-                      ...(union !== undefined &&
-                          this.#unionNames.get(name.local.text) === union.id
-                        ? { union: union.id }
-                        : {}),
-                      ...(record !== undefined &&
-                          this.#recordNames.get(name.local.text) === record.id
-                        ? { record: record.id }
-                        : {}),
-                      ...(externType !== undefined &&
-                          this.#externTypeNames.get(name.local.text) ===
-                            externType.externType
-                        ? { externType: externType.externType }
-                        : {}),
-                      span: name.span,
-                    }];
-              return [...own, ...memberNames];
-            })
-          : undefined;
-        const namespaceAlias = item.form.kind === "Namespace"
-          ? item.form.alias.text
-          : undefined;
+        const namespaceAlias = item.alias.text;
         // An explicit import of a *prelude* module carries no instance evidence
         // (#263), for the reason `#preludeImport` carries none (#153): the
         // prelude's instances ride `Module.preludeInstances`, which every module
@@ -2883,33 +2651,26 @@ class Resolver {
           kind: "Import",
           specifier: item.specifier,
           synthesized: false,
-          form: item.form.kind === "Effect"
-            ? item.form
-            : item.form.kind === "Namespace"
-              ? {
-                  kind: "Namespace",
-                  alias: namespaceAlias!,
-                  names: [
-                    ...[...(importedModule?.terms.entries() ?? [])].map(
-                      ([name, symbol]) => ({ name, symbol, member: false }),
-                    ),
-                    // §3.3: `Geo.describe(x)` is an ordinary term reference,
-                    // reached through the alias like any other export.
-                    ...[...(importedModule?.constraintMembers.entries() ?? [])].map(
-                      ([name, symbol]) => ({ name, symbol, member: true }),
-                    ),
-                  ].map(({ name, symbol, member }) => ({
-                    imported: name,
-                    local: `${namespaceAlias}.${name}`,
-                    symbol: symbol.id,
-                    ...(member ? { constraintMember: true } : {}),
-                    span: item.span,
-                  })),
-                }
-              : {
-                  kind: "Named",
-                  names: names ?? [],
-                },
+          form: {
+            kind: "Namespace",
+            alias: namespaceAlias,
+            names: [
+              ...[...(importedModule?.terms.entries() ?? [])].map(
+                ([name, symbol]) => ({ name, symbol, member: false }),
+              ),
+              // §3.1: `Geo.describe(x)` is an ordinary term reference,
+              // reached through the alias like any other export.
+              ...[...(importedModule?.constraintMembers.entries() ?? [])].map(
+                ([name, symbol]) => ({ name, symbol, member: true }),
+              ),
+            ].map(({ name, symbol, member }) => ({
+              imported: name,
+              local: `${namespaceAlias}.${name}`,
+              symbol: symbol.id,
+              ...(member ? { constraintMember: true } : {}),
+              span: item.span,
+            })),
+          },
           instances: (preludeSource ? [] : importedModule?.instances ?? []).map((instance) => ({
             identity: instance.identity,
             constraint: instance.constraint,
@@ -3026,9 +2787,7 @@ class Resolver {
             severity: "error",
             message: isPreRegisteredConstraint(item.name.text)
               ? `constraint \`${item.name.text}\` is pre-registered and cannot be redeclared`
-              : this.#importedConstraints.has(item.name.text)
-                ? `constraint \`${item.name.text}\` is already declared or imported`
-                : `constraint \`${item.name.text}\` is already declared`,
+              : `constraint \`${item.name.text}\` is already declared`,
             primary: item.name.span,
           });
         }
@@ -3194,12 +2953,7 @@ class Resolver {
           // The *parsed* field, not the resolved head below: whether the repair
           // can name a spelling is decided by the declaration form alone, and
           // stays decided even when the head itself failed to resolve.
-          this.#reportRebinding(
-            item.name,
-            existing,
-            item.exported,
-            item.widens !== undefined,
-          );
+          this.#reportRebinding(item.name, existing, item.widens !== undefined);
         }
 
         const widens = item.widens === undefined
@@ -4071,56 +3825,84 @@ class Resolver {
       // ordinary lexical scoping or import, which is exactly what this lookup
       // asks and nothing more — the representation's own reach (§4.2, #587)
       // never puts a name here.
-      const symbol = this.#lookupTerm(pattern.name.text, scope);
-      const kind = symbol === undefined ? undefined : this.#symbol(symbol).kind;
-      if (
-        symbol === undefined ||
-        (kind !== "constructor" && kind !== "record-constructor")
-      ) {
-        const later = symbol === undefined
-          ? this.#findLaterDeclaration(pattern.name.text)
-          : undefined;
-        // §5.5's refusal is one shape for both positions (§10), so a
-        // qualified-only constructor draws it here exactly as in an expression —
-        // never the bare `unknown constructor`, which says nothing about the
-        // union standing one qualifier away.
-        if (
-          symbol === undefined && later === undefined &&
-          this.#refusedBarePrelude(pattern.name)
-        ) {
+      const bound = this.#lookupTerm(pattern.name.text, scope);
+      const kind = bound === undefined ? undefined : this.#symbol(bound).kind;
+      const scoped = bound !== undefined &&
+          (kind === "constructor" || kind === "record-constructor")
+        ? bound
+        : undefined;
+      const later = bound === undefined
+        ? this.#findLaterDeclaration(pattern.name.text)
+        : undefined;
+      // Modules §5.1 rule 3 (#763): the fallback answers here exactly as it
+      // answers in an expression — §5.4 reads pattern and value position as one
+      // scope — and it answers *after* scope and *before* the door, which is
+      // the order Pattern Matching §2.2 states.
+      const symbol = scoped ?? (bound === undefined && later === undefined
+        ? this.#companionConstructor(pattern.name.text)
+        : undefined);
+      const arguments_ = (): readonly Resolved.Pattern[] =>
+        pattern.arguments.map((argument) =>
+          this.#resolvePattern(argument, scope, seen, binderClass, sharedBindings),
+        );
+      if (symbol === undefined) {
+        if (bound !== undefined || later !== undefined) {
+          this.#diagnostics.add(
+            later === undefined
+              ? {
+                  severity: "error",
+                  message: `unknown constructor \`${pattern.name.text}\``,
+                  primary: pattern.name.span,
+                }
+              : {
+                  severity: "error",
+                  message: `\`${pattern.name.text}\` is declared later in this block; ` +
+                    "declarations are read top-down — move " +
+                    `${later.move ?? `the ${later.owner ?? "declaration"}'s declaration`} ` +
+                    "above this use",
+                  primary: pattern.name.span,
+                  labels: [{ span: later.name.span, message: "declared here" }],
+                },
+          );
           return { kind: "Wildcard", span: pattern.span };
         }
-        this.#diagnostics.add(
-          later === undefined
-            ? {
-                severity: "error",
-                message: `unknown constructor \`${pattern.name.text}\``,
-                primary: pattern.name.span,
-              }
-            : {
-                severity: "error",
-                message: `\`${pattern.name.text}\` is declared later in this block; ` +
-                  "declarations are read top-down — move " +
-                  `${later.move ?? `the ${later.owner ?? "declaration"}'s declaration`} ` +
-                  "above this use",
-                primary: pattern.name.span,
-                labels: [{ span: later.name.span, message: "declared here" }],
-              },
-        );
-        return { kind: "Wildcard", span: pattern.span };
+        // **The door** (Pattern Matching §2.2, #763). Scope has nothing for the
+        // spelling, so the head is left open and the checker resolves it
+        // against the expected type — the scrutinee's at the top of a pattern,
+        // the instantiated slot type beneath — which the resolver cannot see.
+        // Nothing is refused here: a spelling no expected type holds is the
+        // checker's closed-door report (§12), and §5.5's qualified-only prelude
+        // constructors are exactly what the door reaches (`Less` bare over an
+        // `Ordering`), so the bare-prelude refusal does not fire in pattern
+        // position at all.
+        //
+        // The qualified spellings this module could write travel with the node,
+        // because they are a property of *this* module's scope while the
+        // checker's own spelling tables are keyed by symbol — which a head
+        // nothing resolved has none of.
+        const qualifications = this.#constructorQualifications(pattern.name.text);
+        return {
+          kind: "Constructor",
+          open: true,
+          text: pattern.name.text,
+          tag: pattern.name.text,
+          nameSpan: pattern.name.span,
+          ...(qualifications.length === 0 ? {} : { qualifications }),
+          arguments: arguments_(),
+          span: pattern.span,
+        };
       }
       return {
         kind: "Constructor",
         symbol,
         text: pattern.name.text,
-        // The declaration's name, never the one written here: an
-        // `import { Circle as Round }` puts a spelling in front of the reader
+        // The declaration's name, never the one written here: a constructor
+        // reached through rule 3's fallback under an alias whose module
+        // declared it otherwise would put a spelling in front of the reader
         // that no constructed value carries (#468).
         tag: this.#symbol(symbol).name,
         nameSpan: pattern.name.span,
-        arguments: pattern.arguments.map((argument) =>
-          this.#resolvePattern(argument, scope, seen, binderClass, sharedBindings),
-        ),
+        arguments: arguments_(),
         span: pattern.span,
       };
     }
@@ -4493,8 +4275,7 @@ class Resolver {
     this.#diagnostics.add({
       severity: "error",
       message: `\`${name}\` is a type, not a module; import its home module ` +
-        "with `import module` for qualified access, or import the " +
-        "constructor/function you need",
+        "to qualify through it",
       primary: receiver.span,
       importModuleRepair: { name, namespace: "type" },
     });
@@ -4546,10 +4327,45 @@ class Resolver {
     }
 
     const later = this.#findLaterDeclaration(expression.name.text);
+    // Modules §5.1 rule 3 (#763): the term namespace had nothing, so the
+    // companion fallback gets its turn — before the refusals, and after every
+    // reading that could have answered.
+    if (later === undefined) {
+      const companion = this.#companionConstructor(expression.name.text);
+      if (companion !== undefined) {
+        return {
+          kind: "Name",
+          symbol: companion,
+          text: expression.name.text,
+          span: expression.span,
+        };
+      }
+    }
     // §5.5's refusal is read *after* the declared-later one and before the
     // unknown name: a module that declares the spelling lower down means its
     // own, and §5.4's reservation has already made the prelude invisible there.
     if (later === undefined && this.#refusedBarePrelude(expression.name)) {
+      return { kind: "ErrorExpr", span: expression.span };
+    }
+    // Modules §10's row: a constructor a visible alias's module exports but
+    // whose spelling the alias itself does not carry — `Circle(1.0)` under
+    // `import Shape from "./shape"`. Expression position has no door (§9.13),
+    // so the qualified spelling is the whole repair, written in the program's
+    // own words: one exporter names it, several name each, none falls through
+    // to the plain unknown-name report.
+    const qualifications = later === undefined
+      ? this.#constructorQualifications(expression.name.text)
+      : [];
+    if (qualifications.length > 0) {
+      this.#diagnostics.add({
+        severity: "error",
+        message: bareConstructorMessage(
+          expression.name.text,
+          qualifications,
+          this.#writtenArguments(expression.name),
+        ),
+        primary: expression.span,
+      });
       return { kind: "ErrorExpr", span: expression.span };
     }
     this.#diagnostics.add(
@@ -5329,8 +5145,8 @@ class Resolver {
         `through it, as \`${name}.Name\``;
     }
     return `\`${name}\` is a module alias, not a type; write \`${name}.${only}\` for the type it ` +
-      `exports, name it bare with \`import { ${only} } from ${JSON.stringify(specifier)}\`, ` +
-      `or realias as \`import module ${only}\``;
+      `exports, name it bare with \`type ${only} = ${name}.${only}\`, ` +
+      `or realias as \`import ${only} from ${JSON.stringify(specifier)}\``;
   }
 
   #includeNominals(imported: ModuleInterface, qualifier?: string): void {
@@ -5382,7 +5198,6 @@ class Resolver {
     for (const item of resolvedItems) {
       if (item.kind !== "Import") continue;
       if (item.form.kind === "Namespace") names.add(item.form.alias);
-      if (item.form.kind === "Effect") continue;
       for (const name of item.form.names) names.add(name.local);
     }
     return names;
@@ -5395,8 +5210,6 @@ class Resolver {
     const taken = this.#emittedTopLevelNames(resolvedItems);
     const namesBySpecifier = new Map<string, Resolved.ImportName[]>();
     for (const symbol of this.#usedPreludeSymbols) {
-      // An explicit import of the same name owns its emission; don't import twice.
-      if (this.#explicitlyImported.has(symbol)) continue;
       const term = this.#preludeTerms.get(symbol);
       const specifier = this.#preludeSpecifierBySymbol.get(symbol);
       if (term === undefined || specifier === undefined) continue;
@@ -5623,102 +5436,6 @@ class Resolver {
     return true;
   }
 
-  /**
-   * Binds an imported constraint's **name**, in the constraint namespace.
-   *
-   * A constraint name is type-namespace, so this is order-insensitive and runs
-   * before any item is walked (Modules §3): `<a: Ord>` and `honor Ord<Mine>` are
-   * as legal above the import line as below it. The members it brings are terms
-   * and follow at the item — `#bindImportedConstraintMembers`.
-   *
-   * Answers whether the name bound. A refused one brings no members either: an
-   * alias renames the constraint only (§3.2), so its members' spellings belong
-   * to whichever declaration won the word.
-   */
-  #bindImportedConstraintName(
-    declaration: Resolved.ConstraintItem,
-    name: Parsed.ImportName,
-  ): boolean {
-    const local = name.local.text;
-    // Same-namespace collision, reported at the import line (Modules §5.2). A
-    // pre-registered name is unavailable for the reason a redeclaration is: the
-    // wired-in machinery reaches its constraint by one identity, and a second
-    // meaning for the word would be unreachable by it.
-    if (
-      isPreRegisteredConstraint(local) ||
-      this.#declaredConstraintNames.has(local) ||
-      this.#importedConstraints.has(local)
-    ) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: `constraint \`${local}\` is already declared or imported`,
-        primary: name.span,
-      });
-      return false;
-    }
-    this.#importedConstraints.set(local, declaration);
-    this.#constraintNames.add(local);
-    return true;
-  }
-
-  /**
-   * Binds an imported constraint's **members**, in the term namespace, at the
-   * import item — which is where Modules §3 puts every term-namespace name an
-   * import binds.
-   *
-   * An alias renames the constraint only (§3.2) — the members keep the names
-   * their declaration gave them, which is the same reason they cannot be
-   * imported severally: they are module-scope terms belonging to a declaration,
-   * not exports the import list negotiates one at a time.
-   *
-   * Returns the synthesized member entries for the import item. They carry
-   * `constraintMember` so that emission can tell them from names the source
-   * wrote and import only the ones the body reaches.
-   */
-  #bindImportedConstraintMembers(
-    home: ModuleInterface,
-    declaration: Resolved.ConstraintItem,
-    name: Parsed.ImportName,
-    scope: Scope,
-  ): readonly Resolved.ImportName[] {
-    return declaration.members.flatMap((member): Resolved.ImportName[] => {
-      const symbol = home.constraintMembers.get(member.binding.name);
-      if (symbol === undefined) return [];
-      const memberName: Parsed.Name = {
-        text: member.binding.name,
-        startClass: "non-upper",
-        span: name.span,
-      };
-      // §3.1's declaration site for the arriving member: the import item, in
-      // this module. Recorded before the collision check, because it is what a
-      // *later* collision reports against — the member's own span is a line in
-      // the imported file.
-      this.#arrivedConstraintMembers.set(symbol.id, {
-        span: name.span,
-        item: `import { ${name.imported.text}${
-          name.local.text === name.imported.text ? "" : ` as ${name.local.text}`
-        } }`,
-      });
-      // A member is an ordinary module-scope term, so §5.4's occlusion rule
-      // governs it exactly as it governs an imported function: it may take a
-      // prelude name over, and may not collide in its own layer.
-      const existing = scope.lookup(member.binding.name);
-      if (existing !== undefined && !this.#preludeTerms.has(existing)) {
-        this.#reportRebinding(memberName, existing);
-      } else {
-        scope.define(member.binding.name, symbol.id);
-      }
-      this.#explicitlyImported.add(symbol.id);
-      this.#importedSymbols.set(symbol.id, symbol);
-      return [{
-        imported: member.binding.name,
-        local: member.binding.name,
-        symbol: symbol.id,
-        constraintMember: true,
-        span: name.span,
-      }];
-    });
-  }
 
   /**
    * A constraint declaration's default member body, marked as such.
@@ -6092,11 +5809,10 @@ class Resolver {
     this.#importedSymbols.set(symbol.id, symbol);
     // The member is the *declaring* module's binding, so the spelling this
     // module emits has to be one it can reach: the prelude local for a prelude
-    // constraint, or the local a real import of the declaration already bound.
-    // Nothing else has an import to render, and inventing one is the companion
-    // arc's business, not this read's.
-    const local = this.#reachPreludeTerm(symbol.id) ??
-      (this.#explicitlyImported.has(symbol.id) ? symbol.name : undefined);
+    // constraint. Nothing else has an import to render — no import binds a
+    // name smaller than a module (Modules §3, #762) — and inventing one is the
+    // companion arc's business, not this read's.
+    const local = this.#reachPreludeTerm(symbol.id);
     if (local === undefined) return undefined;
     return {
       kind: "Name",
@@ -6458,7 +6174,7 @@ class Resolver {
           severity: "error",
           message: `unknown module \`${target.module.text}\`; a \`widens\` head ` +
             "names its member through a module alias; import the member's home " +
-            `module with \`import module ${target.module.text}\``,
+            `module under the alias \`${target.module.text}\``,
           primary: target.module.span,
           importModuleRepair: { name: target.module.text, namespace: "constraint" },
         });
@@ -6570,17 +6286,12 @@ class Resolver {
   /**
    * Rule 1's refusal, plus the collisions that have a repair to teach.
    *
-   * `exported` is read for one of them (Modules §3.1, #544): an **exported**
-   * module-level binding of the spelling of a member that **arrived with a
-   * named constraint import** is the would-be door — the shape §5.3's
-   * generalisation law would have licensed had the constraint come through a
-   * namespace import instead. The law is not consulted (the carve amends
-   * Constraints §4.6's honor-claim and never unseats an ordinary binding), so
-   * the refusal stays the plain rebinding one; what it gains is the route out,
-   * and a prior-binding reference the reader can find — the import item's line
-   * in *this* module rather than the member's line in the imported file. A
-   * private binding of the same spelling has no door to build, and every other
-   * collision is an ordinary rebinding; both keep the plain form.
+   * The named-import arm this report once carried is **gone with the form**
+   * (#762): a member could arrive in bare scope only through a named
+   * constraint import, and no import binds a name smaller than a module, so
+   * the would-be-door collision — an exported binding over an arrived member's
+   * spelling — has no way to arise and needs no route out. Every collision
+   * here is now an ordinary rebinding or a `widens` one.
    *
    * `widens` is read for the rest (Constraints §4.7, #546), and what it changes
    * is which name the repair can point at. **A `widens` declaration has no name
@@ -6592,32 +6303,8 @@ class Resolver {
   #reportRebinding(
     name: Parsed.Name,
     existing: Resolved.SymbolId,
-    exported = false,
     widens = false,
   ): void {
-    const arrival = exported ? this.#arrivedConstraintMembers.get(existing) : undefined;
-    if (arrival !== undefined) {
-      // Both shapes reach the same standing verdict by the same route; they part
-      // on the tail, because only one of them has an export name to rename.
-      // §4.6's sentence for the declaration shape names what must go: the named
-      // import, with the namespace route as the door-builder's form.
-      const repair = widens
-        ? `a \`widens\` declaration cannot unseat an ordinary binding and has ` +
-          "no name of its own to choose, so the named import is what must go: " +
-          "reach the constraint through `import module …` instead"
-        : `to widen \`${name.text}\` lawfully, import the module instead ` +
-          "(`import module …`), or choose a different export name";
-      this.#diagnostics.add({
-        severity: "error",
-        message:
-          `\`${name.text}\` is already bound (line ${arrival.span.start.line + 1}); ` +
-          `it arrived with \`${arrival.item}\`, and a named constraint import ` +
-          `brings its members — ${repair} (Modules §5.3's generalisation law).`,
-        primary: name.span,
-        labels: [{ span: arrival.span, message: "previous binding" }],
-      });
-      return;
-    }
     const previous = this.#symbol(existing);
     const line = previous.bindingSpan.start.line + 1;
     if (widens) {

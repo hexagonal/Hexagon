@@ -472,12 +472,19 @@ class Collector {
   #visitPattern(pattern: Resolved.Pattern): void {
     switch (pattern.kind) {
       case "Constructor":
-        this.#publish(
-          { kind: "value", symbol: pattern.symbol },
-          "reference",
-          pattern.text,
-          this.#headNameSpan(pattern.nameSpan),
-        );
+        // A head Pattern Matching §2.2's door filled in publishes like any
+        // other reference — the checker wrote the symbol into the same node —
+        // and one the door refused publishes nothing: there is no identity to
+        // rename, and a spelling with no symbol is not an occurrence of
+        // anything. Its sub-patterns still carry binders, so the walk goes on.
+        if (pattern.symbol !== undefined) {
+          this.#publish(
+            { kind: "value", symbol: pattern.symbol },
+            "reference",
+            pattern.text,
+            this.#headNameSpan(pattern.nameSpan),
+          );
+        }
         for (const argument of pattern.arguments) this.#visitPattern(argument);
         return;
       case "As":

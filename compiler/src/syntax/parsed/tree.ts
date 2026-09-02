@@ -146,21 +146,18 @@ export interface WidensTarget {
   readonly span: Source.Span;
 }
 
+/**
+ * An `import` binds a module and nothing smaller (Modules §3, #762). One
+ * binding form reaches this tree — `import Geo from "./geometry"` — so the
+ * item carries the alias directly and there is no form to discriminate: the
+ * named list, the namespace glob, the former `import module` head, and the
+ * effect import are all refused in the parser, and none of them survives as a
+ * shape a later pass has to read.
+ */
 export interface ImportItem {
   readonly kind: "Import";
   readonly specifier: string;
-  readonly form: ImportForm;
-  readonly span: Source.Span;
-}
-
-export type ImportForm =
-  | { readonly kind: "Effect" }
-  | { readonly kind: "Namespace"; readonly alias: Name }
-  | { readonly kind: "Named"; readonly names: readonly ImportName[] };
-
-export interface ImportName {
-  readonly imported: Name;
-  readonly local: Name;
+  readonly alias: Name;
   readonly span: Source.Span;
 }
 

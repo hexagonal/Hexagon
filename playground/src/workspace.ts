@@ -185,7 +185,7 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
       // to collide against. The alias namespace is the one it does claim, and
       // there a second alias of one name is that namespace's own collision
       // rule (Modules §5.2), which is what `aliasedModules` steps out of.
-      return `import module ${companion} from ${specifier}`;
+      return `import ${companion} from ${specifier}`;
     }).join("\n");
   const mainPrefix = equipmentPrefix.length === 0 ? "" : `${equipmentPrefix}\n`;
 
@@ -242,16 +242,16 @@ function spelledWords(source: string): ReadonlySet<string> {
  * Every name the entry's own text binds as a module alias.
  *
  * This gate runs the other way round from `spelledWords`: a name found here
- * *drops* an import rather than adding one. A miss leaves two `import module Rat`
+ * *drops* an import rather than adding one. A miss leaves two `import Rat`
  * lines in one file — the alias namespace's collision rule (Modules §5.2),
  * reported at the line the user wrote, beneath the line no buffer shows.
  *
  * So it reads tokens rather than text, because a legal alias import is not a
- * line: comments are trivia between its tokens (`import (* why *) module Rat`),
+ * line: comments are trivia between its tokens (`import (* why *) Rat`),
  * and the head may break across lines. What the buffer *shows* is not the shape
  * the compiler reads, and a gate whose whole job is to agree with the compiler
  * has to read what it reads. The lexer settles the near misses for free, each
- * in the direction it wants: a commented-out `// import module Rat` is trivia and
+ * in the direction it wants: a commented-out `// import Rat` is trivia and
  * binds nothing, and an import head spelled inside a string literal is part of
  * that one token — neither suppresses anything.
  *
@@ -263,7 +263,7 @@ function spelledWords(source: string): ReadonlySet<string> {
  * to report, against the same text.
  *
  * Keyed on the alias rather than on the module it names, because the collision
- * is over the bound name: `import module Rat from "./Helper"` claims `Rat` just
+ * is over the bound name: `import Rat from "./Helper"` claims `Rat` just
  * as firmly, and the prefix has to stay out of its way. And it reads
  * `/main.hex`'s masked text where `spelledWords` reads the whole buffer, which
  * is the same fact told twice: a block's own file never carries the prefix, so
@@ -278,17 +278,14 @@ function aliasedModules(mainText: string): ReadonlySet<string> {
   const aliases = new Set<string>();
   for (const [index, token] of tokens.entries()) {
     if (token.kind !== "Import") continue;
-    const head = tokens[index + 1];
-    const alias = tokens[index + 2];
-    // The head is two tokens since #565, not three: `module` is contextual (an
-    // ordinary name to the lexer, exactly as `as` was), and an alias is
+    // The head is one token since #762, not two: an `import` binds a module
+    // and nothing smaller, so the alias stands immediately after the keyword,
     // uppercase-start mandatorily — a lowercase one is the parser's error to
     // report and binds no companion's name whatever it does with it. The
     // Playground's own `module X` header is no near miss here: it is rewritten
-    // to a synthesized `import module X from "./X"` line before this scan runs
-    // and is masked out of the text everywhere else, so the only `module` this
-    // loop can ever see is one standing after an `import`.
-    if (head?.kind !== "NonUpperName" || head.text !== "module") continue;
+    // to a synthesized `import X from "./X"` line before this scan runs and is
+    // masked out of the text everywhere else.
+    const alias = tokens[index + 1];
     if (alias?.kind === "UpperName") aliases.add(alias.text);
   }
   return aliases;

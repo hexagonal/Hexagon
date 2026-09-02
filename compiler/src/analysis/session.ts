@@ -735,7 +735,7 @@ export class AnalysisSession {
       .exportersOf(repair.name, repair.namespace)
       .filter((exporter) => exporter !== path && this.#texts.has(exporter));
     if (exporters.length === 0) return undefined;
-    const title = `import module \`${repair.name}\``;
+    const title = `import \`${repair.name}\``;
     if (exporters.length > 1) {
       return {
         title,
@@ -762,7 +762,7 @@ export class AnalysisSession {
       edits: [{
         path,
         span: file.span(offset, offset),
-        replacement: `import module ${repair.name} from ${JSON.stringify(specifier)}\n`,
+        replacement: `import ${repair.name} from ${JSON.stringify(specifier)}\n`,
       }],
     };
   }

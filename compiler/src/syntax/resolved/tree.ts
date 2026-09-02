@@ -868,8 +868,15 @@ export interface PreludeTypeImport {
   readonly explicitLocal?: string;
 }
 
+/**
+ * Two forms reach emission, and only one of them has a source spelling. A
+ * **module** import is the one an `import` line writes (Modules §3, #762): the
+ * alias, with the qualified locals `Alias.name` the body may reach through it.
+ * A **named** import is the resolver's own — the synthesized prelude term
+ * import (#263) — which has no source line and binds bare locals by
+ * construction.
+ */
 export type ImportForm =
-  | { readonly kind: "Effect" }
   | { readonly kind: "Namespace"; readonly alias: string; readonly names: readonly ImportName[] }
   | { readonly kind: "Named"; readonly names: readonly ImportName[] };
 
@@ -1047,7 +1054,42 @@ export interface RecordPatternField {
 
 export interface ConstructorPattern {
   readonly kind: "Constructor";
-  readonly symbol: SymbolId;
+  /**
+   * The constructor this head names — **absent while `open` is set**, and the
+   * one field of a resolved tree the checker writes.
+   *
+   * Pattern Matching §2.2's door (#763) resolves a constructor pattern's head
+   * in scope first and then in the **expected type**, and the expected type is
+   * not a thing the resolver can see. So the resolver answers where it can and
+   * marks the head `open` where it cannot; the checker fills this seat at the
+   * moment the pattern is checked, from the type the pattern's position had
+   * already fixed. A head the door refuses keeps `undefined` and is a broken
+   * pattern (§7.3's fourth tier), read as `_` by coverage and materialized as
+   * a wildcard.
+   *
+   * The seat is a *hole the resolver declares*, not a rewrite of the tree: the
+   * node, its span, its `text` and every binder beneath it are the resolver's
+   * and are never rebuilt, which is what keeps the occurrence index, the
+   * reading-law reports and the occlusion checks reading the same nodes they
+   * always read.
+   */
+  symbol?: SymbolId;
+  /**
+   * Scope bound nothing for this head, so the expected type owes it (§2.2).
+   * Set by the resolver; never true on a head scope answered, which is what
+   * makes "scope first" mechanical — the door is not consulted at all where
+   * the resolver had an answer.
+   */
+  readonly open?: true;
+  /**
+   * The qualified spellings this module could write for a constructor of this
+   * head's spelling (`Pairs.Pair`), for the closed-door refusal's rewrite
+   * (Pattern Matching §12). Present only beside `open`, and computed here
+   * because it is a property of *this* module's aliases: the checker's own
+   * spelling tables (§7.3's tiers) are keyed by symbol, and a head no scope
+   * resolved has no symbol to key on.
+   */
+  readonly qualifications?: readonly string[];
   /**
    * The constructor as *written here* — the local spelling. A qualified pattern
    * carries the constructor half alone, so this is always the identifier that

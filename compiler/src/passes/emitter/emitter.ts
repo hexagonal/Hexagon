@@ -374,7 +374,7 @@ function moduleLevelBindings(
           declaration.kind === "ExternType" ? [] : [declaration.localName]
         );
       case "Import":
-        if (item.synthesized || item.form.kind === "Effect") return [];
+        if (item.synthesized) return [];
         return item.form.kind === "Namespace"
           ? (namespaceAliases ? [item.form.alias] : [])
           : item.form.names.map(({ local }) => local);
@@ -3133,7 +3133,7 @@ class JavaScriptEmitter {
       });
     }
     for (const item of module.items) {
-      if (item.kind !== "Import" || item.form.kind === "Effect") continue;
+      if (item.kind !== "Import") continue;
       // Namespace members are reached as `Alias.member` and never by bare local.
       if (item.form.kind === "Namespace") continue;
       for (const name of item.form.names) {
@@ -3190,7 +3190,7 @@ class JavaScriptEmitter {
     }
     this.#identity = identity;
     for (const item of module.items) {
-      if (item.kind !== "Import" || item.form.kind === "Effect") continue;
+      if (item.kind !== "Import") continue;
       for (const name of item.form.names) {
         if (name.symbol === undefined) continue;
         const symbol = this.#symbols.get(name.symbol);
@@ -3477,11 +3477,6 @@ class JavaScriptEmitter {
         for (const { localDictionary } of item.instances) {
           this.#exportEvidence(localDictionary);
         }
-      }
-      if (item.form.kind === "Effect") {
-        return instanceImport.length === 0
-          ? [`${prefix}import ${specifier};`]
-          : instanceImport;
       }
       if (item.form.kind === "Namespace") {
         // One binding per local, for the reason the instance list above gives:
@@ -5324,7 +5319,6 @@ class JavaScriptEmitter {
     // and a constraint's members — read exactly as their own renderers read
     // them, so a name that survives the filter there is a binding here.
     for (const item of [...this.#synthesizedImports, ...this.#constraintImports]) {
-      if (item.form.kind === "Effect") continue;
       for (const { imported, local, symbol } of item.form.names) {
         if (symbol === undefined || !this.#referencedSymbols.has(symbol)) continue;
         contested.add(this.#constrainedImports.get(symbol) ?? local ?? imported);
@@ -8156,7 +8150,7 @@ class JavaScriptEmitter {
   #constraintMemberImports(): readonly string[] {
     return this.#constraintImports.flatMap((item) => {
       const names = new Set<string>();
-      if (item.form.kind !== "Effect") {
+      {
         for (const { imported, symbol, constraintMember } of item.form.names) {
           if (constraintMember !== true || symbol === undefined) continue;
           if (!this.#referencedSymbols.has(symbol)) continue;
