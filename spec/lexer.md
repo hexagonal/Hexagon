@@ -248,7 +248,6 @@ listed positions:
 | `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` or `opaque` (one visibility head, Modules §4, #590), always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
 | `widens` | the widens-declaration introducer at declaration head — module top level, never after `export`, always followed by a qualified member path (Constraints §4.7; #546). Same disambiguation as `union`: no juxtaposition exists, so `widens` followed by a name is no term |
 | `widened` | the complete RHS of a member line in an `honor` block — `pow = widened` (Constraints §4.7; #546). The position is otherwise always an error (member RHSs must be lambdas), so recognition is total; elsewhere `widened` is an ordinary name |
-| `module` | the namespace-import head: exactly between `import` and the alias (Modules §3.3; #565). No name can legally stand there, so recognition is total; elsewhere `module` is an ordinary name — `let module = 3` binds. The alias seat demands uppercase-start, so `import module module` is refused by start class, not ambiguity |
 
 Contextual status is observable: `let when = True` is legal, while the same spelling
 after an arm pattern introduces its guard. Likewise `{with = 3}` is a field and `{with}`

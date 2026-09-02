@@ -81,7 +81,7 @@ The unaliased or right-hand name is the local Hexagon binding. This is the same 
 The foreign JavaScript name and local Hexagon name are checked independently. The
 foreign side must be an ECMAScript identifier and retains its exact export spelling;
 the local side obeys ordinary Hexagon role rules: term bindings are
-non-uppercase-start and type bindings uppercase-start (Lexer §3; Modules §3.2).
+non-uppercase-start and type bindings uppercase-start (Lexer §3; the module alias's own rule is Modules §3.1's).
 Duplicate local bindings collide under the ordinary module-level rules.
 
 A consequence worth stating: a foreign export whose name violates Hexagon's local start-class rules **or Lexer §3.2's reserved `__` prefix** requires an alias. `let VERSION: String` alone would introduce an uppercase-start term and is rejected with the named rewrite:
@@ -268,7 +268,7 @@ import { parse } from "tiny-json";
 export { parse };
 ```
 
-(Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §6: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import module TinyJson from "./tiny-json"` — the extern block never forces its consumers to know it is an extern block.
+(Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §6: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import TinyJson from "./tiny-json"` — the extern block never forces its consumers to know it is an extern block.
 
 Exported extern bindings are ordinary Hexagon exports thereafter: importable, aliasable, namespace-qualifiable. The `.d.ts` details of the re-exported face are Part 7's.
 
@@ -282,7 +282,7 @@ Exported extern bindings are ordinary Hexagon exports thereafter: importable, al
 extern import "telemetry/register"
 ```
 
-This introduces **no bindings** and executes the foreign module's top-level effects. It is the extern counterpart of Modules §3.4's `import "./telemetry"` and remains visibly distinct from it: `import "..."` pulls a Hexagon module into the graph (chiefly for its instances); `extern import "..."` evaluates a foreign JavaScript module for its side effects. The reader can always tell which world a specifier lives in by the keyword in front of it.
+This introduces **no bindings** and executes the foreign module's top-level effects. It is the extern counterpart of Modules §3.3's `import "./telemetry"` and remains visibly distinct from it: `import "..."` pulls a Hexagon module into the graph (a form Modules §3.3 keeps and discourages — a pure Hexagon module cannot be a registration point); `extern import "..."` evaluates a foreign JavaScript module for its side effects, the genuinely needed form. The reader can always tell which world a specifier lives in by the keyword in front of it.
 
 Representative emission is the identity:
 

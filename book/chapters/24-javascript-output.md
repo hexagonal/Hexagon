@@ -288,10 +288,10 @@ One Hexagon module becomes one ESM module. Named exports remain named exports, p
 bindings remain local, and import dependencies remain visible:
 
 ```hexagon
-import { prepare } from "./prepare"
+import Prepare from "./prepare"
 import "./telemetry"
 
-export let run(order: Order): Receipt = prepare(order)
+export let run(order: Order): Receipt = Prepare.prepare(order)
 ```
 
 ```js

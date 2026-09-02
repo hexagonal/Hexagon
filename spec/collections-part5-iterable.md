@@ -169,7 +169,7 @@ The member *is* the type's `toSeq`: the honoring module writes the conversion he
 
 ### 7.2 Globality and discoverability
 
-Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes `bag.hex`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). The effect-import pattern (Modules §3.4) is therefore *not needed* for `Iterable` on your own collection and is deliberately not taught in the recipe (Modules §7.6: nearly vestigial in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
+Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes `bag.hex`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). The effect-import pattern (Modules §3.3) is therefore *not needed* for `Iterable` on your own collection and is deliberately not taught in the recipe (Modules §7.6: nearly vestigial in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
 
 ### 7.3 Collisions with provided instances
 
@@ -209,7 +209,7 @@ honor Iterable<Bag(a)> =
 
 ```
 -- consumer.hex
-import module Bag from "./bag"
+import Bag from "./bag"
 
 let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))
 var total = 0
