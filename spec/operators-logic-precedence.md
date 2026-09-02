@@ -96,7 +96,7 @@ The early draft placed `not` above the comparisons (C-family habit), making `not
 
 ```
 1 + if c then a else b        -- 1 + (if c then a else b)
-xs |> map(x => x + 1)         -- lambda is map's argument (delimited by the paren)
+xs |> Seq.map(x => x + 1)     -- lambda is map's argument (delimited by the paren)
 f(x) + match y ...            -- match is the right operand of +
 x => x |> f                   -- the whole pipe is the lambda body
 ```
@@ -314,10 +314,10 @@ Lineage: Haskell, Elm, PureScript, and (as `<>`/append) the broader ML family. O
 ```
 a |> f(b, c)      -- rewrites to  f(a, b, c)
 a |> f            -- rewrites to  f(a)          (bare form: allowed)
-x |> negate |> show
-                  -- show(negate(x))
-xs |> map(x => x + 1) |> filter(p) |> take(3)
-                  -- take(filter(map(xs, x => x + 1), p), 3)
+x |> Signed.negate |> show
+                  -- show(Signed.negate(x))
+xs |> Seq.map(x => x + 1) |> Seq.filter(p) |> Seq.take(3)
+                  -- Seq.take(Seq.filter(Seq.map(xs, x => x + 1), p), 3)
 ```
 
 - Left-associative, level 13 (loosest infix — §3.3 covers the two `=>` interaction cases).
@@ -576,8 +576,8 @@ False implies loop()           -- True; loop() not evaluated → !false || loop(
 "a" + "b"                      -- ERROR: String is not Num; did you mean `++`?
 
 -- (h) Pipe, including both => interaction cases
-xs |> map(x => x + 1) |> take(3)     -- take(map(xs, x => x + 1), 3)
-x |> negate |> show                  -- show(negate(x))
+xs |> Seq.map(x => x + 1) |> Seq.take(3)   -- Seq.take(Seq.map(xs, x => x + 1), 3)
+x |> Signed.negate |> show                 -- show(Signed.negate(x))
 let f = x => x |> g                  -- lambda body is the whole pipe: f = x => g(x)
 
 -- (i) Range precedence

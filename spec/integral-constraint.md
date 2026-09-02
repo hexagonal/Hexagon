@@ -111,11 +111,11 @@ Int.gcd(0, 0)       -- 0
 
 -- Polymorphic use: the Rat down payment
 fun normalize<a: Integral>(n: a, d: a): (a, a) =
-    let g = gcd(n, d)
+    let g = n.gcd(d)
     if g == 0 then (0, 1)                    -- 0/0 input; literals via Num super
     else
-        let (n2, d2) = (quot(n, g), quot(d, g))
-        if d2 < 0 then (negate(n2), negate(d2)) else (n2, d2)   -- Ord super at work
+        let (n2, d2) = (n.quot(g), d.quot(g))
+        if d2 < 0 then (Signed.negate(n2), Signed.negate(d2)) else (n2, d2)   -- Ord super at work
 -- normalize : <a: Integral>(a, a) -> (a, a)
 -- concrete sites emit direct calls: normalize(4, -6) uses Int.gcd/Int.quot → (-2, 3)
 -- normalize(4n, -6n) uses the BigInt instance → (-2n, 3n)
