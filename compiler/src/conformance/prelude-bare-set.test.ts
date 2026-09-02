@@ -453,7 +453,7 @@ describe("the function channel: none, and `ignore`", () => {
 });
 
 /**
- * **Every exemplar the section spells out, run.** Modules §5.5 and §10 quote nine
+ * **Every exemplar the section spells out, run.** Modules §5.5 and §10 quote ten
  * messages between them; a message shape can drift from its own specification
  * one clause at a time, and each of these is a sentence the spec's reader is
  * entitled to see in their editor character for character.
@@ -486,6 +486,13 @@ describe("§5.5 and §10's exemplars, character for character", () => {
       "no bare `compare`; write `a.compare(b)` or `Ord.compare(a, b)`"],
     ["§10: the constructor row", "export let a: Ordering = Less\n",
       "no bare `Less`; write `Ordering.Less`"],
+    ["§5.5: a structurally-instanced member at a vector literal",
+      "export let n: Int = hash([1, 2])\n",
+      "no bare `hash`; write `Hash.hash([1, 2])`"],
+    ["§5.5: a companion function at the same literal",
+      "export let n: Int = length([1, 2])\n",
+      "no bare `length`; write `([1, 2]).length()`, `Seq.length([1, 2])`, " +
+      "`Vector.length([1, 2])`, or `Array.length([1, 2])`"],
   ])("%s", (_seat, source, message) => {
     expect(projectDiagnostics(source)[0]).toBe(message);
   });
