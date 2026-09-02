@@ -48,7 +48,7 @@ An `extern from` block contains only bodyless extern declarations, one per line 
 - `method`, `get`, `set`, `class` — receiver members and classes, specified in Part 5;
 - `enum` — per `ffi-foreign-enums.md`.
 
-Each declaration may carry the leading `export` modifier (§7). The block form is the only v1 form; there is no single-declaration `extern fun ... from ...` shorthand.
+Each declaration may carry the leading `export` modifier (§7). The block form is the only v1 form for bindings read from a module; there is no single-declaration `extern fun ... from ...` shorthand. One `extern` declaration stands outside any block: the literal form of `extern enum` (`ffi-foreign-enums.md` §2.4), which reads no module and so has no `from` to sit under — the FFI's one module-free `extern` head, taking `export` as an ordinary declaration prefix.
 
 ### 2.3 Multiple blocks and emission
 
@@ -261,7 +261,7 @@ and to classes (`export default class ...`), specified in Part 5.
 
 ## 7. Visibility and export
 
-Extern bindings are **private unless individually prefixed with `export`** — the ordinary Hexagon default, applied per declaration inside the block. An exported extern binding is re-exported from the compiled Hexagon facade and appears in its `.d.ts`; a private one exists only inside the binding module. Representative emission for `export fun parse`:
+Extern bindings are **private unless individually prefixed with `export`** — the ordinary Hexagon default, applied per declaration inside the block and as the ordinary prefix on the module-free literal `extern enum` head (`ffi-foreign-enums.md` §2.4). An exported extern binding is re-exported from the compiled Hexagon facade and appears in its `.d.ts`; a private one exists only inside the binding module. Representative emission for `export fun parse`:
 
 ```js
 import { parse } from "tiny-json";
@@ -326,7 +326,7 @@ Callers use `Nullable.undefined` for the ordinary omitted/default JS case and `N
 
 Excluded from v1 and reserved; the directional preference is to defer each **until a concrete foundational library requires it**, which is the revisit bar:
 
-1. **Globals** — binding ambient JavaScript globals not reachable through a module specifier.
+1. **Globals** — binding ambient JavaScript globals not reachable through a module specifier. (A module-free `extern` head now has one precedent, the literal enum of `ffi-foreign-enums.md` §2.4; it reads nothing, so it settles no question about reading globals.)
 2. **CommonJS-specific binding forms** — anything beyond what the emitted ESM `import` interop already provides.
 3. **Overload declarations** — one foreign name, several signatures.
 4. **Rest/variadic externs** — deferred together with general rest parameters.
@@ -387,7 +387,7 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 | `extern from "specifier"` block: JS `from` vocabulary, TS-like bodyless typed declarations, ordinary Hexagon layout; introduces ordinary module-level bindings | §1, §2 |
 | Extern declarations are bodyless and fully annotated; declaration-site validation (incl. Part 1 §5.3), no call-site validation; extern imports are acyclicity leaf edges | §1 |
 | Bare package specifiers legal (outside Hexagon-to-Hexagon resolution); a specifier must not name a Hexagon module | §2.1 |
-| Block is the only v1 form; multiple blocks per specifier fine; emission may coalesce imports | §2.2, §2.3 |
+| Block is the only v1 form for bindings read from a module — the literal `extern enum` head stands alone (`ffi-foreign-enums.md` §2.4); multiple blocks per specifier fine; emission may coalesce imports | §2.2, §2.3 |
 | Foreign-name-first `as` (JS import order); right-hand/unaliased name is the local binding; local names obey ordinary case and collision rules; case-illegal foreign names require an alias | §3 |
 | Strict `fun` = callable / `let` = value distinction; contextual vocabulary; both misuses are hard errors with named rewrites | §4.1, §4.2 |
 | First-class extern `fun`: raw imported function identity for representation-direct signatures; one stable module-level wrapper when supported boundary plumbing is required; fresh per-value adapters remain per crossing | §4.3 |
