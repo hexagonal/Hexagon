@@ -32,7 +32,7 @@
 
 | Surface / question | Origin | Fixed semantics | Revisit bar | Discharge |
 |---|---|---|---|---|
-| `Ordering` prelude union | `decisions-batch-2026-07.md` §3; routed by `spec-roadmap.md` §5; `modules.md` §5.5 | `union Ordering = Less \| Equal \| Greater`; all-nullary string representation; `derives (Eq, Show)` on the prelude declaration; constructors qualified-only — `Ordering.Less` — so the union is homed at `stdlib/Ordering.hex` | — | listing: prelude inventory |
+| `Ordering` prelude union | `decisions-batch-2026-07.md` §3; routed by `spec-roadmap.md` §5; `modules.md` §5.5 | `union Ordering = Less \| Equal \| Greater`; tagged-object representation like every union (Unions §6.2); `derives (Eq, Show)` on the prelude declaration; constructors qualified-only — `Ordering.Less` — so the union is homed at `stdlib/Ordering.hex` | — | listing: prelude inventory |
 | `ignore` | `statements-blocks-mutability.md` §3.3 (discard rule; diagnostic names `ignore(...)`; position-sensitive erasure) | required by the discard diagnostic's own rewrite; identity-discard semantics | — | **Landed** *(#313)*: ordinary source in `stdlib/Prelude.hex` (`export let ignore(value: a): Unit = ()`), no door key by the strictly-simpler law; applied-call erasure per §3.3; listing: prelude inventory |
 | `throw : Exn -> a` | `exceptions.md` §1/§4 | ordinary prelude function, not a keyword; diverges (fresh result variable) | — | listing: prelude inventory |
 | `Result.attempt` | `exceptions.md` §8.2 | prelude addition as specified there; `Exn` error side; `.d.ts` face per `exceptions.md` §7.5 | — | listing: prelude inventory |

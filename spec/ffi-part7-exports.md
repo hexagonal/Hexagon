@@ -236,9 +236,9 @@ export declare function Point(value: {x: number; y: number}): Point;
 
 ## 4. Unions
 
-An exported non-opaque union exports its type and **every constructor**, exactly as it does between Hexagon modules (Modules §3.1). The three constructor shapes follow the representation (Unions §6):
+An exported non-opaque union exports its type and **every constructor**, exactly as it does between Hexagon modules (Modules §3.1). The constructor shapes follow the representation (Unions §6) — payload constructors are functions, nullary constructors are shared constants, whatever the union's mix:
 
-**Mixed/payload union** — payload constructors are JS functions; nullary constructors are the shared module-level constants:
+**Payload and nullary constructors** — payload constructors are JS functions; nullary constructors are the shared module-level constants:
 
 ```hexagon
 export union Shape = Circle(radius: Float) | Point
@@ -253,14 +253,14 @@ export declare function Circle(radius: number): Shape;
 export declare const Point: Shape;
 ```
 
-**All-nullary union** — constructors are string constants:
+**All-nullary union** — the same shape, each constructor a shared constant (Unions §6.2):
 
 ```hexagon
 export union Color = Red | Green | Blue
 ```
 
 ```ts
-export type Color = "Red" | "Green" | "Blue";
+export type Color = {tag: "Red"} | {tag: "Green"} | {tag: "Blue"};
 export declare const Red: Color;
 export declare const Green: Color;
 export declare const Blue: Color;
@@ -269,7 +269,7 @@ export declare const Blue: Color;
 Rules fixed here:
 
 - **A §2.3-pinned union's type row is the pin's alias** *(#622)* — `Bool.d.ts`'s `export type Bool = boolean;` — its constructor rows unchanged (the nullary constants above, typed by the alias). The union arm already emits exactly this at that seat (Unions §6.2's `boolean` pin); it is recorded so the two pinned seats — §5's opaque exclusion and this one — read symmetrically.
-- **Export forces materialization.** As with records, a payload constructor referenced only in erased direct applications must still exist as a real exported function (Unions §6.4's on-demand materialization becomes mandatory at export), with stable ESM identity. Nullary POJO constructors are already the shared constants; string constructors are the string constants.
+- **Export forces materialization.** As with records, a payload constructor referenced only in erased direct applications must still exist as a real exported function (Unions §6.4's on-demand materialization becomes mandatory at export), with stable ESM identity. Nullary constructors are already the shared constants.
 - **Constructor return types are the union type** (`Shape`), not the narrowed member — the constructor is the supported entry point to the union, and the narrow member types remain anonymous arms of the declared alias.
 - **Generic unions** emit lowercase binders (§2.2): `export declare function Some<a>(value: a): Option<a>;`.
 - **Generic nullary constructors** are single shared runtime constants across all instantiations (Unions §6.1 — types erase), and their `.d.ts` face uses the `never` instantiation, which TypeScript's structural checking accepts at every use type:
@@ -280,13 +280,9 @@ Rules fixed here:
 
   This is the review-confirmed polymorphic constant face (§12.1).
 
-### 4.1 The ABI warning: the union representation cliff
+### 4.1 Retired: the union representation cliff warning
 
-Generated FFI documentation **must** state:
-
-> An all-nullary union is represented as string literals. Adding the first payload-bearing constructor changes the complete union representation to tagged objects and is a breaking change for JavaScript consumers.
-
-Hexagon callers are protected by recompilation and `match`; JavaScript consumers are not. Adding any constructor is already an exhaustiveness break for JS switches, but the first payload-bearing addition also changes the representation of every existing constructor (Unions §6.2's cliff, restated at the boundary where it bites). The emitter should additionally place a doc comment carrying this warning on each exported all-nullary union's `.d.ts` declaration; the documentation obligation is normative, the comment placement representative.
+This section carried a normative generated-documentation obligation — a warning that the first payload-bearing constructor added to an all-nullary union changed the representation of every constructor already declared — and a representative `.d.ts` doc comment placing it. Both are retired with the bare-string representation (Unions §6.2, #771): every union takes one shape, so adding a constructor is additive at the boundary, and the only thing a JavaScript consumer can lose is the exhaustiveness of a `switch`. The number is kept for §14's records.
 
 ---
 
@@ -422,8 +418,9 @@ export union Shape = Circle(radius: Float) | Point
 --     export const Point = {tag: "Point"};
 -- internal Circle(2.0) still erases to the literal
 
--- (d) All-nullary: strings + the documented cliff (§4.1)
-export union Color = Red | Green | Blue    -- export const Red = "Red"; ...
+-- (d) All-nullary: the same shape, no cliff (Unions §6.2)
+export union Color = Red | Green | Blue    -- export const Red = {tag: "Red"}; ...
+--   .d.ts: export type Color = {tag: "Red"} | {tag: "Green"} | {tag: "Blue"};
 
 -- (e) Opaque: brand only; smart constructor crosses (§5)
 opaque record UserId = {value: Int}
@@ -494,9 +491,9 @@ This part introduces **one hard error of its own** — #478's `isHexError` colli
 | One module → one ESM module + one `.d.ts`; single type-only `import type * as Hex from "@hexagon/runtime"` where runtime types appear | §2.1 |
 | All Hexagon-originated `.d.ts` generic binders are lowercase source-style (`a`, `k`, `v`); declared binder order preserved (ABI-relevant per Parts 8–9) | §2.2 |
 | Records: type + constructor export; constructor may be the identity function; direct JS construction legal but the exported constructor is the supported shape | §3 |
-| Unions: type + every constructor; payload constructors as functions, mixed-union nullaries as shared constants, all-nullary as string constants; constructor return types are the union type; export forces materialization | §4, §12.2 |
+| Unions: type + every constructor; payload constructors as functions, nullary constructors as shared constants; constructor return types are the union type; export forces materialization | §4, §12.2 |
 | Generic nullary constants face as the `never` instantiation (confirmed at review) | §4, §12.1 |
-| The union representation cliff warning is a normative generated-documentation obligation (+ representative `.d.ts` doc comment) | §4.1 |
+| The union representation cliff warning — retired with the bare-string all-nullary case (#771); §4.1 kept as the record | §4.1 |
 | Uniform opaque brand: non-exported `unique symbol`, brand-only type face, TS-only (no runtime artifact), identity crossing; covers opaque records/unions, extern types, extern class types; never re-exported foreign typings; discharges Modules §11.4 — amended by the #622 row below: §2.3-pinned types excluded | §5, §12.3 |
 | Exceptions: intersection face with `$hex` included; payload constructors in slot order; **nullary exceptions function-shaped for JS with fresh call-site stack** (`throw(NotFound)` vs `throw NotFound()`) | §6 |
 | Boundary guards (#478): `.is` property on every exported exception constructor (function/namespace merge; predicate to the intersection face); `isHexError` per exception-exporting module; fixed face, §6.2-family collision hard error; `JsError` guardless | §6, §11 |

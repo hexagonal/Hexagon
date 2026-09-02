@@ -126,7 +126,7 @@ The prelude union is
 union Ordering = Less | Equal | Greater
 ```
 
-`Ord.compare : (a, a) -> Ordering` (member signature unchanged; only the constructor spellings are fixed here). All-nullary union rules apply (Unions): the runtime values are the bare string literals `"Less"`, `"Equal"`, `"Greater"`; `Eq<Ordering>`/`Show<Ordering>` come via `derives (Eq, Show)` on the prelude declaration under §2.
+`Ord.compare : (a, a) -> Ordering` (member signature unchanged; only the constructor spellings are fixed here). All-nullary union rules apply (Unions): the runtime values are the bare string literals `"Less"`, `"Equal"`, `"Greater"` *(superseded by #771: every union is tagged objects, `{tag: "Less"}` — Unions §6.2)*; `Eq<Ordering>`/`Show<Ordering>` come via `derives (Eq, Show)` on the prelude declaration under §2.
 
 ### 3.2 Rationale and precedent
 
@@ -290,6 +290,7 @@ record Handler = {f: Int -> Int} derives Eq
 
 -- (f) Ordering spelling and emission
 Int.compare(1, 2)              -- Ordering.Less;  runtime value the string "Less"
+                               --   (since #771: the shared constant {tag: "Less"}, Unions §6.2)
 match a.compare(b)
     Ordering.Less => ...
     Ordering.Equal => ...

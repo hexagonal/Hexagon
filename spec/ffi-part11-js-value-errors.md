@@ -42,9 +42,9 @@ union JsKind derives (Eq, Show) =
     | String | Symbol | Function | Array | Object
 ```
 
-All-nullary, so its JS representation is the string union — pleasant and free (Unions §6.2). It derives `Eq` and `Show` *(#511)*: the single-kind test `kind(v) == JsKind.Number` is the surface's most common question, and both instances are lawful and trivial on an all-nullary union. (`JsValue` itself still has no instances — §2; the kinds are ordinary domestic data about a foreign value, not the value.)
+All-nullary, so every value is a shared tagged constant (Unions §6.2). It derives `Eq` and `Show` *(#511)*: the single-kind test `kind(v) == JsKind.Number` is the surface's most common question, and both instances are lawful and trivial on an all-nullary union. (`JsValue` itself still has no instances — §2; the kinds are ordinary domestic data about a foreign value, not the value.)
 
-All ten constructors are qualified-only in the prelude inventory (`JsKind.Undefined`, `JsKind.Null`, …, `JsKind.Object`) in expressions and patterns. They are not auto-imported as bare prelude terms — the prelude's default for every union but the three open ones (Modules §5.5); `ffi.md` §12 records the first case. This ordinary companion qualification leaves the string representation unchanged (Part 12 §12).
+All ten constructors are qualified-only in the prelude inventory (`JsKind.Undefined`, `JsKind.Null`, …, `JsKind.Object`) in expressions and patterns. They are not auto-imported as bare prelude terms — the prelude's default for every union but the three open ones (Modules §5.5); `ffi.md` §12 records the first case. This ordinary companion qualification leaves the representation unchanged (Part 12 §12).
 
 Classification rules, normative:
 
