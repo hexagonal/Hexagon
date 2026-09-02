@@ -111,7 +111,7 @@ Detection is named too, because it cannot be spelled by hand: `Float.isNan` and 
 > union Bool derives (Eq, Ord, Show, Hash) = False | True
 > ```
 >
-> declared alongside `Option`/`Result` (Unions §8), with its runtime representation **intrinsically pinned to JS `boolean`** — the sole exception to the all-nullary string rule (Unions §6.2). The values are the constructors `True` and `False`; the former literals `true`/`false` remain reserved words whose only role is the redirect diagnostic (Lexer §4.1). The full ruling, including the doctrine pivot that motivates it, is `decisions-ml-dialect-bool-2026-07.md`.
+> declared alongside `Option`/`Result` (Unions §8), with its runtime representation **intrinsically pinned to JS `boolean`** — the sole exception to the union representation, an instance of Unions §6's principle (Unions §6.2). The values are the constructors `True` and `False`; the former literals `true`/`false` remain reserved words whose only role is the redirect diagnostic (Lexer §4.1). The full ruling, including the doctrine pivot that motivates it, is `decisions-ml-dialect-bool-2026-07.md`.
 
 What this section formerly decreed, and where it went:
 

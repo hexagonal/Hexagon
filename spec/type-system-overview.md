@@ -47,9 +47,11 @@ The intended user is a JS developer with moderate FP capability who wants to do 
 
 ## 4. JS interop commitments (type-system-visible)
 
+The principle these commitments instance is stated at the head of Unions §6: where JavaScript already has the concept, the Hexagon value becomes that JavaScript value; where it lacks the concept, Hexagon picks one representation of its own and uses it everywhere.
+
 - Every primitive maps to a native JS type with no wrapper (Primitive Types §1 table). `Nat`/`Int`/`Float` ↔ `number`; `BigInt` ↔ `bigint`. `Bool` — no longer a primitive (#147) — keeps its zero-cost `boolean` face through the representation pin (Unions §6.2); `Unit` — no longer a primitive either (#159) — keeps its `undefined` face through the arity-0 clause of the tuple representation rule (Products §2.6).
 - Emitted `.d.ts` must be honest and idiomatic: n-ary functions as n-ary TS functions, `void`/`undefined` for Unit, `bigint` only where BigInt genuinely appears.
-- Product/union representations are unboxed structural data: records as plain objects (Products §3.5), tuples as plain arrays (Products §2.6), unions as string-tagged POJOs with a bare-string all-nullary case (Unions §6) — each the natural zero-cost representation at the boundary. That each matches what a JS consumer would plausibly hand-write is a valued outcome; it is no longer the tiebreaker (#147: on genuine conflict the ML answer wins by default, decisions doc §1.1).
+- Product/union representations are unboxed structural data: records as plain objects (Products §3.5), tuples as plain arrays (Products §2.6), unions as string-tagged POJOs, every union alike (Unions §6) — each the natural zero-cost representation at the boundary. That each matches what a JS consumer would plausibly hand-write is a valued outcome; it is no longer the tiebreaker (#147: on genuine conflict the ML answer wins by default, decisions doc §1.1).
 - Foreign nullability lives at the boundary (`Nullable(a)`), never inside the language's own types.
 
 ---

@@ -91,7 +91,7 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 | Tuple | plain JS array | TS tuple type (`[number, string]`) | direct | trusted |
 | Structural record | POJO | structural object type | direct | trusted |
 | Nominal `record` (non-opaque) | POJO (structurally represented) | structural object type; constructor per Part 7 | direct | trusted |
-| `union` (all-nullary) | string literals | string-literal union | direct | trusted; representation cliff noted in Part 7. **Exempt: the prelude `Bool`** — its own row above governs; representation pinned to `boolean` (Unions §6.2, #147) |
+| `union` (all-nullary) | string-tagged POJOs, the same shape as any union (Unions §6.2) | discriminated union on `tag` | direct | trusted. **Exempt: the prelude `Bool`** — its own row above governs; representation pinned to `boolean` (Unions §6.2, #147) |
 | `union` (any payload) | string-tagged POJOs (Unions §6.1) | discriminated union on `tag` | direct | trusted |
 | `extern enum` | captured foreign enum-object values | per `ffi-foreign-enums.md` | direct | trusted; checked `fromJsT` for uncertain data |
 | `Option(a)` | its real union representation (`{tag:"Some"; value:a}` / shared `{tag:"None"}` constant) | the discriminated union — **never erased to nullability** | direct | trusted |

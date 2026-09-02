@@ -525,7 +525,7 @@ type Shape =
   | { tag: "Point" };
 ```
 
-Your Hexagon modules are first-class citizens of a TypeScript codebase. (One bonus: a union whose constructors all carry no data — `union Color = Red | Green | Blue` — compiles to bare string literals, `"Red"`, exactly like the string-literal-union idiom you already use.)
+Your Hexagon modules are first-class citizens of a TypeScript codebase. (A union whose constructors all carry no data — `union Color = Red | Green | Blue` — is the same tagged shape, `{tag: "Red"}`, so adding a payload constructor later never changes the values you already handle.)
 
 ---
 

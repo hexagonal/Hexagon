@@ -42,11 +42,12 @@ Inside Hexagon, `Direction` is a closed nominal union. `Up`, `Down`, `Left`, and
 `Right` are nullary constructors; ordinary constructor patterns, exhaustiveness,
 reachability, derivation, and companion lookup apply. At runtime, however, each
 constructor is the corresponding foreign property value rather than the ordinary
-all-nullary-union string named by Unions §6.2.
+union's shared constant named by Unions §6.1.
 
 This exception is explicit and boundary-local:
 
-> An ordinary all-nullary `union` is represented by its constructor-name strings. An
+> An ordinary `union` is represented by its shared constants and tagged objects
+> (Unions §6). An
 > `extern enum` is represented by the stable foreign member values named in its
 > declaration.
 
@@ -372,11 +373,14 @@ diagnose the problem early.
 
 ### 8.4 Literal unions without an object
 
-A TypeScript type such as `"up" | "down"` has no runtime enum object. When its values
-match Hexagon constructor strings, use an ordinary all-nullary union in a trusted
-extern signature. When spellings differ, write an explicit primitive decoder or place
-a small JavaScript enum object/facade beside the dependency. `extern enum` does not
-invent an object that the foreign module does not export.
+A TypeScript type such as `"up" | "down"` has no runtime enum object, and an ordinary
+all-nullary union does not describe it: such a union is tagged objects (Unions §6.2),
+so a foreign `"up"` typed as one would satisfy no arm. Until the literal form of
+`extern enum` lands (#773 — the member values named inline, no object read), bind the
+foreign value as `String` and decode it into a domestic union with an explicit
+function returning `Option` or `Result` for the values it does not recognise (§5.2's
+`fromJsT` shape), or place a small JavaScript enum object/facade beside the dependency. The
+object-reading form does not invent an object that the foreign module does not export.
 
 ---
 
@@ -397,7 +401,7 @@ An implementation is not conforming until tests cover at least:
 10. Private versus `export enum` JavaScript and `.d.ts` surfaces.
 11. Diagnostics for payload members, parameters, duplicate names, and attempted use of
     a missing runtime/`const enum` export.
-12. No regression to ordinary all-nullary unions' constructor-name string ABI.
+12. No regression to ordinary all-nullary unions' tagged-object ABI (Unions §6.2).
 
 ---
 
