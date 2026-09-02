@@ -201,7 +201,7 @@ The triangle, settled:
   Nullable(JsValue)     ≡ JsValue
   ```
 
-  `Nullable` never stacks on a **designated nullish-absorbing type** — a type whose value set already contains both nullish forms. The designated types are exactly `Nullable(_)` itself (Part 2's existing idempotence) and `JsValue` (this part); the list is explicit and closed. **No general structural "contains nullish" analysis exists over arbitrary types** — an opaque extern type that happens to admit `undefined` values, or a union an author believes nullish-adjacent, does not collapse; designation is by rule, not by inspection. The idiom for the three-way nullish split over an uncertain value is `kind` (§3).
+  `Nullable` never stacks on a **designated nullish-absorbing type** — a type whose value set already contains both nullish forms. The designated types are exactly `Nullable(_)` itself (Part 2's existing idempotence), `JsValue` (this part), and a literal `extern enum` with a `null` or `undefined` member (Foreign Enums §2.4); the list is explicit and closed. **No general structural "contains nullish" analysis exists over arbitrary types** — an opaque extern type that happens to admit `undefined` values, or a union an author believes nullish-adjacent, does not collapse; designation is by rule, not by inspection. The idiom for the three-way nullish split over an uncertain value is `kind` (§3).
 - **`JsValue` in any position** — parameters, results, record fields, collection elements (`Array(JsValue)`, `JsMap(String, JsValue)`), callback signatures — is representation-direct and legal wherever Part 1 §5.3 admits a direct type. Uncertainty nests honestly.
 
 ---

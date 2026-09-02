@@ -48,7 +48,7 @@ An `extern from` block contains only bodyless extern declarations, one per line 
 - `method`, `get`, `set`, `class` — receiver members and classes, specified in Part 5;
 - `enum` — per `ffi-foreign-enums.md`.
 
-Each declaration may carry the leading `export` modifier (§7). The block form is the only v1 form; there is no single-declaration `extern fun ... from ...` shorthand.
+Each declaration may carry the leading `export` modifier (§7). The block form is the only v1 form for bindings read from a module; there is no single-declaration `extern fun ... from ...` shorthand. One `extern` declaration stands outside any block: the literal form of `extern enum` (`ffi-foreign-enums.md` §2.4), which reads no module and so has no `from` to sit under — the FFI's one module-free `extern` head, taking `export` as an ordinary declaration prefix.
 
 ### 2.3 Multiple blocks and emission
 
@@ -326,7 +326,7 @@ Callers use `Nullable.undefined` for the ordinary omitted/default JS case and `N
 
 Excluded from v1 and reserved; the directional preference is to defer each **until a concrete foundational library requires it**, which is the revisit bar:
 
-1. **Globals** — binding ambient JavaScript globals not reachable through a module specifier.
+1. **Globals** — binding ambient JavaScript globals not reachable through a module specifier. (A module-free `extern` head now has one precedent, the literal enum of `ffi-foreign-enums.md` §2.4; it reads nothing, so it settles no question about reading globals.)
 2. **CommonJS-specific binding forms** — anything beyond what the emitted ESM `import` interop already provides.
 3. **Overload declarations** — one foreign name, several signatures.
 4. **Rest/variadic externs** — deferred together with general rest parameters.

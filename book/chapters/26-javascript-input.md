@@ -367,12 +367,41 @@ against the captured foreign values. `toJsDirection` widens a known member to
 named `T`, the generated names are `fromJsT` and `toJsT`. A name collision is a compile
 error rather than a silently mangled public API.
 
+Some foreign alternatives have no object at all. A TypeScript literal union such as
+`"asc" | "desc"` is inlined at every use, and a `const enum` is erased before it
+reaches JavaScript. For those, the same declaration takes its literal form, written at
+module scope with each value in place of a member name:
+
+```hexagon
+export extern enum Order = "asc" as Ascending | "desc" as Descending
+
+extern enum Tri =
+    | true as Yes
+    | false as No
+    | null as Unknown
+```
+
+Nothing is read: the constants are the literals themselves, a match becomes a
+`switch` over them, and the generated `.d.ts` says exactly what a TypeScript author
+would have written:
+
+```ts
+export type Order = "asc" | "desc";
+export declare const Ascending: Order;
+export declare const Descending: Order;
+```
+
+The value is always written out, so `"Up" as Up` is a coincidence of one API, not a
+rule. Strings, integers, booleans, `null` and `undefined` may mix freely, as long as the
+values are distinct. A `null` or `undefined` member is a member of the set, not an
+absence, so `Nullable(Tri)` is simply `Tri`; an API whose `undefined` means absence
+beside a `null` member names both.
+
 An ordinary `extern class` remains opaque. Describing static singleton instances with
 `extern enum` is an explicit stronger promise that the listed instances form a closed
-set; it does not expose construction, inheritance, or arbitrary instances. TypeScript
-`const enum` has no runtime object and therefore needs a JavaScript facade or an
-explicit primitive binding. Bitflags are combinations rather than alternatives and
-should cross as `Int` or an opaque foreign type.
+set; it does not expose construction, inheritance, or arbitrary instances. Bitflags are
+combinations rather than alternatives and should cross as `Int` or an opaque foreign
+type.
 
 ## Direct callbacks keep their identity
 
@@ -451,7 +480,7 @@ exception failure instead of hiding validation inside every extern call.
 - a top-level foreign iterable may be adapted into a persistent memoized `Seq(a)`;
 - `method`, `get`, `set`, and `class` produce ordinary subject-first Hexagon companion
   operations while preserving JavaScript calling conventions;
-- `extern enum` gives stable foreign object members a closed nullary-union view while
+- `extern enum` gives stable foreign object members, or written literal values, a closed nullary-union view while
   retaining their original JavaScript values;
 - representation-direct callbacks cross with stable function identity;
 - collection conversions are explicit and shallow; and

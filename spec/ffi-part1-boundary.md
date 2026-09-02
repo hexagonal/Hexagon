@@ -93,7 +93,7 @@ For each Hexagon type: its JavaScript runtime representation, its generated `.d.
 | Nominal `record` (non-opaque) | POJO (structurally represented) | structural object type; constructor per Part 7 | direct | trusted |
 | `union` (all-nullary) | string-tagged POJOs, the same shape as any union (Unions §6.2) | discriminated union on `tag` | direct | trusted. **Exempt: the prelude `Bool`** — its own row above governs; representation pinned to `boolean` (Unions §6.2, #147) |
 | `union` (any payload) | string-tagged POJOs (Unions §6.1) | discriminated union on `tag` | direct | trusted |
-| `extern enum` | captured foreign enum-object values | per `ffi-foreign-enums.md` | direct | trusted; checked `fromJsT` for uncertain data |
+| `extern enum` | captured foreign enum-object values, or the declaration's own literals (the literal form) | per `ffi-foreign-enums.md` §7.2 — brand for the object-reading form, the literal union for the literal form | direct | trusted; checked `fromJsT` for uncertain data |
 | `Option(a)` | its real union representation (`{tag:"Some"; value:a}` / shared `{tag:"None"}` constant) | the discriminated union — **never erased to nullability** | direct | trusted |
 | declared `exception` values (e.g. `ParseError`) | branded `Error` (Exceptions §7.1) | `Error & {$hex: "<module>"; name: "..."; ...}` (Exceptions §7.5, brand value per #488; export surface Part 7) | direct | trusted |
 | `Exn` (in exported signatures) | whatever was thrown — branded `Error` or the raw foreign throwable | plain `Error` (Exceptions §7.5's accepted white lie) | direct | trusted |

@@ -235,7 +235,7 @@ listed positions:
 | `opaque` | the visibility head on a `record` or `union` declaration at module top level, in `export`'s own slot (Modules §4, #590) — the `union` precedent: head-position-only, never reserved, elsewhere an ordinary name (`let opaque = 3` binds). Recognition includes the refused seats: immediately after `export` (Modules §4.2's required rewrite), and a declaration head whose follower is `type`, `let`, `fun`, `constraint`, or `exception` (the Modules §10 redirects — no term can juxtapose the two spellings, so the seat is no expression) |
 | `when` | between an arm pattern and `=>` |
 | `with` | between a record-update head and its overrides (Products §3.3) |
-| `enum` | a foreign enum declaration inside `extern from` |
+| `enum` | a foreign enum declaration inside `extern from`, or the module-scope head `extern enum` of the literal form (Foreign Enums §2.4) |
 | `class` | foreign class description; syntax completed by the FFI spec |
 | `method` | foreign member description; syntax completed by the FFI spec |
 | `get` | foreign getter description; syntax completed by the FFI spec |
