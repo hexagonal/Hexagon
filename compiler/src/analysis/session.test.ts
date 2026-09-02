@@ -303,6 +303,37 @@ describe("AnalysisSession", () => {
   });
 
   /**
+   * The two fixes composing: a rename that carries the conversions can carry
+   * them **onto a name that is already taken**, and verification catches it in
+   * the collision's own §5.2 words rather than in a paraphrase.
+   *
+   * Nothing about this seat is special-cased. The plan is built, applied to a
+   * probe, and refused because the probe reports a diagnostic the original did
+   * not — which is the general rule `#verifyRename` exists to enforce, reaching
+   * a name the author never wrote.
+   *
+   * The line the refusal names is the **enum's**, not the explicit binding's:
+   * after the rename it is the enum that bound `fromJsWay` first, and the
+   * explicit `let` three lines down is the one that collides with it.
+   */
+  test("a rename whose derived name is already bound is refused in §5.2's words", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "let fromJsWay(n: Int): Int = n",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    expect(session.rename("/main.hex", at(source, "Direction"), "Way")).toEqual({
+      refused:
+        "renaming `Direction` to `Way` would break `/main.hex`: " +
+        "`fromJsWay` is already bound (line 1); `extern enum Way` generates it " +
+        "(Foreign Enums §5.2) — rename the enum type, or the other declaration.",
+    });
+  });
+
+  /**
    * The same abroad, which is what `Resolved.Symbol.generated` riding the
    * *symbol* buys: an importer holds symbols, not items, so a use of
    * `Bindings.fromJsDirection` in another module answers as its declaring
