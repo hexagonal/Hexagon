@@ -318,7 +318,7 @@ Applied in this ruling's PR (direct edits):
 
 Owed (README rule 4 — applied on next touch of the target):
 
-- ~~**FFI Part 7 §4.1 / §10** and **Unions §6.2**: the representation-cliff warning's coexistence note~~ — discharged by #771: the warning is retired (FFI Part 7 §4.1); §7.3's generated instance is §7.4's `@throws` tags.
+- **FFI Part 7 §4.1 / §10** and **Unions §6.2**: the representation-cliff warning's coexistence note — discharged by #771: the warning is retired (FFI Part 7 §4.1); §7.3's generated instance is §7.4's `@throws` tags.
 - **FFI Part 7 §2.1**: the `.d.ts` structure sketch may note JSDoc placement; no rule changes.
 
 ## 14. Implementation notes (follow-up work, not this PR)

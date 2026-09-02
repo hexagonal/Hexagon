@@ -282,7 +282,7 @@ Rules fixed here:
 
 ### 4.1 Retired: the union representation cliff warning
 
-This section carried a normative generated-documentation obligation — a warning that the first payload-bearing constructor added to an all-nullary union changed the representation of every constructor already declared — and a representative `.d.ts` doc comment placing it. Both are retired with the bare-string representation (Unions §6.2, #771): every union takes one shape, so adding a constructor changes no existing value's shape and no existing `.d.ts` arm; what remains is what any union's new case costs — a consumer's `switch` exhaustiveness, and the declaration-order semantics of derived `Ord`/`Hash` (Unions §7). The number is kept for §14's records.
+This section carried a normative generated-documentation obligation — a warning that the first payload-bearing constructor added to an all-nullary union changed the representation of every constructor already declared — and a representative `.d.ts` doc comment placing it. Both are retired with the bare-string representation (Unions §6.2, #771): every union takes one shape, so adding a constructor changes no existing value's shape and no existing `.d.ts` arm; what remains is what any union's new case costs — a consumer's `switch` exhaustiveness, and the declaration-order semantics of derived `Ord` (Unions §7). The number is kept for §14's records.
 
 ---
 
@@ -419,7 +419,7 @@ export union Shape = Circle(radius: Float) | Point
 -- internal Circle(2.0) still erases to the literal
 
 -- (d) All-nullary: the same shape, no cliff (Unions §6.2; #771 — the emitter still
---     emits strings here until the emitter lands)
+--     emits strings here until the #771 emitter change lands)
 export union Color = Red | Green | Blue    -- export const Red = {tag: "Red"}; ...
 --   .d.ts: export type Color = {tag: "Red"} | {tag: "Green"} | {tag: "Blue"};
 
