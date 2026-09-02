@@ -3435,34 +3435,49 @@ class JavaScriptEmitter {
     let previousSpan: Source.Span | undefined;
     /**
      * Whether an entry that emitted nothing stands between `previousSpan` and
-     * the entry about to be written, which caps the gap at one blank line.
+     * the entry about to be written, which caps that one gap at a single blank
+     * line. Reset after every gap it caps: it describes the gap being written,
+     * not the module, and leaving it set would cap every later gap too.
      */
     let collapsed = false;
     for (const entry of entries) {
       const lines = entry.kind === "Comment" ? commentLines(entry.comment) : entry.lines;
-      // **An entry that emits nothing shapes none of the page's vertical
-      // rhythm.** It has no seat there, so the gap is measured from the last
-      // entry that wrote something to the next one that does, and one blank
-      // line is all a vanished entry leaves behind.
+      // **A vanished entry leaves exactly one blank line.** An entry that emits
+      // nothing is skipped when the page's vertical rhythm is measured, and the
+      // gap it stood in is capped at one blank — whether the source crowded it
+      // or spaced it out, the reader sees one consistent "something was here".
       //
       // Both halves are load-bearing, and each is why the other cannot be
-      // dropped. *Skipping* is what keeps `previousSpan` pointing at a line the
-      // output actually contains: a zero-line entry whose source span sits far
-      // below the reader's position — an `Import` item, which renders last and
-      // carries a span from the top of the file — would otherwise make every
-      // following gap compute as `0` and weld two unrelated comment blocks
-      // together. *Capping* is what stops the source's blank lines on both
-      // sides of a vanished declaration, plus the lines it occupied, running
-      // together into a gap no source wrote.
+      // dropped. *Skipping* is what keeps `previousSpan` on a line the output
+      // actually contains. A **synthesized prelude import** (#263) is the entry
+      // that makes this bite: the resolver builds it from `module.span`, the
+      // whole module's extent, so when every one of its names is filtered out
+      // and it emits nothing, leaving it in the measurement puts `previousSpan`
+      // at the module's *last* line — and every following gap then computes as
+      // `0`, welding two unrelated comment blocks together. *Capping* is what
+      // stops the source's blank lines on both sides of a vanished declaration,
+      // plus the lines it occupied, running together into a gap no source
+      // wrote.
       //
       // #770 is what made this reachable at a *declaration* — a constructor
       // nothing demands emits no line at all — but the rule is not about
       // constructors, and narrowing it to them is what produced the weld above.
-      // It also collapses runs no source wrote at the entries that could
-      // already emit nothing before this arc (a `type` alias, a `honor` whose
-      // lines moved to the dictionary block): a cosmetic improvement to shipped
-      // output, inside the emitter's readability licence and outside the
-      // ruling, and measured in the PR that landed it.
+      // Beyond those, it reaches the entries that could already emit nothing
+      // before this arc: a `type` alias, which crosses in the `.d.ts` and
+      // nowhere else, and the filtered synthesized import itself. It does *not*
+      // reach a `honor` block, whose lines move to the hoisted dictionary
+      // section — `sourceEntries` above is handed `entries` with every `Honor`
+      // item already filtered out, so no `honor` ever reaches this loop, and
+      // the blank run its source span leaves behind is untouched by this rule.
+      //
+      // **One blank rather than none is a choice, not a floor.** Where the
+      // source crowded a vanished entry with no blank line on either side, the
+      // line it occupied is counted as gap and one blank is left where `main`
+      // emitted none. Summing the real gaps on each side instead would give
+      // zero there — but only for an entry whose span *is* a source position,
+      // and the synthesized import's is not, so that rule would have to key on
+      // provenance the emitter does not track. One uniform rule, chosen over
+      // two behaviours that agree on nothing a reader could predict.
       if (lines.length === 0) {
         collapsed = true;
         continue;
@@ -5405,7 +5420,8 @@ class JavaScriptEmitter {
    * and §4 make it mandatory: an exported non-opaque record's or union's
    * constructor is a named ESM export with stable identity, so it exists
    * whether or not this module ever mentions it. An `opaque` declaration
-   * exports the type alone (§5) and demands nothing.
+   * exports the type alone (§5), so its export demands nothing — only a
+   * reference inside the declaring module can still ask for the function.
    *
    * **Both callers push the `export` line before asking this**, so the export
    * list and the demand set have to agree or the module emits `export { Circle
@@ -5429,8 +5445,11 @@ class JavaScriptEmitter {
    * is all of them and the discovery pass's output already ships (#770).
    *
    * Asked only of the discovery pass — a pass already holding a demand set has
-   * nothing to discover, and re-deriving one from its own output would let a
-   * dropped line drop a second.
+   * nothing left to discover. Not a safety guard: re-deriving from the second
+   * pass's own output would answer the same, because no cascade is possible
+   * (see `emitJavaScript` for why). It returns `undefined` there so that the
+   * set the second pass ships under is demonstrably the one it was handed, and
+   * so a reader never has to reconstruct that argument to trust the code.
    */
   constructorDemand(): ReadonlySet<Resolved.SymbolId> | undefined {
     if (this.#materializedConstructors !== undefined) return undefined;
@@ -8687,7 +8706,8 @@ class JavaScriptEmitter {
    *   shape §6.2 has given them or may give them: whatever a nullary
    *   constructor emits as — the shared constant, and `Bool`'s pinned `true`
    *   and `false` (#147) — it is a *value* the `Name` arm reads, there is no
-   *   application to erase, and `Point()` is not a term any source can write.
+   *   application to erase, and a source that writes `Point()` is refused
+   *   before emission ("`Point` is a value, not a function").
    *   No separate `Bool` guard: both its constructors are nullary, so the pin
    *   is out of reach here by the same clause and a redundant test would only
    *   read as live logic.

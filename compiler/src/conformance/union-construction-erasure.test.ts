@@ -364,7 +364,14 @@ describe("the two passes agree", () => {
     // would be leaking into the second's decisions.
     //
     // Measured across all 34 `stdlib/` and 2 `runtime/` modules when this
-    // landed; one module here keeps it honest per commit.
+    // landed — forcing the second pass everywhere left every one of them
+    // byte-identical — and one module here keeps it honest per commit.
+    //
+    // Only `materializedConstructors` is passed, because this source needs no
+    // other option. A source that grew one — a runtime location, a
+    // runtime-globals specifier — would make the forced pass differ from
+    // `module.javascript` and fail here loudly, which is the right way round;
+    // pass the rest of `module`'s options alongside if that day comes.
     const source =
       "export union Shape = Circle(radius: Float) | Point\n" +
       "export record Holder = {shape: Shape}\n" +
@@ -402,13 +409,14 @@ describe("a declaration that emits nothing shapes none of the page", () => {
     // welded into one.
     //
     // `a.div(b)` is what arms it. A concrete dot call registers a *candidate*
-    // prelude term the emitter then routes to `Int`'s member seat instead, so
-    // the synthesized prelude import item exists and every one of its names is
-    // filtered out (#263) — a zero-line `Import` entry. Its span runs from the
-    // first item to the last, so leaving it in the measurement puts
-    // `previousSpan` at the foot of the module and makes every following gap
-    // compute as zero. Skipping every zero-line entry, not only the vanished
-    // declaration, is what keeps `previousSpan` on a line the output contains.
+    // prelude term that the emitter then routes to `Int`'s member seat instead,
+    // so the synthesized prelude import item exists and every one of its names
+    // is filtered out (#263) — a zero-line `Import` entry. The resolver builds
+    // that item from `module.span`, so its span runs from the module's first
+    // token to its last: leaving it in the measurement puts `previousSpan` at
+    // the foot of the module and makes every following gap compute as zero.
+    // Skipping every zero-line entry, not only the vanished declaration, is
+    // what keeps `previousSpan` on a line the output contains.
     expect(emitted([[
       "/main.hex",
       "// first block, about the declaration below\n" +
@@ -427,16 +435,28 @@ describe("a declaration that emits nothing shapes none of the page", () => {
     );
   });
 
-  test("a vanished union leaves exactly one blank line, not the run it stood in", () => {
-    expect(emitted([[
+  test("a vanished union leaves one blank line, and later runs are left alone", () => {
+    // Two properties, because the cap is per-gap and nothing else says so. The
+    // `before`/`mid` gap is the one the vanished union stood in and is capped
+    // to a single blank; the `mid`/`after` gap has no vanished entry in it and
+    // keeps all three blank lines the source wrote. Making the cap *sticky* —
+    // dropping the `collapsed = false` reset — leaves the first assertion green
+    // and silently flattens every later gap in the module, which on the shipped
+    // standard library removes several hundred blank lines.
+    const javascript = emitted([[
       "/main.hex",
       "export let before: Int = 1\n\n\n\n" +
       "union Shape = Circle(radius: Float) | Rect(width: Float, height: Float)\n\n\n\n" +
+      "export let mid: Int = 2\n\n\n\n" +
+      "export let after: Int = 3\n\n\n\n" +
       "export fun area(): Float =\n" +
       "    match Circle(2.0)\n" +
       "        Circle(r) => r\n" +
       "        Rect(w, h) => w\n",
-    ]])).toContain("const before = 1;\n\nfunction area() {");
+    ]]);
+    expect(javascript).toContain("const before = 1;\n\nconst mid = 2;");
+    expect(javascript).toContain("const mid = 2;\n\n\n\nconst after = 3;");
+    expect(javascript).toContain("const after = 3;\n\n\n\nfunction area() {");
   });
 
   test("a vanished record leaves exactly one blank line too", () => {
@@ -454,7 +474,9 @@ describe("a declaration that emits nothing shapes none of the page", () => {
     // wrote. The general rule owns that case too, which is a cosmetic
     // improvement to shipped output rather than anything the ruling asked for;
     // `stdlib/JsError.js` and `stdlib/JsValue.js` each carried nine consecutive
-    // blank lines of it.
+    // blank lines of it. It does not reach every such run: a `honor` block's is
+    // untouched, because `Honor` items are filtered out before this loop sees
+    // them (`stdlib/Int.js` still ships a 96-line run for that reason).
     expect(emitted([[
       "/main.hex",
       "export let before: Int = 1\n\n\n\n" +
