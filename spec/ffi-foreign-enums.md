@@ -166,13 +166,13 @@ export extern enum Tri derives (Eq, Show) =
   contains no operators, so there is no unary minus to collide with; `-0` denotes `0`,
   so `0 as A | -0 as B` is the duplicate-value refusal, and no signed zero ever reaches
   §4's `switch`. Kinds mix freely within one declaration; the values are pairwise
-  distinct under `Object.is` (§3 rule 5).
+  distinct under `Object.is` (§3 rule 5). Not a literal: a float literal — `NaN` and
+  signed zero separate `Object.is` from `===`, and §4's `switch` lowering rests on their
+  agreement — an interpolated string, or any expression. Refused with "a literal enum
+  member is a string, integer, boolean, `null` or `undefined` literal"; a duplicate
+  value is refused naming both members.
 - **A plain foreign `boolean` is `Bool`** (Unions §6.2's pin) and wants no enum; the
-  literal form's `true`/`false` are for a set a boolean shares with other values. Not a
-  literal: a float literal — `NaN` and signed zero separate `Object.is` from `===`, and
-  §4's `switch` lowering rests on their agreement — an interpolated string, or any
-  expression. Refused with "a literal enum member is a string, integer, boolean, `null`
-  or `undefined` literal"; a duplicate value is refused naming both members.
+  literal form's `true`/`false` are for a set a boolean shares with other values.
 - **`as` is mandatory.** Every value is written. A member whose string equals its
   constructor's spelling (`"Up" as Up`) is a coincidence of the source, never a rule: no
   member is ever named by its constructor, which is the door Unions §6.2 closed.
@@ -190,11 +190,18 @@ export extern enum Tri derives (Eq, Show) =
   as `T` with no conversion, and each nullish value is the constructor it names. Part 2
   §4's surface stays sound at `a = T`: `toOption` sends both members to `None`, the
   question it answers, and `fromOption(None)` yields `undefined`, which is a member. An
-  enum naming **exactly one** nullish value is not absorbing, and `Nullable(T)` over it
-  is refused: the wrapper's `null → None` would shadow the member, and `fromOption(None)`
-  would produce the unnamed nullish value, which nothing declares. The refusal: "`Tri`
-  already names `null`; `Nullable(Tri)` cannot tell absence from `Unknown` — name both
-  nullish values (`undefined as Missing`) or neither." Receiving a foreign `T | null` as
+  enum naming **exactly one** nullish value — either one — is not absorbing, and
+  `Nullable(T)` over it is refused on two symmetric grounds: the wrapper collapses both
+  nullish forms to `None`, so whichever form the enum declares becomes indistinguishable
+  from absence; and `fromOption`'s `None` image is a nullish value the enum may not
+  declare. The refusal is a template over the declared member and the missing form —
+  at `extern enum Tri = true as Yes | false as No | null as Unknown`: "`Tri` already
+  names `null`; `Nullable(Tri)` cannot tell absence from `Unknown` — name both nullish
+  values (`undefined as Missing`) or neither"; at `extern enum Slot = "ready" as Ready
+  | undefined as Missing` the same message names `undefined`, `Missing` and `null as
+  Absent`. The absorbing shape, for contrast: `extern enum Tri = true as Yes | false as
+  No | null as Unknown | undefined as Missing` — `Nullable(Tri)` is `Tri`, and a foreign
+  `boolean | null | undefined` is received as it with no wrapper at all. Receiving a foreign `T | null` as
   `T` needs no wrapper: `null` is a member, and an arriving `undefined` is out of set
   like any undeclared value (§4).
 - Everything else is the object-reading form's: namespaces and duplicates (§2.2 —
@@ -529,8 +536,9 @@ An implementation is not conforming until tests cover at least:
     import.
 14. Literal-form nullish members: `null` and `undefined` as members; `Nullable(T) ≡ T`
     for an enum naming both, with `toOption`/`fromOption` executed at that type;
-    `Nullable(T)` refused with the rewrite for an enum naming one; an enum naming only
-    `null` treats an arriving `undefined` as out of set.
+    `Nullable(T)` refused with the rewrite for an enum naming one — both shapes, the
+    `null`-only and the `undefined`-only, each message naming its own form; an enum
+    naming only `null` treats an arriving `undefined` as out of set, and vice versa.
 15. Literal-form match lowering to `switch`, and `fromJsT`/`toJsT` over the literals.
 16. Literal-form `.d.ts`: the literal union face, no brand; constructors and conversions
     typed by the alias.

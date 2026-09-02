@@ -239,7 +239,7 @@ listed positions:
 | `with` | between a record-update head and its overrides (Products §3.3) |
 | `enum` | a foreign enum declaration inside `extern from`, or the module-scope head `extern enum` of the literal form (Foreign Enums §2.4) |
 | `null` | the member value of a literal `extern enum` (Foreign Enums §2.4); an ordinary name everywhere else — Hexagon admits no ambient nullish value (FFI Part 2 §2.2) |
-| `undefined` | the same seat as `null` |
+| `undefined` | the member value of a literal `extern enum` (Foreign Enums §2.4); an ordinary name everywhere else, as `null` is |
 | `class` | foreign class description; syntax completed by the FFI spec |
 | `method` | foreign member description; syntax completed by the FFI spec |
 | `get` | foreign getter description; syntax completed by the FFI spec |
