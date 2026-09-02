@@ -159,7 +159,7 @@ export let toInt(value: BigInt): Option(Int) =
     be an infinity. *)
 export let toFloat(value: BigInt): Float =
     let approx = toFloatUnchecked(value)
-    if Float.isFinite(approx) then
+    if approx.isFinite() then
         approx
     else
         throw(FloatRangeError("BigInt.toFloat: value does not fit in Float"))

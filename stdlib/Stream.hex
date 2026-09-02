@@ -58,7 +58,7 @@ export let collect(source: Stream(a), count: Int): Vector(a) =
             match next!(source)
                 None => pulling := False
                 Some(value) =>
-                    collected := Vector.append(collected, value)
+                    collected := collected.append(value)
                     remaining := remaining - 1
     collected
 
