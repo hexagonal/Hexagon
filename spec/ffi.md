@@ -28,7 +28,7 @@
 | 9 | Exported dictionaries | `ffi-part9-exported-dictionaries.md` | `Constraint.Dictionary<a>` completed-member shape + inference-bearing brand; instance-home rule for handles/factories; public-evidence closure; (ordinal, constraint) suffix; maximal-constraint elimination; direct export unless ABI plumbing; dictionary ABI | Parts 7/8; Constraints §5–§6; Modules §7 | variadic evidence seam; package ABI metadata (package spec) |
 | 10 | `JsMap` / `JsSet` | `ffi-part10-js-map-set.md` | borrowed views, `ReadonlyMap`/`ReadonlySet` faces; no-`Hash` native equality (stated loudly); `jsMap[k]`+`KeyError`, `has`-before-`get`, no fusion; no set brackets; 2 `Iterable` rows; `fromSeq`; 4 snapshot conversions, inward cycle-checked `Result` | Parts 1/2/3/11; Collections Parts 1/4/5; Operators §10 | `keys`/`values` projections; set algebra; mutable door; `WeakMap`/`WeakSet` |
 | 11 | `JsValue`, decoding, conversion failure | `ffi-part11-js-value-errors.md` | `JsValue` (`unknown` face, absorbs nullish); total property-free `kind`; strict scalar decoders + `toArray`; **`JsConversionError` = ordinary data** (`{reason, path}`); closed 5-segment path vocabulary; conservative `JsError.message`/`stack`; two-channel doctrine | Parts 1/2/10; Exceptions §6 | composable decoder family (stdlib ledger); `toJsMap`/`toJsSet` (cross-realm revisit bar) |
-| — | Foreign enums | `ffi-foreign-enums.md` | `extern enum` = foreign-backed nullary union over stable enum-object members; `Object.is` matching; generated checked `fromJsT`; reverse mappings ignored | Parts 1/4; Unions | `const enum`, flags, literal unions excluded; `fromJsT` keeps `Option` (**resolved**, §11.2 here) |
+| — | Foreign enums | `ffi-foreign-enums.md` | `extern enum` = foreign-backed nullary union over stable enum-object members; `Object.is` matching; generated checked `fromJsT`; reverse mappings ignored; literal form for object-free literal unions and `const enum` carriers (#773) | Parts 1/4; Unions | flags excluded; `const enum` and object-free literal unions take the literal form (#773); `fromJsT` keeps `Option` (**resolved**, §11.2 here) |
 
 ## 3. Common terminology (consolidated by reference; no alternatives exist)
 
@@ -96,7 +96,7 @@ Final names and faces only; the authoritative full table is **Part 1 §4.1**, de
 | `JsMap(k,v)` / `JsSet(a)` | borrowed native `Map`/`Set` | `ReadonlyMap<k,v>` / `ReadonlySet<a>` | Part 10 |
 | `JsValue` | any JS value, identity | `unknown` | Part 11 |
 | opaque families (opaque record/union, extern `type`, extern class) | erased/foreign value, identity | generated private-symbol brand — save Part 7 §2.3-pinned types, whose declaration seat is the pin's alias (#622) | Part 7 §5 |
-| `extern enum` | captured foreign member values | per `ffi-foreign-enums.md` §7.2 | Foreign Enums |
+| `extern enum` | captured foreign member values, or the declaration's own literals (the literal form) | per `ffi-foreign-enums.md` §7.2 — brand for the object-reading form, the literal union for the literal form | Foreign Enums |
 | functions/callbacks | n-ary JS functions, same order, same object | function types | Part 6 |
 | dictionaries (JS-facing evidence) | frozen-where-practical runtime records | `Constraint.Dictionary<a>` (branded) | Part 9 |
 
