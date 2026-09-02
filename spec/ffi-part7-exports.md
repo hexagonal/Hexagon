@@ -169,10 +169,10 @@ A qualifier in particular is **not a name for the type**. It names a *binding* �
 
 4. **The prelude's type inventory** (Modules §5.5) — the entry's own name, or a probed local where this module has taken the bare spelling. The resolver publishes, per module, the prelude's importable type inventory: exported unions, records, and extern types, each with its owning member's specifier, in normative prelude order. Type aliases have no entry, because faces carry their expansion (§1, Modules §11.4).
 
-   Occlusion takes only the bare spelling. A module whose own declaration occludes a prelude type name (Modules §5.4) renders and exports its *own* type bare, while the prelude identity stays reachable **qualified** (`Prelude.Ordering` — Modules §5.4, §6.4), so it can still appear in an exported face — and it then imports under a probed local, the bare name being the module's own:
+   Occlusion takes only the bare spelling. A module whose own declaration occludes a prelude type name (Modules §5.4) renders and exports its *own* type bare, while the prelude identity stays reachable **qualified** (`Ordering.Ordering` — Modules §5.4, §6.4; `Ordering.hex` is the union's home), so it can still appear in an exported face — and it then imports under a probed local, the bare name being the module's own:
 
    ```ts
-   import type { Ordering as Ordering_1 } from "./Prelude.js";
+   import type { Ordering as Ordering_1 } from "./Ordering.js";
    export type Ordering = "Asc" | "Desc";
    export declare const f: (x: Ordering_1) => number;
    ```

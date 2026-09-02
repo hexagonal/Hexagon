@@ -44,7 +44,7 @@ union JsKind derives (Eq, Show) =
 
 All-nullary, so its JS representation is the string union — pleasant and free (Unions §6.2). It derives `Eq` and `Show` *(#511)*: the single-kind test `kind(v) == JsKind.Number` is the surface's most common question, and both instances are lawful and trivial on an all-nullary union. (`JsValue` itself still has no instances — §2; the kinds are ordinary domestic data about a foreign value, not the value.)
 
-All ten constructors are qualified-only in the prelude inventory (`JsKind.Undefined`, `JsKind.Null`, …, `JsKind.Object`) in expressions and patterns. They are not auto-imported as bare prelude terms. This ordinary companion qualification leaves the string representation unchanged (Part 12 §12).
+All ten constructors are qualified-only in the prelude inventory (`JsKind.Undefined`, `JsKind.Null`, …, `JsKind.Object`) in expressions and patterns. They are not auto-imported as bare prelude terms — the prelude's default for every union but the three open ones (Modules §5.5); `ffi.md` §12 records the first case. This ordinary companion qualification leaves the string representation unchanged (Part 12 §12).
 
 Classification rules, normative:
 
@@ -120,7 +120,7 @@ record JsConversionError = {
 }
 ```
 
-All constructors of both unions are qualified-only in the prelude inventory *(#511; Part 12 §12's rule, extended there)* — `JsConversionReason.Shape`, `JsConversionReason.Range`, `JsConversionReason.Cycle(firstSeen)`, `JsPathSegment.Field(name)`, `JsPathSegment.Index(index)`, and kin, in expressions and patterns alike. They are not auto-imported as bare prelude terms: `Shape`, `Range`, `Field`, and `Index` are ordinary user vocabulary, and the prelude does not spend them. This is ordinary companion qualification and leaves the runtime representations unchanged (Part 12 §12).
+All constructors of both unions are qualified-only in the prelude inventory *(#511; Part 12 §12's rule, extended there — and the prelude's default for every union but the three open ones, Modules §5.5)* — `JsConversionReason.Shape`, `JsConversionReason.Range`, `JsConversionReason.Cycle(firstSeen)`, `JsPathSegment.Field(name)`, `JsPathSegment.Index(index)`, and kin, in expressions and patterns alike. They are not auto-imported as bare prelude terms: `Shape`, `Range`, `Field`, and `Index` are ordinary user vocabulary, and the prelude does not spend them. This is ordinary companion qualification and leaves the runtime representations unchanged (Part 12 §12).
 
 - **It is ordinary data** — a record over unions, carried in `Err` like any other value. The checked-failure path allocates no `Error`, captures no stack, and carries no brand; it is a described outcome, not an escape. This is the §1 doctrine made structural: **checked wrongness is ordinary data in `Err`; foreign thrown control flow travels through `JsError`** — the one exception-shaped thing in this part. A caller who wants to abort on `Err` matches and throws an exception of its own choosing, at its own site.
 - Its boundary faces follow Part 7's ordinary record and union rules (§3–§4 there): structural record face, tagged-POJO reason union — nothing error-flavored in the `.d.ts`.
@@ -278,7 +278,7 @@ The package fixed semantics; the draft supplied concrete spellings; review resol
 | `Err` = data wrongness (shape/range/cycle); `JsError` = foreign code throwing; never mixed, never synthesized across | §1, §4.3 |
 | `JsValue`: final name; any JS value by identity; faces `unknown` (never `any`); **includes `null`/`undefined`** — not `Nullable(JsValue)`; no instances; total identity injection `JsValue.from` | §2 |
 | `JsValue.kind`: total, property-free, ten-kind inventory; `typeof` + `null` + `Array.isArray`; hostile-input totality incl. revoked proxies → `Object` | §3 |
-| All constructors of `JsKind`, `JsConversionReason`, and `JsPathSegment` are qualified-only through their companions *(the latter two: #511)*; no bare prelude auto-import; representations unchanged; `JsKind` derives `Eq` and `Show` *(#511)* | §3, §5.1; Part 12 §12 |
+| All constructors of `JsKind`, `JsConversionReason`, and `JsPathSegment` are qualified-only through their companions *(the latter two: #511; the prelude's default under Modules §5.5)*; no bare prelude auto-import; representations unchanged; `JsKind` derives `Eq` and `Show` *(#511)* | §3, §5.1; Part 12 §12 |
 | Strict non-coercing scalar decoders returning `Result`; `toInt` splits `Shape`/`Range` via `isSafeInteger`; `toArray` = realm-safe zero-copy borrowed `Array(JsValue)`; **`toArray` does not guard the `Array.isArray` probe — a revoked-proxy throw is `JsError`, never `Err(Shape)`** | §4 |
 | Failure-type ownership: this composable decoder surface uses `Result(_, JsConversionError)`; foreign-enum membership projection uses `Option`; other projections state their own type | §4.3; Part 12 §11.2 |
 | **`JsConversionError` is ordinary data**: `record {reason, path}` over `JsConversionReason = Shape \| Range \| Cycle(firstSeen)`; no `Error`, no stack capture, no brand, not throwable as-is; ordinary record/union boundary faces (Part 7); `path` vector, empty = the value itself; all-or-nothing; diagnostic rendering non-normative | §5, §12.2 |

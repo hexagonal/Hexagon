@@ -216,7 +216,7 @@ fun format(id: UserId): String =
     let UserId(n) = id
     "user-${n}"
 
-userIds |> map(UserId(n) => "user-${n}")     -- same thing, lambda-parameter position
+userIds |> Seq.map(UserId(n) => "user-${n}") -- same thing, lambda-parameter position
 ```
 
 The closedness of `union` is what makes this sound: adding a second constructor to `UserId` later flips every `UserId(n)` binding-position pattern from irrefutable to refutable, and **they all become compile errors at once**, pointing at exactly the code the change broke. That is the system working, and the docs should present it as such. The message at each flipped site is §5.3's uniform gate line, and it needs no flip-specific variant: the witness — rendered by §7.3, tiers and route clause included — *is* the constructor that arrived, so the report names `Anonymous` in the spelling the flipped module can lawfully write, and where it has none (a common flip situation: the constructor did not exist when the imports were written, and no alias reaches it), the route clause names the import that spells it. No bespoke "no longer covers" message exists, on principle rather than by economy *(#639)*: that sentence states the union's *history*, and the compiler has none — a flipped `let UserId(n)` and a freshly written `let Some(n)` present identically, a union with two constructors and a pattern covering one of them, so any temporal message would fire falsely on fresh code.

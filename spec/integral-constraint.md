@@ -94,9 +94,9 @@ That spec's §3 says the four functions are "monomorphic `Int` functions, not co
 
 | Situation | Message (shape) |
 |---|---|
-| `gcd`/`div`/`mod`/`quot`/`rem` **constraint-dispatched** at `Float` (a generic `<a: Integral>` call instantiated there; bare `gcd(1.5, 2.0)`) | ordinary missing-instance error: "`Float` is not `Integral`"; for `gcd` add "gcd is defined for integer types (`Nat`, `Int`, `BigInt`)" — never suggest rounding. *(#344, the `Float.hex` landing, bifurcates this row:)* a **dot call** `x.mod(y)`/`x.rem(y)` on a `Float` receiver now resolves to `Float.hex`'s plain exports (Division & Remainder §5) and is not an error at all; a dot call for `div`/`quot`/`gcd` on a `Float` receiver is neither a companion export nor an honored member there and takes Method Syntax §9's neither-error (that spec owns dot-call diagnostics), not this row's; and the **bare spellings** `mod`/`rem` no longer reach dispatch anywhere — two visible exporters (`Integral.hex`'s members, `Float.hex`'s functions) make the bare name a Modules §5.5 refusal naming both qualified homes, at every argument type including the integers. Bare `gcd`/`div`/`quot`/`lcm` keep their single exporter and this row's original reading. |
+| `gcd`/`div`/`mod`/`quot`/`rem` **constraint-dispatched** at `Float` (a generic `<a: Integral>` call instantiated there; `Integral.gcd(1.5, 2.0)`) | ordinary missing-instance error: "`Float` is not `Integral`"; for `gcd` add "gcd is defined for integer types (`Nat`, `Int`, `BigInt`)" — never suggest rounding. *(#344, the `Float.hex` landing, bifurcates this row:)* a **dot call** `x.mod(y)`/`x.rem(y)` on a `Float` receiver now resolves to `Float.hex`'s plain exports (Division & Remainder §5) and is not an error at all; a dot call for `div`/`quot`/`gcd` on a `Float` receiver is neither a companion export nor an honored member there and takes Method Syntax §9's neither-error (that spec owns dot-call diagnostics), not this row's; and the **bare spellings** `mod`/`rem` reach no dispatch at all — no prelude function or member but `ignore` and `show` is seeded bare (Modules §5.5), so a bare reference is that section's refusal naming the routes, at every argument type: the member by the dot or as `Integral.mod`/`Int.mod`, the `Float` function as `Float.mod`. `gcd`/`div`/`quot` read the same way, and this row's original reading holds at their qualified and dot spellings. |
 | Name `Int.lcm` not found | curated hint: "`Int` has no `lcm` — its results overflow `Int`'s safe range for ordinary inputs; use `BigInt.lcm`" (name-not-found hints are cheap; this one prevents a hand-rolled `a * b / gcd` with the overflow bug) *(#344: with `Int.hex` source, the spelling now misses as an ordinary does-not-export error at a real module rather than at the wired route — the curated hint survives the re-homing; the obligation is this row, not the mechanism that once carried it)* |
-| Unsolved tyvar at a bare `gcd(x, y)` call with no other constraint source | standard ambiguity error per Numeric Literals §6 machinery; `Num` base constraint defaulting resolves the literal-only case to `Int` as usual |
+| Unsolved tyvar at a `gcd(x, y)` call — `x.gcd(y)` or `Integral.gcd(x, y)` — with no other constraint source | standard ambiguity error per Numeric Literals §6 machinery; `Num` base constraint defaulting resolves the literal-only case to `Int` as usual |
 
 ## 9. Acceptance tests
 
@@ -111,11 +111,11 @@ Int.gcd(0, 0)       -- 0
 
 -- Polymorphic use: the Rat down payment
 fun normalize<a: Integral>(n: a, d: a): (a, a) =
-    let g = gcd(n, d)
+    let g = n.gcd(d)
     if g == 0 then (0, 1)                    -- 0/0 input; literals via Num super
     else
-        let (n2, d2) = (quot(n, g), quot(d, g))
-        if d2 < 0 then (negate(n2), negate(d2)) else (n2, d2)   -- Ord super at work
+        let (n2, d2) = (n.quot(g), d.quot(g))
+        if d2 < 0 then (Signed.negate(n2), Signed.negate(d2)) else (n2, d2)   -- Ord super at work
 -- normalize : <a: Integral>(a, a) -> (a, a)
 -- concrete sites emit direct calls: normalize(4, -6) uses Int.gcd/Int.quot → (-2, 3)
 -- normalize(4n, -6n) uses the BigInt instance → (-2n, 3n)

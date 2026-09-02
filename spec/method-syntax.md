@@ -23,7 +23,7 @@ Written for a future implementation session against the existing `hexc` architec
 - **Bare dot is field access, always.** `e.name` without an argument list is record field access (or tuple `itemN`) and nothing else — never a method reference, never a bound method, never `() => Module.name(e)`. Companion dispatch exists only in the syntactic call form `e.name(args…)` (§2.1, §11.6).
 - **The unresolved dot call *is* a field call, by definition.** Companion dispatch requires the receiver's head constructor to be known from independent evidence by its owner region's finalisation deadline (§3.1). Absent that, `e.name(args…)` *means* row-constrained field access — exactly what the form means in the corpus today. The row fallback is semantics, not a heuristic (§3.5). Every dot-call form therefore has one deterministic meaning, and principal types are preserved.
 - **One companion, no search.** `CompanionOf` is a total, trivial function of the receiver's head constructor — the home module (Modules §7.2) for user nominal types, a fixed prelude companion for built-ins (§4). No import adds or removes a dot-callable operation. *(Amended for #304/#335 — see §16.2.)* The operation set now unions the receiver type's **honored constraint members** (§4.2), which preserves both properties: coherence keys instances program-wide, so membership is as import-insensitive and search-free as the export set — but two candidate *sources* can now claim one spelling, and where they do the call is refused naming every qualified home (§6). Refusal, never ranking; the no-ranking doctrine survives the union — and survives §6.1's generalisation-law carve too, which refuses to rank by recognizing a widens binding and its derived member as one claimant rather than two.
-- **Three spellings, one canonical form.** `Vector.at(v, 3)`, `v |> Vector.at(3)`, and `v.at(3)` all elaborate to the same call. The qualified spelling is canonical (it is what everything elaborates to); dot is the daily idiom for a value's own companion operations; the pipe is the idiom for transformation chains, polymorphic functions, and operations owned by another module (§9). Dot syntax does not replace pipes; it supplies discoverable companion operations, pipes express explicit flow. *(Doctrine wording: Sol, adopted.)*
+- **Three spellings, one canonical form.** `Vector.at(v, 3)`, `v |> Vector.at(3)`, and `v.at(3)` all elaborate to the same call. The qualified spelling is canonical (it is what everything elaborates to); dot is the daily idiom for a value's own companion operations; the pipe is the idiom for transformation chains, polymorphic functions, and operations owned by another module (§9). Dot syntax does not replace pipes; it supplies discoverable companion operations, pipes express explicit flow. *(Doctrine wording: Sol, adopted.)* Since the prelude seeds no function or member bare but `ignore` and `show` (Modules §5.5), the dot is the prelude's **everyday** surface and the qualified spelling its explicit and polymorphic one — the sentence above states a preference; §5.5 makes it the shape.
 - **Deferred inference goals are exceptional** — see §10, the Deferred-Goals Doctrine, which this feature is the first spec to cite as its license.
 
 ---
@@ -270,7 +270,7 @@ The refusal above counts **claimants**, and Modules §5.3's generalisation law c
 
 `show`, `compare`, `div`, `add`, … are constraint members, and since the members-as-values ruling (Constraints §2.2) they are ordinary module-scope values with declaring-module homes. Dot syntax reaches them through exactly two doors, both already open in the resolution table (§3.4):
 
-- On a **head-known receiver**, the operation set includes the subject-first members of constraints the receiver's type honors (§4.2). `42.show()` (after the defaulting step), `(42: Nat).show()`, `42n.show()`, `42.0.show()`, `n.div(2)`, `r1.add(r2)` — each is the member at that type, the instance selected by coherence, elaborated as the bare call at that type would be. No companion module is consulted or required.
+- On a **head-known receiver**, the operation set includes the subject-first members of constraints the receiver's type honors (§4.2). `42.show()` (after the defaulting step), `(42: Nat).show()`, `42n.show()`, `42.0.show()`, `n.div(2)`, `r1.add(r2)` — each is the member at that type, the instance selected by coherence, elaborated as the qualified call at that type would be. No companion module is consulted or required.
 - On a **declared type variable**, the candidate set is the variable's declared bounds — `x.compare(y)` under `a: Ord` dispatches `compare` through the binder's dictionary (§3.4's amended row). The bounds are written in the header; nothing is searched, nothing is imported, and an unbounded or unmatched variable is refused with the options message (§9 row 7), never row-constrained.
 
 What stays excluded, and the sentence that guards it: **dot syntax never *discovers* a member — it dispatches members the receiver's type or bounds already own.** On a flexible tyvar the goal takes the defaulting step and then the fallback; no instance table is scanned to guess a receiver type (member names never nominate — §1); no import adds or removes a member from any receiver's set (coherence is whole-program). The §11.7 rejection was of extension-trait machinery; bounds and honored instances are the opposite of that machinery — closed, declared, orphan-ruled sets.
@@ -315,7 +315,7 @@ Completion after `receiver.` must be driven by **the same resolution model**, at
 | 2 | Structural receiver, no such field | existing missing-field error (Products §3.2 family) — companion dispatch never mentioned |
 | 3 | Field resolved but not callable / wrong arity | the not-callable report, phrased against the field the way the mark reports name it — "`.at` is not a function — it has type `Int`, and this call supplies 1 argument" (#385; no arrow appears — a demanded arrow's colour is a claim about a call that does not exist); wrong arity keeps the ordinary arity error |
 | 4 | Nominal receiver, name is no field, companion op, or honored member | "`Vector` has no field `at2`, module `Vector` exports no operation `at2`, and no constraint honored at `Vector` has a member `at2`" + near-miss suggestions from all three sets |
-| 5 | Companion op exists but first parameter is not `T`-headed; or a member exists but is not subject-first | treated as row 4 (neither is in the operation set) — but hint at the near-miss: "`Vector.empty` does not take a `Vector` as its first argument; call it as `Vector.empty(…)`" / "`fromNat` does not take its constraint's subject first; call it as `fromNat(…)`" |
+| 5 | Companion op exists but first parameter is not `T`-headed; or a member exists but is not subject-first | treated as row 4 (neither is in the operation set) — but hint at the near-miss: "`Vector.empty` does not take a `Vector` as its first argument; call it as `Vector.empty(…)`" / "`fromNat` does not take its constraint's subject first; call it as `Num.fromNat(…)`" |
 | 6 | Dot call resolves to two claimants (field/export/member, member/member — head-known or declared-variable receiver) | the §6-family refusal: name every claimant with its disambiguating spelling — `Box.size(box)`, the field spellings, the member's declaring-module home (`Show.show(box)`), or the bare spelling where a claimant is declared in the current module (§6) *(row repurposed by #304/#335 — the old row-6 redirect died with §3.4's amended row: that case now dispatches)* |
 | 7 | Dot call on declared type variable, no subject-first member in its bounds | "`a` is a declared type variable, so `.process` can only be one of its constraints' members, and none of `a`'s constraints has a subject-first member `process`; add the constraint to the parameter's binder, use a concrete nominal type, or call a qualified function" (§3.4, §7) |
 | 8 | Post-finalisation row-vs-nominal failure with matching companion op or honored member (any distance — same module or across the program) | the §3.6 enriched message — mandatory whenever the field name matches an exported companion operation of, or a subject-first honored member at, the failing nominal type. Same-region contradictions are unreachable under the receiver-level deadline (§3.6) |
@@ -473,7 +473,7 @@ v.empty()                          -- ERROR (row 5): `Vector` has no field `empt
 fun cmp<a: Ord>(x: a, y: a) =
     x.compare(y)                     -- OK : Ordering — `compare` dispatched through
                                    --   the binder's `Ord` evidence; same elaboration
-                                   --   as compare(x, y)
+                                   --   as the qualified call at that type
 
 -- (j2) Declared type variable, no matching member: the options message
 fun go(x: a) =
@@ -520,12 +520,12 @@ p.x                                -- ERROR: existing opacity error (Modules §4
 -- (n) Defaultable receiver + unknown name: the defaulting step reroutes the error
 --     [updated with #304 — was the row-vs-Num discharge error; the defaulting
 --      step now settles the receiver first, §3.5]
-fun m(x) = multiply(x, x.total(1)) -- x gets Num (from multiply); at the deadline the
-                                   --   defaulting step settles x := Int, the goal
-                                   --   re-fires, and `total` is no field, companion
-                                   --   operation, or honored member of Int —
-                                   --   ERROR (row 4). Same program, same refusal,
-                                   --   now phrased against Int rather than a row
+fun m(x) = Num.multiply(x, x.total(1)) -- x gets Num (from multiply); at the deadline the
+                                       --   defaulting step settles x := Int, the goal
+                                       --   re-fires, and `total` is no field, companion
+                                       --   operation, or honored member of Int —
+                                       --   ERROR (row 4). Same program, same refusal,
+                                       --   now phrased against Int rather than a row
 
 -- (o) Field-resolved dot call emits as itself
 fun run(r: {step: Int -> Int, ...}) = r.step(1)

@@ -228,7 +228,7 @@ constraint Iterable<c> =
     toSeq(xs: c): Seq(Item)
 ```
 
-- `toSeq` is an **ordinary constraint member** — a real prelude term, callable at concrete types (Collections Part 5 §2.3); the §2.3 desugaring names it.
+- `toSeq` is an **ordinary constraint member** — reached at concrete types by the dot (`range.toSeq()`) or qualified (`Iterable.toSeq(range)`), not seeded bare (Collections Part 5 §2.3; Modules §5.5); the §2.3 desugaring names it.
 - The table is **open to users in v1**: a user nominal type joins via a lawful `honor Iterable<T>` instance in one of its two legal homes (Collections Part 5 §7; orphan rule per Modules §7). The full resolution algorithm, failure taxonomy, table-opening rules, and finalized rows are owned by **Collections Part 5 §§2–4**.
 - The v1 restriction: `Iterable` is **projection-bearing** and therefore **cannot constrain a generic binder**, and `Item`/`Item(c)` cannot appear in source type expressions (Collections Part 2 §7.2–§7.3). Functions generic over "any iterable" are not writable in v1; the idiom is to **take a `Seq(a)` parameter** and let callers convert (`for x in xs` where `xs : Seq(a)` infers fine — `Seq`'s instance has a variable element).
 - Consequently `Iterable` never appears in inferred signatures, hovers, or unsatisfied-constraint errors in v1 — non-leakage holds **by construction** (no binder can introduce it), not by suppression (Collections Part 2 §8).

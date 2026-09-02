@@ -33,13 +33,13 @@ Normative home: Part 2 §8 (declaration, `Item` naming, projection-bearing statu
 
 Loops §7.1's judgment **Iterable(τ) = ε** is hereby defined normatively as: *look up the unique global `Iterable` instance whose head constructor is τ's outer constructor; ε is that instance's `Item` binding under the substitution of τ's arguments.* Uniqueness is coherence (Constraints §5.1); globality is Modules §7.1; user rows enter per §7 here. The judgment's shape is unchanged from Loops — it was always a functional-dependency table; the table simply has a public door now.
 
-### 2.3 `toSeq` is a real prelude term
+### 2.3 `toSeq` is a real constraint member
 
-With Part 2 §8's promotion, `toSeq` is an ordinary constraint member: a module-scope term name (Constraints §2.2), callable at concrete types by head-constructor lookup (Part 2 §7.2) — `toSeq("abc") : Seq(String)`, `toSeq(myBag) : Seq(Int)`. Consequences, stated once:
+With Part 2 §8's promotion, `toSeq` is an ordinary constraint member: a module-scope term name (Constraints §2.2), reached at concrete types by the dot — `"abc".toSeq() : Seq(String)`, `myBag.toSeq() : Seq(Int)` (Method Syntax §7) — and qualified, through the declaring module (`Iterable.toSeq(range)`) or an honoring companion (`Vector.toSeq(values)`); it is not seeded bare (Modules §5.5's set). Consequences, stated once:
 
 - **Loops §2.3's reference desugaring now names this member.** The `toSeq(e)` in the desugaring, formerly described as compiler-internal, is the constraint member itself; the desugaring is otherwise character-for-character unchanged (edit note, §16).
-- **Qualified home:** `Iterable.toSeq` — the member is an export of its declaring module, `stdlib/Iterable.hex` (Part 2 §8), which satisfies the Modules §6.4 invariant. Ordinary prelude occlusion applies (Modules §5.4): a module-level user `toSeq` occludes the bare name module-wide; the qualified form stays reachable.
-- **Sole exporter.** The bare spellings above exist only while this member is the *one* prelude export of the name: a second visible prelude member bare-exporting `toSeq` would put the name under Modules §5.5's collided-name refusal, and every bare call in this section would be refused naming every home. The collection companions therefore do not *export* `toSeq` as a plain function — each supplies it as its instance's member, and the per-type qualified spellings (`Vector.toSeq`, `Map.toSeq`, `Set.toSeq`, `String.toSeq`) are the uniform-access honored-member read (Modules §5.3), qualifiable but never a bare export (Constraints §4.6). One member, one bare exporter, every per-type spelling intact.
+- **Qualified home:** `Iterable.toSeq` — the member is an export of its declaring module, `stdlib/Iterable.hex` (Part 2 §8), which satisfies the Modules §6.4 invariant. A module-level user `toSeq` is an ordinary binding and never meets the prelude's, which has no bare spelling to occlude; the qualified forms stay reachable.
+- **One member, never a plain export.** The collection companions do not *export* `toSeq` as a plain function — a module-level binding of a member's spelling beside the instance is the Constraints §4.6 rebinding error — so each supplies it as its instance's member, and the per-type qualified spellings (`Vector.toSeq`, `Map.toSeq`, `Set.toSeq`, `String.toSeq`) are the uniform-access honored-member read (Modules §5.3), qualifiable but never a bare export (Constraints §4.6). One member, every per-type spelling intact.
 - **`iterate` is not this member's name.** `Seq.iterate(seed, step)` — the seed/step producer — is an ordinary `Seq` combinator, unrelated to iteration-as-conversion, and keeps its canonical name precisely because the member does not claim it.
 - `Seq.next` and the functional-cursor protocol are untouched (Loops §6.2).
 
@@ -352,7 +352,7 @@ Rejected per §7.2: for a home-module instance the pattern is structurally unnec
 | # | Decision | § |
 |---|---|---|
 | 1 | Iterable(τ)=ε defined as global-instance lookup on τ's outer constructor; the Loops table is the instance table, operationally | §2.2 |
-| 2 | `toSeq` is the member and an ordinary prelude term; Loops §2.3's desugaring names it; qualified home `Iterable.toSeq`, an export of the declaring module; the bare name stays single-exporter — companions supply theirs as instance members, and `Seq.iterate` (the producer) is unrelated | §2.3 |
+| 2 | `toSeq` is the member, reached by the dot and qualified (not seeded bare — Modules §5.5); Loops §2.3's desugaring names it; qualified home `Iterable.toSeq`, an export of the declaring module; companions supply theirs as instance members, never as plain exports, and `Seq.iterate` (the producer) is unrelated | §2.3 |
 | 3 | Normative 8-step algorithm for `for p in e`; pattern heads per Pattern Matching's five positions, irrefutability-gated; body `Unit`; source evaluated once | §3.1 |
 | 4 | **Inference-vs-declared diagnostic split**: unsolved inference variable → annotate; declared type variable → `Seq(a)` parameter hint | §3.2 |
 | 5 | User-nominal not-iterable error names **both legal homes** (the Modules §7.6 discoverability obligation's loop-side face), leading with the actionable one | §3.3 |

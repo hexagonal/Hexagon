@@ -44,6 +44,7 @@ Exactly the union rules (Unions §2.2), restated for closure:
 - A nullary exception is a **value** of type `Exn`, used bare: `NotFound`. `NotFound()` gets the standard "`NotFound` is a value, not a function; write it without `()`" hint. *(But note §7.3: unlike union nullaries, a nullary exception is not a shared constant — each mention constructs fresh, to capture a stack.)*
 - Slot names are representation/documentation only; construction and catch patterns are positional, always (Unions §2.1 doctrine unchanged).
 - Value restriction: a constructor application of syntactic values is a syntactic value (Functions §8.2). Nothing generalises here anyway — every exception has type `Exn`, no variables in sight.
+- **Prelude exceptions are bare as a category** *(#742)*: every exception the prelude declares is in bare scope, in a catch arm and in an expression, and stays reachable qualified (`Map.KeyError`) — the one prelude channel whose constructors are all bare, where union constructors are qualified-only but the open unions' (Modules §5.5). The ground is the name shape: a compound `…Error` word is its own qualifier, nobody declares one as a function or a value, and a user's same-named exception occludes with reservation (Modules §5.4). A future prelude exception joins bare without a ruling; the inventory keeps the names unique.
 
 ---
 
@@ -305,6 +306,7 @@ The arrows are linked (Effects §2.2): the thunk's `->?` is the signature's inle
 | No polymorphic exceptions (concrete payload types only) | §2 |
 | Reserved slots: `name`, `stack`, `$...`; `message` blessed and String-typed, feeds `Error` message | §2 |
 | `throw : Exn -> a`, prelude function, divergence typing; stack captured at construction | §3, §4 |
+| Prelude exception constructors bare as a category — the `…Error` suffix is the qualifier; future prelude exceptions join without a ruling (#742) | §2.1; Modules §5.5 |
 | `catch` mandatory; `finally` deferred with reserved keyword | §5.1, §10.1 |
 | Catch arms = flat constructor patterns (shared grammar with `match`); implicit rethrow; reachability still hard-errors; no exhaustiveness demand | §5.2–5.3 |
 | `match`/dot-access on `Exn`: never | §3 |

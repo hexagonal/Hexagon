@@ -138,7 +138,7 @@ This is the deliberate, stated break with `Vector.set` (which throws `IndexError
 `Map.remove<k: Hash>(m, key)` and `Set.remove<a: Hash>(s, x)` return the collection **unchanged** when the key/element is absent; they never throw. "Remove" names a request, not an assertion — the `dropFirst`/`dropLast` family (Part 3 §7.1/§11.4), with the pleasant algebraic consequence stated in the doc:
 
 ```
-remove(remove(m, k), k) == remove(m, k)      -- idempotent
+m.remove(k).remove(k) == m.remove(k)         -- idempotent
 ```
 
 A caller who needs the assertion checks `containsKey` first or reads `m[k]` before removing — three intents (assert / ask / request), three named behaviours, exactly the Part 3 §7.1 consistency note extended.
@@ -462,8 +462,8 @@ for [k, v] in m
     ...                                      -- ERROR: this pattern can fail; use match
 
 -- (h) Order contract (property-shaped, not golden-output)
--- toSeq(m) traversed twice in one run: identical order.
--- entries(m) pairs keys(m) with values(m) positionally.
+-- m.toSeq() traversed twice in one run: identical order.
+-- m.entries() pairs m.keys() with m.values() positionally.
 -- No test may assert a concrete order across runs.
 
 -- (i) Instances
@@ -473,7 +473,7 @@ Set.fromVector([1, 2]) < Set.fromVector([1, 2, 3])
                                            -- ERROR: no Ord instance for Set(Int)
 show(Set.fromVector([1, 2]))               -- "Set.fromVector([1, 2])"  (some order)
 show(Map.empty)                            -- "Map.empty"
-hash(Set.fromVector([1, 2])) == hash(Set.fromVector([2, 1]))
+Set.fromVector([1, 2]).hash() == Set.fromVector([2, 1]).hash()
                                            -- True   (permutation-invariant)
 let nested = Set.fromVector([Set.fromVector([1]), Set.fromVector([2])])
                                            -- OK: Set(Set(Int)) — Hash<Set> provided
