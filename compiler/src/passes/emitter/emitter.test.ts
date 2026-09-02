@@ -539,7 +539,9 @@ describe("emitJavaScript", () => {
     expect(javascript).toContain('if (__match.tag === "Circle")');
     expect(javascript).toContain('else if (__match.tag === "Rectangle")');
     expect(javascript).toContain("if (__match_1 === -1)");
-    expect(javascript).toContain("const { value } = UserId(42);");
+    // The single-constructor binding pattern destructures the erased literal
+    // itself (#770): the construction is what it always was, minus the call.
+    expect(javascript).toContain('const { value } = { tag: "UserId", value: 42 };');
   });
 
   test("emits Unit, as-pattern, tuple, and record matches through ordered tests", () => {
@@ -2086,8 +2088,12 @@ describe("emitJavaScript", () => {
     expect(output.text).toContain("pick(value, __Pick_String)");
     // Both call sites are concrete, so each reaches its own instance's seat for
     // the inherited default (#444) — which is where the copy now lives.
-    expect(output.text).toContain("__Pick_Int_pickHeld(0, Held2(42))");
-    expect(output.text).toContain('__Pick_String_pickHeld("x", Held2("y"))');
+    expect(output.text).toContain(
+      '__Pick_Int_pickHeld(0, { tag: "Held2", value: 42 })',
+    );
+    expect(output.text).toContain(
+      '__Pick_String_pickHeld("x", { tag: "Held2", value: "y" })',
+    );
   });
 
   test("expands derives headers into structural dictionaries", () => {

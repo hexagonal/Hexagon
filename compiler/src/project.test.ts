@@ -403,7 +403,10 @@ test("the implicit prelude supplies Option without an import", () => {
   expect(project.diagnostics).toEqual([]);
   const app = project.modules.find(({ source }) => source.path === "/app.hex")!;
   expect(app.typed.diagnostics).toEqual([]);
-  expect(app.javascript.text).toContain('import { None, Some } from "./Option.js";');
+  // `None` is a shared constant a reference reads; `Some(...)` is an
+  // application and erases (#770), so the import binds only the constant.
+  expect(app.javascript.text).toContain('import { None } from "./Option.js";');
+  expect(app.javascript.text).toContain('{ tag: "Some", value: __vectorIndex(xs, 0) }');
   // Each prelude module is emitted only when used: Option is, Ordering's home is not.
   const paths = project.modules.map(({ source }) => source.path);
   expect(paths).toContain("/Option.hex");

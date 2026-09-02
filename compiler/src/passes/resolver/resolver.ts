@@ -1502,27 +1502,26 @@ class Resolver {
    * are identical for both spellings, and an opaque record's constructor stays
    * out of reach abroad exactly as its qualified spelling is.
    *
-   * **#770 (standing gap, not this arc's).** A union construction erases into
-   * its object literal at every seat, home and abroad — Unions §6.4 as written
-   * all along — so the spec's golden for `Tag(7)` is `const t = {tag: "Tag",
-   * n: 7};` and no name is emitted for the constructor at all. The emitter does
-   * not yet erase abroad; until it does, the qualified local below is the
-   * *correct interim* lowering (it calls the export rather than the namespace
-   * object, which is the miscompile it replaced). When #770 lands, the applied
-   * seat here goes with it and the `emitted` spelling stays for the route that
-   * still needs a name: a constructor **referenced as a value** (`let mk = Tag`
-   * → `Tag.Tag`), which Modules §11.2 describes.
+   * **What the emitted spelling is for, since #770 landed.** A union
+   * construction erases into its object literal at every seat, home and abroad
+   * — Unions §6.4 — so an *applied* `Tag(7)` emits `{ tag: "Tag", n: 7 }` and
+   * names the constructor nowhere; §13(k)'s golden is that literal. The route
+   * that still needs a name is the other one Modules §11.2 describes: a
+   * constructor **referenced as a value** (`let mk = Tag` → `Tag.Tag`), and a
+   * **record** constructor's applied seat, which erases to its argument and so
+   * names nothing either. The spelling below is therefore read at reference
+   * sites only — which is why it must still be right.
    *
    * The answer carries **the spelling a reference to it emits**, which is the
    * alias's own qualified local (`Tag.Tag`) and not the bare word the source
    * wrote. The two are the same identifier in the emitted module — the alias's
-   * namespace binding — so a bare `Tag(7)` rendered bare would call the module
-   * object and die at load; rendered through the alias it is the ordinary
-   * qualified access the same program's `Tag.Tag(7)` emits. This is §11.2's
-   * "emitted-name collisions are the emitter's ordinary renaming problem",
-   * answered at the one seat that can see both names are one. A **prelude**
-   * companion answers through its own local first, exactly as the qualified
-   * route does.
+   * namespace binding — so a bare `Tag` rendered bare would read the module
+   * object and hand on something that is not the constructor; rendered through
+   * the alias it is the ordinary qualified access the same program's `Tag.Tag`
+   * emits. This is §11.2's "emitted-name collisions are the emitter's ordinary
+   * renaming problem", answered at the one seat that can see both names are
+   * one. A **prelude** companion answers through its own local first, exactly
+   * as the qualified route does.
    *
    * `undefined` means declined; the caller proceeds to whatever answered before
    * the fallback existed.

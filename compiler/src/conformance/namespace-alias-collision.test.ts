@@ -302,7 +302,13 @@ describe("every qualified use the alias serves follows it", () => {
           "export let round: Float = radius(Shape.Circle(2.0))\n" +
           "export let boxed: Int = (Shape({n = 3})).n\n"],
     ] as const;
-    expect(javascript(files)).toContain("const round = radius(Shape_1.Circle(2.0));");
+    // The application erases wherever it was reached, contested alias
+    // included (#770) — and the alias's import line stands regardless
+    // (Modules §11.3), under the suffixed local #569 gave it.
+    expect(javascript(files)).toContain(
+      'const round = radius({ tag: "Circle", r: 2.0 });',
+    );
+    expect(javascript(files)).toContain('import * as Shape_1 from "./shape.js";');
     const main = await runProject(files);
     expect(main.round).toBe(2.0);
     expect(main.boxed).toBe(3);

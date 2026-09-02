@@ -256,15 +256,15 @@ describe("an explicit import of a prelude module carries no evidence", () => {
       'import Option from "./Option"\n' +
       "export fun mk(x: Int): Option(Int) = Option.Some(x)\n",
     ]], "/a.hex");
-    // The constructor reference `Option.Some` resolves to the declaration and
-    // is emitted through its own binding, same as any other constructor
-    // reference — a fact §3.2's respelling did not change — beside the
-    // namespace import the module alias itself always carries. Neither is a
+    // One line, the namespace import the module alias itself always carries.
+    // `Option.Some(x)` is an application, so since #770 it erases into its
+    // object literal and names the constructor nowhere — the named import that
+    // used to bind `Some` has nothing left to bind. Neither line is a
     // dictionary: that is the property this test is about.
     expect(importLines(javascript)).toEqual([
-      'import { Some } from "./Option.js";',
       'import * as Option from "./Option.js";',
     ]);
+    expect(javascript).toContain('return { tag: "Some", value: x };');
     expect(exportLines(javascript)).toEqual(["export { mk };"]);
   });
 
@@ -299,7 +299,6 @@ describe("an explicit import of a prelude module carries no evidence", () => {
     expect(importLines(javascript)).toEqual([
       'import { __Eq_Option } from "./Option.js";',
       'import { __Eq_Int } from "./Int.js";',
-      'import { Some } from "./Option.js";',
       'import * as Option from "./Option.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { same };", "export { mk };"]);
