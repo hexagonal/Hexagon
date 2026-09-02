@@ -13,6 +13,7 @@ import {
   NON_REDECLARABLE_CONSTRAINTS,
   PRE_REGISTERED_CONSTRAINT_MEMBERS,
   preRegisteredConstraintIdentity,
+  STRUCTURAL_CONSTRAINTS,
 } from "../../constraints.js";
 import {
   INTRINSIC_INVENTORY,
@@ -277,6 +278,21 @@ interface PreludeRoute {
    * pretending to rebuild the call.
    */
   readonly arity?: number;
+  /**
+   * Set on a member of a constraint whose instances at structural types are
+   * **automatic** (`STRUCTURAL_CONSTRAINTS` — `Eq`, `Ord`, `Show`, `Hash`;
+   * Constraints §4.5's structural bullet).
+   *
+   * Such an instance is not in Method Syntax §4.2's honored table, so the dot
+   * does not fire at a structural receiver even though the constraint is
+   * satisfied there: `[1, 2]` has `Hash`, and `([1, 2]).hash()` is still
+   * refused. The refusal reads this to drop the dot form at a written vector
+   * literal, where the two facts meet.
+   *
+   * Keyed off the **declaring constraint's identity**, never its spelling, so a
+   * user's own constraint with a member named `hash` is untouched.
+   */
+  readonly structural?: true;
 }
 
 /**
@@ -339,6 +355,13 @@ interface WrittenArguments {
    * `()`, or a record literal takes the qualified route alone.
    */
   readonly receiver: string | undefined;
+  /**
+   * Whether the receiver is a **written vector literal**. Paired with a route's
+   * `structural`, it is the one shape where a dot-callable member still has no
+   * dot: `hash([1, 2])` names the qualified route alone, while `length([1, 2])`
+   * keeps `([1, 2]).length()` (Modules §5.5).
+   */
+  readonly vectorLiteral: boolean;
 }
 
 /**
@@ -388,6 +411,26 @@ function structuralReceiver(expression: Parsed.Expr): boolean {
   return inner.kind === "Tuple" || inner.kind === "Unit" || inner.kind === "Record";
 }
 
+/**
+ * Whether an expression is a **written vector literal** — the receiver half of
+ * the structural-member narrowing (Modules §5.5).
+ *
+ * A `Vector` is not a structural *value* the way a tuple is: it has a companion
+ * module, and `([1, 2]).length()` and `([1, 2]).toSeq()` both compile. What it
+ * does not have is a place in Method Syntax §4.2's honored table for `Eq`, `Ord`
+ * and `Hash`, whose instances at it are automatic (Constraints §4.5) — so those
+ * members alone have no dot at a vector, and the narrowing is per route rather
+ * than per receiver.
+ *
+ * Read through a group for `structuralReceiver`'s reason, and off the *written*
+ * expression only: a name bound to a vector keeps its dot form, since resolution
+ * has no types to know it by.
+ */
+function vectorLiteralReceiver(expression: Parsed.Expr): boolean {
+  const inner = expression.kind === "Group" ? expression.expression : expression;
+  return inner.kind === "Vector";
+}
+
 /** `Home.name(…)` — one route's qualified spelling, carrying the call's arguments. */
 function qualifiedSpelling(
   name: string,
@@ -429,7 +472,8 @@ function refusedBarePreludeMessage(
   const dotted = written === undefined || written.receiver === undefined
     ? undefined
     : routes.find((route) =>
-      route.dotCallable === true && route.arity === written.texts.length
+      route.dotCallable === true && route.arity === written.texts.length &&
+      !(written.vectorLiteral && route.structural === true)
     );
   if (dotted !== undefined) {
     const rest = written!.texts.slice(1);
@@ -1702,6 +1746,9 @@ class Resolver {
           home: moduleName === "" ? specifier : moduleName,
           channel,
           ...(parameters === undefined ? {} : { arity: parameters.length }),
+          ...(channel === "member" && structuralMembers.has(name)
+            ? { structural: true as const }
+            : {}),
           ...(first !== undefined &&
               (subject === undefined
                 ? annotationCompanion(first) === moduleName
@@ -1772,6 +1819,8 @@ class Resolver {
     // module's binding is reached only qualified, or bare from inside that
     // module.
     const subjects = new Map<string, string>();
+    /** Members of a structurally-instanced constraint, by spelling (see `PreludeRoute`). */
+    const structuralMembers = new Set<string>();
     // The bare member is the one its *declaration's identity* names (§5.5), so
     // the seat is collected here, off the declarations this module exports,
     // rather than tested against the member's spelling below.
@@ -1782,6 +1831,9 @@ class Resolver {
       }
       for (const member of declaration.members) {
         subjects.set(member.binding.name, declaration.subject);
+        if (STRUCTURAL_CONSTRAINT_IDENTITIES.has(declaration.identity)) {
+          structuralMembers.add(member.binding.name);
+        }
         if (!parametersByName.has(member.binding.name)) {
           parametersByName.set(member.binding.name, member.parameters);
         }
@@ -4302,6 +4354,7 @@ class Resolver {
         : dispatchesAsWritten(first)
         ? texts[0]
         : `(${texts[0]})`,
+      vectorLiteral: first !== undefined && vectorLiteralReceiver(first),
     };
   }
 
@@ -6678,6 +6731,19 @@ const PERVASIVE_PRELUDE_TERMS: ReadonlySet<string> = new Set([
 const PERVASIVE_PRELUDE_MEMBERS: ReadonlyMap<string, string> = new Map([
   [preRegisteredConstraintIdentity("Show"), "show"],
 ]);
+
+/**
+ * The identities of the constraints whose instances at structural types are
+ * automatic (`STRUCTURAL_CONSTRAINTS`), for `PreludeRoute.structural`.
+ *
+ * Derived from the one inventory rather than transcribed, so a constraint
+ * joining or leaving the structural set carries this reading with it; and held
+ * as identities rather than names, so that only the prelude's own declarations
+ * answer to it.
+ */
+const STRUCTURAL_CONSTRAINT_IDENTITIES: ReadonlySet<string> = new Set(
+  STRUCTURAL_CONSTRAINTS.map(preRegisteredConstraintIdentity),
+);
 
 /**
  * The operations a primitive companion is asked for and deliberately does not

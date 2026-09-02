@@ -286,6 +286,86 @@ describe("the function channel: none, and `ignore`", () => {
   });
 
   /**
+   * **A vector literal has a dot, but not for `Eq`, `Ord` and `Hash`'s members.**
+   * `Vector` is not a structural *value* the way a tuple is — it has a companion
+   * module, and `([1, 2]).length()` compiles — but its instances of the
+   * structurally-instanced constraints are automatic (Constraints §4.5) and so
+   * are not in Method Syntax §4.2's honored table. The dot does not fire for
+   * those members even though the constraint is satisfied, so the narrowing is
+   * **per route**, not per receiver: the member routes lose the dot, the
+   * companion and `Iterable` routes keep it.
+   *
+   * Adding `Vector` to the structural-receiver test would have been wrong in the
+   * other direction, and the two rows below are what say so.
+   */
+  test.each([
+    ["`Hash`'s member", "export let n: Int = hash([1, 2])\n",
+      "no bare `hash`; write `Hash.hash([1, 2])`"],
+    ["`Eq`'s member", "export let b: Bool = equals([1], [1])\n",
+      "no bare `equals`; write `Eq.equals([1], [1])`"],
+    ["`Eq`'s defaulted member", "export let b: Bool = notEquals([1], [1])\n",
+      "no bare `notEquals`; write `Eq.notEquals([1], [1])`"],
+    ["`Ord`'s member", "export let o: Ordering = compare([1], [1])\n",
+      "no bare `compare`; write `Ord.compare([1], [1])`"],
+  ])("a vector literal takes the qualified route alone for %s", (_seat, source, message) => {
+    expect(projectDiagnostics(source)).toEqual([message]);
+  });
+
+  test.each([
+    ["a companion function", "export let n: Int = length([1, 2])\n",
+      "no bare `length`; write `([1, 2]).length()`, `Seq.length([1, 2])`, " +
+      "`Vector.length([1, 2])`, or `Array.length([1, 2])`"],
+    ["`Iterable`'s member", "export let s: Seq(Int) = toSeq([1, 2])\n",
+      "no bare `toSeq`; write `([1, 2]).toSeq()` or `Iterable.toSeq([1, 2])`"],
+  ])("a vector literal keeps the dot form for %s", (_seat, source, message) => {
+    expect(projectDiagnostics(source)).toEqual([message]);
+  });
+
+  /**
+   * Both halves executed, which is the only way to know the narrowing is drawn
+   * where dispatch actually stops: the four suppressed forms are refused by the
+   * checker and the two kept ones compile.
+   */
+  test("the suppressed dot forms do not dispatch, and the kept ones do", () => {
+    for (const [source, member] of [
+      ["export let n: Int = ([1, 2]).hash()\n", "hash"],
+      ["export let b: Bool = ([1]).equals([1])\n", "equals"],
+      ["export let b: Bool = ([1]).notEquals([1])\n", "notEquals"],
+      ["export let o: Ordering = ([1]).compare([1])\n", "compare"],
+    ] as const) {
+      expect(projectDiagnostics(source)).toEqual([
+        `\`Vector(a)\` has no field \`${member}\`, its companion exports no operation ` +
+        `\`${member}\`, and no constraint honored at \`Vector(a)\` has a subject-first ` +
+        `member \`${member}\`; call an available subject-first function explicitly`,
+      ]);
+    }
+    expect(projectDiagnostics("export let n: Int = ([1, 2]).length()\n")).toEqual([]);
+    expect(projectDiagnostics("export let s: Seq(Int) = ([1, 2]).toSeq()\n")).toEqual([]);
+    // And the routes the four are sent to are the ones that work.
+    expect(projectDiagnostics("export let n: Int = Hash.hash([1, 2])\n")).toEqual([]);
+    expect(projectDiagnostics("export let b: Bool = Eq.equals([1], [1])\n")).toEqual([]);
+    expect(projectDiagnostics("export let o: Ordering = Ord.compare([1], [1])\n")).toEqual([]);
+  });
+
+  /**
+   * The narrowing is **the literal's**, not the type's, and the boundary is
+   * measured on both sides. A name bound to a vector keeps its dot form — the
+   * resolver has no types, and §5.5 leaves that case to the checker — while a
+   * grouped literal is still a literal. A primitive receiver is untouched
+   * throughout: `Int` honors these constraints with real `honor` blocks, so
+   * `(5).hash()` is a form that works.
+   */
+  test("the narrowing reads the written literal, not the receiver's type", () => {
+    expect(projectDiagnostics("export let n(v: Vector(Int)): Int = hash(v)\n"))
+      .toEqual(["no bare `hash`; write `v.hash()` or `Hash.hash(v)`"]);
+    expect(projectDiagnostics("export let n: Int = hash(([1, 2]))\n"))
+      .toEqual(["no bare `hash`; write `Hash.hash(([1, 2]))`"]);
+    expect(projectDiagnostics("export let n: Int = hash(5)\n"))
+      .toEqual(["no bare `hash`; write `(5).hash()` or `Hash.hash(5)`"]);
+    expect(projectDiagnostics("export let n: Int = (5).hash()\n")).toEqual([]);
+  });
+
+  /**
    * A **name** of structural type keeps its dot form. Resolution has no types,
    * so the rule reads the written expression and nothing else; guessing would be
    * wrong in the other direction, and the qualified route beside it is correct
