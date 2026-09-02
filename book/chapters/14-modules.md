@@ -436,17 +436,17 @@ let label = "origin"
 has a direct JavaScript shape:
 
 ```js
-import { Point } from "./point.js";
+import * as Point from "./point.js";
 
-export const origin = Point({x: 0.0, y: 0.0});
+export const origin = {x: 0.0, y: 0.0};
 const label = "origin";
 ```
 
-Private declarations remain ordinary private ESM bindings. The module import emits as
-the precise named imports the file actually uses, here the constructor `Point`, rather
-than a runtime module object. That is why the source and the JavaScript spell the
-import differently: the source binds a module, and the JavaScript binds the names that
-module supplied.
+Private declarations remain ordinary private ESM bindings. The module import lowers to
+JavaScript's own namespace import, `import * as Point`; a name the file reaches through
+the alias is spelled on that local, and a record construction erases into its object
+literal before any name is needed. Where a file reaches several of a module's names, the
+compiler may use named imports instead; either shape means the same program.
 
 Companion modules now give every exported subject-first operation an unambiguous home.
 The next chapter uses that fact to explain the convenient dot-call spelling.
