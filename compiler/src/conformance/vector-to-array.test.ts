@@ -35,8 +35,10 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * position produced by Hexagon rather than accepted from an extern — is pinned
  * below, through the real `tsc`.
  *
- * The rest of §9's quartet (`Array.toSeq`/`fromSeq`/`toVector`) is still absent,
- * and `array-borrowed-view.test.ts` still pins it as absent.
+ * §9's inbound crossing, `Array.toVector`, has since shipped through the same
+ * door; its contract is `array-to-vector.test.ts`'s, and the round trip between
+ * the two is pinned there. The remaining pair (`Array.toSeq`/`fromSeq`) is still
+ * absent, and `array-borrowed-view.test.ts` still pins it as absent.
  */
 
 /**

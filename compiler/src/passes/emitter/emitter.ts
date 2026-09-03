@@ -9745,10 +9745,42 @@ class JavaScriptEmitter {
       // `JsValue.toArray` as a throw and leaves `JsValue.kind` as `Object`.
       case "jsValueIsArray":
         return `__a => ${this.#spell("Array")}.isArray(__a)`;
-      // `stdlib/Array.hex`'s one row (FFI Part 2 §6.3's emission bullet):
+      // `stdlib/Array.hex`'s read row (FFI Part 2 §6.3's emission bullet):
       // `Array.length(xs)` is `xs.length`, the native read and nothing else.
       case "arrayLength":
         return "__a => __a.length";
+      // `stdlib/Array.hex`'s conversion row — FFI Part 2 §9's inbound crossing,
+      // the stable persistent snapshot out of the borrow. `vectorOf` is the
+      // eager builder every other vector-from-iterable route already uses (the
+      // literal, `Vector.fromSeq`): fold `append` over anything iterable. A
+      // borrowed array *is* iterable — §6.5 rules live and snapshot iteration
+      // observationally identical under the §6.2 contract, and §8.2 makes native
+      // `for...of` the preferred emission — so handing it to that helper is the
+      // whole operation, and it reuses one shape rather than adding a second
+      // eager builder beside it.
+      //
+      // That one call is §9's contract word for word: eager (the fold runs
+      // before the call returns), a **stable persistent snapshot** (the result
+      // is an ordinary persistent vector built from the elements read, sharing
+      // no storage with the array, so a later `push` or index write on the
+      // foreign side reaches nothing), shallow (it moves elements, so a
+      // `Vector` element stays that same `Vector` and a record stays that same
+      // record), and total (an empty array walks zero steps and yields the empty
+      // vector). §6.4's holes come out right for free: `for...of` reports a hole
+      // as `undefined`, which is what `Nullable.undefined` *is*, so a sparse
+      // array gives a vector of the array's `length` with `undefined` at the
+      // hole positions and no presence distinction anywhere.
+      //
+      // A Hexagon body in `stdlib/Array.hex` would also be conformant — an
+      // `Array(a)` carries §8.1's `Iterable` row and `Vector.append` is in
+      // scope there — and the choice between the two is argued at the key's
+      // paragraph in `intrinsics.ts`, where it belongs. What is settled here is
+      // only that *this* lowering must be the fold and not an index walk: the
+      // bracket's bounds assertion would cost one check per element for a
+      // traversal §6.5 already blessed, and §6.4's holes must arrive rather
+      // than be looked up.
+      case "arrayToVector":
+        return `__values => ${this.#useHelper("vectorOf")}(__values)`;
       // `stdlib/JsError.hex`'s three rows (FFI Part 11 §7). The two reads share
       // one helper because they *are* one operation at two property names — the
       // `try` is what neither can be written without, and duplicating it would

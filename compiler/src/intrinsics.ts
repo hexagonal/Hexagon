@@ -242,12 +242,15 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   **unexported** representation-honest identity, sitting beneath the verdict
  *   that earns it exactly as its five siblings do — the borrowed view *is* the same
  *   array (§4.2's zero-copy clause), so the crossing has nothing to do.
- * - **`arrayLength` is `stdlib/Array.hex`'s one row** (FFI Part 2 §6.3), and it
- *   lowers to the native `.length` read that §6.3's emission bullet names. Its
- *   sibling accessors need no key: `get` is ordinary Hexagon over this row and
- *   the bracket, and the bracket itself is an *expression form* — the emitter's
- *   own lowering, like `Vector`'s and `Map`'s — so the bounds assertion that
- *   throws `IndexError` is no companion operation and takes no key.
+ * - **`arrayLength` is the read half of `stdlib/Array.hex`'s two rows** (FFI
+ *   Part 2 §6.3), and it lowers to the native `.length` read that §6.3's
+ *   emission bullet names. Its sibling accessors need no key: `get` is ordinary
+ *   Hexagon over this row and the bracket, and the bracket itself is an
+ *   *expression form* — the emitter's own lowering, like `Vector`'s and
+ *   `Map`'s — so the bounds assertion that throws `IndexError` is no companion
+ *   operation and takes no key. The file's other row is `arrayToVector`, whose
+ *   paragraph is below: a conversion rather than a read, and a different
+ *   document's.
  *
  * *(#509, the `JsError` door.)* The `jsError*` family is `stdlib/JsError.hex`'s
  * (FFI Part 11 §7), three rows for the two total conservative accessors, and
@@ -289,6 +292,41 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * range to check, and no verdict to reach. Where `BigInt.toInt` wraps
  * `bigIntToIntUnchecked` in a range check, this row wraps nothing, and a
  * Hexagon wrapper over it would add only a second name for one call.
+ *
+ * *(FFI Part 2 §9, the inbound crossing.)* `arrayToVector` is the same cut read
+ * the other way, and `stdlib/Array.hex`'s second row: §9's stable persistent
+ * snapshot — "the explicit escape from the borrow" — declared at the door per
+ * §9.1's obligation 2 and shipped whole or not at all (obligation 4).
+ *
+ * **This row's cut is not `vectorToArray`'s, and the difference is measured
+ * rather than assumed.** `vectorToArray` is keyed because a Hexagon body could
+ * not name its own result: an `Array(a)` has no producer at all (§6.1). The
+ * mirror argument does *not* hold here, and saying it did would be false. An
+ * `Array(a)` carries §8.1's provided `Iterable` row, so `for value in values`
+ * compiles over one and emits §8.2's native `for...of`; `stdlib/Array.hex` is
+ * seated after `stdlib/Vector.hex` in the prelude order, so `Vector.append` is
+ * in scope in it; and the four-line fold those two facts allow satisfies every
+ * clause of §9 and §6.4, verified by running `array-to-vector.test.ts` against
+ * it. So the strictly-simpler law has somewhere to send this operation, and the
+ * door is a **choice** among two conformant mechanisms rather than the only
+ * one — §9.1's obligation 2 fixes the mechanism for `Vector.toArray` alone and
+ * leaves the remaining conversions' to them.
+ *
+ * What the key buys over that body is narrow and worth stating plainly, because
+ * it is all it buys. The lowering reuses `vectorOf` — the one eager
+ * vector-from-iterable builder the literal and `Vector.fromSeq` already go
+ * through — so the fold exists once rather than twice, and it reaches
+ * `VectorTrie.append` directly instead of through `Vector.append`'s exported
+ * binding. Against that, a Hexagon body would be readable in the file it lives
+ * in and would need no inventory row. The two emit near-identical JavaScript.
+ * **This is a live judgment call, not a settled one**, and if the door is the
+ * wrong side of it the row collapses to a body with no other change.
+ *
+ * Nothing sits *above* the key either way: §9 makes the operation eager,
+ * shallow and total, so there is no guard to write and no verdict to reach.
+ * §6.4's holes need no code of their own — an `Array(Nullable(a))` may be
+ * sparse, a hole observes as `Nullable.undefined` with no presence distinction,
+ * and that is exactly what the `for...of` inside `vectorOf` reports.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -392,6 +430,7 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["jsValueIsArray", 1],
   ["jsValueAsArrayUnchecked", 1],
   ["arrayLength", 1],
+  ["arrayToVector", 1],
   ["jsErrorReadMessage", 1],
   ["jsErrorReadStack", 1],
   ["jsErrorRender", 1],

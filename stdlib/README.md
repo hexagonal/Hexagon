@@ -40,13 +40,19 @@ not compiler intrinsics.
   zero-copy readonly view of a JavaScript array that foreign code owns. It is
   the companion for `JsValue.hex`'s reason: the type is compiler-owned and has
   no Hexagon declaration site, so the module addressable under the name is what
-  answers for it. Its whole surface is the minimal decode loop: `length`
-  (§6.3's one door row, the native `.length` read), and `get`, which is
+  answers for it. Its surface is the minimal decode loop plus one conversion:
+  `length` (§6.3's door row, the native `.length` read), and `get`, which is
   ordinary Hexagon over that row and the bracket. The asserting read `xs[i]` is
   an *expression form* and so is the emitter's lowering rather than an export
   here, exactly as `Vector`'s bracket and `Map`'s are; out of bounds it raises
   `Vector.hex`'s `IndexError`, the one such declaration in the corpus. There is
-  no mutation surface and no `set`.
+  no mutation surface and no `set`. The conversion is `toVector`, FFI Part 2
+  §9's escape from the borrow — eager, a stable persistent snapshot, shallow
+  and total. It is a second door row, reusing the emitter's one eager
+  vector-from-iterable builder; unlike `Vector.toArray`'s key it is a *choice*
+  rather than a necessity, since an `Array(a)` is iterable and a Hexagon fold
+  over it would conform too (`compiler/src/intrinsics.ts` argues the call at
+  the key's paragraph).
 - `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex`, and
   `JsValue.hex` are FFI Part 11's four. `JsValue.hex` is the companion of the
   boundary type `JsValue` — the type of a JavaScript value about which Hexagon

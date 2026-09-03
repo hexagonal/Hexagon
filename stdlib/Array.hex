@@ -17,12 +17,24 @@
 // read is the bracket `values[index]` — an expression form, so it is the
 // emitter's own lowering rather than an export of this file, exactly as
 // `Vector`'s bracket and `Map`'s are.
+//
+// Beside the loop sits `toVector`, which is not part of it: FFI Part 2
+// section 9's conversion out of the borrow. It is declared at the same door,
+// which is a choice rather than a necessity — a borrowed array is iterable, so
+// a Hexagon fold over it would conform too; `compiler/src/intrinsics.ts`
+// argues the call at the `arrayToVector` paragraph.
 
 extern from "hex:intrinsic"
     (** How many elements `values` holds. It is the borrowed array's own
         `length`, read in constant time and without touching a single element:
         nothing here scans, so a sparse array costs no more than a dense one. *)
     export fun arrayLength as length(values: Array(a)): Int
+
+    (** The elements of `values` collected into a vector: the snapshot that
+        outlives the borrow, so later changes to the array never reach it. The
+        vector is built at once, and the crossing is shallow — an element that
+        is itself a vector or a record arrives as that same value. *)
+    export fun arrayToVector as toVector(values: Array(a)): Vector(a)
 
 (** The element at 1-based `index`, or `None` when there is none. The total
     accessor: out of bounds is an answer, not a fault. `values[index]` is its
