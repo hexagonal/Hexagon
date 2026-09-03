@@ -247,7 +247,11 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   sibling accessors need no key: `get` is ordinary Hexagon over this row and
  *   the bracket, and the bracket itself is an *expression form* — the emitter's
  *   own lowering, like `Vector`'s and `Map`'s — so the bounds assertion that
- *   throws `IndexError` is no companion operation and takes no key.
+ *   throws `IndexError` is no companion operation and takes no key. Neither
+ *   does the file's §9 conversion, `Array.toVector`: it is a `for` over the
+ *   borrow folding `Vector.append`, which is ordinary Hexagon at the same
+ *   complexity, so `stdlib-roadmap.md` §5.1 keeps it in source. The contrast
+ *   with `vectorToArray` below is the whole of why one is keyed and one is not.
  *
  * *(#509, the `JsError` door.)* The `jsError*` family is `stdlib/JsError.hex`'s
  * (FFI Part 11 §7), three rows for the two total conservative accessors, and
@@ -289,6 +293,25 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * range to check, and no verdict to reach. Where `BigInt.toInt` wraps
  * `bigIntToIntUnchecked` in a range check, this row wraps nothing, and a
  * Hexagon wrapper over it would add only a second name for one call.
+ *
+ * **§9's other direction takes no key, and the asymmetry is the doctrine
+ * working.** `Array.toVector` is the same section's inbound conversion and is
+ * ordinary Hexagon in `stdlib/Array.hex`. The sentence above is exactly why:
+ * `vectorToArray` is keyed because a source body could not name its own result,
+ * and the mirror of that argument is false. An `Array(a)` has no *producer*,
+ * but it has a *traversal* — §8.1's provided `Iterable` row, which §8.2 emits
+ * as native `for...of` — and `stdlib/Array.hex` is seated after
+ * `stdlib/Vector.hex` in the prelude order, so `Vector.append` is in scope
+ * there. A `for` over the borrow folding `append` is therefore expressible, at
+ * the same complexity and the same emitted shape a key would produce — the
+ * comparison §5.1 asks for is against the alternative implementation, and the
+ * keyed `vectorOf` is the very same fold of persistent appends — which is
+ * precisely the case `stdlib-roadmap.md` §5.1 keeps in source: none of its four
+ * justifications for a private intrinsic (a host capability, an opaque or
+ * performance-critical representation, a compiler transformation, measured
+ * performance evidence) reaches it. Both premises are pinned in
+ * `array-to-vector.test.ts`, so if either stops holding this paragraph breaks
+ * visibly rather than quietly.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],

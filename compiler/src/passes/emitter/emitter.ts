@@ -9747,6 +9747,10 @@ class JavaScriptEmitter {
         return `__a => ${this.#spell("Array")}.isArray(__a)`;
       // `stdlib/Array.hex`'s one row (FFI Part 2 §6.3's emission bullet):
       // `Array.length(xs)` is `xs.length`, the native read and nothing else.
+      // The file's §9 conversion, `Array.toVector`, has no case here and wants
+      // none: it is a `for` over the borrow in ordinary Hexagon
+      // (`stdlib-roadmap.md` §5.1), and the `for...of` it emits is this
+      // emitter's loop lowering rather than an intrinsic's.
       case "arrayLength":
         return "__a => __a.length";
       // `stdlib/JsError.hex`'s three rows (FFI Part 11 §7). The two reads share
