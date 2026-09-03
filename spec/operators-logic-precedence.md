@@ -277,7 +277,7 @@ Instances:
 
 The polymorphic case is the ordinary dictionary call. `pow` is also directly callable as a member, like every constraint member — bare, or qualified through a companion, where Modules §5.3's generalisation law decides which face the qualified spelling shows (§6.3.1).
 
-A non-`Int` exponent at `**` — or at the member in any other spelling, `i.pow(2n)`, `Pow.pow(i, 2n)` (#808; Method Syntax §9 row 14) — is a type error with a mandatory fixit (§14.1 family), branched on the exponent's type: at `Float`, "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, use `Float.pow(value, exponent)`"; at `BigInt`, "the exponent of `**` is an `Int`; for a `BigInt` exponent, use `BigInt.pow(value, exponent)`" — the spelling `2n ** 3n` is the fixit's target case; at any other type, the plain seat error with no door named.
+A non-`Int` exponent at `**` — or at the member in any other spelling, `i.pow(2n)`, `Pow.pow(i, 2n)` (#808; Method Syntax §9 row 14) — is a type error with a mandatory fixit (§14.1 family), branched on the exponent's type: at `Float`, "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, use `Float.pow(value, exponent)`"; at `BigInt`, "the exponent of `**` is an `Int`; for a `BigInt` exponent, use `BigInt.pow(value, exponent)`" — the spelling `2n ** 3n` is the fixit's target case; at any other type, the plain seat error with no door named. A door is named only where the base reaches that door's value seat: `f ** 2n` at a `Float` base names no `BigInt.pow`, since `BigInt.pow(f, 2n)` would not compile, and an offer that does not compile is no fixit (the Rewrite Rule).
 
 #### 6.3.1 The two power doors — `Float.pow` and `BigInt.pow`
 
