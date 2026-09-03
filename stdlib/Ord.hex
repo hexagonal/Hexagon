@@ -1,5 +1,14 @@
 (** The polymorphic face of ordering. Honoring `Ord` gives a type the `<`, `<=`,
-    `>`, and `>=` operators. *)
+    `>`, and `>=` operators.
+
+    The member below states the law an instance is reviewed against
+    (`spec/constraints.md` section 7). `Float` keeps it: its order is total,
+    with every `NaN` after `Float.infinity` and equal to every other, and `0.0`
+    equal to `-0.0`. The compiler relies on no such law: operands are evaluated
+    in the rewritten form's source order, and no expression is rewritten by an
+    algebraic law. *)
 export constraint Ord<a: Eq> =
-    (** How `left` orders against `right`. *)
+    (** How `left` orders against `right`. An instance's `compare` is a total
+        order agreeing with `equals`: `Equal` exactly when the two are equal,
+        and antisymmetric and transitive otherwise. *)
     compare(left: a, right: a): Ordering

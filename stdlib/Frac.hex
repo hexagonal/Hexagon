@@ -1,6 +1,15 @@
 (** The polymorphic face of division. Honoring `Frac` gives a type the `/`
     operator; the quotient is exact where the type is exact and rounded where
-    it is not. *)
+    it is not.
+
+    The member below states the law an instance is reviewed against
+    (`spec/constraints.md` section 7). `Rat` keeps it exactly; `Float` keeps it
+    only up to rounding, failing outright at overflow, underflow, and `NaN`.
+    The compiler relies on no such law: operands are evaluated in the rewritten
+    form's source order, and no expression is rewritten by an algebraic law. *)
 export constraint Frac<a: Signed> =
-    (** `left` divided by `right`. *)
+    (** `left` divided by `right`. For every nonzero `right`, `divide` is the
+        right inverse of multiplying by `right`: `multiply(divide(left, right),
+        right)` is `left`. An instance whose `multiply` is not commutative
+        documents that its `divide` is not also a left inverse. *)
     divide(left: a, right: a): a
