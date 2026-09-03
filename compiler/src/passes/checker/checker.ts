@@ -353,8 +353,24 @@ function defersAsLambda(expression: Resolved.Expr): boolean {
  * member is a landing site too. The test here is deliberately syntactic and
  * deliberately generous: whether the spelling resolves to a rung's member is a
  * question only inference can answer, and answering "maybe" here costs an
- * annotation elaborated earlier, never a typing decision. `#operationHome` is
- * where the resolved member and the instance gate decide whether anything lifts.
+ * annotation elaborated earlier, never a typing decision. `#memberCallHome` and
+ * `#dotMemberHome` are where the resolved member and the instance gate decide
+ * whether anything lifts.
+ *
+ * **What the generous gate changes, stated plainly.** Two seats read this
+ * answer for something other than the lift, and each is affected by the wider
+ * `true`:
+ *
+ * - *An annotated right-hand side* elaborates its annotation **before** its
+ *   value rather than after. One elaboration either way — the type computed
+ *   there is the one the final check unifies with — so the change is the order
+ *   variables are minted in, which no program's meaning depends on but which a
+ *   pinned emitted spelling could in principle notice.
+ * - *`#dotCallArguments`* runs its subject-first early unification when an
+ *   argument lands an expectation. That step is now confined to **companion**
+ *   operations, which write their subject seat: at a constraint member it would
+ *   re-pin the algebra to the receiver and undo this amendment (see the note
+ *   there), so widening the gate cannot reach it.
  *
  * This is not a typing rule and adds none: propagation is inert away from the
  * landing sites, so a seat whose expectation cannot possibly land does not need
@@ -948,22 +964,26 @@ const POW_IDENTITY: string = preRegisteredConstraintIdentity("Pow");
  *
  * `negate` is the one unary face; everything else takes two operands.
  */
-const OPERATOR_FACES: ReadonlyMap<string, {
-  readonly constraint: Typed.ConstraintName;
-  readonly arity: number;
-  readonly member?: Typed.ConstraintMember;
-  readonly test?: Typed.ComparisonTest;
-}> = new Map([
-  ["add", { constraint: "Num", arity: 2, member: "add" as const }],
-  ["multiply", { constraint: "Num", arity: 2, member: "multiply" as const }],
-  ["subtract", { constraint: "Signed", arity: 2, member: "subtract" as const }],
-  ["negate", { constraint: "Signed", arity: 1, member: "negate" as const }],
-  ["divide", { constraint: "Frac", arity: 2, member: "divide" as const }],
-  ["pow", { constraint: "Pow", arity: 2, member: "pow" as const }],
-  ["concat", { constraint: "Concat", arity: 2, member: "concat" as const }],
-  ["equals", { constraint: "Eq", arity: 2, test: "Equal" as const }],
-  ["notEquals", { constraint: "Eq", arity: 2, test: "NotEqual" as const }],
-]);
+type OperatorFace =
+  & { readonly constraint: Typed.ConstraintName; readonly arity: number }
+  & (
+    /** Lowered by `#emitConstraintCall`'s table, over the member named here. */
+    | { readonly lowering: "operation"; readonly member: Typed.ConstraintMember }
+    /** Lowered by `#emitComparisonStep`, over a one-step chain of this test. */
+    | { readonly lowering: "comparison"; readonly test: Typed.ComparisonTest }
+  );
+
+const OPERATOR_FACES: ReadonlyMap<string, OperatorFace> = new Map([
+  ["add", { constraint: "Num", arity: 2, lowering: "operation", member: "add" }],
+  ["multiply", { constraint: "Num", arity: 2, lowering: "operation", member: "multiply" }],
+  ["subtract", { constraint: "Signed", arity: 2, lowering: "operation", member: "subtract" }],
+  ["negate", { constraint: "Signed", arity: 1, lowering: "operation", member: "negate" }],
+  ["divide", { constraint: "Frac", arity: 2, lowering: "operation", member: "divide" }],
+  ["pow", { constraint: "Pow", arity: 2, lowering: "operation", member: "pow" }],
+  ["concat", { constraint: "Concat", arity: 2, lowering: "operation", member: "concat" }],
+  ["equals", { constraint: "Eq", arity: 2, lowering: "comparison", test: "Equal" }],
+  ["notEquals", { constraint: "Eq", arity: 2, lowering: "comparison", test: "NotEqual" }],
+] as const);
 
 /**
  * The types JavaScript **represents by a primitive value**, which is the scope
@@ -3576,6 +3596,15 @@ class Checker {
     cached: readonly Mono[] | undefined,
     member?: Mono,
     receiver?: Mono,
+    /**
+     * Whether the resolved operation is a constraint member — the **open** call
+     * (§3.4), whose subject seats are established from every operand together.
+     * A companion export writes its subject seat, so the receiver settles it and
+     * the early unification below is sound there; a member's does not, and
+     * settling it from the receiver alone is exactly the pre-#808 pin the
+     * amendment removed.
+     */
+    openMember = false,
   ): readonly Mono[] {
     if (cached !== undefined) return cached;
     // *(#513.)* §2.2's second entry moment: the receiver was head-known **at the
@@ -3595,14 +3624,25 @@ class Checker {
       ? known.parameters
       : undefined;
     // The subject-first step, in the spelling that puts the subject *before* the
-    // dot: the receiver is this member's first argument, and it was head-known
+    // dot: the receiver is this operation's first argument, and it was head-known
     // at the dot — that is the condition this whole path stands on. Unifying it
-    // with the member's own first parameter is what resolves the instantiation,
-    // so `xs.map(match …)` reads `Int` off `Seq(Int)` before the arms are
-    // checked. It is the call's own unification, performed early and once; the
-    // whole-signature unification below repeats it harmlessly.
+    // with the operation's own first parameter is what resolves the
+    // instantiation, so `xs.map(match …)` reads `Int` off `Seq(Int)` before the
+    // arms are checked. It is the call's own unification, performed early and
+    // once; the seat sweep below repeats it harmlessly.
+    //
+    // *(#808.)* **Never at a constraint member.** There the seat is the
+    // *subject*, established from the operands together and by the written face
+    // (§2.2) — the receiver being one operand among them — so settling it here
+    // from the receiver alone is precisely §16.3's defect: it re-pins the algebra
+    // to the receiver's type and the receiver can no longer widen. `let p: BigInt
+    // = c.multiply(a2 + j)` reached this line only because its argument lands an
+    // expectation, and refused what every other spelling of the same call
+    // accepts. The member's **non-subject** seats are unaffected: they are the
+    // scheme's own written types and reach each argument pointwise below, exactly
+    // as the qualified spelling's do over its equally unresolved callee.
     if (
-      parameters !== undefined && receiver !== undefined &&
+      !openMember && parameters !== undefined && receiver !== undefined &&
       expression.arguments.some(expectationLands)
     ) {
       this.#unify(parameters[0] ?? ERROR, receiver, expression.callee.span);
@@ -3875,7 +3915,9 @@ class Checker {
     if (home !== undefined) this.#liftMemberCall(calleeType, home, expression.span);
     const arguments_ = [
       receiver,
-      ...this.#dotCallArguments(expression, level, cachedArguments, calleeType, receiver),
+      ...this.#dotCallArguments(
+        expression, level, cachedArguments, calleeType, receiver, true,
+      ),
     ];
     const result = this.#checkDotSeats(
       expression, callee, calleeType, arguments_, level,
@@ -8791,7 +8833,7 @@ class Checker {
     if (!this.#operatorFaceInlines(member.member, subject)) return undefined;
     const materialized = operands.map((operand) => this.#materializeExpr(operand));
     const published = this.#publicRequirement(requirement);
-    if (face.test !== undefined) {
+    if (face.lowering === "comparison") {
       return {
         kind: "ComparisonChain",
         operands: materialized,
@@ -8803,7 +8845,7 @@ class Checker {
     return {
       kind: "ConstraintCall",
       constraint: face.constraint,
-      member: face.member!,
+      member: face.member,
       requirement: published,
       arguments: materialized,
       type,
@@ -11848,13 +11890,16 @@ class Checker {
    * `Float` one, so a refusal that names only the missing instance now leaves
    * out the repair — and it owes the same words to the member's other spellings,
    * `n.subtract(m)` and `i.divide(j)`, which take this very diagnostic through
-   * §4.2's ownership clause. `Int.div` and `Int.mod` ride along at `Frac`,
-   * Operators §15's own row: integer division has a named family, and the reader
-   * who wanted it is at least as likely as the one who wanted the real quotient.
+   * §4.2's ownership clause. The named division family rides along at `Frac`,
+   * Operators §15's own row: integer division has one, and the reader who wanted
+   * it is at least as likely as the one who wanted the real quotient. It is
+   * named at the **receiver's own** companion — `Nat.div` at a `Nat`, `Int.div`
+   * at an `Int` — because both honor `Integral` and each answers in its own
+   * type, where the other's answer would leave it.
    *
    * Scoped to the two rungs a source type cannot honor, at the two source types:
    * everywhere else the operand types are the whole story and there is no face
-   * to name. `Int` and `Float` are the only types named because they are the
+   * to name. `Int` and `Float` are the only *faces* named because they are the
    * only two this compilation can be sure of — a `Rat` face runs `Frac`'s
    * members too, and naming a module the program may not contain would be an
    * offer the reader cannot take.
@@ -11868,8 +11913,8 @@ class Checker {
         "(`let difference: Int = …`)";
     }
     if (requirement.identity === preRegisteredConstraintIdentity("Frac")) {
-      return "; for the integer quotient and remainder use `Int.div` and " +
-        "`Int.mod`, and for real division write a `Float` face " +
+      return `; for the integer quotient and remainder use \`${actual.name}.div\` ` +
+        `and \`${actual.name}.mod\`, and for real division write a \`Float\` face ` +
         "(`let quotient: Float = …`), which runs the division there";
     }
     return "";

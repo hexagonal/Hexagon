@@ -73,7 +73,10 @@ const fixtures = "let i: Int = 6\n" +
   'let s: String = "a"\n' +
   'let t: String = "b"\n' +
   "let p: Bool = True\n" +
-  "let q: Bool = False\n";
+  "let q: Bool = False\n" +
+  // An ordinary call, for the argument shape that is neither an operator nor a
+  // member call and still lands an expectation.
+  "fun same(value: Int): Int = value\n";
 
 function verdict(source: string): readonly string[] {
   return projectDiagnostics(fixtures + source);
@@ -216,6 +219,87 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
     )).toEqual([]);
     expect(verdict(
       "export fun scale<a: Signed>(count: Int, value: a): a = count * value\n",
+    )).toEqual([]);
+  });
+});
+
+describe("an argument that lands an expectation does not re-pin the subject", () => {
+  /**
+   * §2.2's sentence, at the one seat that could quietly undo it: the dot's
+   * argument pass runs a **subject-first early unification** when an argument
+   * lands an expectation, so that `xs.map(match …)` reads its element type
+   * before the arms are checked. At a **companion** operation that is sound —
+   * the subject seat is written, and the receiver's head is what dispatch
+   * matched. At a **constraint member** it is not: the seat is the subject, and
+   * settling it from the receiver alone is exactly the pre-#808 pin §16.3
+   * removed — the receiver stops being one operand among the others and can no
+   * longer widen.
+   *
+   * The rows below are the ones that reach that seat: an operand-shaped
+   * argument (a `Binary`, which has always landed an expectation) and a
+   * member-call-shaped one (a `Call`, which lands one since #808). Each is
+   * pinned **against its qualified spelling**, which is the claim — one call,
+   * one elaboration, whichever spelling the reader met.
+   */
+  const alsoQualified = (dotted: string, qualified: string, emitted: string): void => {
+    expect(verdict(`${dotted}\n`)).toEqual([]);
+    expect(verdict(`${qualified}\n`)).toEqual([]);
+    expect(probeLine(`${dotted}\n`)).toBe(emitted);
+    expect(probeLine(`${qualified}\n`)).toBe(emitted);
+  };
+
+  test("an operator-shaped argument under a written face", () => {
+    alsoQualified(
+      "let probe: BigInt = c.multiply(a + j)",
+      "let probe: BigInt = Num.multiply(c, a + j)",
+      "const probe = BigInt(c) * (BigInt(a) + BigInt(j));",
+    );
+  });
+
+  test("a dot-call argument under a written face", () => {
+    alsoQualified(
+      "let probe: BigInt = c.multiply(a.add(j))",
+      "let probe: BigInt = Num.multiply(c, Num.add(a, j))",
+      "const probe = BigInt(c) * (BigInt(a) + BigInt(j));",
+    );
+  });
+
+  test("a dot-call argument in the receiver's own algebra", () => {
+    alsoQualified(
+      "let probe: BigInt = i.add(j.multiply(c))",
+      "let probe: BigInt = Num.add(i, Num.multiply(j, c))",
+      "const probe = BigInt(i) + BigInt(j) * BigInt(c);",
+    );
+  });
+
+  test("a wider argument with no face at all: the operand still establishes it", () => {
+    // The row where the re-pinning was not merely a refusal: the subject was
+    // settled at `Int`, the `BigInt` product reported twice against it, and the
+    // module still emitted `i + b * e` — an `Int` addition of two `BigInt`s.
+    alsoQualified(
+      "let probe = i.add(b.multiply(big))",
+      "let probe = Num.add(i, Num.multiply(b, big))",
+      "const probe = BigInt(i) + b * big;",
+    );
+  });
+
+  test("an ordinary call argument reaches the seat too", () => {
+    alsoQualified(
+      "let probe: BigInt = i.add(same(j))",
+      "let probe: BigInt = Num.add(i, same(j))",
+      "const probe = BigInt(i) + BigInt(same(j));",
+    );
+  });
+
+  test("a companion operation still reads its element type early", () => {
+    // The other half of the seat, unchanged: `map`'s subject is written, so the
+    // early unification stands there and the callback reads `Int` off the
+    // receiver rather than a variable.
+    expect(verdict(
+      "let xs: Seq(Int) = Iterable.toSeq([1, 2])\n" +
+      "export let probe: Seq(Int) = xs.map(match\n" +
+      "    0 => 1\n" +
+      "    other => other)\n",
     )).toEqual([]);
   });
 });
@@ -395,6 +479,24 @@ describe("§4.2's ownership clause and §9 row 15's rider", () => {
       .toBe("const probe = i / j;");
   });
 
+  test("the named division family the rider offers is the receiver's own", () => {
+    // `Nat` owns `divide` too, and its rider must name `Nat`'s family: `Nat.div`
+    // answers in `Nat`, where `Int.div` would leave the type the reader is in.
+    // Both exist — `Integral` is honored at both — and the pin is the offer
+    // beside the proof that it compiles.
+    expect(verdict("let probe = n.divide(m)\n")).toEqual([
+      "type `Nat` has no `Frac` instance; its only legal homes are the module " +
+        "declaring `Frac` and `Nat`'s prelude companion module, both outside project " +
+        "source, so this pair's honored set is closed — change the type, or go " +
+        "through the operations those homes export; for the integer quotient and " +
+        "remainder use `Nat.div` and `Nat.mod`, and for real division write a " +
+        "`Float` face (`let quotient: Float = …`), which runs the division there",
+    ]);
+    expect(verdict("export let probe: Nat = Nat.div(n, m)\n")).toEqual([]);
+    expect(verdict("export let probe: Nat = Nat.mod(n, m)\n")).toEqual([]);
+    expect(verdict("export let probe: Float = n.divide(m)\n")).toEqual([]);
+  });
+
   test("the owned set is disjoint from the honored one — no two-claimant refusal", () => {
     // The clause adds a claimant only where the honored set has none, so every
     // dot that resolved before resolves to the same member now.
@@ -494,7 +596,7 @@ describe("§14(u): the operator's lowering, verbatim, in every spelling", () => 
     // The rule reads the *selected instance*. Inside a dictionary-taking
     // function there is none to read, and the forwarder is the whole answer.
     const text = emitted(
-      "export fun same<a: Eq>(x: a, y: a): Bool = x.equals(y)\n" +
+      "export fun alike<a: Eq>(x: a, y: a): Bool = x.equals(y)\n" +
       "export fun sum<a: Num>(x: a, y: a): a = x.add(y)\n",
     );
     expect(text).toContain("equals(x, y");
