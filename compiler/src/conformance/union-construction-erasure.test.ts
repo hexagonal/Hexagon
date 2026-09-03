@@ -396,9 +396,12 @@ describe("a declaration that emits nothing shapes none of the page", () => {
   /**
    * The rule this pins is the emitter's, not the ruling's: an entry that emits
    * nothing is skipped when the vertical rhythm is measured, and it caps the
-   * gap it left at one blank line. #770 is what made it reachable at a
-   * *declaration* — before this arc every `union` and `record` emitted a line —
-   * so the pins live here with the arc that needs them.
+   * gap it left at one blank line — one because one blank line between two
+   * unrelated neighbours is what a person writing the file would have left
+   * there. #770 is what made it reachable at a *declaration* — before this arc
+   * every `union` and `record` emitted a line — so the pins live here with the
+   * arc that needs them, and #777's `honor` case joins them as the same rule's
+   * fifth pin rather than moving to a file of its own.
    */
 
   test("two comment blocks a vanished declaration stood between keep their blank line", () => {
@@ -473,15 +476,41 @@ describe("a declaration that emits nothing shapes none of the page", () => {
     // wrote. The general rule owns that case too, which is a cosmetic
     // improvement to shipped output rather than anything the ruling asked for;
     // `stdlib/JsError.js` and `stdlib/JsValue.js` each carried nine consecutive
-    // blank lines of it. It does not reach every such run: a `honor` block's is
-    // untouched, because `Honor` items are filtered out before this loop sees
-    // them (`stdlib/Int.js` still ships a 96-line run for that reason).
+    // blank lines of it.
     expect(emitted([[
       "/main.hex",
       "export let before: Int = 1\n\n\n\n" +
       "type Alias = Int\n\n\n\n" +
       "export let after: Alias = 2\n",
     ]])).toContain("const before = 1;\n\nconst after = 2;");
+  });
+
+  test("a hoisted `honor` block leaves one blank line, and later runs are left alone", () => {
+    // #777. A `honor` block emits nothing at its own source position because
+    // Constraints §6.3 moves its dictionary into the hoisted section at the top
+    // of the module — the same zero-line shape as a vanished declaration, and
+    // now measured by the same rule. Before this, `Honor` items were filtered
+    // out before the rhythm loop, so the whole extent of a stack of instances
+    // came out as blank lines: `stdlib/Int.js` shipped a run of 96, between the
+    // last native and an unrelated comment block where anyone writing the file
+    // by hand would have put a single blank line. One is what that pins.
+    //
+    // Both assertions again, because the cap is per gap: the `before`/`mid` gap
+    // is the honor block's and collapses to one blank; the `mid`/`after` gap has
+    // no honor in it and keeps all three blank lines the source wrote.
+    const javascript = emitted([[
+      "/main.hex",
+      "constraint Small<a> =\n" +
+      "    small(value: a): Bool\n\n" +
+      "export let before: Int = 1\n\n\n\n" +
+      "honor Small<Int> =\n" +
+      "    small(value) = value < 10\n\n\n\n" +
+      "export let mid: Int = 2\n\n\n\n" +
+      "export let after: Int = 3\n\n" +
+      "export let check: Bool = before.small()\n",
+    ]]);
+    expect(javascript).toContain("const before = 1;\n\nconst mid = 2;");
+    expect(javascript).toContain("const mid = 2;\n\n\n\nconst after = 3;");
   });
 });
 
