@@ -45,11 +45,13 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * declaration. Its declared face is pure: building the cursor touches nothing,
  * and the impurity is the record field's arrow, which is the constant.
  *
- * The `vector*` family is exactly Collections Part 3 §7's boundary crossing —
- * representation-sensitive length and end updates, signed indexed access,
- * persistent indexed update, and the eager/lazy bridge. Everything else in that
- * table is Hexagon source in `stdlib/Vector.hex`, which declares these seven and
- * owns the public surface over them (§9.2's `Vector` milestone).
+ * The `vector*` family is Collections Part 3 §7's boundary crossing plus one:
+ * seven §7 keys — representation-sensitive length and end updates, signed
+ * indexed access, persistent indexed update, and the eager/lazy bridge — and
+ * `vectorToArray`, which is FFI Part 2 §9's and has its own paragraph below.
+ * Everything else in §7's table is Hexagon source in `stdlib/Vector.hex`, which
+ * declares those seven and owns the public surface over them (§9.2's `Vector`
+ * milestone).
  *
  * The `bigInt*` family is the door's third customer and the primitive template's
  * worked example (§3.2, #344), in the **primop shape**: every own-operation

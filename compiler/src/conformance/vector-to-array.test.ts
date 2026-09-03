@@ -22,11 +22,11 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  *   obligation is nobody's until foreign code aliases it, so writing to the
  *   result can never reach back into the vector.
  *
- * A type-level assertion separates none of these. An implementation that
- * returned the trie's tail array would satisfy every equality test here and fail
- * the identity ones; one that returned a lazy iterable would satisfy the element
- * tests and fail the array ones. So the tests run compiled code and ask the
- * answers.
+ * A type-level assertion separates none of these. An implementation that cached
+ * one array per vector, or handed back a view onto shared storage, would satisfy
+ * every equality test here and fail the identity and write ones; one that
+ * returned a lazy iterable would satisfy the element tests and fail the array
+ * ones. So the tests run compiled code and ask the answers.
  *
  * §9.1 obligation 4 — partial shipping is excluded — is why the whole contract
  * is pinned in one file rather than a spelling here and a behaviour later. The
@@ -43,11 +43,11 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * The one compiled program the runtime tests drive.
  *
  * The vectors are *built* rather than written out, because the contract has to
- * hold across the representation's own shapes: a vector of 3 lives entirely in
- * the trie's tail, where a lowering that handed back internal storage would be
- * indistinguishable from a correct one by value; a vector of thousands spans
- * tail and spine; and appending and prepending reach those through different
- * paths (`vector-trie.test.ts`'s `buildTo`/`buildDown` split).
+ * hold across the representation's own shapes: a small vector lives entirely in
+ * the trie's fixed-width tail, a vector of thousands spans tail and spine at two
+ * heights, appending and prepending reach those through different paths
+ * (`vector-trie.test.ts`'s `buildTo`/`buildDown` split), and a window, a `set`
+ * and a `++` each leave the spine in a shape an index walk would get wrong.
  */
 const PROGRAM = "// The two spellings Modules section 5.5 leaves for a two-homed name,\n" +
   "// over one door row.\n" +
@@ -78,6 +78,17 @@ const PROGRAM = "// The two spellings Modules section 5.5 leaves for a two-homed
   "// order-losing walk gets wrong.\n" +
   "export let window(values: Vector(Int), lo: Int, hi: Int): Vector(Int) =\n" +
   "    values[lo..hi]\n" +
+  "\n" +
+  "// The other three shapes a spine can be left in. `++` joins two vectors\n" +
+  "// whose own shapes differ; `set` rewrites a path through the spine without\n" +
+  "// moving its ends; `fromSeq` rebuilds the whole thing from a traversal.\n" +
+  "export let joined(left: Vector(Int), right: Vector(Int)): Vector(Int) = left ++ right\n" +
+  "\n" +
+  "export let replaced(values: Vector(Int), index: Int, value: Int): Vector(Int) =\n" +
+  "    Vector.set(values, index, value)\n" +
+  "\n" +
+  "export let roundTripped(values: Vector(Int)): Vector(Int) =\n" +
+  "    Vector.fromSeq(values.toSeq())\n" +
   "\n" +
   "// The shallow case. The elements are vectors going in and vectors coming out.\n" +
   "export let nested(): Vector(Vector(Int)) = [[1, 2], [3], []]\n" +
@@ -115,6 +126,22 @@ function window_(values: unknown, lo: number, hi: number): unknown {
     lo,
     hi,
   );
+}
+
+function joined(left: unknown, right: unknown): unknown {
+  return (exports_["joined"] as (left: unknown, right: unknown) => unknown)(left, right);
+}
+
+function replaced(values: unknown, index: number, value: number): unknown {
+  return (exports_["replaced"] as (values: unknown, index: number, value: number) => unknown)(
+    values,
+    index,
+    value,
+  );
+}
+
+function roundTripped(values: unknown): unknown {
+  return (exports_["roundTripped"] as (values: unknown) => unknown)(values);
 }
 
 function size(values: unknown): number {
@@ -209,6 +236,63 @@ describe("order survives every shape the representation takes", () => {
     expect(convert(window_(prepended(1_000), 1, 3))).toEqual([1, 2, 3]);
     expect(convert(window_(appended(40), 33, 40))).toEqual([33, 34, 35, 36, 37, 38, 39, 40]);
   });
+
+  /**
+   * A window *of* a window, at an origin two rebases deep. The inner cut moves
+   * the origin off zero; the outer one moves it again inside the already-shifted
+   * range, so a walk that added the origins wrong — or added only one of them —
+   * answers with a plausible run of the right length and the wrong values.
+   */
+  test("a window of a window keeps its own elements", () => {
+    const inner = window_(appended(5_000), 1_001, 2_000);
+    const outer = window_(inner, 501, 600);
+    expect(convert(outer)).toEqual(
+      Array.from({ length: 100 }, (_, index) => 1_501 + index),
+    );
+    expect(convert(window_(window_(prepended(2_000), 1_001, 1_100), 51, 55)))
+      .toEqual([1_051, 1_052, 1_053, 1_054, 1_055]);
+  });
+
+  /**
+   * `++` joins two vectors whose shapes need not match, and the join is where a
+   * per-side walk shows: the four cases are spine + spine, tail + tail, and an
+   * empty side each way. The empty cases matter twice over, because a
+   * concatenation that answers with the non-empty side *unchanged* is correct,
+   * and a conversion that then handed that side's storage back would not be.
+   */
+  test("a concatenation converts as one run", () => {
+    expect(convert(joined(appended(1_000), appended(1_000))))
+      .toEqual([...counting(1_000), ...counting(1_000)]);
+    expect(convert(joined(appended(3), appended(4)))).toEqual([1, 2, 3, 1, 2, 3, 4]);
+    expect(convert(joined(appended(0), appended(5)))).toEqual(counting(5));
+    expect(convert(joined(appended(5), appended(0)))).toEqual(counting(5));
+    expect(convert(joined(appended(0), appended(0)))).toEqual([]);
+  });
+
+  /**
+   * `set` rewrites one path through the spine and leaves both ends where they
+   * were, so the shape is a correct trie whose interior differs from any
+   * built-by-append one at that height.
+   */
+  test("a `set` deep in the spine converts with the replacement in place", () => {
+    const expected = counting(1_000).map((value) => (value === 500 ? -1 : value));
+    expect(convert(replaced(appended(1_000), 500, -1))).toEqual(expected);
+    expect(convert(replaced(prepended(1_000), 500, -1))).toEqual(expected);
+    expect(convert(replaced(appended(3), 2, -1))).toEqual([1, -1, 3]);
+  });
+
+  /**
+   * And the whole thing rebuilt from a traversal: `fromSeq` over the vector's
+   * own `Iterable` row produces a fresh trie whose elements must convert to the
+   * sequence that built it.
+   */
+  test("a `fromSeq` round-trip converts to the same elements", () => {
+    expect(convert(roundTripped(appended(1_000)))).toEqual(counting(1_000));
+    expect(convert(roundTripped(prepended(33)))).toEqual(counting(33));
+    expect(convert(roundTripped(window_(appended(1_000), 401, 410))))
+      .toEqual([401, 402, 403, 404, 405, 406, 407, 408, 409, 410]);
+    expect(convert(roundTripped(appended(0)))).toEqual([]);
+  });
 });
 
 describe("fresh: a new array every call, and never the vector's own storage (§9, §6.2)", () => {
@@ -225,11 +309,14 @@ describe("fresh: a new array every call, and never the vector's own storage (§9
   });
 
   /**
-   * **The tail case is the one that matters.** A vector of 3 lives entirely in
-   * the trie's tail array, whose elements *are* these three in this order — so
-   * an implementation that handed the tail back would pass every value test in
-   * this file. Writing through the result is what tells them apart: the vector
-   * is persistent, and a `push` here must be invisible to it.
+   * **What the write tests are for.** They are *not* aimed at a lowering that
+   * hands the trie's tail back: a `TrieVector`'s tail is a fixed 32-wide `Node`
+   * (`runtime/VectorTrie.hex`), not a right-sized array, so returning it fails
+   * on length and on the empty slots long before any write. The lowerings these
+   * kill are the ones whose *values* are already right — a cached result reused
+   * across calls, or a `slice`-style view onto shared storage. The vector is
+   * persistent, so a `push` here must be invisible both to it and to the next
+   * caller, and only writing through the result asks that question.
    */
   test("pushing to the result leaves the vector's length and elements alone", () => {
     const values = appended(3);
@@ -369,6 +456,31 @@ describe("both spellings reach the same door row (Modules §5.5)", () => {
 
 describe("the `.d.ts` face is the `Array(a)` row (Part 1 §4.1, §9.1 obligation 3)", () => {
   const FACE = "export let f(v: Vector(Int)): Array(Int) = Vector.toArray(v)\n";
+
+  /**
+   * **The row's own face, in the prelude's `Vector.d.ts`.** This is the surface
+   * a TypeScript consumer imports — `import { toArray } from ".../Vector.js"` —
+   * and it is generic, so the monomorphic pin below cannot catch a regression in
+   * it. The doc comment travels with it: a manual-voice `(** … *)` becomes the
+   * JSDoc block a consumer's editor shows, and a declaration that lost it would
+   * still typecheck.
+   */
+  test("the prelude's `Vector.d.ts` carries the generic row and its doc", () => {
+    const compiled = compileMain(FACE);
+    expect(compiled.diagnostics).toEqual([]);
+    const vector = compiled.modules.find(({ source }) => source.path.endsWith("/Vector.hex"));
+    expect(vector).toBeDefined();
+    expect(vector!.declarations.text).toContain(
+      "/**\n" +
+        " * The elements of `values` as a fresh JavaScript array, in order. The\n" +
+        " * array is built at once and is a new one every call, so writing to it\n" +
+        " * changes nothing here; the crossing is shallow, so an element that is\n" +
+        " * itself a vector arrives as that same vector. The empty vector gives an\n" +
+        " * empty array.\n" +
+        " */\n" +
+        "export declare function toArray<a>(values: Hex.Vector<a>): ReadonlyArray<a>;",
+    );
+  });
 
   test("the result position renders `ReadonlyArray<number>`", () => {
     const compiled = compileMain(FACE);
