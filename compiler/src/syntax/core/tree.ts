@@ -9,6 +9,7 @@ import type * as Source from "../../support/source.js";
 import type { Documentation } from "../../support/documentation.js";
 import type * as Resolved from "../resolved/index.js";
 import type * as Typed from "../typed/index.js";
+import type { ForeignLiteral } from "../../support/foreign-literal.js";
 
 export type Evidence = PrimitiveEvidence | DictionaryEvidence | InstanceEvidence | StructuralEvidence | ErrorEvidence;
 
@@ -182,6 +183,8 @@ export interface Module {
    * must carry or fail at load.
    */
   readonly companionImports: readonly Typed.CompanionImport[];
+  /** See `Typed.Module.modulePath`; read for an object-reading enum's members. */
+  readonly modulePath?: string;
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
@@ -342,10 +345,22 @@ export interface Union {
   readonly representationVisible: boolean;
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
+  /** See `Parsed.UnionItem.externEnum` — Foreign Enums §2.4's literal form. */
+  readonly externEnum?: true;
+  /** See `Typed.EnumConversions`; present exactly with `externEnum`. */
+  readonly conversions?: Typed.EnumConversions;
+  /** See `Resolved.Union.foreign` — Foreign Enums §2.1's object-reading form. */
+  readonly foreign?: Resolved.ForeignEnumSource;
+  /** See `Typed.Union.declaringPath`; read for an object-reading enum's members. */
+  readonly declaringPath?: string;
 }
 
 export interface Constructor extends Binding {
   readonly slots: readonly ConstructorSlot[];
+  /** See `Parsed.Constructor.literal` — Foreign Enums §2.4's member value. */
+  readonly literal?: ForeignLiteral;
+  /** See `Parsed.Constructor.foreignName` — §2.1's foreign property. */
+  readonly foreignName?: string;
 }
 
 export interface ConstructorSlot {
@@ -362,6 +377,12 @@ export interface UnionItem {
   readonly name: string;
   readonly parameters: readonly Typed.TypeVariableId[];
   readonly constructors: readonly Constructor[];
+  /** See `Parsed.UnionItem.externEnum` — Foreign Enums §2.4's literal form. */
+  readonly externEnum?: true;
+  /** See `Typed.EnumConversions`; present exactly with `externEnum`. */
+  readonly conversions?: Typed.EnumConversions;
+  /** See `Resolved.Union.foreign` — Foreign Enums §2.1's object-reading form. */
+  readonly foreign?: Resolved.ForeignEnumSource;
   readonly span: Source.Span;
 }
 

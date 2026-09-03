@@ -271,17 +271,18 @@ describe("the declaration's shape is verified, not trusted (#147 §3.5/§7)", ()
 describe("the pin is granted to one declaration, not to a name (#147 §3.1)", () => {
   // "No user declaration can request a pin; there is no annotation, no syntax, no
   // extension point." A union a user happens to name `Bool` occludes the spelling
-  // (Modules §5.4) and gets none of the privilege: ordinary all-nullary strings,
+  // (Modules §5.4) and gets none of the privilege: the ordinary tagged objects,
   // an ordinary `.d.ts` face, and no claim on what `if` accepts.
-  test("a user union named `Bool` gets the string representation, not the pin", () => {
+  test("a user union named `Bool` gets the tagged representation, not the pin", () => {
     const project = compileMain(
       "export union Bool = Naw | Aye\n" +
         "export let pick: Bool = Aye\n",
     );
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
 
-    expect(main.javascript.text).toContain('const Aye = "Aye";');
-    expect(main.declarations.text).toContain('export type Bool = "Naw" | "Aye";');
+    expect(main.javascript.text).toContain('const Aye = { tag: "Aye" };');
+    expect(main.declarations.text)
+      .toContain('export type Bool = { tag: "Naw" } | { tag: "Aye" };');
   });
 
   test("conditions still demand the prelude's `Bool`", () => {

@@ -62,9 +62,14 @@ type Decoder = "asInt" | "asFloat" | "asBigInt" | "asBool" | "asString";
 
 let exports_: Record<string, unknown>;
 
-/** `JsValue.kind(value)`, as the `JsKind` name-string it is (Unions §6.2). */
+/**
+ * The constructor name of the `JsKind` `JsValue.kind(value)` answers.
+ *
+ * A `JsKind` is the tagged object every union is (Unions §6.1, #771), so the
+ * name this file's tables read is the value's `tag`.
+ */
 function kindOf(value: unknown): string {
-  return (exports_["kindOf"] as (v: unknown) => string)(value);
+  return (exports_["kindOf"] as (v: unknown) => { readonly tag: string })(value).tag;
 }
 
 /** `"Ok"`, or the failing reason's name. */
@@ -209,10 +214,10 @@ describe("`kind` classifies ten ways (§3)", () => {
       "export let qualified(v: JsValue): JsKind = JsValue.kind(v)\n" +
         "export let dotted(v: JsValue): JsKind = v.kind()\n",
     );
-    const qualified = main["qualified"] as (v: unknown) => string;
-    const dotted = main["dotted"] as (v: unknown) => string;
+    const qualified = main["qualified"] as (v: unknown) => unknown;
+    const dotted = main["dotted"] as (v: unknown) => unknown;
     for (const value of [undefined, null, 1, "s", [1]]) {
-      expect(dotted(value)).toBe(qualified(value));
+      expect(dotted(value)).toEqual(qualified(value));
     }
   });
 });
@@ -508,12 +513,16 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
     expect(compiled.diagnostics).toEqual([]);
     const companion = compiled.modules.find(({ source }) => source.path === "/JsValue.hex")!;
     const text = companion.javascript.text;
-    expect(text).toContain('if (__value === undefined) return "Undefined";');
-    expect(text).toContain('if (__value === null) return "Null";');
-    expect(text).toContain('if (__type === "function") return "Function";');
+    // The ladder answers with the module's hoisted constants (#771 B1), whose
+    // names take Lexer §3.2's reservation and, where that collides with a
+    // reserved runtime capture (`__Array`, `__Object`), #425's `_1` probe.
+    expect(text).toContain('const __Undefined = { tag: "Undefined" };');
+    expect(text).toContain("if (__value === undefined) return __Undefined;");
+    expect(text).toContain("if (__value === null) return __Null;");
+    expect(text).toContain('if (__type === "function") return __Function;');
     // The guard is the totality promise, and it is one `try` around one probe.
     expect(text).toContain("  try {");
-    expect(text).toContain('.isArray(__value) ? "Array" : "Object";');
+    expect(text).toContain(".isArray(__value) ? __Array_1 : __Object_1;");
     expect(text).toContain("  } catch {");
     // The five crossings are the identity, and the predicate is the host's.
     expect(text).toContain("__a => __a");

@@ -30,19 +30,57 @@ not compiler intrinsics.
   each declaring its representation-sensitive operations through the intrinsic
   door (`spec/intrinsics.md` §3.2) onto the injected runtime tries
   (`runtime/VectorTrie.hex`, `runtime/HashTrie.hex`); everything above those
-  declarations is ordinary Hexagon. `Seq.hex` declares `Seq(a)` itself and its
+  declarations is ordinary Hexagon. `Vector.hex` carries one door row that is
+  not one of Collections Part 3 §7's seven: `toArray`, FFI Part 2 §9's outbound
+  conversion, which §9.1's obligation 2 places at this door and in this file —
+  eager, fresh, shallow and total, with nothing above it to write in Hexagon
+  because the contract has no guard. `Seq.hex` declares `Seq(a)` itself and its
   combinator core.
 - `Array.hex` is FFI Part 2's companion of the borrowed `Array(a)` — a
   zero-copy readonly view of a JavaScript array that foreign code owns. It is
   the companion for `JsValue.hex`'s reason: the type is compiler-owned and has
   no Hexagon declaration site, so the module addressable under the name is what
-  answers for it. Its whole surface is the minimal decode loop: `length`
-  (§6.3's one door row, the native `.length` read), and `get`, which is
+  answers for it. Its surface is the minimal decode loop plus one conversion:
+  `length` (§6.3's door row, the native `.length` read), and `get`, which is
   ordinary Hexagon over that row and the bracket. The asserting read `xs[i]` is
   an *expression form* and so is the emitter's lowering rather than an export
   here, exactly as `Vector`'s bracket and `Map`'s are; out of bounds it raises
   `Vector.hex`'s `IndexError`, the one such declaration in the corpus. There is
-  no mutation surface and no `set`.
+  no mutation surface and no `set`. The conversion is `toVector`, FFI Part 2
+  §9's escape from the borrow — eager, a stable persistent snapshot, shallow
+  and total — and it takes **no door row**: a `for` over the borrow folding
+  `Vector.append` expresses it at the same complexity, so §5.1's Hexagon-first
+  doctrine keeps it in source. The asymmetry with `Vector.toArray`, which *is*
+  keyed, is §6.1's: an `Array(a)` has no Hexagon producer, so the outbound body
+  could not name its result, while the inbound one has both a traversal and a
+  producer.
+- `JsMap.hex` and `JsSet.hex` are FFI Part 10's companions of the other two
+  borrowed views — zero-copy readonly views of a native JavaScript `Map` and
+  `Set` that foreign code owns. They are companions for `Array.hex`'s reason:
+  neither type has a Hexagon declaration site, so the module addressable under
+  the name is what answers for it. Their whole surface is Part 10 §3's read-and-
+  construct set — `size`, `get`, `containsKey`, `entries` and `fromSeq` at the
+  map; `size`, `contains` and `fromSeq` at the set — with `toSeq` reached
+  through the provided `Iterable` row rather than exported here, as the dot call
+  `m.toSeq()` or qualified as `JsMap.toSeq(m)`. `entries` is that same walk under
+  a second name, not a second traversal.
+
+  **No `Hash` appears in either file**, which is the design and not an omission
+  (§4.3): a lookup here is the native collection's SameValueZero — reference
+  identity for objects — where a persistent `Map`/`Set` lookup is Hexagon's
+  structural one. Two rows are worth naming. `get` is written over `containsKey`
+  plus an *unexported* raw read, because §4.2 forbids fusing the pair into one
+  native `get` plus an `undefined` test: a stored `undefined` must stay
+  `Some(undefined)` and not collapse into `None`. And both `fromSeq` rows are
+  the bare native constructors, which is all §6.5 asks for — a Hexagon `Seq`
+  carries `[Symbol.iterator]` and a Hexagon tuple *is* a plain two-element
+  array, so `new Map(seq)` already builds a fresh collection in traversal order
+  with the native duplicate rules. There is no mutation surface, no `keys` or
+  `values`, and no set algebra. Neither companion owns a bracket: `jsSet[x]` is
+  refused permanently and with its four rejected spellings recorded (§5), and
+  `jsMap[k]` is specified (§4.1) but unimplemented — it is an expression form
+  rather than an export of either file, so it lands with the emitter's own
+  lowering and not here.
 - `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex`, and
   `JsValue.hex` are FFI Part 11's four. `JsValue.hex` is the companion of the
   boundary type `JsValue` — the type of a JavaScript value about which Hexagon

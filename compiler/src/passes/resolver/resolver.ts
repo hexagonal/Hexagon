@@ -195,6 +195,21 @@ interface ImportTypeBindings {
 }
 
 /**
+ * The two conversion bindings a literal `extern enum` introduces (Foreign Enums
+ * §5.2), as names to declare: `fromJsT` and `toJsT` for a local type name `T`.
+ *
+ * The spellings prefix the **unchanged** local type name — no acronym case
+ * conversion — which is what lets several enums live in one binding module.
+ * Both carry the declared name's span, having none of their own.
+ */
+function enumConversionNames(name: Parsed.Name): readonly [Parsed.Name, Parsed.Name] {
+  return [
+    { text: `fromJs${name.text}`, startClass: "non-upper", span: name.span },
+    { text: `toJs${name.text}`, startClass: "non-upper", span: name.span },
+  ];
+}
+
+/**
  * The **term**-namespace names a type-namespace declaration binds: a union's and
  * record's constructors, an exception's, a constraint's members. Functions §7.2
  * governs their references — value position, and equally the pattern position a
@@ -205,7 +220,17 @@ function termNamesBound(
   item: Parsed.Item,
 ): readonly { readonly name: Parsed.Name; readonly owner: string }[] {
   if (item.kind === "Union") {
-    return item.constructors.map(({ name }) => ({ name, owner: "union" }));
+    const constructors = item.constructors.map(({ name }) => ({ name, owner: "union" }));
+    if (item.externEnum !== true) return constructors;
+    // A literal `extern enum` binds two more term names than its constructors:
+    // the conversions of Foreign Enums §5.2, `fromJsT` and `toJsT`. They are
+    // written by no one, so they carry the declared type name's span — which is
+    // the seat a reader points at to ask where `fromJsTri` came from, and the
+    // one the rebinding label names when an explicit binding contests it.
+    return [
+      ...constructors,
+      ...enumConversionNames(item.name).map((name) => ({ name, owner: "enum" })),
+    ];
   }
   if (item.kind === "RecordDeclaration") return [{ name: item.name, owner: "record" }];
   if (item.kind === "Exception") return [{ name: item.name, owner: "exception" }];
@@ -984,6 +1009,14 @@ export function moduleInterface(module: Resolved.Module): ModuleInterface {
         const symbol = symbols.get(constructor.binding.symbol);
         if (symbol !== undefined) terms.set(constructor.binding.name, symbol);
       }
+      // Foreign Enums §2.3: `export extern enum` exports the local nominal type,
+      // every local constructor, **and the generated conversion bindings** —
+      // §5.2's `fromJsT`/`toJsT`, which are ordinary terms and cross as ordinary
+      // terms. A private declaration exports neither, like any private `let`.
+      for (const binding of item.conversions === undefined ? [] : [item.conversions.fromJs, item.conversions.toJs]) {
+        const symbol = symbols.get(binding.symbol);
+        if (symbol !== undefined) terms.set(binding.name, symbol);
+      }
     } else if (item.kind === "RecordDeclaration") {
       const record = module.records.find(({ id }) => id === item.record);
       const symbol = symbols.get(item.constructor.symbol);
@@ -1056,6 +1089,14 @@ export function internalNameInputs(
           ? [declaration.localName]
           : []
       );
+    }
+    // A literal `extern enum`'s conversions are exported *terms* with
+    // non-uppercase spellings (Foreign Enums §5.2), so they contest an internal
+    // export name exactly as a `let` does and belong on this list for the same
+    // reason. Its constructors do not: they are uppercase-start, like every
+    // other union's.
+    if (item.kind === "Union" && item.exported && item.conversions !== undefined) {
+      return [item.conversions.fromJs.name, item.conversions.toJs.name];
     }
     return (item.kind === "Let" || item.kind === "Fun") && item.exported
       ? [item.binding.name]
@@ -1502,27 +1543,26 @@ class Resolver {
    * are identical for both spellings, and an opaque record's constructor stays
    * out of reach abroad exactly as its qualified spelling is.
    *
-   * **#770 (standing gap, not this arc's).** A union construction erases into
-   * its object literal at every seat, home and abroad — Unions §6.4 as written
-   * all along — so the spec's golden for `Tag(7)` is `const t = {tag: "Tag",
-   * n: 7};` and no name is emitted for the constructor at all. The emitter does
-   * not yet erase abroad; until it does, the qualified local below is the
-   * *correct interim* lowering (it calls the export rather than the namespace
-   * object, which is the miscompile it replaced). When #770 lands, the applied
-   * seat here goes with it and the `emitted` spelling stays for the route that
-   * still needs a name: a constructor **referenced as a value** (`let mk = Tag`
-   * → `Tag.Tag`), which Modules §11.2 describes.
+   * **What the emitted spelling is for, since #770 landed.** A union
+   * construction erases into its object literal at every seat, home and abroad
+   * — Unions §6.4 — so an *applied* `Tag(7)` emits `{ tag: "Tag", n: 7 }` and
+   * names the constructor nowhere; §13(k)'s golden is that literal. The route
+   * that still needs a name is the other one Modules §11.2 describes: a
+   * constructor **referenced as a value** (`let mk = Tag` → `Tag.Tag`), and a
+   * **record** constructor's applied seat, which erases to its argument and so
+   * names nothing either. The spelling below is therefore read at reference
+   * sites only — which is why it must still be right.
    *
    * The answer carries **the spelling a reference to it emits**, which is the
    * alias's own qualified local (`Tag.Tag`) and not the bare word the source
    * wrote. The two are the same identifier in the emitted module — the alias's
-   * namespace binding — so a bare `Tag(7)` rendered bare would call the module
-   * object and die at load; rendered through the alias it is the ordinary
-   * qualified access the same program's `Tag.Tag(7)` emits. This is §11.2's
-   * "emitted-name collisions are the emitter's ordinary renaming problem",
-   * answered at the one seat that can see both names are one. A **prelude**
-   * companion answers through its own local first, exactly as the qualified
-   * route does.
+   * namespace binding — so a bare `Tag` rendered bare would read the module
+   * object and hand on something that is not the constructor; rendered through
+   * the alias it is the ordinary qualified access the same program's `Tag.Tag`
+   * emits. This is §11.2's "emitted-name collisions are the emitter's ordinary
+   * renaming problem", answered at the one seat that can see both names are
+   * one. A **prelude** companion answers through its own local first, exactly
+   * as the qualified route does.
    *
    * `undefined` means declined; the caller proceeds to whatever answered before
    * the fallback existed.
@@ -1724,8 +1764,8 @@ class Resolver {
    * a binding either way: claim a name no surface offers and the message is back
    * to promising a repair that fixes nothing, which is the whole point of asking.
    * `PROVIDED_ROW_ALIASES` is where that line ran once — the seating alone
-   * admits every prelude basename a project file may take, and only five of them
-   * carry a row.
+   * admits every prelude basename a project file may take, and only seven of
+   * them carry a row.
    */
   #aliasOffers(
     iface: ModuleInterface,
@@ -1743,7 +1783,7 @@ class Resolver {
     // the same file reached two ways yields two interfaces, so the comparison is
     // by `fileId`. The alias filter above it is what keeps this from claiming
     // `Int.toSeq` — every prelude basename a project file may take is seated,
-    // and only five of them carry a row.
+    // and only seven of them carry a row.
     const companion = this.#preludeModuleAliases.get(alias);
     return companion !== undefined && companion.module.fileId === iface.module.fileId;
   }
@@ -1883,8 +1923,9 @@ class Resolver {
     // dot-call channel, and `#preludeTerms`/`#importedSymbols` are what let
     // `#qualifiedConstructor` — the same `Geo.Circle(r)` door a user union uses,
     // in expressions and in patterns alike — resolve and synthesize its import.
-    // Runtime representations are untouched: an `Ordering` is still its
-    // name-string.
+    // Runtime representations are untouched: an `Ordering` is still the
+    // string-tagged object every union is (Unions §6.1, #771). Which channel a
+    // constructor is reached through decides a spelling, never a shape.
     const openConstructors = new Set<string>();
     const qualifiedOnlyConstructors = new Set<string>();
     for (const [name, union] of prelude.unions) {
@@ -3232,9 +3273,29 @@ class Resolver {
               annotation: this.#resolveTypeAnnotation(slot.annotation, typeParameters),
               span: slot.span,
             })),
+            ...(constructor.literal === undefined ? {} : { literal: constructor.literal }),
+            ...(constructor.foreignName === undefined
+              ? {}
+              : { foreignName: constructor.foreignName.text }),
             span: constructor.span,
           };
         });
+        const externEnum = item.externEnum === true ? { externEnum: true as const } : {};
+        // Foreign Enums §2.1: the block's specifier and the enum object's
+        // export name, carried on the declaration because the block itself is
+        // no longer above it — the parser hoisted the row here (see
+        // `#parseForeignEnum`), and this is all that is left of where it stood.
+        const foreign = item.foreign === undefined
+          ? {}
+          : {
+            foreign: {
+              specifier: item.foreign.specifier,
+              name: item.foreign.name.text,
+            },
+          };
+        const conversions = item.externEnum === true
+          ? this.#enumConversions(item, union, scope)
+          : undefined;
         const declaration: Resolved.Union = {
           id: union,
           name: item.name.text,
@@ -3250,6 +3311,9 @@ class Resolver {
           ...(this.#path === undefined ? {} : { declaringPath: this.#path }),
           span: item.name.span,
           constructors,
+          ...externEnum,
+          ...foreign,
+          ...(conversions === undefined ? {} : { conversions }),
         };
         this.#unions.push(declaration);
         return {
@@ -3262,6 +3326,9 @@ class Resolver {
           declaredParameters: item.declaredParameters,
           derives: item.derives.map(({ text }) => text),
           constructors,
+          ...externEnum,
+          ...foreign,
+          ...(conversions === undefined ? {} : { conversions }),
           span: item.span,
         };
       }
@@ -5058,10 +5125,87 @@ class Resolver {
     return { kind: "ErrorType", span: annotation.span };
   }
 
+  /**
+   * The two conversion bindings a literal `extern enum` introduces beside itself
+   * (Foreign Enums §5.2): `fromJsT : JsValue -> Option(T)` and
+   * `toJsT : T -> JsValue`.
+   *
+   * They are declared here exactly as a module-level `let` is — the same
+   * `#declare`, the same `scope.define`, the same `#reportRebinding` on a
+   * contest — because that is what they are. §5.2 refuses a silent suffix, and
+   * this is how the refusal is got: the second declaration of the spelling finds
+   * the first through the ordinary lookup and reports it, whichever of the two
+   * origins was written and whichever was generated.
+   *
+   * The signatures are built rather than parsed, because no source text writes
+   * them. `Option` is reached through the prelude's own identity, not through
+   * whatever a module may have named `Option` (Modules §5.5); a compilation with
+   * no prelude at all has no `Option` to name and generates nothing, which is
+   * exactly the compilation that could not have used the bindings either.
+   */
+  #enumConversions(
+    item: Parsed.UnionItem,
+    union: Resolved.UnionId,
+    scope: Scope,
+  ): Resolved.EnumConversions | undefined {
+    const option = this.#preludeUnions.get("Option");
+    if (option === undefined) return undefined;
+    const span = item.name.span;
+    const subject: Resolved.TypeAnnotation = {
+      kind: "Union",
+      union,
+      name: item.name.text,
+      arguments: [],
+      span,
+    };
+    const jsValue: Resolved.TypeAnnotation = { kind: "JsValue", span };
+    const [fromJsName, toJsName] = enumConversionNames(item.name);
+    const declare = (name: Parsed.Name): Resolved.Binding => {
+      const existing = scope === this.#moduleScope
+        ? scope.lookupLocal(name.text)
+        : this.#lookupTerm(name.text, scope);
+      if (existing !== undefined) {
+        this.#reportRebinding(name, existing, false, item.name.text);
+      }
+      // `generated`: the binding has no spelling of its own, so it must not
+      // claim a *definition* at the type name's span it borrows
+      // (`Resolved.Symbol.generated`), and it carries the declaration it was
+      // derived from so a report or a refusal can name that declaration.
+      const binding = this.#declare(name, "let", false, item.name.text);
+      if (existing === undefined) {
+        scope.define(name.text, binding.symbol, item.span.end.offset);
+      }
+      return binding;
+    };
+    return {
+      fromJs: declare(fromJsName),
+      toJs: declare(toJsName),
+      fromJsAnnotation: {
+        kind: "Function",
+        parameters: [jsValue],
+        result: {
+          kind: "Union",
+          union: option,
+          name: "Option",
+          arguments: [subject],
+          span,
+        },
+        span,
+      },
+      toJsAnnotation: {
+        kind: "Function",
+        parameters: [subject],
+        result: jsValue,
+        span,
+      },
+    };
+  }
+
   #declare(
     name: Parsed.Name,
     kind: Resolved.SymbolKind,
     widens = false,
+    generated?: string,
   ): Resolved.Binding {
     const symbol = Resolved.symbolId(this.#nextSymbol++);
     this.#symbols.set(symbol, {
@@ -5070,6 +5214,7 @@ class Resolver {
       kind,
       bindingSpan: name.span,
       ...(widens ? { widens: true as const } : {}),
+      ...(generated === undefined ? {} : { generated }),
     });
     return { symbol, name: name.text, span: name.span };
   }
@@ -5831,9 +5976,16 @@ class Resolver {
    *
    * `Range` has no row here because it has no companion module to home one at
    * (Part 5 §14.3 leaves `Range.toSeq` to the stdlib listing); the bare member
-   * reaches a range perfectly well. `Array` is the same case one spec further
-   * out — FFI Part 2 §9 names `Array.toSeq`, but no `Array.hex` exists to hang
-   * it on yet.
+   * reaches a range perfectly well.
+   *
+   * `Array` is the one head that *has* a companion and still has no row here.
+   * The reason this comment used to give — that no `Array.hex` existed to hang
+   * one on — expired at #511, which shipped the file; `Array.toSeq(xs)` is
+   * therefore ``module `Array` does not export `toSeq` `` today, while
+   * `xs.toSeq()` and `Iterable.toSeq(xs)` both walk the row. Adding the arm is
+   * the same two lines `JsMap` and `JsSet` took at #792 and wants only the
+   * decision that FFI Part 2 §9's `Array.toSeq` is the row's member rather than
+   * an export the companion owes; it is filed rather than taken here.
    */
   #providedRowMemberAccess(
     iface: ModuleInterface,
@@ -5843,7 +5995,7 @@ class Resolver {
     if (field.text !== "toSeq") return undefined;
     // The alias must be one a row is seated at before anything else is asked, so
     // that this reader and `#aliasOffers` answer the same set. The arms below
-    // are the same five, and reaching the tail `return undefined` for an alias
+    // are the same seven, and reaching the tail `return undefined` for an alias
     // this admitted would be the drift the shared constant exists to prevent.
     if (!PROVIDED_ROW_ALIASES.has(alias)) return undefined;
     // Keyed on the *module*, never on the spelling: a user's own
@@ -5901,6 +6053,15 @@ class Resolver {
     }
     if (alias === "String") {
       return pin({ kind: "Primitive", name: "String", span }, []);
+    }
+    if (alias === "JsMap") {
+      return pin(
+        { kind: "JsMap", key: variable("k"), value: variable("v"), span },
+        ["k", "v"],
+      );
+    }
+    if (alias === "JsSet") {
+      return pin({ kind: "JsSet", element: variable("a"), span }, ["a"]);
     }
     if (alias === "Seq") {
       const record = iface.records.get("Seq");
@@ -6487,6 +6648,14 @@ class Resolver {
     name: Parsed.Name,
     existing: Resolved.SymbolId,
     widens = false,
+    /**
+     * The declaration this *new* name is generated from, where it is one — a
+     * literal `extern enum`'s type name (Foreign Enums §5.2). The mirror case,
+     * where the *previous* binding is the generated one, is read off the symbol
+     * below rather than passed, because a `let` that collides with a generated
+     * name has no way to know it did.
+     */
+    generatedFrom?: string,
   ): void {
     const previous = this.#symbol(existing);
     const line = previous.bindingSpan.start.line + 1;
@@ -6510,6 +6679,32 @@ class Resolver {
               "or drop this declaration."),
         primary: name.span,
         labels: [{ span: previous.bindingSpan, message: "previous binding" }],
+      });
+      return;
+    }
+    // §5.2: "Either generated name colliding with an explicit or generated term
+    // binding is a hard compile error **naming both origins**… the binding
+    // author must rename the local enum type or the conflicting declaration. No
+    // silent suffix is permitted." Both origins are named in one sentence, and
+    // which of the two is the generated one decides which way it reads. Below
+    // `widens`, whose own derivation rule is the older and more specific one and
+    // whose wording this must not displace: nothing calls this with both claims,
+    // since the conversions pass `widens` false.
+    const generated = generatedFrom ?? previous.generated;
+    if (generated !== undefined) {
+      this.#diagnostics.add({
+        severity: "error",
+        message:
+          `\`${name.text}\` is already bound (line ${line}); ` +
+          `\`extern enum ${generated}\` generates it (Foreign Enums §5.2) — ` +
+          "rename the enum type, or the other declaration.",
+        primary: name.span,
+        labels: [{
+          span: previous.bindingSpan,
+          message: previous.generated === undefined
+            ? "previous binding"
+            : "generated by this declaration",
+        }],
       });
       return;
     }
@@ -6563,6 +6758,12 @@ export const PROVIDED_ROW_ALIASES: ReadonlySet<string> = new Set([
   "Map",
   "String",
   "Seq",
+  // FFI Part 10 §6.1's two rows (#792). They are here rather than absent for the
+  // ordinary reason the others are: the borrowed views now have companions
+  // (`stdlib/JsMap.hex`, `stdlib/JsSet.hex`), so `JsMap.toSeq(m)` has a module
+  // to be addressed through and the row is what it reaches.
+  "JsMap",
+  "JsSet",
 ]);
 
 /**

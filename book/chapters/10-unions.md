@@ -237,24 +237,29 @@ export type DeliveryStatus =
 Payload constructors cross as functions; nullary constructors in a mixed union cross
 as shared values.
 
-If every constructor is nullary, Hexagon uses an even smaller representation:
+A union whose constructors are all nullary is the same shape with no payload fields:
 
 ```hexagon
 export union Direction = North | East | South | West
 ```
 
 ```ts
-export type Direction = "North" | "East" | "South" | "West";
+export type Direction =
+  | {tag: "North"}
+  | {tag: "East"}
+  | {tag: "South"}
+  | {tag: "West"};
 ```
 
-At runtime, `North` is simply the string `"North"`. Adding a payload constructor later
-changes the entire union to tagged objects, so that change is a JavaScript-boundary
-breaking change even though Hexagon matches continue to use the same source model.
+At runtime, `North` is the shared value `{tag: "North"}`. Because every union takes this
+one shape, adding a constructor later, with or without a payload, leaves every existing
+value and every existing `.d.ts` arm exactly as it was. A JavaScript consumer can still
+lose the exhaustiveness of a `switch`, and derived ordering still follows declaration
+order, as in any language; what never changes is the shape of what already exists.
 
-`Bool` is the single exception to that rule, and the previous section explains why: its
-representation is pinned to the JavaScript `boolean` rather than to the strings
-`"True"`/`"False"`. No declaration you write can ask for such a pin, and `Bool` cannot
-gain a third constructor, so the breaking change described above cannot reach it.
+`Bool` is the single exception, and the previous section explains why: its
+representation is pinned to the JavaScript `boolean`, because JavaScript already has
+that concept. No declaration you write can ask for such a pin.
 
 ## Summary
 
@@ -268,7 +273,7 @@ gain a third constructor, so the breaking change described above cannot reach it
 - `Result(a, e)` represents success or recoverable failure;
 - `Bool` is the prelude union `False | True`, ordinary in every respect except that its
   representation is pinned to the JavaScript `boolean`; and
-- unions emit as readable tagged objects, or strings when every constructor is nullary.
+- unions emit as readable tagged objects, whatever their constructors carry.
 
 The basic constructor patterns above are only the beginning. The next chapter combines
 constructors, tuples, records, literals, alternatives, whole-value bindings, and guards

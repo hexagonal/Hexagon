@@ -126,13 +126,13 @@ The prelude union is
 union Ordering = Less | Equal | Greater
 ```
 
-`Ord.compare : (a, a) -> Ordering` (member signature unchanged; only the constructor spellings are fixed here). All-nullary union rules apply (Unions): the runtime values are the bare string literals `"Less"`, `"Equal"`, `"Greater"`; `Eq<Ordering>`/`Show<Ordering>` come via `derives (Eq, Show)` on the prelude declaration under §2.
+`Ord.compare : (a, a) -> Ordering` (member signature unchanged; only the constructor spellings are fixed here). All-nullary union rules apply (Unions): the runtime values are the bare string literals `"Less"`, `"Equal"`, `"Greater"` *(superseded by #771: every union is tagged objects, `{tag: "Less"}` — Unions §6.2)*; `Eq<Ordering>`/`Show<Ordering>` come via `derives (Eq, Show)` on the prelude declaration under §2.
 
 ### 3.2 Rationale and precedent
 
 Every language with this type dodged the `Eq`-constructor/`Eq`-constraint clash by spelling, in one of two schools: Haskell's all-caps `LT | EQ | GT` (copied by Elm — notably, Haskell's namespaces would have *permitted* the collision and they avoided it anyway), or Rust's/Jane Street Base's full words `Less | Equal | Greater`. F#/OCaml-stdlib sidestep with `compare : ... -> int` — the one precedent explicitly rejected: magic negative/zero/positive integers are the thing the union exists to fix.
 
-Rust's spelling wins for Hexagon on two counts: it dodges the collision **regardless of how the modules-spec namespace question resolves** (the question remains owed there but is no longer load-bearing — edit note §7), and under all-nullary emission the debugger shows `"Less"`/`"Equal"`/`"Greater"` rather than `"EQ"`, which is strictly better readable-JS.
+Rust's spelling wins for Hexagon on two counts: it dodges the collision **regardless of how the modules-spec namespace question resolves** (the question remains owed there but is no longer load-bearing — edit note §7), and under all-nullary emission the debugger shows `"Less"`/`"Equal"`/`"Greater"` rather than `"EQ"`, which is strictly better readable-JS *(under #771 the debugger shows `{tag: "Less"}`; the readability point stands)*.
 
 ### 3.3 Rejected alternatives
 
@@ -290,6 +290,7 @@ record Handler = {f: Int -> Int} derives Eq
 
 -- (f) Ordering spelling and emission
 Int.compare(1, 2)              -- Ordering.Less;  runtime value the string "Less"
+                               --   (since #771: the shared constant {tag: "Less"}, Unions §6.2)
 match a.compare(b)
     Ordering.Less => ...
     Ordering.Equal => ...

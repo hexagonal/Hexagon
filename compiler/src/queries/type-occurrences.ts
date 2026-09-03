@@ -68,6 +68,14 @@ export function collectTypeOccurrences(module: Typed.Module): readonly TypeOccur
   };
 
   for (const symbol of module.symbols) {
+    // A **generated** binding's `bindingSpan` is not its own: it is the
+    // declaration it was derived from (`Resolved.Symbol.generated`) — a literal
+    // `extern enum`'s type name — and that text is a *type*. Publishing a value
+    // scheme there made hovering the declared type answer
+    // `JsValue -> Option(Direction)`, since hover reads the type at the span and
+    // takes whichever candidate has one. Uses of the name are published below,
+    // through `publishSymbol` at spans the author wrote.
+    if (symbol.generated !== undefined) continue;
     publish(symbol.name, symbol.scheme, symbol.bindingSpan);
   }
 

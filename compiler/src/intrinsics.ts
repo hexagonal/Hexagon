@@ -45,11 +45,13 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * declaration. Its declared face is pure: building the cursor touches nothing,
  * and the impurity is the record field's arrow, which is the constant.
  *
- * The `vector*` family is exactly Collections Part 3 §7's boundary crossing —
- * representation-sensitive length and end updates, signed indexed access,
- * persistent indexed update, and the eager/lazy bridge. Everything else in that
- * table is Hexagon source in `stdlib/Vector.hex`, which declares these seven and
- * owns the public surface over them (§9.2's `Vector` milestone).
+ * The `vector*` family is Collections Part 3 §7's boundary crossing plus one:
+ * seven §7 keys — representation-sensitive length and end updates, signed
+ * indexed access, persistent indexed update, and the eager/lazy bridge — and
+ * `vectorToArray`, which is FFI Part 2 §9's and has its own paragraph below.
+ * Everything else in §7's table is Hexagon source in `stdlib/Vector.hex`, which
+ * declares those seven and owns the public surface over them (§9.2's `Vector`
+ * milestone).
  *
  * The `bigInt*` family is the door's third customer and the primitive template's
  * worked example (§3.2, #344), in the **primop shape**: every own-operation
@@ -245,7 +247,40 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   sibling accessors need no key: `get` is ordinary Hexagon over this row and
  *   the bracket, and the bracket itself is an *expression form* — the emitter's
  *   own lowering, like `Vector`'s and `Map`'s — so the bounds assertion that
- *   throws `IndexError` is no companion operation and takes no key.
+ *   throws `IndexError` is no companion operation and takes no key. Neither
+ *   does the file's §9 conversion, `Array.toVector`: it is a `for` over the
+ *   borrow folding `Vector.append`, which is ordinary Hexagon at the same
+ *   complexity, so `stdlib-roadmap.md` §5.1 keeps it in source. The contrast
+ *   with `vectorToArray` below is the whole of why one is keyed and one is not.
+ *
+ * *(#792, the borrowed collections.)* The `jsMap*` and `jsSet*` families are
+ * `stdlib/JsMap.hex`'s and `stdlib/JsSet.hex`'s (FFI Part 10 §3), and the cut is
+ * `arrayLength`'s one type parameter wider: each row is a single native read or
+ * a single native construction, and every verdict over them is ordinary Hexagon
+ * in those files. **No row carries `Hash`** — §4.3 makes lookup the native
+ * collection's SameValueZero, so there is no evidence for a key to defer to.
+ *
+ * - **`jsMapGetUnchecked` is unexported**, beneath `JsMap.get`, and the pairing
+ *   is §4.2's two-step lowering rather than a convenience. The bare native
+ *   `get` answers `undefined` for a stored `undefined` and for an absent key
+ *   alike, so `get` asks `jsMapHas` first and reaches this row only once the key
+ *   is known present — which is what keeps `Some(undefined)` distinguishable
+ *   from `None`. §4.2 forbids fusing the two into one `get` plus an
+ *   `undefined` test *even where `v` looks unable to contain `undefined`*, and
+ *   writing the sequence in Hexagon over two keys is how that comes out
+ *   unfusable: the emitter never sees a shape to collapse.
+ * - **`jsMapFromSeq` and `jsSetFromSeq` are `new Map(…)` and `new Set(…)` and
+ *   nothing more.** A Hexagon `Seq` value carries `[Symbol.iterator]` and a
+ *   Hexagon tuple *is* a plain two-element JS array, so the native constructors
+ *   already consume the source in traversal order and already implement §6.5's
+ *   duplicate rules — later value wins at a map, first representative and
+ *   position retained at a set. Nothing is adapted on the way in, and the
+ *   freshness §6.5 promises is the constructor's own.
+ * - **`Map` and `Set` are spelled through the emitter's runtime vocabulary**
+ *   (#666, FFI Part 7 §1.2), which is what the two words joined it for: a
+ *   project supplying its own copy of either file at the prelude injection path
+ *   may bind either spelling at module level, and a captured `Map` would make
+ *   `fromSeq` construct the user's value.
  *
  * *(#509, the `JsError` door.)* The `jsError*` family is `stdlib/JsError.hex`'s
  * (FFI Part 11 §7), three rows for the two total conservative accessors, and
@@ -269,6 +304,43 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   already placed outside `Object` and `Function`, so it never meets a
  *   `toString` of anyone's — the guard is the Hexagon above it, exactly as
  *   `jsValueIsSafeInteger`'s caller is.
+ *
+ * *(#238, the outbound crossing.)* `vectorToArray` is `stdlib/Vector.hex`'s
+ * eighth key and the only one of that file's rows that is not Collections
+ * Part 3 §7's boundary: it is FFI Part 2 §9's outbound conversion, declared
+ * there per §9.1's obligation 2, and shipped with its whole contract or not at
+ * all (obligation 4).
+ *
+ * The crossing itself is the row's entire content. A `Vector(a)` is an opaque
+ * trie whose spine belongs to the runtime, and an `Array(a)` is a JavaScript
+ * array — the borrowed foreign door, which by construction has no Hexagon
+ * producer: there is no array literal, no constructor, and no mutation surface
+ * to fill one through (§6.1). A source body could therefore not so much as name
+ * its own result, so the strictly-simpler law has nowhere to send it. Nothing
+ * sits *above* the key either, which is the other half of the cut: §9 makes the
+ * operation eager, fresh, shallow and total, so there is no guard to write, no
+ * range to check, and no verdict to reach. Where `BigInt.toInt` wraps
+ * `bigIntToIntUnchecked` in a range check, this row wraps nothing, and a
+ * Hexagon wrapper over it would add only a second name for one call.
+ *
+ * **§9's other direction takes no key, and the asymmetry is the doctrine
+ * working.** `Array.toVector` is the same section's inbound conversion and is
+ * ordinary Hexagon in `stdlib/Array.hex`. The sentence above is exactly why:
+ * `vectorToArray` is keyed because a source body could not name its own result,
+ * and the mirror of that argument is false. An `Array(a)` has no *producer*,
+ * but it has a *traversal* — §8.1's provided `Iterable` row, which §8.2 emits
+ * as native `for...of` — and `stdlib/Array.hex` is seated after
+ * `stdlib/Vector.hex` in the prelude order, so `Vector.append` is in scope
+ * there. A `for` over the borrow folding `append` is therefore expressible, at
+ * the same complexity and the same emitted shape a key would produce — the
+ * comparison §5.1 asks for is against the alternative implementation, and the
+ * keyed `vectorOf` is the very same fold of persistent appends — which is
+ * precisely the case `stdlib-roadmap.md` §5.1 keeps in source: none of its four
+ * justifications for a private intrinsic (a host capability, an opaque or
+ * performance-critical representation, a compiler transformation, measured
+ * performance evidence) reaches it. Both premises are pinned in
+ * `array-to-vector.test.ts`, so if either stops holding this paragraph breaks
+ * visibly rather than quietly.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -280,6 +352,7 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["vectorSet", 3],
   ["vectorToSeq", 1],
   ["vectorFromSeq", 1],
+  ["vectorToArray", 1],
   ["bigIntAdd", 2],
   ["bigIntMultiply", 2],
   ["bigIntFromNat", 1],
@@ -371,6 +444,13 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["jsValueIsArray", 1],
   ["jsValueAsArrayUnchecked", 1],
   ["arrayLength", 1],
+  ["jsMapSize", 1],
+  ["jsMapHas", 2],
+  ["jsMapGetUnchecked", 2],
+  ["jsMapFromSeq", 1],
+  ["jsSetSize", 1],
+  ["jsSetHas", 2],
+  ["jsSetFromSeq", 1],
   ["jsErrorReadMessage", 1],
   ["jsErrorReadStack", 1],
   ["jsErrorRender", 1],

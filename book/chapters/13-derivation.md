@@ -108,9 +108,9 @@ from left to right. This matters even for all-nullary unions:
 union Priority derives (Eq, Ord, Show) = Low | Normal | High
 ```
 
-Here `Low < Normal < High` because that is the declared order. The emitted values are
-strings, but Hexagon does not accidentally replace declaration order with JavaScript's
-alphabetical string comparison.
+Here `Low < Normal < High` because that is the declared order. The emitted values carry
+their constructor names as tags, but Hexagon does not accidentally replace declaration
+order with JavaScript's alphabetical comparison of those names.
 
 ## Type parameters become obligations
 

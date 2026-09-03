@@ -43,8 +43,8 @@ import { compileFiles, projectDiagnostics, runMain } from "../support/test-proje
  *   stays an ordinary bare prelude term.
  *
  * And the whole thing is a **source-namespace** rule: §12 says in as many words
- * that runtime representations are unchanged, so the emitted strings are pinned
- * too.
+ * that runtime representations are unchanged, so the emitted values are pinned
+ * too — the tagged objects of Unions §6.1 since #771.
  */
 
 /** The emitted JavaScript of a one-module program at `/main.hex`. */
@@ -241,7 +241,8 @@ describe("`JsKind derives (Eq, Show)` (Part 11 §3)", () => {
     expect(isNumber(1)).toBe(true);
     expect(isNumber("1")).toBe(false);
     expect(isNumber(null)).toBe(false);
-    // Derived `Show` on an all-nullary union renders the constructor name.
+    // Derived `Show` on a union of nullary constructors renders the tag, which
+    // is the constructor name.
     expect(rendered(1)).toBe("Number");
     expect(rendered(null)).toBe("Null");
     expect(rendered([])).toBe("Array");
@@ -259,9 +260,10 @@ describe("`JsKind derives (Eq, Show)` (Part 11 §3)", () => {
   });
 
   /**
-   * §3 again: "the string representation is unchanged". Deriving adds
+   * §3 again: the representation is unchanged by the derivation. Deriving adds
    * dictionaries, and a dictionary is not a representation — the emitted value
-   * is still the name-string and the `.d.ts` face is still the string union.
+   * is still the shared tagged constant and the `.d.ts` face is still the
+   * discriminated union (#771).
    */
   test("neither the emitted representation nor the `.d.ts` face moves", () => {
     const compiled = compileFiles([["/main.hex",
@@ -270,38 +272,41 @@ describe("`JsKind derives (Eq, Show)` (Part 11 §3)", () => {
     const kindModule = compiled.modules
       .find(({ source }) => source.path === "/JsKind.hex")!;
     expect(kindModule.declarations.text).toContain(
-      'export type JsKind = "Undefined" | "Null" | "Bool" | "Number" | "BigInt" | ' +
-        '"String" | "Symbol" | "Function" | "Array" | "Object";',
+      'export type JsKind = { tag: "Undefined" } | { tag: "Null" } | { tag: "Bool" }' +
+        ' | { tag: "Number" } | { tag: "BigInt" } | { tag: "String" } | { tag: "Symbol" }' +
+        ' | { tag: "Function" } | { tag: "Array" } | { tag: "Object" };',
     );
   });
 });
 
 describe("the runtime representation is unchanged (ffi.md §12, Unions §6.2)", () => {
   /**
-   * §12: "Runtime representations are unchanged." `JsKind` is all-nullary, so
-   * each constructor *is* its own name-string, and qualification is a
-   * source-namespace fact that reaches no emitted byte.
+   * §12: "Runtime representations are unchanged." Every `JsKind` constructor is
+   * nullary, so each is the shared tagged constant Unions §6.1 gives one
+   * (#771), and qualification is a source-namespace fact that reaches no
+   * emitted byte.
    */
-  test("each constructor emits as its name-string, and matching is a `switch` on it", () => {
+  test("each constructor emits as its shared constant, and matching switches on the tag", () => {
     const text = javascript(
       "export let name(k: JsKind): String = match k\n" +
         "    JsKind.Null => \"null\"\n" +
         "    JsKind.Array => \"array\"\n" +
         "    _ => \"other\"\n",
     );
+    expect(text).toContain("switch (__match.tag) {");
     expect(text).toContain('case "Null":');
     expect(text).toContain('case "Array":');
   });
 
-  test("the values compare equal to their strings at run time", async () => {
+  test("the values are the tagged objects at run time", async () => {
     const main = await runMain(
       "export let nullKind: JsKind = JsKind.Null\n" +
         "export let objectKind: JsKind = JsKind.Object\n" +
         "export let classify(v: JsValue): JsKind = JsValue.kind(v)\n",
     );
-    expect(main["nullKind"]).toBe("Null");
-    expect(main["objectKind"]).toBe("Object");
-    expect((main["classify"] as (v: unknown) => unknown)(null)).toBe("Null");
+    expect(main["nullKind"]).toEqual({ tag: "Null" });
+    expect(main["objectKind"]).toEqual({ tag: "Object" });
+    expect((main["classify"] as (v: unknown) => unknown)(null)).toEqual({ tag: "Null" });
   });
 });
 

@@ -23,12 +23,12 @@
 | 4 | `extern` modules & bindings | `ffi-part4-extern-bindings.md` | `extern from` block; foreign-name-first `as`; `fun`/`let` split; `type`; `default`; `extern import`; elision rule; `extern let` stability | Part 1; Modules §2–§3/§8.1 | globals; CommonJS; overloads; rest; string export names; generics (family) |
 | 5 | Receiver members & classes | `ffi-part5-extern-classes.md` | `method`/`get`/`set` subject-first; fresh-read rule; honest-`Unit` set; stable convention-preserving wrappers; `extern class` = opaque type + flat companions; `new as create`; statics; all-or-nothing visibility; dot-call reach | Parts 1/4; Method Syntax | typed upcasts across foreign inheritance; symbol-keyed members; selective visibility; subclass-dependent APIs |
 | 6 | Functions & callbacks | `ffi-part6-functions-callbacks.md` | identity calling convention; exact arity / no runtime validation; `Unit` discarding rule; exception round trips; representation-direct-only callbacks; same-object identity; callback `this` ignored | Parts 1/3/4/5; Functions §5/§9; Exceptions §6–§7 | adapting callbacks; wrapper caches; async callbacks; callback-**visible** `this` and receiver-aware callback types (invocation-supplied `this` is already ignored and unobservable in v1) |
-| 7 | Exports & `.d.ts` | `ffi-part7-exports.md` | export correspondence; named-ESM-only; lowercase binders; `Hex` import; records/unions/constructor materialization; representation cliff warning; **uniform opaque brand**; exceptions incl. nullary function shape; direct-vs-wrapper rule | Parts 1/3/6; Modules §11; Unions §6; Exceptions §7 | — (constrained exports routed to 8–9) |
+| 7 | Exports & `.d.ts` | `ffi-part7-exports.md` | export correspondence; named-ESM-only; lowercase binders; `Hex` import; records/unions/constructor materialization; **uniform opaque brand**; exceptions incl. nullary function shape; direct-vs-wrapper rule | Parts 1/3/6; Modules §11; Unions §6; Exceptions §7 | — (constrained exports routed to 8–9) |
 | 8 | Zero-cost fundamental exports | `ffi-zero-cost-fundamental-exports.md` | closed seven-type set; Algorithms S/G/N; complete-public-assignment trigger; base-name reservation; collision hard errors; ABI events | Parts 7/9; Constraints §6 | pre-v1 fundamental-set review (§2.2 there) |
 | 9 | Exported dictionaries | `ffi-part9-exported-dictionaries.md` | `Constraint.Dictionary<a>` completed-member shape + inference-bearing brand; instance-home rule for handles/factories; public-evidence closure; (ordinal, constraint) suffix; maximal-constraint elimination; direct export unless ABI plumbing; dictionary ABI | Parts 7/8; Constraints §5–§6; Modules §7 | variadic evidence seam; package ABI metadata (package spec) |
 | 10 | `JsMap` / `JsSet` | `ffi-part10-js-map-set.md` | borrowed views, `ReadonlyMap`/`ReadonlySet` faces; no-`Hash` native equality (stated loudly); `jsMap[k]`+`KeyError`, `has`-before-`get`, no fusion; no set brackets; 2 `Iterable` rows; `fromSeq`; 4 snapshot conversions, inward cycle-checked `Result` | Parts 1/2/3/11; Collections Parts 1/4/5; Operators §10 | `keys`/`values` projections; set algebra; mutable door; `WeakMap`/`WeakSet` |
 | 11 | `JsValue`, decoding, conversion failure | `ffi-part11-js-value-errors.md` | `JsValue` (`unknown` face, absorbs nullish); total property-free `kind`; strict scalar decoders + `toArray`; **`JsConversionError` = ordinary data** (`{reason, path}`); closed 5-segment path vocabulary; conservative `JsError.message`/`stack`; two-channel doctrine | Parts 1/2/10; Exceptions §6 | composable decoder family (stdlib ledger); `toJsMap`/`toJsSet` (cross-realm revisit bar) |
-| — | Foreign enums | `ffi-foreign-enums.md` | `extern enum` = foreign-backed nullary union over stable enum-object members; `Object.is` matching; generated checked `fromJsT`; reverse mappings ignored | Parts 1/4; Unions | `const enum`, flags, literal unions excluded; `fromJsT` keeps `Option` (**resolved**, §11.2 here) |
+| — | Foreign enums | `ffi-foreign-enums.md` | `extern enum` = foreign-backed nullary union over stable enum-object members; `Object.is` matching; generated checked `fromJsT`; reverse mappings ignored; literal form for object-free literal unions and `const enum` carriers (#773) | Parts 1/4; Unions | flags excluded; `const enum` and object-free literal unions take the literal form (#773); `fromJsT` keeps `Option` (**resolved**, §11.2 here) |
 
 ## 3. Common terminology (consolidated by reference; no alternatives exist)
 
@@ -88,7 +88,7 @@ Final names and faces only; the authoritative full table is **Part 1 §4.1**, de
 |---|---|---|---|
 | `Nat`/`Int`/`Float`/`BigInt`/`String`/`Unit` | native primitives; `Unit` = `undefined` | `number`/`number`/`number`/`bigint`/`string`/`void`-in-return | Part 1 §4/§6 |
 | tuples / structural records / nominal records | JS arrays / POJOs | TS tuples / structural object types | Part 1; Part 7 §3 |
-| unions / `Option(a)` / `Bool` / exceptions *(`Bool` reclassified from the primitives row 2026-07-29, #147; face unchanged)* | tagged POJOs; all-nullary = strings — sole exception the prelude `Bool`, pinned to `boolean` (Unions §6.2); branded `Error` | discriminated unions; string unions; `boolean` for `Bool`; `Error & {$hex…}` | Unions §6; Exceptions §7; Part 7 §4/§6 |
+| unions / `Option(a)` / `Bool` / exceptions *(`Bool` reclassified from the primitives row 2026-07-29, #147; face unchanged)* | tagged POJOs, every union alike — sole exception the prelude `Bool`, pinned to `boolean` (Unions §6.2); branded `Error` | discriminated unions; `boolean` for `Bool`; `Error & {$hex…}` | Unions §6; Exceptions §7; Part 7 §4/§6 |
 | `Nullable(a)` | `a \| null \| undefined` (zero wrapper) | the same union | Part 2 |
 | `Array(a)` | borrowed foreign JS array | `ReadonlyArray<a>` | Part 2 §6 |
 | `Seq(a)` | runtime sequence / inbound memoizing adapter | `Iterable<a>` (export is stronger: replayable) | Part 3 |
@@ -96,7 +96,7 @@ Final names and faces only; the authoritative full table is **Part 1 §4.1**, de
 | `JsMap(k,v)` / `JsSet(a)` | borrowed native `Map`/`Set` | `ReadonlyMap<k,v>` / `ReadonlySet<a>` | Part 10 |
 | `JsValue` | any JS value, identity | `unknown` | Part 11 |
 | opaque families (opaque record/union, extern `type`, extern class) | erased/foreign value, identity | generated private-symbol brand — save Part 7 §2.3-pinned types, whose declaration seat is the pin's alias (#622) | Part 7 §5 |
-| `extern enum` | captured foreign member values | per `ffi-foreign-enums.md` §7.2 | Foreign Enums |
+| `extern enum` | captured foreign member values, or the declaration's own literals (the literal form) | per `ffi-foreign-enums.md` §7.2 — brand for the object-reading form, the literal union for the literal form | Foreign Enums |
 | functions/callbacks | n-ary JS functions, same order, same object | function types | Part 6 |
 | dictionaries (JS-facing evidence) | frozen-where-practical runtime records | `Constraint.Dictionary<a>` (branded) | Part 9 |
 
@@ -128,7 +128,7 @@ Each row: the observable claim an implementation must satisfy, and the owner who
 |---|---|---|
 | Parsing & checking | extern blocks/members/enums parse per grammar; all §7 compile diagnostics fire with their named rewrites; nested-adapter and callback rejections fire at declaration site | Parts 4–6, 1 §5.3; Foreign Enums §9 |
 | Readable JS emission | bindings emit named ESM imports; calls emit at declared arity with source order; receiver members emit receiver forms; brackets emit the two-step `has`/`get`; match/constructor emission per component specs | Parts 4–6, 10; Modules §11; Unions §6 |
-| `.d.ts` emission | one `.d.ts` per module; **exactly one type-only `Hex` import, present only when a `Hex.*` face is needed** (§11.1's alias probing on collision); lowercase binders in declared order; faces per §6 exactly (final names, no provisional forms); cliff warning present on all-nullary unions | Part 7; Part 1 §8; §11.1 |
+| `.d.ts` emission | one `.d.ts` per module; **exactly one type-only `Hex` import, present only when a `Hex.*` face is needed** (§11.1's alias probing on collision); lowercase binders in declared order; faces per §6 exactly (final names, no provisional forms) | Part 7; Part 1 §8; §11.1 |
 | Identity & wrapper allocation | representation-direct exports/functions are the raw objects; each wrapper occasion allocates exactly one module-level wrapper with stable identity; direct export of matching trailing-evidence functions | Parts 6 §1, 7 §7, 9 §9; Part 5 §2.3 |
 | Iterator persistence & crossings | `Seq.next` never consumes; one iterator, one memoized outcome per node; fresh adapter per crossing; exported `Seq` yields independent cursors; protocol failures memoized; native protocol access order | Part 3 §§2–7 |
 | Callbacks & exceptions | same function object both directions; extra JS args harmless; Hexagon throws stay branded through foreign frames; foreign throws land in `JsError`'s branch; `Unit` results discarded inbound, genuine `undefined` outbound | Part 6 §§2–5, §10 |
@@ -145,12 +145,13 @@ Each row: the observable claim an implementation must satisfy, and the owner who
 
 1. **The composable `JsValue` decoder family** — field/record traversal, element-wise decoders, `nullable`/`oneOf`/defaults, and map/set decoders, built over Part 11's primitives, error structure, and path vocabulary. A real v1 stdlib debt; ledger entry issued by Part 11 §10.
 2. **Qualified companion homes for `NullableCase.*`, `JsKind.*`, `JsConversionReason.*`, and `JsPathSegment.*` constructors** (§12's resolution, extended for #511) — the prelude inventory must provide all four.
+3. **The `Array(a)` conversion quartet** (Part 2 §9) — `Vector.toArray` (#238) and `Array.toVector` (#237, the ruling that named it) have shipped — the former through the intrinsic door from `stdlib/Vector.hex`, the latter as ordinary Hexagon in `stdlib/Array.hex` (`stdlib-roadmap.md` §5.1); `Array.toSeq`/`Array.fromSeq` remain owed (Collections Part 5 §1's suite doctrine obliges the pair), and each is absent — never a declared-but-throwing stub — until implemented exactly per Part 2 §9 (Part 2 §9.1). A mirror of `stdlib-roadmap.md` §2's row, the debt's ledger of record under that file's rule 1; this heading's "global ledger" is flagged against that rule at Part 2 §9.1, not decided here.
 
 **Candidates — ship-versus-defer decisions the listing owns, each with its recorded revisit bar; none is a mandatory v1 surface:**
 
-3. **`toJsMap`/`toJsSet` classification decoders** — carrying Part 11 §13.1's cross-realm revisit bar (no portable `Array.isArray`-equivalent).
-4. **`JsMap.keys`/`JsMap.values` projections and `JsSet` algebra reads** (Part 10 §9 — derivable today via `toSeq` combinators or conversion).
-5. FFI-adjacent companion conveniences referenced by the parts (e.g. `Nullable` helpers, conversion aliases) — whatever the listing adopts must honor the decided semantics and update the ledger.
+4. **`toJsMap`/`toJsSet` classification decoders** — carrying Part 11 §13.1's cross-realm revisit bar (no portable `Array.isArray`-equivalent).
+5. **`JsMap.keys`/`JsMap.values` projections and `JsSet` algebra reads** (Part 10 §9 — derivable today via `toSeq` combinators or conversion).
+6. FFI-adjacent companion conveniences referenced by the parts (e.g. `Nullable` helpers, conversion aliases) — whatever the listing adopts must honor the decided semantics and update the ledger.
 
 ### 9.2 Post-v1 language/FFI deferrals (each with its recorded owner and revisit bar)
 
@@ -208,7 +209,7 @@ Method: all public FFI-introduced names (types, constructors, exceptions, constr
 
 **One genuine same-namespace collision, found and resolved:**
 
-> **`Undefined` and `Null` are constructors of both `NullableCase(a)` (Part 2 §3) and `JsKind` (Part 11 §3)** — two prelude unions sharing two constructor names in the constructor namespace, which the prelude cannot auto-import unqualified (Modules §5). The representations differ (`NullableCase` is mixed → tagged POJOs; `JsKind` is all-nullary → the strings `"Undefined"`/`"Null"`), so this was a source-namespace question only.
+> **`Undefined` and `Null` are constructors of both `NullableCase(a)` (Part 2 §3) and `JsKind` (Part 11 §3)** — two prelude unions sharing two constructor names in the constructor namespace, which the prelude cannot auto-import unqualified (Modules §5). The representations are the same shape — both tagged POJOs (Unions §6.2), `{tag: "Null"}` in each — so this was a source-namespace question only.
 >
 > **Resolution:** **all constructors of both utility unions are qualified-only in the prelude inventory** — not just the colliding pair:
 >

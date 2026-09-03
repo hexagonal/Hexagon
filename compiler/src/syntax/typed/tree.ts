@@ -8,6 +8,7 @@ import type * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
 import type { Documentation } from "../../support/documentation.js";
 import type * as Resolved from "../resolved/index.js";
+import type { ForeignLiteral } from "../../support/foreign-literal.js";
 
 declare const typeVariableIdBrand: unique symbol;
 
@@ -294,6 +295,8 @@ export interface Symbol {
   readonly kind: Resolved.SymbolKind;
   readonly bindingSpan: Source.Span;
   readonly scheme: Scheme;
+  /** See `Resolved.Symbol.generated` — the declaration this was derived from. */
+  readonly generated?: string;
 }
 
 export interface Binding {
@@ -362,6 +365,18 @@ export interface Module {
    * the call and the only one that knows where the operation lives.
    */
   readonly companionImports: readonly CompanionImport[];
+  /**
+   * This module's own project-root-normalized path, as `Resolved.Union`'s
+   * `declaringPath` records a declaration's (Modules §11).
+   *
+   * Carried for one consumer: an object-reading `extern enum`'s member is a
+   * **binding** of the module that declared it (Foreign Enums §3, §7.1), so a
+   * match on that member somewhere else has to name that binding — and the
+   * specifier is this path relativized against the declaring one. Absent for a
+   * compilation with no module graph, where there is no second file to import
+   * from either.
+   */
+  readonly modulePath?: string;
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
@@ -631,10 +646,38 @@ export interface Union {
   readonly representationVisible: boolean;
   readonly span: Source.Span;
   readonly constructors: readonly Constructor[];
+  /** See `Parsed.UnionItem.externEnum` — Foreign Enums §2.4's literal form. */
+  readonly externEnum?: true;
+  /** See `EnumConversions`; present exactly with `externEnum`. */
+  readonly conversions?: EnumConversions;
+  /** See `Resolved.Union.foreign` — §2.1's object-reading form. */
+  readonly foreign?: Resolved.ForeignEnumSource;
+  /**
+   * See `Resolved.Union.declaringPath`. Carried past the checker because
+   * emission needs it for an object-reading enum: a member is a **binding** of
+   * the declaring module, so a match on it in another module has to import that
+   * binding, and this is the only record of where it lives.
+   */
+  readonly declaringPath?: string;
 }
 
 export interface Constructor extends Binding {
   readonly slots: readonly ConstructorSlot[];
+  /** See `Parsed.Constructor.literal` — Foreign Enums §2.4's member value. */
+  readonly literal?: ForeignLiteral;
+  /** See `Parsed.Constructor.foreignName` — §2.1's foreign property. */
+  readonly foreignName?: string;
+}
+
+/**
+ * A literal `extern enum`'s two conversion bindings, typed (Foreign Enums
+ * §5.2). Each `Binding` carries its own scheme, so the emitter's JavaScript and
+ * its `.d.ts` face both read the signature off the binding rather than
+ * rebuilding it.
+ */
+export interface EnumConversions {
+  readonly fromJs: Binding;
+  readonly toJs: Binding;
 }
 
 export interface ConstructorSlot {
@@ -652,6 +695,12 @@ export interface UnionItem {
   readonly parameters: readonly TypeVariableId[];
   readonly derives: readonly string[];
   readonly constructors: readonly Constructor[];
+  /** See `Parsed.UnionItem.externEnum` — Foreign Enums §2.4's literal form. */
+  readonly externEnum?: true;
+  /** See `EnumConversions`; present exactly with `externEnum`. */
+  readonly conversions?: EnumConversions;
+  /** See `Resolved.Union.foreign` — §2.1's object-reading form. */
+  readonly foreign?: Resolved.ForeignEnumSource;
   readonly span: Source.Span;
 }
 

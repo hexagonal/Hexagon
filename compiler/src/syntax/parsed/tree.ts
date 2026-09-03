@@ -8,6 +8,7 @@
 import type * as Diagnostics from "../../support/diagnostics.js";
 import type * as Source from "../../support/source.js";
 import type { Documentation } from "../../support/documentation.js";
+import type { ForeignLiteral } from "../../support/foreign-literal.js";
 
 export interface Module {
   readonly kind: "Module";
@@ -244,7 +245,40 @@ export interface UnionItem {
   readonly declaredParameters: readonly DeclaredTypeParameter[];
   readonly derives: readonly Name[];
   readonly constructors: readonly Constructor[];
+  /**
+   * The **literal `extern enum`** marker (Foreign Enums §2.4): this declaration
+   * was written `extern enum T = "up" as Up | …` at module scope, so its
+   * constructors carry `literal` values and its runtime representation is those
+   * values rather than Unions §6's tagged objects.
+   *
+   * The form is an ordinary nominal union everywhere the name, the constructor
+   * namespace, matching, exhaustiveness and derivation are concerned — which is
+   * why it takes the union item's own shape rather than one of its own. Only
+   * emission and the `.d.ts` face read this marker.
+   */
+  readonly externEnum?: true;
+  /**
+   * The **object-reading** `extern enum`'s foreign source (Foreign Enums §2.1,
+   * §3): the block's module specifier and the named export holding the enum
+   * object. Present exactly when `externEnum` is set and the declaration was
+   * written inside an `extern from` block rather than as §2.4's module-scope
+   * literal head — which is what tells the two forms apart everywhere one has
+   * to test which it is reading.
+   *
+   * The constructors of such a declaration carry `foreignName` where a literal
+   * enum's carry `literal`; a union has this field exactly when its
+   * constructors have that one.
+   */
+  readonly foreign?: ForeignEnumSource;
   readonly span: Source.Span;
+}
+
+/** Where an object-reading `extern enum` reads its members from (§2.1). */
+export interface ForeignEnumSource {
+  /** The enclosing `extern from` block's module specifier. */
+  readonly specifier: string;
+  /** The named export holding the enum object — `Key` in `enum Key as Direction`. */
+  readonly name: Name;
 }
 
 export interface RecordItem {
@@ -331,6 +365,21 @@ export interface HonorMember {
 export interface Constructor {
   readonly name: Name;
   readonly slots: readonly ConstructorSlot[];
+  /**
+   * The JavaScript value this member names, on a **literal `extern enum`**
+   * (Foreign Enums §2.4) and on nothing else. Present on every constructor of
+   * such a declaration and absent on every constructor of an ordinary `union`,
+   * which is what `UnionItem.externEnum` says once for the whole declaration.
+   */
+  readonly literal?: ForeignLiteral;
+  /**
+   * The foreign **property** this member reads, on an object-reading `extern
+   * enum` (Foreign Enums §2.1) and on nothing else — `ARROW_UP` in `ARROW_UP as
+   * Up`. Present on every constructor of such a declaration, which is what
+   * `UnionItem.foreign` says once for the whole declaration; a constructor
+   * carries this or `literal`, never both.
+   */
+  readonly foreignName?: Name;
   readonly span: Source.Span;
 }
 

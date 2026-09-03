@@ -678,7 +678,11 @@ describe("a declared constraint's `Bool` edition", () => {
     // it is no fundamental and its dictionary is not in the table. Under the
     // same loosening it would be, and `atBox` would route too — so this is the
     // falsifiable form of a guard that could not be given one directly.
-    expect(javascript).toContain("const atBox = tell(Packed(true), __Describe_Box_Bool);");
+    // The construction is the erased literal (#770); what this row reads is the
+    // *dictionary* the call carries, which the erasure does not touch.
+    expect(javascript).toContain(
+      'const atBox = tell({ tag: "Packed", item1: true }, __Describe_Box_Bool);',
+    );
     expect(javascript).not.toContain("tellBool(Red)");
     expect(javascript).not.toContain("tellBool(Packed");
   });

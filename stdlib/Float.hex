@@ -26,14 +26,13 @@ export exception FloatRangeError(message: String)
 // `Int.fromNat`, each piece exact, total, and a different slot than the one
 // being defined — and the strictly-simpler doctrine sends such a body to
 // ordinary Hexagon (`spec/intrinsics.md` §3.2). The conversion is reached
-// through its declaring module rather than bare because bare `fromInt` has two
-// exporters and is refused (Modules §5.5 — `Signed.hex`'s member and
-// `Nat.hex`'s function, the regression ratified with the second landing); the
-// `Signed` block is written above the `Num` block anyway, so a reader meets
-// the composition's pieces in the order it uses them. `floatFromInt` *does*
-// cross: any Hexagon body for `Int` -> `Float` typechecks only through Numeric
-// Literals §5.1's contextual widening, which elaborates through
-// `Signed<Float>`'s `fromInt`, the very slot being defined.
+// through its declaring module because the dot cannot reach it: `fromInt`'s
+// subject appears only in its result, so there is no receiver to stand left of
+// a dot. The `Signed` block is written above the `Num` block anyway, so a
+// reader meets the composition's pieces in the order it uses them.
+// `floatFromInt` *does* cross: any Hexagon body for `Int` -> `Float`
+// typechecks only through Numeric Literals §5.1's contextual widening, which
+// elaborates through `Signed<Float>`'s `fromInt`, the very slot being defined.
 extern from "hex:intrinsic"
     fun floatAdd as nativeAdd(left: Float, right: Float): Float
     fun floatMultiply as nativeMultiply(left: Float, right: Float): Float

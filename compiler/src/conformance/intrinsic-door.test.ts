@@ -167,7 +167,8 @@ describe("verification replaces trust (§4.2)", () => {
     )).toEqual([
       "the compiler provides no intrinsic `mapInsert`; the keys it provides are " +
       "`seqMemoize`, `streamFromSeq`, `vectorLength`, `vectorAppend`, `vectorPrepend`, `vectorAt`, " +
-      "`vectorSet`, `vectorToSeq`, `vectorFromSeq`, `bigIntAdd`, `bigIntMultiply`, " +
+      "`vectorSet`, `vectorToSeq`, `vectorFromSeq`, `vectorToArray`, `bigIntAdd`, " +
+      "`bigIntMultiply`, " +
       "`bigIntFromNat`, `bigIntSubtract`, `bigIntNegate`, `bigIntFromInt`, " +
       "`bigIntEquals`, `bigIntCompare`, `bigIntShow`, `bigIntPow`, `bigIntHash`, " +
       "`bigIntQuot`, `bigIntRem`, `bigIntToIntUnchecked`, `bigIntToFloatUnchecked`, " +
@@ -189,8 +190,9 @@ describe("verification replaces trust (§4.2)", () => {
       "`jsValueAsIntUnchecked`, `jsValueAsFloatUnchecked`, " +
       "`jsValueAsBigIntUnchecked`, `jsValueAsBoolUnchecked`, " +
       "`jsValueAsStringUnchecked`, `jsValueIsArray`, " +
-      "`jsValueAsArrayUnchecked`, `arrayLength`, `jsErrorReadMessage`, " +
-      "`jsErrorReadStack`, `jsErrorRender`",
+      "`jsValueAsArrayUnchecked`, `arrayLength`, `jsMapSize`, `jsMapHas`, " +
+      "`jsMapGetUnchecked`, `jsMapFromSeq`, `jsSetSize`, `jsSetHas`, " +
+      "`jsSetFromSeq`, `jsErrorReadMessage`, `jsErrorReadStack`, `jsErrorRender`",
     ]);
   });
 

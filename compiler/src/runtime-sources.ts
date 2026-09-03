@@ -1123,7 +1123,7 @@ export const RUNTIME_SOURCES: Readonly<Record<string, string>> = {
     + "    let (key, _) = pair\n"
     + "    key\n"
     + "\n"
-    + "// Every element of `s`, lazily — one `Seq.map` projection of the trie's own\n"
-    + "// walk, so the order caveats on `entries` above apply here unchanged.\n"
-    + "let members(s: HashSet(a)): Seq(a) = Seq.map(entries(s.trie), pairKey)\n",
+    + "// Every element of `s`, lazily — one `map` projection of the trie's own walk,\n"
+    + "// so the order caveats on `entries` above apply here unchanged.\n"
+    + "let members(s: HashSet(a)): Seq(a) = entries(s.trie).map(pairKey)\n",
 };

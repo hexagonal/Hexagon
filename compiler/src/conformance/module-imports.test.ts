@@ -99,9 +99,10 @@ describe("Modules §5.1 rule 3 — the term-position fallback, in both its shape
    * spelled like the alias**". Both are pinned by *running* the program, not by
    * its diagnostics: in the emitted module a bare rule-3 reference and the
    * alias's namespace binding are the same identifier, so a reference rendered
-   * bare type-checks and then throws `TypeError` at load. What the fallback
-   * answers with is the alias's qualified local, which is the ordinary
-   * qualified access the same program's `Tag.Tag(7)` emits.
+   * bare type-checks and then throws `TypeError` at load. Since #770 an
+   * *application* names neither — it erases into its object literal, §13(k)'s
+   * golden — and the spelling the fallback answers with is read only where the
+   * constructor is handed on as a value, which is the third test below.
    */
   const TAG = [
     "/tag.hex",
@@ -123,28 +124,31 @@ describe("Modules §5.1 rule 3 — the term-position fallback, in both its shape
     expect((await runProject(files as never))["n"]).toBe(7);
   });
 
-  test("— and the emitted reference is the alias's own qualified access", () => {
-    // **Interim, and §13(k)'s own parenthetical says so (#770).** Unions §6.4
-    // erases a union construction into its object literal at every seat, home
-    // and abroad, so the spec's golden here is `const t = {tag: "Tag", n: 7};`
-    // and no name is emitted for the constructor at all. The emitter does not
-    // yet erase abroad; that is #770's arc. What this pins is the property #765
-    // owes: the reference is never `Tag(7)`, which calls the namespace object
-    // and throws. When #770 lands, this expectation becomes the erased literal.
+  test("— and the emitted construction is the object literal, §13(k)'s golden", () => {
+    // Unions §6.4 erases a union construction into its object literal at every
+    // seat, home and abroad, and rule 3's fallback is one of those seats
+    // (#770). Two properties in one pin: the literal itself, and the import
+    // line standing for a dependency the emitted body now names nowhere
+    // (§11.3, §8.2's load order).
+    //
+    // The `not` rows are the miscompile #765 closed, kept falsifiable: neither
+    // a bare `Tag(7)`, which would call the namespace object and throw at load,
+    // nor the interim `Tag.Tag(7)`, which called the export — an application
+    // reaches no function at all now.
     const javascript = emitted([
       TAG,
       ["/main.hex", 'import Tag from "./tag"\nexport let t: Tag = Tag(7)\n'],
     ], "/main.hex");
     expect(javascript).toContain('import * as Tag from "./tag.js";');
-    expect(javascript).toContain("const t = Tag.Tag(7);");
-    expect(javascript).not.toContain("const t = Tag(7);");
+    expect(javascript).toContain('const t = { tag: "Tag", n: 7 };');
+    expect(javascript).not.toContain("Tag(7)");
   });
 
   test("a constructor referenced as a value keeps a name either way", () => {
-    // The route #770 does not touch: a constructor handed on rather than
-    // applied has no construction to erase, so it is spelled — through the
-    // alias's local, which is what the `emitted` spelling exists for
-    // (Modules §11.2).
+    // The route the erasure does not touch (#770): a constructor handed on
+    // rather than applied has no construction to erase, so it is spelled —
+    // through the alias's local, which is what the `emitted` spelling exists
+    // for (Modules §11.2), and which is now the only reader of it.
     const javascript = emitted([
       TAG,
       ["/main.hex",
@@ -342,12 +346,11 @@ describe("§13 (i) — instance globality, and the effect import that is gone", 
  * (k)'s golden carries the namespace form, with the named shape noted as
  * equally lawful. The tests below match it.
  *
- * One expectation is **interim** and §13(k) says so in its own parenthetical: a
- * union construction reached through §5.1 rule 3 emits `Tag.Tag(7)` where
- * Unions §6.4's erasure gives `const t = {tag: "Tag", n: 7};`. The emitter's
- * failure to erase abroad is a standing gap, filed as **#770** and owned by its
- * own arc; #765 owes only that the reference is never a call on the namespace
- * object. See the rule 3 block above.
+ * §13(k)'s other half is the **construction**, and it is no longer interim: a
+ * union construction reached through §5.1 rule 3 emits `const t = {tag: "Tag",
+ * n: 7};`, Unions §6.4's erasure at every seat (#770). The rule 3 block above
+ * pins it, together with the import line that stands even though the emitted
+ * body reads no name of the alias's.
  */
 describe("emission: the module form's ESM shape (§11.2–§11.3)", () => {
   test("the module form emits the namespace import; either ESM shape, one meaning", () => {
@@ -843,7 +846,7 @@ describe("Pattern Matching §15 (o) — the door, and the absence of its express
         "export let after: Direction = turn(Direction.North)\n"],
     ] as const;
     expect(messages(files as never)).toEqual([]);
-    expect((await runProject(files as never))["after"]).toBe("East");
+    expect((await runProject(files as never))["after"]).toEqual({ tag: "East" });
   });
 
   test("an arm body has no door", () => {

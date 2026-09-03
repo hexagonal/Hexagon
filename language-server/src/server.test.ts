@@ -585,6 +585,135 @@ describe("the Hexagon language server", () => {
     );
   });
 
+  /**
+   * A rename plan's edits do not all write the same text (`RenameEdit.replacement`,
+   * Foreign Enums §5.2): a literal `extern enum`'s generated `fromJsT`/`toJsT`
+   * spell the type name they are derived from, so renaming the type has to write
+   * `fromJsCardinality` where it writes `Cardinality` everywhere else.
+   *
+   * Pinned **at the protocol**, because that is where the fact is thrown away.
+   * The session decides the per-edit text and this server copies it into
+   * `newText`; a server that wrote `plan.newName` for every edit produced a
+   * `WorkspaceEdit` that compiles to nothing, and every other test in this file
+   * — and every test in the compiler's — went on passing, because none of them
+   * has an edit whose text differs from the plan's name.
+   */
+  test("a rename writes each edit's own text, so a derived name follows its type", async () => {
+    const bindings = 'export extern enum Direction = "up" as Up | "down" as Down\n';
+    const consumer = [
+      'import Bindings from "./bindings"',
+      "",
+      "export let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)",
+      "",
+    ].join("\n");
+    const solo = await harness({ "bindings.hex": bindings, "consumer.hex": consumer });
+    try {
+      await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: {
+          uri: solo.uriOf("consumer.hex"),
+          languageId: "hexagon",
+          version: 1,
+          text: consumer,
+        },
+      });
+      const edit = await solo.client.sendRequest("textDocument/rename", {
+        textDocument: { uri: solo.uriOf("consumer.hex") },
+        // The first `Direction` on that line is the type in the annotation; the
+        // second is inside `fromJsDirection`, which is the derived name.
+        position: positionOf(consumer, "Direction"),
+        newName: "Cardinality",
+      }) as WorkspaceEdit;
+      const changes = edit.changes!;
+      expect(Object.keys(changes).sort()).toEqual(
+        [solo.uriOf("bindings.hex"), solo.uriOf("consumer.hex")].sort(),
+      );
+      // `bindings.hex` was never opened; its declaration still moves, and the
+      // generated names it declares have no text of their own to edit.
+      expect(applyEdits(bindings, changes[solo.uriOf("bindings.hex")]!)).toBe(
+        'export extern enum Cardinality = "up" as Up | "down" as Down\n',
+      );
+      const renamed = applyEdits(consumer, changes[solo.uriOf("consumer.hex")]!);
+      expect(renamed).toContain("Option(Bindings.Cardinality)");
+      expect(renamed).toContain("Bindings.fromJsCardinality(v)");
+      // And the whole file, so nothing else moved and nothing was left behind.
+      expect(renamed).toBe(consumer.replaceAll("Direction", "Cardinality"));
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  /**
+   * The **object-reading** form of `extern enum` (Foreign Enums §2.1, #779) over
+   * the wire. The row lives inside an `extern from` block and is hoisted to a
+   * module-level union by the parser, so what the editor asks about is a union
+   * and a value — and the two foreign names beside them are not Hexagon seats
+   * and answer nothing.
+   */
+  test("hover reads an object-reading `extern enum` as the union it is", async () => {
+    const source = [
+      'extern from "keyboard"',
+      "    enum Key as Direction = ARROW_UP as Up",
+      "let start: Direction = Up",
+      "",
+    ].join("\n");
+    const solo = await harness({ "main.hex": source });
+    try {
+      await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: {
+          uri: solo.uriOf("main.hex"),
+          languageId: "hexagon",
+          version: 1,
+          text: source,
+        },
+      });
+      const type = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "Direction", 2),
+      }) as Hover | null;
+      expect((type!.contents as { value: string }).value).toBe("union `Direction`");
+      const member = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "Up", 2),
+      }) as Hover | null;
+      expect((member!.contents as { value: string }).value).toBe("value `Up: Direction`");
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  /**
+   * The other half of §5.2 over the wire: a generated name cannot be renamed on
+   * its own, and the reason reaches the editor as a failed request rather than
+   * as a silent `null`.
+   */
+  test("renaming a generated conversion is refused with the reason", async () => {
+    const bindings = 'export extern enum Direction = "up" as Up | "down" as Down\n';
+    const consumer = [
+      'import Bindings from "./bindings"',
+      "",
+      "export let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)",
+      "",
+    ].join("\n");
+    const solo = await harness({ "bindings.hex": bindings, "consumer.hex": consumer });
+    try {
+      await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: {
+          uri: solo.uriOf("consumer.hex"),
+          languageId: "hexagon",
+          version: 1,
+          text: consumer,
+        },
+      });
+      await expect(solo.client.sendRequest("textDocument/rename", {
+        textDocument: { uri: solo.uriOf("consumer.hex") },
+        position: positionOf(consumer, "fromJsDirection"),
+        newName: "grab",
+      })).rejects.toThrow(/generated from `extern enum Direction`/);
+    } finally {
+      await solo.dispose();
+    }
+  });
+
   test("a refused rename comes back as an error the editor can show", async () => {
     // The reason has to reach the user, and a failed request is the only channel
     // a rename has for saying one. `null` would read as "nothing to rename".

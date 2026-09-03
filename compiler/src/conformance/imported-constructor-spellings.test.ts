@@ -67,9 +67,9 @@ describe("an arm reached through the door matches the declared tag", () => {
   });
 
   test("a nullary constructor reads the same way", async () => {
-    // A nullary constructor of an untagged union is emitted as its own name
-    // string, so the pattern is a bare `===` against it rather than a `.tag`
-    // test — the same property through a different emission.
+    // Every union is the tagged object since #771, so this is the same `.tag`
+    // test the payload case above takes — the property travels, and no longer
+    // through a second emission.
     const exports = await runProject([
       ["/traffic.hex",
         "export union Signal = Stop | Go\n" +
@@ -331,7 +331,7 @@ describe("the prelude's constructors read as any other module's do", () => {
 });
 
 describe("what value position emits", () => {
-  test("the qualified spelling is a path; the tag is written by the declaring module", () => {
+  test("the qualified application erases; the tag is written by the declaring module", () => {
     const project = compileFiles([
       ["/shapes.hex", SHAPES],
       ["/main.hex",
@@ -341,9 +341,31 @@ describe("what value position emits", () => {
     const javascriptOf = (path: string) =>
       project.modules.find(({ source }) => source.path === path)!.javascript.text;
 
+    // The exported declaration still materializes its constructor — export is a
+    // mandatory demand site (FFI Part 7 §4) — and the tag it writes is the
+    // declared name, whatever the consumer spells the path.
     expect(javascriptOf("/shapes.hex")).toContain(
       "const Circle = radius => ({ tag: \"Circle\", radius });",
     );
-    expect(javascriptOf("/main.hex")).toContain("const one = Shapes.Circle(1.0);");
+    // Abroad the application erases, at every seat (Unions §6.4, #770): the
+    // qualified spelling names no function in the emitted consumer at all.
+    expect(javascriptOf("/main.hex")).toContain(
+      'const one = { tag: "Circle", radius: 1.0 };',
+    );
+    expect(javascriptOf("/main.hex")).not.toContain("Shapes.Circle(");
+  });
+
+  test("a qualified constructor referenced as a value keeps the path", () => {
+    // The other half of §11.2, which the erasure does not reach: no application
+    // to erase, so the reference is the alias's qualified access.
+    const project = compileFiles([
+      ["/shapes.hex", SHAPES],
+      ["/main.hex",
+        'import Shapes from "./shapes"\n' +
+        "export let mk: (Float) -> Shapes.Shape = Shapes.Circle\n"],
+    ]);
+    const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
+    expect(project.diagnostics).toEqual([]);
+    expect(main.javascript.text).toContain("const mk = Shapes.Circle;");
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   AnalysisSession,
   refused,
+  type RenamePlan,
   type RenameResult,
   type RenameSubject,
 } from "./session.js";
@@ -140,6 +141,299 @@ describe("AnalysisSession", () => {
     expect(hover?.name).toBe("Colour");
     expect(hover?.target?.kind).toBe("union");
     expect(hover?.displayedType).toBeUndefined();
+  });
+
+  /**
+   * A literal `extern enum` (Foreign Enums §2.4) is a union inside Hexagon, so
+   * every editor service reads it as one: the type hovers as a union and colours
+   * as an `enum`, and its members hover as values and colour as `enumMember`.
+   * Nothing here knows the form exists, which is the point of representing it as
+   * a union rather than as a kind of its own.
+   */
+  test("a literal `extern enum` answers as the union it is", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let start: Direction = Up",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+
+    const type = session.hover("/main.hex", at(source, "Direction", 2));
+    expect(type?.name).toBe("Direction");
+    expect(type?.target?.kind).toBe("union");
+
+    const member = session.hover("/main.hex", at(source, "Up", 2));
+    expect(member?.name).toBe("Up");
+    expect(member?.displayedType).toBe("Direction");
+
+    const tokens = session.semanticTokens("/main.hex");
+    const spelling = (token: { span: { start: { offset: number }; end: { offset: number } } }) =>
+      source.slice(token.span.start.offset, token.span.end.offset);
+    expect(tokens.filter((token) => spelling(token) === "Direction")
+      .map(({ type: kind }) => kind)).toEqual(["enum", "enum"]);
+    expect(tokens.filter((token) => spelling(token) === "Up")
+      .map(({ type: kind }) => kind)).toEqual(["enumMember", "enumMember"]);
+  });
+
+  /**
+   * The **object-reading** form (Foreign Enums §2.1, #779) answers the same way,
+   * and the reason is the same: the parser hoists the row out of its `extern
+   * from` block into an ordinary module-level union, so nothing downstream —
+   * hover, semantic tokens, rename — knows the form exists.
+   *
+   * The two foreign names it carries are *not* Hexagon seats (Part 4 §3.2), so
+   * neither the enum object's export name nor a member's property name colours
+   * or hovers: only the local type and the local constructors do.
+   */
+  test("an object-reading `extern enum` answers as the union it is", () => {
+    const source = [
+      'extern from "keyboard"',
+      "    export enum Key as Direction = ARROW_UP as Up | ARROW_DOWN as Down",
+      "let start: Direction = Up",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+
+    const type = session.hover("/main.hex", at(source, "Direction", 2));
+    expect(type?.name).toBe("Direction");
+    expect(type?.target?.kind).toBe("union");
+
+    const member = session.hover("/main.hex", at(source, "Up", 2));
+    expect(member?.name).toBe("Up");
+    expect(member?.displayedType).toBe("Direction");
+
+    const tokens = session.semanticTokens("/main.hex");
+    const spelling = (token: { span: { start: { offset: number }; end: { offset: number } } }) =>
+      source.slice(token.span.start.offset, token.span.end.offset);
+    expect(tokens.map((token) => [spelling(token), token.type])).toEqual([
+      ["Direction", "enum"],
+      ["Up", "enumMember"],
+      ["Down", "enumMember"],
+      ["start", "variable"],
+      ["Direction", "enum"],
+      ["Up", "enumMember"],
+    ]);
+    // The foreign halves colour as nothing: `Key` and `ARROW_UP` name JavaScript,
+    // not Hexagon.
+    expect(tokens.some((token) => spelling(token) === "Key")).toBe(false);
+    expect(tokens.some((token) => spelling(token) === "ARROW_UP")).toBe(false);
+  });
+
+  /**
+   * §5.2's conversions ride the object-reading form exactly as they ride the
+   * literal one, so the type's rename carries them here too.
+   */
+  test("renaming an object-reading enum's type carries its conversions", () => {
+    const source = [
+      'extern from "keyboard"',
+      "    export enum Key as Direction = ARROW_UP as Up",
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    const plan = session.rename("/main.hex", at(source, "Direction"), "Way");
+    expect(plan).toBeDefined();
+    expect(refused(plan!)).toBe(false);
+    const renamed = plan as RenamePlan;
+    expect(renamed.edits.map(({ span, replacement }) =>
+      `${source.slice(span.start.offset, span.end.offset)} -> ${replacement ?? renamed.newName}`
+    )).toEqual([
+      "Direction -> Way",
+      "Direction -> Way",
+      "fromJsDirection -> fromJsWay",
+    ]);
+    // The foreign name the head aliases is untouched: renaming the local type
+    // must not rewrite which export the block reads.
+    expect(renamed.edits.some(({ span }) =>
+      source.slice(span.start.offset, span.end.offset) === "Key"
+    )).toBe(false);
+  });
+
+  /**
+   * **At the declaration**, which is the position the generated conversions
+   * borrow their span from and therefore the only one where they could be
+   * mistaken for declarations of their own (`Resolved.Symbol.generated`).
+   *
+   * Every service has to answer about the *type* there: one definition, a hover
+   * with no value signature on it, and references that count the type's two
+   * mentions and nothing else. Before the marker this seat answered with three
+   * definitions, `JsValue -> Option(Direction)` as the hover's type, and six
+   * references with three definitions stacked on one span.
+   */
+  test("the declaration's own name answers about the type alone", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "let out(d: Direction): JsValue = toJsDirection(d)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const declaration = at(source, "Direction");
+
+    expect(session.definitions("/main.hex", declaration).map(({ target, name }) =>
+      `${target.kind}:${name}`
+    )).toEqual(["union:Direction"]);
+
+    const hover = session.hover("/main.hex", declaration);
+    expect(hover?.name).toBe("Direction");
+    expect(hover?.target?.kind).toBe("union");
+    expect(hover?.displayedType).toBeUndefined();
+
+    // The type's own three mentions: the declaration and the two annotations.
+    // The conversions' uses spell a different name and are not among them.
+    expect(session.references("/main.hex", declaration).map(({ isDefinition }) => isDefinition))
+      .toEqual([true, false, false]);
+  });
+
+  /**
+   * The conversions §5.2 generates are ordinary term bindings, so a reference to
+   * one hovers with the signature the declaration gave it — and *only* a
+   * reference: the definition occurrence is withheld, because the span it would
+   * claim is the type's.
+   */
+  test("a generated conversion hovers with its signature and declares nothing", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const use = at(source, "fromJsDirection");
+    const hover = session.hover("/main.hex", use);
+    expect(hover?.name).toBe("fromJsDirection");
+    expect(hover?.displayedType).toBe("JsValue -> Option(Direction)");
+    expect(session.definitions("/main.hex", use)).toEqual([]);
+  });
+
+  /**
+   * Foreign Enums §5.2: the conversions' names are derived from the enum's local
+   * type name and are not chosen. So renaming the *type* rewrites every use of
+   * them, to the names the new type name derives — which is the honest reading
+   * of "the binding author must rename the local enum type".
+   */
+  test("renaming a literal enum's type carries its generated conversions", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "let out(d: Direction): JsValue = toJsDirection(d)",
+      "",
+    ].join("\n");
+    const { session, texts } = sessionOf({ "/main.hex": source });
+    const plan = session.rename("/main.hex", at(source, "Direction"), "Way");
+    expect(plan).toBeDefined();
+    expect(refused(plan!)).toBe(false);
+    const renamed = plan as RenamePlan;
+    expect(renamed.newName).toBe("Way");
+    // Five edits: three mentions of the type, and one use of each conversion,
+    // each carrying the text its own prefix derives.
+    expect(renamed.edits.map(({ span, replacement }) =>
+      `${source.slice(span.start.offset, span.end.offset)} -> ${replacement ?? renamed.newName}`
+    )).toEqual([
+      "Direction -> Way",
+      "Direction -> Way",
+      "fromJsDirection -> fromJsWay",
+      "Direction -> Way",
+      "toJsDirection -> toJsWay",
+    ]);
+    // The plan applied is a program that still compiles, which is the point of
+    // carrying the conversions rather than refusing.
+    const edited = [...renamed.edits]
+      .sort((left, right) => right.span.start.offset - left.span.start.offset)
+      .reduce(
+        (text, { span, replacement }) =>
+          text.slice(0, span.start.offset) + (replacement ?? renamed.newName) +
+          text.slice(span.end.offset),
+        texts.get("/main.hex")!,
+      );
+    const after = sessionOf({ "/main.hex": edited });
+    expect(after.session.diagnostics("/main.hex")).toEqual([]);
+    expect(edited).toContain("fromJsWay(v)");
+    expect(edited).toContain("toJsWay(d)");
+  });
+
+  /**
+   * And renaming a conversion *itself* is refused in §5.2's own terms, naming
+   * the type to rename instead. It used to be offered and then refused with
+   * "`extern enum` requires an uppercase type name" — the compiler's complaint
+   * about the edit it had made to the shared span, which is nonsense to read.
+   */
+  test("renaming a generated conversion redirects to its type", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    const use = at(source, "fromJsDirection");
+    const expected =
+      "`fromJsDirection` is generated from `extern enum Direction` " +
+      "(Foreign Enums §5.2), so its spelling is not chosen — rename the type " +
+      "`Direction`, and every use of this name follows";
+    expect(session.prepareRename("/main.hex", use)).toEqual({ refused: expected });
+    expect(session.rename("/main.hex", use, "grab")).toEqual({ refused: expected });
+  });
+
+  /**
+   * The two fixes composing: a rename that carries the conversions can carry
+   * them **onto a name that is already taken**, and verification catches it in
+   * the collision's own §5.2 words rather than in a paraphrase.
+   *
+   * Nothing about this seat is special-cased. The plan is built, applied to a
+   * probe, and refused because the probe reports a diagnostic the original did
+   * not — which is the general rule `#verifyRename` exists to enforce, reaching
+   * a name the author never wrote.
+   *
+   * The line the refusal names is the **enum's**, not the explicit binding's:
+   * after the rename it is the enum that bound `fromJsWay` first, and the
+   * explicit `let` three lines down is the one that collides with it.
+   */
+  test("a rename whose derived name is already bound is refused in §5.2's words", () => {
+    const source = [
+      'export extern enum Direction = "up" as Up | "down" as Down',
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "let fromJsWay(n: Int): Int = n",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    expect(session.rename("/main.hex", at(source, "Direction"), "Way")).toEqual({
+      refused:
+        "renaming `Direction` to `Way` would break `/main.hex`: " +
+        "`fromJsWay` is already bound (line 1); `extern enum Way` generates it " +
+        "(Foreign Enums §5.2) — rename the enum type, or the other declaration.",
+    });
+  });
+
+  /**
+   * The same abroad, which is what `Resolved.Symbol.generated` riding the
+   * *symbol* buys: an importer holds symbols, not items, so a use of
+   * `Bindings.fromJsDirection` in another module answers as its declaring
+   * module's does.
+   */
+  test("a generated conversion is redirected abroad too", () => {
+    const bindings = 'export extern enum Direction = "up" as Up | "down" as Down\n';
+    const main = [
+      'import Bindings from "./bindings"',
+      "let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/bindings.hex": bindings, "/main.hex": main });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    const abroad = session.prepareRename("/main.hex", at(main, "fromJsDirection"));
+    expect(abroad).toEqual({
+      refused:
+        "`fromJsDirection` is generated from `extern enum Direction` " +
+        "(Foreign Enums §5.2), so its spelling is not chosen — rename the type " +
+        "`Direction`, and every use of this name follows",
+    });
+    // And hovering it abroad still answers with the signature: only the
+    // *definition* was withheld, never the references.
+    expect(session.hover("/main.hex", at(main, "fromJsDirection"))?.displayedType)
+      .toBe("JsValue -> Option(Direction)");
   });
 
   test("a position with nothing at it answers nothing", () => {

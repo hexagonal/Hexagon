@@ -12,6 +12,10 @@ import * as Diagnostics from "../../support/diagnostics.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
 import type * as Source from "../../support/source.js";
 import { displayParameterName, syntheticParameterName } from "../../support/synthetic.js";
+import {
+  type ForeignLiteral,
+  foreignLiteralKey,
+} from "../../support/foreign-literal.js";
 import type * as LaidOut from "../../syntax/laid-out/index.js";
 import type * as Lexed from "../../syntax/lexed/index.js";
 import * as Parsed from "../../syntax/parsed/index.js";
@@ -50,6 +54,29 @@ const infix = new Map<TokenKind, Infix>([
 ]);
 
 const itemEnds = new Set<TokenKind>(["VSep", "Semicolon", "VClose", "Eof"]);
+
+/**
+ * Foreign Enums §2.4's closed list, verbatim. Every non-member — a float
+ * (`NaN` and signed zero separate `Object.is` from `===`, which §4's `switch`
+ * rests on), an interpolated string, an expression, a bare name — is refused
+ * with this one sentence, because what the author wrote is never the point:
+ * what may stand there is.
+ */
+const LITERAL_ENUM_MEMBER =
+  "a literal enum member is a string, integer, boolean, `null` or `undefined` literal";
+
+/**
+ * A literal written where an `extern from` block's `enum` row expects a foreign
+ * member name (Foreign Enums §2.4, §9 test 17).
+ *
+ * The two forms of `extern enum` differ in where the runtime values come from,
+ * and a block **reads** them off the module export its head names. A value
+ * written here is therefore the module-scope head put in the wrong place, and
+ * the rewrite is that head rather than a list of what may stand in a block.
+ */
+const FOREIGN_ENUM_LITERAL_MEMBER =
+  "an `extern from` block reads members, never writes them — a literal enum is the " +
+  'module-scope form `extern enum T = "up" as Up`';
 
 /**
  * The slot a refused import head names where the specifier yields no
@@ -278,6 +305,15 @@ class Parser {
   readonly #reservedNameExemptions = new Set<number>();
 
   /**
+   * Items an item head produced that are **not** it — today, exactly the
+   * object-reading `extern enum`s an `extern from` block hoisted to module level
+   * (Foreign Enums §2.1). Drained by `#parseItems` immediately after the head it
+   * came from, so the union sits directly below its block in source order and
+   * the queue is empty across every other item.
+   */
+  readonly #hoisted: Parsed.Item[] = [];
+
+  /**
    * The token index the current logical item began at (Exceptions §5.4, #500).
    *
    * Layout continues a `catch` after *any* item and stays agnostic about who
@@ -396,6 +432,10 @@ class Parser {
         const item = this.#parseItem(moduleItems);
         this.#documentItem(start, item);
         items.push(item);
+        // An `extern from` block's `enum` rows, which are module-level unions
+        // (Foreign Enums §2.1); see `#hoisted`. Their documentation was claimed
+        // row by row inside the block, so `#documentItem` is not repeated here.
+        items.push(...this.#hoisted.splice(0));
       }
       this.#itemStart = enclosingItemStart;
 
@@ -754,7 +794,10 @@ class Parser {
           span: spanFrom(exportToken.span, this.#previous().span),
         };
       }
-      if (!opensVisibleDeclaration.has(this.#current().kind) && !this.#atUnionHead()) {
+      if (
+        !opensVisibleDeclaration.has(this.#current().kind) &&
+        !this.#atUnionHead() && !this.#atExternEnumHead()
+      ) {
         this.#errorAt(
           exportToken.span,
           "`export` must be followed by a declaration",
@@ -908,6 +951,13 @@ class Parser {
   ): Parsed.Item {
     if (this.#at("Constraint")) return this.#parseConstraint(exported, itemStart);
     if (this.#at("Type")) return this.#parseTypeAlias(exported, itemStart);
+    if (this.#atExternEnumHead()) {
+      // `export extern enum T = …` (Foreign Enums §2.3): `export` is the
+      // ordinary declaration prefix here, not the block's per-declaration one,
+      // because the head stands alone and is a declaration of this module.
+      const externToken = this.#advance();
+      return this.#parseExternEnum(externToken.span, exported, itemStart);
+    }
     if (this.#atUnionHead()) return this.#parseUnion(exported, itemStart, opaque);
     if (this.#at("Record")) return this.#parseRecordDeclaration(exported, itemStart, opaque);
     if (this.#at("Exception")) return this.#parseException(exported, itemStart);
@@ -1174,7 +1224,7 @@ class Parser {
     return spanFrom(star.span, as.span);
   }
 
-  #parseExtern(): Parsed.ExternBlockItem | Parsed.ExternImportItem | Parsed.ErrorItem {
+  #parseExtern(): Parsed.Item {
     const start = this.#advance();
     if (this.#at("Import")) {
       this.#advance();
@@ -1185,8 +1235,16 @@ class Parser {
         span: spanFrom(start.span, specifier.span),
       };
     }
+    if (this.#atContextual("enum")) {
+      return this.#parseExternEnum(start.span, false, undefined);
+    }
     if (!this.#atContextual("from")) {
-      this.#error("expected `from` or `import` after `extern`");
+      // Three continuations, since #773: the block's `from`, the module effect's
+      // `import`, and the literal enum's `enum` — the FFI's one module-free
+      // `extern` head (Part 4 §2.2). A bare `extern` opening an indented block
+      // is not a fourth (Foreign Enums §2.4), and this is the sentence that says
+      // so.
+      this.#error("expected `from`, `import` or `enum` after `extern`");
       this.#synchronize(itemEnds);
       return { kind: "ErrorItem", span: spanFrom(start.span, this.#previous().span) };
     }
@@ -1202,12 +1260,23 @@ class Parser {
     this.#skipSeparators();
     while (!this.#at("VClose") && !this.#at("Eof")) {
       const declarationStart = this.#current().span.start.offset;
-      const declaration = this.#parseExternDeclaration(intrinsic);
+      const declaration = this.#parseExternDeclaration(intrinsic, specifier.value);
       // Every item form the block admits introduces a name, so every one is
       // documentable (§4.2). A form that failed to parse claims and drops its
       // block, like an `ErrorItem` does.
       if (declaration === undefined) this.#docs.discard(declarationStart);
-      else {
+      else if (declaration.kind === "Union") {
+        // Foreign Enums §2.1's object-reading form is **hoisted out of the
+        // block**: inside Hexagon it is an ordinary nominal union (§1, §4), and
+        // the block's contribution to it — the specifier — is carried on
+        // `foreign` instead. Every pass after this one therefore reads the very
+        // declaration a module-scope `union` produces, with no block-nested
+        // declaration form to teach the resolver's pre-passes, the type
+        // registration, exhaustiveness, derivation or the editor services
+        // about. `#parseFunBlock` is the precedent: one head, several items.
+        this.#hoisted.push(declaration);
+        this.#docs.attach(declarationStart, declaration.span, [declaration.name.span]);
+      } else {
         declarations.push(declaration);
         this.#docs.attach(declarationStart, declaration.span, [declaration.localName.span]);
       }
@@ -1233,7 +1302,17 @@ class Parser {
     };
   }
 
-  #parseExternDeclaration(intrinsic: boolean): Parsed.ExternDeclaration | undefined {
+  /**
+   * One row of an `extern from` block.
+   *
+   * Answers a `UnionItem` for Foreign Enums §2.1's `enum` row, which the caller
+   * hoists to module level: the row introduces an ordinary union and carries the
+   * block's `specifier` on it rather than staying nested.
+   */
+  #parseExternDeclaration(
+    intrinsic: boolean,
+    specifier: string,
+  ): Parsed.ExternDeclaration | Parsed.UnionItem | undefined {
     const start = this.#current();
     const exported = this.#at("Export");
     if (exported) this.#advance();
@@ -1297,11 +1376,16 @@ class Parser {
       this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
       return undefined;
     }
-    if (kind !== "Fun" && kind !== "Let" && kind !== "Type") {
+    // Foreign Enums §2.1's `enum` row, contextual foreign-description
+    // vocabulary like `class` and lexed as an ordinary `NonUpperName`. `class`
+    // — FFI Part 5's opaque foreign class — keeps the refusal below, as does
+    // every other word.
+    const foreignEnum = this.#atContextual("enum");
+    if (kind !== "Fun" && kind !== "Let" && kind !== "Type" && !foreignEnum) {
       const label = this.#current();
       const text = label.kind === "NonUpperName" || label.kind === "UpperName"
         ? `extern \`${label.text}\` declarations belong to a later FFI slice`
-        : "extern blocks contain `fun`, `let`, or `type` declarations";
+        : "extern blocks contain `fun`, `let`, `type`, or `enum` declarations";
       this.#errorAt(label.span, text);
       this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
       return undefined;
@@ -1318,7 +1402,7 @@ class Parser {
         if (conflicting && claim !== claims[0]) continue;
         this.#errorAt(
           start.span,
-          kind === "Type"
+          kind === "Type" || foreignEnum
             ? `\`${claim.text}\` claims a function's face, and a type has none — the claim ` +
               "belongs on an extern `fun`"
             : `\`${claim.text}\` claims a function's face, and a value reference carries no ` +
@@ -1327,9 +1411,10 @@ class Parser {
       }
     }
     this.#advance();
-    if (kind === "Type" && defaultBinding) {
+    if ((kind === "Type" || foreignEnum) && defaultBinding) {
       this.#errorAt(start.span, "`default` applies to foreign functions and values, not types");
     }
+    if (foreignEnum) return this.#parseForeignEnum(start.span, exported, specifier);
     const expected = kind === "Type" || !defaultBinding ? undefined : "NonUpperName";
     const nameIndex = this.#index;
     const nameToken = expected === undefined
@@ -1801,6 +1886,24 @@ class Parser {
     if (!this.#atContextual("union")) return false;
     const next = this.#peek(1).kind;
     return next === "UpperName" || next === "NonUpperName";
+  }
+
+  /**
+   * Whether the **literal `extern enum`** head starts here (Foreign Enums §2.4)
+   * — `extern` followed by the contextual `enum`.
+   *
+   * Two tokens are the whole test, and they settle it: `extern` is a hard
+   * keyword only a declaration head may write, and nothing else in the grammar
+   * can put `enum` after it outside a block. So this needs none of
+   * `#atUnionHead`'s lookahead past the introducer, and deliberately reads none
+   * — `export extern enum` with the name missing routes here and is answered by
+   * "`extern enum` requires an uppercase type name", which is the fault, rather
+   * than by `export`'s own "must be followed by a declaration", which is not.
+   * That is also what makes this test and `#parseExtern`'s the same rule at the
+   * two heads rather than two rules that nearly agree.
+   */
+  #atExternEnumHead(): boolean {
+    return this.#at("Extern") && this.#peekContextual(1, "enum");
   }
 
   /**
@@ -2479,6 +2582,471 @@ class Parser {
         constructors.at(-1)?.span ?? nameToken.span,
       ),
     };
+  }
+
+  /**
+   * `[export] extern enum T = "up" as Up | "down" as Down` — the **literal
+   * form** of a foreign enum (Foreign Enums §2.4), and the FFI's one module-free
+   * `extern` head (Part 4 §2.2).
+   *
+   * The item produced is a `Union`: the form *is* a closed nominal union inside
+   * Hexagon — its local type name, its constructor namespace, matching,
+   * exhaustiveness, reachability and derivation are the ordinary union's, and
+   * §2.4 says so in as many words. What marks it is `externEnum` on the item and
+   * a `literal` on each constructor: the runtime values are the declaration's
+   * own rather than Unions §6's tagged objects, which only emission and the
+   * `.d.ts` face read.
+   *
+   * Type parameters are the one thing the ordinary union head has that is
+   * refused here rather than parsed, because a foreign enum is monomorphic
+   * (§2.1). The list is read and refused, so the members after it still parse
+   * and the author gets one report.
+   *
+   * `opaque` never reaches this method. `#atOpaqueSubject` admits `record` and
+   * `union` alone, so `export opaque extern enum` draws that method's own
+   * refusal — "`opaque` applies to `record` and `union` declarations" — and the
+   * declaration below it is still read here, one diagnostic and no cascade. A
+   * bare `opaque extern enum` is not a head at all: `#atOpaqueHead` does not
+   * admit `extern`, so the line falls out of the item grammar exactly as it did
+   * before this form existed.
+   *
+   * `externSpan` is the `extern` token, already consumed by the caller; the
+   * current token is the contextual `enum`.
+   */
+  #parseExternEnum(
+    externSpan: Source.Span,
+    exported: boolean,
+    itemStart?: Source.Span,
+  ): Parsed.Item {
+    const start = itemStart ?? externSpan;
+    this.#advance();
+    const nameToken = this.#takeName(
+      "UpperName",
+      "`extern enum` requires an uppercase type name",
+    );
+    if (nameToken === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start, this.#previous().span) };
+    }
+    if (this.#at("LeftParen")) {
+      // §2.1's monomorphism, refused at the list rather than at the `(`: the
+      // whole list is consumed so the `=` and the members below still parse.
+      const opening = this.#advance();
+      while (!this.#at("RightParen") && !this.#at("Eof") && !itemEnds.has(this.#current().kind)) {
+        this.#advance();
+      }
+      const closing = this.#expect("RightParen", "expected `)` after type parameters");
+      this.#errorAt(
+        spanFrom(opening.span, closing?.span ?? opening.span),
+        "a foreign enum is monomorphic; `extern enum` takes no type parameters",
+      );
+    }
+    const derives = this.#parseDerives();
+    if (this.#expect("Equal", "expected `=` after the enum name") === undefined) {
+      this.#synchronize(itemEnds);
+      return { kind: "ErrorItem", span: spanFrom(start, this.#previous().span) };
+    }
+    // A member begins at its leading `|`, or at the value where none precedes —
+    // the union's own rule for where a doc block attaches (§4.2).
+    let alternative = this.#current().span.start.offset;
+    if (this.#at("Bar")) this.#advance();
+
+    const constructors: Parsed.Constructor[] = [];
+    /** The member that first named each value, keyed as `Object.is` sees it. */
+    const values = new Map<string, Parsed.Name>();
+    while (!itemEnds.has(this.#current().kind)) {
+      const value = this.#parseForeignLiteral();
+      if (value === undefined) {
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start, this.#previous().span) };
+      }
+      if (!this.#atContextual("as")) {
+        // Two faults meet here and are told apart by what follows the value.
+        // A **name**, a `|`, or the item's end means the author wrote a value
+        // and no `as`, which §2.4 refuses outright: "`as` is mandatory. Every
+        // value is written", and no member is ever named by its constructor's
+        // spelling, so there is no shorter form to recover into and the rewrite
+        // shows the whole member. The name case is the commonest of the three —
+        // `"up" Up`, where the author wrote both halves and dropped the word
+        // between them — and it is the one that most needs the sentence about
+        // `as` rather than one about literals, since the value they wrote *is* a
+        // literal. Anything else means the value was the head of an
+        // *expression*, which is the other thing §2.4 refuses, in the sentence
+        // that names what may stand there.
+        const bare = this.#at("UpperName") || this.#at("Bar") ||
+          itemEnds.has(this.#current().kind);
+        this.#errorAt(
+          bare ? value.span : this.#current().span,
+          bare ? "every literal enum member is named: `\"up\" as Up`" : LITERAL_ENUM_MEMBER,
+        );
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start, this.#previous().span) };
+      }
+      this.#advance();
+      const constructor = this.#takeName(
+        "UpperName",
+        "union constructors must be uppercase-start names",
+      );
+      if (constructor === undefined) {
+        this.#synchronize(itemEnds);
+        return { kind: "ErrorItem", span: spanFrom(start, this.#previous().span) };
+      }
+      const name = parsedName(constructor);
+      if (this.#at("LeftParen")) {
+        // §2.1: "The body permits nullary members only." The list is consumed
+        // so the members after it still parse, and the rewrite names the
+        // declaration that *does* carry structure.
+        const opening = this.#advance();
+        let depth = 1;
+        while (depth > 0 && !this.#at("Eof") && !itemEnds.has(this.#current().kind)) {
+          if (this.#at("LeftParen")) depth += 1;
+          else if (this.#at("RightParen")) depth -= 1;
+          this.#advance();
+        }
+        this.#errorAt(
+          spanFrom(opening.span, this.#previous().span),
+          "foreign enums contain stable values only; use `extern type` plus " +
+            "explicit operations for structured foreign values",
+        );
+      }
+      const key = foreignLiteralKey(value.literal);
+      const first = values.get(key);
+      if (first === undefined) values.set(key, name);
+      else {
+        // §2.4's duplicate-value refusal, naming both members. `-0` was folded
+        // to `0` when the literal was read, so `0 as A | -0 as B` arrives here
+        // as one key and is refused — which is what keeps a signed zero out of
+        // §4's `switch`.
+        this.#diagnostics.add({
+          severity: "error",
+          message:
+            `\`${first.text}\` already names this value; a literal enum's ` +
+            "members are distinct under `Object.is`",
+          primary: value.span,
+          labels: [{ span: first.span, message: "the member that names it" }],
+        });
+      }
+      constructors.push({
+        name,
+        slots: [],
+        literal: value.literal,
+        span: spanFrom(value.span, name.span),
+      });
+      this.#docs.attach(alternative, name.span, [name.span]);
+      if (!this.#at("Bar")) break;
+      alternative = this.#current().span.start.offset;
+      this.#advance();
+    }
+    if (constructors.length === 0) {
+      this.#errorAt(nameToken.span, "a literal enum needs at least one member");
+    }
+    return {
+      kind: "Union",
+      exported,
+      opaque: false,
+      name: parsedName(nameToken),
+      parameters: [],
+      declaredParameters: [],
+      derives,
+      constructors,
+      externEnum: true,
+      span: spanFrom(start, constructors.at(-1)?.span ?? nameToken.span),
+    };
+  }
+
+  /**
+   * Foreign Enums §2.1's **object-reading** `extern enum`, one row of an
+   * `extern from` block: `enum Key as Direction derives (Eq, Show) = ARROW_UP as
+   * Up | ARROW_DOWN as Down`.
+   *
+   * The answer is a `UnionItem`, hoisted out of the block by the caller. Inside
+   * Hexagon this *is* an ordinary nominal union — its type name, its constructor
+   * namespace, matching, exhaustiveness, reachability and derivation are the
+   * ordinary union's, and §1 says so in as many words — and what marks it is
+   * `externEnum` on the item, `foreign` carrying the block's specifier and the
+   * enum object's export name, and a `foreignName` on each constructor. Only
+   * emission and the `.d.ts` face read them.
+   *
+   * Both halves of a member are foreign-first, as everywhere else in `extern`
+   * (Part 4 §3.2): the foreign property is any ECMAScript identifier — an
+   * `UpperName` or a `NonUpperName` token — and `as` gives it a local
+   * constructor, which §2.2 requires to be uppercase-start. A lowercase property
+   * with no `as` is therefore refused with the alias as its rewrite, exactly as
+   * an ill-spelled foreign `fun` or `type` is.
+   *
+   * `start` is the row's first token, `enum` already consumed.
+   */
+  #parseForeignEnum(
+    start: Source.Span,
+    exported: boolean,
+    specifier: string,
+  ): Parsed.UnionItem | undefined {
+    const abandon = (): undefined => {
+      this.#synchronize(new Set(["VSep", "VClose", "Eof"]));
+      return undefined;
+    };
+    const typeIndex = this.#index;
+    const typeToken = this.#takeAnyName("`enum` requires a foreign type name");
+    if (typeToken === undefined) return abandon();
+    const foreignName = parsedName(typeToken);
+    let localName = foreignName;
+    let aliased = false;
+    if (this.#atContextual("as")) {
+      this.#advance();
+      const alias = this.#takeName(
+        "UpperName",
+        "expected an uppercase-start local type name after `as`",
+      );
+      if (alias === undefined) return abandon();
+      localName = parsedName(alias);
+      aliased = true;
+    }
+    // Part 4 §3.2's reservation half, exactly as `#parseExternDeclaration`
+    // spends it: the foreign side of an `as` is not a Hexagon name seat and is
+    // exempted, while an unaliased seat is both sides at once and takes the
+    // alias rewrite rather than a rename, which would read a different export.
+    let reservedForeignSeat = false;
+    if (foreignName.text.startsWith("__")) {
+      this.#reservedNameExemptions.add(typeIndex);
+      if (!aliased) {
+        reservedForeignSeat = true;
+        this.#errorAt(
+          foreignName.span,
+          `foreign type \`${foreignName.text}\` uses the reserved \`__\` prefix; bind it ` +
+            `with an alias: \`enum ${foreignName.text} as ${upperInitial(foreignName.text.replace(/^_+/, ""))}\``,
+        );
+      }
+    }
+    // One rewrite per seat, as on the `type` row above: the reservation message
+    // has already asked for the alias this would ask for a second time.
+    if (localName.startClass !== "upper" && !reservedForeignSeat) {
+      this.#errorAt(
+        localName.span,
+        `foreign type \`${foreignName.text}\` needs an uppercase-start local alias; write ` +
+          `\`enum ${foreignName.text} as ${upperInitial(localName.text)}\``,
+      );
+    }
+    if (this.#at("LeftParen") || this.#at("Less")) {
+      // §2.1's monomorphism. The list is consumed so the `=` and the members
+      // below still parse, and the author gets one report.
+      const opening = this.#advance();
+      const closing = opening.kind === "LeftParen" ? "RightParen" as const : "Greater" as const;
+      while (!this.#at(closing) && !this.#at("Eof") && !itemEnds.has(this.#current().kind)) {
+        this.#advance();
+      }
+      const end = this.#at(closing) ? this.#advance() : this.#previous();
+      this.#errorAt(
+        spanFrom(opening.span, end.span),
+        "a foreign enum is monomorphic; `extern enum` takes no type parameters",
+      );
+    }
+    const derives = this.#parseDerives();
+    if (this.#expect("Equal", "expected `=` after the enum name") === undefined) {
+      return abandon();
+    }
+    // A member begins at its leading `|`, or at the name where none precedes —
+    // the union's own rule for where a doc block attaches (§4.2).
+    let alternative = this.#current().span.start.offset;
+    if (this.#at("Bar")) this.#advance();
+
+    const constructors: Parsed.Constructor[] = [];
+    /** The first member reading each foreign property (§2.2's duplicate rule). */
+    const members = new Map<string, Parsed.Name>();
+    while (!itemEnds.has(this.#current().kind)) {
+      if (this.#atForeignLiteral()) {
+        // §2.4, and §9 test 17: the two forms differ in *where the values come
+        // from*, and a block reads them. A literal here is the module-scope
+        // head written in the wrong place, so the rewrite is that head.
+        this.#errorAt(this.#current().span, FOREIGN_ENUM_LITERAL_MEMBER);
+        return abandon();
+      }
+      const memberIndex = this.#index;
+      const memberToken = this.#takeAnyName(
+        "a foreign enum member names a property of the enum object",
+      );
+      if (memberToken === undefined) return abandon();
+      const member = parsedName(memberToken);
+      let constructor = member;
+      let memberAliased = false;
+      if (this.#atContextual("as")) {
+        this.#advance();
+        const alias = this.#takeName(
+          "UpperName",
+          "union constructors must be uppercase-start names",
+        );
+        if (alias === undefined) return abandon();
+        constructor = parsedName(alias);
+        memberAliased = true;
+      }
+      let reservedMemberSeat = false;
+      if (member.text.startsWith("__")) {
+        this.#reservedNameExemptions.add(memberIndex);
+        if (!memberAliased) {
+          reservedMemberSeat = true;
+          this.#errorAt(
+            member.span,
+            `foreign member \`${member.text}\` uses the reserved \`__\` prefix; bind it ` +
+              `with an alias: \`${member.text} as ${upperInitial(member.text.replace(/^_+/, ""))}\``,
+          );
+          return abandon();
+        }
+      }
+      if (constructor.startClass !== "upper" && !reservedMemberSeat) {
+        // §2.2: local constructor names are uppercase-start, and the foreign
+        // property is not renamed to make one — it is aliased, which is the
+        // repair every other ill-spelled foreign name takes.
+        this.#errorAt(
+          member.span,
+          `\`${member.text}\` names a foreign property; give it a constructor name: ` +
+            `\`${member.text} as ${upperInitial(member.text)}\``,
+        );
+        return abandon();
+      }
+      if (this.#at("LeftParen")) {
+        // §2.1: "The body permits nullary members only." The list is consumed so
+        // the members after it still parse.
+        const opening = this.#advance();
+        let depth = 1;
+        while (depth > 0 && !this.#at("Eof") && !itemEnds.has(this.#current().kind)) {
+          if (this.#at("LeftParen")) depth += 1;
+          else if (this.#at("RightParen")) depth -= 1;
+          this.#advance();
+        }
+        this.#errorAt(
+          spanFrom(opening.span, this.#previous().span),
+          "foreign enums contain stable values only; use `extern type` plus " +
+            "explicit operations for structured foreign values",
+        );
+      }
+      const first = members.get(member.text);
+      if (first === undefined) members.set(member.text, constructor);
+      else {
+        // §2.2's repeated-member refusal, naming both. The repeated *local*
+        // constructor is the ordinary union's own duplicate-constructor error,
+        // which this form inherits along with the rest of the namespace rules.
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`${member.text}\` is read twice; a foreign enum reads each member once`,
+          primary: member.span,
+          labels: [{ span: first.span, message: `first read here, as \`${first.text}\`` }],
+        });
+      }
+      constructors.push({
+        name: constructor,
+        slots: [],
+        foreignName: member,
+        span: spanFrom(member.span, constructor.span),
+      });
+      this.#docs.attach(alternative, constructor.span, [constructor.span]);
+      if (!this.#at("Bar")) break;
+      alternative = this.#current().span.start.offset;
+      this.#advance();
+    }
+    if (constructors.length === 0) {
+      this.#errorAt(localName.span, "a foreign enum needs at least one member");
+    }
+    return {
+      kind: "Union",
+      exported,
+      opaque: false,
+      name: localName,
+      parameters: [],
+      declaredParameters: [],
+      derives,
+      constructors,
+      externEnum: true,
+      foreign: { specifier, name: foreignName },
+      span: spanFrom(start, constructors.at(-1)?.span ?? localName.span),
+    };
+  }
+
+  /**
+   * Whether a literal stands where an object-reading enum expects a member
+   * name — every one of the six kinds §2.4 admits, plus the float it refuses, so
+   * a value in this position draws the form's own message rather than a name
+   * error.
+   *
+   * Two of the six are read by **text** rather than by token kind, exactly as
+   * `#parseForeignLiteral` reads them: `null` and `undefined` are ordinary
+   * `NonUpperName`s everywhere else in the grammar (FFI Part 2 §2.2 admits no
+   * ambient nullish value), so a kind test alone would let them through as
+   * foreign property names — and `enum Slot = null as Missing` would then read
+   * `Slot.null`, binding JavaScript `undefined` and reaching §3 rule 4's
+   * forbidden state with no diagnostic at all.
+   *
+   * The cost is that a foreign property genuinely named `null` has no spelling
+   * here. That is the trade §2.4 already makes for `true` and `false`, which are
+   * equally legal property names and are equally refused: in this one position
+   * the six words name the literal form, and the rewrite says where to write it.
+   */
+  #atForeignLiteral(): boolean {
+    const token = this.#current();
+    if (token.kind === "NonUpperName") {
+      return token.text === "null" || token.text === "undefined";
+    }
+    return token.kind === "String" || token.kind === "Integer" ||
+      token.kind === "Float" || token.kind === "Minus" ||
+      token.kind === "True" || token.kind === "False";
+  }
+
+  /**
+   * One literal `extern enum` member value (Foreign Enums §2.4) — a string, an
+   * integer with its sign folded in, `true`, `false`, `null`, or `undefined`.
+   *
+   * Four of those spellings are read here and nowhere else in the grammar.
+   * `true`/`false` are hard keywords whose only other role is the #147 redirect
+   * to `True`/`False`; §2.4 is the one position where they name JavaScript
+   * booleans, and no redirect fires. `null` and `undefined` are ordinary
+   * `NonUpperName`s everywhere else — Hexagon admits no ambient nullish value
+   * (FFI Part 2 §2.2) — and name the JavaScript values only here.
+   *
+   * The sign is part of the integer as it is in a pattern (Pattern Matching
+   * §2.5): a member list contains no operators, so there is no unary minus to
+   * collide with.
+   */
+  #parseForeignLiteral():
+    | { readonly literal: ForeignLiteral; readonly span: Source.Span }
+    | undefined
+  {
+    const token = this.#current();
+    if (token.kind === "String") {
+      this.#advance();
+      if (token.parts.some(({ kind }) => kind === "Interpolation")) {
+        this.#errorAt(token.span, LITERAL_ENUM_MEMBER);
+        return undefined;
+      }
+      const value = token.parts
+        .map((part) => part.kind === "Text" ? part.value : "")
+        .join("");
+      return { literal: { kind: "String", value }, span: token.span };
+    }
+    if (token.kind === "Integer" || (token.kind === "Minus" && this.#peek(1).kind === "Integer")) {
+      const negative = token.kind === "Minus";
+      if (negative) this.#advance();
+      const integer = this.#advance() as Lexed.IntegerToken;
+      const magnitude = Number(integer.decimal.replaceAll("_", ""));
+      // `-0` denotes `0` (§2.4): the value stored is the one `Object.is` sees,
+      // so the two spellings of zero collide in the duplicate check above and
+      // no signed zero ever reaches a `switch` case.
+      const value = negative && magnitude !== 0 ? -magnitude : magnitude;
+      return { literal: { kind: "Integer", value }, span: spanFrom(token.span, integer.span) };
+    }
+    if (token.kind === "True" || token.kind === "False") {
+      this.#advance();
+      return {
+        literal: { kind: "Bool", value: token.kind === "True" },
+        span: token.span,
+      };
+    }
+    if (token.kind === "NonUpperName" && (token.text === "null" || token.text === "undefined")) {
+      this.#advance();
+      return {
+        literal: token.text === "null" ? { kind: "Null" } : { kind: "Undefined" },
+        span: token.span,
+      };
+    }
+    this.#errorAt(token.span, LITERAL_ENUM_MEMBER);
+    return undefined;
   }
 
   #parseRecordDeclaration(exported: boolean, itemStart?: Source.Span, opaque = false): Parsed.Item {

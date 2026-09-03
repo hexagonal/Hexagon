@@ -821,8 +821,9 @@ describe("no shipped exported constraint draws the new refusal", () => {
 describe("the shipped `.d.ts` carries no private type, in any form", () => {
   test("an unreferenced private union contributes no `type` row", () => {
     // The arm's own defect: it pushed its row for every union, so this file
-    // shipped `type Hidden = \"A\" | \"B\";` — the whole representation, published
-    // against Modules §11.4, for a type nothing exported even mentions.
+    // shipped `type Hidden = { tag: \"A\" } | { tag: \"B\" };` — the whole
+    // representation, published against Modules §11.4, for a type nothing
+    // exported even mentions.
     expect(declarations("union Hidden = A | B\nexport let n: Int = 1\n")).toBe(
       "export declare const n: number;\n",
     );
@@ -870,7 +871,7 @@ describe("the shipped `.d.ts` carries no private type, in any form", () => {
     // the shipped file.
     const rendered = preview("union Hidden = A | B\nexport let n: Int = 1\n");
     expect(rendered).toBe(
-      'type Hidden = "A" | "B";\n' +
+      'type Hidden = { tag: "A" } | { tag: "B" };\n' +
         "declare const A: Hidden;\n" +
         "declare const B: Hidden;\n" +
         "export declare const n: number;\n",

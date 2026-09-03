@@ -1,0 +1,79 @@
+// The public companion of the borrowed foreign `JsMap(k, v)` (FFI Part 10).
+//
+// `JsMap(k, v)` is compiler-owned: no `.hex` file declares it, because a value
+// that crosses by identity has no Hexagon declaration site, exactly as
+// `Array(a)` has none and `JsValue` has none. This module is its companion by
+// being the module addressable under the name (Method Syntax section 4.1), the
+// same way `Array.hex` is `Array`'s.
+//
+// Everything here reads a native `Map` that foreign code owns, or builds one
+// fresh from a sequence (section 6.5). There is no mutation surface and there
+// will not be one: the borrow is readonly from Hexagon, full stop (section 1).
+//
+// **No `Hash` appears anywhere in this file, and that is the point**
+// (section 4.3). A lookup here is the native map's own equality —
+// SameValueZero, which is reference identity for objects — where a persistent
+// `Map`'s lookup is Hexagon's structural `Hash`/`equals`. Two primitives that
+// compare equal find the same entry in both regimes; two equal-looking records
+// do not. The foreign door does not consult `Hash`, so it demands none.
+
+extern from "hex:intrinsic"
+    (** How many entries `map` holds. Read fresh from the native `size` at every
+        call, never cached and never hoisted: foreign code owns the map, so two
+        observations may honestly disagree (FFI Part 5 section 3.1). *)
+    export fun jsMapSize as size(map: JsMap(k, v)): Int
+
+    (** Whether `map` binds `key`, by the native `has` and its equality. A
+        hostile or proxied `has` that throws is an ordinary foreign throw and
+        arrives as `JsError`, never as an answer (section 4.4). *)
+    export fun jsMapHas as containsKey(map: JsMap(k, v), key: k): Bool
+
+    // Unexported, beneath `get` below: the bare native `get`, which answers
+    // `undefined` for a stored `undefined` and for an absent key alike and so
+    // cannot be a total accessor by itself. `get` asks `containsKey` first and
+    // reaches this row only once the key is known to be there, which is
+    // section 4.2's two-step lowering written in Hexagon rather than arranged
+    // in the emitter.
+    fun jsMapGetUnchecked as readUnchecked(map: JsMap(k, v), key: k): v
+
+    (** The pairs of `pairs` collected into a **fresh** native `Map`, eagerly and
+        in traversal order. Unconstrained and shallow: nothing is hashed,
+        decoded, or copied element-wise, so the result is returned directly
+        rather than as a `Result`. Duplicates behave as native construction
+        does — a later equal key replaces the value while the map keeps the
+        position and the key representative it already stored. Each call builds
+        a new collection and consumes its source once, so an infinite sequence
+        does not terminate. *)
+    export fun jsMapFromSeq as fromSeq(pairs: Seq((k, v))): JsMap(k, v)
+
+(** The value `map` binds `key` to, or `None` when it binds none. The total
+    accessor: an absent key is an answer, not a fault.
+
+    The membership question is asked before the read, and that ordering is the
+    contract rather than an implementation detail (section 4.2): a native `get`
+    alone answers `undefined` for a stored `undefined` and for an absent key
+    alike, so a map whose values may be `undefined` — a `Nullable`, a `Unit`, an
+    opaque extern type — would lose the distinction. Here a present `undefined`
+    is `Some(undefined)` and absence is `None`. *)
+export let get(map: JsMap(k, v), key: k): Option(v) =
+    if containsKey(map, key) then
+        Some(readUnchecked(map, key))
+    else
+        None
+
+(** Every key/value pair of `map`, lazily, in the native insertion order the
+    foreign object itself defines (section 6.2).
+
+    This is `toSeq` under a second name and nothing else — the same walk, not a
+    second traversal (section 6.3). It exists because the persistent `Map` has
+    `entries` and the mirror costs one alias. `toSeq` itself is not bound here
+    and cannot be: `Iterable<JsMap(k, v)>` is a provided row (Collections Part 5
+    section 4) whose member *is* the traversal, and a module-level binding of a
+    member's spelling beside the instance is the Constraints section 4.6
+    rebinding error. The suite spelling reaches the same walk through the
+    member, as the dot call `map.toSeq()` or qualified as `JsMap.toSeq(map)`.
+
+    The sequence is lazy and zero-copy over the borrowed map, so holding one
+    extends the borrow: foreign code must keep the map's entries stable while
+    any position of it may still be forced (section 2). *)
+export let entries(map: JsMap(k, v)): Seq((k, v)) = Iterable.toSeq(map)

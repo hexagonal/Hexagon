@@ -45,7 +45,7 @@ union Bool derives (Eq, Ord, Show, Hash) = False | True
 
 There are no separate boolean literals. `True` and `False` are ordinary uppercase-start constructor names in the term namespace, module scope, prelude-imported everywhere — exactly like `None`.
 
-**`true` and `false` remain hard keywords** (Lexer §4.1) and may never be used as names. Their only role is the redirect diagnostic, per the Rewrite Rule:
+**`true` and `false` remain hard keywords** (Lexer §4.1) and may never be used as names. Their only role is the redirect diagnostic, per the Rewrite Rule *(since #773, one position excepted: the member value of a literal `extern enum`, `true as Yes`, where the keyword names the JavaScript boolean and no redirect fires — Lexer §4.1, Foreign Enums §2.4; both consequences below survive)*:
 
 > `true` is reserved; Bool's constructors are `True` and `False` — write `True`.
 
@@ -67,15 +67,15 @@ Keeping them reserved is load-bearing twice over: it makes the JS-trained user's
 
 ### 3.1 The ruling
 
-> The compiler pins `Bool`'s runtime representation to the JS `boolean`: `True` emits `true`, `False` emits `false`, and the `.d.ts` type of `Bool` is `boolean`. This is the **single exception** to the all-nullary string rule (Unions §6.2), granted to exactly one declaration: the prelude's `Bool`. It is a *representation commitment* recorded in the specs that own representation — **not** a use of the intrinsic door (`spec/intrinsics.md`), whose doctrine links *operations*, not representations. No user declaration can request a pin; there is no annotation, no syntax, no extension point.
+> The compiler pins `Bool`'s runtime representation to the JS `boolean`: `True` emits `true`, `False` emits `false`, and the `.d.ts` type of `Bool` is `boolean`. This is the **single exception** to the all-nullary string rule (Unions §6.2), granted to exactly one declaration: the prelude's `Bool`. *(Since #771 there is no string rule — every union is tagged objects — and the pin reads as an instance of the representation principle at the head of Unions §6: JavaScript has the concept, so the value becomes it.)* It is a *representation commitment* recorded in the specs that own representation — **not** a use of the intrinsic door (`spec/intrinsics.md`), whose doctrine links *operations*, not representations. No user declaration can request a pin; there is no annotation, no syntax, no extension point.
 
 Precedent is OCaml exactly: `bool` is a genuine variant declared in the stdlib, and the compiler guarantees an immediate unboxed representation. The declaration owns the semantics; the representation is a compiler commitment, invisible from inside the language — no Hexagon program can distinguish `"True"`-the-string from `true`-the-boolean, because every eliminator of `Bool` (`match`, and the operator eliminators §3.4 names) is representation-blind at the source level. *(Corrected 2026-07-29, review of PR #148: an earlier draft of this sentence said "`match` is the only eliminator," which is false for `Bool` specifically — see §3.4.)*
 
 ### 3.2 Emission consequences
 
 - `match` on `Bool` emits on the boolean itself: an `if`/ternary or `switch (b)` with `case true:`/`case false:` — emitter's judgment, same license as Unions §6.3's ternary permission.
-- Derived-instance emission simplifies past the general string case: `Eq` is `===`; `Ord` needs **no declaration-index table** (the Unions §7 implementer note for string-case `Ord` does not apply) because JS `<` on booleans is `false < true` — the pin and the declaration order agree by construction; `Hash` hashes the boolean (edit note, Collections Part 2 §2.5); `Show` emits the two-way constant lookup to `"True"`/`"False"`.
-- **The representation cliff (Unions §6.2) cannot occur**: adding a constructor to `Bool` is impossible — it is prelude source under compiler verification, and any third constructor is a compiler-integrity error, not a user-reachable state.
+- Derived-instance emission simplifies past the general string case: `Eq` is `===`; `Ord` needs **no declaration-index table** (the Unions §7 implementer note on declaration indices does not apply) because JS `<` on booleans is `false < true` — the pin and the declaration order agree by construction; `Hash` hashes the boolean (edit note, Collections Part 2 §2.5); `Show` emits the two-way constant lookup to `"True"`/`"False"`.
+- **The representation cliff (Unions §6.2; retired for every union by #771) cannot occur**: adding a constructor to `Bool` is impossible — it is prelude source under compiler verification, and any third constructor is a compiler-integrity error, not a user-reachable state.
 - Constructors referenced as values materialise per Unions §6.4 against the pinned representation: `const True = true;` at the export site. Exported signatures mentioning `Bool` continue to say `boolean` in `.d.ts`.
 
 ### 3.3 FFI: nothing moves
@@ -163,7 +163,7 @@ The witness-rendering rule (Pattern Matching: "literals for finite literal domai
 - **`true`/`false` as alias literals for the constructors (both spellings legal).** Rejected: two spellings for the two most common values in the language is a permanent style war and a diff-noise generator; the corpus's own words-only doctrine (Operators §1.2) rejects duplicate spellings on exactly this ground. One spelling, one redirect.
 - **Pinning via the intrinsic door.** Rejected on the door's own doctrine (Intrinsics §1: linkage for *declared operations*); a representation is not an operation, and widening the door to carry representations would re-found it for one customer.
 - **A spec-text-only declaration (no source form).** Rejected (James, 2026-07-29 — §3.5): if `Bool`'s declaration were spec prose rather than compilable prelude source, its instances would have to be compiler-provided, colliding with Collections Part 2 §4.4's no-source-form doctrine for provided `Hash` — an exception where the source-file route needs none. The `Seq.hex` precedent decides it: privileged stdlib source with exactly one compiler-granted privilege is the established shape.
-- **Compiling `Bool` to the strings `"False"`/`"True"` (no pin — the uniform §6.2 representation).** Rejected: every `if` in emitted code would branch on a string, every extern boolean would need conversion, and the `.d.ts` for the language's most common type would be a two-string union. This is the JavaScript-specific fact (§1) that earns the pin its place.
+- **Compiling `Bool` to the strings `"False"`/`"True"` (no pin — the then-uniform all-nullary string representation; since #771 the unpinned alternative would be the tagged objects `{tag: "True"}`, and the rejection holds a fortiori).** Rejected: every `if` in emitted code would branch on a string, every extern boolean would need conversion, and the `.d.ts` for the language's most common type would be a two-string union. This is the JavaScript-specific fact (§1) that earns the pin its place.
 
 ---
 
@@ -202,7 +202,7 @@ Lexer: `true`/`false` keep token kinds, now diagnostic-only (§2.2's redirect). 
 |---|---|
 | Doctrine: ML dialect targeting JS; TS-author test demoted to outcome; revisit-on-next-touch rule | §1 |
 | `union Bool derives (Eq, Ord, Show, Hash) = False \| True` in the prelude; constructor order fixes derived Ord | §2.1 |
-| `True`/`False` are the only spellings; `true`/`false` reserved with redirect diagnostic | §2.2 |
+| `True`/`False` are the only spellings; `true`/`false` reserved with redirect diagnostic (excepted since #773 as a literal `extern enum` member value) | §2.2 |
 | `show True` = `"True"` (derived union Show; supersedes lowercase ruling) | §2.3 |
 | Representation pinned to JS `boolean`; sole exception to Unions §6.2; not the intrinsic door; no user-reachable pin | §3 |
 | FFI boundary unchanged; `Bool` stays in the zero-cost fundamental set by enumeration | §3.3 |

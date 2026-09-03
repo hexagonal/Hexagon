@@ -98,8 +98,9 @@ function borrowed(value: unknown): unknown {
   return result.value;
 }
 
+/** The constructor name of the `JsKind` `kind` answers — its `tag` (#771). */
 function kindOf(value: unknown): string {
-  return (exports_["kindOf"] as (v: unknown) => string)(value);
+  return (exports_["kindOf"] as (v: unknown) => { readonly tag: string })(value).tag;
 }
 
 beforeAll(async () => {
@@ -319,12 +320,20 @@ describe("the probe is unguarded, and `kind`'s is not (§4.2 against §3)", () =
 
 describe("what the operation spends, and what stays behind the door", () => {
   /**
-   * `toArray` joins `stdlib/JsValue.hex`'s exports, so it is a **new bare
-   * occupation**: no other prelude member exports the name, and the bare
-   * spelling therefore resolves — the same class of spend `toString` is, and it
-   * is recorded rather than hidden.
+   * `toArray` joins `stdlib/JsValue.hex`'s exports, and it costs **no bare
+   * name**. An earlier form of this row called it a "new bare occupation" whose
+   * bare spelling therefore resolved; that was wrong when written and is doubly
+   * wrong now. Since #742 the prelude's function channel is closed — no prelude
+   * function is bare (Modules §5.5) — so a bare `toArray` never resolved, and
+   * since #238 `Vector.hex` exports the name too, which makes it two-homed on
+   * top.
+   *
+   * What this row pins is what the module actually spends: the **qualified**
+   * spelling, which is the operation's whole surface here. The bare refusal and
+   * its enumerated routes are #238's vocabulary change and are pinned once, in
+   * `vector-to-array.test.ts`, rather than twice.
    */
-  test("`toArray` is single-homed, so the bare spelling resolves", () => {
+  test("the qualified spelling is the surface, and it resolves", () => {
     expect(projectDiagnostics(
       "export let a(v: JsValue): Result(Array(JsValue), JsConversionError) = JsValue.toArray(v)\n",
     )).toEqual([]);

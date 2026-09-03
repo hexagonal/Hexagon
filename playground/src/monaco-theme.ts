@@ -78,6 +78,7 @@ export const hexagonFamilies: Readonly<Record<string, HexagonFamily>> = {
     palette: "literal",
     scopes: [
       "constant.character.escape.hexagon",
+      "constant.language.hexagon",
       "constant.numeric.integer.hexagon",
       "constant.numeric.float.hexagon",
       "constant.numeric.bigint.hexagon",

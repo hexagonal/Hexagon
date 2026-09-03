@@ -64,10 +64,10 @@ let entryValue(pair: (k, v)): v =
     value
 
 (** The keys of `map`, in the order `entries` yields their pairs. *)
-export let keys(map: Map(k, v)): Seq(k) = Seq.map(entries(map), entryKey)
+export let keys(map: Map(k, v)): Seq(k) = entries(map).map(entryKey)
 
 (** The values of `map`, positionally matching `keys`. *)
-export let values(map: Map(k, v)): Seq(v) = Seq.map(entries(map), entryValue)
+export let values(map: Map(k, v)): Seq(v) = entries(map).map(entryValue)
 
 // `toSeq` is not bound here, and cannot be: `Iterable<Map(k, v)>` is a provided
 // row (Collections Part 5 section 4) whose member *is* `entries`, and a
@@ -75,7 +75,7 @@ export let values(map: Map(k, v)): Seq(v) = Seq.map(entries(map), entryValue)
 // Constraints section 4.6 rebinding error. `entries` keeps its own name — it is
 // entrenched domain vocabulary with `keys`/`values` siblings (Part 5
 // section 13.1) — and the suite spelling reaches the same walk through the
-// member, bare as `toSeq(map)` or qualified as `Map.toSeq(map)`.
+// member, as the dot call `map.toSeq()` or qualified as `Map.toSeq(map)`.
 
 // One insertion of a pair, which is the fold `fromEntries` is. `set` is where
 // both duplicate rules come from and neither is arranged here: the later value
@@ -89,7 +89,7 @@ let insertEntry<k: Hash>(map: Map(k, v), pair: (k, v)): Map(k, v) =
     value and the first key it was inserted under. It forces the whole sequence,
     so it does not terminate on an infinite one. *)
 export let fromEntries<k: Hash>(pairs: Seq((k, v))): Map(k, v) =
-    Seq.fold(pairs, empty, insertEntry)
+    pairs.fold(empty, insertEntry)
 
 (** The pairs of `pairs` collected into a map — `fromEntries` under the
     conversion suite's name. *)
@@ -97,4 +97,4 @@ export let fromSeq<k: Hash>(pairs: Seq((k, v))): Map(k, v) = fromEntries(pairs)
 
 (** The pairs of `pairs` collected into a map, left to right. *)
 export let fromVector<k: Hash>(pairs: Vector((k, v))): Map(k, v) =
-    fromEntries(Vector.toSeq(pairs))
+    fromEntries(pairs.toSeq())

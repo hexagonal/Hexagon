@@ -42,9 +42,9 @@ union JsKind derives (Eq, Show) =
     | String | Symbol | Function | Array | Object
 ```
 
-All-nullary, so its JS representation is the string union — pleasant and free (Unions §6.2). It derives `Eq` and `Show` *(#511)*: the single-kind test `kind(v) == JsKind.Number` is the surface's most common question, and both instances are lawful and trivial on an all-nullary union. (`JsValue` itself still has no instances — §2; the kinds are ordinary domestic data about a foreign value, not the value.)
+All-nullary, so every value is a shared tagged constant (Unions §6.2). It derives `Eq` and `Show` *(#511)*: the single-kind test `kind(v) == JsKind.Number` is the surface's most common question, and both instances are lawful and trivial on an all-nullary union. (`JsValue` itself still has no instances — §2; the kinds are ordinary domestic data about a foreign value, not the value.)
 
-All ten constructors are qualified-only in the prelude inventory (`JsKind.Undefined`, `JsKind.Null`, …, `JsKind.Object`) in expressions and patterns. They are not auto-imported as bare prelude terms — the prelude's default for every union but the three open ones (Modules §5.5); `ffi.md` §12 records the first case. This ordinary companion qualification leaves the string representation unchanged (Part 12 §12).
+All ten constructors are qualified-only in the prelude inventory (`JsKind.Undefined`, `JsKind.Null`, …, `JsKind.Object`) in expressions and patterns. They are not auto-imported as bare prelude terms — the prelude's default for every union but the three open ones (Modules §5.5); `ffi.md` §12 records the first case. This ordinary companion qualification leaves the representation unchanged (Part 12 §12).
 
 Classification rules, normative:
 
@@ -194,14 +194,15 @@ The triangle, settled:
 
 - **`JsValue` vs. a trusted declaration:** the extern author's choice per API honesty (§1). Mixed signatures are normal and encouraged — `extern fun parse(text: String): JsValue` trusts the argument convention while refusing to trust the result.
 - **`JsValue` vs. `Nullable(a)`:** `Nullable(a)` is the *typed* nullish door — "a known `a`, or nothing" (Part 2). `JsValue` is the *untyped* door and **absorbs nullishness** rather than wrapping it (§2): "or nothing" is already inside. Decoding a `JsValue` that may be nullish-or-`T` is `kind`-then-decode, or the future library's `nullable(decoder)` combinator.
-- **Nullability normalization (resolved, §13.3)** — one idempotency principle, two instances:
+- **Nullability normalization (resolved, §13.3)** — one idempotency principle, three instances:
 
   ```text
   Nullable(Nullable(a)) ≡ Nullable(a)
   Nullable(JsValue)     ≡ JsValue
+  Nullable(T)           ≡ T        -- T a literal extern enum naming both null and undefined
   ```
 
-  `Nullable` never stacks on a **designated nullish-absorbing type** — a type whose value set already contains both nullish forms. The designated types are exactly `Nullable(_)` itself (Part 2's existing idempotence) and `JsValue` (this part); the list is explicit and closed. **No general structural "contains nullish" analysis exists over arbitrary types** — an opaque extern type that happens to admit `undefined` values, or a union an author believes nullish-adjacent, does not collapse; designation is by rule, not by inspection. The idiom for the three-way nullish split over an uncertain value is `kind` (§3).
+  `Nullable` never stacks on a **designated nullish-absorbing type** — a type whose value set already contains both nullish forms, so that the wrapper would add nothing and its `None` would shadow the type's own values. The designated types are exactly `Nullable(_)` itself (Part 2's existing idempotence), `JsValue` (this part), and a literal `extern enum` naming both `null` and `undefined` (Foreign Enums §2.4 — one named: `Nullable` over it is refused, not collapsed); the list is explicit and closed. **No general structural "contains nullish" analysis exists over arbitrary types** — an opaque extern type that happens to admit `undefined` values, or a union an author believes nullish-adjacent, does not collapse; designation is by rule, not by inspection. The idiom for the three-way nullish split over an uncertain value is `kind` (§3).
 - **`JsValue` in any position** — parameters, results, record fields, collection elements (`Array(JsValue)`, `JsMap(String, JsValue)`), callback signatures — is representation-direct and legal wherever Part 1 §5.3 admits a direct type. Uncertainty nests honestly.
 
 ---
@@ -285,6 +286,6 @@ The package fixed semantics; the draft supplied concrete spellings; review resol
 | Path vocabulary closed at five segments: `Field`, `Index` (1-based), `MapKey`/`MapValue`/`SetElement` (1-based source-iteration position); root-outward composition; corpus-wide | §6.1–6.2 |
 | **Part 10 correction:** its shallow conversions originate `MapKey`/`SetElement` only; `MapValue` reserved for value-traversing conversions; `Field`/`Index` originate from none of the v1 core surface | §6.3 |
 | `JsError.message` total: primitives render safely; objects **and functions** get one guarded `.message` read, `toString` never invoked, secondary throws suppressed → `""`; `JsError.stack` total: guarded `.stack` read → `Option`, `None` on anything else | §7, §12.3 |
-| `Nullable(a)` = typed nullish door; `JsValue` = untyped door absorbing nullish; **one idempotency principle over designated nullish-absorbing types: `Nullable(Nullable(a)) ≡ Nullable(a)`, `Nullable(JsValue) ≡ JsValue`; closed designation, no structural nullish analysis**; mixed trusted/uncertain signatures encouraged; `JsValue` legal in every direct position | §8, §13.3 |
+| `Nullable(a)` = typed nullish door; `JsValue` = untyped door absorbing nullish; **one idempotency principle over designated nullish-absorbing types: `Nullable(Nullable(a)) ≡ Nullable(a)`, `Nullable(JsValue) ≡ JsValue`, `Nullable(T) ≡ T` for a literal extern enum naming both nullish values (Foreign Enums §2.4); closed designation, no structural nullish analysis**; mixed trusted/uncertain signatures encouraged; `JsValue` legal in every direct position | §8, §13.3 |
 | Decoder library confirmed to the stdlib listing (ledger entry issued); `toJsMap`/`toJsSet` deferred from the v1 core — revisit bar: no portable `Array.isArray`-equivalent (cross-realm `instanceof` failure; awkward throw-based intrinsic brand checks); JSON, serialization untouched | §9, §13.1–13.2 |
 | Edit notes: Part 1 §4.1 `JsValue` row finalized; Exceptions §6.1 accessor debt discharged; `Nullable(JsValue) ≡ JsValue` propagated to Part 2; composable `JsValue` decoder family added to the global stdlib-listing ledger | §10 |

@@ -162,6 +162,22 @@ export interface PreludeModule {
  * It sits here because a reader meeting the boundary companions meets them
  * together.
  *
+ * `JsMap.hex` and `JsSet.hex` follow it immediately (#792), and they are FFI
+ * Part 10's companions of the other two borrowed views. Their seats are forced
+ * by the same reading as `Array.hex`'s, one signature at a time: `JsMap.get`
+ * answers with an `Option`, both `fromSeq` rows name `Seq`, and `JsMap.entries`
+ * is `Iterable`'s member reached qualified, so all three of `Option.hex`,
+ * `Seq.hex` and `Iterable.hex` must already be seated — which the tail beside
+ * `Array.hex` satisfies with room to spare. Nothing forces them relative to the
+ * Part 11 block below, and nothing in that block names either type: like
+ * `Array(a)`, both are compiler-owned with no declaration site, so only these
+ * files and a user's own annotation can spell them. They sit beside `Array.hex`
+ * for its reason — a reader meeting the boundary companions meets them
+ * together — and the vocabulary the pair spends is the same courtesy it is
+ * there: `size`, `get`, `containsKey`, `entries`, `contains` and `fromSeq` are
+ * every one of them already multi-homed and already refused bare (Modules
+ * §5.5), so the seat decides only how many routes a refusal enumerates.
+ *
  * `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex` and `JsValue.hex`
  * are FFI Part 11's four, and they are the seats-before-uses rule four times
  * over. The first three each declare one union and nothing else, and each is a
@@ -238,6 +254,8 @@ export const PRELUDE_MODULES: readonly PreludeModule[] = [
   "Set.hex",
   "Stream.hex",
   "Array.hex",
+  "JsMap.hex",
+  "JsSet.hex",
   "JsKind.hex",
   "JsPathSegment.hex",
   "JsConversionReason.hex",

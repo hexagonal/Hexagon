@@ -461,7 +461,11 @@ describe("§6.1 — arms 2 and 3: the hoisted binding's slot", () => {
     const text = emitted(source);
 
     expect(text).toContain("const __Show_Option_Int = __Show_Option(__Show_Int);");
-    expect(text).toContain("const shown = __Show_Option_Int.show(Some(11));");
+    // The construction erased (#770); the seat this row reads is the hoisted
+    // dictionary the call goes through, which the erasure does not touch.
+    expect(text).toContain(
+      'const shown = __Show_Option_Int.show({ tag: "Some", value: 11 });',
+    );
 
     const main = await runMain(source);
     expect(main["shown"]).toBe("Some(11)");

@@ -366,6 +366,94 @@ describe("rename", () => {
     );
   });
 
+  /**
+   * A rename plan's edits do not all write the same text (`RenameEdit.replacement`,
+   * Foreign Enums §5.2): a literal `extern enum`'s generated `fromJsT`/`toJsT`
+   * spell the type name they are derived from, so renaming the type has to write
+   * `fromJsWay` where it writes `Way` everywhere else.
+   *
+   * Pinned here because this is where the fact is thrown away. The session
+   * decides the per-edit text and this pane copies it into the buffer edit; a
+   * pane that wrote `newName` for every edit produced a program that does not
+   * compile, and no other test here has an edit whose text differs from the
+   * plan's name — which is why `compileSource` is asserted and not only the
+   * spans.
+   */
+  test("writes each edit's own text, so a generated conversion follows its type", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = 'extern enum Direction = "up" as Up | "down" as Down\n' +
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)\n" +
+      'Debug.log("${show(1)}")\n';
+
+    const result = analysis.rename(source, at(source, "Direction"), "Way");
+
+    expect(result).toMatchObject({ newName: "Way" });
+    if (result === undefined || "refused" in result) return;
+    const renamed = applied(source, result.edits);
+    expect(renamed).toBe(
+      'extern enum Way = "up" as Up | "down" as Down\n' +
+        "let read(v: JsValue): Option(Way) = fromJsWay(v)\n" +
+        'Debug.log("${show(1)}")\n',
+    );
+    expect(compileSource(1, renamed)).toMatchObject({ kind: "compile-success" });
+  });
+
+  /**
+   * The **object-reading** form of `extern enum` (Foreign Enums §2.1, #779)
+   * through the same seat. The Playground cannot load a foreign module, so this
+   * is analysis only — which is the whole of what the pane offers for one: the
+   * declaration analyses clean, and the type's rename carries the conversions
+   * the row generates, writing each edit's own text.
+   */
+  test("an object-reading `extern enum` analyses, and its rename carries the conversions", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = 'extern from "keyboard"\n' +
+      "    enum Key as Direction = ARROW_UP as Up | ARROW_DOWN as Down\n" +
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)\n" +
+      'Debug.log("${show(1)}")\n';
+
+    expect(compileSource(1, source)).toMatchObject({ kind: "compile-success" });
+
+    const result = analysis.rename(source, at(source, "Direction"), "Way");
+    expect(result).toMatchObject({ newName: "Way" });
+    if (result === undefined || "refused" in result) return;
+    const renamed = applied(source, result.edits);
+    // The foreign half is untouched: renaming the local type must not change
+    // which export the block reads.
+    expect(renamed).toBe(
+      'extern from "keyboard"\n' +
+        "    enum Key as Way = ARROW_UP as Up | ARROW_DOWN as Down\n" +
+        "let read(v: JsValue): Option(Way) = fromJsWay(v)\n" +
+        'Debug.log("${show(1)}")\n',
+    );
+    expect(compileSource(2, renamed)).toMatchObject({ kind: "compile-success" });
+  });
+
+  /**
+   * The same through the Playground's own `module` notation, which maps buffer
+   * offsets onto synthesized files — so the derived edit has to survive that
+   * mapping as well as the plan.
+   */
+  test("carries a generated conversion across a module block", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = "module Bindings\n" +
+      '    export extern enum Direction = "up" as Up | "down" as Down\n' +
+      "end module Bindings\n" +
+      "let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)\n" +
+      'Debug.log("${show(1)}")\n';
+
+    const result = analysis.rename(source, at(source, "Direction"), "Way");
+
+    if (result === undefined || "refused" in result) throw new Error("expected a plan");
+    expect(applied(source, result.edits)).toBe(
+      "module Bindings\n" +
+        '    export extern enum Way = "up" as Up | "down" as Down\n' +
+        "end module Bindings\n" +
+        "let read(v: JsValue): Option(Bindings.Way) = Bindings.fromJsWay(v)\n" +
+        'Debug.log("${show(1)}")\n',
+    );
+  });
+
   test("refuses a name whose mentions reach a hosted library", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";

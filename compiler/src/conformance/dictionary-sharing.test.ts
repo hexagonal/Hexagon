@@ -170,7 +170,9 @@ describe("§3.1 — ground applications hoist to module level", () => {
     expect(text).toContain("const __Show_Option_Int = __Show_Option(__Show_Int);");
     expect(occurrences(text, "const __Show_Option_Int =")).toBe(1);
     expect(occurrences(text, "__Show_Option(__Show_Int)")).toBe(1);
-    expect(text).toContain("const f = x => __Show_Option_Int.show(Some(x));");
+    expect(text).toContain(
+      'const f = x => __Show_Option_Int.show({ tag: "Some", value: x });',
+    );
   });
 
   test("free-parameter evidence never hoists", () => {
