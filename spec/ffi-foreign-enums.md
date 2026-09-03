@@ -477,9 +477,14 @@ when the raw values remain unchanged.
 A TypeScript `const enum` is normally erased and supplies no runtime object to import.
 It cannot satisfy the object-reading form. Declare its inlined values with the literal
 form (§2.4) — `extern enum Level = 0 as Low | 1 as High` — or publish a real
-object/facade. Diagnostic when the named export is observably absent: "`Direction` has
-no runtime enum object; write its values with the literal form, `extern enum Direction
-= … as …`, or bind a JavaScript facade."
+object/facade. The compiler does not detect the absence: it never inspects the foreign
+package (§2.2), so a declaration over an erased enum fails where ESM linking fails, with
+the engine's own missing-export error, and an object that lacks a declared member
+captures `undefined` for that constructor — a false contract under §3, not a diagnosed
+one. Tooling able to inspect the foreign module's declarations may diagnose it early,
+with the rewrite "`Direction` has no runtime enum object; write its values with the
+literal form, `extern enum Direction = … as …`, or bind a JavaScript facade" — the
+same concession §8.3 makes for alias values.
 
 ### 8.2 Flags and bitmasks
 
@@ -527,8 +532,9 @@ An implementation is not conforming until tests cover at least:
 8. `toJsT` preserving primitive value or object identity.
 9. Derived `Eq`, `Ord`, `Show`, and `Hash` following §6 rather than carrier semantics.
 10. Private versus `export enum` JavaScript and `.d.ts` surfaces.
-11. Diagnostics for payload members, parameters, duplicate names, and attempted use of
-    a missing runtime/`const enum` export.
+11. Diagnostics for payload members, parameters, and duplicate names; and the observable
+    failure of a missing runtime/`const enum` export — an ESM link error, with no
+    compile-time check (§8.1).
 12. No regression to ordinary all-nullary unions' tagged-object ABI (Unions §6.2).
 13. The literal form at module scope: string, integer, boolean and mixed members;
     private and `export extern enum` surfaces; reached abroad through the module
