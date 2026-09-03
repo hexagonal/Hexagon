@@ -484,7 +484,7 @@ where ESM linking fails, with the engine's own missing-export error, and an impo
 does not supply a declared member property — an object lacking the member, or an export
 that is no object at all, such as a number or a string — captures `undefined` for that
 constructor: a false contract under §3, not a diagnosed one. A `null` or `undefined`
-export is the one shape §3 rule 1 admits that fails loudly: the read itself throws, at
+export is the one breach of §3 rule 1 that fails loudly: the read itself throws, at
 module evaluation rather than at link. Tooling able to inspect the foreign module's
 declarations may diagnose it early, with the rewrite "`Direction` has no runtime enum
 object; write its values with the literal form, `extern enum Direction = … as …`, or
