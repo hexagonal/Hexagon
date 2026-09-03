@@ -103,6 +103,7 @@ Documentation content is **Markdown** (CommonMark). The compiler does not otherw
 
 - A fenced code block with no info string defaults to Hexagon (` ``` ` = ` ```hexagon `) in every Hexagon-aware renderer; emitted JSDoc keeps the fence as written (§7.2).
 - There is **no tag language**. `@param`, `@returns`, and their kin have no Hexagon meaning; a line beginning `@word` is ordinary Markdown text and passes through. Rationale: the `.d.ts` already carries every exported signature completely and honestly (Modules §4.1.1, FFI Part 7) — a hand-written `@param` row duplicates what the compiler states better, and duplicated statements drift. Deferred, not banned forever, with a revisit bar: §9.2. **But note the boundary consequence** (§7.2): "no Hexagon meaning" does not make a tag inert in the shipped artifact, because TypeScript tooling reads emitted JSDoc with its own tag vocabulary.
+- **House style for hard line breaks**: a line break inside a paragraph is spelled CommonMark's way with a trailing backslash (`\`), never with two trailing spaces. Both are CommonMark hard breaks and both pass through extraction (§3.1 strips trailing whitespace only before `*)`) and emission (§7.2) verbatim, so this is style, not recognition. The two-space form loses on two counts: it is invisible to the author, and the repository's editor configuration trims trailing whitespace from `.hex` files on save, so it cannot survive in a Hexagon source file at all. A blank line remains the paragraph break.
 - There is **no intra-doc link resolution** in v1 — no OCaml `{!Vector.map}`, no Rust ``[`Vector`]``. A Markdown link is a Markdown link. Deferred: §9.2.
 
 ### 6.1 The throws manifest *(#479)*
@@ -296,6 +297,7 @@ fun helper(s: String): Ast = ...         -- unexported: manifest is house style,
 | Documentable: module-level inventory + every `extern from` item form (`fun`/`let`/`default`/`type`/`enum`/`class` and members; enum members like constructors) + union constructors + record fields + constraint members (`type` members among them) + honor members (implied-type bindings among them) + `fun` block members (#700) + local binders; not `import`/`extern import`, not the `extern from` header, not the `fun` block head, not module-level effects | §4.2 |
 | Dangling and trailing doc comments are hard errors with Rewrite-Rule redirects; the `extern from` header gets its own message | §5 |
 | Content is CommonMark, carried opaque; bare fences default to Hexagon; no tags, no link resolution in v1 | §6 |
+| House style: a hard line break in doc content is a trailing backslash, never two trailing spaces (invisible, and trimmed on save in `.hex` files); both forms pass through verbatim | §6 |
 | Emission: JSDoc in both `.js` and `.d.ts` at every corresponding seat; `*/` → `*\/`; no seat → tooling-only | §7 |
 | Verbatim emission makes TS's tag vocabulary live at the boundary — recorded, neither validated nor suppressed; the tag-language ruling inherits it | §6, §7.2, §9.2 |
 | User + generated docs merge into one JSDoc block, user first | §7.3 |
