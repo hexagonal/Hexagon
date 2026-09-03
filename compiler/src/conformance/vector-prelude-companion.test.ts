@@ -122,6 +122,15 @@ describe("the module", () => {
       // and from here they are visible to no prelude module that spells either
       // word, so the Modules §5.5 arithmetic is settled in user code.
       "Array.hex",
+      // #792: FFI Part 10's two companions of the other borrowed views. Each
+      // edge is forced by a signature — `JsMap.get` answers with an `Option`,
+      // both `fromSeq` rows name `Seq`, and `JsMap.entries` reaches `Iterable`'s
+      // member — and the tail beside `Array.hex` satisfies all three. Nothing in
+      // the Part 11 block below names either type, so their position relative to
+      // it is the same courtesy `Array.hex`'s is: the boundary companions sit
+      // together.
+      "JsMap.hex",
+      "JsSet.hex",
       // #511: FFI Part 11's four. The first three each declare one union and
       // exist as modules of their own because `spec/ffi.md` §12 (as extended
       // for #511) makes every one of their constructors qualified-only, which

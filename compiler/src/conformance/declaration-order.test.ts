@@ -680,7 +680,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       ])).toEqual([MOVE_IMPORT("Vector.toSeq")]);
     });
 
-    test("...at the five aliases a row is seated at, and nowhere else", () => {
+    test("...at the seven aliases a row is seated at, and nowhere else", () => {
       // A seated file is not a row. Any project file whose basename matches a
       // prelude module takes that module's seat, so `Int` and `Debug` are
       // addressable the same way `Vector` is — and neither carries a row, so

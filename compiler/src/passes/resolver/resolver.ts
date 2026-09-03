@@ -1764,8 +1764,8 @@ class Resolver {
    * a binding either way: claim a name no surface offers and the message is back
    * to promising a repair that fixes nothing, which is the whole point of asking.
    * `PROVIDED_ROW_ALIASES` is where that line ran once — the seating alone
-   * admits every prelude basename a project file may take, and only five of them
-   * carry a row.
+   * admits every prelude basename a project file may take, and only seven of
+   * them carry a row.
    */
   #aliasOffers(
     iface: ModuleInterface,
@@ -1783,7 +1783,7 @@ class Resolver {
     // the same file reached two ways yields two interfaces, so the comparison is
     // by `fileId`. The alias filter above it is what keeps this from claiming
     // `Int.toSeq` — every prelude basename a project file may take is seated,
-    // and only five of them carry a row.
+    // and only seven of them carry a row.
     const companion = this.#preludeModuleAliases.get(alias);
     return companion !== undefined && companion.module.fileId === iface.module.fileId;
   }
@@ -5988,7 +5988,7 @@ class Resolver {
     if (field.text !== "toSeq") return undefined;
     // The alias must be one a row is seated at before anything else is asked, so
     // that this reader and `#aliasOffers` answer the same set. The arms below
-    // are the same five, and reaching the tail `return undefined` for an alias
+    // are the same seven, and reaching the tail `return undefined` for an alias
     // this admitted would be the drift the shared constant exists to prevent.
     if (!PROVIDED_ROW_ALIASES.has(alias)) return undefined;
     // Keyed on the *module*, never on the spelling: a user's own
@@ -6046,6 +6046,15 @@ class Resolver {
     }
     if (alias === "String") {
       return pin({ kind: "Primitive", name: "String", span }, []);
+    }
+    if (alias === "JsMap") {
+      return pin(
+        { kind: "JsMap", key: variable("k"), value: variable("v"), span },
+        ["k", "v"],
+      );
+    }
+    if (alias === "JsSet") {
+      return pin({ kind: "JsSet", element: variable("a"), span }, ["a"]);
     }
     if (alias === "Seq") {
       const record = iface.records.get("Seq");
@@ -6742,6 +6751,12 @@ export const PROVIDED_ROW_ALIASES: ReadonlySet<string> = new Set([
   "Map",
   "String",
   "Seq",
+  // FFI Part 10 §6.1's two rows (#792). They are here rather than absent for the
+  // ordinary reason the others are: the borrowed views now have companions
+  // (`stdlib/JsMap.hex`, `stdlib/JsSet.hex`), so `JsMap.toSeq(m)` has a module
+  // to be addressed through and the row is what it reaches.
+  "JsMap",
+  "JsSet",
 ]);
 
 /**

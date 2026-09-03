@@ -996,6 +996,13 @@ const BUILTIN_COMPANIONS: ReadonlyMap<string, string> = new Map([
   // is the module addressable under the name. Part 2 §13.1 turns on it — the
   // fused call form "stopped being an error entirely" only where this tie exists.
   ["Array", "builtin:Array"],
+  // The two borrowed collection views (FFI Part 10 §3) join last and on the same
+  // footing (#792): neither type has a declaration site, so `stdlib/JsMap.hex`
+  // and `stdlib/JsSet.hex` are their companions by being the modules addressable
+  // under the names. `m.size()` *is* `JsMap.size(m)` and `s.contains(x)` *is*
+  // `JsSet.contains(s, x)`, exactly as `xs.length()` is `Array.length(xs)`.
+  ["JsMap", "builtin:JsMap"],
+  ["JsSet", "builtin:JsSet"],
 ]);
 
 /**
@@ -1282,7 +1289,8 @@ function companionHeadName(type: Mono): string | undefined {
   if (type.kind === "NominalRecord" || type.kind === "Union") return type.name;
   if (
     type.kind === "Vector" || type.kind === "Set" || type.kind === "Map" ||
-    type.kind === "JsValue" || type.kind === "Array"
+    type.kind === "JsValue" || type.kind === "Array" ||
+    type.kind === "JsMap" || type.kind === "JsSet"
   ) return type.kind;
   if (type.kind === "Constructor") return type.name;
   return undefined;
@@ -3132,10 +3140,16 @@ class Checker {
       // boundary row (#511): `stdlib/Array.hex` is the module addressable under
       // the name, so `xs.length()` *is* `Array.length(xs)` — FFI Part 2 §13.1's
       // "the call form stopped being an error entirely" is a fact about this
-      // line. `Nullable`, `JsMap` and `JsSet` remain absent because no module
-      // answers for them, and an empty set here would only produce the row
-      // diagnostic below.
-      actual.kind === "Array";
+      // line.
+      actual.kind === "Array" ||
+      // The two borrowed collection views join for the same reason (#792,
+      // FFI Part 10 §3): `stdlib/JsMap.hex` and `stdlib/JsSet.hex` are the
+      // modules addressable under the names, so `m.size()`, `m.get(k)` and
+      // `s.contains(x)` are ordinary companion dispatch. `Nullable` remains
+      // absent because no module answers for it, and an empty set here would
+      // only produce the row diagnostic below.
+      actual.kind === "JsMap" ||
+      actual.kind === "JsSet";
     // Primitives join the table for the member clause alone (§3.4's Primitive
     // row): they have no fields and no companion module, so the wired instances
     // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.

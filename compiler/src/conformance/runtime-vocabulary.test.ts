@@ -670,6 +670,15 @@ const UNCONTESTED_CORPUS: readonly string[] = [
     "export let memo(): Seq(Int) = Seq.memoize(Vector.toSeq([1, 2]))\n" +
     "export let counted(): Seq(Int) = Seq.take(Seq.iterate(0, (x) => x + 1), 3)\n",
   "export let probe(): Unit = Debug.log(\"hi\")\n",
+  // The two borrowed views' eager constructors (#792), which are the only seats
+  // that write `new Map(…)` and `new Set(…)`. They are *prelude* seats, and a
+  // prelude module is emitted only when something imports it — so without this
+  // entry the two spellings would be in the vocabulary and in no scanned text,
+  // and the completeness half of the tripwire below would be the thing that said
+  // so.
+  "export let jm: JsMap(String, Int) = JsMap.fromSeq(Vector.toSeq([(\"a\", 1)]))\n" +
+    "export let js: JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1, 2]))\n" +
+    "export let jn: Int = JsMap.size(jm) + JsSet.size(js)\n",
   "export let d(a: Int, b: Int): Int = Int.div(a, b)\n" +
     "export let fl(a: Float, b: Float): Bool = a == b\n" +
     "export let cmp(a: String, b: String): Ordering = Ord.compare(a, b)\n" +
@@ -778,8 +787,14 @@ describe("completeness — the worst-contested module writes no bare global", ()
   test("every seat steps around every spelling, in one module", () => {
     const text = javascript([["/main.hex", ALL_CONTESTED]]);
 
-    // The manifest names the whole capturable vocabulary, because this module
-    // binds the whole of it.
+    // The manifest names every capturable spelling this module binds — which is
+    // the whole vocabulary but `Map` and `Set`. Those two are deliberately
+    // unbound here: binding either would put a constructor in the way of the
+    // `Map.fromVector` and `Set` spellings this module needs to reach the map
+    // bracket at all, and the seats that write `new Map(…)`/`new Set(…)` are
+    // prelude ones (`stdlib/JsMap.hex`, `stdlib/JsSet.hex`) rather than seats a
+    // user module can host. Their capture is measured where it can happen, on a
+    // project-supplied copy of one of those files — `js-map-set.test.ts`.
     expect(text).toContain(
       "import { __Array, __BigInt, __Boolean, __console, __Error, __Math, __Number, " +
         '__Object, __RangeError, __String, __Symbol, __TypeError, __WeakMap } from "./hex.js";',
@@ -893,16 +908,19 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
         "  __Boolean = globalThis.Boolean,\n" +
         "  __console = globalThis.console,\n" +
         "  __Error = globalThis.Error,\n" +
+        "  __Map = globalThis.Map,\n" +
         "  __Math = globalThis.Math,\n" +
         "  __Number = globalThis.Number,\n" +
         "  __Object = globalThis.Object,\n" +
         "  __RangeError = globalThis.RangeError,\n" +
+        "  __Set = globalThis.Set,\n" +
         "  __String = globalThis.String,\n" +
         "  __Symbol = globalThis.Symbol,\n" +
         "  __TypeError = globalThis.TypeError,\n" +
         "  __WeakMap = globalThis.WeakMap;\n" +
-        "export { __Array, __BigInt, __Boolean, __console, __Error, __Math, __Number, " +
-        "__Object, __RangeError, __String, __Symbol, __TypeError, __WeakMap };\n",
+        "export { __Array, __BigInt, __Boolean, __console, __Error, __Map, __Math, " +
+        "__Number, __Object, __RangeError, __Set, __String, __Symbol, __TypeError, " +
+        "__WeakMap };\n",
     );
   });
 

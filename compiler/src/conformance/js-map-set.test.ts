@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
+import { PRELUDE_SOURCES } from "../prelude-sources.js";
+import { codeOnly } from "../support/free-identifiers.js";
 import { compileFiles, projectDiagnostics } from "../support/test-project.js";
 import { typeScriptErrors } from "../support/typescript-check.js";
 
@@ -21,10 +23,15 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * a native `Set` yields its elements, so zero adaptation happens anywhere — and
  * a test that read emitted text would be reading the absence of code.
  *
- * The surfaces Part 10 §3–§5 and §7 name — `JsMap.get`, the `jsMap[key]`
- * bracket, `JsSet.contains`, the four conversions — are deliberately **not**
- * here. They are not implemented, and FFI Part 2 §9.1's doctrine is absent
- * until implementable, never a stub.
+ * *(#792.)* Part 10 §3's read-and-construct surfaces landed with
+ * `stdlib/JsMap.hex` and `stdlib/JsSet.hex`, and they are the second half of
+ * this file. Every pin below executes against genuine native values for the
+ * reason the iteration pins do: the claims are about the *foreign* object's
+ * equality, its `size`, its constructor and its throws, none of which a reading
+ * of emitted text is evidence about. What is still absent is still absent —
+ * the `jsMap[key]` bracket (#793), the `jsSet[x]` refusal (#794), and the four
+ * conversions (#795, #796) — and FFI Part 2 §9.1's doctrine is absence until
+ * implementable, never a stub.
  */
 
 /** Minimal ESM linker: rewrite compiler-owned relative imports to data-URL modules. */
@@ -420,5 +427,693 @@ describe("arity, and what outranks the intrinsic", () => {
         "    for item in JsSet({ only = 1 })\n" +
         "        ()\n",
     ).join("\n")).toContain("is not iterable. Define `honor Iterable<JsSet(a)>`");
+  });
+});
+
+describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
+  /**
+   * The whole reason §4.2 asks `has` before `get`, measured: a native `get`
+   * alone answers `undefined` for a stored `undefined` and for an absent key
+   * alike, and `v` may lawfully be `undefined` — `Unit` is, and so are
+   * `Nullable(a)` and the opaque extern types.
+   *
+   * `JsMap(String, Unit)` is the sharpest case the type system can state: every
+   * value in the map *is* `undefined`, so a fused lowering answers `None`
+   * everywhere and this test's first row would agree with its second.
+   */
+  test("a present `undefined` value is `Some`, and only absence is `None`", async () => {
+    const exports = await run(
+      'extern from "voids"\n' +
+        "    fun voids(): JsMap(String, Unit)\n" +
+        "\n" +
+        "let answer(m: JsMap(String, Unit), key: String): String =\n" +
+        "    match JsMap.get(m, key)\n" +
+        '        None => "none"\n' +
+        '        Some(_) => "some"\n' +
+        "\n" +
+        "export fun probe(): (String, String) =\n" +
+        "    let m = voids!()\n" +
+        '    (answer(m, "stored"), answer(m, "missing"))\n',
+      {
+        voids: "export function voids() {\n" +
+          '  return new Map([["stored", undefined]]);\n' +
+          "}\n",
+      },
+    );
+    expect((exports["probe"] as () => [string, string])()).toEqual(["some", "none"]);
+  });
+
+  /** The same distinction at a `Nullable` value, the other `undefined`-bearing face. */
+  test("a stored `Nullable` `undefined` is `Some` too", async () => {
+    const exports = await run(
+      'extern from "maybes"\n' +
+        "    fun maybes(): JsMap(String, Nullable(Int))\n" +
+        "\n" +
+        "let read(m: JsMap(String, Nullable(Int)), key: String): String =\n" +
+        "    match JsMap.get(m, key)\n" +
+        '        None => "absent"\n' +
+        '        Some(_) => "present"\n' +
+        "\n" +
+        "export fun probe(): (String, String) =\n" +
+        "    let m = maybes!()\n" +
+        '    (read(m, "empty"), read(m, "nothing"))\n',
+      {
+        maybes: "export function maybes() {\n" +
+          '  return new Map([["empty", undefined]]);\n' +
+          "}\n",
+      },
+    );
+    expect((exports["probe"] as () => [string, string])()).toEqual(["present", "absent"]);
+  });
+
+  /** And an ordinary value comes back, so the accessor is not merely a predicate. */
+  test("a present ordinary value is handed back inside the `Some`", async () => {
+    const exports = await run(
+      'extern from "prices"\n' +
+        "    fun prices(): JsMap(String, Int)\n" +
+        "\n" +
+        "let read(m: JsMap(String, Int), key: String): Int =\n" +
+        "    match JsMap.get(m, key)\n" +
+        "        None => 0\n" +
+        "        Some(value) => value\n" +
+        "\n" +
+        "export fun probe(): (Int, Int) =\n" +
+        "    let m = prices!()\n" +
+        '    (read(m, "pen"), read(m, "nib"))\n',
+      { prices: 'export function prices() { return new Map([["pen", 7]]); }\n' },
+    );
+    expect((exports["probe"] as () => [number, number])()).toEqual([7, 0]);
+  });
+
+  /**
+   * §4.2 step 1: the map and key expressions are evaluated **exactly once
+   * each**. Here that is true by construction rather than by arrangement — the
+   * accessor is ordinary Hexagon over two function parameters, which are values
+   * by the time the body runs — and the foreign side counts, so the
+   * construction is measured rather than asserted.
+   */
+  test("the map and the key are each evaluated once", async () => {
+    const exports = await run(
+      'extern from "counted"\n' +
+        "    fun table(): JsMap(String, Int)\n" +
+        "    fun key(): String\n" +
+        "    fun calls(): Int\n" +
+        "\n" +
+        "export fun probe(): Int =\n" +
+        "    match JsMap.get(table!(), key!())\n" +
+        "        None => calls!()\n" +
+        "        Some(_) => calls!()\n",
+      {
+        counted: "let count = 0;\n" +
+          'const shared = new Map([["a", 1]]);\n' +
+          "export function table() { count += 1; return shared; }\n" +
+          'export function key() { count += 1; return "a"; }\n' +
+          "export function calls() { return count; }\n",
+      },
+    );
+    expect((exports["probe"] as () => number)()).toBe(2);
+  });
+});
+
+describe("the fresh `size` read (Part 10 §3, Collections Part 5 §3.1)", () => {
+  /**
+   * Never cached and never hoisted. Both reads sit in one Hexagon function with
+   * a foreign mutation between them, so a compiler treating the pure-faced
+   * `size` as a value to compute once would answer `(1, 1)` — which is the
+   * defect the discipline exists against, since foreign code owns the
+   * collection and the borrow contract permits it to change.
+   */
+  test("two reads of one borrowed map see a foreign mutation between them", async () => {
+    const exports = await run(
+      'extern from "growing"\n' +
+        "    fun table(): JsMap(String, Int)\n" +
+        "    fun grow(): Int\n" +
+        "\n" +
+        "export fun probe(): (Int, Int) =\n" +
+        "    let m = table!()\n" +
+        "    let before = JsMap.size(m)\n" +
+        "    ignore(grow!())\n" +
+        "    let after = JsMap.size(m)\n" +
+        "    (before, after)\n",
+      {
+        growing: 'const shared = new Map([["a", 1]]);\n' +
+          "export function table() { return shared; }\n" +
+          'export function grow() { shared.set("b", 2); return 0; }\n',
+      },
+    );
+    expect((exports["probe"] as () => [number, number])()).toEqual([1, 2]);
+  });
+
+  test("and two reads of one borrowed set do the same", async () => {
+    const exports = await run(
+      'extern from "flags"\n' +
+        "    fun flags(): JsSet(Int)\n" +
+        "    fun add(): Int\n" +
+        "\n" +
+        "export fun probe(): (Int, Int) =\n" +
+        "    let s = flags!()\n" +
+        "    let before = JsSet.size(s)\n" +
+        "    ignore(add!())\n" +
+        "    let after = JsSet.size(s)\n" +
+        "    (before, after)\n",
+      {
+        flags: "const shared = new Set([4]);\n" +
+          "export function flags() { return shared; }\n" +
+          "export function add() { shared.add(5); return 0; }\n",
+      },
+    );
+    expect((exports["probe"] as () => [number, number])()).toEqual([1, 2]);
+  });
+});
+
+describe("native equality, not structural (Part 10 §4.3)", () => {
+  /**
+   * SameValueZero, at its two edges. `NaN` finds `NaN` — where JavaScript `===`
+   * would not — and `-0` finds `+0`. Both hold on Hexagon's side too (§4.3's
+   * first bullet: every primitive's `Eq` *is* SameValueZero on its JS
+   * representation), so the row is about the two regimes agreeing, and the
+   * values come from the foreign side because Hexagon writes no `NaN` literal.
+   */
+  test("`NaN` finds `NaN` and `-0` finds `+0` in a borrowed map", async () => {
+    const exports = await run(
+      'extern from "odd"\n' +
+        "    fun table(): JsMap(Float, Int)\n" +
+        "    fun nan(): Float\n" +
+        "    fun negativeZero(): Float\n" +
+        "\n" +
+        "export fun probe(): (Bool, Bool, Bool) =\n" +
+        "    let m = table!()\n" +
+        "    (JsMap.containsKey(m, nan!()),\n" +
+        "     JsMap.containsKey(m, negativeZero!()),\n" +
+        "     JsMap.containsKey(m, 1.5))\n",
+      {
+        odd: "export function table() { return new Map([[NaN, 1], [0, 2]]); }\n" +
+          "export function nan() { return NaN; }\n" +
+          "export function negativeZero() { return -0; }\n",
+      },
+    );
+    expect((exports["probe"] as () => [boolean, boolean, boolean])())
+      .toEqual([true, true, false]);
+  });
+
+  /** The same at a borrowed set, whose one Boolean read is `contains` (§5). */
+  test("`JsSet.contains` finds `NaN` too", async () => {
+    const exports = await run(
+      'extern from "marks"\n' +
+        "    fun marks(): JsSet(Float)\n" +
+        "    fun nan(): Float\n" +
+        "\n" +
+        "export fun probe(): (Bool, Bool) =\n" +
+        "    let s = marks!()\n" +
+        "    (JsSet.contains(s, nan!()), JsSet.contains(s, 9.0))\n",
+      {
+        marks: "export function marks() { return new Set([NaN, 1]); }\n" +
+          "export function nan() { return NaN; }\n",
+      },
+    );
+    expect((exports["probe"] as () => [boolean, boolean])()).toEqual([true, false]);
+  });
+
+  /**
+   * §4.3's second bullet, which is the consequential half: a structural key is
+   * a **reference-identity** key here. The stored object is found by the very
+   * reference that was stored, and an object with the same contents is a
+   * different key — legal, occasionally what a binding needs, and nothing like
+   * the persistent `Map`'s structural index.
+   *
+   * No `Hash` is written anywhere in this program, and none could be demanded:
+   * `JsValue` honors no `Hash`, so a surface asking for one would not admit
+   * this receiver at all.
+   */
+  test("an object key is found by reference and not by contents", async () => {
+    const exports = await run(
+      'extern from "objects"\n' +
+        "    fun table(): JsMap(JsValue, Int)\n" +
+        "    fun stored(): JsValue\n" +
+        "    fun twin(): JsValue\n" +
+        "\n" +
+        "export fun probe(): (Bool, Bool) =\n" +
+        "    let m = table!()\n" +
+        "    (JsMap.containsKey(m, stored!()), JsMap.containsKey(m, twin!()))\n",
+      {
+        objects: "const key = { id: 1 };\n" +
+          "export function table() { return new Map([[key, 7]]); }\n" +
+          "export function stored() { return key; }\n" +
+          "export function twin() { return { id: 1 }; }\n",
+      },
+    );
+    expect((exports["probe"] as () => [boolean, boolean])()).toEqual([true, false]);
+  });
+
+  /** And the same at a set, where the elements *are* the keys. */
+  test("a set element is a reference too", async () => {
+    const exports = await run(
+      'extern from "objects"\n' +
+        "    fun members(): JsSet(JsValue)\n" +
+        "    fun stored(): JsValue\n" +
+        "    fun twin(): JsValue\n" +
+        "\n" +
+        "export fun probe(): (Bool, Bool) =\n" +
+        "    let s = members!()\n" +
+        "    (JsSet.contains(s, stored!()), JsSet.contains(s, twin!()))\n",
+      {
+        objects: "const element = { id: 1 };\n" +
+          "export function members() { return new Set([element]); }\n" +
+          "export function stored() { return element; }\n" +
+          "export function twin() { return { id: 1 }; }\n",
+      },
+    );
+    expect((exports["probe"] as () => [boolean, boolean])()).toEqual([true, false]);
+  });
+});
+
+describe("eager construction from a `Seq` (Part 10 §6.5)", () => {
+  /**
+   * The duplicate rules are the native constructor's, unarranged: a later equal
+   * key replaces the value while the map keeps the **position** it already had.
+   * Position is not a thing a Hexagon read can ask about, so it is read off the
+   * JavaScript side — which is also where `instanceof Map` says the result is
+   * the caller's own native collection rather than anything wrapped.
+   */
+  test("`JsMap.fromSeq` keeps the first position and the last value", async () => {
+    const exports = await run(
+      "export fun build(): JsMap(String, Int) =\n" +
+        '    JsMap.fromSeq(Vector.toSeq([("a", 1), ("b", 2), ("a", 3)]))\n',
+      {},
+    );
+    const built = (exports["build"] as () => Map<string, number>)();
+    expect(built instanceof Map).toBe(true);
+    expect([...built.entries()]).toEqual([["a", 3], ["b", 2]]);
+  });
+
+  /**
+   * The other half of §6.5's map rule — the **stored key representative**
+   * survives the replacement — which needs object keys to be observable at all,
+   * since two equal strings are one string.
+   */
+  test("the key representative it already stored survives the replacement", async () => {
+    const exports = await run(
+      'extern from "keys"\n' +
+        "    fun first(): JsValue\n" +
+        "    fun second(): JsValue\n" +
+        "    fun twin(): JsValue\n" +
+        "\n" +
+        "export fun build(): JsMap(JsValue, Int) =\n" +
+        "    JsMap.fromSeq(Vector.toSeq(\n" +
+        "        [(first!(), 1), (second!(), 2), (first!(), 3)]))\n" +
+        "export fun firstKey(): JsValue = first!()\n",
+      {
+        keys: 'const a = { tag: "a" }, b = { tag: "b" };\n' +
+          "export function first() { return a; }\n" +
+          "export function second() { return b; }\n" +
+          'export function twin() { return { tag: "a" }; }\n',
+      },
+    );
+    const built = (exports["build"] as () => Map<unknown, number>)();
+    const firstKey = (exports["firstKey"] as () => unknown)();
+    expect([...built.keys()][0]).toBe(firstKey);
+    expect([...built.values()]).toEqual([3, 2]);
+  });
+
+  /** `JsSet.fromSeq` retains the first representative and its position. */
+  test("`JsSet.fromSeq` keeps the first representative and position", async () => {
+    const exports = await run(
+      'extern from "keys"\n' +
+        "    fun first(): JsValue\n" +
+        "    fun second(): JsValue\n" +
+        "    fun twin(): JsValue\n" +
+        "\n" +
+        "export fun build(): JsSet(JsValue) =\n" +
+        "    JsSet.fromSeq(Vector.toSeq([first!(), second!(), first!(), twin!()]))\n" +
+        "export fun firstElement(): JsValue = first!()\n",
+      {
+        keys: 'const a = { tag: "a" }, b = { tag: "b" };\n' +
+          "export function first() { return a; }\n" +
+          "export function second() { return b; }\n" +
+          'export function twin() { return { tag: "a" }; }\n',
+      },
+    );
+    const built = (exports["build"] as () => Set<unknown>)();
+    const firstElement = (exports["firstElement"] as () => unknown)();
+    expect(built instanceof Set).toBe(true);
+    // Three, not four: the repeated reference collapsed, and the same-looking
+    // twin did not — which is the equality regime showing through construction.
+    expect(built.size).toBe(3);
+    expect([...built][0]).toBe(firstElement);
+  });
+
+  /**
+   * §6.5's freshness: **each call creates a new collection**, and no identity
+   * cache exists behind either row. Two calls over the same persistent Hexagon
+   * `Seq` replay it and produce two distinct native collections with the same
+   * entries — precisely what invoking `new Map(iterable)` twice does, and the
+   * reason the door row can be the bare constructor.
+   */
+  test("two calls over one `Seq` build two distinct native collections", async () => {
+    const exports = await run(
+      'let pairs: Seq((String, Int)) = Vector.toSeq([("a", 1), ("b", 2)])\n' +
+        "let numbers: Seq(Int) = Vector.toSeq([1, 2])\n" +
+        "export fun mapped(): JsMap(String, Int) = JsMap.fromSeq(pairs)\n" +
+        "export fun setted(): JsSet(Int) = JsSet.fromSeq(numbers)\n",
+      {},
+    );
+    const build = exports["mapped"] as () => Map<string, number>;
+    const first = build();
+    const second = build();
+    expect(first).not.toBe(second);
+    expect(first instanceof Map).toBe(true);
+    expect(second instanceof Map).toBe(true);
+    expect([...first.entries()]).toEqual([["a", 1], ["b", 2]]);
+    expect([...first.entries()]).toEqual([...second.entries()]);
+
+    const buildSet = exports["setted"] as () => Set<number>;
+    const one = buildSet();
+    const other = buildSet();
+    expect(one).not.toBe(other);
+    expect(one instanceof Set).toBe(true);
+    expect([...one]).toEqual([1, 2]);
+  });
+
+  /**
+   * The source is consumed in traversal order, which is what makes a *lazy*
+   * source safe to hand over: a generated sequence arrives in the order it
+   * yields, and an eager constructor forces exactly what it is given.
+   */
+  test("a lazy source is traversed in order", async () => {
+    const exports = await run(
+      "export fun build(): JsMap(Int, Int) =\n" +
+        "    JsMap.fromSeq(\n" +
+        "        Seq.map(Seq.take(Seq.iterate(1, (n) => n + 1), 3), (n) => (n, n)))\n",
+      {},
+    );
+    const built = (exports["build"] as () => Map<number, number>)();
+    expect([...built.entries()]).toEqual([[1, 1], [2, 2], [3, 3]]);
+  });
+});
+
+describe("the two failure doors (Part 10 §4.4)", () => {
+  /**
+   * A hostile `has` throws, and the throw is an ordinary foreign throw: it
+   * arrives at a `JsError(e)` arm carrying the very error JavaScript threw. It
+   * is never turned into `KeyError` — the honest-absence door — and it is never
+   * swallowed into `None`, which is the failure a `try` around a total accessor
+   * would otherwise invite. The `KeyError` arm sits *above* the `JsError` one,
+   * so a synthesized `KeyError` would win and be seen.
+   */
+  test("a `Proxy` whose `has` throws lands on `JsError`, never `KeyError` or `None`", async () => {
+    const exports = await run(
+      'extern from "hostile"\n' +
+        "    fun hostile(): JsMap(String, Int)\n" +
+        "\n" +
+        "export fun probe(): String =\n" +
+        "    try\n" +
+        '        match JsMap.get(hostile!(), "a")\n' +
+        '            None => "none"\n' +
+        '            Some(_) => "some"\n' +
+        "    catch\n" +
+        '        KeyError => "KeyError"\n' +
+        '        JsError(e) => "JsError: " ++ JsError.message(e)\n',
+      {
+        hostile: "export function hostile() {\n" +
+          '  const inner = new Map([["a", 1]]);\n' +
+          "  return new Proxy(inner, {\n" +
+          "    get(target, property) {\n" +
+          '      if (property === "has") {\n' +
+          '        return () => { throw new TypeError("hostile has"); };\n' +
+          "      }\n" +
+          "      const value = Reflect.get(target, property, target);\n" +
+          '      return typeof value === "function" ? value.bind(target) : value;\n' +
+          "    },\n" +
+          "  });\n" +
+          "}\n",
+      },
+    );
+    expect((exports["probe"] as () => string)()).toBe("JsError: hostile has");
+  });
+
+  /** The same door for a throwing `size`, and for a borrowed set's `has`. */
+  test("a throwing `size` and a throwing set `has` take the same door", async () => {
+    const exports = await run(
+      'extern from "hostile"\n' +
+        "    fun table(): JsMap(String, Int)\n" +
+        "    fun members(): JsSet(Int)\n" +
+        "\n" +
+        "export fun counted(): String =\n" +
+        "    try\n" +
+        "        Int.show(JsMap.size(table!()))\n" +
+        "    catch\n" +
+        "        JsError(e) => JsError.message(e)\n" +
+        "export fun member(): String =\n" +
+        "    try\n" +
+        "        Bool.show(JsSet.contains(members!(), 1))\n" +
+        "    catch\n" +
+        "        JsError(e) => JsError.message(e)\n",
+      {
+        hostile: "export function table() {\n" +
+          "  return new Proxy(new Map(), {\n" +
+          "    get(target, property) {\n" +
+          '      if (property === "size") throw new TypeError("hostile size");\n' +
+          "      const value = Reflect.get(target, property, target);\n" +
+          '      return typeof value === "function" ? value.bind(target) : value;\n' +
+          "    },\n" +
+          "  });\n" +
+          "}\n" +
+          "export function members() {\n" +
+          "  return new Proxy(new Set(), {\n" +
+          "    get(target, property) {\n" +
+          '      if (property === "has") {\n' +
+          '        return () => { throw new TypeError("hostile set has"); };\n' +
+          "      }\n" +
+          "      const value = Reflect.get(target, property, target);\n" +
+          '      return typeof value === "function" ? value.bind(target) : value;\n' +
+          "    },\n" +
+          "  });\n" +
+          "}\n",
+      },
+    );
+    expect((exports["counted"] as () => string)()).toBe("hostile size");
+    expect((exports["member"] as () => string)()).toBe("hostile set has");
+  });
+});
+
+describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
+  /**
+   * `JsMap.toSeq` and `JsSet.toSeq` are the **provided row's member reached
+   * qualified** — no export of either companion, and until #792 no spelling at
+   * all, because there was no module for the qualifier to name. `JsMap.entries`
+   * is that same walk under a second name (§6.3), so the two must agree pair for
+   * pair rather than merely in a summary.
+   */
+  test("`JsMap.toSeq`, `JsMap.entries` and `JsSet.toSeq` all traverse", async () => {
+    const exports = await run(
+      'extern from "stock"\n' +
+        "    fun table(): JsMap(String, Int)\n" +
+        "    fun flags(): JsSet(Int)\n" +
+        "\n" +
+        "let render(pair: (String, Int)): String =\n" +
+        "    let (key, value) = pair\n" +
+        "    key ++ Int.show(value)\n" +
+        "\n" +
+        "let joined(rows: Seq((String, Int))): String =\n" +
+        '    Seq.fold(rows, "", (acc, pair) => acc ++ render(pair))\n' +
+        "\n" +
+        "export fun probe(): (String, String, Int) =\n" +
+        "    let m = table!()\n" +
+        "    (joined(JsMap.toSeq(m)),\n" +
+        "     joined(JsMap.entries(m)),\n" +
+        "     Seq.fold(JsSet.toSeq(flags!()), 0, (acc, n) => acc + n))\n",
+      {
+        stock: "export function table() {\n" +
+          '  return new Map([["c", 1], ["a", 2]]);\n' +
+          "}\n" +
+          "export function flags() { return new Set([4, 5]); }\n",
+      },
+    );
+    expect((exports["probe"] as () => [string, string, number])())
+      .toEqual(["c1a2", "c1a2", 9]);
+  });
+
+  /**
+   * Companion dispatch, exactly as `xs.length()` is `Array.length(xs)` (Method
+   * Syntax §4.1): `stdlib/JsMap.hex` and `stdlib/JsSet.hex` are the modules
+   * addressable under the names, so every operation is reachable by the dot —
+   * `toSeq` included, which arrives through the provided row rather than through
+   * an export.
+   */
+  test("`m.size()`, `m.get(k)`, `m.toSeq()` and `s.contains(x)` are dot calls", async () => {
+    const exports = await run(
+      'extern from "stock"\n' +
+        "    fun table(): JsMap(String, Int)\n" +
+        "    fun flags(): JsSet(Int)\n" +
+        "\n" +
+        "export fun probe(): (Int, Int, Int, Bool, Bool) =\n" +
+        "    let m = table!()\n" +
+        "    let s = flags!()\n" +
+        '    let value = match m.get("a")\n' +
+        "        None => 0\n" +
+        "        Some(found) => found\n" +
+        "    (m.size(), s.size(), value + Seq.length(m.toSeq()),\n" +
+        '     m.containsKey("c"), s.contains(5))\n',
+      {
+        stock: "export function table() {\n" +
+          '  return new Map([["c", 1], ["a", 2]]);\n' +
+          "}\n" +
+          "export function flags() { return new Set([4, 5]); }\n",
+      },
+    );
+    expect((exports["probe"] as () => [number, number, number, boolean, boolean])())
+      .toEqual([2, 2, 4, true, true]);
+  });
+
+  /** `m.entries()` is the dot form of the synonym, and reads the same walk. */
+  test("`m.entries()` is a dot call too", async () => {
+    const exports = await run(
+      'extern from "stock"\n' +
+        "    fun table(): JsMap(String, Int)\n" +
+        "\n" +
+        "export fun probe(): Int =\n" +
+        '    Seq.fold(table!().entries(), 0, (acc, pair) =>\n' +
+        "        match pair\n" +
+        "            (_, value) => acc + value)\n",
+      {
+        stock: 'export function table() { return new Map([["c", 1], ["a", 2]]); }\n',
+      },
+    );
+    expect((exports["probe"] as () => number)()).toBe(3);
+  });
+});
+
+describe("the faces and the emitted text the new surfaces produce", () => {
+  /**
+   * §1's faces are unchanged by this arc, which is the claim worth pinning: the
+   * companions add operations, not a representation, so an export that *uses*
+   * them still faces as TypeScript's own readonly interfaces and nothing
+   * `Hex.`-branded appears.
+   */
+  test("an export built with `fromSeq` still faces as `ReadonlyMap`/`ReadonlySet`", () => {
+    const text = declarations(
+      "export fun table(): JsMap(String, Int) =\n" +
+        '    JsMap.fromSeq(Vector.toSeq([("a", 1)]))\n' +
+        "export fun marks(): JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1]))\n" +
+        "export let count(m: JsMap(String, Int)): Int = JsMap.size(m)\n" +
+        "export let seen(s: JsSet(Int), n: Int): Bool = JsSet.contains(s, n)\n",
+    );
+    expect(text).toContain(
+      "export declare function table(): ReadonlyMap<string, number>;",
+    );
+    expect(text).toContain("export declare function marks(): ReadonlySet<number>;");
+    expect(text).toContain(
+      "export declare const count: (m: ReadonlyMap<string, number>) => number;",
+    );
+    expect(text).toContain(
+      "export declare const seen: (s: ReadonlySet<number>, n: number) => boolean;",
+    );
+    expect(text).not.toContain("Hex.");
+  });
+
+  /**
+   * FFI Part 7 §1.2's runtime vocabulary (#666), at the two seats this arc
+   * added. `new Map(…)` and `new Set(…)` are written into the *prelude*
+   * companions' own emitted modules, and the hazard is real there rather than
+   * hypothetical: a project may supply its own copy of either file at the
+   * injection path — which is how the standard library is developed — and that
+   * copy may bind `Map` or `Set` at module level. A bare `new Map(…)` under such
+   * a binding would construct the user's value.
+   *
+   * Both halves are measured. The supplied copy, contested, steps around the
+   * spellings and imports the captures; the shipped copy, uncontested, writes
+   * the bare text.
+   */
+  test("`fromSeq` steps around a contested `Map`/`Set` in a supplied companion", () => {
+    const contested = (basename: string): string =>
+      `${PRELUDE_SOURCES[basename]!}\nexport union Contested = Map(Int) | Set(Int)\n`;
+    // A prelude module is emitted only when something emitted imports it, so
+    // `/main.hex` reaches both constructors: without a consumer there would be
+    // no text to read, and the assertions below would pass on nothing.
+    const project = compileFiles([
+      [
+        "/main.hex",
+        "export fun m(): JsMap(String, Int) =\n" +
+          '    JsMap.fromSeq(Vector.toSeq([("a", 1)]))\n' +
+          "export fun s(): JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1]))\n",
+      ],
+      ["/JsMap.hex", contested("JsMap.hex")],
+      ["/JsSet.hex", contested("JsSet.hex")],
+    ]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = (path: string): string =>
+      project.modules.find(({ source }) => source.path === path)!.javascript.text;
+
+    expect(text("/JsMap.hex")).toContain("__Map");
+    expect(text("/JsMap.hex")).toContain("new __Map(__a)");
+    expect(text("/JsMap.hex")).not.toMatch(/new Map\(/u);
+    expect(text("/JsSet.hex")).toContain("__Set");
+    expect(text("/JsSet.hex")).toContain("new __Set(__a)");
+    expect(text("/JsSet.hex")).not.toMatch(/new Set\(/u);
+  });
+
+  test("and the uncontested companion writes the bare spelling", () => {
+    const project = compileFiles([
+      [
+        "/main.hex",
+        "export fun m(): JsMap(String, Int) =\n" +
+          '    JsMap.fromSeq(Vector.toSeq([("a", 1)]))\n' +
+          "export fun s(): JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1]))\n",
+      ],
+      ["/JsMap.hex", PRELUDE_SOURCES["JsMap.hex"]!],
+      ["/JsSet.hex", PRELUDE_SOURCES["JsSet.hex"]!],
+    ]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = (path: string): string =>
+      project.modules.find(({ source }) => source.path === path)!.javascript.text;
+
+    expect(text("/JsMap.hex")).toContain("new Map(__a)");
+    expect(text("/JsMap.hex")).not.toContain("hex.js");
+    expect(text("/JsSet.hex")).toContain("new Set(__a)");
+    expect(text("/JsSet.hex")).not.toContain("hex.js");
+  });
+
+  /**
+   * The reads are the native operations and nothing more — no helper, no
+   * evidence parameter, no `Hash` dictionary anywhere in either module. The
+   * `get` pair is the one worth reading off the text: two rows, `has` above and
+   * `get` beneath, never one `get` with an `undefined` test (§4.2 step 4). And
+   * the raw read is *unexported*, so no program can reach the half that cannot
+   * tell a stored `undefined` from an absent key.
+   */
+  test("the door rows lower to the native operations, and `get` is two of them", () => {
+    const project = compileFiles([
+      [
+        "/main.hex",
+        "export let count(m: JsMap(String, Int)): Int = JsMap.size(m)\n" +
+          "export let read(m: JsMap(String, Int)): Option(Int) =\n" +
+          '    JsMap.get(m, "a")\n',
+      ],
+      ["/JsMap.hex", PRELUDE_SOURCES["JsMap.hex"]!],
+    ]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const text = project.modules
+      .find(({ source }) => source.path === "/JsMap.hex")!.javascript.text;
+
+    expect(text).toContain("__a => __a.size");
+    expect(text).toContain("(__a, __b) => __a.has(__b)");
+    expect(text).toContain("(__a, __b) => __a.get(__b)");
+    // The verdict, in one line and in the order §4.2 fixes: the membership
+    // question, and the raw read only on its `true` branch.
+    expect(text).toContain(
+      'containsKey(map, key) ? { tag: "Some", value: readUnchecked(map, key) } : None',
+    );
+    // And no fused shape *in the accessor*: the module's other text says the
+    // word — the doc comments explain the hazard, and the `Seq` adapter helper
+    // behind `entries` is full of ordinary `undefined` bookkeeping — so the
+    // sweep is over `get`'s own emitted binding, where the word appearing at all
+    // would be the `undefined` test §4.2 step 4 forbids.
+    const body = /^const get = [\s\S]*?^\};$/mu.exec(codeOnly(text))?.[0];
+    expect(body).toBeDefined();
+    expect(body).toContain("readUnchecked");
+    expect(body).not.toContain("undefined");
+    // The raw read is beneath `get`, never beside it: no program can reach the
+    // half that cannot tell a stored `undefined` from an absent key.
+    expect(text).not.toMatch(/export \{[^}]*readUnchecked/u);
   });
 });

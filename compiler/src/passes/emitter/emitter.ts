@@ -1690,6 +1690,14 @@ const UNIT_IMMUNE_SPELLING = "void 0";
  * seats and by `bigIntFromNat`/`bigIntFromInt`, and a union constructor named
  * `BigInt` binds the spelling at module level exactly as `Error` does.
  *
+ * `Map` and `Set` joined on the feeder rule too (#792): `new Map(…)` and
+ * `new Set(…)` are what `jsMapFromSeq` and `jsSetFromSeq` lower to (FFI Part 10
+ * §6.5). Those lowerings are written into `stdlib/JsMap.hex`'s and
+ * `stdlib/JsSet.hex`'s own emitted modules, which bind neither spelling — but a
+ * project may supply its own copy of either file at the prelude injection path,
+ * and the rule is about what a module *binds*, so the seats are qualified like
+ * every other.
+ *
  * Siblings of §1.1's list, never copies: `Iterable` names no JavaScript value
  * and `Math` appears in no face, so each file guards its own.
  */
@@ -1700,10 +1708,12 @@ export const RUNTIME_VOCABULARY = [
   "Boolean",
   "console",
   "Error",
+  "Map",
   "Math",
   "Number",
   "Object",
   "RangeError",
+  "Set",
   "String",
   "Symbol",
   "TypeError",
@@ -9753,6 +9763,42 @@ class JavaScriptEmitter {
       // emitter's loop lowering rather than an intrinsic's.
       case "arrayLength":
         return "__a => __a.length";
+      // `stdlib/JsMap.hex`'s four and `stdlib/JsSet.hex`'s three (FFI Part 10
+      // §3). Each is one native operation, and the whole of what the door
+      // carries: no row takes evidence, because §4.3 makes lookup the native
+      // collection's SameValueZero rather than Hexagon's `Hash`.
+      //
+      // The `size` rows are property reads rather than cached values on
+      // purpose — Collections Part 5 §3.1's fresh-read discipline, which for a
+      // borrowed view is the whole of the honesty: foreign code owns the
+      // collection and may have changed it since the last look.
+      case "jsMapSize":
+        return "__a => __a.size";
+      case "jsMapHas":
+        return "(__a, __b) => __a.has(__b)";
+      // The unexported half of §4.2's two-step lowering. `JsMap.get` calls
+      // `jsMapHas` first and reaches this row only once the key is known
+      // present, so a stored `undefined` stays `Some(undefined)`. §4.2 forbids
+      // fusing the two into one `get` plus an `undefined` test even where the
+      // value type looks unable to hold `undefined`; the sequence is written in
+      // Hexagon over two keys, so there is no fused shape here to write.
+      case "jsMapGetUnchecked":
+        return "(__a, __b) => __a.get(__b)";
+      // §6.5's eager construction, and the native constructors are the whole
+      // implementation: a Hexagon `Seq` carries `[Symbol.iterator]` and a
+      // Hexagon tuple *is* a plain two-element array, so `new Map(seq)` already
+      // consumes the source in traversal order and already has §6.5's duplicate
+      // rules — later value wins, first key position and representative kept at
+      // a map; first representative and position kept at a set. Each call
+      // builds a fresh collection, which is the freshness §6.5 promises.
+      case "jsMapFromSeq":
+        return `__a => new ${this.#spell("Map")}(__a)`;
+      case "jsSetSize":
+        return "__a => __a.size";
+      case "jsSetHas":
+        return "(__a, __b) => __a.has(__b)";
+      case "jsSetFromSeq":
+        return `__a => new ${this.#spell("Set")}(__a)`;
       // `stdlib/JsError.hex`'s three rows (FFI Part 11 §7). The two reads share
       // one helper because they *are* one operation at two property names — the
       // `try` is what neither can be written without, and duplicating it would

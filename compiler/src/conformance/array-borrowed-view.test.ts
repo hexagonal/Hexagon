@@ -357,10 +357,12 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
   });
 
   test("`get`'s refusal grows by one home when `Array` joins", () => {
+    // Five homes now: `JsMap.get` joined at #792, which is the same growth one
+    // arc later and changes nothing about this module's spend.
     expect(projectDiagnostics("export let n(v: Vector(Int)): Option(Int) = get(v, 1)\n"))
       .toEqual([
         "no bare `get`; write `v.get(1)`, `Vector.get(v, 1)`, `Map.get(v, 1)`, " +
-        "or `Array.get(v, 1)`",
+        "`Array.get(v, 1)`, or `JsMap.get(v, 1)`",
       ]);
   });
 

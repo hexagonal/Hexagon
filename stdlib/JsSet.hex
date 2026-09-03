@@ -1,0 +1,49 @@
+// The public companion of the borrowed foreign `JsSet(a)` (FFI Part 10).
+//
+// `JsSet(a)` is compiler-owned: no `.hex` file declares it, so this module is
+// its companion by being the module addressable under the name (Method Syntax
+// section 4.1), exactly as `JsMap.hex` is `JsMap`'s.
+//
+// Everything here reads a native `Set` that foreign code owns, or builds one
+// fresh from a sequence (section 6.5). There is no mutation surface and there
+// will not be one (section 1), and **no `Hash`**: membership is the native
+// set's own SameValueZero equality, reference identity for objects, not
+// Hexagon's structural one (section 4.3).
+//
+// A set has no brackets and no `get`, permanently and with reasons recorded
+// (section 5): brackets retrieve a payload selected by a position or a key, and
+// a set's elements *are* its keys with nothing further to retrieve. Membership
+// is `contains` and there is no second Boolean read.
+
+extern from "hex:intrinsic"
+    (** How many elements `s` holds. Read fresh from the native `size` at every
+        call, never cached and never hoisted: foreign code owns the set, so two
+        observations may honestly disagree (Collections Part 5 section 3.1). *)
+    export fun jsSetSize as size(s: JsSet(a)): Int
+
+    (** Whether `s` holds `element`, by the native `has` and its equality. The
+        only Boolean read a borrowed set has, and the membership spelling
+        (section 5). A hostile or proxied `has` that throws is an ordinary
+        foreign throw and arrives as `JsError`, never as `False`
+        (section 4.4). *)
+    export fun jsSetHas as contains(s: JsSet(a), element: a): Bool
+
+    (** The elements of `elements` collected into a **fresh** native `Set`,
+        eagerly and in traversal order. Unconstrained and shallow: nothing is
+        hashed, decoded, or copied element-wise, so the result is returned
+        directly rather than as a `Result`. Duplicates behave as native
+        construction does — the set keeps the first representative it stored and
+        that element's position. Each call builds a new collection and consumes
+        its source once, so an infinite sequence does not terminate. *)
+    export fun jsSetFromSeq as fromSeq(elements: Seq(a)): JsSet(a)
+
+// `toSeq` is not bound here, and cannot be: `Iterable<JsSet(a)>` is a provided
+// row (Collections Part 5 section 4) whose member *is* the traversal, and a
+// module-level binding of a member's spelling beside the instance is the
+// Constraints section 4.6 rebinding error. The walk is published all the same —
+// as the dot call `s.toSeq()` and as `JsSet.toSeq(s)` qualified, both of which
+// read the row. It is lazy and zero-copy over the borrowed set, so holding the
+// sequence extends the borrow: foreign code must keep the set's elements stable
+// while any position of it may still be forced (section 2). Unlike `JsMap`,
+// there is no second name for it — the persistent `Set` has no `elements`
+// export to mirror.

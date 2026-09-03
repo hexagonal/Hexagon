@@ -634,7 +634,7 @@ describe("the companion's surface", () => {
     ]);
     expect(projectDiagnostics("export let n: Int = size(Set.empty)\n")).toEqual([
       "no bare `size`; write `Set.empty.size()`, `Map.size(Set.empty)`, " +
-      "or `Set.size(Set.empty)`",
+      "`Set.size(Set.empty)`, `JsMap.size(Set.empty)`, or `JsSet.size(Set.empty)`",
     ]);
     const main = await runMain(
       "export let n: Int = Set.size(Set.singleton(1))\n" +

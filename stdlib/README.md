@@ -54,6 +54,29 @@ not compiler intrinsics.
   keyed, is §6.1's: an `Array(a)` has no Hexagon producer, so the outbound body
   could not name its result, while the inbound one has both a traversal and a
   producer.
+- `JsMap.hex` and `JsSet.hex` are FFI Part 10's companions of the other two
+  borrowed views — zero-copy readonly views of a native JavaScript `Map` and
+  `Set` that foreign code owns. They are companions for `Array.hex`'s reason:
+  neither type has a Hexagon declaration site, so the module addressable under
+  the name is what answers for it. Their whole surface is Part 10 §3's read-and-
+  construct set — `size`, `get`, `containsKey`, `entries` and `fromSeq` at the
+  map; `size`, `contains` and `fromSeq` at the set — with `toSeq` reached
+  through the provided `Iterable` row rather than exported here, as the dot call
+  `m.toSeq()` or qualified as `JsMap.toSeq(m)`. `entries` is that same walk under
+  a second name, not a second traversal.
+
+  **No `Hash` appears in either file**, which is the design and not an omission
+  (§4.3): a lookup here is the native collection's SameValueZero — reference
+  identity for objects — where a persistent `Map`/`Set` lookup is Hexagon's
+  structural one. Two rows are worth naming. `get` is written over `containsKey`
+  plus an *unexported* raw read, because §4.2 forbids fusing the pair into one
+  native `get` plus an `undefined` test: a stored `undefined` must stay
+  `Some(undefined)` and not collapse into `None`. And both `fromSeq` rows are
+  the bare native constructors, which is all §6.5 asks for — a Hexagon `Seq`
+  carries `[Symbol.iterator]` and a Hexagon tuple *is* a plain two-element
+  array, so `new Map(seq)` already builds a fresh collection in traversal order
+  with the native duplicate rules. There is no mutation surface, no `keys` or
+  `values`, no set algebra, and `JsSet` has no bracket and no `get` (§5).
 - `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex`, and
   `JsValue.hex` are FFI Part 11's four. `JsValue.hex` is the companion of the
   boundary type `JsValue` — the type of a JavaScript value about which Hexagon
