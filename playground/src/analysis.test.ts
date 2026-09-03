@@ -399,6 +399,37 @@ describe("rename", () => {
   });
 
   /**
+   * The **object-reading** form of `extern enum` (Foreign Enums §2.1, #779)
+   * through the same seat. The Playground cannot load a foreign module, so this
+   * is analysis only — which is the whole of what the pane offers for one: the
+   * declaration analyses clean, and the type's rename carries the conversions
+   * the row generates, writing each edit's own text.
+   */
+  test("an object-reading `extern enum` analyses, and its rename carries the conversions", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = 'extern from "keyboard"\n' +
+      "    enum Key as Direction = ARROW_UP as Up | ARROW_DOWN as Down\n" +
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)\n" +
+      'Debug.log("${show(1)}")\n';
+
+    expect(compileSource(1, source)).toMatchObject({ kind: "compile-success" });
+
+    const result = analysis.rename(source, at(source, "Direction"), "Way");
+    expect(result).toMatchObject({ newName: "Way" });
+    if (result === undefined || "refused" in result) return;
+    const renamed = applied(source, result.edits);
+    // The foreign half is untouched: renaming the local type must not change
+    // which export the block reads.
+    expect(renamed).toBe(
+      'extern from "keyboard"\n' +
+        "    enum Key as Way = ARROW_UP as Up | ARROW_DOWN as Down\n" +
+        "let read(v: JsValue): Option(Way) = fromJsWay(v)\n" +
+        'Debug.log("${show(1)}")\n',
+    );
+    expect(compileSource(2, renamed)).toMatchObject({ kind: "compile-success" });
+  });
+
+  /**
    * The same through the Playground's own `module` notation, which maps buffer
    * offsets onto synthesized files — so the derived edit has to survive that
    * mapping as well as the plan.

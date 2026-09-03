@@ -2812,6 +2812,7 @@ class Checker {
       docs: module.docs,
       typeHoles: this.#materializeTypeHoles(),
       companionImports: [...this.#companionImports.values()],
+      ...(this.#modulePath === undefined ? {} : { modulePath: this.#modulePath }),
       span: module.span,
       diagnostics: this.#diagnostics.toArray(),
     };
@@ -15578,7 +15579,7 @@ class Checker {
         parameters: [...(this.#unionParameters.get(item.union)?.values() ?? [])]
           .map(({ id }) => Typed.typeVariableId(id)),
         derives: item.derives,
-        constructors: item.constructors.map(({ binding, slots, literal }) => ({
+        constructors: item.constructors.map(({ binding, slots, literal, foreignName }) => ({
           ...binding,
           scheme: this.#publicScheme(this.#scheme(binding.symbol)),
           slots: slots.map((slot) => ({
@@ -15592,8 +15593,10 @@ class Checker {
             span: slot.span,
           })),
           ...(literal === undefined ? {} : { literal }),
+          ...(foreignName === undefined ? {} : { foreignName }),
         })),
         ...(item.externEnum === true ? { externEnum: true as const } : {}),
+        ...(item.foreign === undefined ? {} : { foreign: item.foreign }),
         ...(conversions === undefined ? {} : { conversions }),
         span: item.span,
       };
@@ -15785,7 +15788,7 @@ class Checker {
       opaque: union.opaque,
       representationVisible: union.representationVisible,
       span: union.span,
-      constructors: union.constructors.map(({ binding, slots, literal }) => ({
+      constructors: union.constructors.map(({ binding, slots, literal, foreignName }) => ({
         ...binding,
         scheme: this.#publicScheme(this.#scheme(binding.symbol)),
         slots: slots.map((slot) => ({
@@ -15799,8 +15802,14 @@ class Checker {
           span: slot.span,
         })),
         ...(literal === undefined ? {} : { literal }),
+        ...(foreignName === undefined ? {} : { foreignName }),
       })),
       ...(union.externEnum === true ? { externEnum: true as const } : {}),
+      ...(union.foreign === undefined ? {} : { foreign: union.foreign }),
+      // Foreign Enums §7.1: an object-reading enum's members are **bindings** of
+      // the declaring module, so a module matching on one abroad has to import
+      // them — and only the declaration knows where it lives.
+      ...(union.declaringPath === undefined ? {} : { declaringPath: union.declaringPath }),
       ...(conversions === undefined ? {} : { conversions }),
     };
   }

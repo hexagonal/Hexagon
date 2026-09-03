@@ -257,7 +257,28 @@ export interface UnionItem {
    * emission and the `.d.ts` face read this marker.
    */
   readonly externEnum?: true;
+  /**
+   * The **object-reading** `extern enum`'s foreign source (Foreign Enums §2.1,
+   * §3): the block's module specifier and the named export holding the enum
+   * object. Present exactly when `externEnum` is set and the declaration was
+   * written inside an `extern from` block rather than as §2.4's module-scope
+   * literal head — which is what tells the two forms apart everywhere one has
+   * to test which it is reading.
+   *
+   * The constructors of such a declaration carry `foreignName` where a literal
+   * enum's carry `literal`; a union has this field exactly when its
+   * constructors have that one.
+   */
+  readonly foreign?: ForeignEnumSource;
   readonly span: Source.Span;
+}
+
+/** Where an object-reading `extern enum` reads its members from (§2.1). */
+export interface ForeignEnumSource {
+  /** The enclosing `extern from` block's module specifier. */
+  readonly specifier: string;
+  /** The named export holding the enum object — `Key` in `enum Key as Direction`. */
+  readonly name: Name;
 }
 
 export interface RecordItem {
@@ -351,6 +372,14 @@ export interface Constructor {
    * which is what `UnionItem.externEnum` says once for the whole declaration.
    */
   readonly literal?: ForeignLiteral;
+  /**
+   * The foreign **property** this member reads, on an object-reading `extern
+   * enum` (Foreign Enums §2.1) and on nothing else — `ARROW_UP` in `ARROW_UP as
+   * Up`. Present on every constructor of such a declaration, which is what
+   * `UnionItem.foreign` says once for the whole declaration; a constructor
+   * carries this or `literal`, never both.
+   */
+  readonly foreignName?: Name;
   readonly span: Source.Span;
 }
 

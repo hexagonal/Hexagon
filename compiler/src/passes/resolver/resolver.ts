@@ -3274,10 +3274,25 @@ class Resolver {
               span: slot.span,
             })),
             ...(constructor.literal === undefined ? {} : { literal: constructor.literal }),
+            ...(constructor.foreignName === undefined
+              ? {}
+              : { foreignName: constructor.foreignName.text }),
             span: constructor.span,
           };
         });
         const externEnum = item.externEnum === true ? { externEnum: true as const } : {};
+        // Foreign Enums §2.1: the block's specifier and the enum object's
+        // export name, carried on the declaration because the block itself is
+        // no longer above it — the parser hoisted the row here (see
+        // `#parseForeignEnum`), and this is all that is left of where it stood.
+        const foreign = item.foreign === undefined
+          ? {}
+          : {
+            foreign: {
+              specifier: item.foreign.specifier,
+              name: item.foreign.name.text,
+            },
+          };
         const conversions = item.externEnum === true
           ? this.#enumConversions(item, union, scope)
           : undefined;
@@ -3297,6 +3312,7 @@ class Resolver {
           span: item.name.span,
           constructors,
           ...externEnum,
+          ...foreign,
           ...(conversions === undefined ? {} : { conversions }),
         };
         this.#unions.push(declaration);
@@ -3311,6 +3327,7 @@ class Resolver {
           derives: item.derives.map(({ text }) => text),
           constructors,
           ...externEnum,
+          ...foreign,
           ...(conversions === undefined ? {} : { conversions }),
           span: item.span,
         };

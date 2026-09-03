@@ -1210,6 +1210,25 @@ export interface Union {
   readonly externEnum?: true;
   /** See `EnumConversions`; present exactly with `externEnum`. */
   readonly conversions?: EnumConversions;
+  /**
+   * See `Parsed.UnionItem.foreign` — Foreign Enums §2.1's object-reading form.
+   * Present exactly with `externEnum` and with the constructors' `foreignName`.
+   */
+  readonly foreign?: ForeignEnumSource;
+}
+
+/**
+ * Where an **object-reading** `extern enum` reads its members from (Foreign
+ * Enums §2.1, §3): the `extern from` block's module specifier and the named
+ * export holding the enum object.
+ *
+ * A union carries this exactly when its constructors carry `foreignName`, which
+ * is what tells §2.1's object-reading form apart from §2.4's literal one
+ * wherever a pass has to know which it is reading.
+ */
+export interface ForeignEnumSource {
+  readonly specifier: string;
+  readonly name: string;
 }
 
 export interface Constructor {
@@ -1217,6 +1236,8 @@ export interface Constructor {
   readonly slots: readonly ConstructorSlot[];
   /** See `Parsed.Constructor.literal` — Foreign Enums §2.4's member value. */
   readonly literal?: ForeignLiteral;
+  /** See `Parsed.Constructor.foreignName` — §2.1's foreign property. */
+  readonly foreignName?: string;
   readonly span: Source.Span;
 }
 
@@ -1261,6 +1282,8 @@ export interface UnionItem {
   readonly externEnum?: true;
   /** See `EnumConversions`; present exactly with `externEnum`. */
   readonly conversions?: EnumConversions;
+  /** See `Union.foreign` — §2.1's object-reading form. */
+  readonly foreign?: ForeignEnumSource;
   readonly span: Source.Span;
 }
 
