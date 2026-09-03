@@ -195,15 +195,28 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
   });
 
   test("a `Float` never enters `Rat`, in any spelling", () => {
+    // Every spelling refuses, which is the row. **Where** the refusal fires
+    // differs, and the difference is pinned rather than smoothed over: at the
+    // operator, Numeric Literals §5.1's stand-down declines the face before the
+    // operation runs, so the report is §6's — at the binding, naming the operand
+    // that declined. At the member spellings the subject is bound to the face
+    // before the operands elaborate, so `price` meets `Rat` at its own seat and
+    // takes the plain mismatch there. Reaching §6's report from the member
+    // spellings needs the bind delayed until the operands are in; it is not in
+    // this change, and no program's verdict turns on it.
+    expect(ratVerdict("export let total: Rat.Rat = count * price\n")).toEqual([
+      "`price` is a `Float` and cannot enter `Rat`, so the multiplication ran " +
+        "at `Float`",
+    ]);
     for (const spelling of [
-      "count * price",
       "Num.multiply(count, price)",
       "count |> Num.multiply(price)",
       "count.multiply(price)",
       "price.multiply(count)",
+      "Float.multiply(count, price)",
     ]) {
-      expect(ratVerdict(`export let total: Rat.Rat = ${spelling}\n`).length)
-        .toBeGreaterThan(0);
+      expect(ratVerdict(`export let total: Rat.Rat = ${spelling}\n`))
+        .toEqual(["type mismatch: expected Rat, found Float"]);
     }
   });
 
@@ -220,6 +233,163 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
     expect(verdict(
       "export fun scale<a: Signed>(count: Int, value: a): a = count * value\n",
     )).toEqual([]);
+  });
+});
+
+describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
+  /**
+   * Method Syntax §2.2's **receiver rule**. The receiver of a dot call is the
+   * operation's first operand and takes what that operand seat expects. It
+   * cannot ask the operation — it must elaborate before the call can resolve —
+   * so it asks the **spelling**, and the spelling answers only *through its
+   * rung*: the face travels when the name is a tower member's spelling and the
+   * expected type is a concrete type honoring that spelling's rung.
+   *
+   * The rung is the whole soundness of the stand-in, and the two rows that
+   * carry it are `rem` under a `Float` face (`Float` honors no `Integral`, so
+   * nothing forwards and `Integral<Int>`'s guarded member dispatches, never
+   * `Float.hex`'s exported `rem`) and `gcd` at a user companion under a `BigInt`
+   * face (the face honors the rung, so it forwards — and Numeric Literals
+   * §5.1's **stand-down** then declines it, because `Foo` can reach `BigInt` by
+   * neither route).
+   */
+  const foo = "export record Foo = {n: Int}\n" +
+    "\n" +
+    "honor Num<Foo> =\n" +
+    "    add(left, right) = Foo({n = left.n + right.n})\n" +
+    "    multiply(left, right) = Foo({n = left.n * right.n})\n" +
+    "    fromNat(value) = Foo({n = Int.fromNat(value)})\n" +
+    "\n" +
+    "export let gcd(left: Foo, right: Foo): BigInt = BigInt.fromInt(left.n)\n" +
+    "\n" +
+    "let p: Foo = Foo({n = 4})\n" +
+    "let q: Foo = Foo({n = 6})\n" +
+    "let s2: Foo = Foo({n = 8})\n";
+
+  /** One standalone program's `probe` line, with the project asserted clean. */
+  const line = (source: string): string => {
+    const project = compileFiles([["/main.hex", source]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const found = project.modules.find(({ source: file }) => file.path === "/main.hex")!
+      .javascript.text.split("\n").find((text) => text.includes("const probe"));
+    if (found === undefined) throw new Error("no `probe` binding in the emitted module");
+    return found.trim();
+  };
+
+  test("the dot chain lifts as the operator chain and the pipe do", async () => {
+    const exports = await runProject([["/main.hex",
+      "// the receiver seat\n" +
+      "let x: Int = 9007199254740991\n" +
+      "let y: Int = 2\n" +
+      "let z: Int = 3\n" +
+      "export let dotted: BigInt = x.add(y).multiply(z)\n" +
+      "export let mixed: BigInt = (x + y).multiply(z)\n" +
+      "export let operator: BigInt = (x + y) * z\n" +
+      "export let piped: BigInt = x.add(y) |> Num.multiply(z)\n",
+    ]]);
+
+    // (2^53 - 1 + 2) * 3 exactly. An inner `Int` addition folds to 2^53 first
+    // and yields …976n — the value this rule exists to remove.
+    for (const name of ["dotted", "mixed", "operator", "piped"]) {
+      expect(exports[name]).toBe(27021597764222979n);
+    }
+    expect(probeLine("let probe: BigInt = (a + j).multiply(c)\n"))
+      .toBe("const probe = (BigInt(a) + BigInt(j)) * BigInt(c);");
+  });
+
+  test("at `**` the base lifts, and the dot then addresses the door", () => {
+    // §14(v): the base seat lifts to `BigInt`, so the dot addresses `BigInt`'s
+    // door (§6.1) and the exponent injects into the door's own `BigInt` seat.
+    expect(probeLine("let probe: BigInt = (a + j).pow(c)\n"))
+      .toContain("(BigInt(a) + BigInt(j), BigInt(c))");
+  });
+
+  test("the guard flips at a `Float` face, by design", async () => {
+    // The one behaviour the rule changes on purpose: the base lifts to `Float`,
+    // the dot addresses `Float`'s door, and a negative exponent is an ordinary
+    // reciprocal power where `Pow<Int>`'s guard used to throw — the dot
+    // converging on `let x: Float = 2 ** negOne`.
+    const exports = await runProject([["/main.hex",
+      "// the guard flip\n" +
+      "let i: Int = 1\n" +
+      "let j: Int = 1\n" +
+      "let negOne: Int = -1\n" +
+      "export let dotted: Float = (i + j).pow(negOne)\n" +
+      "export let operator: Float = 2 ** negOne\n",
+    ]]);
+
+    expect(exports["dotted"]).toBe(0.5);
+    expect(exports["operator"]).toBe(0.5);
+  });
+
+  test("a face that honors no `Integral` forwards nothing", async () => {
+    // The gate, and the row that shows why it is the **rung** and not the
+    // spelling: `Float.hex` exports a `rem` — it may, precisely because `Float`
+    // honors no `Integral` — and a spelling-only gate re-dispatched this call to
+    // it. Pinned by dispatch rather than by text, because `Int` → `Float`
+    // erases: `Integral<Int>`'s `rem` throws on a zero divisor where
+    // `Float.hex`'s answers `NaN`.
+    const exports = await runProject([["/main.hex",
+      "// the rung gate\n" +
+      "let i: Int = 7\n" +
+      "let j: Int = 1\n" +
+      "let k: Int = 3\n" +
+      "let zero: Int = 0\n" +
+      "export let value: Float = (i + j).rem(k)\n" +
+      "export let guarded(): Float = (i + j).rem(zero)\n" +
+      "export let qualified(): Float = Integral.rem(i + j, zero)\n",
+    ]]);
+
+    expect(exports["value"]).toBe(2);
+    for (const name of ["guarded", "qualified"]) {
+      const run = exports[name] as () => unknown;
+      expect(() => run()).toThrow(/divisor is zero/u);
+    }
+  });
+
+  test("the lift stands down where an operand cannot reach the face", () => {
+    // §5.1's stand-down, and its one **non-refusing** case: the forwarded face
+    // is not the consuming seat's own type, so the receiver simply keeps its
+    // type. `BigInt` honors `Integral`, so `gcd` forwards it — and `Foo` reaches
+    // `BigInt` by neither route, so `p.add(q)` runs at `Foo` and the companion's
+    // exported `gcd` answers, exactly as it did before the rule.
+    expect(line(`${foo}let probe: BigInt = p.add(q).gcd(s2)\n`))
+      .toBe("const probe = gcd(__Num_Foo_add(p, q), s2);");
+  });
+
+  test("a flexible receiver keeps the pending goal and the fallback", () => {
+    // An expectation is not an annotation: it lands on nothing, the receiver
+    // stays unsolved, and §3.5's row fallback fires as before.
+    expect(verdict("fun scaled(v): BigInt = v.multiply(2)\n")).toEqual([]);
+    expect(emitted("fun scaled(v): BigInt = v.multiply(2)\n"))
+      .toContain("v.multiply");
+  });
+
+  test("the same chain at a nominal home runs entirely there", () => {
+    // The multi-module control: both operations run at `Rat` over injected
+    // operands, in every spelling.
+    expect(ratProbeLine("let probe: Rat.Rat = a.add(j).multiply(c)\n"))
+      .toBe(
+        "const probe = multiply(add(__Signed_Rat.fromInt(a), " +
+          "__Signed_Rat.fromInt(j)), __Signed_Rat.fromInt(c));",
+      );
+    expect(ratProbeLine("let probe: Rat.Rat = (a + j) * c\n"))
+      .toBe(
+        "const probe = __Num_Rat.multiply(__Num_Rat.add(__Signed_Rat.fromInt(a), " +
+          "__Signed_Rat.fromInt(j)), __Signed_Rat.fromInt(c));",
+      );
+  });
+
+  test("the stand-down's refusal names the operand and the algebra", () => {
+    // Numeric Literals §6. The lift stands down because `price` can reach `Rat`
+    // by neither route, so the multiplication runs at `Float` and the mismatch
+    // surfaces where the *result* meets its seat — at the binding, not at
+    // `price`. The note is what keeps the report saying what the lift's own
+    // refusal said.
+    expect(ratVerdict("export let total: Rat.Rat = count * price\n")).toEqual([
+      "`price` is a `Float` and cannot enter `Rat`, so the multiplication ran " +
+        "at `Float`",
+    ]);
   });
 });
 

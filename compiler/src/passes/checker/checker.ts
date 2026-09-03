@@ -935,10 +935,51 @@ const TOWER_MEMBERS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
   ),
 );
 
-/** Every member name the tower owns, across its rungs — the dot's cheap probe. */
-const TOWER_MEMBER_NAMES: ReadonlySet<string> = new Set(
-  [...TOWER_MEMBERS.values()].flatMap((members) => [...members]),
+/**
+ * **The tower member spellings**, each with the rung it belongs to *(#808's
+ * receiver rule; Numeric Literals §5.1 fixes the list)*.
+ *
+ * Method Syntax §2.2 reads exactly this: the receiver of a dot call cannot ask
+ * the operation — the receiver must elaborate before the call can resolve — so
+ * it asks the **spelling**, and a spelling answers only *through its rung*. The
+ * call's expected type reaches the receiver when the name is one of these and
+ * the face honors that name's rung, and on no other terms: the rung is what
+ * makes the stand-in sound, because a module honoring a rung cannot export that
+ * rung's spellings (Constraints §4.6), so a receiver that lifts to the face
+ * always dispatches the rung's own operation there.
+ */
+const TOWER_SPELLING_RUNGS: ReadonlyMap<string, string> = new Map(
+  [...TOWER_MEMBERS].flatMap(([identity, members]) =>
+    [...members].map((member) => [member, identity] as const)
+  ),
 );
+
+/**
+ * One recorded stand-down (Numeric Literals §6), in the words the report needs:
+ * the operand that declined, its type, the face it could not enter, and the
+ * algebra the operation ran at instead.
+ */
+interface StandDown {
+  /** The operand as the source spells it, or `undefined` for an unspellable one. */
+  readonly spelled: string | undefined;
+  readonly operand: string;
+  readonly face: string;
+  readonly ran: string;
+  readonly operation: string;
+}
+
+/** What each arithmetic operator is called in a stand-down report. */
+const OPERATION_NOUNS: Partial<Record<Resolved.BinaryOperator, string>> = {
+  Add: "addition",
+  Subtract: "subtraction",
+  Multiply: "multiplication",
+  Divide: "division",
+  Power: "power",
+  Concat: "concatenation",
+};
+
+/** Every member name the tower owns, across its rungs — the dot's cheap probe. */
+const TOWER_MEMBER_NAMES: ReadonlySet<string> = new Set(TOWER_SPELLING_RUNGS.keys());
 
 /** The identity of `Pow`, whose written `Int` exponent seat is §9 row 14's. */
 const POW_IDENTITY: string = preRegisteredConstraintIdentity("Pow");
@@ -1618,6 +1659,19 @@ class Checker {
   readonly #natWidenings = new WeakMap<Resolved.Expr, Requirement>();
   /** Exact Int expressions that checking injects into an independently known Signed target. */
   readonly #intWidenings = new WeakMap<Resolved.Expr, Requirement>();
+  /**
+   * Numeric Literals §6's **stand-down note** *(#808)*: at an operation whose
+   * lift stood down, which operand declined the face and what algebra the
+   * operation ran at instead.
+   *
+   * §5.1's value-seat theorem is why this is worth carrying: a stand-down at a
+   * value seat always ends in refusal, and the refusal fires at the *consuming
+   * seat* rather than at the operand — so without the note the report loses
+   * exactly what the lift's own refusal used to say. The note is
+   * **discardable**: a stand-down at a dot call's receiver may succeed, and
+   * nothing reads it there.
+   */
+  readonly #standDowns = new WeakMap<Resolved.Expr, StandDown>();
   readonly #nameRequirements = new WeakMap<Resolved.NameExpr, readonly Requirement[]>();
   /** Name references serving as a call callee, whose evidence the call supplies. */
   readonly #calleeNames = new WeakSet<Resolved.NameExpr>();
@@ -3921,7 +3975,7 @@ class Checker {
     // qualified spellings are. It runs before the arguments elaborate, so the
     // home is what their seats expect; the receiver, already elaborated, widens
     // into it as an operand at the sweep below.
-    const home = this.#dotMemberHome(candidate, expected);
+    const home = this.#dotMemberHome(candidate, receiver, expected);
     if (home !== undefined) this.#liftMemberCall(calleeType, home, expression.span);
     const { seats, pass } = this.#dotCallSeats(
       expression,
@@ -6184,7 +6238,15 @@ class Checker {
         // boundary, and the frame stack then describes somewhere else.
         this.#callFrames.set(expression, this.#effectFrames.at(-1));
         if (expression.callee.kind === "Access") {
-          const receiver = this.#inferExpr(expression.callee.receiver, level);
+          // Method Syntax §2.2's **receiver rule**: the receiver is the
+          // operation's first operand and takes what that seat expects, handed
+          // to it before it elaborates — see `#forwardedReceiverFace` for the
+          // gate and why the rung is what makes it sound.
+          const receiver = this.#inferExpr(
+            expression.callee.receiver,
+            level,
+            this.#forwardedReceiverFace(expression.callee, expected),
+          );
           const dispatched = this.#dispatchDotCall(
             expression,
             expression.callee,
@@ -8918,6 +8980,79 @@ class Checker {
   }
 
   /**
+   * Method Syntax §2.2's **receiver rule** *(#808, ruled after #815's review)*:
+   * the face a dot call hands its receiver before the receiver elaborates, or
+   * `undefined` where nothing travels.
+   *
+   * The receiver is the operation's first operand and takes what that operand
+   * seat expects. It cannot ask the operation — it must elaborate before the
+   * call can resolve — so it asks the **spelling**, and the spelling answers
+   * only through its rung: the name must be a tower member's spelling, and the
+   * expected type must be a **concrete type honoring that spelling's rung**.
+   *
+   * The rung is the whole soundness of the stand-in, in both directions. A
+   * module that honors a rung cannot export that rung's spellings (Constraints
+   * §4.6 — a `widens` door is no export either), so a receiver that lifts to the
+   * face always dispatches the rung's own operation there; and a rung spelling
+   * can resolve to a companion *export* only at a type that does not honor the
+   * rung, which is exactly where this gate forwards nothing. That is why
+   * `let f: Float = (i + j).rem(k)` runs `i + j` at `Int` and dispatches
+   * `Integral<Int>`'s guarded `rem` rather than `Float.hex`'s exported one —
+   * `Float` honors no `Integral`, so nothing is forwarded at all.
+   *
+   * The gate reads no inference state, so §11.3's rejection of eager resolution
+   * is untouched, and at a flexible receiver an expectation is still not an
+   * annotation: it lands on nothing and the goal pends to the fallback.
+   */
+  #forwardedReceiverFace(
+    callee: Resolved.AccessExpr,
+    expected: Mono | undefined,
+  ): Mono | undefined {
+    if (expected === undefined) return undefined;
+    const rung = TOWER_SPELLING_RUNGS.get(callee.field.text);
+    if (rung === undefined) return undefined;
+    const target = this.#prune(expected);
+    if (target.kind === "Variable" || target.kind === "Error") return undefined;
+    return this.#instances.has(this.#instanceKey(rung, target)) ? target : undefined;
+  }
+
+  /**
+   * The operand as the source spells it, for a report that names it — or
+   * `undefined` where it has no spelling a reader could be pointed at.
+   *
+   * Only a name is offered. An arbitrary expression would have to be
+   * reconstructed from the tree, and a paraphrase of what the reader wrote is
+   * worse than the type alone: the report falls back to naming the type, which
+   * is always true.
+   */
+  #writtenOperand(operand: Resolved.Expr): string | undefined {
+    if (operand.kind === "Name") return operand.text;
+    if (operand.kind === "Group") return this.#writtenOperand(operand.expression);
+    return undefined;
+  }
+
+  /**
+   * Whether an operand can reach a lifted operation's home — by being it, or by
+   * Numeric Literals §5.1's two exact conversions, which are the only widenings
+   * there are.
+   *
+   * §5.1's **stand-down** turns on this: where an operand can reach the face by
+   * neither, the lift does not fire and the operation elaborates from its
+   * operands alone.
+   */
+  #operandReaches(operand: Mono, home: Mono): boolean {
+    const source = this.#prune(operand);
+    const target = this.#prune(home);
+    if (source.kind === "Error" || target.kind === "Error") return true;
+    if (source.kind === "Variable") return true;
+    if (this.#acceptsExactly(source, target)) return true;
+    if (source.kind !== "Constructor") return false;
+    if (source.name === "Nat") return this.#supportsNumericTarget(target);
+    if (source.name === "Int") return this.#supportsSignedTarget(target);
+    return false;
+  }
+
+  /**
    * `#memberCallHome`, asked of the member a **dot** resolved to *(#808)*.
    *
    * The dot writes no face — it names an operation — so there is no
@@ -8927,6 +9062,7 @@ class Checker {
    */
   #dotMemberHome(
     candidate: MemberCandidate,
+    receiver: Mono,
     expected: Mono | undefined,
   ): Mono | undefined {
     if (expected === undefined) return undefined;
@@ -8934,7 +9070,16 @@ class Checker {
     if (rung === undefined) return undefined;
     const target = this.#prune(expected);
     if (target.kind === "Variable" || target.kind === "Error") return undefined;
-    return this.#supportsTarget(target, rung) ? target : undefined;
+    if (!this.#supportsTarget(target, rung)) return undefined;
+    // §5.1's **stand-down**, at the operand the dot already has in hand. The
+    // receiver is the one operand elaborated before the lift can fire, and where
+    // it can reach the face by neither route the lift does not fire at all: the
+    // call elaborates from its operands alone and the receiver keeps its own
+    // type. This is §5.1's one *non-refusing* stand-down — the forwarded face is
+    // not the consuming seat's own type — and it is what lets a user companion's
+    // `gcd(Foo, Foo): BigInt` still answer `p.add(q).gcd(s)` under a `BigInt`
+    // face.
+    return this.#operandReaches(receiver, target) ? target : undefined;
   }
 
   /**
@@ -9062,15 +9207,30 @@ class Checker {
       this.#requirements.set(expression, [power]);
       return base;
     }
+    // §5.1's **stand-down**: where an operand can reach the face by neither
+    // exact unification nor the two conversions, the lift does not fire. The
+    // operation elaborates from its operands alone and whatever mismatch remains
+    // surfaces where the *result* meets its seat — `let total: Rat = count *
+    // price` refused at the binding rather than at `price` — and the note taken
+    // here is what lets that refusal say why: which operand declined the face,
+    // and the algebra the operation ran at instead (§6).
+    const declined = home === undefined
+      ? undefined
+      : !this.#operandReaches(left, home)
+        ? { operand: expression.left, type: left }
+        : !this.#operandReaches(right, home)
+          ? { operand: expression.right, type: right }
+          : undefined;
+    const lifted = declined === undefined ? home : undefined;
     let common = left;
-    if (home !== undefined) {
+    if (lifted !== undefined) {
       // The home **is** the common type: each operand reaches it by exact
       // unification or by §5.1's two conversions, each converted once, and the
       // operation's evidence is selected at it. Operand-driven selection is the
       // no-expectation case below.
-      this.#unifyExpected(home, left, expression.left, expression.span, true);
-      this.#unifyExpected(home, right, expression.right, expression.span, true);
-      common = home;
+      this.#unifyExpected(lifted, left, expression.left, expression.span, true);
+      this.#unifyExpected(lifted, right, expression.right, expression.span, true);
+      common = lifted;
     } else if (
       this.#tryWidenNumeric(expression.left, left, right, expression.span, true)
     ) {
@@ -9081,6 +9241,15 @@ class Checker {
       common = left;
     } else {
       this.#unify(left, right, expression.span);
+    }
+    if (declined !== undefined && home !== undefined) {
+      this.#standDowns.set(expression, {
+        operand: this.#display(declined.type),
+        face: this.#display(home),
+        ran: this.#display(common),
+        spelled: this.#writtenOperand(declined.operand),
+        operation: OPERATION_NOUNS[expression.operator] ?? "operation",
+      });
     }
     const requirement = this.#require(constraint, common, expression.span);
     this.#requirements.set(expression, [requirement]);
@@ -11116,16 +11285,61 @@ class Checker {
     allowVariableTarget = false,
   ): void {
     if (
-      !this.#tryWidenNumeric(
+      this.#tryWidenNumeric(
         expression,
         actual,
         expected,
         span,
         allowVariableTarget,
       )
-    ) {
-      this.#unify(expected, actual, span);
-    }
+    ) return;
+    // Numeric Literals §6: where the value being checked is an operation whose
+    // lift **stood down**, this is the consuming seat §5.1's theorem says the
+    // refusal fires at, and the note says what the lift's own refusal would
+    // have. Reported here in place of the bare mismatch, and only when the
+    // unification really does fail.
+    if (this.#reportStandDown(expression, expected, actual, span)) return;
+    this.#unify(expected, actual, span);
+  }
+
+  /**
+   * Numeric Literals §6's stand-down report, or `false` where none is owed.
+   *
+   * Owed exactly when this seat is about to refuse a value whose own operation
+   * declined a face: the note names the operand that could not enter it and the
+   * algebra the operation ran at instead, which is the information the lift's
+   * refusal at the operand used to carry and this seat would otherwise drop.
+   *
+   * The pre-check is a *speculative* unification's worth of care taken without
+   * one: the note is consulted only after `#tryWidenNumeric` has declined and
+   * only when the two types are genuinely different, so a program that compiles
+   * never reaches it.
+   */
+  #reportStandDown(
+    expression: Resolved.Expr,
+    expected: Mono,
+    actual: Mono,
+    span: Source.Span,
+  ): boolean {
+    const note = this.#standDowns.get(expression);
+    if (note === undefined) return false;
+    const target = this.#prune(expected);
+    const value = this.#prune(actual);
+    if (target.kind === "Variable" || target.kind === "Error") return false;
+    if (value.kind === "Error") return false;
+    if (this.#acceptsExactly(value, target)) return false;
+    const named = note.spelled === undefined
+      ? `an operand of type \`${note.operand}\``
+      : `\`${note.spelled}\` is a \`${note.operand}\` and`;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `${named} cannot enter \`${note.face}\`, so the ` +
+        `${note.operation} ran at \`${note.ran}\``,
+      primary: span,
+    });
+    // The seat has reported; the types stay apart rather than being forced
+    // together, exactly as the plain mismatch would have left them.
+    return true;
   }
 
   /**
