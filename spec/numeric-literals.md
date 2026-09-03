@@ -204,8 +204,12 @@ expected type **is** the operation's common type: each operand reaches it by exa
 unification or by the two conversions above, and the operation's evidence is selected at
 it. Where an operand can reach it by neither — a `Float` under a `Rat` face, a user type
 under `BigInt` — the lift **stands down**: the operation elaborates from its operands
-alone, exactly as below, and whatever mismatch remains surfaces where the result meets its
-seat (`let total: Rat = count * price` is refused at the binding rather than at the
+alone, exactly as below, and the decision is made from the operands' *own* types before
+the face reaches any of them, so a nested operand that could have lifted on its own (`i +
+j` beside a `Foo`) widens into the operand-driven home instead of lifting to a face its
+sibling cannot meet (Method Syntax §2.2's receiver rule states the same decision for a dot
+call's receiver as a whole), and whatever mismatch remains surfaces where the result meets
+its seat (`let total: Rat = count * price` is refused at the binding rather than at the
 operation) — and that refusal names the operand that declined the face, so the report
 keeps the information the lift's own refusal carried: "`price` is a `Float` and cannot
 enter `Rat`, so the multiplication ran at `Float`" (§6). No accepted program changes, and
