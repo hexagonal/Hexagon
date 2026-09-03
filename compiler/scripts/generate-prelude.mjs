@@ -49,6 +49,8 @@ const EMBEDDINGS = [
       "Set.hex",
       "Stream.hex",
       "Array.hex",
+      "JsMap.hex",
+      "JsSet.hex",
       "JsKind.hex",
       "JsPathSegment.hex",
       "JsConversionReason.hex",

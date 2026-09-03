@@ -253,6 +253,35 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   complexity, so `stdlib-roadmap.md` §5.1 keeps it in source. The contrast
  *   with `vectorToArray` below is the whole of why one is keyed and one is not.
  *
+ * *(#792, the borrowed collections.)* The `jsMap*` and `jsSet*` families are
+ * `stdlib/JsMap.hex`'s and `stdlib/JsSet.hex`'s (FFI Part 10 §3), and the cut is
+ * `arrayLength`'s one type parameter wider: each row is a single native read or
+ * a single native construction, and every verdict over them is ordinary Hexagon
+ * in those files. **No row carries `Hash`** — §4.3 makes lookup the native
+ * collection's SameValueZero, so there is no evidence for a key to defer to.
+ *
+ * - **`jsMapGetUnchecked` is unexported**, beneath `JsMap.get`, and the pairing
+ *   is §4.2's two-step lowering rather than a convenience. The bare native
+ *   `get` answers `undefined` for a stored `undefined` and for an absent key
+ *   alike, so `get` asks `jsMapHas` first and reaches this row only once the key
+ *   is known present — which is what keeps `Some(undefined)` distinguishable
+ *   from `None`. §4.2 forbids fusing the two into one `get` plus an
+ *   `undefined` test *even where `v` looks unable to contain `undefined`*, and
+ *   writing the sequence in Hexagon over two keys is how that comes out
+ *   unfusable: the emitter never sees a shape to collapse.
+ * - **`jsMapFromSeq` and `jsSetFromSeq` are `new Map(…)` and `new Set(…)` and
+ *   nothing more.** A Hexagon `Seq` value carries `[Symbol.iterator]` and a
+ *   Hexagon tuple *is* a plain two-element JS array, so the native constructors
+ *   already consume the source in traversal order and already implement §6.5's
+ *   duplicate rules — later value wins at a map, first representative and
+ *   position retained at a set. Nothing is adapted on the way in, and the
+ *   freshness §6.5 promises is the constructor's own.
+ * - **`Map` and `Set` are spelled through the emitter's runtime vocabulary**
+ *   (#666, FFI Part 7 §1.2), which is what the two words joined it for: a
+ *   project supplying its own copy of either file at the prelude injection path
+ *   may bind either spelling at module level, and a captured `Map` would make
+ *   `fromSeq` construct the user's value.
+ *
  * *(#509, the `JsError` door.)* The `jsError*` family is `stdlib/JsError.hex`'s
  * (FFI Part 11 §7), three rows for the two total conservative accessors, and
  * the cut is §3.2's standard one: what only JavaScript can say is keyed, and
@@ -415,6 +444,13 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["jsValueIsArray", 1],
   ["jsValueAsArrayUnchecked", 1],
   ["arrayLength", 1],
+  ["jsMapSize", 1],
+  ["jsMapHas", 2],
+  ["jsMapGetUnchecked", 2],
+  ["jsMapFromSeq", 1],
+  ["jsSetSize", 1],
+  ["jsSetHas", 2],
+  ["jsSetFromSeq", 1],
   ["jsErrorReadMessage", 1],
   ["jsErrorReadStack", 1],
   ["jsErrorRender", 1],

@@ -186,7 +186,8 @@ describe("the function channel: none, and `ignore`", () => {
     expect(projectDiagnostics("export let s(pairs: Seq(String)): String = fromSeq(pairs)\n"))
       .toEqual([
         "no bare `fromSeq`; write `String.fromSeq(pairs)`, `Vector.fromSeq(pairs)`, " +
-        "`Map.fromSeq(pairs)`, `Set.fromSeq(pairs)`, or `Stream.fromSeq(pairs)`",
+        "`Map.fromSeq(pairs)`, `Set.fromSeq(pairs)`, `Stream.fromSeq(pairs)`, " +
+        "`JsMap.fromSeq(pairs)`, or `JsSet.fromSeq(pairs)`",
       ]);
   });
 
@@ -549,7 +550,8 @@ describe("§5.5 and §10's exemplars, character for character", () => {
     ["§10: not dot-callable",
       "export let s(pairs: Seq(String)): String = fromSeq(pairs)\n",
       "no bare `fromSeq`; write `String.fromSeq(pairs)`, `Vector.fromSeq(pairs)`, " +
-      "`Map.fromSeq(pairs)`, `Set.fromSeq(pairs)`, or `Stream.fromSeq(pairs)`"],
+      "`Map.fromSeq(pairs)`, `Set.fromSeq(pairs)`, `Stream.fromSeq(pairs)`, " +
+      "`JsMap.fromSeq(pairs)`, or `JsSet.fromSeq(pairs)`"],
     ["§10: a reference that is not a call", "export let e: Vector(Int) = empty\n",
       "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
       "or `Set.empty`"],
