@@ -475,11 +475,21 @@ when the raw values remain unchanged.
 ### 8.1 TypeScript `const enum`
 
 A TypeScript `const enum` is normally erased and supplies no runtime object to import.
-It cannot satisfy the object-reading form. Declare its inlined values with the literal
-form (§2.4) — `extern enum Level = 0 as Low | 1 as High` — or publish a real
-object/facade. Diagnostic when the named export is observably absent: "`Direction` has
-no runtime enum object; write its values with the literal form, `extern enum Direction
-= … as …`, or bind a JavaScript facade."
+An erased one cannot satisfy the object-reading form (one emitted under
+`preserveConstEnums` is an ordinary enum object and can). Declare its inlined values
+with the literal form (§2.4) — `extern enum Direction = 0 as Up | 1 as Down` — or
+publish a real object/facade. The compiler does not detect the absence: it never
+inspects the foreign package (§2.2, §7.2), so a declaration over an erased enum fails
+where ESM linking fails, with the engine's own missing-export error, and an import that
+does not supply a declared member property — an object lacking the member, or an export
+that is no object at all, such as a number or a string — captures `undefined` for that
+constructor: a false contract under §3, not a diagnosed one. A `null` or `undefined`
+export is the one breach of §3 rule 1 that fails loudly: the read itself throws, at
+module evaluation rather than at link. Tooling able to inspect the foreign module's
+declarations may diagnose it early, with the rewrite "`Direction` has no runtime enum
+object; write its values with the literal form, `extern enum Direction = … as …`, or
+bind a JavaScript facade" — the concession §8.3 already makes for alias values, whose
+evidence lies in the source rather than the declarations.
 
 ### 8.2 Flags and bitmasks
 
@@ -527,8 +537,10 @@ An implementation is not conforming until tests cover at least:
 8. `toJsT` preserving primitive value or object identity.
 9. Derived `Eq`, `Ord`, `Show`, and `Hash` following §6 rather than carrier semantics.
 10. Private versus `export enum` JavaScript and `.d.ts` surfaces.
-11. Diagnostics for payload members, parameters, duplicate names, and attempted use of
-    a missing runtime/`const enum` export.
+11. Diagnostics for payload members, parameters, and duplicate names; and the observable
+    failures §8.1 names — a missing runtime/`const enum` export is an ESM link error,
+    a nullish export throws where its member is read, and a declared member the import
+    does not supply is `undefined` captured — with no compile-time check for any.
 12. No regression to ordinary all-nullary unions' tagged-object ABI (Unions §6.2).
 13. The literal form at module scope: string, integer, boolean and mixed members;
     private and `export extern enum` surfaces; reached abroad through the module
@@ -565,5 +577,6 @@ An implementation is not conforming until tests cover at least:
 | Literal-form emission and face | Constants are the literals; match lowers to `switch`; `.d.ts` is the literal union, no brand |
 | TypeScript numeric reverse map | Ignored |
 | `const enum` / object-free literal unions | The literal form (§2.4, §8.1, §8.4) |
+| Missing enum object or member | Not compiler-detected (§2.2, §7.2): an ESM link error, a throwing read of a nullish export, or `undefined` captured; tooling with package access may diagnose (§8.1, §8.3) |
 | Flags | Excluded (§8.2) |
 | Ordinary union representation | Unchanged |
