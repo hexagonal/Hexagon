@@ -16,10 +16,12 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
  * array and look.
  *
  * What is deliberately **not** here, because it is not shipped: `Array.at`, the
- * slice `xs[lo..hi]`, `Array.toSeq`/`fromSeq`/`toVector` and `Vector.toArray`.
- * Their absence is pinned below as absence — §9.1's doctrine that an unshipped
- * operation is missing rather than stubbed — and nothing here should be read as
- * deciding when they arrive.
+ * slice `xs[lo..hi]`, and `Array.toSeq`/`fromSeq`/`toVector`. Their absence is
+ * pinned below as absence — §9.1's doctrine that an unshipped operation is
+ * missing rather than stubbed — and nothing here should be read as deciding when
+ * they arrive. §9's fourth conversion, `Vector.toArray`, *has* shipped (#238),
+ * so the row that once pinned its absence pins its arrival instead; the
+ * operation's own contract is `vector-to-array.test.ts`'s.
  *
  * The `.d.ts` face (`ReadonlyArray<a>`) is `array-readonly-face.test.ts`'s and
  * is not restated; the one composition this slice adds — `Array(JsValue)` —
@@ -376,6 +378,20 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
   });
 });
 
+/**
+ * The one row of §9's quartet that has since shipped, kept here because this is
+ * where its absence used to be pinned. #238 landed `Vector.toArray` through the
+ * intrinsic door, so the absences below are three operations, not four; the
+ * operation's own contract — eager, fresh, shallow, total, §6.2-stable — is
+ * `vector-to-array.test.ts`'s and is not restated.
+ */
+describe("§9's fourth conversion has shipped (#238)", () => {
+  test("`Vector.toArray` compiles, and is no longer one of the absences", () => {
+    expect(projectDiagnostics("export let a(v: Vector(Int)): Array(Int) = Vector.toArray(v)\n"))
+      .toEqual([]);
+  });
+});
+
 describe("what this slice does not ship is absent, not stubbed (§9.1)", () => {
   test.each([
     ["at", "export let a(xs: Array(Int)): Int = Array.at(xs, 1)\n"],
@@ -385,16 +401,6 @@ describe("what this slice does not ship is absent, not stubbed (§9.1)", () => {
   ])("`Array.%s` is the ordinary unknown-export error", (name, source) => {
     expect(projectDiagnostics(source))
       .toEqual([`module \`Array\` does not export \`${name}\``]);
-  });
-
-  /**
-   * #238's outbound half, ruled out of this arc entirely. The row is here so
-   * that the absence is a *checked* fact rather than an assumption: `Vector`'s
-   * export list is the diagnostic, exactly as §10's last row says.
-   */
-  test("`Vector.toArray` is still absent", () => {
-    expect(projectDiagnostics("export let a(v: Vector(Int)): Array(Int) = Vector.toArray(v)\n"))
-      .toEqual(["module `Vector` does not export `toArray`"]);
   });
 
   /**
