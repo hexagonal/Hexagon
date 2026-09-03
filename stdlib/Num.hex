@@ -4,8 +4,9 @@
     Each member below states the law an instance is reviewed against
     (`spec/constraints.md` section 7). The shipped instances keep those laws
     exactly at `BigInt` and `Rat`, within the safe range at `Nat` and `Int`, and
-    at `Float` only up to rounding, failing outright at overflow, underflow, and
-    `NaN`. The compiler relies on none of them: operands are evaluated in the
+    at `Float` exactly for commutativity and `fromNat`, with associativity and
+    distributivity only up to rounding and failing outright at overflow,
+    underflow, and `NaN`. The compiler relies on none of them: operands are evaluated in the
     rewritten form's source order, and no expression is rewritten by an
     algebraic law. *)
 export constraint Num<a> =
