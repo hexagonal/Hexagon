@@ -324,6 +324,94 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
   });
 
   /**
+   * §8.1's other half, and the sharper one: a module that exports **no** enum
+   * object at all — an erased `const enum` is the case the section names.
+   *
+   * The compiler never inspects the foreign package (§2.2), so there is no
+   * compile-time check to make and none is made: the program is diagnostic-free
+   * and the import is emitted regardless, even for an enum nothing references.
+   * What that buys is a failure at **link** time, before any of this module's
+   * code runs, carrying the engine's own missing-export error — which names the
+   * export the declaration asked for, and so says what the declaration got
+   * wrong. That is the observable behaviour §8.1's undelivered diagnostic
+   * describes, and pinning it is what keeps the gap a stated one.
+   *
+   * Executed, because every word of that is about what the runtime does: a test
+   * reading emitted text would only be reading the import line back.
+   */
+  test("a foreign module lacking the named export fails at ESM link", async () => {
+    const source = 'extern from "erased"\n' +
+      "    export enum Direction = Up | Down\n" +
+      "\n" +
+      "export let up: JsValue = toJsDirection(Up)\n";
+    // No compile-time check: the absence is the foreign package's fact, and the
+    // compiler has not read it.
+    expect(projectDiagnostics(source)).toEqual([]);
+    await expect(run([["/main.hex", source]], { erased: "export {};\n" }))
+      .rejects.toThrow(/does not provide an export named 'Direction'/u);
+  });
+
+  /**
+   * §3 rule 1 asserts the named export "is an object or constructor object", and
+   * §8.1's third shape is the one where that assertion is simply false and
+   * nothing anywhere says so.
+   *
+   * A number, a string or a function is a perfectly good ESM export, so linking
+   * succeeds; every declared member then reads a property the value does not
+   * have, and JavaScript answers `undefined` rather than throwing. So the
+   * program **runs**, with no diagnostic and no error, and every constructor is
+   * `undefined` — the falsest reading of a false declaration, and the reason §3
+   * calls the declaration a trusted contract rather than a checked one.
+   */
+  test("a present export that is no object at all captures every member as `undefined`", async () => {
+    const source = 'extern from "notAnObject"\n' +
+      "    export enum Direction = Up | Down\n" +
+      "\n" +
+      "export let up: JsValue = toJsDirection(Up)\n" +
+      "export let down: JsValue = toJsDirection(Down)\n";
+    expect(projectDiagnostics(source)).toEqual([]);
+    for (const value of ["5", '"hi"', "function Direction() {}"]) {
+      const exported = value.startsWith("function")
+        ? `export ${value}\n`
+        : `export const Direction = ${value};\n`;
+      const exports = await run([["/main.hex", source]], { notAnObject: exported });
+      expect(exports["up"]).toBeUndefined();
+      expect(exports["down"]).toBeUndefined();
+    }
+  });
+
+  /**
+   * §8.1's remaining shape, and the one that fails **later** than the missing
+   * export does: a nullish export links cleanly — the name is there — and then
+   * throws at module *evaluation*, when §3's read runs against it.
+   *
+   * The two are pinned apart rather than together because they are two different
+   * moments and two different messages: the missing export never evaluates this
+   * module at all and names the export the declaration asked for, while this one
+   * has already linked and names the property. A reader told only "it throws"
+   * would learn neither.
+   */
+  test("a nullish export throws at module evaluation, not at link", async () => {
+    const source = 'extern from "nullish"\n' +
+      "    export enum Direction = Up | Down\n" +
+      "\n" +
+      "export let up: JsValue = toJsDirection(Up)\n";
+    expect(projectDiagnostics(source)).toEqual([]);
+    for (const value of ["undefined", "null"]) {
+      const failure = run(
+        [["/main.hex", source]],
+        { nullish: `export const Direction = ${value};\n` },
+      );
+      await expect(failure).rejects.toThrow(
+        new RegExp(`Cannot read properties of ${value}`, "u"),
+      );
+      // Evaluation, not link: the export is present, so the linker is satisfied
+      // and the engine's missing-export message never appears.
+      await expect(failure).rejects.not.toThrow(/does not provide an export named/u);
+    }
+  });
+
+  /**
    * `spec/doc-comments.md` §4.2: every form a block admits introduces a name and
    * is documentable, and a union's members claim their own blocks at the leading
    * `|`. The `extern from` header itself is not documentable and stays that way.
