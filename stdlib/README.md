@@ -48,11 +48,12 @@ not compiler intrinsics.
   `Vector.hex`'s `IndexError`, the one such declaration in the corpus. There is
   no mutation surface and no `set`. The conversion is `toVector`, FFI Part 2
   §9's escape from the borrow — eager, a stable persistent snapshot, shallow
-  and total. It is a second door row, reusing the emitter's one eager
-  vector-from-iterable builder; unlike `Vector.toArray`'s key it is a *choice*
-  rather than a necessity, since an `Array(a)` is iterable and a Hexagon fold
-  over it would conform too (`compiler/src/intrinsics.ts` argues the call at
-  the key's paragraph).
+  and total — and it takes **no door row**: a `for` over the borrow folding
+  `Vector.append` expresses it at the same complexity, so §5.1's Hexagon-first
+  doctrine keeps it in source. The asymmetry with `Vector.toArray`, which *is*
+  keyed, is §6.1's: an `Array(a)` has no Hexagon producer, so the outbound body
+  could not name its result, while the inbound one has both a traversal and a
+  producer.
 - `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex`, and
   `JsValue.hex` are FFI Part 11's four. `JsValue.hex` is the companion of the
   boundary type `JsValue` — the type of a JavaScript value about which Hexagon

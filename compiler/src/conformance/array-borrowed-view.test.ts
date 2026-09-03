@@ -376,9 +376,10 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
   });
 
   /**
-   * And nothing else leaves the module. The door rows' keys (`arrayLength`,
-   * `arrayToVector`) are not names a program can spell, and there is no fourth
-   * export hiding behind the three above.
+   * And nothing else leaves the module. The one door row's key (`arrayLength`)
+   * is not a name a program can spell, and there is no fourth export hiding
+   * behind the three above — `toVector` is ordinary Hexagon here and has no key
+   * of its own to leak.
    */
   test("the module exports exactly `length`, `get` and `toVector`", () => {
     expect(projectDiagnostics("export let n(xs: Array(Int)): Int = Array.length(xs)\n"))
@@ -389,21 +390,19 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
       .toEqual([]);
     expect(projectDiagnostics("export let n(xs: Array(Int)): Int = Array.arrayLength(xs)\n"))
       .toEqual(["module `Array` does not export `arrayLength`"]);
-    expect(projectDiagnostics(
-      "export let n(xs: Array(Int)): Vector(Int) = Array.arrayToVector(xs)\n",
-    )).toEqual(["module `Array` does not export `arrayToVector`"]);
   });
 });
 
 /**
  * The rows of §9's quartet that have since shipped, kept here because this is
  * where their absence used to be pinned. #238 landed `Vector.toArray` through
- * the intrinsic door and `Array.toVector` followed through the same door, so the
- * absences below are two operations, not four; each operation's own contract is
- * its own file's — `vector-to-array.test.ts` for the outbound crossing (eager,
- * fresh, shallow, total, §6.2-stable) and `array-to-vector.test.ts` for the
- * inbound one (eager, a stable persistent snapshot, shallow, total, §6.4's
- * holes) — and neither is restated here.
+ * the intrinsic door and `Array.toVector` followed as ordinary Hexagon in this
+ * module (`stdlib-roadmap.md` §5.1 — a `for` over the borrow is expressible, so
+ * it stays in source), so the absences below are two operations, not four. Each
+ * operation's own contract is its own file's — `vector-to-array.test.ts` for
+ * the outbound crossing (eager, fresh, shallow, total, §6.2-stable) and
+ * `array-to-vector.test.ts` for the inbound one (eager, a stable persistent
+ * snapshot, shallow, total, §6.4's holes) — and neither is restated here.
  */
 describe("two of §9's four conversions have shipped", () => {
   test("`Vector.toArray` compiles, and is no longer one of the absences", () => {

@@ -5,10 +5,22 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
 import { typeScriptErrors } from "../support/typescript-check.js";
 
 /**
- * Conformance for **`Array.toVector`** — FFI Part 2 §9's inbound conversion,
- * shipped through the intrinsic door per §9.1's obligations. It is the third of
- * §9's quartet to be decided and the second to ship, following `Vector.toArray`
- * (#238, PR #798), whose file this one is modelled on.
+ * Conformance for **`Array.toVector`** — FFI Part 2 §9's inbound conversion. It
+ * is the second of §9's quartet to ship, following `Vector.toArray` (#238,
+ * PR #798), whose file this one is modelled on.
+ *
+ * It ships as **ordinary Hexagon in `stdlib/Array.hex`**, not through the
+ * intrinsic door, and the two are not arbitrary alternatives:
+ * `stdlib-roadmap.md` §5.1 authors library behaviour in Hexagon whenever Hexagon
+ * expresses it at equivalent complexity with acceptable generated code, and
+ * admits a private intrinsic only for a host capability, an opaque or
+ * performance-critical representation, a compiler transformation, or measured
+ * performance evidence. None reaches a `for` over the borrow folding
+ * `Vector.append`. The asymmetry with `Vector.toArray` — which *is* keyed — is
+ * §6.1's: an `Array(a)` has no Hexagon producer, so the outbound body could not
+ * name its result, while the inbound one has both a traversal (§8.1's `Iterable`
+ * row) and a producer (`Vector.append`). The last `describe` here pins those two
+ * premises, because they are what the shape rests on.
  *
  * §9 gives the operation three words, §6.4 gives it a fourth obligation, and the
  * whole point of the row is a fifth that no other conversion carries:
@@ -396,8 +408,9 @@ describe("sparse arrays: a hole observes as `undefined` (§6.4)", () => {
    * actually claims: `Nullable(Int)` is the raw `Int | null | undefined`
    * representation (§2.1), so a bracket read of a `Vector(Nullable(Int))` hands
    * the representation straight back across the boundary, and the test asks
-   * JavaScript whether what arrived is `undefined`. When the inspection surface
-   * ships, this is the pin to restate in its vocabulary.
+   * JavaScript whether what arrived is `undefined`. Issue **#786** tracks the
+   * `Nullable` companion; when it ships, this is the pin to restate in its
+   * vocabulary.
    */
   const holey = (source: readonly unknown[]): unknown =>
     (exports_["convertHoley"] as (values: readonly unknown[]) => unknown)(source);
@@ -470,23 +483,20 @@ describe("sparse arrays: a hole observes as `undefined` (§6.4)", () => {
   });
 });
 
-describe("the mechanism is a choice, and the alternative is real", () => {
+describe("what makes the Hexagon body possible (`stdlib-roadmap.md` §5.1)", () => {
   /**
-   * **Why this is pinned, and what it is not.** The row goes through the
-   * intrinsic door, and the tempting justification — the one `Vector.toArray`'s
-   * key genuinely has — is that a Hexagon body could not be written. That is
-   * false here, and the two facts below are why: `Array(a)` carries §8.1's
-   * provided `Iterable` row, so `for value in xs` compiles over a borrowed
-   * array and emits §8.2's native `for...of`; and `stdlib/Array.hex` is seated
-   * after `stdlib/Vector.hex` in the prelude order, so `Vector.append` is in
-   * scope in the file where the body would live. Together they make the
-   * four-line fold available, and it satisfies every clause above.
+   * **These pin a premise, not a behaviour.** §5.1 sends an operation to source
+   * whenever Hexagon expresses it at equivalent complexity, so the shipped shape
+   * rests on two facts about the language rather than on anything the operation
+   * does: `Array(a)` carries §8.1's provided `Iterable` row, so `for value in
+   * xs` compiles over a borrowed array and emits §8.2's native `for...of`; and
+   * `stdlib/Array.hex` is seated after `stdlib/Vector.hex` in the prelude order,
+   * so `Vector.append` is in scope in the file where the body lives.
    *
-   * So these pin a **premise**, not a behaviour: the door is one of two
-   * conformant mechanisms, chosen for reuse of one eager builder rather than
-   * forced. If either fact ever stops holding, the argument at
-   * `intrinsics.ts`'s `arrayToVector` paragraph needs rewriting, and this is
-   * where that shows.
+   * Together they are the whole of why this is not a door row while
+   * `Vector.toArray` is. If either stops holding, the body stops compiling and
+   * the argument at `intrinsics.ts`'s `vectorToArray` paragraph needs rewriting;
+   * this is where that shows, rather than in a puzzling failure elsewhere.
    */
   test("a borrowed array can be walked in Hexagon source", () => {
     expect(projectDiagnostics(
@@ -581,10 +591,10 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () =>
       "/**\n" +
         " * The elements of `values` collected into a vector: the snapshot that\n" +
         " * outlives the borrow, so later changes to the array never reach it. The\n" +
-        " * vector is built at once, and the crossing is shallow — an element that\n" +
-        " * is itself a vector or a record arrives as that same value.\n" +
+        " * vector is built at once, and the crossing is shallow — an element that is\n" +
+        " * itself a vector or a record arrives as that same value.\n" +
         " */\n" +
-        "export declare function toVector<a>(values: ReadonlyArray<a>): Hex.Vector<a>;",
+        "export declare const toVector: <a>(values: ReadonlyArray<a>) => Hex.Vector<a>;",
     );
   });
 
