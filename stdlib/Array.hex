@@ -67,5 +67,5 @@ export let get(values: Array(a), index: Int): Option(a) =
 export let toVector(values: Array(a)): Vector(a) =
     var collected: Vector(a) = []
     for value in values
-        collected := Vector.append(collected, value)
+        collected := collected.append(value)
     collected

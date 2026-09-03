@@ -1632,7 +1632,7 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "export let toVector(values: Array(a)): Vector(a) =\n"
     + "    var collected: Vector(a) = []\n"
     + "    for value in values\n"
-    + "        collected := Vector.append(collected, value)\n"
+    + "        collected := collected.append(value)\n"
     + "    collected\n",
   "JsKind.hex":
     "// `JsKind`'s home, and its only reason for being a module of its own: FFI\n"

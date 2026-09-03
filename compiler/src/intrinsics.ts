@@ -303,7 +303,9 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * as native `for...of` — and `stdlib/Array.hex` is seated after
  * `stdlib/Vector.hex` in the prelude order, so `Vector.append` is in scope
  * there. A `for` over the borrow folding `append` is therefore expressible, at
- * the same O(n) and the same emitted shape a key would produce, which is
+ * the same complexity and the same emitted shape a key would produce — the
+ * comparison §5.1 asks for is against the alternative implementation, and the
+ * keyed `vectorOf` is the very same fold of persistent appends — which is
  * precisely the case `stdlib-roadmap.md` §5.1 keeps in source: none of its four
  * justifications for a private intrinsic (a host capability, an opaque or
  * performance-critical representation, a compiler transformation, measured

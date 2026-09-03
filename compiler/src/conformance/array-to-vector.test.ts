@@ -15,12 +15,12 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * expresses it at equivalent complexity with acceptable generated code, and
  * admits a private intrinsic only for a host capability, an opaque or
  * performance-critical representation, a compiler transformation, or measured
- * performance evidence. None reaches a `for` over the borrow folding
- * `Vector.append`. The asymmetry with `Vector.toArray` — which *is* keyed — is
- * §6.1's: an `Array(a)` has no Hexagon producer, so the outbound body could not
- * name its result, while the inbound one has both a traversal (§8.1's `Iterable`
- * row) and a producer (`Vector.append`). The last `describe` here pins those two
- * premises, because they are what the shape rests on.
+ * performance evidence. None reaches a `for` over the borrow folding `append`.
+ * The asymmetry with `Vector.toArray` — which *is* keyed — is §6.1's: an
+ * `Array(a)` has no Hexagon producer, so the outbound body could not name its
+ * result, while the inbound one has both a traversal (§8.1's `Iterable` row) and
+ * a producer (`Vector`'s `append`, reached by the dot as stdlib source spells
+ * it). The last `describe` here pins the premises that shape rests on.
  *
  * §9 gives the operation three words, §6.4 gives it a fourth obligation, and the
  * whole point of the row is a fifth that no other conversion carries:
@@ -43,10 +43,21 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * No type-level assertion separates any of these. An implementation that kept a
  * lazy view onto the borrowed array would satisfy every element test here and
  * fail the snapshot ones; one that converted recursively would satisfy the
- * lengths and fail the identity ones; one that walked `1..length` with the
- * bracket would satisfy everything except §6.4's holes, where the bracket's
- * bounds assertion is beside the point and `undefined` must simply arrive. So
- * the tests run compiled code and ask the answers.
+ * lengths and fail the identity ones. So the tests run compiled code and ask
+ * the answers.
+ *
+ * **What they deliberately do not separate.** A body that walked
+ * `1..Array.length(values)` reading through the bracket passes every pin in this
+ * file, and that is correct rather than a hole in the suite: the bracket's
+ * lowering bounds-checks and then reads natively, so a hole yields `undefined`
+ * exactly as `for...of` reports one, and the two traversals are observationally
+ * the same operation. (An earlier form of this comment claimed the index walk
+ * would fail §6.4. It does not — measured, not reasoned.) What §6.4's pins do
+ * separate is a traversal that treats a hole as *absence* — one that skips it,
+ * or normalises it to `null` — which is the mistake §6.4 exists to forbid.
+ * Which of the two conformant walks is emitted is pinned separately, at the end,
+ * because §8.2's native `for...of` is a premise of the §5.1 argument for
+ * shipping this in source at all.
  *
  * §9.1 obligation 4 — partial shipping is excluded — is why the whole contract
  * is pinned in one file. The `.d.ts` row (`ReadonlyArray<a>` in an *argument*
@@ -68,7 +79,7 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * claim about what the value answers, not about what it holds.
  */
 const PROGRAM = "// The two spellings Modules section 5.5 leaves a prelude function,\n" +
-  "// over one door row.\n" +
+  "// over one exported body.\n" +
   "export let convert(values: Array(Int)): Vector(Int) = Array.toVector(values)\n" +
   "\n" +
   "export let convertDot(values: Array(Int)): Vector(Int) = values.toVector()\n" +
@@ -513,6 +524,34 @@ describe("what makes the Hexagon body possible (`stdlib-roadmap.md` §5.1)", () 
     expect(order.indexOf("Array.hex")).toBeGreaterThan(order.indexOf("Vector.hex"));
     expect(order).toContain("Vector.hex");
   });
+
+  /**
+   * **The third premise, and the one only emitted text can settle.** The two
+   * above say the body *compiles*; §5.1 also asks that it produce acceptable
+   * generated code, and the whole answer to that is §8.2's ruling that a `for`
+   * over a borrowed array emits native `for...of`. Nothing else in this file
+   * can see it: a lowering that materialised an index walk — reading `.length`
+   * once and indexing per step — computes the same vector, holes included, and
+   * passes all thirty-seven behavioural pins.
+   *
+   * So this reads the emitted `Array.hex` and asks for the loop by its text. It
+   * is the pin the §5.1 argument actually rests on, and the one that fails if a
+   * future emitter change quietly turns the door-free body into the very
+   * open-coded walk the door was rejected for not needing.
+   */
+  test("the shipped body emits §8.2's native `for...of`", () => {
+    const compiled = compileMain("export let f(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n");
+    expect(compiled.diagnostics).toEqual([]);
+    const array = compiled.modules.find(({ source }) => source.path.endsWith("/Array.hex"));
+    expect(array).toBeDefined();
+    expect(array!.javascript.text).toContain("for (const value of values)");
+    // And no index walk beside it: the traversal reads no `.length` of its own
+    // and offsets no index. (`length`'s own row is `__a => __a.length`, which is
+    // the arrow above, not a loop.)
+    const body = array!.javascript.text.slice(array!.javascript.text.indexOf("const toVector"));
+    expect(body).not.toContain("values.length");
+    expect(body).not.toContain("- 1]");
+  });
 });
 
 describe("the round trip through §9's other shipped conversion", () => {
@@ -541,7 +580,7 @@ describe("the round trip through §9's other shipped conversion", () => {
   });
 });
 
-describe("both spellings reach the same door row (Modules §5.5)", () => {
+describe("both spellings reach the same export (Modules §5.5)", () => {
   test("the qualified form and the dot call compile", () => {
     expect(projectDiagnostics(
       "export let a(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n",
@@ -558,17 +597,17 @@ describe("both spellings reach the same door row (Modules §5.5)", () => {
     expect(convertDot(source)).not.toBe(convert(source));
   });
 
-  /**
-   * **The vocabulary cost, pinned.** `toVector` is a name no prelude module
-   * exported before, so it is single-homed — and since #742 that buys no bare
-   * spelling at all: the prelude's function channel is closed (Modules §5.5), so
-   * the bare call is refused and the message enumerates the routes. Two routes
-   * here, where a two-homed name would list three.
+  /*
+   * **The vocabulary cost is pinned once, and not here.** `toVector` is a name
+   * no prelude module exported before, so it is single-homed — and since #742
+   * that buys no bare spelling at all: the prelude's function channel is closed
+   * (Modules §5.5), so the bare call is refused and the message enumerates two
+   * routes where a two-homed name would list three. That refusal is
+   * `array-borrowed-view.test.ts`'s, in the `describe` block that holds this
+   * module's whole bare-name ledger beside `length`'s and `get`'s, which is
+   * where a reader comparing the spend will look. Pinning the same byte string
+   * twice would only mean editing it twice.
    */
-  test("the bare call is refused, naming the dot form and the one exporter", () => {
-    expect(projectDiagnostics("export let c(xs: Array(Int)): Vector(Int) = toVector(xs)\n"))
-      .toEqual(["no bare `toVector`; write `xs.toVector()` or `Array.toVector(xs)`"]);
-  });
 });
 
 describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () => {
