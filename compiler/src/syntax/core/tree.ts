@@ -183,6 +183,8 @@ export interface Module {
    * must carry or fail at load.
    */
   readonly companionImports: readonly Typed.CompanionImport[];
+  /** See `Typed.Module.modulePath`; read for an object-reading enum's members. */
+  readonly modulePath?: string;
   readonly span: Source.Span;
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
@@ -347,12 +349,18 @@ export interface Union {
   readonly externEnum?: true;
   /** See `Typed.EnumConversions`; present exactly with `externEnum`. */
   readonly conversions?: Typed.EnumConversions;
+  /** See `Resolved.Union.foreign` — Foreign Enums §2.1's object-reading form. */
+  readonly foreign?: Resolved.ForeignEnumSource;
+  /** See `Typed.Union.declaringPath`; read for an object-reading enum's members. */
+  readonly declaringPath?: string;
 }
 
 export interface Constructor extends Binding {
   readonly slots: readonly ConstructorSlot[];
   /** See `Parsed.Constructor.literal` — Foreign Enums §2.4's member value. */
   readonly literal?: ForeignLiteral;
+  /** See `Parsed.Constructor.foreignName` — §2.1's foreign property. */
+  readonly foreignName?: string;
 }
 
 export interface ConstructorSlot {
@@ -373,6 +381,8 @@ export interface UnionItem {
   readonly externEnum?: true;
   /** See `Typed.EnumConversions`; present exactly with `externEnum`. */
   readonly conversions?: Typed.EnumConversions;
+  /** See `Resolved.Union.foreign` — Foreign Enums §2.1's object-reading form. */
+  readonly foreign?: Resolved.ForeignEnumSource;
   readonly span: Source.Span;
 }
 

@@ -628,6 +628,12 @@ export function compileProject(
         // arrived through a re-export or a function's result carries its whole
         // companion, whose module nothing in this file mentions.
         ...(module?.javascript.companionOperationImports ?? []),
+        // The home of an object-reading `extern enum` whose members this file
+        // matches on (Foreign Enums §3). An eighth channel of the same kind, and
+        // it can likewise be the only edge: Pattern Matching §2.2's door
+        // resolves a constructor head against the expected type, so the match
+        // need not have named the enum's module at all.
+        ...(module?.javascript.enumMemberImports ?? []),
         // The `.d.ts` channel (#227, FFI Part 7 §2.4) is an edge on the same
         // footing, and the only one with no JavaScript counterpart: a face
         // naming `Option` while touching no `Option` term imports the type and

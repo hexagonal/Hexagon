@@ -643,6 +643,45 @@ describe("the Hexagon language server", () => {
   });
 
   /**
+   * The **object-reading** form of `extern enum` (Foreign Enums §2.1, #779) over
+   * the wire. The row lives inside an `extern from` block and is hoisted to a
+   * module-level union by the parser, so what the editor asks about is a union
+   * and a value — and the two foreign names beside them are not Hexagon seats
+   * and answer nothing.
+   */
+  test("hover reads an object-reading `extern enum` as the union it is", async () => {
+    const source = [
+      'extern from "keyboard"',
+      "    enum Key as Direction = ARROW_UP as Up",
+      "let start: Direction = Up",
+      "",
+    ].join("\n");
+    const solo = await harness({ "main.hex": source });
+    try {
+      await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
+        textDocument: {
+          uri: solo.uriOf("main.hex"),
+          languageId: "hexagon",
+          version: 1,
+          text: source,
+        },
+      });
+      const type = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "Direction", 2),
+      }) as Hover | null;
+      expect((type!.contents as { value: string }).value).toBe("union `Direction`");
+      const member = await solo.client.sendRequest("textDocument/hover", {
+        textDocument: { uri: solo.uriOf("main.hex") },
+        position: positionOf(source, "Up", 2),
+      }) as Hover | null;
+      expect((member!.contents as { value: string }).value).toBe("value `Up: Direction`");
+    } finally {
+      await solo.dispose();
+    }
+  });
+
+  /**
    * The other half of §5.2 over the wire: a generated name cannot be renamed on
    * its own, and the reason reaches the editor as a failed request rather than
    * as a silent `null`.

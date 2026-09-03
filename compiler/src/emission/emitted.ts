@@ -76,6 +76,19 @@ export interface JavaScript extends Output {
    */
   readonly companionOperationImports: readonly string[];
   /**
+   * The specifiers of the modules this file imports an **object-reading `extern
+   * enum`'s members** from (Foreign Enums §3, §7.1) — empty for every file that
+   * matches on none.
+   *
+   * The fourth channel that can name a module the tree does not mention, and it
+   * arises for the reason the third does one namespace over: a constructor
+   * pattern's head may be resolved against the *expected type* (Pattern Matching
+   * §2.2), so a module can match on an enum whose home it never imported — and
+   * this is the one construct whose pattern test needs the constructor's runtime
+   * value rather than a tag.
+   */
+  readonly enumMemberImports: readonly string[];
+  /**
    * The specifiers of the runtime modules this file imports operations from, in
    * source form — empty when it imports none, which is every file that touches
    * neither a `Vector(a)` nor a `Map(k, v)`.

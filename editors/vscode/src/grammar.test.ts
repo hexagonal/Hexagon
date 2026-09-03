@@ -275,6 +275,33 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     expect(pairs).toContainEqual(["get", "entity.name.function.hexagon"]);
   });
 
+  it("paints an object-reading `extern enum`'s aliases and member rows", async () => {
+    // spec/ffi-foreign-enums.md §2.1 (#779): the head aliases the foreign type
+    // and each member row aliases a foreign property, both foreign-first. The
+    // block rule already reaches every part of it — the `enum` keyword, the two
+    // type names either side of `as`, `derives`, and the `|` continuation lines
+    // the multi-line spelling writes — so this pins the colouring rather than
+    // adding to it.
+    const source = [
+      'extern from "keyboard"',
+      "    export enum Key as Direction derives (Eq) =",
+      "        | ARROW_UP as Up",
+      "        | ARROW_DOWN as Down",
+      "let after = 1",
+    ].join("\n");
+    const pairs = await scopePairs(source);
+    expect(pairs).toContainEqual(["enum", "keyword.other.ffi.hexagon"]);
+    expect(pairs).toContainEqual(["Key", "entity.name.type.hexagon"]);
+    expect(pairs).toContainEqual(["Direction", "entity.name.type.hexagon"]);
+    expect(pairs).toContainEqual(["derives", "keyword.other.derives.hexagon"]);
+    expect(pairs).toContainEqual(["|", "keyword.operator.bar.hexagon"]);
+    expect(pairs).toContainEqual(["ARROW_UP", "entity.name.type.hexagon"]);
+    expect(pairs).toContainEqual(["as", "keyword.other.as.hexagon"]);
+    expect(pairs).toContainEqual(["Up", "entity.name.type.hexagon"]);
+    // The block ends at the next line starting in column zero.
+    expect(pairs).toContainEqual(["after", "variable.other.definition.hexagon"]);
+  });
+
   it("paints `pure` as a modifier on an extern `fun`, and nowhere else", async () => {
     // spec/effects.md §6.1's trusted purity claim. It is contextual, so the
     // rule keys on the `fun` that must follow: the rows FFI Part 4 §4.5 refuses

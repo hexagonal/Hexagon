@@ -45,6 +45,7 @@ export function elaborate(module: Typed.Module, source?: Source.File): Core.Modu
     comments: module.comments,
     docs: module.docs,
     companionImports: module.companionImports,
+    ...(module.modulePath === undefined ? {} : { modulePath: module.modulePath }),
     span: module.span,
     diagnostics: diagnostics.toArray(),
   };
