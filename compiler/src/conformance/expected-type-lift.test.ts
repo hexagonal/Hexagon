@@ -95,13 +95,16 @@ describe("the two acceptances", () => {
     // An operation whose operand types alone support no instance is well-typed
     // exactly when a written face names an algebra that embeds them.
     expect(verdict("export let x: Int = n - m\n")).toEqual([]);
-    // The boundary: without the face, `Nat` subtraction has nowhere to go.
+    // The boundary: without the face, `Nat` subtraction has nowhere to go — and
+    // since #808 the refusal names the face that would give it one (Method
+    // Syntax §9 row 15), on this spelling and on `n.subtract(m)` alike.
     expect(verdict("export let x: Nat = n - m\n"))
       .toEqual([
         "type `Nat` has no `Signed` instance; its only legal homes are the module " +
           "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
           "source, so this pair's honored set is closed — change the type, or go through " +
-          "the operations those homes export",
+          "the operations those homes export; a written `Int` face runs the operation " +
+          "and admits the result (`let difference: Int = …`)",
       ]);
   });
 
@@ -112,7 +115,9 @@ describe("the two acceptances", () => {
         "type `Int` has no `Frac` instance; its only legal homes are the module declaring " +
           "`Frac` and `Int`'s prelude companion module, both outside project source, so " +
           "this pair's honored set is closed — change the type, or go through the " +
-          "operations those homes export",
+          "operations those homes export; for the integer quotient and remainder use " +
+          "`Int.div` and `Int.mod`, and for real division write a `Float` face " +
+          "(`let quotient: Float = …`), which runs the division there",
       ]);
   });
 
@@ -341,7 +346,8 @@ describe("the recursion", () => {
         "type `Nat` has no `Signed` instance; its only legal homes are the module " +
           "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
           "source, so this pair's honored set is closed — change the type, or go through " +
-          "the operations those homes export",
+          "the operations those homes export; a written `Int` face runs the operation " +
+          "and admits the result (`let difference: Int = …`)",
       ]);
     expect(verdict("export let x: Float = -n\n")).toEqual([]);
     expect(emitted("export let x: Float = -n\n")).toContain("-n");

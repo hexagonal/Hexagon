@@ -416,12 +416,14 @@ describe("the gate: what draws no fixit at all", () => {
 
   test("a primitive subject has no declaration to hang `derives` on", () => {
     // Constraints §5.3's fixed companion home, and no `derives` seat anywhere:
-    // the closed-pair clause stands alone.
+    // the closed-pair clause stands alone — with Method Syntax §9 row 15's
+    // rider after it, which is a repair rather than a home (#808).
     expect(projectDiagnostics("export fun gap(a: Nat, b: Nat): Nat = a - b\n")).toEqual([
       "type `Nat` has no `Signed` instance; its only legal homes are the module " +
         "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
         "source, so this pair's honored set is closed — change the type, or go through " +
-        "the operations those homes export",
+        "the operations those homes export; a written `Int` face runs the operation " +
+        "and admits the result (`let difference: Int = …`)",
     ]);
   });
 

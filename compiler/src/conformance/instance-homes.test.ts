@@ -137,7 +137,12 @@ describe("the closed pair: no offerable home, so no honor offered", () => {
       "type `Nat` has no `Signed` instance; its only legal homes are the module " +
         "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
         "source, so this pair's honored set is closed — change the type, or go through " +
-        "the operations those homes export",
+        "the operations those homes export" +
+        // *(#808.)* Method Syntax §9 row 15's rider: the lift admits `n - m` at a
+        // written `Int` face, so a refusal naming only the missing instance
+        // leaves out the repair. Every spelling of the member carries it.
+        "; a written `Int` face runs the operation and admits the result " +
+        "(`let difference: Int = …`)",
     ]);
   });
 

@@ -471,8 +471,14 @@ describe("`Eq` and `Hash` at BigInt", () => {
   test("the Eq instance carries exactly one `notEquals:` and no dangling default", () => {
     // The program has to *reach* `BigInt.js`: emission writes a prelude module
     // only when something imports it, and `1n == 1n` inlines to `1n === 1n`.
-    // Naming the defaulted member is what puts the dictionary in the import.
-    const text = companion("export let r: Bool = BigInt.notEquals(1n, 2n)\n");
+    // *(#808's emission rider.)* Naming the member no longer does it — every
+    // spelling of `notEquals` at a primitive representation is now that same
+    // inlining (Method Syntax §8.1) — so the program passes the dictionary
+    // instead, which is the thing under test anyway.
+    const text = companion(
+      "fun differ<a: Eq>(left: a, right: a): Bool = Eq.notEquals(left, right)\n" +
+      "export let r: Bool = differ(1n, 2n)\n",
+    );
     const instance = text.split("\n")
       .find((line) => line.includes("__Eq_BigInt = {"));
 
