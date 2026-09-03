@@ -190,8 +190,9 @@ describe("verification replaces trust (§4.2)", () => {
       "`jsValueAsIntUnchecked`, `jsValueAsFloatUnchecked`, " +
       "`jsValueAsBigIntUnchecked`, `jsValueAsBoolUnchecked`, " +
       "`jsValueAsStringUnchecked`, `jsValueIsArray`, " +
-      "`jsValueAsArrayUnchecked`, `arrayLength`, `jsErrorReadMessage`, " +
-      "`jsErrorReadStack`, `jsErrorRender`",
+      "`jsValueAsArrayUnchecked`, `arrayLength`, `jsMapSize`, `jsMapHas`, " +
+      "`jsMapGetUnchecked`, `jsMapFromSeq`, `jsSetSize`, `jsSetHas`, " +
+      "`jsSetFromSeq`, `jsErrorReadMessage`, `jsErrorReadStack`, `jsErrorRender`",
     ]);
   });
 
