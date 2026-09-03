@@ -899,16 +899,18 @@ describe("diagnostics (§2.4, §9 test 17)", () => {
   });
 
   /**
-   * The object-reading form is #779's and is unimplemented; its refusal is
-   * unchanged. A member written as a *literal* inside an `extern from` block
-   * reaches the same seat, which is right: that block reads members, never
-   * writes them.
+   * The two forms are told apart by where the values come from, and the block
+   * **reads** them (§2.4, §9 test 17). A literal written in a member's place is
+   * therefore the module-scope head put inside a block, and the rewrite is that
+   * head. The object-reading form the block does admit is #779's, pinned in
+   * `extern-enum-object.test.ts`.
    */
-  test("an `enum` inside an `extern from` block keeps its refusal", () => {
-    expect(projectDiagnostics("extern from \"x\"\n    enum E = A | B\n"))
-      .toEqual(["extern `enum` declarations belong to a later FFI slice"]);
+  test("a literal member inside an `extern from` block is refused", () => {
     expect(projectDiagnostics("extern from \"x\"\n    enum E = \"a\" as A\n"))
-      .toEqual(["extern `enum` declarations belong to a later FFI slice"]);
+      .toEqual([
+        "an `extern from` block reads members, never writes them — a literal enum is " +
+        'the module-scope form `extern enum T = "up" as Up`',
+      ]);
   });
 
   /** A head with no members at all. */

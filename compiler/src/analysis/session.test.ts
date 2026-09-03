@@ -177,6 +177,81 @@ describe("AnalysisSession", () => {
   });
 
   /**
+   * The **object-reading** form (Foreign Enums §2.1, #779) answers the same way,
+   * and the reason is the same: the parser hoists the row out of its `extern
+   * from` block into an ordinary module-level union, so nothing downstream —
+   * hover, semantic tokens, rename — knows the form exists.
+   *
+   * The two foreign names it carries are *not* Hexagon seats (Part 4 §3.2), so
+   * neither the enum object's export name nor a member's property name colours
+   * or hovers: only the local type and the local constructors do.
+   */
+  test("an object-reading `extern enum` answers as the union it is", () => {
+    const source = [
+      'extern from "keyboard"',
+      "    export enum Key as Direction = ARROW_UP as Up | ARROW_DOWN as Down",
+      "let start: Direction = Up",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+
+    const type = session.hover("/main.hex", at(source, "Direction", 2));
+    expect(type?.name).toBe("Direction");
+    expect(type?.target?.kind).toBe("union");
+
+    const member = session.hover("/main.hex", at(source, "Up", 2));
+    expect(member?.name).toBe("Up");
+    expect(member?.displayedType).toBe("Direction");
+
+    const tokens = session.semanticTokens("/main.hex");
+    const spelling = (token: { span: { start: { offset: number }; end: { offset: number } } }) =>
+      source.slice(token.span.start.offset, token.span.end.offset);
+    expect(tokens.map((token) => [spelling(token), token.type])).toEqual([
+      ["Direction", "enum"],
+      ["Up", "enumMember"],
+      ["Down", "enumMember"],
+      ["start", "variable"],
+      ["Direction", "enum"],
+      ["Up", "enumMember"],
+    ]);
+    // The foreign halves colour as nothing: `Key` and `ARROW_UP` name JavaScript,
+    // not Hexagon.
+    expect(tokens.some((token) => spelling(token) === "Key")).toBe(false);
+    expect(tokens.some((token) => spelling(token) === "ARROW_UP")).toBe(false);
+  });
+
+  /**
+   * §5.2's conversions ride the object-reading form exactly as they ride the
+   * literal one, so the type's rename carries them here too.
+   */
+  test("renaming an object-reading enum's type carries its conversions", () => {
+    const source = [
+      'extern from "keyboard"',
+      "    export enum Key as Direction = ARROW_UP as Up",
+      "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+    const plan = session.rename("/main.hex", at(source, "Direction"), "Way");
+    expect(plan).toBeDefined();
+    expect(refused(plan!)).toBe(false);
+    const renamed = plan as RenamePlan;
+    expect(renamed.edits.map(({ span, replacement }) =>
+      `${source.slice(span.start.offset, span.end.offset)} -> ${replacement ?? renamed.newName}`
+    )).toEqual([
+      "Direction -> Way",
+      "Direction -> Way",
+      "fromJsDirection -> fromJsWay",
+    ]);
+    // The foreign name the head aliases is untouched: renaming the local type
+    // must not rewrite which export the block reads.
+    expect(renamed.edits.some(({ span }) =>
+      source.slice(span.start.offset, span.end.offset) === "Key"
+    )).toBe(false);
+  });
+
+  /**
    * **At the declaration**, which is the position the generated conversions
    * borrow their span from and therefore the only one where they could be
    * mistaken for declarations of their own (`Resolved.Symbol.generated`).
