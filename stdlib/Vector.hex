@@ -11,7 +11,11 @@ export exception SliceError(start: Int, end: Int)
 
 // The whole boundary Collections Part 3 section 7 pins: representation-sensitive
 // length and end updates, signed indexed access, persistent indexed update, and
-// the eager/lazy bridge. Everything below is ordinary Hexagon over these.
+// the eager/lazy bridge — the seven this block opens with. The eighth row is a
+// different document's: `toArray` is FFI Part 2 section 9's outbound
+// conversion, and it is declared here because section 9.1's obligation 2 says
+// the intrinsic door is its mechanism and this file its home. Everything below
+// the block is ordinary Hexagon over these.
 extern from "hex:intrinsic"
     (** How many elements `values` holds, in constant time. *)
     export fun vectorLength as length(values: Vector(a)): Int
@@ -41,16 +45,23 @@ extern from "hex:intrinsic"
     //
     // The row is kept, and nothing in this file calls it: `fromSeq` below is a
     // door row of its own, not something written over this one. It stays
-    // because the key is one of the seven the `vector*` family is — Collections
-    // Part 3 section 7's boundary crossing, which `spec/intrinsics.md`
-    // section 9.2 records as declared here — and a key the compiler provides
-    // with no declaration behind it would be an inventory entry no source
-    // proves. If that family is ever re-cut, this is the row to cut with it.
+    // because the key is one of the seven Collections Part 3 section 7's
+    // boundary crossing is, which `spec/intrinsics.md` section 9.2 records as
+    // declared here — and a key the compiler provides with no declaration
+    // behind it would be an inventory entry no source proves. If that family is
+    // ever re-cut, this is the row to cut with it.
     fun vectorToSeq as elements(values: Vector(a)): Seq(a)
 
     (** The elements of `values` collected into a vector. It forces the whole
         sequence, so it does not terminate on an infinite one. *)
     export fun vectorFromSeq as fromSeq(values: Seq(a)): Vector(a)
+
+    (** The elements of `values` as a fresh JavaScript array, in order. The
+        array is built at once and is a new one every call, so writing to it
+        changes nothing here; the crossing is shallow, so an element that is
+        itself a vector arrives as that same vector. The empty vector gives an
+        empty array. *)
+    export fun vectorToArray as toArray(values: Vector(a)): Array(a)
 
 (** The empty vector. *)
 export let empty: Vector(a) = []

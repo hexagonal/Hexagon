@@ -30,8 +30,12 @@ not compiler intrinsics.
   each declaring its representation-sensitive operations through the intrinsic
   door (`spec/intrinsics.md` §3.2) onto the injected runtime tries
   (`runtime/VectorTrie.hex`, `runtime/HashTrie.hex`); everything above those
-  declarations is ordinary Hexagon. `Seq.hex` declares `Seq(a)` itself and its
-  combinator core.
+  declarations is ordinary Hexagon. `Vector.hex` carries one door row that is
+  not a trie operation: `toArray`, FFI Part 2 §9's outbound conversion, which
+  §9.1's obligation 2 places at this door and in this file — eager, fresh,
+  shallow and total, with nothing above it to write in Hexagon because the
+  contract has no guard. `Seq.hex` declares `Seq(a)` itself and its combinator
+  core.
 - `Array.hex` is FFI Part 2's companion of the borrowed `Array(a)` — a
   zero-copy readonly view of a JavaScript array that foreign code owns. It is
   the companion for `JsValue.hex`'s reason: the type is compiler-owned and has

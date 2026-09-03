@@ -269,6 +269,24 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   already placed outside `Object` and `Function`, so it never meets a
  *   `toString` of anyone's — the guard is the Hexagon above it, exactly as
  *   `jsValueIsSafeInteger`'s caller is.
+ *
+ * *(#238, the outbound crossing.)* `vectorToArray` is `stdlib/Vector.hex`'s
+ * eighth key and the only one of that file's rows that is not Collections
+ * Part 3 §7's boundary: it is FFI Part 2 §9's outbound conversion, declared
+ * there per §9.1's obligation 2, and shipped with its whole contract or not at
+ * all (obligation 4).
+ *
+ * The crossing itself is the row's entire content. A `Vector(a)` is an opaque
+ * trie whose spine belongs to the runtime, and an `Array(a)` is a JavaScript
+ * array — the borrowed foreign door, which by construction has no Hexagon
+ * producer: there is no array literal, no constructor, and no mutation surface
+ * to fill one through (§6.1). A source body could therefore not so much as name
+ * its own result, so the strictly-simpler law has nowhere to send it. Nothing
+ * sits *above* the key either, which is the other half of the cut: §9 makes the
+ * operation eager, fresh, shallow and total, so there is no guard to write, no
+ * range to check, and no verdict to reach. Where `BigInt.toInt` wraps
+ * `bigIntToIntUnchecked` in a range check, this row wraps nothing, and a
+ * Hexagon wrapper over it would add only a second name for one call.
  */
 export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["seqMemoize", 1],
@@ -280,6 +298,7 @@ export const INTRINSIC_INVENTORY: ReadonlyMap<string, number> = new Map([
   ["vectorSet", 3],
   ["vectorToSeq", 1],
   ["vectorFromSeq", 1],
+  ["vectorToArray", 1],
   ["bigIntAdd", 2],
   ["bigIntMultiply", 2],
   ["bigIntFromNat", 1],
