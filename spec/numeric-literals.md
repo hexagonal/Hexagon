@@ -198,8 +198,7 @@ Syntax §1, §7), a companion-qualified spelling being a written face, below; `I
 whose expected type is **concrete** and carries the member's constraint instance, the
 expected type **is** the operation's common type: each operand reaches it by exact
 unification or by the two conversions above, and the operation's evidence is selected at
-it. The expectation reaches operands recursively — an operand seat of a lifted operation
-expects the same type — so a whole arithmetic expression runs at its written type. At `**`
+it. The expectation reaches operands recursively — an operand seat of a lifted operation expects the same type, the receiver of a dot call spelled with a tower member's name included (Method Syntax §2.2: the receiver seat forwards) — so a whole arithmetic expression runs at its written type in every spelling, `(a + b).multiply(c)` and `a.add(b).multiply(c)` as much as `(a + b) * c`. At `**`
 the common type governs the **base seat only**: the exponent seat is the member's concrete
 `Int` parameter (Operators §6.3), an ordinary written-`Int` seat that neither joins the
 common type nor receives the outer expectation — this rule applies *into* it
