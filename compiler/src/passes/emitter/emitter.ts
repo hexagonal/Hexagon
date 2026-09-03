@@ -3518,8 +3518,15 @@ class JavaScriptEmitter {
     }
 
     const seated = this.#docs.seatedComments();
+    // A `honor` block's lines have already gone out, in the hoisted dictionary
+    // section above — which the `instances` filter took from `rendered` before
+    // this substitution, so those lines are unaffected. At the block's *own*
+    // source position nothing is left to write, and that is exactly the shape
+    // the rhythm rule below already owns: handing it every honor entry with
+    // empty `lines`, rather than dropping the entries, is what lets the rule
+    // reach the gap a hoisted block leaves behind (#777).
     const entries = sourceEntries(
-      rendered.filter(({ item }) => item.kind !== "Honor"),
+      rendered.map((entry) => entry.item.kind === "Honor" ? { ...entry, lines: [] } : entry),
       this.#module.comments.filter((comment) => !seated.has(comment)),
       trailing,
     );
@@ -3535,8 +3542,11 @@ class JavaScriptEmitter {
       const lines = entry.kind === "Comment" ? commentLines(entry.comment) : entry.lines;
       // **A vanished entry leaves exactly one blank line.** An entry that emits
       // nothing is skipped when the page's vertical rhythm is measured, and the
-      // gap it stood in is capped at one blank — whether the source crowded it
-      // or spaced it out, the reader sees one consistent "something was here".
+      // gap it stood in is capped at one blank. One is the number because one
+      // is what a person writing this file by hand puts between two neighbours
+      // that have nothing to do with each other: not none, which reads as one
+      // block, and not the run the absent declaration's source extent would
+      // otherwise leave.
       //
       // Both halves are load-bearing, and each is why the other cannot be
       // dropped. *Skipping* is what keeps `previousSpan` on a line the output
@@ -3555,11 +3565,14 @@ class JavaScriptEmitter {
       // constructors, and narrowing it to them is what produced the weld above.
       // Beyond those, it reaches the entries that could already emit nothing
       // before this arc: a `type` alias, which crosses in the `.d.ts` and
-      // nowhere else, and the filtered synthesized import itself. It does *not*
-      // reach a `honor` block, whose lines move to the hoisted dictionary
-      // section — `sourceEntries` above is handed `entries` with every `Honor`
-      // item already filtered out, so no `honor` ever reaches this loop, and
-      // the blank run its source span leaves behind is untouched by this rule.
+      // nowhere else, and the filtered synthesized import itself. It also
+      // reaches a **`honor` block** (#777), which emits nothing *here* because
+      // Constraints §6.3 moved its lines to the hoisted dictionary section
+      // above: `sourceEntries` is handed those entries with empty `lines`. A
+      // stack of instances therefore leaves the one blank line a hand-written
+      // file would have between the declaration above it and the unrelated one
+      // below — `stdlib/Int.js` shipped 96 there, its eight `honor` blocks'
+      // whole source extent.
       //
       // **One blank rather than none is a choice, not a floor.** Where the
       // source crowded a vanished entry with no blank line on either side, the
@@ -3567,8 +3580,9 @@ class JavaScriptEmitter {
       // emitted none. Summing the real gaps on each side instead would give
       // zero there — but only for an entry whose span *is* a source position,
       // and the synthesized import's is not, so that rule would have to key on
-      // provenance the emitter does not track. One uniform rule, chosen over
-      // two behaviours that agree on nothing a reader could predict.
+      // provenance the emitter does not track. The hand-written standard settles
+      // it the same way it settles the honor case: two unrelated neighbours get
+      // a blank line between them, whatever the source that vanished did.
       if (lines.length === 0) {
         collapsed = true;
         continue;
