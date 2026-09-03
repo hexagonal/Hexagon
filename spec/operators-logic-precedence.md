@@ -29,6 +29,8 @@ Everything else in the operator inventory is a **structural form** owned by the 
 
 Consequence for the implementer: after elaboration, the type checker sees only ordinary calls (`add(x, y)`, `equals(a, b)`, `notEquals(a, b)`) plus the handful of structural node kinds. Operators do not exist in the typed AST.
 
+*(#808.)* The table reads in both directions at emission. An operator is the member's everyday spelling on the way in, and — wherever this spec's lowerings (§4.5, §5.1, §6) give the operator a native JavaScript shape at a primitive representation — it is the member's emitted face on the way out, for every spelling of the member: where a person would write a JavaScript operator, the compiler writes that operator, so `i.equals(j)`, `Eq.equals(i, j)`, and `i == j` all emit `i === j`, and `s.concat(t)` emits what `s ++ t` emits (Constraints §6.1 owns the rule; Method Syntax §8.1 carries the worked list). Where the operator itself lowers to a call — `**` at the guarded `Int`/`Nat`/`BigInt` instances — or no JavaScript operator carries the member — `compare` — every spelling keeps the call.
+
 ### 1.2 Words for logic, symbols for algebra
 
 Logical operators are **English words only**: `not`, `and`, `or`, `implies`, `iff`. The symbolic forms `!`, `&&`, `||` do not exist as operators — `&&` and `||` are not tokens, and `!` is not negation *(amended for #355: `!` is now a token, the impure call mark — Effects §3, Lexer §8.1; a `!` in prefix-expression position still gets the fixit "Hexagon spells logical negation `not`", selected by the parser)*. Arithmetic and comparison stay symbolic, matching mathematics.
@@ -177,7 +179,7 @@ establishes the matching target. Thus `count < cost` is a
 Float comparison when `count : Int` and `cost : Float`; `Int` versus `Int` remains an
 exact Int comparison. Non-numeric comparisons gain no coercion.
 
-**Codegen fast path (mandatory for readable JS):** when the `Ord`/`Eq` dictionary is a known primitive (or pinned-`Bool`) instance, emit the direct JavaScript operation only when it preserves that instance's semantics. `Int` and all-BMP-safe `String` handling per Primitive Types §5 may use native operators directly (a union's derived `Eq` compares tags, `x.tag === y.tag`, then payloads — never a native operator on the value); `Bool` — since #147 a prelude union, not a primitive — takes the native path under its representation pin (§4.5): `===` on booleans *is* the derived `Eq<Bool>`, and JS `<` on booleans agrees with derived `Ord`'s declaration order `False | True` by construction (Unions §6.2), so no declaration-index table is needed. *(Reclassified 2026-07-29, #147.)*
+**Codegen fast path (mandatory for readable JS):** when the `Ord`/`Eq` dictionary is a known primitive (or pinned-`Bool`) instance, emit the direct JavaScript operation only when it preserves that instance's semantics. *(#808.)* The fast path's lowering is the text every spelling of the member takes at that instance — `i.equals(j)` and `Eq.equals(i, j)` emit what `i == j` emits, helper forms included (Constraints §6.1). `Int` and all-BMP-safe `String` handling per Primitive Types §5 may use native operators directly (a union's derived `Eq` compares tags, `x.tag === y.tag`, then payloads — never a native operator on the value); `Bool` — since #147 a prelude union, not a primitive — takes the native path under its representation pin (§4.5): `===` on booleans *is* the derived `Eq<Bool>`, and JS `<` on booleans agrees with derived `Ord`'s declaration order `False | True` by construction (Unions §6.2), so no declaration-index table is needed. *(Reclassified 2026-07-29, #147.)*
 
 `Float` is the mandatory exception. `Eq<Float>` is SameValueZero (Decisions Batch §1), so bare `===` and `!==` are wrong for `NaN`. Given operands evaluated once as `x` and `y`, the fast paths are:
 
@@ -346,7 +348,7 @@ Everything else about ranges — inclusivity, emptiness, `Int`-onlyness, lazines
 
 All level 1, left-associative, freely interleaved: `a.b[i].c(x)[1..3]`.
 
-- `.` — field access (records, tuples' `itemN`); also the module-path separator (`Int.div`) — same token, resolved by what the left side names.
+- `.` — field access (records, tuples' `itemN`); also the module-path separator (`Int.div`) — same token, resolved by what the left side names. `e.name(args…)` with a non-uppercase-start `name` and an immediately following argument list creates Method Syntax's DotCall goal (its §2.1); `(e.name)(args…)` remains two postfix operations, field access then call.
 - `f(args)` — call.
 - `xs[i]` — indexing; `xs[lo..hi]` — slicing (any `Range`-valued expression is legal between the brackets, not just a literal `..`). **Semantics deferred to the collections/indexing spec**; the standing decisions this table must not contradict: indexing is 1-based, out-of-bounds `xs[i]` throws `IndexError`, and whether a slice clamps or throws is that spec's open question. This spec contributes only the grammar: `[` after a primary expression is postfix indexing, never a list literal — the lexer/parser distinguish by position, and `[1..10]` in expression-head position is reserved for whatever the collections spec decides literals look like.
 
@@ -538,6 +540,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Every `if` requires `then`; else-less `if` = sugar for `else ()` (forces `Unit` `then` branch; F# rule, adopted July 2026 reversing the original strict decision); canonical for effect conditionals; canonical multiline form keeps `then` on the condition line and indents branches; condition = bare `Bool` expr, inherited by `while` by reference | §11 |
 | `:=` loosest, non-associative, does not chain | §12 |
 | `Bool` is a prelude union (#147): §4's operands are union values, `True`/`False` the only spellings; the native logic/condition emissions are licensed by the Unions §6.2 representation pin; `Bool` is the sole exception to Unions §1's match-only elimination | §4.5, §11.1 |
+| *(#808)* At a primitive representation every spelling of an operator-backed member emits the operator's lowering verbatim; `**` at the guarded instances and `compare` keep the call | §1.1, §5.1; Constraints §6.1 |
 
 ---
 
@@ -572,6 +575,7 @@ False implies loop()           -- True; loop() not evaluated → !false || loop(
 2 ** 10                        -- Int 1024 → emits Int.pow(2, 10)
 
 -- (g) Concatenation
+-- s.concat(t) and Concat.concat(s, t) at String emit what s ++ t emits: s + t (#808; Constraints §6.1)
 "foo" ++ "bar" ++ s            -- String → emits "foo" + "bar" + s
 "a" + "b"                      -- ERROR: String is not Num; did you mean `++`?
 
