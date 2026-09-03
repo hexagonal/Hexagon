@@ -9438,6 +9438,23 @@ class JavaScriptEmitter {
       case "vectorFromSeq":
         return `__values => ${this.#useHelper("vectorOf")}(` +
           `${this.#useHelper("seqToIterable")}(__values))`;
+      // FFI Part 2 §9's outbound conversion (#238), and the third row that goes
+      // through the representation contract rather than the trie: every vector
+      // carries `[Symbol.iterator]` (Collections Part 3 §4), so `Array.from`
+      // walks it once and hands back a real array. That single call *is* the
+      // four contract words — eager (it builds before it returns), fresh (a new
+      // array each call, never the trie's own storage and never a cache),
+      // shallow (it moves elements, so a `Vector` element stays that same
+      // `Vector`), and total (an empty vector walks zero steps and yields
+      // `[]`). Reaching into the trie for a faster walk would be conformant too
+      // and is deliberately not done: it would re-implement the spine's own
+      // traversal beside it, for a copy whose cost is the copy.
+      //
+      // The global is spelled, not written bare (FFI Part 7, #666): a user
+      // module may declare its own `Array`, and this crossing must still reach
+      // JavaScript's.
+      case "vectorToArray":
+        return `__values => ${this.#spell("Array")}.from(__values)`;
       // `stdlib/BigInt.hex`'s natives (#344), in the primop shape: every one is
       // a JavaScript operator or one-call conversion, so each lowers to a bare
       // arrow with no helper behind it. Nothing here guards, converts a sign, or
