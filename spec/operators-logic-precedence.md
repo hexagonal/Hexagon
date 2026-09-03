@@ -527,7 +527,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `\|>` loosest infix, just above the eats-right family | §3.3 |
 | `and`/`or` primitive short-circuit → `&&`/`\|\|`; `implies` = `not a or b`, right-assoc | §4.1 |
 | `iff` = Boolean equality (`equals` at `Bool` → `===`); both operands always evaluated; draft short-circuit claim struck | §4.3 |
-| Relational four elaborate via single `Ord.compare`; native-operator fast path mandatory for primitives | §5.1 |
+| Relational four elaborate via single `Ord.compare`; native-operator fast path mandatory for primitives — `Float` excepted, whose relational four always take the total `compare` (the NaN-freedom licence retired, #808/#810) | §5.1 |
 | `==` elaborates to `Eq.equals`; `!=` elaborates to defaultable `Eq.notEquals` | §1.1, §5.1 |
 | Chains: directionally consistent families {`<`,`<=`,`==`} / {`>`,`>=`,`==`}; `!=` never chains | §5.3 |
 | Single-evaluation rule: duplicated operands bound once, left-to-right, invisible temporaries | §5.4 |

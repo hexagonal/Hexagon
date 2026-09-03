@@ -237,8 +237,10 @@ is well-typed exactly when a written face names an algebra that embeds them. The
 line is its boundary: a binding without an annotation has no written face, and arithmetic
 happens at the type written on *its own* seat, never one written somewhere later —
 `let s = count + count` then `let r: Rat = s` widens the finished `Int` value, exactly
-as written. Said without faces: widening happens within one expression; a separate
-binding makes two expressions, and the second has whatever type the first was given. The
+as written. Said without faces: the *lift* works within one expression — across the forms
+Functions §4.3 forwards through, and no further — and a separate binding is a separate
+expression, whose value is whatever type the first was given; that value still widens at
+its own seat, as `let r: BigInt = s` shows, but its arithmetic has already run. The
 instance gate is equally a boundary, and it is what keeps every gated
 decline identical to the ungated elaboration: at `let t: T = a ** b` (`a, b : Int`) for
 a nominal `T` honoring `Num` and `Signed` but not `Pow`, the expectation lifts nothing,
@@ -323,7 +325,7 @@ Two regimes, determined entirely by whether `α` is resolved to a concrete type 
 - `α = Nat` → emit `k` (plain JS number). `Nat.fromNat` is the identity.
 - `α = Int` → emit `k` (plain JS number). `Int.fromNat` is the identity; do not emit an identity call.
 - `α = Float` → emit `k.0`. `Float.fromNat` remains representationally erased — `k` and `k.0` are the same JavaScript number — while the decimal spelling preserves the inferred Hexagon type for a human reading the generated code.
-- `α = BigInt` → emit `kn`. (`BigInt.fromNat` folded at compile time. This arises when unification pins a bare literal to BigInt via surrounding code, e.g. `add x 1` with `x : BigInt`.)
+- `α = BigInt` → emit `kn`. (`BigInt.fromNat` erased: the literal *is* a `BigInt` at this type, §1 rule 6 — a type fact, not a constant-folding of a value. This arises when unification pins a bare literal to BigInt via surrounding code, e.g. `add x 1` with `x : BigInt`.)
 - `α = Rat` → emit the canonical-form constructor call with constant arguments, e.g. `Rat.fromNat(k)` or, if you implement constant folding for it, the direct `{top: kn, bottom: 1n}` fast-path constructor. Either is acceptable; the fast path is a nice-to-have.
 - Any other instance type → emit `TheType.fromNat(k)` monomorphically (direct call, no dictionary).
 
