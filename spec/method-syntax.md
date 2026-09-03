@@ -703,8 +703,9 @@ let n: BigInt = (if c then (if c then p.add(q) else p) else q).gcd(s)
 let n: BigInt = (if c then p.add(q).gcd(s) else b).multiply(b)
                                    -- ERROR (row 16) — the reach follows the dot chain's receiver into
                                    --   the branch; p.add(q) stands down under the forwarded BigInt   [was OK]
-let n: BigInt = (try p.add(q) catch _ => p).gcd(s)
-                                   -- ERROR (row 16) — a try body is a forwarding form   [was OK]
+let n: BigInt = (try p.add(q)
+catch
+    JsError(e) => p).gcd(s)             -- ERROR (row 16) — a try body is a forwarding form   [was OK]
 let n: BigInt = (i.add(p): Foo).gcd(s)
 let n: BigInt = (p + (i + j): Foo).gcd(s)
 let n: BigInt = (if c then i + j else p: Foo).gcd(s)
