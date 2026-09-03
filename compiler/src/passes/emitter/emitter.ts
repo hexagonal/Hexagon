@@ -6106,7 +6106,11 @@ class JavaScriptEmitter {
     // (#771), so the shape is read off the declaration's identity rather than
     // off its constructor list.
     // `foreign` is tested here as well as at the bail above, so this reads as
-    // the rule rather than as a consequence of one written elsewhere.
+    // the rule rather than as a consequence of one written elsewhere. It is
+    // therefore **unreachable while that bail stands**, and no test can kill it:
+    // it is a guard against a future edit that moves the bail, not a branch this
+    // file exercises, and is written down here so a reader does not go looking
+    // for the coverage.
     const literalValued = (union?.externEnum === true && union.foreign === undefined) ||
       (this.#prelude.bool !== undefined && expression.union === this.#prelude.bool);
     // A tag switch names the scrutinee because it reads a field of it; against

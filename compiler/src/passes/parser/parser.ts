@@ -2926,10 +2926,9 @@ class Parser {
         // which this form inherits along with the rest of the namespace rules.
         this.#diagnostics.add({
           severity: "error",
-          message: `\`${member.text}\` is already read by \`${first.text}\`; a foreign enum ` +
-            "reads each member once",
+          message: `\`${member.text}\` is read twice; a foreign enum reads each member once`,
           primary: member.span,
-          labels: [{ span: first.span, message: "the member that reads it" }],
+          labels: [{ span: first.span, message: `first read here, as \`${first.text}\`` }],
         });
       }
       constructors.push({
@@ -2963,13 +2962,31 @@ class Parser {
 
   /**
    * Whether a literal stands where an object-reading enum expects a member
-   * name — the five kinds §2.4 admits, plus the float it refuses, so a value in
-   * this position draws the form's own message rather than a name error.
+   * name — every one of the six kinds §2.4 admits, plus the float it refuses, so
+   * a value in this position draws the form's own message rather than a name
+   * error.
+   *
+   * Two of the six are read by **text** rather than by token kind, exactly as
+   * `#parseForeignLiteral` reads them: `null` and `undefined` are ordinary
+   * `NonUpperName`s everywhere else in the grammar (FFI Part 2 §2.2 admits no
+   * ambient nullish value), so a kind test alone would let them through as
+   * foreign property names — and `enum Slot = null as Missing` would then read
+   * `Slot.null`, binding JavaScript `undefined` and reaching §3 rule 4's
+   * forbidden state with no diagnostic at all.
+   *
+   * The cost is that a foreign property genuinely named `null` has no spelling
+   * here. That is the trade §2.4 already makes for `true` and `false`, which are
+   * equally legal property names and are equally refused: in this one position
+   * the six words name the literal form, and the rewrite says where to write it.
    */
   #atForeignLiteral(): boolean {
-    const kind = this.#current().kind;
-    return kind === "String" || kind === "Integer" || kind === "Float" ||
-      kind === "Minus" || kind === "True" || kind === "False";
+    const token = this.#current();
+    if (token.kind === "NonUpperName") {
+      return token.text === "null" || token.text === "undefined";
+    }
+    return token.kind === "String" || token.kind === "Integer" ||
+      token.kind === "Float" || token.kind === "Minus" ||
+      token.kind === "True" || token.kind === "False";
   }
 
   /**

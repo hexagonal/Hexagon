@@ -918,13 +918,28 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
     ]);
   });
 
-  /** §2.2: "A repeated foreign member… is a compile error", naming both. */
+  /**
+   * §2.2: "A repeated foreign member… is a compile error", naming both — the
+   * message names the property and the label names the member that read it
+   * first, which is the reading that stays sensible when neither member is
+   * aliased and the two names coincide.
+   */
   test("a repeated foreign member is refused", () => {
     expect(projectDiagnostics(
       'extern from "d"\n    enum Direction = UP as Up | UP as Also\n',
-    )).toEqual([
-      "`UP` is already read by `Up`; a foreign enum reads each member once",
-    ]);
+    )).toEqual(["`UP` is read twice; a foreign enum reads each member once"]);
+    const source = 'extern from "d"\n    enum Direction = Up | Up as Second\n';
+    expect(projectDiagnostics(source))
+      .toEqual(["`Up` is read twice; a foreign enum reads each member once"]);
+    // The label is what names the first origin once the message has stopped
+    // naming it, so it is pinned rather than left to the message's shape: it
+    // points at the first member, inside the block, and gives its constructor.
+    const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
+    expect(diagnostic?.labels?.map(({ message }) => message))
+      .toEqual(["first read here, as `Up`"]);
+    const label = diagnostic!.labels![0]!.span;
+    expect(source.slice(label.start.offset, label.end.offset)).toBe("Up");
+    expect(label.start.offset).toBeLessThan(diagnostic!.primary.start.offset);
   });
 
   /** §2.2: "…or local constructor is a compile error" — the union's own rule. */
@@ -952,20 +967,45 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
     ]);
   });
 
-  /** §2.4, §9 test 17: the block reads members, and never writes them. */
+  /**
+   * §2.4, §9 test 17: the block reads members, and never writes them.
+   *
+   * **Every one of the six kinds §2.4 admits**, and the float it refuses. Two of
+   * them — `null` and `undefined` — are ordinary `NonUpperName`s everywhere else
+   * in the grammar, so a refusal keyed on token kind alone would read them as
+   * foreign property names: `enum Slot = null as Missing` would emit
+   * `Slot.null`, bind JavaScript `undefined`, and reach §3 rule 4's forbidden
+   * state with no diagnostic at all. Each spelling is listed here because each
+   * is a separate way for that to happen.
+   */
   test("a literal in member position is refused with the module-scope head", () => {
+    const refusal = "an `extern from` block reads members, never writes them — a literal " +
+      'enum is the module-scope form `extern enum T = "up" as Up`';
+    for (const member of ['"up"', "0", "-1", "1.5", "true", "false", "null", "undefined"]) {
+      expect(projectDiagnostics(
+        `extern from "d"\n    enum Direction = ${member} as Up | DOWN as Down\n`,
+      )).toEqual([refusal]);
+    }
+    // And in a later member position as well as the first, since the loop that
+    // reads members asks the question once per member.
     expect(projectDiagnostics(
-      'extern from "d"\n    enum Direction = "up" as Up\n',
-    )).toEqual([
-      "an `extern from` block reads members, never writes them — a literal enum is " +
-      'the module-scope form `extern enum T = "up" as Up`',
-    ]);
-    expect(projectDiagnostics(
-      'extern from "d"\n    enum Level = 0 as Low\n',
-    )).toEqual([
-      "an `extern from` block reads members, never writes them — a literal enum is " +
-      'the module-scope form `extern enum T = "up" as Up`',
-    ]);
+      'extern from "d"\n    enum Direction = UP as Up | null as Missing\n',
+    )).toEqual([refusal]);
+  });
+
+  /**
+   * §3: the property is spelled the way JavaScript spells one. Part 4 §3.2
+   * admits any ECMAScript identifier as a foreign name, and that set is wider in
+   * one direction than the set a *binding* may take: a reserved word is an
+   * ordinary property name, and reaches it by the dot.
+   */
+  test("a member is read by the dot where JavaScript spells one, and the bracket otherwise", () => {
+    const emitted = javascript(
+      'extern from "d"\n' +
+        "    export enum Reserved = default as Fallback | café as Cafe\n",
+    );
+    expect(emitted).toContain("const Fallback = __ReservedForeign.default;");
+    expect(emitted).toContain('const Cafe = __ReservedForeign["café"];');
   });
 
   /** A head with no members at all. */
