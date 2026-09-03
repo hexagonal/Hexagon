@@ -1,5 +1,7 @@
 (** The polymorphic face of ordering. Honoring `Ord` gives a type the `<`, `<=`,
     `>`, and `>=` operators. *)
 export constraint Ord<a: Eq> =
-    (** How `left` orders against `right`. *)
+        (** How `left` orders against `right`. Expected to be a total order agreeing
+        with `equals`: `Equal` exactly when the two are equal, and antisymmetric
+        and transitive otherwise. *)
     compare(left: a, right: a): Ordering

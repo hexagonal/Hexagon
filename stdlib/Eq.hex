@@ -1,5 +1,9 @@
 (** The polymorphic face of equality. Honoring `Eq` gives a type the `==` and
-    `!=` operators, and admits it as a component of a derived equality elsewhere. *)
+    `!=` operators, and admits it as a component of a derived equality elsewhere.
+
+    An instance's `equals` is expected to be an equivalence: reflexive,
+    symmetric, and transitive. `Float`'s is, `NaN` and the signed zeros included.
+    The compiler relies on no such law. *)
 export constraint Eq<a> =
     (** Whether `left` and `right` are equal. *)
     equals(left: a, right: a): Bool

@@ -1,10 +1,20 @@
 (** The polymorphic face of addition and multiplication. Honoring `Num` gives a
-    type the `+` and `*` operators. *)
+    type the `+` and `*` operators.
+
+    An instance is expected to keep the laws the constraints specification
+    states: `add` is associative and commutative, `multiply` is associative and
+    distributes over `add` on both sides, `fromNat(0)` and `fromNat(1)` are the
+    identities, and `fromNat` respects addition and multiplication. Commutativity
+    of `multiply` is not a law, so a matrix type may honor `Num` truthfully. The
+    compiler relies on none of these: it evaluates operands in the order written
+    and never rewrites an expression by an algebraic law. *)
 export constraint Num<a> =
-    (** The sum of `left` and `right`. *)
+        (** The sum of `left` and `right`. Expected associative and commutative. *)
     add(left: a, right: a): a
-    (** The product of `left` and `right`. *)
+        (** The product of `left` and `right`. Expected associative, distributing over
+        `add` on both sides; commutativity is not expected. *)
     multiply(left: a, right: a): a
-    (** The natural number `value` at this type. A bare non-negative literal
-        reaches an instance through it. *)
+        (** The natural number `value` at this type. A bare non-negative literal
+        reaches an instance through it. Expected to send `0` and `1` to the
+        identities and to respect addition and multiplication. *)
     fromNat(value: Nat): a

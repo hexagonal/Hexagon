@@ -2,5 +2,9 @@
     operator; the quotient is exact where the type is exact and rounded where
     it is not. *)
 export constraint Frac<a: Signed> =
-    (** `left` divided by `right`. *)
+        (** `left` divided by `right`. Expected to be the right inverse of multiplying
+        by `right`: `multiply(divide(left, right), right)` is `left` for every
+        nonzero `right`, exactly where the type is exact and up to rounding where
+        it is not. An instance whose `multiply` is not commutative documents that
+        its `divide` is not also a left inverse. *)
     divide(left: a, right: a): a

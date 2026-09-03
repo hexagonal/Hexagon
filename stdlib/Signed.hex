@@ -1,10 +1,18 @@
 (** The polymorphic face of subtraction and sign. Honoring `Signed` gives a type
-    the binary and unary `-` operators. *)
+    the binary and unary `-` operators.
+
+    An instance is expected to keep the laws the constraints specification
+    states: `negate` is the additive inverse and an involution, `subtract` is
+    addition of the negation, and `fromInt` agrees with `fromNat` on every `Nat`.
+    The compiler relies on none of these. *)
 export constraint Signed<a: Num> =
-    (** The difference of `left` and `right`. *)
+        (** The difference of `left` and `right`. Expected to equal
+        `add(left, negate(right))`. *)
     subtract(left: a, right: a): a
-    (** The additive inverse of `value`. *)
+        (** The additive inverse of `value`: `add(value, negate(value))` is expected to
+        be `fromNat(0)`, and negating twice to give `value` back. *)
     negate(value: a): a
-    (** The integer `value` at this type. A bare negative literal reaches an
-        instance through it. *)
+        (** The integer `value` at this type. A bare negative literal reaches an
+        instance through it. Expected to agree with `fromNat` on every `Nat` and
+        to respect addition and multiplication. *)
     fromInt(value: Int): a
