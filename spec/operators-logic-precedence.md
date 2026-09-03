@@ -29,6 +29,8 @@ Everything else in the operator inventory is a **structural form** owned by the 
 
 Consequence for the implementer: after elaboration, the type checker sees only ordinary calls (`add(x, y)`, `equals(a, b)`, `notEquals(a, b)`) plus the handful of structural node kinds. Operators do not exist in the typed AST.
 
+*(#808.)* The table reads in both directions at emission. An operator is the member's everyday spelling on the way in, and at a primitive instance it is the member's emitted face on the way out — for every spelling of the member: where a person would write a JavaScript operator, the compiler writes that operator, so `i.equals(j)`, `Eq.equals(i, j)`, and `i == j` all emit `i === j`, and `s.concat(t)` emits what `s ++ t` emits (Constraints §6.1 owns the rule; Method Syntax §8.1 states it for the dot). A member no JavaScript operator carries — `compare` — keeps its call in every spelling.
+
 ### 1.2 Words for logic, symbols for algebra
 
 Logical operators are **English words only**: `not`, `and`, `or`, `implies`, `iff`. The symbolic forms `!`, `&&`, `||` do not exist as operators — `&&` and `||` are not tokens, and `!` is not negation *(amended for #355: `!` is now a token, the impure call mark — Effects §3, Lexer §8.1; a `!` in prefix-expression position still gets the fixit "Hexagon spells logical negation `not`", selected by the parser)*. Arithmetic and comparison stay symbolic, matching mathematics.
