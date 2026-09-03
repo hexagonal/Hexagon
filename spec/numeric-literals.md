@@ -239,9 +239,7 @@ the type written on *its own* seat, never one written somewhere later — `let s
 count` then `let r: Rat = s` widens the finished `Int` value, exactly as written. Said
 without faces: the *lift* works within one expression — an expected type travels to a
 subexpression through the forms Functions §4.3 forwards through, and at a tower member
-call the operand seats are the lift's own channel, the one §4.3 names as not forwarding —
-and what stops it is a binding: a separate binding is a separate expression, which has
-whatever type the first was given; that value still widens at its own seat, as `let r:
+call the operand seats are the lift's own channel, the one §4.3 names as not forwarding; a seat's own expected type establishes the target directly, per the list above — and what stops it is a binding: a separate binding is a separate expression, which has whatever type the first was given; its value still widens at its own seat, as `let r:
 BigInt = s` shows, but its arithmetic has already run. The instance gate is equally a
 boundary, and it is what keeps every gated decline identical to the ungated elaboration:
 at `let t: T = a ** b` (`a, b : Int`) for a nominal `T` honoring `Num` and `Signed` but
