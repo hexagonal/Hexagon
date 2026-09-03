@@ -366,13 +366,14 @@ operation; an `if` receiver with one `Int` branch and one `Foo` branch refused o
 Operators §11's own report at the `if`, naming the `Foo` branch and carrying the boundary
 fixit, not by the receiver rule; and `(if c then p else q).gcd(s)` accepted beside `(if c
 then p.add(q) else p).gcd(s)` refused at the stood-down branch, the pair differing only in
-that branch, with the reach's regression guards — the nested form, a block's final
-expression, the `try` body, the dot chain in a branch (whose fixit ascribes the stood-down
-call, the receiver's own type being `BigInt`), and the operand `(p.add(q) + q).gcd(s)` —
-each refused, and `(b ** (i + j)).gcd(b2)` accepted, the exponent seat taking no outer
-face, and `(if c then p.add(q) else b).gcd(s)` refused by the `if`'s own report with no
-receiver fixit; and the three claimant kinds — a companion export, an honored member of a
-user constraint, a function-typed field — refused alike (Method Syntax §14(v)).
+that branch, with the reach's regression guards — the nested form, a block whose final
+expression is the stood-down call (its binding-then-variable twin accepted), the `try`
+body, the dot chain in a branch (whose fixit ascribes the stood-down call, the receiver's
+own type being `BigInt`), and the operand `(p.add(q) + q).gcd(s)` — each refused, and `(b
+** (i + j)).gcd(b2)` accepted, the exponent seat taking no outer face, and `(if c then
+p.add(q) else b).gcd(s)` refused by the `if`'s own report with no receiver fixit; and the
+three claimant kinds — a companion export, an honored member of a user constraint, a
+function-typed field — refused alike (Method Syntax §14(v)).
 
 ### 5.2 Literal emission
 
