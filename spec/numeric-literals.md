@@ -211,31 +211,36 @@ keeps the information the lift's own refusal carried: "`price` is a `Float` and 
 enter `Rat`, so the multiplication ran at `Float`" (§6). No accepted program changes, and
 a stand-down always ends in refusal, at every seat, by a short argument: operand-driven
 elaboration uses the same two conversions the lift uses, so were its result the face,
-every operand would have reached the face and the lift would have fired; and a `Nat`/`Int`
-result means every operand was `Nat`/`Int`, which reach any face honoring the rung. So a
+every operand would have reached the face and the lift would have fired; and the only
+results that widen into a face are `Nat` and `Int`: a `Nat` result means every operand was
+`Nat`, and every face honoring a rung owns `Num.fromNat`, so the lift would have fired; an
+`Int` result the face admits means the face owns `Signed.fromInt`, so every `Nat`/`Int`
+operand reached it and the lift would have fired; and an `Int` result the face does not
+admit — a face honoring `Num` alone — is refused at the seat like any other. So a
 stand-down's result is never the face, and the consuming seat refuses it. The dot's
 receiver is such a seat *(#821)*: the forwarded face is the receiver's expectation (Method
 Syntax §2.2's receiver rule), and a receiver that ran at its own type after a stand-down
-is refused at the dot, never dispatched at the type it kept — `let n: BigInt =
-p.add(q).gcd(s)` at a user companion export is refused with the three-fact report (§6;
-Method Syntax §9 row 16) and accepted as `(p.add(q): Foo).gcd(s)`, the ascription being
-the boundary. A stand-down that could succeed would make the receiver the one seat where
-the order in which the face descends into nested operands is meaning; refusing keeps that
-order invisible in every verdict (Method Syntax §16.3). The expectation reaches operands
-recursively — an operand seat of a lifted operation expects the same type, a dot call's
-receiver included under Method Syntax §2.2's receiver rule, which hands it the call's
-expectation before it elaborates when the spelling's rung is honored at the face — so a
-whole arithmetic expression runs at its written type in every spelling, `(a +
-b).multiply(c)` and `a.add(b).multiply(c)` as much as `(a + b) * c`. At `**` the common
-type governs the **base seat only**: the exponent seat is the member's concrete `Int`
-parameter (Operators §6.3), an ordinary written-`Int` seat that neither joins the common
-type nor receives the outer expectation — this rule applies *into* it independently, with
-`Int` as the written face, which is how the right spine of an exponent tower runs at `Int`
-whatever the base's home. An expectation that is a variable, or a concrete type without
-the instance, lifts nothing: the operation elaborates from its operands alone, exactly as
-below. The distinction the lift turns on: widening a **value** is always exact, but which
-*algebra an operation runs in* decides what the value is — and the lift decides it for the
-written face.
+is refused — at the dot where the dot's claimant lies outside the spelling's rung, at the
+enclosing seat where it is the rung's own member — never accepted at the type it kept —
+`let n: BigInt = p.add(q).gcd(s)` at a user companion export is refused with the
+three-fact report (§6; Method Syntax §9 row 16) and accepted as `(p.add(q): Foo).gcd(s)`,
+the ascription being the boundary. A stand-down that could succeed would make the receiver
+the one seat where the order in which the face descends into nested operands is meaning;
+refusing keeps that order invisible in every verdict (Method Syntax §16.3). The
+expectation reaches operands recursively — an operand seat of a lifted operation expects
+the same type, a dot call's receiver included under Method Syntax §2.2's receiver rule,
+which hands it the call's expectation before it elaborates when the spelling's rung is
+honored at the face — so a whole arithmetic expression runs at its written type in every
+spelling, `(a + b).multiply(c)` and `a.add(b).multiply(c)` as much as `(a + b) * c`. At
+`**` the common type governs the **base seat only**: the exponent seat is the member's
+concrete `Int` parameter (Operators §6.3), an ordinary written-`Int` seat that neither
+joins the common type nor receives the outer expectation — this rule applies *into* it
+independently, with `Int` as the written face, which is how the right spine of an exponent
+tower runs at `Int` whatever the base's home. An expectation that is a variable, or a
+concrete type without the instance, lifts nothing: the operation elaborates from its
+operands alone, exactly as below. The distinction the lift turns on: widening a **value**
+is always exact, but which *algebra an operation runs in* decides what the value is — and
+the lift decides it for the written face.
 
 ```hexagon
 let r: Rat = count + count    // Rat addition of two injected Ints — exact at any magnitude
@@ -255,33 +260,33 @@ price)` runs at `Float`; `Int.multiply(count, price)` refuses, exactly as `let t
 count * price` does.
 
 The first line is the rule's reason. Without the lift, `count + count` runs at `Int` and
-only the finished sum is injected — an exact conversion of a sum the silent-overflow `Int`
-addition may already have folded past 2^53. The lift closes the asymmetry between the
-first two lines: an established value follows the written face exactly as a literal does.
-The third and fourth lines are the lift's own acceptances — an operation whose operand
-types alone support no instance (`Nat` has no `Signed`, `Int` no `Frac`) is well-typed
-exactly when a written face names an algebra that embeds them. The last line is its
-boundary: a binding without an annotation has no written face, and arithmetic happens at
-the type written on *its own* seat, never one written somewhere later — `let s = count +
-count` then `let r: Rat = s` widens the finished `Int` value, exactly as written. Said
-without faces: the *lift* works within one expression — an expected type travels to a
-subexpression through the forms Functions §4.3 forwards through, and at a tower member
-call the operand seats are the lift's own channel, the one §4.3 names as not forwarding; a
-seat's own expected type establishes the target directly, per the list above — and what
-stops it is a binding: a separate binding is a separate expression, which has whatever
-type the first was given; its value still widens at its own seat, as `let r: BigInt = s`
-shows, but its arithmetic has already run. The instance gate is equally a boundary, and it
-is what keeps every *instance-gated* decline identical to the ungated elaboration (the
-operand stand-down above declines differently: its result then meets a seat that refuses
-it, the dot's receiver seat included): at `let t: T = a ** b` (`a, b : Int`) for a nominal
-`T` honoring `Num` and `Signed` but not `Pow`, the expectation lifts nothing, so the power
-runs at `Int` and the finished value injects, exactly as this section always read. The
-gate's remaining subjects are exactly such user nominals: since `Rat` honors `Pow`
-(Operators §6.3), every tower face reachable by injection carries the constraint of every
-operator whose operand elaboration can land at `Nat` or `Int` — `+`, `-`, `*`, `**`, unary
-negation — so no in-tower written face is ever gated out: a tower face either lifts or
-(where the operand elaboration itself has no instance, as at `Int` division) refuses.
-Consequences:
+only the finished sum is injected — an exact conversion of a sum the silent-overflow
+`Int` addition may already have folded past 2^53. The lift closes the asymmetry between
+the first two lines: an established value follows the written face exactly as a literal
+does. The third and fourth lines are the lift's own acceptances — an operation whose
+operand types alone support no instance (`Nat` has no `Signed`, `Int` no `Frac`) is
+well-typed exactly when a written face names an algebra that embeds them. The last line
+is its boundary: a binding without an annotation has no written face, and arithmetic
+happens at the type written on *its own* seat, never one written somewhere later — `let s
+= count + count` then `let r: Rat = s` widens the finished `Int` value, exactly as
+written. Said without faces: the *lift* works within one expression — an expected type
+travels to a subexpression through the forms Functions §4.3 forwards through, and at a
+tower member call the operand seats are the lift's own channel, the one §4.3 names as not
+forwarding; a seat's own expected type establishes the target directly, per the list
+above — and what stops it is a binding: a separate binding is a separate expression,
+which has whatever type the first was given; its value still widens at its own seat, as
+`let r: BigInt = s` shows, but its arithmetic has already run. The instance gate is
+equally a boundary, and it is what keeps every *instance-gated* decline identical to the
+ungated elaboration (the operand stand-down above declines differently: its result then
+meets a seat that refuses it, the dot's receiver seat included): at `let t: T = a ** b`
+(`a, b : Int`) for a nominal `T` honoring `Num` and `Signed` but not `Pow`, the
+expectation lifts nothing, so the power runs at `Int` and the finished value injects,
+exactly as this section always read. The gate's remaining subjects are exactly such user
+nominals: since `Rat` honors `Pow` (Operators §6.3), every tower face reachable by
+injection carries the constraint of every operator whose operand elaboration can land at
+`Nat` or `Int` — `+`, `-`, `*`, `**`, unary negation — so no in-tower written face is
+ever gated out: a tower face either lifts or (where the operand elaboration itself has no
+instance, as at `Int` division) refuses. Consequences:
 
 ```hexagon
 count + count       // Int; no written face, exact match, no widening
@@ -351,11 +356,12 @@ a.add(b).multiply(c)` value-checked past 2^53 against `(a + b) * c` (Method Synt
 Rat = count * price` refused *at the binding*, its message naming `price` as the operand
 that could not enter `Rat`. The receiver's own refusal owes three more (#821): `let n:
 BigInt = p.add(q).gcd(s)` refused once, at the receiver, with the three-fact report, and
-the same call accepted as `(p.add(q): Foo).gcd(s)`, unannotated, and through a binding;
-the mixed, nested, and forwarding-form receivers (`i.add(p)`, `p + (i + j)`, and an `if`
-with one `Int` branch and one `Foo` branch) refused with the one report each; and the
-three claimant kinds — a companion export, an honored member of a user constraint, a
-function-typed field — refused alike (Method Syntax §14(v)).
+the same call accepted as `(p.add(q): Foo).gcd(s)`, unannotated, through a binding, and
+companion-qualified (`Foo.add(p, q).gcd(s)`, a written face); the mixed, nested, and
+forwarding-form receivers (`i.add(p)`, `p + (i + j)`, and an `if` with one `Int` branch
+and one `Foo` branch) refused with the one report each; and the three claimant kinds — a
+companion export, an honored member of a user constraint, a function-typed field — refused
+alike (Method Syntax §14(v)).
 
 ### 5.2 Literal emission
 
@@ -400,7 +406,7 @@ Elaboration changes the *character* of type errors involving literals, and this 
 - When unification fails and one side traces to a literal's `α`, report it as a literal-type mismatch, not a constraint failure. Prefer: `This literal is used as Float here but as BigInt there` over `Cannot satisfy Num constraint arising from...`.
 - When defaulting is blocked by a non-defaultable constraint (§4), the error must name the blocking constraint and the literal's location, and suggest an annotation: `The literal 1 at <span> has constraint MyConstraint, which prevents defaulting to Int. Add a type annotation to pin its type.`
 - Never surface the name `fromNat` in an error for code the user wrote without mentioning it. The elaboration is invisible machinery; errors should speak in terms of the literal.
-- *(#808.)* **When the expected-type lift stands down** (§5.1) because an operand cannot reach the face, the refusal that then fires at the consuming seat names that operand and the algebra the operation ran at instead — "`price` is a `Float` and cannot enter `Rat`, so the multiplication ran at `Float`" — so the report keeps what the lift's own refusal at the operand carried. The checker therefore records, at a stand-down, which operand declined and why, and carries it to the seat that refuses — a binding, an argument seat, or a dot call's receiver seat *(#821)*, where the report adds the two facts that seat alone knows: why the face reached the receiver (the spelling's rung) and the written boundary that keeps the receiver at its own type, an ascription or a separate binding (Method Syntax §9 row 16). Every stand-down ends at such a seat (§5.1), so the note is always spent.
+- *(#808.)* **When the expected-type lift stands down** (§5.1) because an operand cannot reach the face, the refusal that then fires at the consuming seat names that operand and the algebra the operation ran at instead — "`price` is a `Float` and cannot enter `Rat`, so the multiplication ran at `Float`" — so the report keeps what the lift's own refusal at the operand carried. The checker therefore records, at a stand-down, which part declined — an operand, or a forwarding form's branch (Functions §4.3) — and why, and carries it to the seat that refuses — a binding, an argument seat, or a dot call's receiver seat *(#821)*, where the report adds the two facts that seat alone knows: why the face reached the receiver (the spelling's rung) and the written boundary that keeps the receiver at its own type, an ascription or a separate binding (Method Syntax §9 row 16). Every stand-down ends at such a seat (§5.1), so the note is always spent.
 - LSP hover on a bare literal in polymorphic position should show `<a: Num> a` (matching the round-trip-consistency rule for signatures — the display is source-shaped, Functions §5.1); hover on a defaulted or pinned literal shows the concrete type.
 
 **Settling at synthesized `Unit` obligations.** Three positions carry a `Unit` obligation the language inserts rather than the user writing it: a discarded non-final block item (Statements §3.2), a loop body (Loops §2.2; `while` identically, Loops §4), and the `then` branch of an else-less `if` (Operators §11.2). A type variable that meets such an obligation is settled to `Int` at that point, ahead of §4's generalisation-time defaulting — provided `Int` satisfies every constraint on the variable and at least one of those constraints has no `Unit` instance. The rule is stated over constraints, not provenance: a literal's variable (§3) is the common case, but a variable constrained only by use (`x + x`) settles identically, and there is no reason to give the two different reports. A **declared** type variable is excluded — an annotation pins it, so settling it would report that annotation as requiring the `Int` the settling itself invented, naming a rewrite that repairs nothing (the Rewrite Rule, Declarations Preamble §1.1).
