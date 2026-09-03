@@ -222,6 +222,27 @@ candidate list is exactly the constraints written in the binder — the compiler
 goes looking through instances to guess a type from a member name. A variable with no
 matching constraint gets an error naming the options, not a guess.
 
+Numeric members go one step further. The operators are spellings of the members of
+`Num`, `Signed`, `Frac`, and `Pow`, and the widening the operators perform belongs to the
+members, not to the symbols. A dot call on one of those members therefore widens exactly
+as the operator does, and so does a call on `Integral`'s `div` and `mod`, which belong to
+the same family though no operator spells them:
+
+```hexagon
+let count: Int = 3
+let price: Float = 2.5
+let total = count.multiply(price)      // Float, exactly as count * price
+let exact: BigInt = count.add(count)   // BigInt addition, exactly as count + count
+```
+
+The receiver chooses the operation; the operands and the written type choose where it
+runs. A companion-qualified spelling is different: `Float.multiply(count, price)` names
+`Float`'s own multiplication, so the `Int` widens into it, and `Int.multiply(count, price)`
+is refused because a `Float` cannot become an `Int`. `Nat` and `Int` also answer to the
+numeric members they cannot themselves honor, when a written type names the home:
+`let difference: Int = n.subtract(m)` for two `Nat` values runs at `Int`, as `n - m`
+would there, and without the written type it is refused just as `n - m` would be.
+
 The bare call and the pipe remain just as idiomatic:
 
 ```hexagon
@@ -237,7 +258,8 @@ collection vocabulary — is reached by the dot or by its qualified name
 the qualified form is the explicit one. One thing no type can have is
 a *second* operation with a member's name: a module that honors `Show` cannot also
 define its own `show`, so a dot call that resolves to a member never has a monomorphic
-twin hiding behind it.
+twin hiding behind it. `Nat` and `Int` reserve, on the same ground, the numeric member
+names they answer to without honoring — `subtract` at `Nat` among them.
 
 ## Dot calls disappear before JavaScript
 
@@ -279,7 +301,9 @@ objects.
 - a receiver's type must be known independently of the member name — from its
   inferred type or, for a declared type variable, from the constraints in its binder;
 - constraint members answer to the dot and the qualified spelling, and `show` alone
-  to the bare call as well; and
+  to the bare call as well;
+- a dot call on a numeric member widens exactly as the operator does: the receiver picks
+  the operation, the operands and the written type pick where it runs; and
 - dot calls add no runtime methods, `this`, prototypes, or TypeScript methods.
 
 Together, constraints, derivation, modules, and dot calls form Hexagon's capability

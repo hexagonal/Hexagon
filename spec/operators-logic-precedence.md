@@ -231,7 +231,7 @@ a < f() < c
 
 ### 6.1 The `Num`/`Signed`/`Frac` arithmetic family
 
-`+` and `*` elaborate to `Num`; binary `-` to `Signed.subtract`; `/` to `Frac.divide`. Operands normally share one type after Numeric Literals §5.1 has injected an established `Nat` through `Num.fromNat` or an established `Int` through `Signed.fromInt`. `Int + Int` stays Int; `Int * Nat` widens Nat to Int; and `count * cost` is Float when `count : Int` and `cost : Float`. Nat honors Num but not Signed; Int honors both but not Frac. Operand-driven selection is the no-expectation case: where the operation's seat lands a concrete expected type carrying the operator's constraint instance, Numeric Literals §5.1's expected-type lift selects that type as the operation's home instead — `let mean: Float = sum / size` is `Frac<Float>` division of two injected `Int`s, and `let x: Int = n - m` is `Signed<Int>` subtraction of two injected `Nat`s. Numeric literals elaborate per the Numeric Literals spec. There is no `%` operator (§13).
+`+` and `*` elaborate to `Num`; binary `-` to `Signed.subtract`; `/` to `Frac.divide`. Operands normally share one type after Numeric Literals §5.1 has injected an established `Nat` through `Num.fromNat` or an established `Int` through `Signed.fromInt`. `Int + Int` stays Int; `Int * Nat` widens Nat to Int; and `count * cost` is Float when `count : Int` and `cost : Float`. Nat honors Num but not Signed; Int honors both but not Frac. Operand-driven selection is the no-expectation case: where the operation's seat lands a concrete expected type carrying the operator's constraint instance, Numeric Literals §5.1's expected-type lift selects that type as the operation's home instead — `let mean: Float = sum / size` is `Frac<Float>` division of two injected `Int`s, and `let x: Int = n - m` is `Signed<Int>` subtraction of two injected `Nat`s. Numeric literals elaborate per the Numeric Literals spec. There is no `%` operator (§13). *(#808.)* The operators are spellings of these members and nothing more: the same member spelled bare, qualified through its constraint, as a pipe stage, or by the dot (`count.multiply(price)`) elaborates identically — the same operand widening, the same expected-type lift, the same home (Numeric Literals §5.1's tower member call; Method Syntax §1). A companion-qualified spelling (`Float.multiply`) is a written face the operands widen into.
 
 `Float` and `Rat` both honor `Frac`, with type-owned failure and precision semantics:
 Float division is native IEEE 754 division, while Rat division is exact and throws
@@ -275,7 +275,7 @@ Instances:
 
 The polymorphic case is the ordinary dictionary call. `pow` is also directly callable as a member, like every constraint member — bare, or qualified through a companion, where Modules §5.3's generalisation law decides which face the qualified spelling shows (§6.3.1).
 
-A non-`Int` exponent at `**` is a type error with a mandatory fixit (§14.1 family), branched on the exponent's type: at `Float`, "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, use `Float.pow(value, exponent)`"; at `BigInt`, "the exponent of `**` is an `Int`; for a `BigInt` exponent, use `BigInt.pow(value, exponent)`" — the spelling `2n ** 3n` is the fixit's target case; at any other type, the plain seat error with no door named.
+A non-`Int` exponent at `**` — or at the member in any other spelling, `i.pow(2n)`, `Pow.pow(i, 2n)` (#808; Method Syntax §9 row 14) — is a type error with a mandatory fixit (§14.1 family), branched on the exponent's type: at `Float`, "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, use `Float.pow(value, exponent)`"; at `BigInt`, "the exponent of `**` is an `Int`; for a `BigInt` exponent, use `BigInt.pow(value, exponent)`" — the spelling `2n ** 3n` is the fixit's target case; at any other type, the plain seat error with no door named.
 
 #### 6.3.1 The two power doors — `Float.pow` and `BigInt.pow`
 
@@ -502,14 +502,14 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | Relational op on a union without `Ord` | "ordering is not defined for union `Shape`" |
 | `==` on functions | "functions have no `Eq` instance" |
 | `"a" + "b"` | type error + fixit "did you mean `++`?" (mandatory) |
-| `intA / intB` | type error + fixit pointing at `Int.div` / `Int.mod` |
+| `intA / intB` | type error + fixit pointing at `Int.div` / `Int.mod`, and at a written `Float` or `Rat` face for real division (Numeric Literals §5.1's lift; the same rider on the member's other spellings — Method Syntax §9 row 15, #808) |
 | `1..2..3` | "`..` does not chain; a range has exactly two endpoints" |
 | Eats-right form in non-final operand position | parse error + "parenthesize the `if` / lambda / `match`" |
 | `if` without `then` | parse error + "`if` requires `then`; write `if condition then` before the indented true branch" |
 | Else-less `if` whose `then` branch is not `Unit` | type error + fixit "an `if` without `else` produces `Unit`; its `then` branch is `String` — add an `else` branch to produce a value" |
 | `x := y := z` | "`:=` does not chain; assignment produces `Unit`" |
 | `**` at `Nat`/`Int`/`BigInt` with negative exponent (and `BigInt.pow` likewise) | runtime `NegativeExponentError` |
-| non-`Int` exponent at `**` (`x ** 0.5`, `2n ** 3n`) | type error, mandatory fixit branched on the exponent's type — `Float.pow` for a `Float` exponent, `BigInt.pow` for a `BigInt` one, the plain seat error otherwise (§6.3) |
+| non-`Int` exponent at `**` (`x ** 0.5`, `2n ** 3n`) — and at the member's other spellings (`i.pow(2n)`, `Pow.pow(i, 2n)`; #808) | type error, mandatory fixit branched on the exponent's type — `Float.pow` for a `Float` exponent, `BigInt.pow` for a `BigInt` one, the plain seat error otherwise (§6.3) |
 
 ---
 

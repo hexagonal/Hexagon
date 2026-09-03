@@ -1,6 +1,6 @@
 # Hexagon Spec: Numeric Literals
 
-**Status:** Decided (July 2026)
+**Status:** Decided (July 2026); §5.1 amended September 2026 for #808 — the tower is a closed list and the expected-type lift governs every spelling of a tower member call.
 **Decision:** Roc-style polymorphic integer literals with `Int` defaulting. `1n` is monomorphic `BigInt`. Decimal literals are monomorphic `Float`.
 
 This document is written for a future implementation session. It assumes the reader knows the existing `hexc` architecture: Algorithm J with union-find mutable type variables, level-based generalisation, constraints compiled to dictionary passing, and `honor` declarations as instance definitions.
@@ -25,7 +25,7 @@ Key rules:
 4. `1n` does **not** participate in the polymorphic scheme. The `n` suffix is a type annotation, exactly as in JavaScript. There is no `fromBigInt` method in `Num` (deliberately — see §7, Rejected alternatives).
 5. Decimal literals do not participate either. `1.5 : Float`, always, in v1.
 6. **Codegen guarantee:** when `α` resolves to `Int`, `Float`, or `BigInt`, the `fromNat` wrapper is erased and the literal is emitted respectively as `k`, `k.0`, or `kn`. The Float spelling deliberately preserves inferred type intent for a human reader even though `k` and `k.0` are identical JavaScript numbers. Only literals inside genuinely polymorphic (dictionary-taking) functions emit `dict.fromNat(k)`.
-7. **Contextual numeric widening:** an established `Nat` may be injected through `Num<a>.fromNat`; an established `Int` may be injected through `Signed<a>.fromInt`. The target must be independently established — by an annotation, a concrete operand, a boundary, or (at an arithmetic operation only, through the expected-type lift) the seat's expected type — and widening never invents a polymorphic target merely to make an expression type-check. At an arithmetic operation whose expected type is concrete **and carries the operator's constraint instance**, that type is the operation's home: the operands widen in and the operation runs at the written type — at `**`, the base alone; the exponent seat is the member's concrete `Int` parameter and never joins (§5.1, Operators §6.3) — without the instance, or where no expectation lands, the operation elaborates from its operands and exact unification wins first (§5.1).
+7. **Contextual numeric widening:** an established `Nat` may be injected through `Num<a>.fromNat`; an established `Int` may be injected through `Signed<a>.fromInt`. The target must be independently established — by an annotation, a concrete operand, a boundary, or (at a tower member call only, through the expected-type lift) the seat's expected type — and widening never invents a polymorphic target merely to make an expression type-check. At a tower member call — an operator, or the same member spelled bare, qualified, as a pipe stage, or by the dot (Method Syntax §1; #808) — whose expected type is concrete **and carries the member's constraint instance**, that type is the operation's home: the operands widen in and the operation runs at the written type — at `**`, the base alone; the exponent seat is the member's concrete `Int` parameter and never joins (§5.1, Operators §6.3) — without the instance, or where no expectation lands, the operation elaborates from its operands and exact unification wins first (§5.1).
 
 ---
 
@@ -158,7 +158,7 @@ The checker admits two exact, evidence-directed contextual conversions:
 
 “Independently established” means that the target is fixed by an annotation, a concrete
 operand or argument, a branch or assignment boundary, an already-constrained type
-variable — or, **at an arithmetic operation the expected-type lift below governs**, the
+variable — or, **at a tower member call the expected-type lift below governs**, the
 seat's expected type (Functions §4.3), a written face arriving where an annotation could
 have been written. The expectation route exists only through the lift: at every other
 position an expectation establishes no widening target of its own (Functions §4.3's
@@ -170,22 +170,45 @@ exact unification has priority. The substitution these tests read is the one Fun
 programs differing only in the order of sibling expressions sharing an undetermined
 variable may widen differently, by design (Functions §4.3's ordering pin).
 
-**The expected-type lift — the written type is the arithmetic's home.** At an arithmetic
-operation (the `Num`/`Signed`/`Frac`/`Pow` operators, unary negation included) whose
-expected type is **concrete** and carries the operator's constraint instance, the expected
-type **is** the operation's common type: each operand reaches it by exact unification or
-by the two conversions above, and the operation's evidence is selected at it. The
-expectation reaches operands recursively — an operand seat of a lifted operation expects
-the same type — so a whole arithmetic expression runs at its written type. At `**` the
-common type governs the **base seat only**: the exponent seat is the member's concrete
+**The tower** *(#808)*. The tower is the closed family of constraints whose members this
+section's conversions and lift serve: `Num`, `Signed`, `Frac`, `Pow`, and `Integral` — the
+prelude's rungs, and no others. Each rung owns the exact conversion from the type below it
+(`Num.fromNat`, `Signed.fromInt`), and a type's widenings are exactly the slots it fills:
+no rung owns a conversion from `BigInt` (§7), so `BigInt` is never a source, and `Frac`
+owns no conversion from `Rat` (`Float` honors `Frac`), which is friendly-numerics tenet 7's
+membrane stated as a missing member. `Eq` and `Ord` are not rungs: a comparison across
+widths (`i < b`, `i.compare(b)`) widens because the member's seats are widening targets
+like any seat, not through the lift. **The rungs are the language's own and the list is
+closed.** A type — `Rat`, or a user's `Decimal` — joins the tower by honoring the rungs
+lawfully (below), never by adding one; a user constraint bounded on `Num` is an ordinary
+constraint outside the tower, served by the ordinary seat widening and nothing more. The
+closure is what keeps Method Syntax §4.2's ownership clause finite — a collision at the
+source types is then always an author's own honoring, never the existence of a constraint
+elsewhere — and the tower's behaviour statable in one paragraph; a new rung is
+a design ruling on the footing of a new prelude bare name (Modules §5.5). A **tower member
+call** is a call of a subject-first member of a rung whose result type is the subject, in
+whatever spelling — operator, bare, qualified, pipe stage, or dot; the operators are its
+everyday spellings and elaborate to nothing else (Operators §1.1).
+
+**The expected-type lift — the written type is the arithmetic's home.** At a tower member
+call — the `Num`/`Signed`/`Frac`/`Pow` operators, unary negation included; the member
+spelled bare, qualified through its constraint, as a pipe stage, or by the dot (Method
+Syntax §1, §7), a companion-qualified spelling being a written face, below; `Integral`'s
+`div`, `mod`, `quot`, `rem`, and `gcd` included, though no operator spells them *(#808)* —
+whose expected type is **concrete** and carries the member's constraint instance, the
+expected type **is** the operation's common type: each operand reaches it by exact
+unification or by the two conversions above, and the operation's evidence is selected at
+it. The expectation reaches operands recursively — an operand seat of a lifted operation
+expects the same type — so a whole arithmetic expression runs at its written type. At `**`
+the common type governs the **base seat only**: the exponent seat is the member's concrete
 `Int` parameter (Operators §6.3), an ordinary written-`Int` seat that neither joins the
 common type nor receives the outer expectation — this rule applies *into* it
-independently, with `Int` as the written face, which is how the right spine of an
-exponent tower runs at `Int` whatever the base's home. An expectation
-that is a variable, or a concrete type without the instance, lifts nothing: the operation
-elaborates from its operands alone, exactly as below. The distinction the lift turns on:
-widening a **value** is always exact, but which *algebra an operation runs in* decides
-what the value is — and the lift decides it for the written face.
+independently, with `Int` as the written face, which is how the right spine of an exponent
+tower runs at `Int` whatever the base's home. An expectation that is a variable, or a
+concrete type without the instance, lifts nothing: the operation elaborates from its
+operands alone, exactly as below. The distinction the lift turns on: widening a **value**
+is always exact, but which *algebra an operation runs in* decides what the value is — and
+the lift decides it for the written face.
 
 ```hexagon
 let r: Rat = count + count    // Rat addition of two injected Ints — exact at any magnitude
@@ -193,7 +216,16 @@ let r: Rat = 1 + 2            // Rat addition already — literals are polymorph
 let x: Int = n - m            // n, m : Nat — both widen; Signed<Int> subtraction, possibly negative
 let mean: Float = sum / size  // sum, size : Int — Frac<Float> division; Int has no Frac and needs none here
 let s = count + count         // no written face: Int addition, as ever
+let whole: BigInt = count.add(count)    // the same lift, spelled by the dot — BigInt addition
+let next: BigInt = count |> Num.add(1)  // and as a pipe stage — never Int addition injected after
 ```
+
+A **companion**-qualified spelling of a member (`Float.multiply`, `Int.multiply`) is not a
+further spelling of the open call but a **written face** of it (Modules §5.3's migration
+principle keeps `Int.multiply` substitutable for a plain `Int.multiply(a: Int, b: Int):
+Int`): operands widen *into* it and it lifts nothing beyond itself — `Float.multiply(count,
+price)` runs at `Float`; `Int.multiply(count, price)` refuses, exactly as `let t: Int =
+count * price` does.
 
 The first line is the rule's reason. Without the lift, `count + count` runs at `Int` and
 only the finished sum is injected — an exact conversion of a sum the silent-overflow
@@ -270,7 +302,15 @@ a ** b` leaves `b : Int` at the exponent seat — no conversion of `b` to `Float
 emitted or permitted); the gated decline at the gate's remaining subject
 (`let t: T = a ** b` for a user nominal `T` honoring `Num` and `Signed` but not `Pow` —
 `Int` power, result injected); the no-face boundary (`let s = count + count` stays
-`Int`); and the recursion depth (`let r: Rat = (a + b) * c` runs entirely at `Rat`).
+`Int`); and the recursion depth (`let r: Rat = (a + b) * c` runs entirely at `Rat`). *(#808.)*
+Since the lift governs every spelling (further fixtures: `big : BigInt`; `price :
+Float`), the spelled rows: `let r: BigInt = a.add(c)`, `let r: BigInt = Num.add(a, c)`,
+`let r: BigInt = a |> Num.add(c)`, and `let q: BigInt = Integral.div(a, c)` each run at
+`BigInt` (the additions value-checked past 2^53); the operand-driven rows `a.add(big)`,
+`big.add(a)`, `count.multiply(price)`, and `price.multiply(count)` accepted at the wider
+operand's type; `Int.multiply(count, price)` refused as a written face; and `let d: Int =
+n.subtract(m)` accepted through Method Syntax §4.2's ownership clause with both `Nat`s
+injected.
 
 ### 5.2 Literal emission
 
