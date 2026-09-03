@@ -629,7 +629,7 @@ i.compare(j)                       -- emits compare(i, j)      — no operator c
 r.add(r)                           -- emits add(r, r)          — object representation; untouched
                                    --   (multi-module fixture: `Rat` is imported, not prelude)
 -- (v) The receiver seat (#808, ruled after #815's review) — x, y, z : Int with
---     x = 9007199254740991, y = 2, z = 3; i, j, k, negOne : Int, negOne = -1; p, q, r : Foo, a user record
+--     x = 9007199254740991, y = 2, z = 3; i, j, k, negOne : Int, negOne = -1; p, q, s : Foo, a user record
 --     honoring Num whose companion exports gcd(Foo, Foo): BigInt
 let r: BigInt = x.add(y).multiply(z)  -- OK — both operations at BigInt; value-checked past 2^53:
                                    --   27021597764222979n, as (x + y) * z and
@@ -643,10 +643,10 @@ let f: Float = (i + j).pow(negOne)    -- OK — Float honors Pow: the base lifts
 let f: Float = (i + j).rem(k)         -- OK — Float honors no Integral: nothing forwards; i + j runs
                                    --   at Int, Integral<Int>'s guarded rem dispatches, the result
                                    --   widens — as Integral.rem(i + j, k) does
-let n: BigInt = p.add(q).gcd(r)       -- OK — BigInt honors Integral, so BigInt is forwarded, but Foo
+let n: BigInt = p.add(q).gcd(s)       -- OK — BigInt honors Integral, so BigInt is forwarded, but Foo
                                    --   cannot reach it: the lift stands down, p.add(q) runs at Foo,
                                    --   and Foo's exported gcd answers   [unchanged from before]
-fun g(x): BigInt = x.multiply(2)      -- as before: flexible receiver, the goal pends, row fallback
+fun g(v): BigInt = v.multiply(2)      -- as before: flexible receiver, the goal pends, row fallback
 ```
 
 ---
