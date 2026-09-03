@@ -17,6 +17,9 @@
 // read is the bracket `values[index]` — an expression form, so it is the
 // emitter's own lowering rather than an export of this file, exactly as
 // `Vector`'s bracket and `Map`'s are.
+//
+// Beside the loop sits `toVector`, which is not part of it: FFI Part 2
+// section 9's conversion out of the borrow.
 
 extern from "hex:intrinsic"
     (** How many elements `values` holds. It is the borrowed array's own
@@ -32,3 +35,37 @@ export let get(values: Array(a), index: Int): Option(a) =
         None
     else
         Some(values[index])
+
+// FFI Part 2 section 9's conversion, and **not** a door row — which is the
+// interesting half, because section 9's other direction is one. `Vector.toArray`
+// is keyed because a source body could not name its own result: an `Array(a)`
+// has no Hexagon producer at all, no literal and no constructor (section 6.1).
+// Read the other way that argument fails. A borrowed array has no producer but
+// it does have a traversal — section 8.1's provided `Iterable` row, which
+// section 8.2 emits as native `for...of` — and a `Vector(a)` has the producer
+// the result needs, `append`, in scope because this module is seated after
+// `Vector.hex`. So the fold below is expressible at the same complexity and in
+// the same emitted shape a key would have produced, and
+// `spec/stdlib-roadmap.md` section 5.1 keeps such behaviour in Hexagon: none of
+// its four grounds for a private intrinsic — a host capability, an opaque or
+// performance-critical representation, a compiler transformation, measured
+// performance evidence — reaches this operation.
+//
+// The loop is the whole contract. It is eager because it runs to completion
+// before the value is returned; it is a snapshot because every element is read
+// out of the borrow and into a persistent vector that shares no storage with
+// it; it is shallow because the values are moved, never rebuilt; it is total
+// because an empty array takes zero steps. Section 6.4's holes need nothing
+// written for them: `for...of` reports a hole as `undefined`, which is what
+// `Nullable.undefined` is, so a sparse array yields the array's `length`
+// elements with `undefined` where the holes were.
+
+(** The elements of `values` collected into a vector: the snapshot that
+    outlives the borrow, so later changes to the array never reach it. The
+    vector is built at once, and the crossing is shallow — an element that is
+    itself a vector or a record arrives as that same value. *)
+export let toVector(values: Array(a)): Vector(a) =
+    var collected: Vector(a) = []
+    for value in values
+        collected := collected.append(value)
+    collected
