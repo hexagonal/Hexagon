@@ -145,12 +145,13 @@ Each row: the observable claim an implementation must satisfy, and the owner who
 
 1. **The composable `JsValue` decoder family** — field/record traversal, element-wise decoders, `nullable`/`oneOf`/defaults, and map/set decoders, built over Part 11's primitives, error structure, and path vocabulary. A real v1 stdlib debt; ledger entry issued by Part 11 §10.
 2. **Qualified companion homes for `NullableCase.*`, `JsKind.*`, `JsConversionReason.*`, and `JsPathSegment.*` constructors** (§12's resolution, extended for #511) — the prelude inventory must provide all four.
+3. **The `Array(a)` conversion quartet** (Part 2 §9) — `Vector.toArray` has shipped, through the intrinsic door from `stdlib/Vector.hex` (#238); `Array.toSeq`/`Array.fromSeq`/`Array.toVector` remain owed, separately motivated (Collections Part 5 §1's suite doctrine obliges the `toSeq`/`fromSeq` pair; Pattern Matching §11.1 depends on `Array.toVector`), and each is absent — never a declared-but-throwing stub — until implemented exactly per Part 2 §9 (Part 2 §9.1). A mirror of `stdlib-roadmap.md` §2's row, the debt's ledger of record under that file's rule 1; this heading's "global ledger" is flagged against that rule at Part 2 §9.1, not decided here.
 
 **Candidates — ship-versus-defer decisions the listing owns, each with its recorded revisit bar; none is a mandatory v1 surface:**
 
-3. **`toJsMap`/`toJsSet` classification decoders** — carrying Part 11 §13.1's cross-realm revisit bar (no portable `Array.isArray`-equivalent).
-4. **`JsMap.keys`/`JsMap.values` projections and `JsSet` algebra reads** (Part 10 §9 — derivable today via `toSeq` combinators or conversion).
-5. FFI-adjacent companion conveniences referenced by the parts (e.g. `Nullable` helpers, conversion aliases) — whatever the listing adopts must honor the decided semantics and update the ledger.
+4. **`toJsMap`/`toJsSet` classification decoders** — carrying Part 11 §13.1's cross-realm revisit bar (no portable `Array.isArray`-equivalent).
+5. **`JsMap.keys`/`JsMap.values` projections and `JsSet` algebra reads** (Part 10 §9 — derivable today via `toSeq` combinators or conversion).
+6. FFI-adjacent companion conveniences referenced by the parts (e.g. `Nullable` helpers, conversion aliases) — whatever the listing adopts must honor the decided semantics and update the ledger.
 
 ### 9.2 Post-v1 language/FFI deferrals (each with its recorded owner and revisit bar)
 
