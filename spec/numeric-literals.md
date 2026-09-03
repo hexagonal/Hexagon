@@ -237,7 +237,9 @@ is well-typed exactly when a written face names an algebra that embeds them. The
 line is its boundary: a binding without an annotation has no written face, and arithmetic
 happens at the type written on *its own* seat, never one written somewhere later —
 `let s = count + count` then `let r: Rat = s` widens the finished `Int` value, exactly
-as written. The instance gate is equally a boundary, and it is what keeps every gated
+as written. Said without faces: widening happens within one expression; a separate
+binding makes two expressions, and the second has whatever type the first was given. The
+instance gate is equally a boundary, and it is what keeps every gated
 decline identical to the ungated elaboration: at `let t: T = a ** b` (`a, b : Int`) for
 a nominal `T` honoring `Num` and `Signed` but not `Pow`, the expectation lifts nothing,
 so the power runs at `Int` and the finished value injects, exactly as this section
