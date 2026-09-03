@@ -305,7 +305,7 @@ Exporting a constraint (Modules §4.1) adds cross-module plumbing to the shapes 
 
 ---
 
-## 7. Prelude constraints owned here (member lists) — and the ones owned elsewhere
+## 7. Prelude constraints owned here (member lists and laws) — and the ones owned elsewhere
 
 This section owns the member lists of **six** constraints. It is deliberately **not** the complete prelude-constraint inventory: focused specs own the rest (registry below), and the full inventory is the stdlib listing's (`stdlib-roadmap.md`).
 
@@ -316,13 +316,25 @@ This section owns the member lists of **six** constraints. It is deliberately **
 | `Show<a>` | — | `show(x: a): String` | contract per Primitive Types §7 |
 | `Num<a>` | — | `add`, `multiply`, `fromNat(n: Nat): a` | Nat honors Num; literal and exactness laws per Numeric Literals §5 |
 | `Signed<a: Num>` | `Num` | `subtract`, `negate`, `fromInt(n: Int): a` | `fromInt` law per Numeric Literals §5; no `divide` |
-| `Frac<a: Signed>` | `Signed` | `divide(x: a, y: a): a` | lawful up to rounding (Float); exact (Rat) |
+| `Frac<a: Signed>` | `Signed` | `divide(x: a, y: a): a` | lawful up to rounding at `Float`, and outright failing at overflow, underflow, and `NaN` (the laws paragraph below); exact (Rat) |
 
 **Owned by focused specs (registered, not restated):** `Hash` — Collections Part 2 (derivable-only; §4.5 here); `Iterable` — Collections Parts 2/5 (implied `type Item`; `toSeq` member; restricted v1 user instances); `Integral` — `integral-constraint.md`. Their instances obey every rule of §§4–6 unchanged.
 
 `Signed` extends `Num`, but neither numeric tier additionally extends `Eq` or `Show` — a numeric type without decidable equality (for example, a lazy or symbolic instance) should not be ruled out by arithmetic. Types that provide those capabilities honor them separately.
 
 Comparison/`equals` operator sugar (`==`, `<`, etc. dispatching to these members) is the **operators spec's** business; this spec fixes only the members.
+
+**The laws, and who they bind** *(#808)*. A constraint is a signature: nothing in the language declares a law, and nothing checks that an instance obeys one (§4.7's `widens` law and §4.5's derivations hold *by construction*, which is the other way to have a law, and reaches only them). The laws below are the expectations an instance is written against and reviewed against — the axioms a reader may assume of the prelude's instances and should state for their own — and they are hidden in exactly the sense every type-class law is hidden: unenforceable by a checker, load-bearing for people. Equality in each law means the type's own `equals`. `Show` carries no law — a display contract (Primitive Types §7), not an algebra.
+
+- `Eq`: `equals` is an equivalence — reflexive, symmetric, transitive — and `notEquals` its negation. `Eq<Float>` is SameValueZero, which *is* an equivalence (`NaN` equals `NaN`; `0.0` equals `-0.0`).
+- `Ord`: `compare` is a total order agreeing with `equals` — `compare(x, y)` is `Equal` exactly when `equals(x, y)`, antisymmetric and transitive otherwise. `Ord<Float>` is the total order Decisions Batch §1 fixes.
+- `Num`: `add` is associative and commutative; `multiply` is associative and distributes over `add` on both sides; `fromNat(0)` is the identity of `add` and `fromNat(1)` the identity of `multiply`; and `fromNat` is a homomorphism — `fromNat(m + n)` is `fromNat(m) + fromNat(n)` and `fromNat(m * n)` is `fromNat(m) * fromNat(n)` (Numeric Literals §5.2 states this law from the literal's side). Commutativity of `multiply` is **not** a law of `Num`: a matrix type may honor `Num` truthfully.
+- `Signed`: `negate` is the additive inverse — `add(x, negate(x))` is `fromNat(0)` — and an involution; `subtract(x, y)` is `add(x, negate(y))`; `fromInt` extends `fromNat` — they agree on every `Nat` (Numeric Literals §5.2) — and is a homomorphism likewise.
+- `Frac`: `divide(x, y)` is the right inverse of multiplying by `y`, for every nonzero `y`: `multiply(divide(x, y), y)` is `x`. An instance whose `multiply` is not commutative documents that its `divide` is not also a left inverse.
+
+**Where the shipped instances keep them.** At `BigInt` and `Rat`, exactly. At `Nat` and `Int`, exactly within the safe range and no further: past it the representation rounds silently (`Nat`'s range, Primitive Types §1; `Int`'s overflow contract, §2.1), and `(1 + 1) + 2^53` and `1 + (1 + 2^53)` differ there. At `Float`, honestly IEEE (friendly-numerics tenet 7): `add` and `multiply` are commutative exactly and `fromNat` is exact (every `Nat` is representable); associativity, distributivity, and `divide` inverting `multiply` hold only up to rounding, and they fail outright where a finite question meets overflow, underflow, or `NaN` — `(1e300 / 1e-300) * 1e-300` is `Infinity` — while `negate`'s inverse law, exact for every finite `x`, fails at the non-finite values themselves: `Infinity + (-Infinity)` is `NaN`, not `0.0`. That is the instance's honest contract, not a defect, and it is the reason the paragraph that follows exists.
+
+**The compiler relies on none of these.** Operands are converted and evaluated in the rewritten form's source order, each exactly once (Numeric Literals §5.1; Operators §5.4 — for a pipe stage that is the rewritten call's order, Operators §8's recorded footnote; elaboration follows Functions §4.3's checking schedule, which is not an evaluation order), a dot call keeps its receiver as the first operand (Method Syntax §1, §2.3), and no expression is ever rewritten by an algebraic law — not reassociated, not commuted, not simplified by one. The claim is about the operation graph, not the character sequence: erasing a conversion the type makes vacuous or folding `negate(fromNat(42))` to `-42` (Operators §6.2) rewrites by a type fact, never by a law. A non-commutative `multiply` is honored exactly as written, and `a + b` at `Float` is computed in the order written. This narrows nothing Effects §7 grants — that licence schedules independent pure computations within the semantics the effects sections fix, while this sentence forbids rewriting an expression: different operations — and it is the whole-language form of friendly-numerics tenet 5 and Exceptions §1's throw-boundary bound: a rewrite that moves a value or a throw is not meaning-preserving. The laws bind an instance's author and its reviewer, and license the reasoning of a person reading a program; they never license the compiler.
 
 ---
 
