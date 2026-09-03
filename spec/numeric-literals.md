@@ -175,8 +175,8 @@ section's conversions and lift serve: `Num`, `Signed`, `Frac`, `Pow`, and `Integ
 prelude's rungs, and no others. Each rung owns the exact conversion from the type below it
 (`Num.fromNat`, `Signed.fromInt`), and a type's widenings are exactly the slots it fills:
 no rung owns a conversion from `BigInt` (§7), so `BigInt` is never a source, and `Frac`
-owns no conversion from `Rat` (`Float` honors `Frac`), which is friendly-numerics tenet 7's
-membrane stated as a missing member. `Eq` and `Ord` are not rungs: a comparison across
+owns no conversion from `Rat` (`Float` honors `Frac`), which is friendly-numerics tenet
+7's membrane stated as a missing member. `Eq` and `Ord` are not rungs: a comparison across
 widths (`i < b`, `i.compare(b)`) widens because the member's seats are widening targets
 like any seat, not through the lift. **The rungs are the language's own and the list is
 closed.** A type — `Rat`, or a user's `Decimal` — joins the tower by honoring the rungs
@@ -184,11 +184,15 @@ lawfully (below), never by adding one; a user constraint bounded on `Num` is an 
 constraint outside the tower, served by the ordinary seat widening and nothing more. The
 closure is what keeps Method Syntax §4.2's ownership clause finite — a collision at the
 source types is then always an author's own honoring, never the existence of a constraint
-elsewhere — and the tower's behaviour statable in one paragraph; a new rung is
-a design ruling on the footing of a new prelude bare name (Modules §5.5). A **tower member
-call** is a call of a subject-first member of a rung whose result type is the subject, in
+elsewhere — and the tower's behaviour statable in one paragraph; a new rung is a design
+ruling on the footing of a new prelude bare name (Modules §5.5). A **tower member call**
+is a call of a subject-first member of a rung whose result type is the subject, in
 whatever spelling — operator, bare, qualified, pipe stage, or dot; the operators are its
-everyday spellings and elaborate to nothing else (Operators §1.1).
+everyday spellings and elaborate to nothing else (Operators §1.1). The tower member
+**spellings** — the names that can spell such a call — are exactly `add` and `multiply`
+(`Num`), `subtract` and `negate` (`Signed`), `divide` (`Frac`), `pow` (`Pow`), and `div`,
+`mod`, `quot`, `rem`, and `gcd` (`Integral`); this list, and each spelling's rung, is what
+Method Syntax §2.2's receiver rule reads.
 
 **The expected-type lift — the written type is the arithmetic's home.** At a tower member
 call — the `Num`/`Signed`/`Frac`/`Pow` operators, unary negation included; the member
@@ -198,16 +202,27 @@ Syntax §1, §7), a companion-qualified spelling being a written face, below; `I
 whose expected type is **concrete** and carries the member's constraint instance, the
 expected type **is** the operation's common type: each operand reaches it by exact
 unification or by the two conversions above, and the operation's evidence is selected at
-it. The expectation reaches operands recursively — an operand seat of a lifted operation expects the same type, the receiver of a dot call spelled with a tower member's name included (Method Syntax §2.2: the receiver seat forwards) — so a whole arithmetic expression runs at its written type in every spelling, `(a + b).multiply(c)` and `a.add(b).multiply(c)` as much as `(a + b) * c`. At `**`
-the common type governs the **base seat only**: the exponent seat is the member's concrete
-`Int` parameter (Operators §6.3), an ordinary written-`Int` seat that neither joins the
-common type nor receives the outer expectation — this rule applies *into* it
-independently, with `Int` as the written face, which is how the right spine of an exponent
-tower runs at `Int` whatever the base's home. An expectation that is a variable, or a
-concrete type without the instance, lifts nothing: the operation elaborates from its
-operands alone, exactly as below. The distinction the lift turns on: widening a **value**
-is always exact, but which *algebra an operation runs in* decides what the value is — and
-the lift decides it for the written face.
+it. Where an operand can reach it by neither — a `Float` under a `Rat` face, a user type
+under `BigInt` — the lift **stands down**: the operation elaborates from its operands
+alone, exactly as below, and whatever mismatch remains surfaces where the result meets its
+seat (`let total: Rat = count * price` is refused at the binding rather than at the
+operation). No accepted program changes, because a declined operation's result must still
+fit what consumes it; a refusal becomes an acceptance only where the surrounding program
+types, as at a dot chain whose outer call is a companion export (Method Syntax §2.2's
+receiver rule). The expectation reaches operands recursively — an operand seat of a lifted
+operation expects the same type, a dot call's receiver included under Method Syntax §2.2's
+receiver rule, which hands it the call's expectation before it elaborates when the
+spelling's rung is honored at the face — so a whole arithmetic expression runs at its
+written type in every spelling, `(a + b).multiply(c)` and `a.add(b).multiply(c)` as much
+as `(a + b) * c`. At `**` the common type governs the **base seat only**: the exponent
+seat is the member's concrete `Int` parameter (Operators §6.3), an ordinary written-`Int`
+seat that neither joins the common type nor receives the outer expectation — this rule
+applies *into* it independently, with `Int` as the written face, which is how the right
+spine of an exponent tower runs at `Int` whatever the base's home. An expectation that is
+a variable, or a concrete type without the instance, lifts nothing: the operation
+elaborates from its operands alone, exactly as below. The distinction the lift turns on:
+widening a **value** is always exact, but which *algebra an operation runs in* decides
+what the value is — and the lift decides it for the written face.
 
 ```hexagon
 let r: Rat = count + count    // Rat addition of two injected Ints — exact at any magnitude
