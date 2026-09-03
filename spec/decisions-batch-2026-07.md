@@ -45,7 +45,7 @@ Hexagon v1 exposes no `Hash` constraint. If one ever ships, `Hash<Float>` **must
   ```
 
   or a call to an on-demand prelude helper `__floatEquals` (same on-demand doctrine as constructors, Unions §6.4) — implementer's choice per site, biased toward the inline expression where it stays readable. Note `+0 === -0` is already `true` in JS, so `===` needs no zero patch — only the `NaN` clause is added.
-- `Ord<Float>` fast path: native `<`/`<=`/etc. remain correct **whenever neither operand can be `NaN`**; the general `compare` must implement §1.1's total order (a small prelude function; `NaN` checks first, then native comparison, `+0`/`-0` needs no special case since `<`/`>` already treat them as equal).
+- `Ord<Float>` fast path: native `<`/`<=`/etc. remain correct **whenever neither operand can be `NaN`** *(this licence was never exercised and is retired — Operators §5.1, under Constraints §6.1's rule that an emitted shape follows the algebra and never an operand's value; #808/#810)*; the general `compare` must implement §1.1's total order (a small prelude function; `NaN` checks first, then native comparison, `+0`/`-0` needs no special case since `<`/`>` already treat them as equal).
 - `.d.ts`: unaffected; nothing constraint-shaped appears there (Constraints §6.4).
 
 ### 1.6 Doctrine note

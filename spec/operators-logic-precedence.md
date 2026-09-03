@@ -191,7 +191,7 @@ x === y || (Number.isNaN(x) && Number.isNaN(y))
 !(x === y || (Number.isNaN(x) && Number.isNaN(y)))
 ```
 
-An on-demand helper with the same semantics is equally valid where it reads better. `Ord<Float>` may use native relational operators only when neither operand can be `NaN`; the general path uses the total `compare` fixed by Decisions Batch §1. The polymorphic case emits the dictionary call. `Ord String` remains codepoint-lexicographic with the BMP fast path — Primitive Types is authoritative.
+An on-demand helper with the same semantics is equally valid where it reads better. `Ord<Float>`'s relational operators always take the total `compare` fixed by Decisions Batch §1 *(a licence to use native relationals "when neither operand can be `NaN`" once stood here, never exercised; retired under Constraints §6.1's rule that an emitted shape follows the algebra and never an operand's value — #808/#810)*. The polymorphic case emits the dictionary call. `Ord String` remains codepoint-lexicographic with the BMP fast path — Primitive Types is authoritative.
 
 Types without the instance simply cannot use the operator: `==` on functions is a compile error ("functions have no `Eq` instance"), and the relational four on discriminated unions are a compile error unless the union has an explicit `Ord` (the standing rule: logic must not depend on declaration order; the diagnostic is "ordering is not defined for union `Shape`").
 
@@ -527,7 +527,7 @@ The floored convention recorded as decided in Primitive Types §2 is **downgrade
 | `\|>` loosest infix, just above the eats-right family | §3.3 |
 | `and`/`or` primitive short-circuit → `&&`/`\|\|`; `implies` = `not a or b`, right-assoc | §4.1 |
 | `iff` = Boolean equality (`equals` at `Bool` → `===`); both operands always evaluated; draft short-circuit claim struck | §4.3 |
-| Relational four elaborate via single `Ord.compare`; native-operator fast path mandatory for primitives | §5.1 |
+| Relational four elaborate via single `Ord.compare`; native-operator fast path mandatory for primitives — `Float` excepted, whose relational four always take the total `compare` (the NaN-freedom licence retired, #808/#810) | §5.1 |
 | `==` elaborates to `Eq.equals`; `!=` elaborates to defaultable `Eq.notEquals` | §1.1, §5.1 |
 | Chains: directionally consistent families {`<`,`<=`,`==`} / {`>`,`>=`,`==`}; `!=` never chains | §5.3 |
 | Single-evaluation rule: duplicated operands bound once, left-to-right, invisible temporaries | §5.4 |

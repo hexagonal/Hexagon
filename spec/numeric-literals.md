@@ -228,25 +228,28 @@ price)` runs at `Float`; `Int.multiply(count, price)` refuses, exactly as `let t
 count * price` does.
 
 The first line is the rule's reason. Without the lift, `count + count` runs at `Int` and
-only the finished sum is injected — an exact conversion of a sum the silent-overflow
-`Int` addition may already have folded past 2^53. The lift closes the asymmetry between
-the first two lines: an established value follows the written face exactly as a literal
-does. The third and fourth lines are the lift's own acceptances — an operation
-whose operand types alone support no instance (`Nat` has no `Signed`, `Int` no `Frac`)
-is well-typed exactly when a written face names an algebra that embeds them. The last
-line is its boundary: a binding without an annotation has no written face, and arithmetic
-happens at the type written on *its own* seat, never one written somewhere later —
-`let s = count + count` then `let r: Rat = s` widens the finished `Int` value, exactly
-as written. The instance gate is equally a boundary, and it is what keeps every gated
-decline identical to the ungated elaboration: at `let t: T = a ** b` (`a, b : Int`) for
-a nominal `T` honoring `Num` and `Signed` but not `Pow`, the expectation lifts nothing,
-so the power runs at `Int` and the finished value injects, exactly as this section
-always read. The gate's remaining subjects are exactly such user nominals: since `Rat`
-honors `Pow` (Operators §6.3), every tower face reachable by injection carries the
-constraint of every operator whose operand elaboration can land at `Nat` or `Int` —
-`+`, `-`, `*`, `**`, unary negation — so no in-tower written face is ever gated out: a
-tower face either lifts or (where the operand elaboration itself has no instance, as at
-`Int` division) refuses. Consequences:
+only the finished sum is injected — an exact conversion of a sum the silent-overflow `Int`
+addition may already have folded past 2^53. The lift closes the asymmetry between the
+first two lines: an established value follows the written face exactly as a literal does.
+The third and fourth lines are the lift's own acceptances — an operation whose operand
+types alone support no instance (`Nat` has no `Signed`, `Int` no `Frac`) is well-typed
+exactly when a written face names an algebra that embeds them. The last line is its
+boundary: a binding without an annotation has no written face, and arithmetic happens at
+the type written on *its own* seat, never one written somewhere later — `let s = count +
+count` then `let r: Rat = s` widens the finished `Int` value, exactly as written. Said
+without faces: the *lift* works within one expression — an expected type travels to a
+subexpression through the forms Functions §4.3 forwards through, and at a tower member
+call the operand seats are the lift's own channel, the one §4.3 names as not forwarding; a seat's own expected type establishes the target directly, per the list above — and what stops it is a binding: a separate binding is a separate expression, which has whatever type the first was given; its value still widens at its own seat, as `let r:
+BigInt = s` shows, but its arithmetic has already run. The instance gate is equally a
+boundary, and it is what keeps every gated decline identical to the ungated elaboration:
+at `let t: T = a ** b` (`a, b : Int`) for a nominal `T` honoring `Num` and `Signed` but
+not `Pow`, the expectation lifts nothing, so the power runs at `Int` and the finished
+value injects, exactly as this section always read. The gate's remaining subjects are
+exactly such user nominals: since `Rat` honors `Pow` (Operators §6.3), every tower face
+reachable by injection carries the constraint of every operator whose operand elaboration
+can land at `Nat` or `Int` — `+`, `-`, `*`, `**`, unary negation — so no in-tower written
+face is ever gated out: a tower face either lifts or (where the operand elaboration itself
+has no instance, as at `Int` division) refuses. Consequences:
 
 ```hexagon
 count + count       // Int; no written face, exact match, no widening
@@ -321,8 +324,8 @@ Two regimes, determined entirely by whether `α` is resolved to a concrete type 
 - `α = Nat` → emit `k` (plain JS number). `Nat.fromNat` is the identity.
 - `α = Int` → emit `k` (plain JS number). `Int.fromNat` is the identity; do not emit an identity call.
 - `α = Float` → emit `k.0`. `Float.fromNat` remains representationally erased — `k` and `k.0` are the same JavaScript number — while the decimal spelling preserves the inferred Hexagon type for a human reading the generated code.
-- `α = BigInt` → emit `kn`. (`BigInt.fromNat` folded at compile time. This arises when unification pins a bare literal to BigInt via surrounding code, e.g. `add x 1` with `x : BigInt`.)
-- `α = Rat` → emit the canonical-form constructor call with constant arguments, e.g. `Rat.fromNat(k)` or, if you implement constant folding for it, the direct `{top: kn, bottom: 1n}` fast-path constructor. Either is acceptable; the fast path is a nice-to-have.
+- `α = BigInt` → emit `kn`. (`BigInt.fromNat` erased: the literal *is* a `BigInt` at this type, §1 rule 6 — a type fact, not a constant-folding of a value. This arises when unification pins a bare literal to BigInt via surrounding code, e.g. `add x 1` with `x : BigInt`.)
+- `α = Rat` → emit the canonical-form constructor call with constant arguments, e.g. `Rat.fromNat(k)` or the direct `{top: kn, bottom: 1n}` fast-path constructor — the literal's `Rat` form, a type fact as in the `BigInt` row, not a folding of a value. Either is acceptable; the fast path is a nice-to-have.
 - Any other instance type → emit `TheType.fromNat(k)` monomorphically (direct call, no dictionary).
 
 **Unresolved-because-polymorphic** (literal inside a function generalised over `Num a`): the dictionary parameter is already in scope under the existing `honor` compilation story; `fromNat` is one more slot in the `Num` dictionary record. Emit `dict.fromNat(k)`. No new mechanism.
