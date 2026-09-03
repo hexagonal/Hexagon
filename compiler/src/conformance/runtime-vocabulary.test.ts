@@ -793,8 +793,10 @@ describe("completeness — the worst-contested module writes no bare global", ()
     // `Map.fromVector` and `Set` spellings this module needs to reach the map
     // bracket at all, and the seats that write `new Map(…)`/`new Set(…)` are
     // prelude ones (`stdlib/JsMap.hex`, `stdlib/JsSet.hex`) rather than seats a
-    // user module can host. Their capture is measured where it can happen, on a
-    // project-supplied copy of one of those files — `js-map-set.test.ts`.
+    // user module can host. Their capture is measured in two other places
+    // instead: on a project-supplied copy of one of those files, where the
+    // capture is load-bearing (`js-map-set.test.ts`), and on an ordinary module
+    // that merely binds the word, where it is collateral (the describe below).
     expect(text).toContain(
       "import { __Array, __BigInt, __Boolean, __console, __Error, __Math, __Number, " +
         '__Object, __RangeError, __String, __Symbol, __TypeError, __WeakMap } from "./hex.js";',
@@ -884,6 +886,65 @@ describe("the negatives — an uncontested module emits the text it always did",
         "const raise = () => (() => { throw Boom(3); })();\n" +
         "export { raise };\n",
     );
+  });
+});
+
+describe("what joining the vocabulary costs a module that merely binds the word", () => {
+  /**
+   * The other half of #792's two entries, measured rather than asserted, and it
+   * is collateral rather than a repair. `Map` and `Set` joined the vocabulary
+   * for the two seats that *write* them — `jsMapFromSeq` and `jsSetFromSeq`,
+   * both of them prelude seats — but the trigger reads what a module **binds**,
+   * deliberately and for the reason the `RuntimeVocabulary` doc gives: the
+   * reference set is the quantity that re-draws silently, so a trigger reading
+   * it would fail exactly when the hazard moved. The consequence is that any
+   * module declaring a type, record, union, or binding called `Map` or `Set` —
+   * two of the likelier names in a real codebase — now imports a capture it
+   * never spells and gains a `hex.js` it did not previously owe.
+   *
+   * This is the pre-existing feeder rule doing what it says, not a new defect:
+   * a module binding `Math` behaves identically today, and `RuntimeVocabulary`'s
+   * `captures` doc calls the import line a *manifest* — "it names exactly the
+   * spellings this module contests, whether or not its emission happens to
+   * reference them". Pinned here so the collateral is watched rather than
+   * discovered: `ALL_CONTESTED` above deliberately binds neither word, and
+   * without this row nothing in the corpus would notice the behaviour changing.
+   */
+  test("binding `Set` now owes `hex.js` and imports a capture the module never writes", () => {
+    const PROGRAM = "export record Set = { items: Vector(Int) }\n" +
+      "export let n(s: Set): Int = Vector.length(s.items)\n";
+    const project = compileFiles([["/main.hex", PROGRAM]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
+
+    expect(project.runtimeGlobals).toBeDefined();
+    expect(module.javascript.importsRuntimeGlobals).toBe(true);
+    expect(module.javascript.text).toBe(
+      'import { __Set } from "./hex.js";\n' +
+        "\n" +
+        'import { length } from "./Vector.js";\n' +
+        "const Set = __record => __record;\n" +
+        "const n = s => length(s.items);\n" +
+        "export { Set };\n" +
+        "export { n };\n",
+    );
+    // The capture is the manifest and nothing else here: `__Set` is referenced
+    // by no other line of this module. Part 1 §10 stands at both user seats —
+    // the record keeps its spelling and its export name.
+    expect(module.javascript.text.split("__Set").length - 1).toBe(1);
+  });
+
+  test("and binding `Map` does the same", () => {
+    const project = compileFiles([["/main.hex",
+      "export record Map = { items: Vector(Int) }\n" +
+      "export let n(m: Map): Int = Vector.length(m.items)\n"]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
+
+    expect(project.runtimeGlobals).toBeDefined();
+    expect(module.javascript.text).toContain('import { __Map } from "./hex.js";');
+    expect(module.javascript.text).toContain("const Map = __record => __record;");
+    expect(module.javascript.text.split("__Map").length - 1).toBe(1);
   });
 });
 

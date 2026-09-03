@@ -9769,9 +9769,10 @@ class JavaScriptEmitter {
       // collection's SameValueZero rather than Hexagon's `Hash`.
       //
       // The `size` rows are property reads rather than cached values on
-      // purpose — Collections Part 5 §3.1's fresh-read discipline, which for a
-      // borrowed view is the whole of the honesty: foreign code owns the
-      // collection and may have changed it since the last look.
+      // purpose — FFI Part 5 §3.1's fresh-read discipline ("must not cache,
+      // hoist, or common-subexpression-eliminate"), which for a borrowed view
+      // is the whole of the honesty: foreign code owns the collection and may
+      // have changed it since the last look.
       case "jsMapSize":
         return "__a => __a.size";
       case "jsMapHas":

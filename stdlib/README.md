@@ -76,7 +76,11 @@ not compiler intrinsics.
   carries `[Symbol.iterator]` and a Hexagon tuple *is* a plain two-element
   array, so `new Map(seq)` already builds a fresh collection in traversal order
   with the native duplicate rules. There is no mutation surface, no `keys` or
-  `values`, no set algebra, and `JsSet` has no bracket and no `get` (§5).
+  `values`, and no set algebra. Neither companion owns a bracket: `jsSet[x]` is
+  refused permanently and with its four rejected spellings recorded (§5), and
+  `jsMap[k]` is specified (§4.1) but unimplemented — it is an expression form
+  rather than an export of either file, so it lands with the emitter's own
+  lowering and not here.
 - `JsKind.hex`, `JsPathSegment.hex`, `JsConversionReason.hex`, and
   `JsValue.hex` are FFI Part 11's four. `JsValue.hex` is the companion of the
   boundary type `JsValue` — the type of a JavaScript value about which Hexagon

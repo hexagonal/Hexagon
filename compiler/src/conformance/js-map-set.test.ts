@@ -535,7 +535,7 @@ describe("`JsMap.get` and the two-step lowering (Part 10 §4.2)", () => {
   });
 });
 
-describe("the fresh `size` read (Part 10 §3, Collections Part 5 §3.1)", () => {
+describe("the fresh `size` read (Part 10 §3, FFI Part 5 §3.1)", () => {
   /**
    * Never cached and never hoisted. Both reads sit in one Hexagon function with
    * a foreign mutation between them, so a compiler treating the pure-faced
@@ -965,6 +965,46 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
       .toEqual([2, 2, 4, true, true]);
   });
 
+  /**
+   * `companionHeadName`'s two new arms, which nothing else reaches: when a
+   * parameter's type was unknown where it was written, the row-finalisation
+   * rescue names the **companion**, not the receiver's display spelling. The
+   * distinction is the one the checker's own comment warns about two lines
+   * above the arms — `Vector.length`, never `Vector(Int).length`, "which
+   * resolves nowhere" — and a rewrite that resolves nowhere is worse than none,
+   * because it is pasteable and then fails.
+   *
+   * The `Vector` row of this pair lives in `constraint-member-dispatch.test.ts`;
+   * these are its `JsMap` and `JsSet` siblings, and without the two disjuncts
+   * both messages advise `` `JsMap(String, Int).size(…)` ``.
+   */
+  test("the dispatch rescue names the companion, not the type's display spelling", () => {
+    expect(projectDiagnostics(
+      'extern from "./t.js"\n' +
+        "    fun t(): JsMap(String, Int)\n" +
+        "let peek(v) = v.size()\n" +
+        "export fun out(): Int = peek(t!())\n",
+    )).toEqual([
+      "this value's type was inferred as a record with a `size` field because " +
+      "its type was unknown where it was written; `JsMap(String, Int)` is not " +
+      "a record. Annotate it to use dispatch, or call `JsMap.size(…)` directly.",
+    ]);
+  });
+
+  test("...and the same at a borrowed set", () => {
+    expect(projectDiagnostics(
+      'extern from "./t.js"\n' +
+        "    fun t(): JsSet(Int)\n" +
+        "let peek(v) = v.contains(1)\n" +
+        "export fun out(): Bool = peek(t!())\n",
+    )).toEqual([
+      "this value's type was inferred as a record with a `contains` field " +
+      "because its type was unknown where it was written; `JsSet(Int)` is not " +
+      "a record. Annotate it to use dispatch, or call `JsSet.contains(…)` " +
+      "directly.",
+    ]);
+  });
+
   /** `m.entries()` is the dot form of the synonym, and reads the same walk. */
   test("`m.entries()` is a dot call too", async () => {
     const exports = await run(
@@ -1115,5 +1155,17 @@ describe("the faces and the emitted text the new surfaces produce", () => {
     // The raw read is beneath `get`, never beside it: no program can reach the
     // half that cannot tell a stored `undefined` from an absent key.
     expect(text).not.toMatch(/export \{[^}]*readUnchecked/u);
+
+    // §6.3's "definitional synonym", pinned as text rather than only as
+    // behaviour. `entries` rewritten as `Seq.map(Iterable.toSeq(map), (p) => p)`
+    // is a genuine second walk that every executed pin in this file still
+    // passes, because it yields the same values in the same order — so the
+    // claim that it is *the same walk* is one only the emitted body can carry.
+    // The body is exactly the member call: nothing wraps it, nothing maps over
+    // it, and no second `Seq` is constructed.
+    const entriesBody = /^const entries = .*$/mu.exec(codeOnly(text))?.[0];
+    expect(entriesBody).toBe(
+      "const entries = map => toSeq(map, ({ toSeq: __seqFromIterable }));",
+    );
   });
 });

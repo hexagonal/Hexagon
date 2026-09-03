@@ -16,15 +16,11 @@
 // `Map`'s lookup is Hexagon's structural `Hash`/`equals`. Two primitives that
 // compare equal find the same entry in both regimes; two equal-looking records
 // do not. The foreign door does not consult `Hash`, so it demands none.
-//
-// The asserting read `map[key]`, which throws `KeyError` where `get` answers
-// `None`, is an expression form and so is the emitter's own lowering rather
-// than an export of this file, exactly as `Map`'s bracket is.
 
 extern from "hex:intrinsic"
     (** How many entries `map` holds. Read fresh from the native `size` at every
         call, never cached and never hoisted: foreign code owns the map, so two
-        observations may honestly disagree (Collections Part 5 section 3.1). *)
+        observations may honestly disagree (FFI Part 5 section 3.1). *)
     export fun jsMapSize as size(map: JsMap(k, v)): Int
 
     (** Whether `map` binds `key`, by the native `has` and its equality. A
@@ -51,8 +47,7 @@ extern from "hex:intrinsic"
     export fun jsMapFromSeq as fromSeq(pairs: Seq((k, v))): JsMap(k, v)
 
 (** The value `map` binds `key` to, or `None` when it binds none. The total
-    accessor: an absent key is an answer, not a fault, and `map[key]` is its
-    asserting sibling, which throws `KeyError` instead.
+    accessor: an absent key is an answer, not a fault.
 
     The membership question is asked before the read, and that ordering is the
     contract rather than an implementation detail (section 4.2): a native `get`

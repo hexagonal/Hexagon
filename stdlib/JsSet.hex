@@ -18,7 +18,7 @@
 extern from "hex:intrinsic"
     (** How many elements `s` holds. Read fresh from the native `size` at every
         call, never cached and never hoisted: foreign code owns the set, so two
-        observations may honestly disagree (Collections Part 5 section 3.1). *)
+        observations may honestly disagree (FFI Part 5 section 3.1). *)
     export fun jsSetSize as size(s: JsSet(a)): Int
 
     (** Whether `s` holds `element`, by the native `has` and its equality. The

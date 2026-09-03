@@ -5976,9 +5976,16 @@ class Resolver {
    *
    * `Range` has no row here because it has no companion module to home one at
    * (Part 5 §14.3 leaves `Range.toSeq` to the stdlib listing); the bare member
-   * reaches a range perfectly well. `Array` is the same case one spec further
-   * out — FFI Part 2 §9 names `Array.toSeq`, but no `Array.hex` exists to hang
-   * it on yet.
+   * reaches a range perfectly well.
+   *
+   * `Array` is the one head that *has* a companion and still has no row here.
+   * The reason this comment used to give — that no `Array.hex` existed to hang
+   * one on — expired at #511, which shipped the file; `Array.toSeq(xs)` is
+   * therefore ``module `Array` does not export `toSeq` `` today, while
+   * `xs.toSeq()` and `Iterable.toSeq(xs)` both walk the row. Adding the arm is
+   * the same two lines `JsMap` and `JsSet` took at #792 and wants only the
+   * decision that FFI Part 2 §9's `Array.toSeq` is the row's member rather than
+   * an export the companion owes; it is filed rather than taken here.
    */
   #providedRowMemberAccess(
     iface: ModuleInterface,
