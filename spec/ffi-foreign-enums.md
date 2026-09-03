@@ -482,8 +482,10 @@ publish a real object/facade. The compiler does not detect the absence: it never
 inspects the foreign package (§2.2, §7.2), so a declaration over an erased enum fails
 where ESM linking fails, with the engine's own missing-export error, and an import that
 does not supply a declared member property — an object lacking the member, or an export
-that is not an object at all — captures `undefined` for that constructor: a false
-contract under §3, not a diagnosed one. Tooling able to inspect the foreign module's
+that is no object at all, such as a number or a string — captures `undefined` for that
+constructor: a false contract under §3, not a diagnosed one. A `null` or `undefined`
+export is the one shape that fails loudly: the read itself throws, at module evaluation
+rather than at link. Tooling able to inspect the foreign module's
 declarations may diagnose it early, with the rewrite "`Direction` has no runtime enum
 object; write its values with the literal form, `extern enum Direction = … as …`, or
 bind a JavaScript facade" — the concession §8.3 already makes for alias values, whose
@@ -575,6 +577,6 @@ An implementation is not conforming until tests cover at least:
 | Literal-form emission and face | Constants are the literals; match lowers to `switch`; `.d.ts` is the literal union, no brand |
 | TypeScript numeric reverse map | Ignored |
 | `const enum` / object-free literal unions | The literal form (§2.4, §8.1, §8.4) |
-| Missing enum object or member | Not compiler-detected (§2.2, §7.2): an ESM link error, or `undefined` captured; tooling with package access may diagnose (§8.1, §8.3) |
+| Missing enum object or member | Not compiler-detected (§2.2, §7.2): an ESM link error, a throwing read of a nullish export, or `undefined` captured; tooling with package access may diagnose (§8.1, §8.3) |
 | Flags | Excluded (§8.2) |
 | Ordinary union representation | Unchanged |
