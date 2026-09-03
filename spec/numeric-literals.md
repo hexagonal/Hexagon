@@ -195,21 +195,20 @@ call — the `Num`/`Signed`/`Frac`/`Pow` operators, unary negation included; the
 spelled bare, qualified through its constraint, as a pipe stage, or by the dot (Method
 Syntax §1, §7), a companion-qualified spelling being a written face, below; `Integral`'s
 `div`, `mod`, `quot`, `rem`, and `gcd` included, though no operator spells them *(#808)* —
-whose expected type is **concrete**
-and carries the member's constraint instance, the expected type **is** the operation's
-common type: each operand reaches it by exact unification or
-by the two conversions above, and the operation's evidence is selected at it. The
-expectation reaches operands recursively — an operand seat of a lifted operation expects
-the same type — so a whole arithmetic expression runs at its written type. At `**` the
-common type governs the **base seat only**: the exponent seat is the member's concrete
+whose expected type is **concrete** and carries the member's constraint instance, the
+expected type **is** the operation's common type: each operand reaches it by exact
+unification or by the two conversions above, and the operation's evidence is selected at
+it. The expectation reaches operands recursively — an operand seat of a lifted operation
+expects the same type — so a whole arithmetic expression runs at its written type. At `**`
+the common type governs the **base seat only**: the exponent seat is the member's concrete
 `Int` parameter (Operators §6.3), an ordinary written-`Int` seat that neither joins the
 common type nor receives the outer expectation — this rule applies *into* it
-independently, with `Int` as the written face, which is how the right spine of an
-exponent tower runs at `Int` whatever the base's home. An expectation
-that is a variable, or a concrete type without the instance, lifts nothing: the operation
-elaborates from its operands alone, exactly as below. The distinction the lift turns on:
-widening a **value** is always exact, but which *algebra an operation runs in* decides
-what the value is — and the lift decides it for the written face.
+independently, with `Int` as the written face, which is how the right spine of an exponent
+tower runs at `Int` whatever the base's home. An expectation that is a variable, or a
+concrete type without the instance, lifts nothing: the operation elaborates from its
+operands alone, exactly as below. The distinction the lift turns on: widening a **value**
+is always exact, but which *algebra an operation runs in* decides what the value is — and
+the lift decides it for the written face.
 
 ```hexagon
 let r: Rat = count + count    // Rat addition of two injected Ints — exact at any magnitude
