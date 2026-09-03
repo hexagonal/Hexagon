@@ -216,7 +216,7 @@ result means every operand was `Nat`/`Int`, which reach any face honoring the ru
 stand-down's result is never the face, and the consuming seat refuses it. The one
 non-refusing stand-down is the dot's receiver (Method Syntax §2.2's receiver rule), where
 the forwarded face is not the consuming seat's own type and the receiver simply keeps its
-type — `p.add(q).gcd(r)` at a user companion export. The expectation reaches operands
+type — `p.add(q).gcd(s)` at a user companion export. The expectation reaches operands
 recursively — an operand seat of a lifted operation expects the same type, a dot call's
 receiver included under Method Syntax §2.2's receiver rule, which hands it the call's
 expectation before it elaborates when the spelling's rung is honored at the face — so a
