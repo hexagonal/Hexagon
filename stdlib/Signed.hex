@@ -1,18 +1,20 @@
 (** The polymorphic face of subtraction and sign. Honoring `Signed` gives a type
     the binary and unary `-` operators.
 
-    An instance is expected to keep the laws the constraints specification
-    states: `negate` is the additive inverse and an involution, `subtract` is
-    addition of the negation, and `fromInt` agrees with `fromNat` on every `Nat`.
-    The compiler relies on none of these. *)
+    Each member below states the law an instance is reviewed against
+    (`spec/constraints.md` section 7). The shipped instances keep those laws
+    exactly at `BigInt` and `Rat`, within the safe range at `Int`, and at
+    `Float` for every finite value, the inverse law failing at the infinities
+    and `NaN`. The compiler relies on none of them: operands are evaluated in
+    the rewritten form's source order, and no expression is rewritten by an
+    algebraic law. *)
 export constraint Signed<a: Num> =
-        (** The difference of `left` and `right`. Expected to equal
-        `add(left, negate(right))`. *)
+    (** The difference of `left` and `right`, which is `add(left, negate(right))`. *)
     subtract(left: a, right: a): a
-        (** The additive inverse of `value`: `add(value, negate(value))` is expected to
-        be `fromNat(0)`, and negating twice to give `value` back. *)
+    (** The additive inverse of `value`: `add(value, negate(value))` is
+        `fromNat(0)`, and negating twice gives `value` back. *)
     negate(value: a): a
-        (** The integer `value` at this type. A bare negative literal reaches an
-        instance through it. Expected to agree with `fromNat` on every `Nat` and
-        to respect addition and multiplication. *)
+    (** The integer `value` at this type. A bare negative literal reaches an
+        instance through it. `fromInt` agrees with `fromNat` on every `Nat` and
+        respects addition and multiplication. *)
     fromInt(value: Int): a

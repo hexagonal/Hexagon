@@ -1,11 +1,14 @@
 (** The polymorphic face of equality. Honoring `Eq` gives a type the `==` and
     `!=` operators, and admits it as a component of a derived equality elsewhere.
 
-    An instance's `equals` is expected to be an equivalence: reflexive,
-    symmetric, and transitive. `Float`'s is, `NaN` and the signed zeros included.
-    The compiler relies on no such law. *)
+    The members below state the law an instance is reviewed against
+    (`spec/constraints.md` section 7). `Float` keeps it, `NaN` and the signed
+    zeros included. The compiler relies on no such law: operands are evaluated
+    in the rewritten form's source order, and no expression is rewritten by an
+    algebraic law. *)
 export constraint Eq<a> =
-    (** Whether `left` and `right` are equal. *)
+    (** Whether `left` and `right` are equal. An instance's `equals` is an
+        equivalence: reflexive, symmetric, and transitive. *)
     equals(left: a, right: a): Bool
     (** Whether `left` and `right` differ. An instance may override this for
         efficiency, but the override must equal the negation of `equals`. *)

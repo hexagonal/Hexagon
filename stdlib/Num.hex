@@ -1,20 +1,23 @@
 (** The polymorphic face of addition and multiplication. Honoring `Num` gives a
     type the `+` and `*` operators.
 
-    An instance is expected to keep the laws the constraints specification
-    states: `add` is associative and commutative, `multiply` is associative and
-    distributes over `add` on both sides, `fromNat(0)` and `fromNat(1)` are the
-    identities, and `fromNat` respects addition and multiplication. Commutativity
-    of `multiply` is not a law, so a matrix type may honor `Num` truthfully. The
-    compiler relies on none of these: it evaluates operands in the order written
-    and never rewrites an expression by an algebraic law. *)
+    Each member below states the law an instance is reviewed against
+    (`spec/constraints.md` section 7). The shipped instances keep those laws
+    exactly at `BigInt` and `Rat`, within the safe range at `Nat` and `Int`, and
+    at `Float` only up to rounding, failing outright at overflow, underflow, and
+    `NaN`. The compiler relies on none of them: operands are evaluated in the
+    rewritten form's source order, and no expression is rewritten by an
+    algebraic law. *)
 export constraint Num<a> =
-        (** The sum of `left` and `right`. Expected associative and commutative. *)
+    (** The sum of `left` and `right`. An instance's `add` is associative and
+        commutative. *)
     add(left: a, right: a): a
-        (** The product of `left` and `right`. Expected associative, distributing over
-        `add` on both sides; commutativity is not expected. *)
+    (** The product of `left` and `right`. An instance's `multiply` is
+        associative and distributes over `add` on both sides; it need not be
+        commutative, so a matrix type may honor `Num` truthfully. *)
     multiply(left: a, right: a): a
-        (** The natural number `value` at this type. A bare non-negative literal
-        reaches an instance through it. Expected to send `0` and `1` to the
-        identities and to respect addition and multiplication. *)
+    (** The natural number `value` at this type. A bare non-negative literal
+        reaches an instance through it. `fromNat(0)` and `fromNat(1)` are the
+        identities of `add` and `multiply`, and `fromNat` respects addition and
+        multiplication. *)
     fromNat(value: Nat): a
