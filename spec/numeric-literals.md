@@ -193,8 +193,9 @@ everyday spellings and elaborate to nothing else (Operators §1.1).
 **The expected-type lift — the written type is the arithmetic's home.** At a tower member
 call — the `Num`/`Signed`/`Frac`/`Pow` operators, unary negation included; the member
 spelled bare, qualified through its constraint, as a pipe stage, or by the dot (Method
-Syntax §1, §7) — a companion-qualified spelling is a written face, below; `Integral`'s `div`, `mod`, `quot`, `rem`, and `gcd`
-included, though no operator spells them *(#808)* — whose expected type is **concrete**
+Syntax §1, §7), a companion-qualified spelling being a written face, below; `Integral`'s
+`div`, `mod`, `quot`, `rem`, and `gcd` included, though no operator spells them *(#808)* —
+whose expected type is **concrete**
 and carries the member's constraint instance, the expected type **is** the operation's
 common type: each operand reaches it by exact unification or
 by the two conversions above, and the operation's evidence is selected at it. The
@@ -216,7 +217,7 @@ let r: Rat = 1 + 2            // Rat addition already — literals are polymorph
 let x: Int = n - m            // n, m : Nat — both widen; Signed<Int> subtraction, possibly negative
 let mean: Float = sum / size  // sum, size : Int — Frac<Float> division; Int has no Frac and needs none here
 let s = count + count         // no written face: Int addition, as ever
-let sum: BigInt = count.add(count)     // the same lift, spelled by the dot — BigInt addition
+let whole: BigInt = count.add(count)    // the same lift, spelled by the dot — BigInt addition
 let next: BigInt = count |> Num.add(1)  // and as a pipe stage — never Int addition injected after
 ```
 
