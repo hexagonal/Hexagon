@@ -484,8 +484,8 @@ where ESM linking fails, with the engine's own missing-export error, and an impo
 does not supply a declared member property — an object lacking the member, or an export
 that is no object at all, such as a number or a string — captures `undefined` for that
 constructor: a false contract under §3, not a diagnosed one. A `null` or `undefined`
-export is the one shape that fails loudly: the read itself throws, at module evaluation
-rather than at link. Tooling able to inspect the foreign module's
+export is the one shape §3 rule 1 admits that fails loudly: the read itself throws, at
+module evaluation rather than at link. Tooling able to inspect the foreign module's
 declarations may diagnose it early, with the rewrite "`Direction` has no runtime enum
 object; write its values with the literal form, `extern enum Direction = … as …`, or
 bind a JavaScript facade" — the concession §8.3 already makes for alias values, whose
@@ -539,8 +539,8 @@ An implementation is not conforming until tests cover at least:
 10. Private versus `export enum` JavaScript and `.d.ts` surfaces.
 11. Diagnostics for payload members, parameters, and duplicate names; and the observable
     failures §8.1 names — a missing runtime/`const enum` export is an ESM link error,
-    and a declared member the import does not supply is `undefined` captured — with no
-    compile-time check for either.
+    a nullish export throws where its member is read, and a declared member the import
+    does not supply is `undefined` captured — with no compile-time check for any.
 12. No regression to ordinary all-nullary unions' tagged-object ABI (Unions §6.2).
 13. The literal form at module scope: string, integer, boolean and mixed members;
     private and `export extern enum` surfaces; reached abroad through the module
