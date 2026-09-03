@@ -223,6 +223,102 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
   });
 });
 
+describe("the dot's seats are the bare call's, with the receiver in seat 1", () => {
+  /**
+   * Method Syntax §2.2's schedule, whole: the member's signature supplies every
+   * **non-subject** seat pointwise — "a function-typed parameter that lands a
+   * lambda" — while the **subject** seats are established from the operands
+   * together. Those two are one mechanism, not two: Functions §4.3's own two
+   * passes over the seat list, the non-lambda operands first (establishing the
+   * shared subject, with §5.1's widening deciding it) and the lambda literals
+   * after, reading a subject that is by then resolved.
+   *
+   * The dot takes that schedule with the receiver in seat 1. Anything less
+   * fails one way or the other: settling the subject from the receiver alone
+   * re-pins the algebra and the receiver stops widening; not establishing it at
+   * all leaves a callback whose own seat is written in terms of the subject with
+   * nothing to read. Each row here is pinned **against its bare spelling**,
+   * which is the standard §1 sets.
+   */
+  const bag = "export record Bag = {items: Vector(Int)}\n" +
+    "\n" +
+    "export constraint OnSelf<a> =\n" +
+    "    onSelf(subject: a, cb: (a) -> String): String\n" +
+    "\n" +
+    "honor OnSelf<Bag> =\n" +
+    "    onSelf(subject, cb) = cb(subject)\n" +
+    "\n" +
+    "let bag: Bag = Bag({items = [1]})\n";
+
+  // Honored at both widths, so the *name* resolves at either receiver and the
+  // subject is left to the operands — which is the only way a user constraint
+  // can show the mixed-width case. (A constraint honored only at `BigInt` is
+  // not reachable through an `Int` receiver at all: §3.4 resolves the name from
+  // the receiver's own honored set, and no ownership clause reaches outside the
+  // tower.)
+  const scale = "let i: Int = 6\n" +
+    "let big: BigInt = 9n\n" +
+    "\n" +
+    "export constraint Scale<a: Num> =\n" +
+    "    scale(subject: a, by: a, f: (a) -> a): a\n" +
+    "\n" +
+    "honor Scale<BigInt> =\n" +
+    "    scale(subject, by, f) = f(Num.multiply(subject, by))\n" +
+    "\n" +
+    "honor Scale<Int> =\n" +
+    "    scale(subject, by, f) = f(Num.multiply(subject, by))\n";
+
+  /** One standalone program's `probe` line, with the project asserted clean. */
+  const line = (source: string): string => {
+    const project = compileFiles([["/main.hex", source]]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const found = project.modules.find(({ source: file }) => file.path === "/main.hex")!
+      .javascript.text.split("\n").find((text) => text.includes("const probe"));
+    if (found === undefined) throw new Error("no `probe` binding in the emitted module");
+    return found.trim();
+  };
+
+  test("a lambda argument reads a subject the receiver established", () => {
+    // `cb`'s seat is `(a) -> String`, written in terms of the subject. The
+    // receiver is the only operand that can establish it, and it must have done
+    // so before the lambda elaborates — or the lambda's parameter is a variable
+    // and `v.items` has nothing to project.
+    const dotted = line(
+      `${bag}let probe = bag.onSelf(v => Show.show(Vector.length(v.items)))\n`,
+    );
+
+    expect(dotted).toBe(line(
+      `${bag}let probe = onSelf(bag, v => Show.show(Vector.length(v.items)))\n`,
+    ));
+    expect(dotted).toContain("v => show(length(v.items))");
+  });
+
+  test("a `match` argument lands the same way", () => {
+    // Pattern Matching §6.1's refusal is what a match function takes when its
+    // scrutinee type is still a variable, so this row fails loudly rather than
+    // quietly when the subject is not established in time.
+    const arms = "(match\n    _ => \"other\")\n";
+    expect(line(`${bag}let probe = bag.onSelf${arms}`))
+      .toBe(line(`${bag}let probe = onSelf(bag, match\n    _ => "other")\n`));
+  });
+
+  test("the widest operand wins the subject, and the lambda lands there", () => {
+    // The mixed-width row: the receiver is an `Int`, the sibling operand a
+    // `BigInt`. §5.1's widening decides the subject from the operands together,
+    // so the subject is `BigInt`, the receiver widens into it, the callback's
+    // seat is `(BigInt) -> BigInt`, and coherence selects `Scale<BigInt>` —
+    // every part of it identical to the bare spelling's.
+    const dotted = line(`${scale}let probe = i.scale(big, x => x)\n`);
+
+    expect(dotted).toBe(line(`${scale}let probe = scale(i, big, x => x)\n`));
+    expect(dotted).toBe("const probe = __Scale_BigInt_scale(BigInt(i), big, x => x);");
+    // The same-width control, so the row above is read as widening rather than
+    // as a constant answer.
+    expect(line(`${scale}let probe = i.scale(i, x => x)\n`))
+      .toBe("const probe = __Scale_Int_scale(i, i, x => x);");
+  });
+});
+
 describe("an argument that lands an expectation does not re-pin the subject", () => {
   /**
    * §2.2's sentence, at the one seat that could quietly undo it: the dot's
@@ -359,11 +455,14 @@ describe("doors are addressed by the receiver (§6.1, #783)", () => {
     // the widest face, and its argument seats widen *into* it by §5.1's ordinary
     // seat widening — which is what `BigInt.pow(b, i)` always did.
     expect(verdict("let probe = b.pow(i)\n")).toEqual([]);
-    // The call, argument for argument. The two spellings reach the door through
-    // different import channels and so bind it under different *local* names —
-    // `pow` for the qualified spelling, a `__prelude_`-prefixed alias for the
-    // dot — which is #585's channel and not this ruling's; the shape below is
-    // what §6.1 fixes, and it is the same shape.
+    // The call, argument for argument — which is what §6.1 fixes, and it is the
+    // same shape either way. The two spellings still reach the door through
+    // different import channels and so bind it under different *local* names
+    // (`pow` for the qualified spelling, a `__prelude_`-prefixed alias for the
+    // dot): #585's channel, filed as **#816**, and not this ruling's. It is why
+    // `stdlib/Rat.hex` keeps the qualified spelling for now — the dot's emission
+    // is not yet the doctrine's — so this seat is pinned on a fixture, where the
+    // claim is about the seat and nothing else.
     expect(probeLine("let probe = b.pow(i)\n")).toContain("(b, BigInt(i))");
     expect(probeLine("let probe = BigInt.pow(b, i)\n")).toBe("const probe = pow(b, BigInt(i));");
     expect(verdict("let probe = f.pow(i)\n")).toEqual([]);

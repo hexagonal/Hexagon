@@ -105,8 +105,8 @@ honor Pow<Rat> =
         // A reduced pair stays reduced under powers and a canonical bottom
         // is positive, so the invariant survives the raw constructor.
         Rat({
-            top = base.top.pow(magnitude),
-            bottom = base.bottom.pow(magnitude),
+            top = BigInt.pow(base.top, magnitude),
+            bottom = BigInt.pow(base.bottom, magnitude),
         })
 
 // -- `toFloat`, and the exact integer arithmetic the single rounding needs. --

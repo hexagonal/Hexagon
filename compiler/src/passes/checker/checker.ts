@@ -366,11 +366,11 @@ function defersAsLambda(expression: Resolved.Expr): boolean {
  *   there is the one the final check unifies with — so the change is the order
  *   variables are minted in, which no program's meaning depends on but which a
  *   pinned emitted spelling could in principle notice.
- * - *`#dotCallArguments`* runs its subject-first early unification when an
- *   argument lands an expectation. That step is now confined to **companion**
- *   operations, which write their subject seat: at a constraint member it would
- *   re-pin the algebra to the receiver and undo this amendment (see the note
- *   there), so widening the gate cannot reach it.
+ * - *`#dotCallSeats`* disposes the receiver's seat early when an argument lands
+ *   an expectation. That step is confined to **companion** operations, which
+ *   write their subject seat: at a constraint member it would settle the
+ *   subject from one operand and undo this amendment (see the note there), so
+ *   widening the gate cannot reach it.
  *
  * This is not a typing rule and adds none: propagation is inert away from the
  * landing sites, so a seat whose expectation cannot possibly land does not need
@@ -473,19 +473,19 @@ interface ArgumentPass {
    */
   readonly establishFirstPass: (deferredLambdas: ReadonlySet<number>) => void;
   /**
-   * The dot-call half of `establishFirstPass` (Method Syntax §2.2): resolves
-   * the member's instantiation from the first pass, and nothing else. A dot
-   * call's authority is the whole-signature unification that follows, not this
-   * pass, so an argument whose type §5.1 could **convert** — a `Nat` or an
-   * `Int`, the only two sources — is left entirely to that check, which reads
-   * the inferred type rather than the conversion. Every other argument is
-   * checked exactly, which is what resolves the instantiation. Returns the
-   * indices whose check *reported*, which the caller gives an `Error` so the
-   * whole-signature unification absorbs them rather than repeating the report.
+   * Disposes **one** seat now, through the same sweep `finish` would use, so it
+   * is checked exactly once *(#808)*.
+   *
+   * The dot's receiver seat is the client: at a **companion** operation the
+   * first parameter is written `T`-headed, so settling it from the receiver is
+   * what lets a sibling argument read an expectation off the receiver's own
+   * type — the seat a `Vector(BigInt)`'s element takes is `BigInt` from the
+   * moment the receiver is checked, whatever the argument. At a constraint
+   * member that seat is the *subject* and must not be settled from one operand,
+   * so the member path does not call this (§2.2); its receiver is established
+   * with the other operands by `establishFirstPass` instead.
    */
-  readonly resolveInstantiation: (
-    deferredLambdas: ReadonlySet<number>,
-  ) => ReadonlySet<number>;
+  readonly disposeSeat: (index: number) => void;
   /** The rest of the sweep, then the two deferred classes. */
   readonly finish: () => void;
 }
@@ -3482,13 +3482,10 @@ class Checker {
     // behaviour this replaces, unchanged.
     const requirements: Requirement[] = [];
     const calleeType = this.#instantiate(scheme, level, requirements, callee.field.span);
-    const arguments_ = [
-      receiver,
-      ...this.#dotCallArguments(expression, level, cachedArguments, calleeType, receiver),
-    ];
-    const result = this.#checkDotSeats(
-      expression, callee, calleeType, arguments_, level,
+    const { seats, pass } = this.#dotCallSeats(
+      expression, callee, level, cachedArguments, calleeType, receiver, false, undefined,
     );
+    const result = this.#checkDotSeats(expression, calleeType, seats, pass, level);
     this.#recordCompanionImport(operation);
     this.#dotCalls.set(expression, {
       symbol: operation.id,
@@ -3533,17 +3530,14 @@ class Checker {
   }
 
   /**
-   * The seats of a resolved dot call, checked as the spelling it *is* — the
-   * operation applied to `(receiver, args…)` *(#808, #783)*.
+   * A resolved dot call's result, with its seat sweep finished *(#808, #783)*.
    *
-   * The whole point is the sweep: `#checkCallArguments` is the same seat check
-   * the qualified spelling takes, so every seat widens exactly where that
-   * spelling's does — `b.bump(p)` reaches a written `BigInt` seat through §5.1's
-   * conversion (#783's second half), and a member's subject seats are
-   * established together from their operands, the **receiver one operand among
-   * them** (Method Syntax §2.2): `i.add(b)` is `BigInt` addition of an injected
-   * `Int`, as `Num.add(i, b)` is. The receiver's own seat carries the receiver's
-   * span, so a conversion or a mismatch reports where the reader wrote it.
+   * The sweep is `#dotCallSeats`' — the same one the qualified spelling takes —
+   * so every seat widens exactly where that spelling's does: `b.bump(p)` reaches
+   * a written `BigInt` seat through §5.1's conversion (#783's second half), and
+   * a member's subject seats are established together from their operands, the
+   * **receiver one operand among them** (Method Syntax §2.2): `i.add(b)` is
+   * `BigInt` addition of an injected `Int`, as `Num.add(i, b)` is.
    *
    * A callee that is not a function of this call's arity keeps the whole-
    * signature unification instead: that is where the arity and not-a-function
@@ -3551,34 +3545,30 @@ class Checker {
    */
   #checkDotSeats(
     expression: Resolved.CallExpr,
-    callee: Resolved.AccessExpr,
     calleeType: Mono,
-    arguments_: readonly Mono[],
+    seats: readonly Mono[],
+    pass: ArgumentPass | undefined,
     level: number,
-    powerSeat?: PowerSeat,
   ): Mono {
     const effect = this.#calleeEffect(calleeType, level);
     const known = this.#prune(calleeType);
     const seated = known.kind === "Function" &&
-        known.parameters.length === arguments_.length
+        known.parameters.length === seats.length
       ? known
       : undefined;
     let result: Mono;
-    if (seated === undefined) {
+    if (seated === undefined || pass === undefined) {
       result = this.#fresh(level, false);
       this.#unify(
         calleeType,
-        { kind: "Function", parameters: arguments_, result, effect },
+        { kind: "Function", parameters: seats, result, effect },
         expression.span,
       );
     } else {
-      this.#checkCallArguments(
-        seated.parameters,
-        arguments_,
-        [callee.receiver, ...expression.arguments],
-        expression.span,
-        powerSeat,
-      );
+      // The sweep `#dotCallSeats` began, finished: every seat the first pass
+      // left, in the order the unsplit sweep would have asked, then §5.1's two
+      // deferred classes. One pass, so nothing is checked — or reported — twice.
+      pass.finish();
       result = seated.result;
     }
     this.#registerCall(expression, effect, calleeLabel(expression));
@@ -3586,106 +3576,126 @@ class Checker {
   }
 
   /**
-   * The argument types of a dot call — inferred here, or replayed from the goal
-   * that inferred them at the dot. Inferring twice would record a second copy of
-   * every literal's requirement, so a goal carries what it measured.
+   * A resolved dot call's seats, elaborated on Functions §4.3's own schedule
+   * with **the receiver in seat 1** *(#808)*.
+   *
+   * This is the bare call's schedule, not a paraphrase of it: one
+   * `#argumentPass` over the whole seat list — receiver included — so the
+   * non-lambda operands establish the shared subject before the lambda literals
+   * read it, and every seat is dispositioned exactly once. `bag.onSelf(v => …)`
+   * therefore lands its callback at `Bag` as the bare `onSelf(bag, v => …)`
+   * does, and `i.scale(big, x => x)` lands its callback at `BigInt` — the widest
+   * operand, with the `Int` receiver widening into it — as the bare spelling
+   * does.
+   *
+   * The receiver's seat is disposed early only at a **companion** operation,
+   * where the first parameter is written `T`-headed: settling it lets a sibling
+   * argument read an expectation off the receiver's own type. At a constraint
+   * member that seat is the *subject*, established from the operands together
+   * and by the written face (§2.2); settling it from the receiver alone is
+   * §16.3's defect, and the amendment's whole content is that it must not
+   * happen.
+   *
+   * `cached` is §2.2's other entry moment: a goal whose receiver was still
+   * unsolved at the dot measured its arguments there, and they synthesized —
+   * the known-callee condition being unmet. Evidence arriving later resolves the
+   * dispatch identically but cannot retroactively hand expectations to arguments
+   * already checked (§3.6). Inferring twice would record a second copy of every
+   * literal's requirement, so the goal carries what it measured.
+   */
+  #dotCallSeats(
+    expression: Resolved.CallExpr,
+    callee: Resolved.AccessExpr,
+    level: number,
+    cached: readonly Mono[] | undefined,
+    calleeType: Mono,
+    receiver: Mono,
+    /**
+     * Whether the resolved operation is a constraint member — the **open** call
+     * (§3.4), whose subject seats are established from every operand together.
+     */
+    openMember: boolean,
+    powerSeat: PowerSeat | undefined,
+  ): { readonly seats: readonly Mono[]; readonly pass: ArgumentPass | undefined } {
+    const known = this.#prune(calleeType);
+    const parameters = known.kind === "Function" &&
+        known.parameters.length === expression.arguments.length + 1
+      ? known.parameters
+      : undefined;
+    // The seat list the sweep reads, filled as the arguments elaborate: the
+    // receiver is seat 0 and its expression is the one before the dot, so a
+    // conversion or a mismatch reports where the reader wrote it.
+    const seats: Mono[] = [receiver, ...expression.arguments.map(() => ERROR)];
+    const expressions = [callee.receiver, ...expression.arguments];
+    const pass = parameters === undefined ? undefined : this.#argumentPass(
+      parameters,
+      seats,
+      expressions,
+      expression.span,
+      powerSeat,
+    );
+    if (cached !== undefined) {
+      for (const [index, type] of cached.entries()) seats[index + 1] = type;
+      return { seats, pass };
+    }
+    // Seat indices, so the one set serves the sweep and the elaboration alike.
+    const deferredLambdas = new Set(
+      expression.arguments.flatMap((argument, index) =>
+        defersAsLambda(argument) ? [index + 1] : []
+      ),
+    );
+    // The companion's written subject seat, settled before the arguments read
+    // their expectations — see `disposeSeat`. A member's is not settled here.
+    if (!openMember && pass !== undefined && expression.arguments.some(expectationLands)) {
+      pass.disposeSeat(0);
+    }
+    for (const [index, argument] of expression.arguments.entries()) {
+      if (deferredLambdas.has(index + 1)) continue;
+      seats[index + 1] = this.#inferExpr(argument, level, parameters?.[index + 1]);
+    }
+    if (deferredLambdas.size > 0) {
+      // §4.3's first pass, complete, before the second elaborates: an
+      // expectation has to *be* something by the time it is read, so every
+      // non-lambda operand — the receiver among them — is checked against its
+      // seat first. That is what resolves the subject a callback's own seat is
+      // written in terms of.
+      pass?.establishFirstPass(deferredLambdas);
+      for (const index of deferredLambdas) {
+        seats[index] = this.#inferExpr(
+          expression.arguments[index - 1]!,
+          level,
+          parameters?.[index],
+        );
+      }
+    }
+    return { seats, pass };
+  }
+
+  /**
+   * The arguments of a dot call the resolver **abandoned** — a refusal, a
+   * collision, an unreachable operation. Elaborating them anyway is not
+   * politeness: materialization walks the whole resolved tree, and an integer
+   * literal's `FromNat` requirement exists only if inference recorded one, so a
+   * skipped argument leaves a bare literal with no requirement to dereference
+   * (#212).
+   *
+   * There is no callee to read expectations off, so every argument synthesizes —
+   * but on §4.3's order all the same, non-lambda arguments before lambda
+   * literals, which is the order every other abandoned call elaborates in.
    */
   #dotCallArguments(
     expression: Resolved.CallExpr,
     level: number,
     cached: readonly Mono[] | undefined,
-    member?: Mono,
-    receiver?: Mono,
-    /**
-     * Whether the resolved operation is a constraint member — the **open** call
-     * (§3.4), whose subject seats are established from every operand together.
-     * A companion export writes its subject seat, so the receiver settles it and
-     * the early unification below is sound there; a member's does not, and
-     * settling it from the receiver alone is exactly the pre-#808 pin the
-     * amendment removed.
-     */
-    openMember = false,
   ): readonly Mono[] {
     if (cached !== undefined) return cached;
-    // *(#513.)* §2.2's second entry moment: the receiver was head-known **at the
-    // dot**, so the goal has already been created and resolved, and the call now
-    // checks as a named call to the resolved member — its signature supplying
-    // each argument's expected type, pointwise (Functions §4.3). The member's
-    // first parameter is the receiver's, so the arguments read from index 1.
-    //
-    // `cached` is the other moment: a goal whose receiver was still unsolved at
-    // the dot measured its arguments there, and they synthesized — the
-    // known-callee condition being unmet. Evidence arriving later resolves the
-    // dispatch identically but cannot retroactively hand expectations to
-    // arguments already checked (§3.6).
-    const known = member === undefined ? undefined : this.#prune(member);
-    const parameters = known?.kind === "Function" &&
-        known.parameters.length === expression.arguments.length + 1
-      ? known.parameters
-      : undefined;
-    // The subject-first step, in the spelling that puts the subject *before* the
-    // dot: the receiver is this operation's first argument, and it was head-known
-    // at the dot — that is the condition this whole path stands on. Unifying it
-    // with the operation's own first parameter is what resolves the
-    // instantiation, so `xs.map(match …)` reads `Int` off `Seq(Int)` before the
-    // arms are checked. It is the call's own unification, performed early and
-    // once; the seat sweep below repeats it harmlessly.
-    //
-    // *(#808.)* **Never at a constraint member.** There the seat is the
-    // *subject*, established from the operands together and by the written face
-    // (§2.2) — the receiver being one operand among them — so settling it here
-    // from the receiver alone is precisely §16.3's defect: it re-pins the algebra
-    // to the receiver's type and the receiver can no longer widen. `let p: BigInt
-    // = c.multiply(a2 + j)` reached this line only because its argument lands an
-    // expectation, and refused what every other spelling of the same call
-    // accepts. The member's **non-subject** seats are unaffected: they are the
-    // scheme's own written types and reach each argument pointwise below, exactly
-    // as the qualified spelling's do over its equally unresolved callee.
-    if (
-      !openMember && parameters !== undefined && receiver !== undefined &&
-      expression.arguments.some(expectationLands)
-    ) {
-      this.#unify(parameters[0] ?? ERROR, receiver, expression.callee.span);
-    }
-    // §4.3's two passes, here as at a named call: non-lambda arguments in
-    // source order, then lambda literals in source order, each expectation
-    // pruned at its turn. The member's first parameter is the receiver's, so
-    // the arguments read from index 1.
     const types: Mono[] = expression.arguments.map(() => ERROR);
-    const deferredLambdas = new Set(
-      expression.arguments.flatMap((argument, index) =>
-        defersAsLambda(argument) ? [index] : []
-      ),
-    );
-    const pass = parameters === undefined ? undefined : this.#argumentPass(
-      parameters.slice(1),
-      types,
-      expression.arguments,
-      expression.span,
-    );
     for (const [index, argument] of expression.arguments.entries()) {
-      if (deferredLambdas.has(index)) continue;
-      types[index] = this.#inferExpr(argument, level, parameters?.[index + 1]);
+      if (defersAsLambda(argument)) continue;
+      types[index] = this.#inferExpr(argument, level);
     }
-    if (deferredLambdas.size > 0) {
-      // §2.2: the call "checks as a named call to the resolved member", and the
-      // three spellings are one call (§1) — so the first pass resolves the
-      // member's instantiation before the second reads its expectations, here
-      // as at the qualified spelling. The receiver unification above covers
-      // only the instantiation the *receiver* determines;
-      // `xs.zipWith(ys, match …)` reads its callback's parameter type off the
-      // sibling, and without this it would see a variable where
-      // `Vector.zipWith(xs, ys, match …)` sees `Int`.
-      for (const index of pass?.resolveInstantiation(deferredLambdas) ?? []) {
-        types[index] = ERROR;
-      }
-      for (const index of deferredLambdas) {
-        types[index] = this.#inferExpr(
-          expression.arguments[index]!,
-          level,
-          parameters?.[index + 1],
-        );
-      }
+    for (const [index, argument] of expression.arguments.entries()) {
+      if (defersAsLambda(argument)) types[index] = this.#inferExpr(argument, level);
     }
     return types;
   }
@@ -3913,21 +3923,22 @@ class Checker {
     // into it as an operand at the sweep below.
     const home = this.#dotMemberHome(candidate, expected);
     if (home !== undefined) this.#liftMemberCall(calleeType, home, expression.span);
-    const arguments_ = [
+    const { seats, pass } = this.#dotCallSeats(
+      expression,
+      callee,
+      level,
+      cachedArguments,
+      calleeType,
       receiver,
-      ...this.#dotCallArguments(
-        expression, level, cachedArguments, calleeType, receiver, true,
-      ),
-    ];
-    const result = this.#checkDotSeats(
-      expression, callee, calleeType, arguments_, level,
+      true,
       // Row 14, spelled by the dot: `pow`'s exponent is the member's written
       // `Int` seat, and the base is the receiver.
       candidate.identity === POW_IDENTITY && candidate.member === "pow" &&
-          arguments_.length === 2
+          expression.arguments.length === 1
         ? { index: 1, base: 0 }
         : undefined,
     );
+    const result = this.#checkDotSeats(expression, calleeType, seats, pass, level);
     this.#dotCalls.set(expression, {
       symbol: candidate.symbol,
       name: candidate.member,
@@ -9307,33 +9318,8 @@ class Checker {
           eager(index);
         }
       },
-      resolveInstantiation: (
-        deferredLambdas: ReadonlySet<number>,
-      ): ReadonlySet<number> => {
-        const reported = new Set<number>();
-        for (let index = 0; index < actuals.length; index += 1) {
-          if (deferredLambdas.has(index)) continue;
-          const actual = actuals[index];
-          if (actual === undefined) continue;
-          const source = this.#prune(actual);
-          // Establishes nothing, exactly as in `establishFirstPass`.
-          if (source.kind === "Variable") continue;
-          // **`Nat` and `Int` are the only sources §5.1 converts**, so they are
-          // the only ones whose check could record a conversion. A dot call's
-          // authority is the whole-signature unification below, which sees the
-          // *inferred* type and not the conversion, so an argument that could
-          // convert is left entirely to it. Nothing is lost: against a variable
-          // destination such an argument is already the deferred numeric class,
-          // and against any other it resolves no instantiation.
-          if (source.kind === "Constructor" && ["Nat", "Int"].includes(source.name)) {
-            continue;
-          }
-          if (deferral(index) !== undefined) continue;
-          const before = this.#diagnostics.count;
-          eager(index);
-          if (this.#diagnostics.count !== before) reported.add(index);
-        }
-        return reported;
+      disposeSeat: (index: number): void => {
+        eager(index);
       },
       finish: (): void => {
         // The eager sweep in index order, skipping what the first pass already
