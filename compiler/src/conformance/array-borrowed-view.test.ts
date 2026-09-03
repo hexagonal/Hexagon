@@ -16,12 +16,13 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
  * array and look.
  *
  * What is deliberately **not** here, because it is not shipped: `Array.at`, the
- * slice `xs[lo..hi]`, and `Array.toSeq`/`fromSeq`/`toVector`. Their absence is
- * pinned below as absence — §9.1's doctrine that an unshipped operation is
- * missing rather than stubbed — and nothing here should be read as deciding when
- * they arrive. §9's fourth conversion, `Vector.toArray`, *has* shipped (#238),
- * so the row that once pinned its absence pins its arrival instead; the
- * operation's own contract is `vector-to-array.test.ts`'s.
+ * slice `xs[lo..hi]`, and `Array.toSeq`/`fromSeq`. Their absence is pinned below
+ * as absence — §9.1's doctrine that an unshipped operation is missing rather
+ * than stubbed — and nothing here should be read as deciding when they arrive.
+ * Two of §9's four conversions *have* shipped — `Vector.toArray` (#238) and
+ * `Array.toVector` — so the rows that once pinned their absence pin their
+ * arrival instead; each operation's own contract is its own file's,
+ * `vector-to-array.test.ts` and `array-to-vector.test.ts`.
  *
  * The `.d.ts` face (`ReadonlyArray<a>`) is `array-readonly-face.test.ts`'s and
  * is not restated; the one composition this slice adds — `Array(JsValue)` —
@@ -364,14 +365,28 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
   });
 
   /**
-   * And nothing else leaves the module. The door row's key (`arrayLength`) is
-   * not a name a program can spell, and there is no third export hiding behind
-   * the two above.
+   * `toVector` is the module's third export and joined it with §9's conversion.
+   * It is a name no other prelude module exports, so its refusal names one home
+   * rather than three — and it is still a refusal, which is §5.5's whole point:
+   * being single-homed buys no bare spelling.
    */
-  test("the module exports exactly `length` and `get`", () => {
+  test("`toVector` is single-homed, and still has no bare spelling", () => {
+    expect(projectDiagnostics("export let n(xs: Array(Int)): Vector(Int) = toVector(xs)\n"))
+      .toEqual(["no bare `toVector`; write `xs.toVector()` or `Array.toVector(xs)`"]);
+  });
+
+  /**
+   * And nothing else leaves the module. The one door row's key (`arrayLength`)
+   * is not a name a program can spell, and there is no fourth export hiding
+   * behind the three above — `toVector` is ordinary Hexagon here and has no key
+   * of its own to leak.
+   */
+  test("the module exports exactly `length`, `get` and `toVector`", () => {
     expect(projectDiagnostics("export let n(xs: Array(Int)): Int = Array.length(xs)\n"))
       .toEqual([]);
     expect(projectDiagnostics("export let n(xs: Array(Int)): Option(Int) = Array.get(xs, 1)\n"))
+      .toEqual([]);
+    expect(projectDiagnostics("export let n(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n"))
       .toEqual([]);
     expect(projectDiagnostics("export let n(xs: Array(Int)): Int = Array.arrayLength(xs)\n"))
       .toEqual(["module `Array` does not export `arrayLength`"]);
@@ -379,15 +394,24 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
 });
 
 /**
- * The one row of §9's quartet that has since shipped, kept here because this is
- * where its absence used to be pinned. #238 landed `Vector.toArray` through the
- * intrinsic door, so the absences below are three operations, not four; the
- * operation's own contract — eager, fresh, shallow, total, §6.2-stable — is
- * `vector-to-array.test.ts`'s and is not restated.
+ * The rows of §9's quartet that have since shipped, kept here because this is
+ * where their absence used to be pinned. #238 landed `Vector.toArray` through
+ * the intrinsic door and `Array.toVector` followed as ordinary Hexagon in this
+ * module (`stdlib-roadmap.md` §5.1 — a `for` over the borrow is expressible, so
+ * it stays in source), so the absences below are two operations, not four. Each
+ * operation's own contract is its own file's — `vector-to-array.test.ts` for
+ * the outbound crossing (eager, fresh, shallow, total, §6.2-stable) and
+ * `array-to-vector.test.ts` for the inbound one (eager, a stable persistent
+ * snapshot, shallow, total, §6.4's holes) — and neither is restated here.
  */
-describe("§9's fourth conversion has shipped (#238)", () => {
+describe("two of §9's four conversions have shipped", () => {
   test("`Vector.toArray` compiles, and is no longer one of the absences", () => {
     expect(projectDiagnostics("export let a(v: Vector(Int)): Array(Int) = Vector.toArray(v)\n"))
+      .toEqual([]);
+  });
+
+  test("`Array.toVector` compiles, and is no longer one of the absences", () => {
+    expect(projectDiagnostics("export let a(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n"))
       .toEqual([]);
   });
 });
@@ -397,7 +421,6 @@ describe("what this slice does not ship is absent, not stubbed (§9.1)", () => {
     ["at", "export let a(xs: Array(Int)): Int = Array.at(xs, 1)\n"],
     ["toSeq", "export let a(xs: Array(Int)): Seq(Int) = Array.toSeq(xs)\n"],
     ["fromSeq", "export let a(s: Seq(Int)): Array(Int) = Array.fromSeq(s)\n"],
-    ["toVector", "export let a(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n"],
   ])("`Array.%s` is the ordinary unknown-export error", (name, source) => {
     expect(projectDiagnostics(source))
       .toEqual([`module \`Array\` does not export \`${name}\``]);
