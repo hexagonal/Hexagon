@@ -331,48 +331,49 @@ exponent an ordinary float reciprocal power — and `let r: Rat = a ** b` select
 its negative-exponent throw (Operators §6.3). The exponent `b` stays an `Int` in every
 one of these: only the base's algebra moves with the written face.
 
-Conformance pins the lift owes (fixtures: `n, m : Nat`; `a, b, c, count, sum, size : Int`;
-`b` value 4; `negOne : Int`, value −1): the two acceptances (`let x: Int = n - m`; `let
-mean: Float = sum / size` and `let r: Rat = a / b`); one observable-exactness case at a
-wider-than-f64 home (a `Rat` or `BigInt` sum whose `Int` elaboration would fold past 2^53,
-value-checked); the `Pow` home selections (`let x: Float = 2 ** negOne` yields `0.5`, no
-guard; `let r: Rat = b ** negOne` yields exactly `1/4`, value-checked — the negative
-exponent `Pow<Int>` would have thrown on; in both, the exponent seat stays `Int` — the
-lift moves the base alone); the base-seat-only boundary (`let x: Float = a ** b` leaves `b
-: Int` at the exponent seat — no conversion of `b` to `Float` is emitted or permitted);
-the gated decline at the gate's remaining subject (`let t: T = a ** b` for a user nominal
-`T` honoring `Num` and `Signed` but not `Pow` — `Int` power, result injected); the no-face
-boundary (`let s = count + count` stays `Int`); and the recursion depth (`let r: Rat = (a
-+ b) * c` runs entirely at `Rat`). *(#808.)* Since the lift governs every spelling
-(further fixtures: `big : BigInt`; `price : Float`), the spelled rows: `let r: BigInt =
-a.add(c)`, `let r: BigInt = Num.add(a, c)`, `let r: BigInt = a |> Num.add(c)`, and `let q:
-BigInt = Integral.div(a, c)` each run at `BigInt` (the additions value-checked past 2^53);
-the operand-driven rows `a.add(big)`, `big.add(a)`, `count.multiply(price)`, and
-`price.multiply(count)` accepted at the wider operand's type; `Int.multiply(count, price)`
-refused as a written face; and `let d: Int = n.subtract(m)` accepted through Method Syntax
-§4.2's ownership clause with both `Nat`s injected. The receiver rule and the stand-down
-owe two more (#808, after #815's review): the dot-chain recursion `let r: BigInt =
-a.add(b).multiply(c)` value-checked past 2^53 against `(a + b) * c` (Method Syntax
-§14(v)'s fixtures: `9007199254740991`, `2`, `3`); and the stand-down's report, `let total:
-Rat = count * price` refused *at the binding*, its message naming `price` as the operand
-that could not enter `Rat`. The receiver's own refusal owes three more (#821): `let n:
-BigInt = p.add(q).gcd(s)` refused once, at the receiver, with the three-fact report, and
-the same call accepted as `(p.add(q): Foo).gcd(s)`, unannotated, through a binding, and
-companion-qualified (`Foo.add(p, q).gcd(s)`, a written face); the newly refused operator
-receivers `(p + q).gcd(s)` and `(i + p).gcd(s)`, which compile today; the report counts
-falling to one — from three at `Num.add(p, q).gcd(s)` and the pipe stage, from two at
-`i.add(p).gcd(s)`; the nested receiver `(p + (i + j)).gcd(s)` refused once by the outer
-operation; an `if` receiver with one `Int` branch and one `Foo` branch refused once by
-Operators §11's own report at the `if`, naming the `Foo` branch and carrying the boundary
-fixit, not by the receiver rule; and `(if c then p else q).gcd(s)` accepted beside `(if c
-then p.add(q) else p).gcd(s)` refused at the stood-down branch, the pair differing only in
-that branch, with the reach's regression guards — the nested form, a block whose final
-expression is the stood-down call (its binding-then-variable twin accepted), the `try`
-body, the dot chain in a branch (whose fixit ascribes the stood-down call, the receiver's
-own type being `BigInt`), and the operand `(p.add(q) + q).gcd(s)` — each refused, and `(b
-** (i + j)).gcd(b2)` accepted, the exponent seat taking no outer face, and `(if c then
-p.add(q) else b).gcd(s)` refused by the `if`'s own report with no receiver fixit; and the
-three claimant kinds — a companion export, an honored member of a user constraint, a
+Conformance pins the lift owes (fixtures: `n, m : Nat`; `a, b, c, count, sum, size :
+Int`; `b` value 4; `negOne : Int`, value −1): the two acceptances (`let x: Int = n - m`;
+`let mean: Float = sum / size` and `let r: Rat = a / b`); one observable-exactness case
+at a wider-than-f64 home (a `Rat` or `BigInt` sum whose `Int` elaboration would fold past
+2^53, value-checked); the `Pow` home selections (`let x: Float = 2 ** negOne` yields
+`0.5`, no guard; `let r: Rat = b ** negOne` yields exactly `1/4`, value-checked — the
+negative exponent `Pow<Int>` would have thrown on; in both, the exponent seat stays `Int`
+— the lift moves the base alone); the base-seat-only boundary (`let x: Float = a ** b`
+leaves `b : Int` at the exponent seat — no conversion of `b` to `Float` is emitted or
+permitted); the gated decline at the gate's remaining subject (`let t: T = a ** b` for a
+user nominal `T` honoring `Num` and `Signed` but not `Pow` — `Int` power, result
+injected); the no-face boundary (`let s = count + count` stays `Int`); and the recursion
+depth (`let r: Rat = (a + b) * c` runs entirely at `Rat`). *(#808.)* Since the lift
+governs every spelling (further fixtures: `big : BigInt`; `price : Float`), the spelled
+rows: `let r: BigInt = a.add(c)`, `let r: BigInt = Num.add(a, c)`, `let r: BigInt = a |>
+Num.add(c)`, and `let q: BigInt = Integral.div(a, c)` each run at `BigInt` (the additions
+value-checked past 2^53); the operand-driven rows `a.add(big)`, `big.add(a)`,
+`count.multiply(price)`, and `price.multiply(count)` accepted at the wider operand's
+type; `Int.multiply(count, price)` refused as a written face; and `let d: Int =
+n.subtract(m)` accepted through Method Syntax §4.2's ownership clause with both `Nat`s
+injected. The receiver rule and the stand-down owe two more (#808, after #815's review):
+the dot-chain recursion `let r: BigInt = a.add(b).multiply(c)` value-checked past 2^53
+against `(a + b) * c` (Method Syntax §14(v)'s fixtures: `9007199254740991`, `2`, `3`);
+and the stand-down's report, `let total: Rat = count * price` refused *at the binding*,
+its message naming `price` as the operand that could not enter `Rat`. The receiver's own
+refusal owes three more (#821): `let n: BigInt = p.add(q).gcd(s)` refused once, at the
+receiver, with the three-fact report, and the same call accepted as `(p.add(q):
+Foo).gcd(s)`, unannotated, through a binding, and companion-qualified (`Foo.add(p,
+q).gcd(s)`, a written face); the newly refused operator receivers `(p + q).gcd(s)` and
+`(i + p).gcd(s)`, which compile today; the report counts falling to one — from three at
+`Num.add(p, q).gcd(s)` and the pipe stage, from two at `i.add(p).gcd(s)`; the nested
+receiver `(p + (i + j)).gcd(s)` refused once by the outer operation; an `if` receiver
+with one `Int` branch and one `Foo` branch refused once by Operators §11's own report at
+the `if`, naming the `Foo` branch and carrying the boundary fixit, not by the receiver
+rule; and `(if c then p else q).gcd(s)` accepted beside `(if c then p.add(q) else
+p).gcd(s)` refused at the stood-down branch, the pair differing only in that branch, with
+the reach's regression guards — the nested form, a block whose final expression is the
+stood-down call (its binding-then-variable twin accepted), the `try` body, the dot chain
+in a branch (whose fixit ascribes the stood-down call, the receiver's own type being
+`BigInt`), and the operand `(p.add(q) + q).gcd(s)` — each refused, and `(b ** (i +
+j)).gcd(b2)` accepted, the exponent seat taking no outer face, and `(if c then p.add(q)
+else b).gcd(s)` refused by the `if`'s own report with no receiver fixit; and the three
+claimant kinds — a companion export, an honored member of a user constraint, a
 function-typed field — refused alike (Method Syntax §14(v)).
 
 ### 5.2 Literal emission
