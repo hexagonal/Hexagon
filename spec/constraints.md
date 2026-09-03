@@ -324,6 +324,18 @@ This section owns the member lists of **six** constraints. It is deliberately **
 
 Comparison/`equals` operator sugar (`==`, `<`, etc. dispatching to these members) is the **operators spec's** business; this spec fixes only the members.
 
+**The laws, and who they bind.** A constraint is a signature; nothing in the language states or checks a law. The laws below are the expectations an instance is written against and reviewed against — the axioms a reader may assume of the prelude's instances and should state for their own — and they are hidden in exactly the sense every type-class law is hidden: unenforceable by a checker, load-bearing for people.
+
+- `Eq`: `equals` is an equivalence — reflexive, symmetric, transitive — and `notEquals` its negation. `Eq<Float>` is SameValueZero, which *is* an equivalence (`NaN` equals `NaN`; `0.0` equals `-0.0`).
+- `Ord`: `compare` is a total order agreeing with `equals` — `compare(x, y)` is `Equal` exactly when `equals(x, y)`, antisymmetric and transitive otherwise. `Ord<Float>` is the total order Decisions Batch §1 fixes.
+- `Num`: `add` is associative and commutative; `multiply` is associative; `multiply` distributes over `add`; `fromNat` is a homomorphism — `fromNat(m + n)` is `fromNat(m) + fromNat(n)`, `fromNat(m * n)` is `fromNat(m) * fromNat(n)` — so `fromNat(0)` and `fromNat(1)` are the identities. Commutativity of `multiply` is **not** a law of `Num`: a matrix type may honor `Num` truthfully.
+- `Signed`: `subtract(x, y)` is `add(x, negate(y))`; `negate` is an involution and `fromInt` extends `fromNat` — they agree on every `Nat` — and is a homomorphism likewise.
+- `Frac`: `divide(x, y)` is the inverse of `multiply` by `y` for every nonzero `y` — `multiply(divide(x, y), y)` is `x`.
+
+At `Float` the arithmetic laws hold **up to rounding** and no further: IEEE addition and multiplication are commutative but not associative, and `divide` inverts `multiply` only approximately. That is the `Float` instance's honest contract (friendly-numerics tenet 7), not a defect of the instance, and it is the reason the next sentence exists.
+
+**The compiler relies on none of these.** Operands are elaborated, converted, and evaluated in source order, each exactly once (Numeric Literals §5.1; Operators §5.4), the dot call keeps its receiver as the first operand (Method Syntax §2.2), and no expression is ever rewritten by an algebraic law — not reassociated, not commuted, not simplified. A non-commutative `multiply` is honored exactly as written, and `a + b` at `Float` is computed in the order written. The laws bind an instance's author and its reviewer, and license the reasoning of a person reading a program; they never license the compiler.
+
 ---
 
 ## 8. Diagnostics checklist
