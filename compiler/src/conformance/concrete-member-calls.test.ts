@@ -297,13 +297,32 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
   });
 
   test("a defaulted member at a concrete head reaches the wrapper seat", async () => {
-    const source = "export let differs: Bool = Eq.notEquals(2, 3)\n";
-    const text = emitted(source);
+    // *(#808's emission rider.)* The head is a record rather than `Int`: at a
+    // type JavaScript represents by a primitive value, `Eq.notEquals(2, 3)` is
+    // now the operator's own lowering in every spelling (Method Syntax §8.1),
+    // so it no longer reaches a seat to pin. An **object** representation is
+    // untouched by that rule, and it is the arm's subject either way — a
+    // defaulted member, inherited by a ground declared instance, called from
+    // another module.
+    const files = [
+      ["/box.hex",
+        "export record Box = {value: Int}\n" +
+        "\n" +
+        "honor Eq<Box> =\n" +
+        "    equals(left, right) = left.value == right.value\n"],
+      ["/main.hex",
+        'import Box from "./box"\n' +
+        "export let differs: Bool = " +
+          "Eq.notEquals(Box.Box({value = 2}), Box.Box({value = 3}))\n"],
+    ] as const;
+    const text = emittedFrom(files, "/main.hex");
 
-    expect(text).toContain('import { __Eq_Int_notEquals as notEquals } from "./Int.js";');
-    expect(text).toContain("const differs = notEquals(2, 3);");
+    expect(text).toContain(
+      'import { __Eq_Box_notEquals as notEquals } from "./box.js";',
+    );
+    expect(text).toContain("const differs = notEquals(");
 
-    const main = await runMain(source);
+    const main = await runProject(files, { entry: "/main.hex" });
     expect(main["differs"]).toBe(true);
   });
 

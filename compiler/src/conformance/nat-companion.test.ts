@@ -261,7 +261,8 @@ describe("`Nat` honors no `Signed`", () => {
       "type `Nat` has no `Signed` instance; its only legal homes are the module declaring " +
         "`Signed` and `Nat`'s prelude companion module, both outside project source, so " +
         "this pair's honored set is closed — change the type, or go through the operations " +
-        "those homes export",
+        "those homes export; a written `Int` face runs the operation and admits the " +
+        "result (`let difference: Int = …`)",
     );
     expect(diagnostics([
       ["/main.hex", "export let flipped(a: Nat): Nat = -a\n"],
@@ -269,7 +270,8 @@ describe("`Nat` honors no `Signed`", () => {
       "type `Nat` has no `Signed` instance; its only legal homes are the module declaring " +
         "`Signed` and `Nat`'s prelude companion module, both outside project source, so " +
         "this pair's honored set is closed — change the type, or go through the operations " +
-        "those homes export",
+        "those homes export; a written `Int` face runs the operation and admits the " +
+        "result (`let difference: Int = …`)",
     );
   });
 

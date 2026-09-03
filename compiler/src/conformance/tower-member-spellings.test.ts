@@ -1,0 +1,540 @@
+/**
+ * Conformance for #808 — **the dot on a tower member is the open member call**,
+ * and for the emission rider it carries.
+ *
+ * Method Syntax §1's sentence, which every test here is a reading of:
+ *
+ * > `receiver.name(args…)` is the one operation `name` the receiver's type owns,
+ * > applied to `(receiver, args…)` and elaborated exactly as that operation's own
+ * > spelling would be. **The receiver decides *what* is called; the operation
+ * > decides *where it runs*.**
+ *
+ * Four claims, and the file is in four parts after the acceptance block:
+ *
+ * 1. **One elaboration, five spellings.** Operator, bare, constraint-qualified,
+ *    pipe stage and dot are one call at a tower member (Numeric Literals §5.1's
+ *    closed rungs — `Num`, `Signed`, `Frac`, `Pow`, `Integral`), so the operand
+ *    widening and the **expected-type lift** reach all of them. The lift's
+ *    observable content is a *value*: without it, `let r: BigInt = i.add(j)` ran
+ *    the addition at `Int` and injected a sum `Int` may already have folded past
+ *    2^53 — the silent overflow §5.1 exists to prevent, which had three spellings
+ *    to hide in.
+ * 2. **Members widen by their operands; doors are addressed by the receiver**
+ *    (§6.1). `i.add(b)` and `b.add(i)` are both `BigInt`; `b.pow(i)` is the door
+ *    with the `Int` injected — #783's first half — and `b.bump(p)`, an ordinary
+ *    companion export with a written `BigInt` seat, is its second.
+ * 3. **The ownership clause** (§4.2): `Nat` and `Int` own the subject-first
+ *    members of the tower rungs they do not honor, so `n.subtract(m)` has a
+ *    spelling, takes a written face, and without one refuses exactly as `n - m`
+ *    does — with §9 row 15's rider on both spellings.
+ * 4. **§8.1's emission rule**: wherever the operator spelling of a member lowers
+ *    to a JavaScript operator at a type JavaScript represents by a primitive
+ *    value, every other spelling produces that lowering *verbatim*. The check is
+ *    one text per operation across its spellings, and one value.
+ *
+ * `Rat` is not a prelude module, so every `Rat` fixture is a two-file project —
+ * which is also the object-representation control for part 4.
+ *
+ * Every graph that executes here is byte-distinct: emitted modules mount as
+ * `data:` URLs cached by their full text, so two tests compiling the same
+ * program would share one module instance.
+ */
+
+import { describe, expect, test } from "vitest";
+
+import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
+
+const STDLIB = import.meta.glob("../../../stdlib/*.hex", {
+  eager: true,
+  query: "?raw",
+  import: "default",
+}) as Record<string, string>;
+
+/** `stdlib/Rat.hex`, the nominal home §14(t)'s and §14(u)'s `Rat` rows name. */
+const RAT = (() => {
+  const entry = Object.entries(STDLIB).find(([path]) => path.endsWith("/Rat.hex"));
+  if (entry === undefined) throw new Error("no stdlib/Rat.hex");
+  return entry[1];
+})();
+
+/** §14(t)'s and §14(u)'s fixtures, and Numeric Literals §5.1's. */
+const fixtures = "let i: Int = 6\n" +
+  "let j: Int = 4\n" +
+  "let count: Int = 3\n" +
+  "let a: Int = 6\n" +
+  "let c: Int = 3\n" +
+  "let b: BigInt = 9n\n" +
+  "let big: BigInt = 9n\n" +
+  "let f: Float = 1.5\n" +
+  "let g: Float = 2.5\n" +
+  "let price: Float = 1.5\n" +
+  "let n: Nat = 7\n" +
+  "let m: Nat = 2\n" +
+  'let s: String = "a"\n' +
+  'let t: String = "b"\n' +
+  "let p: Bool = True\n" +
+  "let q: Bool = False\n";
+
+function verdict(source: string): readonly string[] {
+  return projectDiagnostics(fixtures + source);
+}
+
+/** `/main.hex`'s emitted JavaScript, with the project asserted clean. */
+function emitted(source: string): string {
+  const project = compileFiles([["/main.hex", fixtures + source]]);
+  expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+  return project.modules.find(({ source: file }) => file.path === "/main.hex")!
+    .javascript.text;
+}
+
+/** The one emitted line binding `probe`, which is what every text pin reads. */
+function probeLine(source: string): string {
+  const line = emitted(source).split("\n").find((text) => text.includes("const probe"));
+  if (line === undefined) throw new Error("no `probe` binding in the emitted module");
+  return line.trim();
+}
+
+function withRat(source: string): readonly (readonly [string, string])[] {
+  return [
+    ["/main.hex", `import Rat from "./Rat"\n${fixtures}${source}`],
+    ["/Rat.hex", RAT],
+  ];
+}
+
+function ratVerdict(source: string): readonly string[] {
+  return compileFiles(withRat(source)).diagnostics.map(({ message }) => message);
+}
+
+function ratProbeLine(source: string): string {
+  const project = compileFiles(withRat(source));
+  expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+  const line = project.modules.find(({ source: file }) => file.path === "/main.hex")!
+    .javascript.text.split("\n").find((text) => text.includes("const probe"));
+  if (line === undefined) throw new Error("no `probe` binding in the emitted module");
+  return line.trim();
+}
+
+describe("§14(t): the five spellings of a tower member are one call", () => {
+  test("`count.multiply(price)` is `Float`, as `count * price` is", () => {
+    // The row this arc was filed over. Every spelling names one operation, and
+    // the operation runs where its operands establish it — the receiver being
+    // one operand among them, never the pin it used to be.
+    expect(verdict("export let x: Float = count * price\n")).toEqual([]);
+    expect(verdict("export let x: Float = Num.multiply(count, price)\n")).toEqual([]);
+    expect(verdict("export let x: Float = count |> Num.multiply(price)\n")).toEqual([]);
+    expect(verdict("export let x: Float = count.multiply(price)\n")).toEqual([]);
+    expect(verdict("export let x: Float = price.multiply(count)\n")).toEqual([]);
+  });
+
+  test("a **companion**-qualified spelling is a written face: operands widen into it", () => {
+    // `Float.multiply` accepts the `Int`, which widens in. `Int.multiply` is the
+    // same kind of thing and refuses, because a `Float` cannot enter `Int` —
+    // exactly as `let t: Int = count * price` does.
+    expect(verdict("export let x: Float = Float.multiply(count, price)\n")).toEqual([]);
+    expect(verdict("export let x: Int = Int.multiply(count, price)\n"))
+      .toEqual(["type mismatch: expected Int, found Float"]);
+  });
+
+  test("the lift reaches every spelling, and the value is the point", async () => {
+    // 2^53 - 1 plus 2 is not representable as a double: an `Int` addition folds
+    // it and only then injects. Before #808 the operator spelling lifted and the
+    // other three did not, so the silent overflow had three spellings to hide
+    // in. All four now run at `BigInt`.
+    const exports = await runProject([["/main.hex",
+      "// the lift, spelled four ways\n" +
+      "let large: Int = 9007199254740991\n" +
+      "let two: Int = 2\n" +
+      "export let operator: BigInt = large + two\n" +
+      "export let bare: BigInt = Num.add(large, two)\n" +
+      "export let piped: BigInt = large |> Num.add(two)\n" +
+      "export let dotted: BigInt = large.add(two)\n",
+    ]]);
+
+    expect(exports["operator"]).toBe(9007199254740993n);
+    expect(exports["bare"]).toBe(9007199254740993n);
+    expect(exports["piped"]).toBe(9007199254740993n);
+    expect(exports["dotted"]).toBe(9007199254740993n);
+  });
+
+  test("`Integral.div` lifts too, though no operator spells it", async () => {
+    // §5.1 names `div`, `mod`, `quot`, `rem` and `gcd` in the lift explicitly: a
+    // rung with no operator is still a rung, and the written face is still the
+    // arithmetic's home. Before #808 `let q: BigInt = i.div(j)` divided at `Int`
+    // and injected the quotient; the shape is the pin, and the run is here to
+    // say the shape is a program.
+    const exports = await runProject([["/main.hex",
+      "// Integral under the lift\n" +
+      "let large: Int = 9007199254740991\n" +
+      "let two: Int = 2\n" +
+      "export let qualified: BigInt = Integral.div(large, two)\n" +
+      "export let dotted: BigInt = large.div(two)\n",
+    ]]);
+
+    expect(exports["qualified"]).toBe(4503599627370495n);
+    expect(exports["dotted"]).toBe(4503599627370495n);
+    expect(probeLine("export let probe: BigInt = Integral.div(i, j)\n"))
+      .toBe("const probe = div(BigInt(i), BigInt(j));");
+    expect(probeLine("export let probe: BigInt = i.div(j)\n"))
+      .toBe("const probe = div(BigInt(i), BigInt(j));");
+  });
+
+  test("`let r: BigInt = i.add(j)` runs at `BigInt`, not at `Int` then injected", () => {
+    // The text half of the pin above, for the reader who wants to see the shape:
+    // two injected operands, never one injected sum.
+    expect(probeLine("export let probe: BigInt = i.add(j)\n"))
+      .toBe("const probe = BigInt(i) + BigInt(j);");
+    expect(probeLine("export let probe: BigInt = Num.add(i, j)\n"))
+      .toBe("const probe = BigInt(i) + BigInt(j);");
+    expect(probeLine("export let probe: BigInt = i |> Num.add(j)\n"))
+      .toBe("const probe = BigInt(i) + BigInt(j);");
+    expect(probeLine("export let probe: BigInt = i + j\n"))
+      .toBe("const probe = BigInt(i) + BigInt(j);");
+  });
+
+  test("a `Float` never enters `Rat`, in any spelling", () => {
+    for (const spelling of [
+      "count * price",
+      "Num.multiply(count, price)",
+      "count |> Num.multiply(price)",
+      "count.multiply(price)",
+      "price.multiply(count)",
+    ]) {
+      expect(ratVerdict(`export let total: Rat.Rat = ${spelling}\n`).length)
+        .toBeGreaterThan(0);
+    }
+  });
+
+  test("a declared type variable dispatches the widened member too", () => {
+    // §14(t)'s last row. One `Signed<a>` dictionary, the `Int` injected through
+    // the binder's `fromInt` — the same elaboration `count * value` takes, which
+    // is exactly what "the dot adds no shape of its own" means on a bound member.
+    expect(verdict(
+      "export fun scale<a: Signed>(count: Int, value: a): a = count.multiply(value)\n",
+    )).toEqual([]);
+    expect(verdict(
+      "export fun scale<a: Signed>(count: Int, value: a): a = value.multiply(count)\n",
+    )).toEqual([]);
+    expect(verdict(
+      "export fun scale<a: Signed>(count: Int, value: a): a = count * value\n",
+    )).toEqual([]);
+  });
+});
+
+describe("members widen by their operands (§3.4, §6.1)", () => {
+  test("`i.add(b)` and `b.add(i)` are both `BigInt`", () => {
+    expect(probeLine("let probe = i.add(b)\n"))
+      .toBe("const probe = BigInt(i) + b;");
+    expect(probeLine("let probe = b.add(i)\n"))
+      .toBe("const probe = b + BigInt(i);");
+    // The operator spelling, unchanged, for the comparison the rule is about.
+    expect(probeLine("let probe = i + b\n"))
+      .toBe("const probe = BigInt(i) + b;");
+  });
+
+  test("`Eq` and `Ord` are not rungs, and widen by the seat's ordinary injection", () => {
+    // §5.1: a comparison across widths widens because the member's seats are
+    // widening targets like any seat, not through the lift. `Ord.compare(i, b)`
+    // always did; the dot refused, and that was the row the amendment calls
+    // wrong wherever another operand establishes a wider subject.
+    expect(probeLine("let probe = i.compare(b)\n"))
+      .toBe("const probe = compare(BigInt(i), b);");
+    expect(probeLine("let probe = Ord.compare(i, b)\n"))
+      .toBe("const probe = compare(BigInt(i), b);");
+    expect(probeLine("let probe = i.equals(b)\n"))
+      .toBe("const probe = BigInt(i) === b;");
+  });
+
+  test("a nominal receiver widens an `Int` argument into its own algebra", () => {
+    // `Rat` honors `Signed`, so the `Int` reaches it by `fromInt` — the same
+    // injection the qualified spelling performs, and the emission the clause
+    // leaves alone.
+    expect(ratProbeLine("let r: Rat.Rat = Rat.fromInt(3)\nlet probe = r.add(i)\n"))
+      .toBe("const probe = add(r, __Signed_Rat.fromInt(i));");
+    expect(ratProbeLine(
+      "let r: Rat.Rat = Rat.fromInt(3)\nlet probe = r.compare(i)\n",
+    )).toBe("const probe = compare(r, __Signed_Rat.fromInt(i));");
+  });
+
+  test("the subject is moment-free: a goal that settles late widens the same", () => {
+    // §11.3's note. The receiver's head is unknown at the dot here, so the goal
+    // pends and settles at the region's deadline — and the instance is still
+    // coherence's choice at the subject the operands establish, `BigInt` because
+    // `b` is one of them.
+    expect(verdict(
+      "fun late(x): BigInt =\n" +
+      "    let sum = x.add(b)\n" +
+      "    let ignored: Int = x\n" +
+      "    sum\n",
+    )).toEqual([]);
+  });
+});
+
+describe("doors are addressed by the receiver (§6.1, #783)", () => {
+  test("`b.pow(i)` reaches the `BigInt` door with the `Int` injected", () => {
+    // #783's first half, and the door's own reading: `x.pow(y)` at `BigInt` is
+    // the widest face, and its argument seats widen *into* it by §5.1's ordinary
+    // seat widening — which is what `BigInt.pow(b, i)` always did.
+    expect(verdict("let probe = b.pow(i)\n")).toEqual([]);
+    // The call, argument for argument. The two spellings reach the door through
+    // different import channels and so bind it under different *local* names —
+    // `pow` for the qualified spelling, a `__prelude_`-prefixed alias for the
+    // dot — which is #585's channel and not this ruling's; the shape below is
+    // what §6.1 fixes, and it is the same shape.
+    expect(probeLine("let probe = b.pow(i)\n")).toContain("(b, BigInt(i))");
+    expect(probeLine("let probe = BigInt.pow(b, i)\n")).toBe("const probe = pow(b, BigInt(i));");
+    expect(verdict("let probe = f.pow(i)\n")).toEqual([]);
+    expect(probeLine("let probe = f.pow(i)\n")).toContain("(f, i)");
+  });
+
+  test("the same widening at a plain companion export with a wider written seat", async () => {
+    // #783's **second** half, which is not about doors at all: §3.4's rewrite
+    // always required the rewritten call to widen as the qualified one does.
+    const exports = await runProject([
+      ["/main.hex",
+        'import Box from "./box"\n' +
+        "let boxed: Box.Box = Box.Box({size = 1n})\n" +
+        "let step: Int = 2\n" +
+        "export let dotted: BigInt = Box.size(boxed.bump(step))\n" +
+        "export let qualified: BigInt = Box.size(Box.bump(boxed, step))\n",
+      ],
+      ["/box.hex",
+        "export record Box = {size: BigInt}\n" +
+        "\n" +
+        "export let bump(box: Box, k: BigInt): Box = Box({size = box.size + k})\n" +
+        "\n" +
+        "export let size(box: Box): BigInt = box.size\n",
+      ],
+    ]);
+
+    expect(exports["dotted"]).toBe(3n);
+    expect(exports["qualified"]).toBe(3n);
+  });
+});
+
+describe("§9 row 14: the exponent seat's fixit, in every spelling", () => {
+  const fixit = "the exponent of `**` is an `Int`; for a `BigInt` exponent, use " +
+    "`BigInt.pow(value, exponent)`";
+
+  test("`i ** 2n`, `Pow.pow(i, 2n)` and `i.pow(2n)` all name the door", () => {
+    // Operators §6.3's mandatory fixit, branched on the exponent's type. The
+    // member's written `Int` seat cannot widen a `BigInt`, and before #808 two
+    // of these three spellings said only "type mismatch".
+    expect(verdict("let probe = i ** 2n\n")).toEqual([fixit]);
+    expect(verdict("let probe = Pow.pow(i, 2n)\n")).toEqual([fixit]);
+    expect(verdict("let probe = i.pow(2n)\n")).toEqual([fixit]);
+  });
+
+  test("a `Float` exponent names `Float.pow` on the same terms", () => {
+    const fractional = "the exponent of `**` is an `Int`; for a fractional exponent at " +
+      "`Float`, use `Float.pow(value, exponent)`";
+    expect(verdict("let probe = i ** 0.5\n")).toEqual([fractional]);
+    expect(verdict("let probe = i.pow(0.5)\n")).toEqual([fractional]);
+  });
+
+  test("the span is the argument, never the whole call", () => {
+    // #783's second finding. A report against the whole dot call points the
+    // reader at the receiver, which is not the seat that refused.
+    const source = `${fixtures}let probe = i.pow(2n)\n`;
+    const project = compileFiles([["/main.hex", source]]);
+    const reported = project.diagnostics[0]!;
+    expect(source.slice(
+      reported.primary.start.offset,
+      reported.primary.end.offset,
+    )).toBe("2n");
+  });
+
+  test("a `Nat` exponent widens into the seat rather than reporting", () => {
+    // The seat is an ordinary written-`Int` one, so §5.1 applies into it.
+    expect(verdict("let probe = i.pow(m)\n")).toEqual([]);
+  });
+});
+
+describe("§4.2's ownership clause and §9 row 15's rider", () => {
+  const noSigned = "type `Nat` has no `Signed` instance; its only legal homes are the " +
+    "module declaring `Signed` and `Nat`'s prelude companion module, both outside " +
+    "project source, so this pair's honored set is closed — change the type, or go " +
+    "through the operations those homes export; a written `Int` face runs the " +
+    "operation and admits the result (`let difference: Int = …`)";
+  const noFrac = "type `Int` has no `Frac` instance; its only legal homes are the module " +
+    "declaring `Frac` and `Int`'s prelude companion module, both outside project " +
+    "source, so this pair's honored set is closed — change the type, or go through " +
+    "the operations those homes export; for the integer quotient and remainder use " +
+    "`Int.div` and `Int.mod`, and for real division write a `Float` face " +
+    "(`let quotient: Float = …`), which runs the division there";
+
+  test("`let d: Int = n.subtract(m)` runs at `Int` with both `Nat`s injected", async () => {
+    // The clause's reason: `Nat` cannot honor `Signed`, so without ownership a
+    // lifted `n.subtract(m)` would have no dot spelling at all. The value is the
+    // pin — a difference that leaves `Nat`.
+    const exports = await runProject([["/main.hex",
+      "// ownership at Nat\n" +
+      "let small: Nat = 2\n" +
+      "let large: Nat = 7\n" +
+      "export let dotted: Int = small.subtract(large)\n" +
+      "export let operator: Int = small - large\n",
+    ]]);
+
+    expect(exports["dotted"]).toBe(-5);
+    expect(exports["operator"]).toBe(-5);
+  });
+
+  test("without a face the owned member refuses exactly as the operator does", () => {
+    // §9 row 15: *exactly* the operator's refusal, rider and all — one message
+    // for two spellings of one operation.
+    expect(verdict("let probe = n.subtract(m)\n")).toEqual([noSigned]);
+    expect(verdict("let probe = n - m\n")).toEqual([noSigned]);
+    expect(verdict("let probe = n.negate()\n")).toEqual([noSigned]);
+    expect(verdict("let probe = -n\n")).toEqual([noSigned]);
+  });
+
+  test("`Int` owns `divide`, and takes `/`'s refusal with `Int.div`'s fixit", () => {
+    expect(verdict("let probe = i.divide(j)\n")).toEqual([noFrac]);
+    expect(verdict("let probe = i / j\n")).toEqual([noFrac]);
+    expect(verdict("export let probe: Float = i.divide(j)\n")).toEqual([]);
+    expect(probeLine("export let probe: Float = i.divide(j)\n"))
+      .toBe("const probe = i / j;");
+  });
+
+  test("the owned set is disjoint from the honored one — no two-claimant refusal", () => {
+    // The clause adds a claimant only where the honored set has none, so every
+    // dot that resolved before resolves to the same member now.
+    expect(verdict("let probe = n.rem(2)\n")).toEqual([]);
+    expect(verdict("let probe = i.div(j)\n")).toEqual([]);
+    expect(verdict("let probe = 7.div(2)\n")).toEqual([]);
+    expect(verdict("let probe = i.subtract(j)\n")).toEqual([]);
+    expect(probeLine("let probe = n.rem(2)\n")).toBe("const probe = rem(n, 2);");
+    expect(probeLine("let probe = 7.div(2)\n")).toBe("const probe = div(7, 2);");
+  });
+
+  test("no other type owns an unhonored member", () => {
+    // The clause names `Nat` and `Int` and nothing else: a `Float` has no
+    // `Integral`, and no ownership route invents one.
+    expect(verdict("let probe = f.div(g)\n")).toEqual([
+      "`Float` has no field `div`, its companion exports no operation `div`, and no " +
+        "constraint honored at `Float` has a subject-first member `div`; call an " +
+        "available subject-first function explicitly",
+    ]);
+  });
+});
+
+describe("§14(u): the operator's lowering, verbatim, in every spelling", () => {
+  test("`Eq` at a primitive representation", () => {
+    expect(probeLine("let probe = i.equals(j)\n")).toBe("const probe = i === j;");
+    expect(probeLine("let probe = i == j\n")).toBe("const probe = i === j;");
+    // Verbatim means the lowering `!=` has, not a `!==` this rule would invent.
+    expect(probeLine("let probe = i.notEquals(j)\n"))
+      .toBe("const probe = !(i === j);");
+    expect(probeLine("let probe = i != j\n")).toBe("const probe = !(i === j);");
+    // `Float` equality is SameValueZero through a helper, and the dot copies the
+    // helper too.
+    expect(probeLine("let probe = f.equals(g)\n"))
+      .toBe(probeLine("let probe = f == g\n"));
+    expect(probeLine("let probe = f.equals(g)\n"))
+      .toContain("floatEquals(f, g)");
+    // `Bool` belongs by its `boolean` pin, and the structural dictionary read it
+    // used to take is displaced with the rest.
+    expect(probeLine("let probe = p.equals(q)\n")).toBe("const probe = p === q;");
+    expect(probeLine("let probe = p == q\n")).toBe("const probe = p === q;");
+  });
+
+  test("`Num`, `Signed`, `Frac` and `Concat` at a primitive representation", () => {
+    expect(probeLine("let probe = i.add(j)\n")).toBe("const probe = i + j;");
+    expect(probeLine("let probe = Num.add(i, j)\n")).toBe("const probe = i + j;");
+    expect(probeLine("let probe = Int.add(i, j)\n")).toBe("const probe = i + j;");
+    expect(probeLine("let probe = i |> Num.add(j)\n")).toBe("const probe = i + j;");
+    expect(probeLine("let probe = i + j\n")).toBe("const probe = i + j;");
+    expect(probeLine("let probe = i.subtract(j)\n")).toBe("const probe = i - j;");
+    expect(probeLine("let probe = i.negate()\n")).toBe("const probe = -i;");
+    expect(probeLine("let probe = i.multiply(f)\n")).toBe("const probe = i * f;");
+    expect(probeLine("let probe = Float.multiply(i, f)\n"))
+      .toBe("const probe = i * f;");
+    expect(probeLine("let probe = f.divide(g)\n")).toBe("const probe = f / g;");
+    expect(probeLine("let probe = s.concat(t)\n")).toBe("const probe = s + t;");
+    expect(probeLine("let probe = s ++ t\n")).toBe("const probe = s + t;");
+  });
+
+  test("`pow` inlines only where `**` does — at `Float`, and nowhere else", () => {
+    // The criterion is the operator spelling's lowering. `**` at `Float` is the
+    // raw operator; at `Nat`, `Int` and `BigInt` it is a call to a guarded
+    // member, so there is no operator lowering for the other spellings to copy.
+    expect(probeLine("let probe = Pow.pow(f, i)\n")).toBe("const probe = f ** i;");
+    expect(probeLine("let probe = f ** i\n")).toBe("const probe = f ** i;");
+    expect(probeLine("let probe = i.pow(j)\n")).toBe("const probe = pow(i, j);");
+    expect(probeLine("let probe = Pow.pow(i, j)\n")).toBe("const probe = pow(i, j);");
+    // The door is a written face with a `Float` exponent seat, and no operator
+    // spells it: `f ** g` refuses. It stays the door's own call.
+    expect(verdict("let probe = f ** g\n").length).toBeGreaterThan(0);
+    expect(probeLine("let probe = f.pow(g)\n")).toContain("pow(f, g)");
+  });
+
+  test("`compare` stays a call: no JavaScript operator carries an `Ordering`", () => {
+    expect(probeLine("let probe = i.compare(j)\n"))
+      .toBe("const probe = compare(i, j);");
+    expect(probeLine("let probe = Ord.compare(i, j)\n"))
+      .toBe("const probe = compare(i, j);");
+  });
+
+  test("`Integral` stays a call in every spelling", () => {
+    expect(probeLine("let probe = i.mod(j)\n")).toBe("const probe = mod(i, j);");
+    expect(probeLine("let probe = Integral.mod(i, j)\n"))
+      .toBe("const probe = mod(i, j);");
+  });
+
+  test("an object representation is untouched by the rule", () => {
+    // `Rat` is a record; `+` and `===` mean the wrong thing on it, so the same
+    // test answers "a call" — which is what the member spellings already emit.
+    expect(ratProbeLine("let r: Rat.Rat = Rat.fromInt(3)\nlet probe = r.add(r)\n"))
+      .toBe("const probe = add(r, r);");
+    expect(ratProbeLine(
+      "let r: Rat.Rat = Rat.fromInt(3)\nlet probe = r.equals(r)\n",
+    )).toBe("const probe = equals(r, r);");
+  });
+
+  test("a genuinely polymorphic call keeps its evidence route", () => {
+    // The rule reads the *selected instance*. Inside a dictionary-taking
+    // function there is none to read, and the forwarder is the whole answer.
+    const text = emitted(
+      "export fun same<a: Eq>(x: a, y: a): Bool = x.equals(y)\n" +
+      "export fun sum<a: Num>(x: a, y: a): a = x.add(y)\n",
+    );
+    expect(text).toContain("equals(x, y");
+    expect(text).toContain("add(x, y");
+  });
+
+  test("one text per operation across its spellings, and one value", async () => {
+    // The check §8.1 asks for, run as a check rather than asserted.
+    const exports = await runProject([["/main.hex",
+      "// one operation, five spellings\n" +
+      "let left: Int = 6\n" +
+      "let right: Int = 4\n" +
+      "export let operator: Int = left + right\n" +
+      "export let bare: Int = Num.add(left, right)\n" +
+      "export let qualified: Int = Int.add(left, right)\n" +
+      "export let piped: Int = left |> Num.add(right)\n" +
+      "export let dotted: Int = left.add(right)\n",
+    ]]);
+
+    expect(Object.values(exports).filter((value) => value === 10)).toHaveLength(5);
+  });
+});
+
+describe("the negative probes: what #808 does not change", () => {
+  test("a member name still never nominates a type", () => {
+    // §1's guardrail. An unknown receiver takes the row fallback, exactly as it
+    // did before members could widen at all.
+    expect(verdict("let nominates = (x) => x.add(1)\n")).toEqual([]);
+    // The row fallback, byte for byte what it was: a POJO read and a call, with
+    // the literal's own `Num` evidence riding the lambda's suffix.
+    expect(emitted("let nominates = (x) => x.add(1)\n"))
+      .toContain("(x.add)(__Num_a.fromNat(1))");
+  });
+
+  test("`x.pow(2n)` at `BigInt` is still the door, not the member", () => {
+    expect(verdict("let probe = b.pow(2n)\n")).toEqual([]);
+  });
+
+  test("a written face that cannot hold the operands still refuses", () => {
+    expect(verdict("export let probe: Int = i.multiply(f)\n"))
+      .toEqual(["type mismatch: expected Int, found Float"]);
+  });
+});

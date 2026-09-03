@@ -1035,10 +1035,39 @@ describe("the mandatory fixit at the exponent seat (Operators §6.3, #545)", () 
     expect(diagnostics).toEqual(["type mismatch: expected Int, found String"]);
   });
 
-  test("a `Float` exponent at a doorless type names no door either", () => {
-    // The claim would be false: there is no `widens Pow.pow` at `Nat`.
+  test("a `Float` exponent at a doorless base names the exponent's own door", () => {
+    // *(#808.)* There is no `widens Pow.pow` at `Nat`, and §6.3's branch on the
+    // **exponent's** type answers instead — which the seat may do here because
+    // the claim is *true*: the door named takes this base. The pin is the offer
+    // and the proof that it compiles, in one test, because a fixit that does not
+    // is worse than none.
     expect(projectDiagnostics(
       "let n: Nat = 2\nexport let r: Nat = n ** 0.5\n",
+    )).toEqual([
+      "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, " +
+        "use `Float.pow(value, exponent)`",
+    ]);
+    expect(projectDiagnostics(
+      "let n: Nat = 2\nexport let r: Float = Float.pow(n, 0.5)\n",
+    )).toEqual([]);
+  });
+
+  test("a base that cannot reach the door named is offered no door", () => {
+    // The gate on the branch above, and #545's own reason kept: `Rat` reaches
+    // neither door's value seat, so `Float.pow(rat, 0.5)` would not typecheck
+    // and no offer is made. (`rat-pow.test.ts` pins the `Rat` side in full.)
+    expect(projectDiagnostics(
+      "export record Weight = {kilos: Int}\n" +
+      "\n" +
+      "honor Num<Weight> =\n" +
+      "    add(left, right) = Weight({kilos = left.kilos + right.kilos})\n" +
+      "    multiply(left, right) = Weight({kilos = left.kilos * right.kilos})\n" +
+      "    fromNat(value) = Weight({kilos = Int.fromNat(value)})\n" +
+      "\n" +
+      "honor Pow<Weight> =\n" +
+      "    pow(value, exponent) = value\n" +
+      "\n" +
+      "export let r: Weight = Weight({kilos = 2}) ** 0.5\n",
     )).toEqual(["type mismatch: expected Int, found Float"]);
   });
 

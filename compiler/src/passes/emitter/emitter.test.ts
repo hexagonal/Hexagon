@@ -1259,7 +1259,8 @@ describe("emitJavaScript", () => {
       "type `Nat` has no `Signed` instance; its only legal homes are the module " +
         "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
         "source, so this pair's honored set is closed — change the type, or go through " +
-        "the operations those homes export",
+        "the operations those homes export; a written `Int` face runs the operation " +
+        "and admits the result (`let difference: Int = …`)",
     );
   });
 
