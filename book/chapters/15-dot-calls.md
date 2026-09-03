@@ -225,7 +225,8 @@ matching constraint gets an error naming the options, not a guess.
 Numeric members go one step further. The operators are spellings of the members of
 `Num`, `Signed`, `Frac`, and `Pow`, and the widening the operators perform belongs to the
 members, not to the symbols. A dot call on one of those members therefore widens exactly
-as the operator does:
+as the operator does, and so does a call on `Integral`'s `div` and `mod`, which belong to
+the same family though no operator spells them:
 
 ```hexagon
 let count: Int = 3
@@ -257,7 +258,8 @@ collection vocabulary — is reached by the dot or by its qualified name
 the qualified form is the explicit one. One thing no type can have is
 a *second* operation with a member's name: a module that honors `Show` cannot also
 define its own `show`, so a dot call that resolves to a member never has a monomorphic
-twin hiding behind it.
+twin hiding behind it. `Nat` and `Int` reserve, on the same ground, the numeric member
+names they answer to without honoring — `subtract` at `Nat` among them.
 
 ## Dot calls disappear before JavaScript
 

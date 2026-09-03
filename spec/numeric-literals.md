@@ -182,8 +182,9 @@ like any seat, not through the lift. **The rungs are the language's own and the 
 closed.** A type — `Rat`, or a user's `Decimal` — joins the tower by honoring the rungs
 lawfully (below), never by adding one; a user constraint bounded on `Num` is an ordinary
 constraint outside the tower, served by the ordinary seat widening and nothing more. The
-closure is what keeps the tower's vocabulary conflict-free at the source types (Method
-Syntax §4.2's ownership clause) and its behaviour statable in one paragraph; a new rung is
+closure is what keeps Method Syntax §4.2's ownership clause finite — a collision at the
+source types is then always an author's own honoring, never the existence of a constraint
+elsewhere — and the tower's behaviour statable in one paragraph; a new rung is
 a design ruling on the footing of a new prelude bare name (Modules §5.5). A **tower member
 call** is a call of a subject-first member of a rung whose result type is the subject, in
 whatever spelling — operator, bare, qualified, pipe stage, or dot; the operators are its
@@ -191,8 +192,8 @@ everyday spellings and elaborate to nothing else (Operators §1.1).
 
 **The expected-type lift — the written type is the arithmetic's home.** At a tower member
 call — the `Num`/`Signed`/`Frac`/`Pow` operators, unary negation included; the member
-spelled bare, qualified through its constraint or an honoring companion, as a pipe stage,
-or by the dot (Method Syntax §1, §7); `Integral`'s `div`, `mod`, `quot`, `rem`, and `gcd`
+spelled bare, qualified through its constraint, as a pipe stage, or by the dot (Method
+Syntax §1, §7) — a companion-qualified spelling is a written face, below; `Integral`'s `div`, `mod`, `quot`, `rem`, and `gcd`
 included, though no operator spells them *(#808)* — whose expected type is **concrete**
 and carries the member's constraint instance, the expected type **is** the operation's
 common type: each operand reaches it by exact unification or
@@ -215,8 +216,8 @@ let r: Rat = 1 + 2            // Rat addition already — literals are polymorph
 let x: Int = n - m            // n, m : Nat — both widen; Signed<Int> subtraction, possibly negative
 let mean: Float = sum / size  // sum, size : Int — Frac<Float> division; Int has no Frac and needs none here
 let s = count + count         // no written face: Int addition, as ever
-let r: BigInt = count.add(count)     // the same lift, spelled by the dot — BigInt addition
-let r: BigInt = count |> Num.add(1)  // and as a pipe stage — never Int addition injected after
+let sum: BigInt = count.add(count)     // the same lift, spelled by the dot — BigInt addition
+let next: BigInt = count |> Num.add(1)  // and as a pipe stage — never Int addition injected after
 ```
 
 A **companion**-qualified spelling of a member (`Float.multiply`, `Int.multiply`) is not a
@@ -302,13 +303,14 @@ emitted or permitted); the gated decline at the gate's remaining subject
 (`let t: T = a ** b` for a user nominal `T` honoring `Num` and `Signed` but not `Pow` —
 `Int` power, result injected); the no-face boundary (`let s = count + count` stays
 `Int`); and the recursion depth (`let r: Rat = (a + b) * c` runs entirely at `Rat`). *(#808.)*
-Since the lift governs every spelling, the spelled rows: `let r: BigInt = i.add(j)`,
-`let r: BigInt = Num.add(i, j)`, `let r: BigInt = i |> Num.add(j)`, and `let q: BigInt =
-Integral.div(i, j)` each run at `BigInt` (the additions value-checked past 2^53); the
-operand-driven rows `i.add(b)`, `b.add(i)`, `count.multiply(price)`, and
-`price.multiply(count)` accepted at the wider operand's type; `Int.multiply(count, price)`
-refused as a written face; and `let d: Int = n.subtract(m)` accepted through Method Syntax
-§4.2's ownership clause with both `Nat`s injected.
+Since the lift governs every spelling (further fixtures: `big : BigInt`; `price :
+Float`), the spelled rows: `let r: BigInt = a.add(c)`, `let r: BigInt = Num.add(a, c)`,
+`let r: BigInt = a |> Num.add(c)`, and `let q: BigInt = Integral.div(a, c)` each run at
+`BigInt` (the additions value-checked past 2^53); the operand-driven rows `a.add(big)`,
+`big.add(a)`, `count.multiply(price)`, and `price.multiply(count)` accepted at the wider
+operand's type; `Int.multiply(count, price)` refused as a written face; and `let d: Int =
+n.subtract(m)` accepted through Method Syntax §4.2's ownership clause with both `Nat`s
+injected.
 
 ### 5.2 Literal emission
 
