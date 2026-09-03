@@ -219,10 +219,11 @@ operand reached it and the lift would have fired; and an `Int` result the face d
 admit — a face honoring `Num` alone — is refused at the seat like any other. So a
 stand-down's result is never the face, and the consuming seat refuses it. The dot's
 receiver is such a seat *(#821)*: the forwarded face is the receiver's expectation (Method
-Syntax §2.2's receiver rule), and a receiver that ran at its own type after a stand-down
-is refused — at the dot where the dot's claimant lies outside the spelling's rung, at the
-enclosing seat where it is the rung's own member — never accepted at the type it kept —
-`let n: BigInt = p.add(q).gcd(s)` at a user companion export is refused with the
+Syntax §2.2's receiver rule), and a receiver that ran at its own type after a stand-down —
+at its own outermost operation, or at one a forwarding form handed the face to — is
+refused: at the stood-down call where the dot's claimant lies outside the spelling's rung,
+at the enclosing seat where it is the rung's own member, never accepted at the type it
+kept — `let n: BigInt = p.add(q).gcd(s)` at a user companion export is refused with the
 three-fact report (§6; Method Syntax §9 row 16) and accepted as `(p.add(q): Foo).gcd(s)`,
 the ascription being the boundary. A stand-down that could succeed would make the receiver
 the one seat where the order in which the face descends into nested operands is meaning;
@@ -361,10 +362,12 @@ companion-qualified (`Foo.add(p, q).gcd(s)`, a written face); the newly refused 
 receivers `(p + q).gcd(s)` and `(i + p).gcd(s)`, which compile today; the report counts
 falling to one — from three at `Num.add(p, q).gcd(s)` and the pipe stage, from two at
 `i.add(p).gcd(s)`; the nested receiver `(p + (i + j)).gcd(s)` refused once by the outer
-operation; an `if` receiver with one `Int` branch and one `Foo` branch refused once at the
-branch with the boundary fixit, not by the receiver rule; and the three claimant kinds — a
-companion export, an honored member of a user constraint, a function-typed field — refused
-alike (Method Syntax §14(v)).
+operation; an `if` receiver with one `Int` branch and one `Foo` branch refused once by
+Operators §11's own report at the `if`, naming the `Foo` branch and carrying the boundary
+fixit, not by the receiver rule; and `(if c then p else q).gcd(s)` accepted beside `(if c
+then p.add(q) else p).gcd(s)` refused at the stood-down branch, the pair differing only in
+that branch; and the three claimant kinds — a companion export, an honored member of a
+user constraint, a function-typed field — refused alike (Method Syntax §14(v)).
 
 ### 5.2 Literal emission
 
