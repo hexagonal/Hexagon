@@ -195,29 +195,32 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
   });
 
   test("a `Float` never enters `Rat`, in any spelling", () => {
-    // Every spelling refuses, which is the row. **Where** the refusal fires
-    // differs, and the difference is pinned rather than smoothed over: at the
-    // operator, Numeric Literals §5.1's stand-down declines the face before the
-    // operation runs, so the report is §6's — at the binding, naming the operand
-    // that declined. At the member spellings the subject is bound to the face
-    // before the operands elaborate, so `price` meets `Rat` at its own seat and
-    // takes the plain mismatch there. Reaching §6's report from the member
-    // spellings needs the bind delayed until the operands are in; it is not in
-    // this change, and no program's verdict turns on it.
-    expect(ratVerdict("export let total: Rat.Rat = count * price\n")).toEqual([
-      "`price` is a `Float` and cannot enter `Rat`, so the multiplication ran " +
-        "at `Float`",
-    ]);
+    // Every spelling refuses, which is the row — and since #821's **delayed
+    // bind** every spelling of the open call refuses in the same words. The
+    // subject is established after the operands are in, so the stand-down is
+    // decided over all of them and Numeric Literals §6's note is taken at the
+    // member spellings too: `price` meets no `Rat` seat of its own, and the
+    // report fires at the binding, naming the operand that declined. (Before it,
+    // the four open spellings bound the subject to the face first and took a
+    // plain mismatch at `price`'s seat — #819's first bullet.)
+    const report = "`price` is a `Float` and cannot enter `Rat`, so the " +
+      "multiplication ran at `Float`";
     for (const spelling of [
+      "count * price",
       "Num.multiply(count, price)",
       "count |> Num.multiply(price)",
       "count.multiply(price)",
       "price.multiply(count)",
-      "Float.multiply(count, price)",
     ]) {
       expect(ratVerdict(`export let total: Rat.Rat = ${spelling}\n`))
-        .toEqual(["type mismatch: expected Rat, found Float"]);
+        .toEqual([report]);
     }
+    // The **companion-qualified** spelling is a written face rather than a
+    // further spelling of the open call (§5.1, Method Syntax §1): the operands
+    // widen *into* it and it lifts nothing, so there is no stand-down to
+    // report and the mismatch is the plain one.
+    expect(ratVerdict("export let total: Rat.Rat = Float.multiply(count, price)\n"))
+      .toEqual(["type mismatch: expected Rat, found Float"]);
   });
 
   test("a declared type variable dispatches the widened member too", () => {
@@ -245,13 +248,19 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
    * rung*: the face travels when the name is a tower member's spelling and the
    * expected type is a concrete type honoring that spelling's rung.
    *
-   * The rung is the whole soundness of the stand-in, and the two rows that
-   * carry it are `rem` under a `Float` face (`Float` honors no `Integral`, so
-   * nothing forwards and `Integral<Int>`'s guarded member dispatches, never
-   * `Float.hex`'s exported `rem`) and `gcd` at a user companion under a `BigInt`
-   * face (the face honors the rung, so it forwards — and Numeric Literals
-   * §5.1's **stand-down** then declines it, because `Foo` can reach `BigInt` by
-   * neither route).
+   * The rung is the whole soundness of the stand-in, and the row that carries it
+   * is `rem` under a `Float` face: `Float` honors no `Integral`, so nothing
+   * forwards and `Integral<Int>`'s guarded member dispatches, never
+   * `Float.hex`'s exported `rem`.
+   *
+   * *(#821.)* Where the face **does** travel it is **binding**, as at any
+   * operand seat. The receiver stand-down that first shipped with the rule — a
+   * receiver whose operands could not reach the face keeping its own type and
+   * dispatching there — is retracted: it tested the receiver operand alone, so
+   * `p.add(q).gcd(s)` compiled while `i.add(p).gcd(s)` refused twice, one
+   * operation with two verdicts. Now the subject is established after **every**
+   * operand is in, the lift stands down over all of them, and a stood-down
+   * receiver is refused at the dot with §9 row 16's one report of three facts.
    */
   const foo = "export record Foo = {n: Int}\n" +
     "\n" +
@@ -260,11 +269,82 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     "    multiply(left, right) = Foo({n = left.n * right.n})\n" +
     "    fromNat(value) = Foo({n = Int.fromNat(value)})\n" +
     "\n" +
-    "export let gcd(left: Foo, right: Foo): BigInt = BigInt.fromInt(left.n)\n" +
+    // `Signed<Foo>` is what lets an `Int` operand enter `Foo` (§5.1's second
+    // conversion), which is the whole of the mixed-operand matrix below: without
+    // it `i.add(p)` would refuse for want of an algebra rather than for the face.
+    "honor Signed<Foo> =\n" +
+    "    subtract(left, right) = Foo({n = left.n - right.n})\n" +
+    "    negate(value) = Foo({n = -value.n})\n" +
+    "    fromInt(value) = Foo({n = value})\n" +
     "\n" +
+    "export let gcd(left: Foo, right: Foo): BigInt = BigInt.fromInt(left.n)\n" +
+    "export let mk(): Foo = Foo({n = 1})\n" +
+    "\n" +
+    "let i: Int = 2\n" +
+    "let j: Int = 3\n" +
+    "let c: Bool = True\n" +
+    "let b9: BigInt = 9n\n" +
+    "let ff: Float = 1.5\n" +
+    "let gg: Float = 2.5\n" +
     "let p: Foo = Foo({n = 4})\n" +
     "let q: Foo = Foo({n = 6})\n" +
     "let s2: Foo = Foo({n = 8})\n";
+
+  /**
+   * The same fixture as a **companion module**, which is what makes the
+   * companion-qualified spelling `Foo.add(p, q)` reachable at all — and what
+   * makes the type's spelling at the use site `Foo.Foo`.
+   */
+  const fooModule = foo.slice(0, foo.indexOf("let i: Int"));
+  const fooMain = 'import Foo from "./Foo"\n' +
+    "let p: Foo.Foo = Foo.mk()\n" +
+    "let q: Foo.Foo = Foo.mk()\n" +
+    "let s2: Foo.Foo = Foo.mk()\n";
+
+  /** One standalone program's diagnostics, in production order. */
+  const refusals = (source: string): readonly string[] =>
+    compileFiles([["/main.hex", source]]).diagnostics.map(({ message }) => message);
+
+  /**
+   * §9 row 16's report, assembled from its three facts so a pin states them
+   * rather than quoting a sentence nobody reads.
+   */
+  const rowSixteen = (parts: {
+    /** The receiver as the site spells it, or `""` where it has no spelling. */
+    readonly receiver: string;
+    /** The declining operand clause, in §6's words. */
+    readonly declined: string;
+    /** The stood-down call, which the offered ascription names. */
+    readonly ascribe: string;
+    /** The type it kept, and that type's spelling at the site. */
+    readonly kept: string;
+    readonly written?: string;
+  }): string =>
+    "`gcd` is a member of `Integral` and `BigInt` honors `Integral`, so the " +
+    `\`BigInt\` here reached the receiver${
+      parts.receiver === "" ? "" : ` \`${parts.receiver}\``
+    }; ${parts.declined} cannot enter \`BigInt\`, so the addition could not run ` +
+    `at \`BigInt\`. To keep \`${parts.ascribe}\` at \`${parts.kept}\`, ascribe ` +
+    `it — \`(${parts.ascribe}: ${parts.written ?? parts.kept})\` — or bind it first`;
+
+  /**
+   * The **face descent's** report: the operation's or the form's own mismatch,
+   * with §2.2's boundary repair on it where the ascription compiles.
+   *
+   * The repair names no binding. What is ascribed here is a whole operation or
+   * a whole forwarding form, whose join *without* the face is its own question:
+   * measured, `let t = if c then i + j else p` joins at `Foo` and repairs, while
+   * the `match` of the same two paths refuses on its own, the arm join carrying
+   * no widening. §9 row 16's own repair does name one — it ascribes the
+   * stood-down call, whose type is the kept type by construction.
+   */
+  const descended = (
+    ascribed: string,
+    mismatch = "expected BigInt, found Foo",
+    kept = "Foo",
+  ): string =>
+    `type mismatch: ${mismatch}. To keep \`${ascribed}\` at \`${kept}\`, ` +
+    `ascribe it — \`(${ascribed}: ${kept})\``;
 
   /** One standalone program's `probe` line, with the project asserted clean. */
   const line = (source: string): string => {
@@ -347,14 +427,573 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     }
   });
 
-  test("the lift stands down where an operand cannot reach the face", () => {
-    // §5.1's stand-down, and its one **non-refusing** case: the forwarded face
-    // is not the consuming seat's own type, so the receiver simply keeps its
-    // type. `BigInt` honors `Integral`, so `gcd` forwards it — and `Foo` reaches
-    // `BigInt` by neither route, so `p.add(q)` runs at `Foo` and the companion's
-    // exported `gcd` answers, exactly as it did before the rule.
-    expect(line(`${foo}let probe: BigInt = p.add(q).gcd(s2)\n`))
+  test("a stood-down receiver is refused, never accepted at the type it kept", () => {
+    // §9 row 16, and the retraction it is *(#821)*. `BigInt` honors `Integral`,
+    // so `gcd` forwards it; `Foo` reaches `BigInt` by neither route, so the
+    // addition could not run there — and the face being **binding**, the dot
+    // refuses rather than dispatching the companion's exported `gcd` at `Foo`.
+    // `[was OK]`: this exact program compiled before the retraction.
+    expect(refusals(`${foo}let probe: BigInt = p.add(q).gcd(s2)\n`)).toEqual([
+      rowSixteen({
+        receiver: "p.add(q)",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p.add(q)",
+        kept: "Foo",
+      }),
+    ]);
+  });
+
+  test("every written boundary keeps the receiver, and every spelling refuses alike", () => {
+    // The boundaries §2.2 names, each stopping the face: the ascription, the
+    // separate binding, and the absence of a face at all. All three answer with
+    // the companion's exported `gcd`, which is the point of the offered repair —
+    // the program the reader wanted is one edit away.
+    expect(line(`${foo}let probe: BigInt = (p.add(q): Foo).gcd(s2)\n`))
       .toBe("const probe = gcd(__Num_Foo_add(p, q), s2);");
+    expect(line(`${foo}let probe = p.add(q).gcd(s2)\n`))
+      .toBe("const probe = gcd(__Num_Foo_add(p, q), s2);");
+    expect(line(`${foo}let t2 = p.add(q)\nlet probe: BigInt = t2.gcd(s2)\n`))
+      .toBe("const probe = gcd(t2, s2);");
+    // A receiver that is no tower member call takes the expectation and does
+    // nothing with it — an expectation is not an annotation.
+    expect(line(`${foo}let probe: BigInt = p.gcd(s2)\n`))
+      .toBe("const probe = gcd(p, s2);");
+    expect(line(`${foo}let probe: BigInt = mk().gcd(s2)\n`))
+      .toBe("const probe = gcd(mk(), s2);");
+  });
+
+  test("the refusal is one report at every spelling of the receiver's operation", () => {
+    // The **delayed bind**, measured where it shows: before it, the mixed
+    // operand `i.add(p)` refused *twice* (the subject was bound to the face, so
+    // `p` refused at its own seat as well), the constraint-qualified spelling
+    // three times, and the all-`Foo` operator spelling not at all. One
+    // operation, one verdict, one report — whichever spelling wrote it.
+    const mixed = (receiver: string, declined = "`p` is a `Foo` and"): string =>
+      rowSixteen({ receiver, declined, ascribe: receiver, kept: "Foo" });
+    expect(refusals(`${foo}let probe: BigInt = i.add(p).gcd(s2)\n`))
+      .toEqual([mixed("i.add(p)")]);
+    expect(refusals(`${foo}let probe: BigInt = p.add(i).gcd(s2)\n`))
+      .toEqual([mixed("p.add(i)")]);
+    // `[was OK]` — the operator spellings compiled, the receiver operand alone
+    // having been tested and `Foo` having declined it.
+    expect(refusals(`${foo}let probe: BigInt = (i + p).gcd(s2)\n`))
+      .toEqual([rowSixteen({
+        receiver: "(i + p)",
+        declined: "`p` is a `Foo` and",
+        ascribe: "i + p",
+        kept: "Foo",
+      })]);
+    expect(refusals(`${foo}let probe: BigInt = (p + q).gcd(s2)\n`))
+      .toEqual([rowSixteen({
+        receiver: "(p + q)",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p + q",
+        kept: "Foo",
+      })]);
+    // The constraint-qualified spelling and the pipe stage are the open call
+    // too (§5.1), and refuse once each. Both are quoted **as written**: the
+    // resolved tree records the member a qualified reference resolved to and not
+    // the qualifier, and a pipe stage arrives as the call it rewrote to, so
+    // neither reconstructs — the report slices the source span instead.
+    expect(refusals(`${foo}let probe: BigInt = Num.add(p, q).gcd(s2)\n`))
+      .toEqual([rowSixteen({
+        receiver: "Num.add(p, q)",
+        declined: "`p` is a `Foo` and",
+        ascribe: "Num.add(p, q)",
+        kept: "Foo",
+      })]);
+    expect(refusals(`${foo}let probe: BigInt = (p |> Num.add(q)).gcd(s2)\n`))
+      .toEqual([rowSixteen({
+        receiver: "(p |> Num.add(q))",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p |> Num.add(q)",
+        kept: "Foo",
+      })]);
+  });
+
+  test("the companion-qualified receiver is a written face and cannot stand down", () => {
+    // §5.1: `Foo.add(p, q)` is a *written face*, not a further spelling of the
+    // open call — the operands widen into it and it lifts nothing, so there is
+    // no stand-down and nothing forwards past it. It needs the two-module shape,
+    // a companion module being what makes the qualified spelling reachable, and
+    // that shape is also where the offered ascription has to name the type as
+    // *this* module spells it.
+    const project = compileFiles([
+      ["/main.hex", fooMain + "let probe: BigInt = Foo.add(p, q).gcd(s2)\n"],
+      ["/Foo.hex", fooModule],
+    ]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    expect(
+      project.modules.find(({ source: file }) => file.path === "/main.hex")!
+        .javascript.text.split("\n").find((text) => text.includes("const probe"))!.trim(),
+    ).toBe("const probe = Foo.gcd(add(p, q), s2);");
+    // And the row-16 repair spells `Foo.Foo`, which is the only spelling that
+    // resolves here.
+    expect(
+      compileFiles([
+        ["/main.hex", fooMain + "let probe: BigInt = p.add(q).gcd(s2)\n"],
+        ["/Foo.hex", fooModule],
+      ]).diagnostics.map(({ message }) => message),
+    ).toEqual([
+      rowSixteen({
+        receiver: "p.add(q)",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p.add(q)",
+        kept: "Foo",
+        written: "Foo.Foo",
+      }),
+    ]);
+  });
+
+  test("the face reaches a tower call through every forwarding form", () => {
+    // §2.2's reach: the face governs every tower member call it reaches, and it
+    // reaches through the forms that return another expression's value. Each of
+    // these compiled before the retraction — the branches joined at `Foo` and
+    // the companion's `gcd` answered — and each is `[was OK]`.
+    const branch = (receiver: string, source: string): void => {
+      expect(refusals(`${foo}let probe: BigInt = ${source}\n`)).toEqual([
+        rowSixteen({
+          receiver,
+          declined: "`p` is a `Foo` and",
+          ascribe: "p.add(q)",
+          kept: "Foo",
+        }),
+      ]);
+    };
+    branch("(if c then p.add(q) else p)", "(if c then p.add(q) else p).gcd(s2)");
+    branch(
+      "(if c then (if c then p.add(q) else p) else q)",
+      "(if c then (if c then p.add(q) else p) else q).gcd(s2)",
+    );
+    // A `match` arm, a block's final expression and a `try` body are forwarding
+    // forms too. The receiver has no spelling this report can offer, so it names
+    // none.
+    branch("", "(match c\n        True => p.add(q)\n        False => p).gcd(s2)");
+    branch("", "(if c then\n        let z = 1\n        p.add(q)\n    else p).gcd(s2)");
+    branch("", "(try\n        p.add(q)\n    catch\n        JsError(e) => p).gcd(s2)");
+    // A tower operation inside a branch, reached as an operand of another.
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = ((if c then p.add(q) else p) + q).gcd(s2)\n`,
+      ),
+    ).toEqual([
+      rowSixteen({
+        receiver: "((if c then p.add(q) else p) + q)",
+        declined: "the part of the receiver that declined is a `Foo` and it",
+        ascribe: "(if c then p.add(q) else p) + q",
+        kept: "Foo",
+      }),
+    ]);
+    // The operator inside a branch takes the same row.
+    expect(refusals(`${foo}let probe: BigInt = (if c then p + q else p).gcd(s2)\n`))
+      .toEqual([rowSixteen({
+        receiver: "(if c then p + q else p)",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p + q",
+        kept: "Foo",
+      })]);
+    // And the reach follows a dot call's own receiver, wherever the face got to.
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = (if c then p.add(q).gcd(s2) else b9).multiply(b9)\n`,
+      ),
+    ).toEqual([
+      rowSixteen({
+        receiver: "p.add(q)",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p.add(q)",
+        kept: "Foo",
+      }),
+    ]);
+  });
+
+  test("a boundary inside a form composes, and a form with no tower call is untouched", () => {
+    // The twin of the block route above, one line apart: the binding *inside*
+    // the block is a boundary, so the block's final expression is a variable and
+    // the face reaches no tower call at all.
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = (if c then\n` +
+          "        let inner = p.add(q)\n        inner\n    else p).gcd(s2)\n",
+      ),
+    ).toEqual([]);
+    // An ascription inside a branch is a boundary too, and composes — and it is
+    // the repair the report offers, so it must compile.
+    expect(line(`${foo}let probe: BigInt = (if c then (p.add(q): Foo) else p).gcd(s2)\n`))
+      .toBe("const probe = gcd(c ? __Num_Foo_add(p, q) : p, s2);");
+    // The whole-receiver ascription also repairs *here*, the receiver's own type
+    // being the kept type. The fixit names the smaller, always-repairing one.
+    expect(line(`${foo}let probe: BigInt = (if c then p.add(q) else p: Foo).gcd(s2)\n`))
+      .toBe("const probe = gcd(c ? __Num_Foo_add(p, q) : p, s2);");
+    // Variables in both branches: nothing lifts, nothing stands down.
+    expect(line(`${foo}let probe: BigInt = (if c then p else q).gcd(s2)\n`))
+      .toBe("const probe = gcd(c ? p : q, s2);");
+  });
+
+  test("the operand channel carries the face, and the report is the outermost stand-down", () => {
+    // §5.1's operand channel is part of the reach: the inner `p.add(q)` stands
+    // down, the outer `+` then stands down over it, and row 16 reports at the
+    // **outermost** of the two.
+    expect(refusals(`${foo}let probe: BigInt = (p.add(q) + q).gcd(s2)\n`)).toEqual([
+      rowSixteen({
+        receiver: "(p.add(q) + q)",
+        declined: "the part of the receiver that declined is a `Foo` and it",
+        ascribe: "p.add(q) + q",
+        kept: "Foo",
+      }),
+    ]);
+  });
+
+  test("the `**` exponent seat is outside the reach", () => {
+    // Numeric Literals §5.1: at `**` the face governs the **base** seat only —
+    // the written `Int` exponent takes `Int` as its own face and never the outer
+    // one. Both rows are unchanged by #821.
+    expect(line(`${foo}let probe: BigInt = (b9 ** (i + j)).gcd(b9)\n`))
+      .toBe("const probe = __Integral_BigInt_gcd(__Pow_BigInt.pow(b9, i + j), b9);");
+    expect(line(`${foo}let probe: BigInt = ((i + j) ** i).multiply(b9)\n`))
+      .toBe("const probe = __Pow_BigInt.pow(BigInt(i) + BigInt(j), i) * b9;");
+  });
+
+  test("where the parts disagree, the form's own report wins and row 16 stands aside", () => {
+    // A forwarding form has **no lift** of its own to stand down: the face
+    // reaches both branches, `i + j` enters it and `p` cannot, and the branches
+    // then disagree. Operators §11's report at the whole `if` is the whole
+    // refusal — one report, where two fired before — and §2.2 adds only the
+    // boundary repair, offered because the branch the face lifted would follow
+    // the receiver to `Foo`.
+    expect(refusals(`${foo}let probe: BigInt = (if c then i + j else p).gcd(s2)\n`))
+      .toEqual([descended("(if c then i + j else p)")]);
+    // The repair is offered only where it compiles. `b9 : BigInt` would not
+    // follow the receiver to `Foo`, so no ascription is named.
+    expect(refusals(`${foo}let probe: BigInt = (if c then p.add(q) else b9).gcd(s2)\n`))
+      .toEqual(["type mismatch: expected Foo, found BigInt"]);
+    // §9 row 16 names the `match` and `try` arm bodies in the same breath as the
+    // `if`'s branches (Pattern Matching §6.2's report at the arm body), and the
+    // join there is result-against-arm rather than branch-against-branch. Both
+    // twins of the control above: one report, and row 16 stands aside.
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = (match c\n` +
+          "        True => p.add(q)\n        False => b9).gcd(s2)\n",
+      ),
+    ).toEqual(["type mismatch: expected Foo, found BigInt"]);
+    expect(
+      refusals(
+        `${foo}fun probeOf(): BigInt =\n    (try\n        p.add(q)\n` +
+          "    catch\n        JsError(e) => b9).gcd(s2)\n",
+      ),
+    ).toEqual(["type mismatch: expected Foo, found BigInt"]);
+    // And the lifted-branch twins, where the `if` carries the boundary fixit and
+    // the arm forms do not. The reason is not that the walk stops early — it
+    // reaches the arm bodies and finds that both of them do follow — but that an
+    // arm form's own text spans lines, so the ascription cannot be put on one
+    // line, and the *binding* is no repair here either: `let t = match c / True
+    // => i + j / False => p` refuses on its own, the arm join carrying no
+    // widening where the `if`'s does (pinned below). Nothing offerable, so
+    // nothing offered.
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = (match c\n` +
+          "        True => i + j\n        False => p).gcd(s2)\n",
+      ),
+    ).toEqual(["type mismatch: expected BigInt, found Foo"]);
+    expect(
+      refusals(
+        `${foo}fun probeOf(): BigInt =\n    (try\n        i + j\n` +
+          "    catch\n        JsError(e) => p).gcd(s2)\n",
+      ),
+    ).toEqual(["type mismatch: expected BigInt, found Foo"]);
+    // The nested receiver is the same shape at the operator and at the member
+    // spelling: the face descends into one operand, the other declines it, and
+    // the operation is left with no algebra. Its own report, once, with the
+    // repair.
+    expect(refusals(`${foo}let probe: BigInt = (p + (i + j)).gcd(s2)\n`))
+      .toEqual([descended("(p + (i + j))", "expected Foo, found BigInt")]);
+    expect(refusals(`${foo}let probe: BigInt = p.add(i.add(j)).gcd(s2)\n`))
+      .toEqual([descended("p.add(i.add(j))", "expected Foo, found BigInt")]);
+  });
+
+  test("every repair this report offers compiles", () => {
+    // The truth test behind an offered rewrite (Modules §7.6): each ascription
+    // named above is pasted back and must be accepted.
+    expect(refusals(`${foo}let probe: BigInt = (i + p: Foo).gcd(s2)\n`)).toEqual([]);
+    expect(refusals(`${foo}let probe: BigInt = (p + q: Foo).gcd(s2)\n`)).toEqual([]);
+    expect(refusals(`${foo}let probe: BigInt = (add(p, q): Foo).gcd(s2)\n`)).toEqual([]);
+    expect(refusals(`${foo}let probe: BigInt = (if c then (p + q: Foo) else p).gcd(s2)\n`))
+      .toEqual([]);
+    expect(
+      refusals(`${foo}let probe: BigInt = (if c then i + j else p: Foo).gcd(s2)\n`),
+    ).toEqual([]);
+    expect(refusals(`${foo}let probe: BigInt = ((p + (i + j)): Foo).gcd(s2)\n`))
+      .toEqual([]);
+    expect(refusals(`${foo}let probe: BigInt = (p.add(i.add(j)): Foo).gcd(s2)\n`))
+      .toEqual([]);
+    expect(refusals(`${foo}let probe: BigInt = (p.add(q) + q: Foo).gcd(s2)\n`))
+      .toEqual([]);
+    // The two spellings the tree cannot reconstruct, offered as written and
+    // pasted back exactly as offered.
+    expect(refusals(`${foo}let probe: BigInt = (Num.add(p, q): Foo).gcd(s2)\n`))
+      .toEqual([]);
+    expect(refusals(`${foo}let probe: BigInt = (p |> Num.add(q): Foo).gcd(s2)\n`))
+      .toEqual([]);
+  });
+
+  test("the boundary is offered only where it compiles", () => {
+    // The Rewrite Rule's own test, and it is decided from the **recorded** types
+    // of the operands rather than from a prediction about the kept type. A
+    // tower operation follows the receiver to `Foo` only where each of its own
+    // operands can enter `Foo`: `i` and `j` do, through `Signed.fromInt`, and
+    // `b9 : BigInt` enters nothing — so the same shapes that carry the fixit one
+    // line above carry none here. `main` offered none on any of them.
+    const bare = "type mismatch: expected BigInt, found Foo";
+    expect(refusals(`${foo}let probe: BigInt = (if c then i + b9 else p).gcd(s2)\n`))
+      .toEqual([bare]);
+    expect(refusals(`${foo}let probe: BigInt = (if c then i.add(b9) else p).gcd(s2)\n`))
+      .toEqual([bare]);
+    expect(refusals(`${foo}let probe: BigInt = (p + (i + b9)).gcd(s2)\n`))
+      .toEqual(["type mismatch: expected Foo, found BigInt"]);
+    expect(refusals(`${foo}let probe: BigInt = p.add(i.add(b9)).gcd(s2)\n`))
+      .toEqual(["type mismatch: expected Foo, found BigInt"]);
+    // And the rung half of the same test: `Foo` honors no `Pow`, so a `**`
+    // branch would not run at `Foo` under any ascription.
+    expect(refusals(`${foo}let probe: BigInt = (if c then b9 ** i else p).gcd(s2)\n`))
+      .toEqual([bare]);
+    // Each of the offers that *is* made, pasted back — the positive half of the
+    // same predicate, so a change to it cannot pass by weakening one side.
+    for (
+      const repaired of [
+        "(if c then i + j else p: Foo)",
+        "((p + (i + j)): Foo)",
+        "(p.add(i.add(j)): Foo)",
+      ]
+    ) expect(refusals(`${foo}let probe: BigInt = ${repaired}.gcd(s2)\n`)).toEqual([]);
+  });
+
+  test("the boundary walks every value path the face itself walks", () => {
+    // The repair asks its question of the **whole** ascribed expression, and
+    // the face travels through the forwarding forms (§2.2), so the walk has to
+    // as well: grouping, a block's final expression, both `if` branches, and
+    // `match`/`try` arm bodies. Walking only as far as the first `Group`
+    // silenced every one of these, a **one-line** nested `if` among them — so
+    // line-spanning was never the operative reason.
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = (if c then (if c then i + j else i) else p).gcd(s2)\n`,
+      ),
+    ).toEqual([descended("(if c then (if c then i + j else i) else p)")]);
+    expect(refusals(`${foo}let probe: BigInt = (p + ((i + j))).gcd(s2)\n`))
+      .toEqual([descended("(p + ((i + j)))", "expected Foo, found BigInt")]);
+    expect(refusals(`${foo}let probe: BigInt = (if c then (i + j) else p).gcd(s2)\n`))
+      .toEqual([descended("(if c then (i + j) else p)")]);
+    // Both, pasted back.
+    for (
+      const repaired of [
+        "((if c then (if c then i + j else i) else p): Foo)",
+        "((p + ((i + j))): Foo)",
+        "((if c then (i + j) else p): Foo)",
+      ]
+    ) expect(refusals(`${foo}let probe: BigInt = ${repaired}.gcd(s2)\n`)).toEqual([]);
+    // The walk reaching further must not weaken B2: one `BigInt` leaf anywhere
+    // in the nest and the offer is withheld, at every depth.
+    const bare = "type mismatch: expected BigInt, found Foo";
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = (if c then (if c then i + b9 else i) else p).gcd(s2)\n`,
+      ),
+    ).toEqual([bare]);
+    expect(refusals(`${foo}let probe: BigInt = (p + (i + (j + b9))).gcd(s2)\n`))
+      .toEqual(["type mismatch: expected Foo, found BigInt"]);
+    expect(refusals(`${foo}let probe: BigInt = (p + (i + (j + i))).gcd(s2)\n`))
+      .toEqual([descended("(p + (i + (j + i)))", "expected Foo, found BigInt")]);
+  });
+
+  test("the binding is a repair at the stood-down call, and not at a form", () => {
+    // Why §9 row 16's repair names a binding and the face descent's does not.
+    // Row 16 ascribes the **stood-down call**, whose own type is the kept type,
+    // so binding it is §2.2's boundary by construction. The descent ascribes a
+    // whole form, whose join *without* the face is a separate question: the
+    // `if` widens and repairs, the `match` of the same two paths does not.
+    expect(line(`${foo}let t9 = if c then i + j else p\nlet probe: BigInt = t9.gcd(s2)\n`))
+      .toBe("const probe = gcd(t9, s2);");
+    expect(
+      refusals(
+        `${foo}let t9 = match c\n        True => i + j\n        False => p\n`,
+      ),
+    ).toEqual(["type mismatch: expected Int, found Foo"]);
+  });
+
+  test("a dot with no claimant at all keeps its own refusal", () => {
+    // §9 row 16's scope is a claimant **outside the rung** — a companion export,
+    // an honored member of a user constraint, a function-typed field. The
+    // complement of "the kept type honors the rung" is "a non-rung claimant *or
+    // none*", and only the first is this row: where nothing answers, §9 row 4's
+    // refusal is both true and precise where row 16 would name a type that has
+    // no such member and offer an ascription that does not compile.
+    const noSuchGcd = (type: string): string =>
+      `\`${type}\` has no field \`gcd\`, its companion exports no operation ` +
+      `\`gcd\`, and no constraint honored at \`${type}\` has a subject-first ` +
+      "member `gcd`; call an available subject-first function explicitly";
+    // `Float` honors no `Integral` and exports no `gcd`; the receiver stands
+    // down all the same, `Float` reaching `BigInt` by neither route.
+    expect(refusals(`${foo}let probe: BigInt = (ff + gg).gcd(b9)\n`))
+      .toEqual([noSuchGcd("Float")]);
+    expect(refusals(`${foo}let probe = (ff + gg).gcd(b9)\n`))
+      .toEqual([noSuchGcd("Float")]);
+    // The same fixture with the export deleted: one line decides which refusal
+    // the annotated program gets.
+    const noExport = foo.replace(
+      "export let gcd(left: Foo, right: Foo): BigInt = BigInt.fromInt(left.n)\n",
+      "",
+    );
+    expect(refusals(`${noExport}let probe: BigInt = p.add(q).gcd(s2)\n`))
+      .toEqual([noSuchGcd("Foo")]);
+    // A claimant that exists but does not **answer** is no claimant either, and
+    // the two ways it can fail to are §3.4's own — which is why this row reads
+    // the dispatch table rather than a second copy of it. A field that is not a
+    // function takes §9 row 3, and an export declared below the call takes
+    // §9 row 12; row 16's ascription would paste into exactly those.
+    const nf = "export record Nf = {n: Int, gcd: Int}\n" +
+      "honor Num<Nf> =\n" +
+      "    add(left, right) = Nf({n = left.n + right.n, gcd = 0})\n" +
+      "    multiply(left, right) = Nf({n = left.n * right.n, gcd = 0})\n" +
+      "    fromNat(value) = Nf({n = Int.fromNat(value), gcd = 0})\n" +
+      "let f1: Nf = Nf({n = 1, gcd = 0})\n" +
+      "let f2: Nf = Nf({n = 2, gcd = 0})\n";
+    const notAFunction =
+      "`.gcd` is not a function — it has type `Int`, and this call supplies 1 argument";
+    expect(refusals(`${nf}let probe: BigInt = f1.add(f2).gcd(f1)\n`))
+      .toEqual([notAFunction]);
+    expect(refusals(`${nf}let probe: BigInt = (f1.add(f2): Nf).gcd(f1)\n`))
+      .toEqual([notAFunction]);
+    expect(
+      refusals(
+        `${noExport}let probe: BigInt = p.add(q).gcd(s2)\n` +
+          "export let gcd(left: Foo, right: Foo): BigInt = BigInt.fromInt(left.n)\n",
+      ),
+    ).toEqual([
+      "`Foo`'s companion declares `gcd` below this call; declarations are read " +
+      "top-down — move the declaration above this call",
+    ]);
+  });
+
+  test("each stand-down in a receiver is reported, one repair at a time", () => {
+    // Two siblings, each a true and singular refusal: the first is reported, and
+    // its repair surfaces the second. Pinned so the iteration is deliberate.
+    expect(refusals(`${foo}let probe: BigInt = (if c then p.add(q) else q.add(p)).gcd(s2)\n`))
+      .toEqual([rowSixteen({
+        receiver: "(if c then p.add(q) else q.add(p))",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p.add(q)",
+        kept: "Foo",
+      })]);
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = (if c then (p.add(q): Foo) else q.add(p)).gcd(s2)\n`,
+      ),
+    ).toEqual([rowSixteen({
+      receiver: "(if c then (p.add(q): Foo) else q.add(p))",
+      declined: "`q` is a `Foo` and",
+      ascribe: "q.add(p)",
+      kept: "Foo",
+    })]);
+    expect(
+      line(
+        `${foo}let probe: BigInt = ` +
+          "(if c then (p.add(q): Foo) else (q.add(p): Foo)).gcd(s2)\n",
+      ),
+    ).toBe("const probe = gcd(c ? __Num_Foo_add(p, q) : __Num_Foo_add(q, p), s2);");
+  });
+
+  test("the rung's own member is dispatched at the kept type, with no row 16", () => {
+    // §9 row 16's claimant clause. `multiply` is `Num`'s member and `Foo` honors
+    // `Num`, so the kept type meets the rung's own operation there and the
+    // ascription would repair nothing — `(p.add(q): Foo).multiply(s2)` refuses
+    // just the same. No row 16, and the enclosing seat's ordinary stand-down
+    // report is the one report.
+    const stoodDown =
+      "an operand of type `Foo` cannot enter `BigInt`, so the multiplication " +
+      "ran at `Foo`";
+    expect(refusals(`${foo}let probe: BigInt = p.add(q).multiply(s2)\n`))
+      .toEqual([stoodDown]);
+    expect(refusals(`${foo}let probe: BigInt = (p.add(q): Foo).multiply(s2)\n`))
+      .toEqual([stoodDown]);
+  });
+
+  test("the three non-rung claimants are refused alike, and repaired alike", () => {
+    // §9 row 16's class, named exactly: a **non-rung claimant bearing a rung
+    // spelling**. The companion export is pinned above; these are the other two
+    // — an honored member of a user constraint, and a function-typed field. Each
+    // refuses with the same row and each is accepted with the same ascription.
+    const numAndSigned = (name: string, extra: string): string =>
+      `honor Num<${name}> =\n` +
+      `    add(left, right) = ${name}({n = left.n + right.n${extra}})\n` +
+      `    multiply(left, right) = ${name}({n = left.n * right.n${extra}})\n` +
+      `    fromNat(value) = ${name}({n = Int.fromNat(value)${extra}})\n` +
+      `honor Signed<${name}> =\n` +
+      `    subtract(left, right) = ${name}({n = left.n - right.n${extra}})\n` +
+      `    negate(value) = ${name}({n = -value.n${extra}})\n` +
+      `    fromInt(value) = ${name}({n = value${extra}})\n`;
+    const bar = "export constraint Gcdish<a: Num> =\n" +
+      "    gcd(left: a, right: a): BigInt\n" +
+      "export record Bar = {n: Int}\n" +
+      numAndSigned("Bar", "") +
+      "honor Gcdish<Bar> =\n" +
+      "    gcd(left, right) = BigInt.fromInt(left.n)\n" +
+      "let b1: Bar = Bar({n = 4})\n" +
+      "let b2: Bar = Bar({n = 6})\n" +
+      "let b3: Bar = Bar({n = 8})\n";
+    expect(refusals(`${bar}let probe: BigInt = b1.add(b2).gcd(b3)\n`)).toEqual([
+      rowSixteen({
+        receiver: "b1.add(b2)",
+        declined: "`b1` is a `Bar` and",
+        ascribe: "b1.add(b2)",
+        kept: "Bar",
+      }),
+    ]);
+    expect(line(`${bar}let probe: BigInt = (b1.add(b2): Bar).gcd(b3)\n`))
+      .toBe("const probe = __Gcdish_Bar_gcd(__Num_Bar_add(b1, b2), b3);");
+
+    const baz = "export record Baz = {n: Int, gcd: (Baz) -> BigInt}\n" +
+      "honor Num<Baz> =\n" +
+      "    add(left, right) = Baz({n = left.n + right.n, gcd = left.gcd})\n" +
+      "    multiply(left, right) = Baz({n = left.n * right.n, gcd = left.gcd})\n" +
+      "    fromNat(value) = Baz({n = Int.fromNat(value), gcd = other => 0n})\n" +
+      "honor Signed<Baz> =\n" +
+      "    subtract(left, right) = Baz({n = left.n - right.n, gcd = left.gcd})\n" +
+      "    negate(value) = Baz({n = -value.n, gcd = value.gcd})\n" +
+      "    fromInt(value) = Baz({n = value, gcd = other => 0n})\n" +
+      "let z1: Baz = Baz({n = 4, gcd = other => 1n})\n" +
+      "let z2: Baz = Baz({n = 6, gcd = other => 1n})\n" +
+      "let z3: Baz = Baz({n = 8, gcd = other => 1n})\n";
+    expect(refusals(`${baz}let probe: BigInt = z1.add(z2).gcd(z3)\n`)).toEqual([
+      rowSixteen({
+        receiver: "z1.add(z2)",
+        declined: "`z1` is a `Baz` and",
+        ascribe: "z1.add(z2)",
+        kept: "Baz",
+      }),
+    ]);
+    expect(line(`${baz}let probe: BigInt = (z1.add(z2): Baz).gcd(z3)\n`))
+      .toBe("const probe = (__Num_Baz_add(z1, z2).gcd)(z3);");
+  });
+
+  test("a receiver that entered the face is refused for its own reasons", () => {
+    // The literal-only receiver: literals reach anything, so `1 + 2` lifts to
+    // `BigInt` and the receiver **entered** the face. What refuses is `s2` at
+    // `Integral<BigInt>`'s own seat — not row 16, which is about a receiver that
+    // could not enter.
+    expect(refusals(`${foo}let probe: BigInt = (1 + 2).gcd(s2)\n`))
+      .toEqual(["type mismatch: expected BigInt, found Foo"]);
+    // Unannotated, the literals take `s2`'s `Foo` and `Integral<Foo>` is
+    // missing — refused either way, and neither refusal is row 16.
+    expect(refusals(`${foo}let probe = (1 + 2).gcd(s2)\n`)).toEqual([
+      "type `Foo` has no `Integral` instance; it could only be declared in " +
+      "`./main.hex` (declares `Foo`) or the module declaring `Integral`",
+    ]);
+    expect(line(`${foo}let probe: BigInt = (1 + 2).gcd(3)\n`))
+      .toBe("const probe = __Integral_BigInt_gcd(1n + 2n, 3n);");
+    expect(line(`${foo}let probe = (1 + 2).gcd(3)\n`))
+      .toBe("const probe = __Integral_Int_gcd(1 + 2, 3);");
   });
 
   test("a flexible receiver keeps the pending goal and the fallback", () => {
@@ -905,7 +1544,17 @@ describe("the negative probes: what #808 does not change", () => {
   });
 
   test("a written face that cannot hold the operands still refuses", () => {
+    // The verdict is unchanged; the words are §6's since #821's delayed bind
+    // (the dot is the open call, so it takes the note the operator takes).
     expect(verdict("export let probe: Int = i.multiply(f)\n"))
-      .toEqual(["type mismatch: expected Int, found Float"]);
+      .toEqual([
+        "`f` is a `Float` and cannot enter `Int`, so the multiplication ran at " +
+          "`Float`",
+      ]);
+    expect(verdict("export let probe: Int = i * f\n"))
+      .toEqual([
+        "`f` is a `Float` and cannot enter `Int`, so the multiplication ran at " +
+          "`Float`",
+      ]);
   });
 });
