@@ -169,7 +169,7 @@ The member *is* the type's `toSeq`: the honoring module writes the conversion he
 
 ### 7.2 Globality and discoverability
 
-Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes `bag.hex`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). No separate loading step is needed for `Iterable` on your own collection — Modules §3.3 has no form for one — and none is taught in the recipe (Modules §7.6: unnecessary in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
+Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes module `Bag`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). No separate loading step is needed for `Iterable` on your own collection — Modules §3.3 has no form for one — and none is taught in the recipe (Modules §7.6: unnecessary in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
 
 ### 7.3 Collisions with provided instances
 
@@ -229,7 +229,7 @@ sum(Bag.toSeq(bag))          -- 8
 What the example fixes, normatively:
 
 - **Constraint placement is honest:** `fromSeq`/`add`/`count` need `<a: Hash>` (they consult the backing `Map`'s keys); `size` and the `Iterable` instance — `toSeq` included — need **nothing**: iteration never hashes. A user whose element type lacks `Hash` can still iterate a `Bag` handed to them; they simply cannot build one.
-- **The instance lives in the type's home module** (`bag.hex`) — the ordinary orphan-legal choice, and the one §3.3's diagnostic points at.
+- **The instance lives in the type's home module** (module `Bag`) — the ordinary orphan-legal choice, and the one §3.3's diagnostic points at.
 - **Opacity and instances compose:** `Bag` is `opaque`; consumers cannot see `counts`, but `for x in bag` works, because the instance was declared where nothing is hidden.
 - **The order contract is inherited and must be stated:** `Bag.toSeq`'s cross-element order is its backing `Map`'s iteration order — deterministic for a value within one execution, unspecified, unstable across runs (Part 4 §7.1). A user collection's docs inherit the obligation to say so; this one just did.
 

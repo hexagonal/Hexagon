@@ -63,7 +63,7 @@ export interface Dictionary<a> {
 ```
 
 ```ts
-// signed.d.ts (representative member set; the constraint declaration is authoritative)
+// Hex/Signed.d.ts (representative member set; the constraint declaration is authoritative)
 declare const signedDictionaryBrand: unique symbol;
 
 export interface Dictionary<a> {
@@ -93,7 +93,7 @@ The two cases the decision note enumerated are this rule's two branches:
 - instance declared with the **type** (the normal user-package case) → **type-owned**, named by the constraint: `Rat.signed`, `Customer.eq`;
 - instance declared with the **constraint** (the fundamental instances; a user constraint honored for another package's type) → **constraint-owned**, named by the type: `Signed.int`, `MyShow.vector(...)`.
 
-The rule is a derivation of ownership reality rather than a preference: only the instance's home module is guaranteed to exist in the declaring package — a user package honoring its constraint for `Vector` cannot add exports to the runtime's `vector` module. Confirmed at review (§13.1).
+The rule is a derivation of ownership reality rather than a preference: only the instance's home module is guaranteed to exist in the declaring package — a user package honoring its constraint for `Vector` cannot add exports to the runtime's `Vector` module. Confirmed at review (§13.1).
 
 ### 3.2 Constraint-owned fundamental handles
 
