@@ -445,7 +445,12 @@ export function compileProject(
         externTypeBase,
       );
     }
-    const typed = check(resolved, { importedSchemes, programNominals, programOperations });
+    const typed = check(resolved, {
+      importedSchemes,
+      programNominals,
+      programOperations,
+      sourceText: source.text,
+    });
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
     // Read from the module's own **items**, never from `resolved.unions` and its

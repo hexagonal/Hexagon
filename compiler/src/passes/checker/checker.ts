@@ -58,6 +58,23 @@ export interface CheckOptions {
    * stands, which is complete for a single-module program.
    */
   readonly programOperations?: ProgramOperations;
+  /**
+   * This module's own source text *(#821)*, for the one thing a diagnostic
+   * cannot reconstruct: **what the reader wrote**.
+   *
+   * Method Syntax §9 row 16 offers an ascription around an expression the reader
+   * is invited to paste, and the resolved tree is not that expression — it
+   * records the member a qualified reference resolved to, not the qualifier, so
+   * `Num.add(p, q)` reconstructs as `add(p, q)` and a pipe stage reconstructs as
+   * the call it rewrote to. Both compile, and neither is the reader's text; the
+   * Rewrite Rule wants the reader's text. A span is enough to get it, so this is
+   * the text the spans index into and nothing else reads it.
+   *
+   * Absent — a lone `check` in a test — every quotation and every ascription
+   * that would need one is withheld, and the report offers the binding repair
+   * alone. A fixit the reader cannot paste is worse than none (Modules §7.6).
+   */
+  readonly sourceText?: string;
 }
 
 export function check(
@@ -1768,6 +1785,27 @@ class Checker {
    * the disagreement left behind — one refusal is the whole verdict.
    */
   readonly #refusedReceivers = new WeakSet<Resolved.Expr>();
+  /**
+   * Each tower operation's **subject operands**, with the types they finally
+   * solved to *(#821)* — `pow`'s written `Int` exponent excluded, it never being
+   * the subject.
+   *
+   * The one reader is §2.2's boundary repair, which has to answer "would this
+   * ascription compile?" before offering it. The answer is not predictable from
+   * the kept type alone — a tower operation follows the receiver to the kept
+   * type only if *its own operands* can enter it, so `(if c then i + j else p:
+   * Foo)` compiles and `(if c then i + b9 else p: Foo)` does not — and it must
+   * not be answered by elaborating anything a second time. Recorded types are
+   * the way out: this is what the operands *did* solve to, read back with the
+   * same reach predicate §5.1's stand-down uses. A check, never an elaboration.
+   */
+  readonly #subjectOperands = new WeakMap<Resolved.Expr, {
+    readonly rung: Typed.ConstraintName;
+    readonly operands: readonly {
+      readonly expression: Resolved.Expr;
+      readonly type: Mono;
+    }[];
+  }>();
   readonly #nameRequirements = new WeakMap<Resolved.NameExpr, readonly Requirement[]>();
   /** Name references serving as a call callee, whose evidence the call supplies. */
   readonly #calleeNames = new WeakSet<Resolved.NameExpr>();
@@ -2399,6 +2437,8 @@ class Checker {
   readonly #operationHomes = new Map<Resolved.SymbolId, ProgramOperation>();
   /** This module's file id, held for constraint identity; set by `check`. */
   #fileId = 0;
+  /** This module's source text, where the host supplied it — see `CheckOptions`. */
+  readonly #sourceText: string | undefined;
   /**
    * Whether the `let` pattern being checked is a lambda parameter's
    * destructuring (Pattern Matching §6.5) rather than a written binding. Read
@@ -2424,6 +2464,7 @@ class Checker {
     this.#importedSchemes = options.importedSchemes ?? new Map();
     this.#programNominals = options.programNominals ?? { unions: [], records: [] };
     this.#programOperations = options.programOperations ?? new Map();
+    this.#sourceText = options.sourceText;
   }
 
   check(module: Resolved.Module): Typed.Module {
@@ -3648,6 +3689,38 @@ class Checker {
   }
 
   /**
+   * Whether `.name` at this type has a claimant **outside the spelling's rung**
+   * *(#821)* — a function-typed field, a companion export, or an honored member
+   * of some other constraint.
+   *
+   * §9 row 16's scope is that class exactly, and the complement of "the kept
+   * type honors the rung" is not it: the complement is "a non-rung claimant *or
+   * none*". Where nothing answers, the dot's own §9 row 4 refusal is both true
+   * and precise, and row 16's ascription would name a type that has no such
+   * member — an offer that does not compile. So this asks the question
+   * `#dispatchDotCall` will ask, of a type already known, and row 16 stands down
+   * where the answer is none.
+   *
+   * The three sources are that table's own, in its own order; the **ownership
+   * clause** is not among them, because the member it supplies is the rung's
+   * (§4.2) and the caller has already stood down for that.
+   */
+  #hasNonRungClaimant(actual: Mono, name: string): boolean {
+    if (
+      actual.kind === "NominalRecord" &&
+      this.#recordRepresentationVisible(actual.record) &&
+      this.#nominalRecordFields(actual).has(name)
+    ) return true;
+    const companion = this.#companionKeyOfType(actual);
+    if (
+      companion !== undefined &&
+      this.#companionOperations.get(companion)?.get(name) !== undefined
+    ) return true;
+    return (this.#honoredMembers(actual).get(name) ?? [])
+      .some(({ subjectFirst }) => subjectFirst);
+  }
+
+  /**
    * Method Syntax §8.2, from the side that knows: a dot call resolved to an
    * operation this module has no name for, so emission owes the file an import
    * of it (#585).
@@ -4091,7 +4164,11 @@ class Checker {
     // qualified spellings are. The home is what the subject seats expect while
     // they elaborate; whether it is also what they *are* is settled below.
     const home = this.#dotMemberHome(candidate, expected);
-    const subjectSeats = home === undefined
+    // Asked of every tower member call, face or none: the seats are read off the
+    // instantiation *before* anything binds the subject, and §2.2's boundary
+    // repair needs them at a call the face never reached too.
+    const rung = this.#towerRung(candidate.symbol);
+    const subjectSeats = rung === undefined
       ? undefined
       : this.#subjectSeats(calleeType, expression.arguments.length + 1);
     const { seats, pass } = this.#dotCallSeats(
@@ -4128,6 +4205,22 @@ class Checker {
     const liftedSeats = declined === undefined || home === undefined
       ? undefined
       : pass?.standDown(home);
+    // The subject operands, for §2.2's boundary repair — see `#subjectOperands`.
+    if (rung !== undefined && subjectSeats !== undefined) {
+      const expressions = [callee.receiver, ...expression.arguments];
+      this.#subjectOperands.set(expression, {
+        rung,
+        operands: [...subjectSeats].sort((left, right) => left - right).flatMap(
+          (index) => {
+            const operand = expressions[index];
+            const type = seats[index];
+            return operand === undefined || type === undefined
+              ? []
+              : [{ expression: operand, type }];
+          },
+        ),
+      });
+    }
     const reconciled = this.#diagnostics.count;
     const result = this.#checkDotSeats(expression, calleeType, seats, pass, level);
     // The **nested receiver**, at the member spelling: the face descended into
@@ -4140,7 +4233,7 @@ class Checker {
     if (noAlgebra !== undefined) {
       this.#diagnostics.add({
         severity: "error",
-        message: this.#noAlgebraMessage(result, noAlgebra),
+        message: this.#noAlgebraMessage(expression, result, noAlgebra),
         primary: expression.span,
       });
     }
@@ -4180,6 +4273,7 @@ class Checker {
    * wrote it (Method Syntax §1).
    */
   #noAlgebraMessage(
+    call: Resolved.Expr,
     subject: Mono,
     lifted: { readonly expression: Resolved.Expr; readonly actual: Mono },
   ): string {
@@ -4188,7 +4282,9 @@ class Checker {
     const enclosing = this.#forwardedReceiver;
     if (enclosing === undefined) return mismatch;
     this.#refusedReceivers.add(enclosing.callee.receiver);
-    return this.#followsAtType(lifted.expression, lifted.actual, subject)
+    // The whole call is what the ascription carries, so the whole call is what
+    // has to follow — every subject operand of it, and of anything nested in it.
+    return this.#followsAtType(call, undefined, subject)
       ? `${mismatch}. ${this.#boundaryRepair(enclosing.callee.receiver, subject)}`
       : mismatch;
   }
@@ -6371,7 +6467,20 @@ class Checker {
           }
           // §4.3: every arm body forwards the expectation — an arm body is one
           // of the construct's value paths.
-          this.#unify(result, this.#inferExpr(arm.body, level, expected), arm.body.span);
+          const body = this.#inferExpr(arm.body, level, expected);
+          // *(#821.)* The arm bodies are a forwarding form's parts exactly as an
+          // `if`'s branches are, and §9 row 16 names both: where the face
+          // entered one part and not another, the form's own report — Pattern
+          // Matching §6.2's, at the arm body — is the whole refusal and row 16
+          // stands aside. The join here is result-against-arm rather than
+          // branch-against-branch, so the pair the test is stated over is the
+          // result the earlier arms established and this arm's body.
+          this.#unify(
+            result,
+            body,
+            arm.body.span,
+            this.#forwardingBranchRepair(result, body, arm.body, arm.body, expected),
+          );
         }
         // The match catch clause (Exceptions §5.4): its arms are `try`'s arms in
         // a second seat, so they carry §5.3 whole and their bodies join the one
@@ -6479,14 +6588,11 @@ class Checker {
           }
           const receiver = this.#inferExpr(expression.callee.receiver, level, face);
           this.#forwardedReceiver = enclosingReceiver;
-          // A receiver that already refused under the face — a forwarding form's
-          // branch disagreement — takes the call with it: dispatching on the type
-          // the disagreement left behind reports the same refusal a second time.
           // A receiver that already refused under the face takes the call with
-          // it, whether it said so by marking itself or by typing as `Error`:
-          // dispatching on what the refusal left behind reports again, and the
-          // §3.5 row fallback in particular says something false about a type
-          // the reader never wrote.
+          // it, whether it said so by marking itself — a forwarding form's part
+          // disagreement — or by typing as `Error`: dispatching on what the
+          // refusal left behind reports again, and the §3.5 row fallback in
+          // particular says something false about a type the reader never wrote.
           if (
             this.#refusedReceivers.has(expression.callee.receiver) ||
             (face !== undefined && this.#prune(receiver).kind === "Error")
@@ -6503,7 +6609,7 @@ class Checker {
           // whatever the checker decided (see `#dotCallArguments`).
           const refusal = face === undefined
             ? undefined
-            : this.#receiverRefusal(expression, expression.callee, receiver, face);
+            : this.#receiverRefusal(expression.callee, receiver, face);
           if (refusal !== undefined) {
             this.#dotCallArguments(expression, level, undefined);
             type = this.#unsupported(refusal.span, refusal.message);
@@ -6593,7 +6699,11 @@ class Checker {
         // whether it is also what they are is settled below, once every operand
         // is in. Binding first decided §5.1's stand-down off one operand.
         const memberHome = this.#memberCallHome(expression.callee, expected);
-        const memberSubjectSeats = memberHome === undefined
+        const memberRung = expression.callee.kind === "Name" &&
+            expression.callee.instanceSubject === undefined
+          ? this.#towerRung(expression.callee.symbol)
+          : undefined;
+        const memberSubjectSeats = memberRung === undefined
           ? undefined
           : this.#subjectSeats(callee, expression.arguments.length);
         const calleeParameters = (() => {
@@ -6667,6 +6777,20 @@ class Checker {
         const memberLifted = memberDeclined === undefined || memberHome === undefined
           ? undefined
           : pass?.standDown(memberHome);
+        // The subject operands, for §2.2's boundary repair (`#subjectOperands`).
+        if (memberRung !== undefined && memberSubjectSeats !== undefined) {
+          this.#subjectOperands.set(expression, {
+            rung: memberRung,
+            operands: [...memberSubjectSeats].sort((left, right) => left - right)
+              .flatMap((index) => {
+                const operand = expression.arguments[index];
+                const type = arguments_[index];
+                return operand === undefined || type === undefined
+                  ? []
+                  : [{ expression: operand, type }];
+              }),
+          });
+        }
         const memberReconciled = this.#diagnostics.count;
         const result = this.#fresh(level, false);
         const knownCallee = this.#prune(callee);
@@ -6716,7 +6840,7 @@ class Checker {
           if (memberNoAlgebra !== undefined) {
             this.#diagnostics.add({
               severity: "error",
-              message: this.#noAlgebraMessage(type, memberNoAlgebra),
+              message: this.#noAlgebraMessage(expression, type, memberNoAlgebra),
               primary: expression.span,
             });
           }
@@ -7788,8 +7912,15 @@ class Checker {
         this.#unify(guard, this.#boolType(arm.guard.span), arm.guard.span);
       }
       // Catch arms are value paths of the construct holding them, so they
-      // forward the expectation exactly as data arms do (§4.3).
-      this.#unify(result, this.#inferExpr(arm.body, level, expected), arm.body.span);
+      // forward the expectation exactly as data arms do (§4.3) — and they are a
+      // forwarding form's parts for §9 row 16 too (#821; see the `match` arm).
+      const body = this.#inferExpr(arm.body, level, expected);
+      this.#unify(
+        result,
+        body,
+        arm.body.span,
+        this.#forwardingBranchRepair(result, body, arm.body, arm.body, expected),
+      );
     }
     // §5.3's set logic is §7.2's usefulness over the open `Exn` sum: the column
     // has no signature, so no set of exception constructors ever completes it —
@@ -9380,9 +9511,16 @@ class Checker {
   }
 
   /**
-   * The same search, with the **span** of the operation that stood down
-   * *(#821)*: §9 row 16 reports there, the stood-down call being what the reader
-   * has to change, while the repair it offers ascribes the receiver as a whole.
+   * The same search, with the **expression** that stood down *(#821)*: §9 row 16
+   * reports at its span, that call being what the reader has to change, and the
+   * repair it offers ascribes it.
+   *
+   * "Outermost" is a property of the walk's **shape**, not of the order the note
+   * is looked up in: only a non-pipe `Binary` and a `Call` ever carry a note, and
+   * neither is descended into, so the first note the walk meets is the outermost
+   * one by construction. Taking the node's own note before recursing is how that
+   * reads, and a walk that descended into an operation's operands would break it
+   * — which is what the outermost pins catch.
    *
    * The walk follows Functions §4.3's **forwarding forms** — the constructs that
    * return another expression's value and so hand their own expectation on:
@@ -9439,78 +9577,33 @@ class Checker {
   }
 
   /**
-   * One expression as **this site** spells it, or `undefined` where any part of
-   * it has a spelling this cannot reconstruct *(#821)*.
+   * One expression **as the reader wrote it**, or `undefined` where this
+   * compilation cannot say *(#821)*.
    *
    * Written for one reader: §9 row 16's offered ascription, which is a
-   * **rewrite** — text the reader is invited to paste. So the renderer declines
-   * rather than paraphrases, and one unknown leaf makes the whole spelling
-   * `undefined`; the report then offers the binding repair alone. A name is
-   * spelled only where the *site* spells it that way: the resolved tree records
-   * a member's own name, so `Num.add` and a shadowed local would both render as
-   * text that resolves elsewhere or not at all.
+   * **rewrite** — text the reader is invited to paste. So it is the source
+   * itself, sliced from the span, and never a reconstruction from the tree: the
+   * resolved tree records the member a qualified reference resolved to and not
+   * the qualifier, so `Num.add(p, q)` would reconstruct as `add(p, q)` and a
+   * pipe stage as the call it rewrote to — both compile, and neither is the
+   * reader's text.
+   *
+   * Two answers are withheld rather than approximated. A compilation with no
+   * source text (a lone `check` in a test) has nothing to slice; and a span that
+   * crosses a line break would put a layout block inside a one-line message, so
+   * the report offers the binding repair alone there. A fixit the reader cannot
+   * paste is worse than none (Modules §7.6).
    */
   #spelledExpression(expression: Resolved.Expr): string | undefined {
-    switch (expression.kind) {
-      case "Name":
-        return this.#bareNames.get(expression.text) === expression.symbol
-          ? expression.text
-          : this.#aliasQualifications.get(expression.symbol);
-      case "Integer":
-        return expression.decimal;
-      case "BigInt":
-        return `${expression.decimal}n`;
-      case "Float":
-        return expression.spelling;
-      case "Unit":
-        return "()";
-      case "Group": {
-        const inner = this.#spelledExpression(expression.expression);
-        return inner === undefined ? undefined : `(${inner})`;
-      }
-      case "If": {
-        if (expression.elseless) return undefined;
-        const condition = this.#spelledExpression(expression.condition);
-        const consequence = this.#spelledExpression(expression.consequence);
-        const alternative = this.#spelledExpression(expression.alternative);
-        if (
-          condition === undefined || consequence === undefined ||
-          alternative === undefined
-        ) return undefined;
-        return `if ${condition} then ${consequence} else ${alternative}`;
-      }
-      case "Unary": {
-        const operand = this.#spelledExpression(expression.operand);
-        if (operand === undefined) return undefined;
-        return expression.operator === "Negate" ? `-${operand}` : `not ${operand}`;
-      }
-      case "Binary": {
-        const operator = OPERATOR_SPELLINGS[expression.operator];
-        const left = this.#spelledExpression(expression.left);
-        const right = this.#spelledExpression(expression.right);
-        if (operator === undefined || left === undefined || right === undefined) {
-          return undefined;
-        }
-        return `${left} ${operator} ${right}`;
-      }
-      case "Access": {
-        const receiver = this.#spelledExpression(expression.receiver);
-        return receiver === undefined
-          ? undefined
-          : `${receiver}.${expression.field.text}`;
-      }
-      case "Call": {
-        const callee = this.#spelledExpression(expression.callee);
-        if (callee === undefined || expression.mark !== undefined) return undefined;
-        const arguments_ = expression.arguments.map((argument) =>
-          this.#spelledExpression(argument)
-        );
-        if (arguments_.some((argument) => argument === undefined)) return undefined;
-        return `${callee}(${arguments_.join(", ")})`;
-      }
-      default:
-        return undefined;
-    }
+    const text = this.#sourceText;
+    if (text === undefined) return undefined;
+    if (Number(expression.span.fileId) !== this.#fileId) return undefined;
+    const written = text.slice(
+      expression.span.start.offset,
+      expression.span.end.offset,
+    );
+    if (written === "" || /[\r\n]/u.test(written)) return undefined;
+    return written;
   }
 
   /**
@@ -9575,7 +9668,6 @@ class Checker {
    * it), and the written boundaries that keep the receiver at its own type.
    */
   #receiverRefusal(
-    expression: Resolved.CallExpr,
     callee: Resolved.AccessExpr,
     receiver: Mono,
     face: Mono,
@@ -9585,15 +9677,22 @@ class Checker {
     const kept = this.#prune(receiver);
     if (kept.kind === "Error" || kept.kind === "Variable") return undefined;
     if (this.#acceptsExactly(kept, face)) return undefined;
-    const identity = TOWER_SPELLING_RUNGS.get(callee.field.text);
+    const name = callee.field.text;
+    const identity = TOWER_SPELLING_RUNGS.get(name);
     const rung = TOWER_RUNG_NAMES.get(identity ?? "");
     if (identity === undefined || rung === undefined) return undefined;
-    // The claimant, asked of the type rather than of the resolver: a rung
-    // spelling meets the rung's own member exactly at a type honoring the rung
-    // (Constraints §4.6 forbids a module honoring a rung from exporting its
-    // spellings), so this *is* "which claimant answers", read from the one
-    // channel every subject is read from (#344).
+    // The claimant, asked of the type rather than of the resolver, in two
+    // halves. A rung spelling meets the rung's **own member** exactly at a type
+    // honoring the rung (Constraints §4.6 forbids a module honoring a rung from
+    // exporting its spellings) — read from the one channel every subject is read
+    // from (#344) — and §4.2's ownership clause is the rung's member too; the
+    // ascription repairs neither, so row 16 stands down. And where *nothing*
+    // answers, the dot's own §9 row 4 refusal is true and precise where this row
+    // would name a type that has no such member: the complement of "honors the
+    // rung" is "a non-rung claimant **or none**", and only the first is this row.
     if (this.#instances.has(this.#instanceKey(identity, kept))) return undefined;
+    if (this.#ownedTowerMember(kept, name) !== undefined) return undefined;
+    if (!this.#hasNonRungClaimant(kept, name)) return undefined;
     const note = found.note;
     const named = note.spelled === undefined
       ? `the part of the receiver that declined is a \`${note.operand}\` and it`
@@ -9647,8 +9746,12 @@ class Checker {
       `type mismatch: expected ${this.#display(consequence)}, found ` +
         this.#display(alternative),
       kept,
-      entered ? consequenceExpression : alternativeExpression,
-      entered ? consequence : alternative,
+      // **Every** part of the ascribed expression, not only the one the face
+      // lifted: an ascription carries the whole form, so the branch that kept
+      // its type has to survive it too.
+      (target) =>
+        this.#followsAtType(consequenceExpression, consequence, target) &&
+        this.#followsAtType(alternativeExpression, alternative, target),
     );
   }
 
@@ -9659,17 +9762,16 @@ class Checker {
    *
    * Two things ride on it and neither is a new verdict. The report gains §2.2's
    * **boundary repair** — the ascription that keeps the whole receiver at the
-   * type it kept — offered only where that ascription would compile, which is
-   * where the part the face lifted would follow the receiver to the kept type.
-   * And the receiver is marked refused, so the dot abandons the call rather than
-   * dispatching on the type the disagreement left behind and reporting a second
-   * time. Built as a thunk, so both happen only if the parts really do disagree.
+   * type it kept — offered only where `follows` says that ascription would
+   * compile. And the receiver is marked refused, so the dot abandons the call
+   * rather than dispatching on the type the disagreement left behind and
+   * reporting a second time. Built as a thunk, so both happen only if the parts
+   * really do disagree.
    */
   #faceDescentRepair(
     mismatch: string,
     kept: Mono,
-    lifted: Resolved.Expr,
-    liftedType: Mono,
+    follows: (kept: Mono) => boolean,
   ): (() => string | undefined) | undefined {
     const enclosing = this.#forwardedReceiver;
     if (enclosing === undefined) return undefined;
@@ -9678,37 +9780,49 @@ class Checker {
       // Here the ascription goes on the **receiver as a whole**: nothing inside
       // it stood down, so there is no inner call to ascribe — the parts simply
       // disagreed once the face had entered one of them.
-      return this.#followsAtType(lifted, liftedType, kept)
+      return follows(kept)
         ? `${mismatch}. ${this.#boundaryRepair(enclosing.callee.receiver, kept)}`
         : mismatch;
     };
   }
 
   /**
-   * Whether this part of a receiver would follow the receiver to `type` under
-   * an ascription *(#821)* — the truth test behind §2.2's offered boundary.
+   * Whether this part of a receiver would follow the receiver to `type` under an
+   * ascription *(#821)* — the truth test behind §2.2's offered boundary, decided
+   * from **recorded final types** and never from a prediction.
    *
-   * A part that already reaches the type by §5.1's conversions follows. So does
-   * a **tower operation**, which has a lift of its own: under the ascription the
-   * face is the kept type and the operation runs there, provided the kept type
-   * carries the operation's own rung and `Signed`, which is what a `Nat` or
-   * `Int` operand needs to enter it (§5.1's two conversions). Everything else
-   * declines, and the report then offers the binding alone: a fixit the reader
-   * cannot paste is worse than none (Modules §7.6).
+   * A part that already reaches the type by §5.1's two conversions follows. A
+   * **tower operation** follows only when two things hold together: the kept
+   * type carries the operation's own rung, so the operation exists there at all;
+   * and every one of its subject operands follows in turn, asked with the same
+   * reach predicate §5.1's stand-down uses, over the types they actually solved
+   * to. The second half is what the rung test alone got wrong — `(if c then i +
+   * j else p: Foo)` compiles because `i` and `j` enter `Foo` through
+   * `Signed.fromInt`, and `(if c then i + b9 else p: Foo)` does not because
+   * `b9 : BigInt` enters nothing — and the recursion is what keeps a *nested*
+   * operation honest: `(p + (i + j)): Foo` asks about `i` and `j`, not about the
+   * `BigInt` the inner sum happened to run at under the face it is about to lose.
+   *
+   * Reading `#subjectOperands` is a lookup on solved types: no expression is
+   * elaborated, speculatively or otherwise. Anything it cannot answer declines,
+   * and the report then offers the binding alone (Modules §7.6).
    */
-  #followsAtType(expression: Resolved.Expr, actual: Mono, type: Mono): boolean {
-    if (this.#reachesSeat(actual, type)) return true;
+  #followsAtType(
+    expression: Resolved.Expr,
+    actual: Mono | undefined,
+    type: Mono,
+  ): boolean {
     const inner = expression.kind === "Group" ? expression.expression : expression;
-    const rung = inner.kind === "Binary"
-      ? liftConstraint(inner.operator)
-      : inner.kind === "Call" && inner.callee.kind === "Access"
-      ? TOWER_RUNG_NAMES.get(TOWER_SPELLING_RUNGS.get(inner.callee.field.text) ?? "")
-      : undefined;
-    if (rung === undefined) return false;
+    const tower = this.#subjectOperands.get(inner);
+    if (tower === undefined) {
+      return actual !== undefined && this.#reachesSeat(actual, type);
+    }
     const target = this.#prune(type);
     if (target.kind === "Variable" || target.kind === "Error") return false;
-    return this.#supportsTarget(target, rung as Typed.ConstraintName) &&
-      this.#supportsSignedTarget(target);
+    if (!this.#supportsTarget(target, tower.rung)) return false;
+    return tower.operands.every((operand) =>
+      this.#followsAtType(operand.expression, operand.type, type)
+    );
   }
 
   /**
@@ -9948,6 +10062,12 @@ class Checker {
       }
       const power = this.#require(constraint, base, expression.span);
       this.#requirements.set(expression, [power]);
+      // The base alone: the exponent is the written `Int` seat, never the
+      // subject, and never part of what an ascription would have to carry.
+      this.#subjectOperands.set(expression, {
+        rung: constraint,
+        operands: [{ expression: expression.left, type: left }],
+      });
       return base;
     }
     // §5.1's **stand-down**: where an operand can reach the face by neither
@@ -9966,9 +10086,19 @@ class Checker {
           : undefined;
     const lifted = declined === undefined ? home : undefined;
     let common = left;
-    // The operand the face **did** lift, where the two then have no algebra
-    // between them (#821) — see `StandDown.lifted`.
-    let liftedOperand: Resolved.Expr | undefined;
+    // Whether the face had already lifted one operand where the two then have no
+    // algebra between them (#821) — see the `else` branch below.
+    let liftedOperand = false;
+    // The subject operands, recorded before anything reports: §2.2's boundary
+    // repair reads them to decide whether the ascription it would offer compiles
+    // (see `#subjectOperands`).
+    this.#subjectOperands.set(expression, {
+      rung: constraint,
+      operands: [
+        { expression: expression.left, type: left },
+        { expression: expression.right, type: right },
+      ],
+    });
     // What the operands' own reconciliation reports, if anything — read the way
     // `Diagnostics.Bag.count` exists to be read (#821).
     const reconciled = this.#diagnostics.count;
@@ -9997,18 +10127,15 @@ class Checker {
       // operation sits rather than by anything its operands did.
       const leftIsFace = home !== undefined && this.#acceptsExactly(left, home);
       const rightIsFace = home !== undefined && this.#acceptsExactly(right, home);
-      if (declined !== undefined && (leftIsFace || rightIsFace)) {
-        liftedOperand = leftIsFace ? expression.left : expression.right;
-      }
+      liftedOperand = declined !== undefined && (leftIsFace || rightIsFace);
       this.#unify(
         left,
         right,
         expression.span,
-        liftedOperand === undefined ? undefined : this.#faceDescentRepair(
+        !liftedOperand ? undefined : this.#faceDescentRepair(
           `type mismatch: expected ${this.#display(left)}, found ${this.#display(right)}`,
           declined!.type,
-          liftedOperand,
-          leftIsFace ? left : right,
+          (kept) => this.#followsAtType(expression, undefined, kept),
         ),
       );
     }

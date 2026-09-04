@@ -284,6 +284,8 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     "let j: Int = 3\n" +
     "let c: Bool = True\n" +
     "let b9: BigInt = 9n\n" +
+    "let ff: Float = 1.5\n" +
+    "let gg: Float = 2.5\n" +
     "let p: Foo = Foo({n = 4})\n" +
     "let q: Foo = Foo({n = 6})\n" +
     "let s2: Foo = Foo({n = 8})\n";
@@ -470,19 +472,22 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
         kept: "Foo",
       })]);
     // The constraint-qualified spelling and the pipe stage are the open call
-    // too (§5.1), and refuse once each.
+    // too (§5.1), and refuse once each. Both are quoted **as written**: the
+    // resolved tree records the member a qualified reference resolved to and not
+    // the qualifier, and a pipe stage arrives as the call it rewrote to, so
+    // neither reconstructs — the report slices the source span instead.
     expect(refusals(`${foo}let probe: BigInt = Num.add(p, q).gcd(s2)\n`))
       .toEqual([rowSixteen({
-        receiver: "add(p, q)",
+        receiver: "Num.add(p, q)",
         declined: "`p` is a `Foo` and",
-        ascribe: "add(p, q)",
+        ascribe: "Num.add(p, q)",
         kept: "Foo",
       })]);
     expect(refusals(`${foo}let probe: BigInt = (p |> Num.add(q)).gcd(s2)\n`))
       .toEqual([rowSixteen({
-        receiver: "(p |> add(q))",
+        receiver: "(p |> Num.add(q))",
         declined: "`p` is a `Foo` and",
-        ascribe: "add(p, q)",
+        ascribe: "p |> Num.add(q)",
         kept: "Foo",
       })]);
   });
@@ -647,6 +652,37 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // follow the receiver to `Foo`, so no ascription is named.
     expect(refusals(`${foo}let probe: BigInt = (if c then p.add(q) else b9).gcd(s2)\n`))
       .toEqual(["type mismatch: expected Foo, found BigInt"]);
+    // §9 row 16 names the `match` and `try` arm bodies in the same breath as the
+    // `if`'s branches (Pattern Matching §6.2's report at the arm body), and the
+    // join there is result-against-arm rather than branch-against-branch. Both
+    // twins of the control above: one report, and row 16 stands aside.
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = (match c\n` +
+          "        True => p.add(q)\n        False => b9).gcd(s2)\n",
+      ),
+    ).toEqual(["type mismatch: expected Foo, found BigInt"]);
+    expect(
+      refusals(
+        `${foo}fun probeOf(): BigInt =\n    (try\n        p.add(q)\n` +
+          "    catch\n        JsError(e) => b9).gcd(s2)\n",
+      ),
+    ).toEqual(["type mismatch: expected Foo, found BigInt"]);
+    // And the lifted-branch twins, where the `if` carries the boundary fixit and
+    // the arm forms do not: an arm form's own text spans lines, and an
+    // ascription this report cannot put on one line is one it does not offer.
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = (match c\n` +
+          "        True => i + j\n        False => p).gcd(s2)\n",
+      ),
+    ).toEqual(["type mismatch: expected BigInt, found Foo"]);
+    expect(
+      refusals(
+        `${foo}fun probeOf(): BigInt =\n    (try\n        i + j\n` +
+          "    catch\n        JsError(e) => p).gcd(s2)\n",
+      ),
+    ).toEqual(["type mismatch: expected BigInt, found Foo"]);
     // The nested receiver is the same shape at the operator and at the member
     // spelling: the face descends into one operand, the other declines it, and
     // the operation is left with no algebra. Its own report, once, with the
@@ -678,6 +714,98 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
       .toEqual([]);
     expect(refusals(`${foo}let probe: BigInt = (p.add(q) + q: Foo).gcd(s2)\n`))
       .toEqual([]);
+    // The two spellings the tree cannot reconstruct, offered as written and
+    // pasted back exactly as offered.
+    expect(refusals(`${foo}let probe: BigInt = (Num.add(p, q): Foo).gcd(s2)\n`))
+      .toEqual([]);
+    expect(refusals(`${foo}let probe: BigInt = (p |> Num.add(q): Foo).gcd(s2)\n`))
+      .toEqual([]);
+  });
+
+  test("the boundary is offered only where it compiles", () => {
+    // The Rewrite Rule's own test, and it is decided from the **recorded** types
+    // of the operands rather than from a prediction about the kept type. A
+    // tower operation follows the receiver to `Foo` only where each of its own
+    // operands can enter `Foo`: `i` and `j` do, through `Signed.fromInt`, and
+    // `b9 : BigInt` enters nothing — so the same shapes that carry the fixit one
+    // line above carry none here. `main` offered none on any of them.
+    const bare = "type mismatch: expected BigInt, found Foo";
+    expect(refusals(`${foo}let probe: BigInt = (if c then i + b9 else p).gcd(s2)\n`))
+      .toEqual([bare]);
+    expect(refusals(`${foo}let probe: BigInt = (if c then i.add(b9) else p).gcd(s2)\n`))
+      .toEqual([bare]);
+    expect(refusals(`${foo}let probe: BigInt = (p + (i + b9)).gcd(s2)\n`))
+      .toEqual(["type mismatch: expected Foo, found BigInt"]);
+    expect(refusals(`${foo}let probe: BigInt = p.add(i.add(b9)).gcd(s2)\n`))
+      .toEqual(["type mismatch: expected Foo, found BigInt"]);
+    // And the rung half of the same test: `Foo` honors no `Pow`, so a `**`
+    // branch would not run at `Foo` under any ascription.
+    expect(refusals(`${foo}let probe: BigInt = (if c then b9 ** i else p).gcd(s2)\n`))
+      .toEqual([bare]);
+    // Each of the offers that *is* made, pasted back — the positive half of the
+    // same predicate, so a change to it cannot pass by weakening one side.
+    for (
+      const repaired of [
+        "(if c then i + j else p: Foo)",
+        "((p + (i + j)): Foo)",
+        "(p.add(i.add(j)): Foo)",
+      ]
+    ) expect(refusals(`${foo}let probe: BigInt = ${repaired}.gcd(s2)\n`)).toEqual([]);
+  });
+
+  test("a dot with no claimant at all keeps its own refusal", () => {
+    // §9 row 16's scope is a claimant **outside the rung** — a companion export,
+    // an honored member of a user constraint, a function-typed field. The
+    // complement of "the kept type honors the rung" is "a non-rung claimant *or
+    // none*", and only the first is this row: where nothing answers, §9 row 4's
+    // refusal is both true and precise where row 16 would name a type that has
+    // no such member and offer an ascription that does not compile.
+    const noSuchGcd = (type: string): string =>
+      `\`${type}\` has no field \`gcd\`, its companion exports no operation ` +
+      `\`gcd\`, and no constraint honored at \`${type}\` has a subject-first ` +
+      "member `gcd`; call an available subject-first function explicitly";
+    // `Float` honors no `Integral` and exports no `gcd`; the receiver stands
+    // down all the same, `Float` reaching `BigInt` by neither route.
+    expect(refusals(`${foo}let probe: BigInt = (ff + gg).gcd(b9)\n`))
+      .toEqual([noSuchGcd("Float")]);
+    expect(refusals(`${foo}let probe = (ff + gg).gcd(b9)\n`))
+      .toEqual([noSuchGcd("Float")]);
+    // The same fixture with the export deleted: one line decides which refusal
+    // the annotated program gets.
+    const noExport = foo.replace(
+      "export let gcd(left: Foo, right: Foo): BigInt = BigInt.fromInt(left.n)\n",
+      "",
+    );
+    expect(refusals(`${noExport}let probe: BigInt = p.add(q).gcd(s2)\n`))
+      .toEqual([noSuchGcd("Foo")]);
+  });
+
+  test("each stand-down in a receiver is reported, one repair at a time", () => {
+    // Two siblings, each a true and singular refusal: the first is reported, and
+    // its repair surfaces the second. Pinned so the iteration is deliberate.
+    expect(refusals(`${foo}let probe: BigInt = (if c then p.add(q) else q.add(p)).gcd(s2)\n`))
+      .toEqual([rowSixteen({
+        receiver: "(if c then p.add(q) else q.add(p))",
+        declined: "`p` is a `Foo` and",
+        ascribe: "p.add(q)",
+        kept: "Foo",
+      })]);
+    expect(
+      refusals(
+        `${foo}let probe: BigInt = (if c then (p.add(q): Foo) else q.add(p)).gcd(s2)\n`,
+      ),
+    ).toEqual([rowSixteen({
+      receiver: "(if c then (p.add(q): Foo) else q.add(p))",
+      declined: "`q` is a `Foo` and",
+      ascribe: "q.add(p)",
+      kept: "Foo",
+    })]);
+    expect(
+      line(
+        `${foo}let probe: BigInt = ` +
+          "(if c then (p.add(q): Foo) else (q.add(p): Foo)).gcd(s2)\n",
+      ),
+    ).toBe("const probe = gcd(c ? __Num_Foo_add(p, q) : __Num_Foo_add(q, p), s2);");
   });
 
   test("the rung's own member is dispatched at the kept type, with no row 16", () => {
