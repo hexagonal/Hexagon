@@ -1806,6 +1806,25 @@ class Checker {
       readonly type: Mono;
     }[];
   }>();
+  /**
+   * Each **forwarding form's** value paths, with the types they solved to
+   * *(#821)* — grouping excepted, which needs no record.
+   *
+   * The same reader as `#subjectOperands`, for the same reason: an ascription
+   * carries the whole form, so every path in it has to survive the kept type,
+   * and the answer is the paths' own recorded types rather than the joined one
+   * the face produced. `total` is how many paths the form has, and a record with
+   * fewer is **incomplete** — a `match` reconciles arm by arm, so a
+   * disagreement at an early arm knows nothing about the later ones, and an
+   * offer made from a partial answer is exactly the offer §7.6 forbids.
+   */
+  readonly #formParts = new WeakMap<Resolved.Expr, {
+    readonly total: number;
+    readonly parts: readonly {
+      readonly expression: Resolved.Expr;
+      readonly type: Mono;
+    }[];
+  }>();
   readonly #nameRequirements = new WeakMap<Resolved.NameExpr, readonly Requirement[]>();
   /** Name references serving as a call callee, whose evidence the call supplies. */
   readonly #calleeNames = new WeakSet<Resolved.NameExpr>();
@@ -3559,49 +3578,9 @@ class Checker {
     // are their whole dot surface — `42n.show()` is `Show`'s member at `BigInt`.
     const primitive_ = actual.kind === "Constructor";
     if (!nominal && !primitive_) return undefined;
-    const recordHasField = actual.kind === "NominalRecord" &&
-      this.#recordRepresentationVisible(actual.record) &&
-      this.#nominalRecordFields(actual).has(name);
-    // Type-directed, never lexical (§1): the receiver's head names one
-    // companion, and only that companion's exported subject-first
-    // operations are candidates (§4.2, `#companionOperations`). A
-    // `Vector`, `Set`, or `Map` receiver reaches whatever module is
-    // addressable under that name and nothing else, so in a project that
-    // supplies none its set is empty and this takes the diagnostic below
-    // rather than binding whatever prelude function happens to share the
-    // name (#217).
-    const companion = this.#companionKeyOfType(actual);
-    const operation = companion === undefined
-      ? undefined
-      : this.#companionOperations.get(companion)?.get(name);
-    const claimed = this.#honoredMembers(actual).get(name) ?? [];
-    // Method Syntax §6.1's **one claimant** (#541, form #546): a companion's
-    // `widens` binding and the members it supplies are one operation wearing
-    // two widths, not rival sources. Dropping those members from the claimant
-    // list is the whole of the carve — the call then takes the
-    // companion-operation rewrite below, which under Modules §5.3's resolution
-    // order is the operation's widest face.
-    //
-    // The declaration form is the whole test, and it is exact where a signature
-    // comparison was only close: a `widens` of this spelling must name *every*
-    // same-spelled member the module honors (§4.7's all-or-none corner), so
-    // each of them is this one body's restriction. Same-spelled members with no
-    // `widens` over them remain genuine rivals, count their full number, and
-    // are refused exactly as before.
-    // §4.2's **ownership clause** *(#808)*. A `Nat` or `Int` receiver owns,
-    // beyond the members of the constraints honored at its type, the
-    // subject-first members of the tower rungs it does **not** honor. The two
-    // sources are disjoint by construction — a rung is honored or it is not — so
-    // this adds a claimant only where the honored set has none, and `n.rem(2)`
-    // and `i.div(j)` stay the honored members they are.
-    const owned = claimed.length > 0
-      ? undefined
-      : this.#ownedTowerMember(actual, name);
-    const members = operation?.widens === true
-      ? []
-      : owned === undefined
-        ? claimed.filter(({ subjectFirst }) => subjectFirst)
-        : [owned];
+    const { field, operation, scheme, unreachable, claimed, members } = this
+      .#dotClaimants(actual, name, callee, expression.arguments);
+    const recordHasField = field !== undefined;
     if (members.length > 0) {
       const claimants = [
         ...(recordHasField ? [`a field \`${name}\``] : []),
@@ -3632,13 +3611,6 @@ class Checker {
     // before members joined the candidate set. §6 makes field-versus-companion a
     // hard error too; that half is its own issue and nothing here changes it.
     if (recordHasField) return undefined;
-    const scheme = operation === undefined ? undefined : this.#schemes.get(operation.id);
-    // A candidate that exists but this call site may not reach is never
-    // reported as a missing operation — that claim would be false (§4.4,
-    // §9 rows 12–13).
-    const unreachable = operation === undefined
-      ? undefined
-      : this.#dotCallReachability(operation, callee, expression.arguments, actual);
     // A candidate whose scheme is still missing, having passed the
     // reachability test, is the operation whose own right-hand side this
     // call sits in: a scheme is seeded when its item is inferred, so the
@@ -3689,35 +3661,138 @@ class Checker {
   }
 
   /**
-   * Whether `.name` at this type has a claimant **outside the spelling's rung**
-   * *(#821)* — a function-typed field, a companion export, or an honored member
-   * of some other constraint.
+   * Method Syntax §3.4's **claimant table** at a head-known receiver, assembled
+   * once *(#821)*.
    *
-   * §9 row 16's scope is that class exactly, and the complement of "the kept
-   * type honors the rung" is not it: the complement is "a non-rung claimant *or
-   * none*". Where nothing answers, the dot's own §9 row 4 refusal is both true
-   * and precise, and row 16's ascription would name a type that has no such
-   * member — an offer that does not compile. So this asks the question
-   * `#dispatchDotCall` will ask, of a type already known, and row 16 stands down
-   * where the answer is none.
+   * Two readers need the same answer and must not each derive it: §3.4's
+   * dispatch, which resolves the call, and §9 row 16's receiver refusal, whose
+   * scope is "a claimant **outside the spelling's rung**". A second derivation
+   * is a second table, and a second table drifts — measured: a copy that asked
+   * only whether a field of the name exists offered an ascription at a record
+   * whose `gcd` is an `Int`, and a copy that skipped §4.4's reachability offered
+   * one at a companion export declared below the call. Both are the same defect,
+   * an offer that does not compile, and both are impossible from here on: the
+   * row's scope is the dispatch table by construction.
    *
-   * The three sources are that table's own, in its own order; the **ownership
-   * clause** is not among them, because the member it supplies is the rung's
-   * (§4.2) and the caller has already stood down for that.
+   * Everything below is §3.4's own order and §3.4's own carves — the sources are
+   * not re-judged here, only gathered.
    */
-  #hasNonRungClaimant(actual: Mono, name: string): boolean {
-    if (
-      actual.kind === "NominalRecord" &&
-      this.#recordRepresentationVisible(actual.record) &&
-      this.#nominalRecordFields(actual).has(name)
-    ) return true;
+  #dotClaimants(
+    actual: Mono,
+    name: string,
+    callee: Resolved.AccessExpr,
+    argumentExpressions: readonly Resolved.Expr[],
+  ): {
+    /** A visible record field of this name, with its type; §9 row 3 judges the call form. */
+    readonly field: Mono | undefined;
+    readonly operation: Resolved.Symbol | undefined;
+    readonly scheme: Scheme | undefined;
+    /** §4.4's reason this call site cannot reach the export (rows 12–13). */
+    readonly unreachable: string | undefined;
+    /** Every honored member of the name, before the carves — §9 row 4 quotes it. */
+    readonly claimed: readonly MemberCandidate[];
+    /** The members that remain a claimant: subject-first, `widens` carved, ownership added. */
+    readonly members: readonly MemberCandidate[];
+  } {
+    const field = actual.kind === "NominalRecord" &&
+        this.#recordRepresentationVisible(actual.record)
+      ? this.#nominalRecordFields(actual).get(name)
+      : undefined;
+    // Type-directed, never lexical (§1): the receiver's head names one
+    // companion, and only that companion's exported subject-first
+    // operations are candidates (§4.2, `#companionOperations`). A
+    // `Vector`, `Set`, or `Map` receiver reaches whatever module is
+    // addressable under that name and nothing else, so in a project that
+    // supplies none its set is empty and the caller takes the row-4 diagnostic
+    // rather than binding whatever prelude function happens to share the
+    // name (#217).
     const companion = this.#companionKeyOfType(actual);
-    if (
-      companion !== undefined &&
-      this.#companionOperations.get(companion)?.get(name) !== undefined
-    ) return true;
-    return (this.#honoredMembers(actual).get(name) ?? [])
-      .some(({ subjectFirst }) => subjectFirst);
+    const operation = companion === undefined
+      ? undefined
+      : this.#companionOperations.get(companion)?.get(name);
+    const claimed = this.#honoredMembers(actual).get(name) ?? [];
+    // Method Syntax §6.1's **one claimant** (#541, form #546): a companion's
+    // `widens` binding and the members it supplies are one operation wearing
+    // two widths, not rival sources. Dropping those members from the claimant
+    // list is the whole of the carve — the call then takes the
+    // companion-operation rewrite, which under Modules §5.3's resolution
+    // order is the operation's widest face.
+    //
+    // The declaration form is the whole test, and it is exact where a signature
+    // comparison was only close: a `widens` of this spelling must name *every*
+    // same-spelled member the module honors (§4.7's all-or-none corner), so
+    // each of them is this one body's restriction. Same-spelled members with no
+    // `widens` over them remain genuine rivals, count their full number, and
+    // are refused exactly as before.
+    // §4.2's **ownership clause** *(#808)*. A `Nat` or `Int` receiver owns,
+    // beyond the members of the constraints honored at its type, the
+    // subject-first members of the tower rungs it does **not** honor. The two
+    // sources are disjoint by construction — a rung is honored or it is not — so
+    // this adds a claimant only where the honored set has none, and `n.rem(2)`
+    // and `i.div(j)` stay the honored members they are.
+    const owned = claimed.length > 0
+      ? undefined
+      : this.#ownedTowerMember(actual, name);
+    return {
+      field,
+      operation,
+      scheme: operation === undefined ? undefined : this.#schemes.get(operation.id),
+      // A candidate that exists but this call site may not reach is never
+      // reported as a missing operation — that claim would be false (§4.4,
+      // §9 rows 12–13).
+      unreachable: operation === undefined
+        ? undefined
+        : this.#dotCallReachability(operation, callee, argumentExpressions, actual),
+      claimed,
+      members: operation?.widens === true
+        ? []
+        : owned === undefined
+        ? claimed.filter(({ subjectFirst }) => subjectFirst)
+        : [owned],
+    };
+  }
+
+  /**
+   * Whether `.name` at this type is answered by a claimant **outside the
+   * spelling's rung** *(#821)* — §9 row 16's scope, exactly.
+   *
+   * Read off `#dotClaimants`, so the row's scope is §3.4's dispatch table and
+   * cannot drift from it. Three questions, in the table's own order:
+   *
+   * 1. A **member** answers. Row 16 iff it is not the rung's own — the rung's
+   *    member is what the ascription would repair nothing at, and §4.2's
+   *    ownership clause supplies the rung's member too. More than one claimant
+   *    and the dispatch refuses for ambiguity (§6), which is its own report.
+   * 2. A **field** answers, and only where it answers the *call* form: a field
+   *    that is not a function of this arity takes §9 row 3's "not a function",
+   *    and an ascription offered over it would paste into exactly that.
+   * 3. A **companion export** answers, and only where this call site can reach
+   *    it: an export declared below the call takes §9 row 12's own report, and
+   *    an ascription offered over it would paste into exactly that.
+   *
+   * Anything else is **no claimant**, where §9 row 4's refusal is both true and
+   * precise and row 16 would name a type that has no such member.
+   */
+  #answersOutsideRung(
+    actual: Mono,
+    name: string,
+    identity: string,
+    callee: Resolved.AccessExpr,
+    argumentExpressions: readonly Resolved.Expr[],
+  ): boolean {
+    const { field, operation, scheme, unreachable, members } = this
+      .#dotClaimants(actual, name, callee, argumentExpressions);
+    if (members.length > 0) {
+      const rivals = (field === undefined ? 0 : 1) +
+        (operation === undefined ? 0 : 1) + members.length;
+      return rivals === 1 && members[0]!.identity !== identity;
+    }
+    if (field !== undefined) {
+      const type = this.#prune(field);
+      return type.kind === "Function" &&
+        type.parameters.length === argumentExpressions.length;
+    }
+    return operation !== undefined && scheme !== undefined && unreachable === undefined;
   }
 
   /**
@@ -4284,9 +4359,9 @@ class Checker {
     this.#refusedReceivers.add(enclosing.callee.receiver);
     // The whole call is what the ascription carries, so the whole call is what
     // has to follow — every subject operand of it, and of anything nested in it.
-    return this.#followsAtType(call, undefined, subject)
-      ? `${mismatch}. ${this.#boundaryRepair(enclosing.callee.receiver, subject)}`
-      : mismatch;
+    if (!this.#followsAtType(call, undefined, subject)) return mismatch;
+    const repair = this.#boundaryRepair(enclosing.callee.receiver, subject, false);
+    return repair === undefined ? mismatch : `${mismatch}. ${repair}`;
   }
 
   /**
@@ -6084,11 +6159,20 @@ class Checker {
         type = this.#hasNumericWidening(expression.expression) ? annotationType : inferred;
         break;
       }
-      case "Block":
+      case "Block": {
         // A block's **final expression** is its value, so it inherits the
         // expectation; every earlier item is checked as it always was.
         type = this.#inferItems(expression.items, level, false, expected);
+        // Its one value path, for §2.2's boundary repair (`#formParts`).
+        const final = expression.items.at(-1);
+        if (final?.kind === "ExprItem") {
+          this.#formParts.set(expression, {
+            total: 1,
+            parts: [{ expression: final.expression, type }],
+          });
+        }
         break;
+      }
       case "Lambda": {
         // #355: one signature, one effect variable, all occurrences. A lambda
         // with an inlet of its own — a `->?` in a parameter type of any arrow
@@ -6275,6 +6359,18 @@ class Checker {
         // The condition does not; it is an operand, and synthesizes.
         const consequence = this.#inferExpr(expression.consequence, level, expected);
         const alternative = this.#inferExpr(expression.alternative, level, expected);
+        // Both value paths, for §2.2's boundary repair (`#formParts`), recorded
+        // whatever the join then does with them: an `if` **inside** an ascribed
+        // expression is walked whether or not its own branches agreed.
+        if (!expression.elseless) {
+          this.#formParts.set(expression, {
+            total: 2,
+            parts: [
+              { expression: expression.consequence, type: consequence },
+              { expression: expression.alternative, type: alternative },
+            ],
+          });
+        }
         if (expression.elseless) {
           // `else`-less: the false branch is the synthesized `Unit`, so the
           // `then` branch must be `Unit` (Operators §11.2). No numeric
@@ -6327,10 +6423,9 @@ class Checker {
             // refusal. What §2.2 adds is the boundary repair — the receiver this
             // form sits in took a face, and an ascription stops it.
             this.#forwardingBranchRepair(
+              expression,
               consequence,
               alternative,
-              expression.consequence,
-              expression.alternative,
               expected,
             ),
           );
@@ -6454,6 +6549,12 @@ class Checker {
         const scrutinee = this.#inferExpr(expression.scrutinee, level);
         const result = this.#fresh(level, false);
         const outerArmTop = this.#matchArmTop;
+        // The value paths, accumulated as they elaborate (`#formParts`). A
+        // disagreement at an early arm leaves the record incomplete, and an
+        // incomplete record answers nothing — see the field.
+        const paths: { expression: Resolved.Expr; type: Mono }[] = [];
+        const total = expression.arms.length +
+          (expression.catchArms?.length ?? 0);
         for (const arm of expression.arms) {
           this.#matchArmTop = true;
           try {
@@ -6475,11 +6576,13 @@ class Checker {
           // stands aside. The join here is result-against-arm rather than
           // branch-against-branch, so the pair the test is stated over is the
           // result the earlier arms established and this arm's body.
+          paths.push({ expression: arm.body, type: body });
+          this.#formParts.set(expression, { total, parts: [...paths] });
           this.#unify(
             result,
             body,
             arm.body.span,
-            this.#forwardingBranchRepair(result, body, arm.body, arm.body, expected),
+            this.#forwardingBranchRepair(expression, result, body, expected),
           );
         }
         // The match catch clause (Exceptions §5.4): its arms are `try`'s arms in
@@ -6488,7 +6591,11 @@ class Checker {
         // finished, and the two sets never compete for one evaluation — and the
         // data arms' exhaustiveness demand below is untouched by the clause.
         if (expression.catchArms !== undefined) {
-          this.#checkCatchArms(expression.catchArms, result, level, expected);
+          this.#checkCatchArms(expression.catchArms, result, level, expected, {
+            expression,
+            total,
+            paths,
+          });
         }
         const actual = this.#prune(scrutinee);
         // §7's judgments come off one matrix. Reachability runs wherever the
@@ -6567,7 +6674,16 @@ class Checker {
         // §4.3: the `try` body block is the construct's value path, and every
         // catch arm body is a value path too — both forward.
         const result = this.#inferExpr(expression.body, level, expected);
-        this.#checkCatchArms(expression.arms, result, level, expected);
+        const paths = [{ expression: expression.body, type: result }];
+        this.#formParts.set(expression, {
+          total: 1 + expression.arms.length,
+          parts: [...paths],
+        });
+        this.#checkCatchArms(expression.arms, result, level, expected, {
+          expression,
+          total: 1 + expression.arms.length,
+          paths,
+        });
         type = result;
         break;
       }
@@ -6609,7 +6725,7 @@ class Checker {
           // whatever the checker decided (see `#dotCallArguments`).
           const refusal = face === undefined
             ? undefined
-            : this.#receiverRefusal(expression.callee, receiver, face);
+            : this.#receiverRefusal(expression, expression.callee, receiver, face);
           if (refusal !== undefined) {
             this.#dotCallArguments(expression, level, undefined);
             type = this.#unsupported(refusal.span, refusal.message);
@@ -7904,6 +8020,15 @@ class Checker {
     result: Mono,
     level: number,
     expected?: Mono,
+    /**
+     * The enclosing form's value paths, accumulated as they elaborate *(#821)* —
+     * see `#formParts`. Absent where nothing can ascribe the form.
+     */
+    form?: {
+      readonly expression: Resolved.Expr;
+      readonly total: number;
+      readonly paths: { expression: Resolved.Expr; type: Mono }[];
+    },
   ): void {
     for (const arm of arms) {
       this.#inferExceptionPattern(arm.pattern, level);
@@ -7915,11 +8040,20 @@ class Checker {
       // forward the expectation exactly as data arms do (§4.3) — and they are a
       // forwarding form's parts for §9 row 16 too (#821; see the `match` arm).
       const body = this.#inferExpr(arm.body, level, expected);
+      if (form !== undefined) {
+        form.paths.push({ expression: arm.body, type: body });
+        this.#formParts.set(form.expression, {
+          total: form.total,
+          parts: [...form.paths],
+        });
+      }
       this.#unify(
         result,
         body,
         arm.body.span,
-        this.#forwardingBranchRepair(result, body, arm.body, arm.body, expected),
+        form === undefined
+          ? undefined
+          : this.#forwardingBranchRepair(form.expression, result, body, expected),
       );
     }
     // §5.3's set logic is §7.2's usefulness over the open `Exn` sum: the column
@@ -9668,6 +9802,7 @@ class Checker {
    * it), and the written boundaries that keep the receiver at its own type.
    */
   #receiverRefusal(
+    expression: Resolved.CallExpr,
     callee: Resolved.AccessExpr,
     receiver: Mono,
     face: Mono,
@@ -9681,18 +9816,15 @@ class Checker {
     const identity = TOWER_SPELLING_RUNGS.get(name);
     const rung = TOWER_RUNG_NAMES.get(identity ?? "");
     if (identity === undefined || rung === undefined) return undefined;
-    // The claimant, asked of the type rather than of the resolver, in two
-    // halves. A rung spelling meets the rung's **own member** exactly at a type
-    // honoring the rung (Constraints §4.6 forbids a module honoring a rung from
-    // exporting its spellings) — read from the one channel every subject is read
-    // from (#344) — and §4.2's ownership clause is the rung's member too; the
-    // ascription repairs neither, so row 16 stands down. And where *nothing*
-    // answers, the dot's own §9 row 4 refusal is true and precise where this row
-    // would name a type that has no such member: the complement of "honors the
-    // rung" is "a non-rung claimant **or none**", and only the first is this row.
-    if (this.#instances.has(this.#instanceKey(identity, kept))) return undefined;
-    if (this.#ownedTowerMember(kept, name) !== undefined) return undefined;
-    if (!this.#hasNonRungClaimant(kept, name)) return undefined;
+    // Which claimant answers `.name` at the type the receiver kept — asked of
+    // §3.4's own table (`#dotClaimants`), so this row's scope is the dispatch
+    // table rather than a second reading of it. Anything but a claimant outside
+    // the rung stands the row down: the rung's own member, where the ascription
+    // would repair nothing; and no claimant at all, where §9 row 4's refusal is
+    // true and precise and this row would name a type that has no such member.
+    if (!this.#answersOutsideRung(kept, name, identity, callee, expression.arguments)) {
+      return undefined;
+    }
     const note = found.note;
     const named = note.spelled === undefined
       ? `the part of the receiver that declined is a \`${note.operand}\` and it`
@@ -9705,7 +9837,7 @@ class Checker {
         `\`${this.#display(face)}\` here reached the receiver` +
         `${receiver_ === undefined ? "" : ` \`${receiver_}\``}; ` +
         `${this.#standDownSentence(note, named, "face")}. ` +
-        this.#boundaryRepair(found.at, note.ranType),
+        this.#boundaryRepair(found.at, note.ranType, true),
     };
   }
 
@@ -9726,10 +9858,9 @@ class Checker {
    * disagreement left behind and reporting a second time.
    */
   #forwardingBranchRepair(
-    consequence: Mono,
-    alternative: Mono,
-    consequenceExpression: Resolved.Expr,
-    alternativeExpression: Resolved.Expr,
+    form: Resolved.Expr,
+    left: Mono,
+    right: Mono,
     expected: Mono | undefined,
   ): (() => string | undefined) | undefined {
     if (expected === undefined) return undefined;
@@ -9738,20 +9869,17 @@ class Checker {
     // Exactly the shape §2.2 describes: one part entered the face, the other
     // could not. Two that both decline it disagree for reasons of their own, and
     // §11's report is complete as it stands.
-    const entered = this.#acceptsExactly(consequence, face);
-    if (entered === this.#acceptsExactly(alternative, face)) return undefined;
-    const kept = entered ? alternative : consequence;
+    const entered = this.#acceptsExactly(left, face);
+    if (entered === this.#acceptsExactly(right, face)) return undefined;
+    const kept = entered ? right : left;
     if (this.#reachesSeat(kept, face)) return undefined;
     return this.#faceDescentRepair(
-      `type mismatch: expected ${this.#display(consequence)}, found ` +
-        this.#display(alternative),
+      `type mismatch: expected ${this.#display(left)}, found ` + this.#display(right),
       kept,
-      // **Every** part of the ascribed expression, not only the one the face
-      // lifted: an ascription carries the whole form, so the branch that kept
-      // its type has to survive it too.
-      (target) =>
-        this.#followsAtType(consequenceExpression, consequence, target) &&
-        this.#followsAtType(alternativeExpression, alternative, target),
+      // The **form**, not the pair: an ascription carries every value path in
+      // it, so every path has to survive the kept type — and at an arm join the
+      // pair is `result` against one arm, which is not the form.
+      (target) => this.#followsAtType(form, undefined, target),
     );
   }
 
@@ -9780,9 +9908,9 @@ class Checker {
       // Here the ascription goes on the **receiver as a whole**: nothing inside
       // it stood down, so there is no inner call to ascribe — the parts simply
       // disagreed once the face had entered one of them.
-      return follows(kept)
-        ? `${mismatch}. ${this.#boundaryRepair(enclosing.callee.receiver, kept)}`
-        : mismatch;
+      if (!follows(kept)) return mismatch;
+      const repair = this.#boundaryRepair(enclosing.callee.receiver, kept, false);
+      return repair === undefined ? mismatch : `${mismatch}. ${repair}`;
     };
   }
 
@@ -9803,26 +9931,46 @@ class Checker {
    * operation honest: `(p + (i + j)): Foo` asks about `i` and `j`, not about the
    * `BigInt` the inner sum happened to run at under the face it is about to lose.
    *
-   * Reading `#subjectOperands` is a lookup on solved types: no expression is
-   * elaborated, speculatively or otherwise. Anything it cannot answer declines,
-   * and the report then offers the binding alone (Modules §7.6).
+   * A **forwarding form** is walked too, and by the same rule: an ascription
+   * carries the whole form, so every value path in it has to follow — grouping,
+   * a block's final expression, both `if` branches, `match` and `try` arm
+   * bodies (`#formParts`), which are the forms the face itself travels through.
+   * Walking only as far as the first `Group` was what silenced five classes of
+   * valid repair, a one-line nested `if` among them.
+   *
+   * Reading `#subjectOperands` and `#formParts` is a lookup on solved types: no
+   * expression is elaborated, speculatively or otherwise. Anything they cannot
+   * answer declines, and the report then offers the binding alone (Modules
+   * §7.6) — or, where the binding is no repair either, nothing.
    */
   #followsAtType(
     expression: Resolved.Expr,
     actual: Mono | undefined,
     type: Mono,
   ): boolean {
-    const inner = expression.kind === "Group" ? expression.expression : expression;
-    const tower = this.#subjectOperands.get(inner);
-    if (tower === undefined) {
-      return actual !== undefined && this.#reachesSeat(actual, type);
+    if (expression.kind === "Group") {
+      return this.#followsAtType(expression.expression, actual, type);
     }
-    const target = this.#prune(type);
-    if (target.kind === "Variable" || target.kind === "Error") return false;
-    if (!this.#supportsTarget(target, tower.rung)) return false;
-    return tower.operands.every((operand) =>
-      this.#followsAtType(operand.expression, operand.type, type)
-    );
+    const tower = this.#subjectOperands.get(expression);
+    if (tower !== undefined) {
+      const target = this.#prune(type);
+      if (target.kind === "Variable" || target.kind === "Error") return false;
+      if (!this.#supportsTarget(target, tower.rung)) return false;
+      return tower.operands.every((operand) =>
+        this.#followsAtType(operand.expression, operand.type, type)
+      );
+    }
+    const form = this.#formParts.get(expression);
+    if (form !== undefined) {
+      // An **incomplete** record answers nothing: a `match` reconciles arm by
+      // arm, so a disagreement at an early arm has not seen the later ones, and
+      // an offer made from part of a form is the offer §7.6 forbids.
+      return form.parts.length === form.total &&
+        form.parts.every((part) =>
+          this.#followsAtType(part.expression, part.type, type)
+        );
+    }
+    return actual !== undefined && this.#reachesSeat(actual, type);
   }
 
   /**
@@ -9841,15 +9989,33 @@ class Checker {
    * the binding is still a true repair, and it is offered alone (Modules §7.6's
    * principle — a fixit the reader cannot paste is worse than none).
    */
-  #boundaryRepair(target: Resolved.Expr, kept: Mono): string {
+  #boundaryRepair(
+    target: Resolved.Expr,
+    kept: Mono,
+    /**
+     * Whether **binding** `target` is itself a repair, where the ascription
+     * cannot be spelled.
+     *
+     * True at §9 row 16, where the target is the stood-down call and its own
+     * type *is* the kept type: `let t = p.add(q)` runs at `Foo` and `t.gcd(s)`
+     * dispatches there — that is §2.2's boundary, by construction. False where
+     * the target is a whole **forwarding form**, whose join without the face is
+     * its own question and not this one: measured, `let t = if c then i + j
+     * else p` joins at `Foo` and repairs, while the `match` of the same two
+     * paths refuses on its own, the arm join carrying no widening. An offer that
+     * does not repair is no offer (Modules §7.6), so where the ascription cannot
+     * be spelled this path offers nothing rather than the binding.
+     */
+    binding: boolean,
+  ): string | undefined {
     const spelling = this.#spelledExpression(target);
     const written = this.#typeSpellingAtSite(kept);
     const ran = this.#display(kept);
     if (spelling === undefined || written === undefined) {
-      return `To keep it at \`${ran}\`, bind it first`;
+      return binding ? `To keep it at \`${ran}\`, bind it first` : undefined;
     }
     return `To keep \`${spelling}\` at \`${ran}\`, ascribe it — ` +
-      `\`(${spelling}: ${written})\` — or bind it first`;
+      `\`(${spelling}: ${written})\`${binding ? " — or bind it first" : ""}`;
   }
 
   /**
