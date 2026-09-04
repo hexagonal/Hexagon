@@ -314,18 +314,12 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
    * `JsError(e)` arm binds is the source's own `Error`, message and all — no
    * `$hex`, no payload slot, nothing the shim put there.
    *
-   * #829 residue: this currently fails at runtime, not at compile. The emitted
-   * catch arm reads `__error.$hex === "Hex.JsError" && __error.name ===
-   * "JsError"` — the *domestic* test only, so a raw foreign `Error` (no `$hex`
-   * at all) never matches and rethrows uncaught. `emitter.ts`'s
-   * `isVirtualJsError` (Exceptions §6.2, #509) still compares `item.owner ===
-   * "JsError"`, the pre-#829 bare brand; since #829 an injected prelude
-   * module's `owner` is stamped with its **full name** (`project.ts`: `identity:
-   * unit.fullName`, Packages §2.3), so `JsError.hex`'s exception now owns
-   * `"Hex.JsError"` and the bare-name comparison never matches, silently
-   * turning off the foreign-branch (`virtual`) test in `#emitPatternPlan`'s
-   * `Constructor` case. Left failing rather than pinned to the wrong runtime
-   * behavior — see the final report's suspected-compiler-defect list.
+   * The arm reaches that value only because the door is recognized as virtual:
+   * `isVirtualJsError` asks whether the declaration is the standard library's
+   * `JsError` (Exceptions §6.2, #509), and since #829 it asks with the module's
+   * **full** name. Answered with the pre-#829 bare one it says no, the arm
+   * emits a domestic brand test, and every foreign throw walks past it
+   * uncaught — which is what this test would then see.
    */
   test("that throw arrives at a `JsError(e)` arm as the source's own value", async () => {
     const exports = await run(

@@ -267,16 +267,10 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     // standing at the spelling, so the family signpost never gets its turn, and
     // these two sentences are the ones this change must not have moved.
     //
-    // SUSPECTED COMPILER DEFECT (#829 residue): `Checker#unknownConstraint`
-    // (checker.ts, near line 12826) still builds its "realias as" clause by
-    // hand — `` `import ${only} from ${JSON.stringify(alias.specifier)}` `` —
-    // rather than through `moduleImportLine` (packages.ts), which every other
-    // realias seat (e.g. resolver.ts:5489, checker.ts:8311/8469) now uses.
-    // `alias.specifier` is also no longer a source-writable path: it now holds
-    // the *emitted* JS specifier for the import edge (Modules §11.2), not a
-    // module name. The assertion below is left as the spec-correct text
-    // (`` `import Render` ``, no `from`, Modules §10) and will keep failing
-    // until that call site is updated.
+    // The realias clause goes through `moduleImportLine` (packages.ts) like
+    // every other realias seat, so it names a module and carries no path
+    // (Modules §10). It cannot read the import's `specifier`, which since #829
+    // holds the *emitted* JS path for the edge (§11.2) and no module name.
     expect(messages([
       ["/render.hex", "module Render\n\n" + "export constraint Render<a> =\n    render(value: a): String\n"],
       ["/main.hex",
