@@ -77,9 +77,9 @@ The single Loops §7.1 unsolved-case message is hereby **split**: an annotation 
 
 For a user nominal `T` with no instance, the message is the loop-side face of the instance-discoverability obligation (Modules §7.6). The compiler always knows both legal homes — the orphan rule's search space of size two — and the message names **both**, leading with the actionable one:
 
-> `Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in `./bag.hex`, which declares `Bag`. The only other legal home is the prelude module declaring `Iterable`. Alternatively, convert with `Bag.toSeq`-style functions, or take a `Seq(a)` parameter.
+> `Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in module `Bag`, which declares `Bag`. The only other legal home is the prelude module declaring `Iterable`. Alternatively, convert with `Bag.toSeq`-style functions, or take a `Seq(a)` parameter.
 
-The prelude home is not user-editable, but naming it makes the two-home rule accurate and explains *why no third module can provide the instance* — the orphan rule handed to the user as a closed search space, not a hint. This subsumes Part 1 §6.4's earlier hint amendment, upgraded to name the files.
+The prelude home is not user-editable, but naming it makes the two-home rule accurate and explains *why no third module can provide the instance* — the orphan rule handed to the user as a closed search space, not a hint. This subsumes Part 1 §6.4's earlier hint amendment, upgraded to name the modules.
 
 ---
 
@@ -169,7 +169,7 @@ The member *is* the type's `toSeq`: the honoring module writes the conversion he
 
 ### 7.2 Globality and discoverability
 
-Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes `bag.hex`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). No separate loading step is needed for `Iterable` on your own collection — Modules §3.3 has no form for one — and none is taught in the recipe (Modules §7.6: unnecessary in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
+Instances are global over the import graph (Modules §7.1). For the home-module instance the graph does the work by construction: **no `Bag` value can exist in a program whose graph excludes module `Bag`**, so wherever a `Bag` flows, its instance is already present — including into modules that never name `Bag` (values carried by inference). No separate loading step is needed for `Iterable` on your own collection — Modules §3.3 has no form for one — and none is taught in the recipe (Modules §7.6: unnecessary in v1). What the user needs when something goes wrong is §3.3's diagnostic, which hands them the orphan rule's search space of size two.
 
 ### 7.3 Collisions with provided instances
 
@@ -193,6 +193,8 @@ The whole tax is one small instance. Anything more (combinators, instances like 
 
 ```
 -- bag.hex — a multiset: an opaque record over Map(a, Int) counts
+module Bag
+
 opaque record Bag(a) = {counts: Map(a, Int)}
 
 export fun fromSeq<a: Hash>(items: Seq(a)): Bag(a) = ...
@@ -209,7 +211,9 @@ honor Iterable<Bag(a)> =
 
 ```
 -- consumer.hex
-import Bag from "./bag"
+module Consumer
+
+import Bag
 
 let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))
 var total = 0
@@ -229,7 +233,7 @@ sum(Bag.toSeq(bag))          -- 8
 What the example fixes, normatively:
 
 - **Constraint placement is honest:** `fromSeq`/`add`/`count` need `<a: Hash>` (they consult the backing `Map`'s keys); `size` and the `Iterable` instance — `toSeq` included — need **nothing**: iteration never hashes. A user whose element type lacks `Hash` can still iterate a `Bag` handed to them; they simply cannot build one.
-- **The instance lives in the type's home module** (`bag.hex`) — the ordinary orphan-legal choice, and the one §3.3's diagnostic points at.
+- **The instance lives in the type's home module** (module `Bag`) — the ordinary orphan-legal choice, and the one §3.3's diagnostic points at.
 - **Opacity and instances compose:** `Bag` is `opaque`; consumers cannot see `counts`, but `for x in bag` works, because the instance was declared where nothing is hidden.
 - **The order contract is inherited and must be stated:** `Bag.toSeq`'s cross-element order is its backing `Map`'s iteration order — deterministic for a value within one execution, unspecified, unstable across runs (Part 4 §7.1). A user collection's docs inherit the obligation to say so; this one just did.
 
@@ -295,7 +299,7 @@ New rows first; inherited rows by reference (unchanged, listed for the consolida
 | `for x in xs`, `xs` an unsolved inference variable | "cannot determine what `xs` iterates over; add a type annotation" | §3.2 (Loops §7.1, unchanged) |
 | `for x in xs`, `xs : c` a rigid declared variable | "`xs` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" | **§3.2 (new split)** |
 | Non-iterable concrete type, not user-nominal | "`Int` is not iterable" (+ conversion hint where one exists) | §3.2 |
-| Non-iterable user nominal type | two-legal-homes form: the type's home file with the `honor` fixit, the prelude as the only other legal home, and the `toSeq`/`Seq(a)` alternatives | **§3.3 (new)** |
+| Non-iterable user nominal type | two-legal-homes form: the type's home module with the `honor` fixit, the prelude as the only other legal home, and the `toSeq`/`Seq(a)` alternatives | **§3.3 (new)** |
 | `honor` of a provided-row head outside the prelude | orphan-rule error + "the prelude already provides `Iterable<Vector(a)>`" | **§7.3 (new hint)** |
 | Projection-bearing constraint on a binder | Part 2 §9 row, unchanged | Part 2 §7.2 |
 | `Item` in a type expression | Part 2 §9 row, unchanged | Part 2 §7.3 |
@@ -437,7 +441,7 @@ for x in 42                                 -- ERROR: `Int` is not iterable
     ...
 for x in widget                             -- widget : Widget, user record, no instance
     ...                                       -- ERROR: `Widget` is not iterable. Define
-                                            --   honor Iterable<Widget> in ./widget.hex,
+                                            --   honor Iterable<Widget> in module Widget,
                                             --   which declares Widget. The only other
                                             --   legal home is the prelude module
                                             --   declaring Iterable. Alternatively,
@@ -451,7 +455,7 @@ honor Iterable<Vector(a)> =                 -- in user code
 --        the prelude already provides Iterable<Vector(a)>
 
 -- (h) User-vs-user duplicate (same module)
-honor Iterable<Bag(a)> = ...                -- second declaration in bag.hex
+honor Iterable<Bag(a)> = ...                -- second declaration in module Bag
 -- ERROR at the second declaration: duplicate instance of Iterable<Bag>
 
 -- (i) Once-evaluation of the source
@@ -473,7 +477,7 @@ for c in "abc"
     acc := acc ++ c                           -- acc = "abc"
 
 -- (l) No Iterable machinery in .d.ts
--- bag.hex's emitted bag.d.ts contains no Iterable, no Item, no Iterable-instance
+-- module Bag's emitted Bag.d.ts contains no Iterable, no Item, no Iterable-instance
 -- object — nothing iteration-shaped. (The .d.ts representation of the Hash
 -- constraint on fromSeq/add/count is the FFI spec's business and is asserted
 -- neither way here.)

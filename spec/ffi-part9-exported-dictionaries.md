@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-exported-dictionaries.md` (§§3–10 of which Part 8 defers to by name). The note's two delegated completions were confirmed in §13: handles and factories live in the instance declaration's home module under the lowercased other-party name, and evidence suffixes retain maximal constraints per variable before ordering. Preserves Part 7's corrected wrapper rule: a constrained generic edition exports the matching internal trailing-evidence function directly; a stable wrapper exists only when public ABI plumbing requires one (§9).
 **Scope:** `Constraint.Dictionary<a>` declaration shapes and nominal TypeScript branding; constraint-owned fundamental handles (`Signed.int`); type-owned non-fundamental handles (`Rat.signed`); parameterized dictionary factories (`Vector.show(Show.string)`); the public-evidence closure and ownership/nameability rules; trailing evidence ordering; base constraint nesting and duplicate elimination; the relationship to Part 8's Algorithm G trigger; emission, identity, collisions, validation policy, and cross-package dictionary ABI.
-**Not in scope:** the specialization set, Algorithm S/G/N mechanics, and the fundamental type set (Part 8, `ffi-zero-cost-fundamental-exports.md` — Decided; **this part does not repeat the specialization algorithm**); constraint semantics, instance coherence, and the orphan rule (Constraints §2–§6 — consumed); general export correspondence and `.d.ts` structure (Part 7); package-resolution mechanics (Modules §12.1, future package spec).
+**Not in scope:** the specialization set, Algorithm S/G/N mechanics, and the fundamental type set (Part 8, `ffi-zero-cost-fundamental-exports.md` — Decided; **this part does not repeat the specialization algorithm**); constraint semantics, instance coherence, and the orphan rule (Constraints §2–§6 — consumed); general export correspondence and `.d.ts` structure (Part 7); package-resolution mechanics (`packages.md`).
 **Companions:** Constraints §5–§6 (instance globality; dictionaries; base constraint slots; evaluation-freeness; the §6.4 `.d.ts` flag this part discharges for the generic-edition case); Part 7 §1/§2/§7 (correspondence, lowercase binders, direct-vs-wrapper); Part 8 §4–§6/§9 (trigger, public capability, names, ABI events); Modules §7/§11.5 (home module; dictionary emission); Functions §5.4 (subject-first).
 
 ---
@@ -40,7 +40,7 @@ These are **not** one universal dictionary type; each describes the operation re
 The public dictionary shape is the constraint's **completed member set, including inherited defaulted operations**. `Eq.Dictionary<a>` contains both `equals` and `notEquals` even when the originating `honor Eq<T>` supplied only `equals` — the dictionary is the constraint's full API, not the instance author's keystroke record:
 
 ```ts
-// eq.d.ts
+// Hex/Eq.d.ts  (#829: the standard library emits under Hex/, Packages §6; these comments name the emitted files)
 declare const eqDictionaryBrand: unique symbol;
 
 export interface Dictionary<a> {
@@ -51,7 +51,7 @@ export interface Dictionary<a> {
 ```
 
 ```ts
-// num.d.ts
+// Hex/Num.d.ts
 declare const numDictionaryBrand: unique symbol;
 
 export interface Dictionary<a> {
@@ -63,7 +63,7 @@ export interface Dictionary<a> {
 ```
 
 ```ts
-// signed.d.ts (representative member set; the constraint declaration is authoritative)
+// Hex/Signed.d.ts (representative member set; the constraint declaration is authoritative)
 declare const signedDictionaryBrand: unique symbol;
 
 export interface Dictionary<a> {
@@ -93,20 +93,20 @@ The two cases the decision note enumerated are this rule's two branches:
 - instance declared with the **type** (the normal user-package case) → **type-owned**, named by the constraint: `Rat.signed`, `Customer.eq`;
 - instance declared with the **constraint** (the fundamental instances; a user constraint honored for another package's type) → **constraint-owned**, named by the type: `Signed.int`, `MyShow.vector(...)`.
 
-The rule is a derivation of ownership reality rather than a preference: only the instance's home module is guaranteed to exist in the declaring package — a user package honoring its constraint for `Vector` cannot add exports to the runtime's `vector` module. Confirmed at review (§13.1).
+The rule is a derivation of ownership reality rather than a preference: only the instance's home module is guaranteed to exist in the declaring package — a user package honoring its constraint for `Vector` cannot add exports to the runtime's `Vector` module. Confirmed at review (§13.1).
 
 ### 3.2 Constraint-owned fundamental handles
 
 Fundamental evidence lives under the constraint namespace for discoverability:
 
 ```ts
-// num.d.ts
+// Hex/Num.d.ts
 export declare const nat: Dictionary<number>;
 export declare const int: Dictionary<number>;
 export declare const float: Dictionary<number>;
 export declare const bigInt: Dictionary<bigint>;
 
-// signed.d.ts
+// Hex/Signed.d.ts
 export declare const int: Dictionary<number>;
 export declare const float: Dictionary<number>;
 export declare const bigInt: Dictionary<bigint>;
@@ -119,7 +119,7 @@ giving `Num.nat`, `Num.int`, `Signed.int`, `Signed.float`, `Signed.bigInt`, `Eq.
 Public non-fundamental evidence lives in the public type's companion module under the lowercase constraint name:
 
 ```ts
-// rat.d.ts
+// Hex/Rat.d.ts
 import type * as Num from "@hexagon/runtime/num";
 import type * as Signed from "@hexagon/runtime/signed";
 
@@ -130,7 +130,7 @@ export declare const show: Show.Dictionary<Rat>;
 ```
 
 ```ts
-import * as Rat from "./rat.js";
+import * as Rat from "./Hex/Rat.js";
 plus(half, third, Rat.num);
 ```
 
@@ -147,17 +147,17 @@ A public handle forces its instance dictionary to be **materialized as a module-
 An instance whose evidence depends on other evidence is a real **factory function**; the public name is still the home rule's (§3.1):
 
 ```ts
-// vector.d.ts
+// Hex/Vector.d.ts
 export declare function show<a>(
   element: Show.Dictionary<a>,
 ): Show.Dictionary<Hex.Vector<a>>;
 
-// option.d.ts
+// Hex/Option.d.ts
 export declare function eq<a>(
   element: Eq.Dictionary<a>,
 ): Eq.Dictionary<Option<a>>;
 
-// map.d.ts
+// Hex/Map.d.ts
 export declare function show<k, v>(
   key: Show.Dictionary<k>,
   value: Show.Dictionary<v>,
@@ -251,7 +251,7 @@ Unspecified is not unstable. An implementation still places the whole suffix det
 Base-constraint evidence is **nested in the extending constraint’s dictionary as slots** (Constraints §6.2 — the slot is the base declaration’s own name, verbatim; #718):
 
 ```ts
-// ord.d.ts
+// Hex/Ord.d.ts
 import type * as Eq from "@hexagon/runtime/eq";
 
 export interface Dictionary<a> {
@@ -319,7 +319,7 @@ Public dictionaries from separately compiled Hexagon packages interoperate **onl
 - factory argument order (§4);
 - runtime package major compatibility.
 
-**Adding, removing, or renaming a constraint member — including adding a defaulted member — is a public dictionary-ABI event**, as is changing base constraint structure, factory argument order, or evidence ordering (Part 8 §9.5 points here). Package metadata/interface files must eventually record the dictionary ABI/runtime version; the mechanics stay with the package-system design (Modules §12.1), which inherits this requirement.
+**Adding, removing, or renaming a constraint member — including adding a defaulted member — is a public dictionary-ABI event**, as is changing base constraint structure, factory argument order, or evidence ordering (Part 8 §9.5 points here). Package metadata/interface files must eventually record the dictionary ABI/runtime version; the mechanics belong to the second distribution stage (Packages §5.2), which inherits this requirement; the first stage ships source and crosses no compiled boundary.
 
 ---
 
@@ -348,7 +348,7 @@ Public dictionaries from separately compiled Hexagon packages interoperate **onl
 
 ### 13.3 Runtime constraint-module layout (deferred, not blocking)
 
-`@hexagon/runtime/signed`-style subpath specifiers are used as representative throughout; the normative content is the qualified access pattern (`Signed.Dictionary`, `Signed.int`) and one-module-per-constraint organization. Exact specifier layout belongs to runtime packaging (with Modules §12.1's package questions). Flagged so promotion doesn't accidentally freeze a path spelling.
+`@hexagon/runtime/signed`-style subpath specifiers are used as representative throughout; the normative content is the qualified access pattern (`Signed.Dictionary`, `Signed.int`) and one-module-per-constraint organization. Exact specifier layout belongs to runtime packaging (with the Packages spec's second distribution stage, Packages §5.2). Flagged so promotion doesn't accidentally freeze a path spelling.
 
 ---
 

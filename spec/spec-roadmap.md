@@ -26,7 +26,7 @@
 | Generators / `yield` | `loops-ranges-iteration.md` §11 item 3 (own coroutine spec if revisited) |
 | `finally` resolved: never (#481; keyword reserved purely for the diagnostic) — resource management (`use`) is the v2 story | `exceptions.md` §10.1 |
 | Pattern-spec deferrals — range patterns (guards cover it), named-slot constructor patterns, string prefix patterns (not planned), closed-record patterns (evidence-gated) | `pattern-matching.md` |
-| Package system — bare-specifier resolution, lockfile story, re-exports, cross-package coherence/interface files, dictionary-ABI metadata, runtime-subpath layout | `modules.md` §12.1–12.2; `ffi-part9-exported-dictionaries.md` §11/§13.3 |
+| Package system — **stage one decided** (#829): `module` header and path-free `import` (`modules.md` §2–§3), `hexagon.json`, package namespaces, npm distribution with source shipped, whole-program compilation across packages (`packages.md`); **stage two recorded, not designed**: compiled distribution with a generated interface, the unconditional generic edition, dictionary-ABI metadata (`packages.md` §5.2; seed note under `spec/notes/`); re-exports still open | `modules.md` §12.2; `packages.md`; `ffi-part9-exported-dictionaries.md` §11/§13.3 |
 | Flow-sensitive narrowing — language/type-system deep dive with the recorded comparison bar | `ffi-part2-nullable-array.md` §2.5 |
 | Module-alias vs nullary-constructor coexistence (Elm-strict) — v2 candidate on field evidence; the Statements-§5 review counts as one datum | `modules.md` §5.2 |
 | Future numeric systems and hierarchy stress test — Complex numbers and matrices; discussion may happen before v2, implementation is unscheduled | §3.1 below |
