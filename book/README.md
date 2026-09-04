@@ -1,7 +1,7 @@
 # The Hexagon Programming Language
 
 This folder contains the reader-facing Hexagon book. Its first feature-body draft
-contains 25 chapters; front matter and the planned whole-book revision passes remain.
+contains 28 chapters; front matter and the planned whole-book revision passes remain.
 The normative language specification remains in `spec/`.
 
 The draft title page is [`FRONTMATTER.md`](FRONTMATTER.md).

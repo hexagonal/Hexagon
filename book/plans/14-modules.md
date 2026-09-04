@@ -2,20 +2,22 @@
 
 ## Purpose
 
-Teach files as modules, private-by-default declarations, the single module-import
+Teach the module header and its name as identity, several modules per file with
+`end module`, private-by-default declarations, the single path-free module-import
 form, named exports, opaque records and unions, companion modules, acyclic loading,
 top-level
 effects, root execution, and the global visibility of instances.
 
 ## Reader outcome
 
-The reader can divide a program into files, choose qualified or unqualified imports,
-publish a deliberate API, hide a nominal representation, and predict module loading
+The reader can divide a program into named modules, import one by its name or under
+an alias, publish a deliberate API, hide a nominal representation, and predict module loading
 and execution without looking for a special `main` function.
 
 ## Teaching order
 
-1. One file is one module; paths supply identity.
+1. A module declares its name in a header; several modules may share a file, closed
+   by `end module`; paths mean nothing.
 2. Private-by-default declarations and named exports.
 3. The module import — one form; a bare name is a declaration, a companion fallback,
    or a `match`-arm constructor.

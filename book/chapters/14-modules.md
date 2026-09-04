@@ -30,8 +30,7 @@ compiler discovers the files of a project, and `module Geometry` is the only pla
 the module's name exists. That is why every file declares a module: a file without a
 header is refused, and the compiler offers to insert one derived from the filename —
 `search-params.hex` gets `module SearchParams` — so the migration of an old file is
-one accepted fixit. The name is uppercase-start, like every name that stands left of a
-dot, and it may be dotted: `module Render.Geometry` is one module whose name has two
+one accepted fixit. The name is uppercase-start, like every module alias, and it may be dotted: `module Render.Geometry` is one module whose name has two
 segments, a way of grouping modules that the Packages chapter returns to.
 
 `module` is not a reserved word. It introduces a module only at the head of a
@@ -61,11 +60,16 @@ end module Shapes
 
 The closer is what separates one module from the next, so it is required exactly
 where there is something to separate. A file holding one module may omit it; the
-module runs to the end of the file. A second header met while the module before it
-is still open is an error, and the fixit inserts the missing closer above it.
+module runs to the end of the file. The last module in a file may be closed too, as
+the example does, or simply run to the end. A second header met while the module
+before it is still open is an error, and the fixit inserts the missing closer above
+it. Within one package no two modules may declare the same name, wherever their files
+sit; the fix is a dotted name on one of them.
 
-Sharing a file gives the two modules nothing. `Shapes` imports `Geometry` above
-although both sit in one file, and would be refused without the line. Grouping is a
+Sharing a file gives the two modules nothing. `Shapes` imports `Geometry` above —
+`import Geometry`, the form the next sections cover, is what makes `Geometry`'s
+exports reachable — although both sit in one file, and would be refused without the
+line. Grouping is a
 matter of where text lives; scope is a matter of what a module imports. Moving a
 module between files therefore changes nothing about what compiles, which is the
 point of naming modules rather than paths.
@@ -131,7 +135,7 @@ otherwise land on one.
 Module aliases are namespaces, not values:
 
 ```hexagon
-let saved = Geometry // error: modules are not values
+let saved = Geo // error: modules are not values
 ```
 
 They cannot be passed to a function, returned, or stored in a record. Functions and
@@ -164,7 +168,7 @@ introduces no bare names at all.
 
 Constructors have two doors of their own, neither needing a declaration. The first is
 the companion idiom below: an alias spelled like an exported type also answers for that
-type and for a same-named record constructor. The second is the `match` arm. The
+type and for a same-named record or union constructor. The second is the `match` arm. The
 constructors of the scrutinee's type may be written bare in a pattern, whatever module
 declared them:
 
@@ -522,8 +526,8 @@ emits `Render/Geometry.js`.
 Private declarations remain ordinary private ESM bindings. The module import lowers to
 JavaScript's own namespace import, `import * as Point`; a name the file reaches through
 the alias is spelled on that local, and a record construction erases into its object
-literal before any name is needed. Where a file reaches several of a module's names, the
-compiler may use named imports instead; either shape means the same program.
+literal before any name is needed. Where the emitter prefers it, named imports carry the same meaning; either shape
+means the same program.
 
 Companion modules now give every exported subject-first operation an unambiguous home.
 The next chapter uses that fact to explain the convenient dot-call spelling.

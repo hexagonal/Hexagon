@@ -23,7 +23,8 @@ A package is a directory holding a `hexagon.json` file, and the file names it:
 
 Every `.hex` file beneath that directory belongs to the package, each declaring its
 module as the Modules chapter described. There is no list of modules in the manifest.
-The headers are the declarations, and the tooling finds the files. A directory that
+The headers are the declarations, and the tooling finds the files. Within one package
+no two modules may declare the same name; the fix is a dotted name on one of them. A directory that
 carries a manifest of its own is a package of its own, which is how a workspace of
 several packages sits in one tree without any file belonging to two of them.
 
@@ -32,7 +33,10 @@ segment of every one of its modules' **full names**: `module Geometry` in `Acme`
 `Acme.Geometry`, and `module Render.Geometry` there is `Acme.Render.Geometry`. The full
 name is what a qualified import writes, what an emitted file is laid out by, and what
 an exception's `$hex` brand carries. A package never spells its own name inside its own
-source; renaming a package in its manifest changes no line of any module.
+source; renaming a package in its manifest changes no line of any module — though it
+does change what the emitted `$hex` brand says, `"Parser"` becoming `"Acme.Parser"`,
+which is why a project takes its `name` before any JavaScript consumer depends on a
+brand.
 
 The standard library is a package too. Its name is `Hex`, it needs no entry under
 `dependencies`, and every program depends on it. The prelude — `Option`, `Vector`, and
@@ -90,7 +94,8 @@ reason is also the same: a module added to the standard library or to a dependen
 never break a program that already had one of that name.
 
 **Between packages, a contest is refused.** If your package has no `Geometry` and two
-dependencies both provide one, the bare import is an error that names both spellings:
+visible packages provide one — two dependencies, or a dependency and `Hex` — the bare
+import is an error that names both spellings:
 
 > `Geometry` is provided by `Acme` and `Hex`; write `import Acme.Geometry` or
 > `import Hex.Geometry`
@@ -119,7 +124,8 @@ lockfile are npm's; Hexagon designs none of them. The npm name of the package �
 name. What npm names is a distribution; what Hexagon names is a namespace. The
 compiler learns which installed packages are Hexagon packages by reading their
 manifests, and resolves each package's `dependencies` in turn, outward from the
-project, into an acyclic set: the packages *in the program*. A program holds one copy
+project, into a set that must be acyclic — a `dependencies` cycle is refused and named,
+exactly as an import cycle is — the packages *in the program*. A program holds one copy
 of each package name, the project counted, and refuses to build if npm's layout has
 installed two.
 
@@ -150,8 +156,9 @@ declared names, dotted segments as directories — `Geometry.js`, `Render/Geomet
 and every other package's modules sit under a directory named by the package:
 `Acme/Geometry.js`, and for the standard library, `Hex/Option.js`. The emitted import
 from a project module at the root to the prelude is therefore `"./Hex/Option.js"`, and
-from a module one level down, `"../Hex/Option.js"`. The program-scoped files the
-TypeScript Output chapter described, `hex.d.ts` and `hex.js`, sit at the root as well.
+from a module one level down, `"../Hex/Option.js"`. Two program-wide files the compiler
+emits for the JavaScript boundary when a program needs them, `hex.d.ts` and `hex.js`,
+sit at the root as well.
 
 Two packages' same-named modules never collide on disk, and the output is a closed
 tree of relative imports: it runs from wherever it is copied, and imports nothing from

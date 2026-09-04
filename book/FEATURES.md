@@ -187,12 +187,12 @@ open specification work does not make the book outline provisional.
     zero-cost ordinary calls while keeping the TypeScript surface honest.
 
 28. **Packages** — A package is a directory with a `hexagon.json` naming it; its
-   name is the namespace supplying every module's full name (`Acme.Geometry`), the
-   standard library is the package `Hex`, and a module sees its own package, `Hex`,
-   and its direct dependencies. Bare names resolve when unique, the resolving
-   package's own module wins silently, and a contest between packages is refused
-   naming every full spelling. Packages ship source through npm and the program is
-   compiled whole; output lays every other package under its own directory.
+    name is the namespace supplying every module's full name (`Acme.Geometry`), the
+    standard library is the package `Hex`, and a module sees its own package, `Hex`,
+    and its direct dependencies. Bare names resolve when unique, the resolving
+    package's own module wins silently, and a contest between packages is refused
+    naming every full spelling. Packages ship source through npm and the program is
+    compiled whole; output lays every other package under its own directory.
 
 ## Cross-cutting promises
 
