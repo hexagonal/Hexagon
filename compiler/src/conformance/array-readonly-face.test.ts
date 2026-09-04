@@ -53,7 +53,7 @@ function preview(source: string): string {
 
 /** Every diagnostic of a single-module compile, as messages. */
 function diagnose(source: string): readonly string[] {
-  return compileProject([new Source.File(Source.fileId(0), "/src/main.hex", source)])
+  return compileProject([new Source.File(Source.fileId(0), "/src/main.hex", "module Main\n\n" + source)])
     .diagnostics.map(({ message }) => message);
 }
 

@@ -1,3 +1,5 @@
+module Iterable
+
 (** The iteration capability: `for..in` steps through the values of any type
     honoring `Iterable`, and `toSeq` is that type's conversion to the common
     `Seq` currency. *)

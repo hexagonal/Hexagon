@@ -86,7 +86,7 @@ async function run(
 }
 
 function main(source: string): Promise<Record<string, unknown>> {
-  return run([["/main.hex", source]]);
+  return run([["/main.hex", "module Main\n\n" + source]]);
 }
 
 describe("a constrained function carries its evidence into value position", () => {
@@ -163,9 +163,9 @@ describe("a constrained function carries its evidence into value position", () =
 
   test("imported from another module", async () => {
     const exports = await run([
-      ["/lib.hex", "export let plus<a: Num>(left: a, right: a): a = left + right\n"],
+      ["/lib.hex", "module Lib\n\n" + "export let plus<a: Num>(left: a, right: a): a = left + right\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "let apply(f: (Int, Int) -> Int): Int = f(1, 2)\n" +
         "export let out: Int = apply(Lib.plus)\n"],
     ]);
@@ -243,7 +243,7 @@ describe("what must not change", () => {
     // allocation per mention.
     const project = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
-        "let identity(value: Int): Int = value\n" +
+        "module Main\n\n" + "let identity(value: Int): Int = value\n" +
         "let apply(f: Int -> Int): Int = f(1)\n" +
         "export let out: Int = apply(identity)\n"),
     ]);

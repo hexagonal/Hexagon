@@ -30,7 +30,7 @@ import { compileFiles, compileMain, runMain, runProject } from "../support/test-
  */
 
 function emitted(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   // A pin on emitted text means nothing if the module was rejected: a refused
   // program emits little and satisfies every `not.toContain` for free.
   expect(project.diagnostics).toEqual([]);
@@ -250,7 +250,7 @@ describe("§3.2 — self-evidence is the instance record under construction", ()
     expect(text).toContain("__instance.equals(__left.left, __right.left)");
     expect(text).not.toContain("__Eq_Tree(__Eq_a)");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["same"]).toBe(true);
     expect(main["differ"]).toBe(false);
   });
@@ -264,7 +264,7 @@ describe("§3.2 — self-evidence is the instance record under construction", ()
     expect(text).toContain("__instance.show(__value.left)");
     expect(text).toContain("__instance.show(__value.right)");
     expect(text).not.toContain("__Show_Tre(__Show_a)");
-    expect((await runMain(source))["text"]).toBe("Nd(Nd(Lf, 1, Lf), 2, Lf)");
+    expect((await runMain("module Main\n\n" + source))["text"]).toBe("Nd(Nd(Lf, 1, Lf), 2, Lf)");
   });
 
   test("a nullary instance is unaffected — it is already its own module constant", () => {
@@ -323,7 +323,7 @@ describe("§3.3 — non-identity evidence inside a factory body stays call-time"
     // does apply to it — the two rules coexist inside one body.
     expect(text).toContain("rend(r, __instance");
 
-    expect((await runMain(source))["text"]).toBe("[12]");
+    expect((await runMain("module Main\n\n" + source))["text"]).toBe("[12]");
   });
 
   test("deeper: this instance at a constructed argument (non-regular recursion)", async () => {
@@ -350,7 +350,7 @@ describe("§3.3 — non-identity evidence inside a factory body stays call-time"
     // And it is not ground, so §3.1 does not reach it either.
     expect(text).not.toMatch(/^const __Dsc_Weird_Box2\w* =/mu);
 
-    expect((await runMain(source))["text"]).toBe("W(W(end))");
+    expect((await runMain("module Main\n\n" + source))["text"]).toBe("W(W(end))");
   });
 
   test("permuted: this instance over its own parameters, reversed", async () => {
@@ -377,7 +377,7 @@ describe("§3.3 — non-identity evidence inside a factory body stays call-time"
     // The ground use site at the top is hoisted as usual, in argument order.
     expect(text).toContain("const __Dsp_Swap_Int_String = __Dsp_Swap(__Dsp_Int, __Dsp_String);");
 
-    expect((await runMain(source))["text"]).toBe("1xstop");
+    expect((await runMain("module Main\n\n" + source))["text"]).toBe("1xstop");
   });
 });
 
@@ -406,7 +406,7 @@ describe("§4, §5, §8 — the key, determinism, and the exported surface", () 
       RENDER_PRELUDE +
       "let boxed: Box(Int) = Box({value = 1})\n" +
       "export let one: String = render(boxed)\n";
-    const project = compileFiles([["/main.hex", source]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
     expect(project.diagnostics).toEqual([]);
     const module = project.modules.find(({ source: file }) => file.path === "/main.hex")!;
 
@@ -435,7 +435,7 @@ describe("§4, §5, §8 — the key, determinism, and the exported surface", () 
     const files = [
       [
         "/lib.hex",
-        "export constraint Render<a> =\n" +
+        "module Lib\n\n" + "export constraint Render<a> =\n" +
           "    render(value: a): String\n" +
           "honor Render<Int> =\n" +
           '    render(value) = "${value}"\n' +
@@ -445,7 +445,7 @@ describe("§4, §5, §8 — the key, determinism, and the exported surface", () 
       ],
       [
         "/main.hex",
-        'import Lib from "./lib"\n' +
+        "module Main\n\n" + 'import Lib\n' +
           "let boxed: Lib.Box(Int) = Lib.Box({value = 1})\n" +
           "export let one: String = Lib.render(boxed)\n",
       ],
@@ -505,7 +505,7 @@ describe("§5 — a contested hoisted spelling", () => {
     // because no other *declared* instance contests it.
     expect(text).toContain("export { __Render_Box_Int };");
 
-    const main = await runMain(CONTEST);
+    const main = await runMain("module Main\n\n" + CONTEST);
     expect(main["one"]).toBe("Box(1)");
     expect(main["two"]).toBe("BI(2)");
   });
@@ -541,7 +541,7 @@ describe("§5 — a contested hoisted spelling", () => {
     expect(text).toContain("__Render_A_B_C.render(l)");
     expect(text).toContain("__Render_A_B_C_1.render(r)");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("A(BC1)");
     expect(main["two"]).toBe("AB(C2)");
   });
@@ -587,7 +587,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     // §3.4's last sentence: "the inline literal shape appears at no ground site."
     expect(occurrences(text, "({ show:")).toBe(1);
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["shown"]).toBe("(1, 2)");
     expect(main["interpolated"]).toBe("pair (3, 4)");
   });
@@ -607,7 +607,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     expect(text).toContain('const interpolated = "u " + __Show_Unit.show(undefined);');
     expect(occurrences(text, "({ show:")).toBe(1);
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["shown"]).toBe("()");
     expect(main["interpolated"]).toBe("u ()");
   });
@@ -648,7 +648,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
       offsetOf(text, "const __Show_Box_Int_Int ="),
     );
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("({value = 1}, 2)");
     expect(main["two"]).toBe("({value = 3}, 4)");
   });
@@ -672,7 +672,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     expect(text).toContain("const shown = __Show_Unit.show(undefined);");
     expect(text).toContain("const same = __Eq_Unit.equals(undefined, undefined);");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["shown"]).toBe("()");
     expect(main["same"]).toBe(true);
   });
@@ -708,7 +708,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     );
     expect(text).toContain("__Show_Bool.show(true)");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("(1, 2)");
     expect(main["two"]).toBe("True3");
   });
@@ -742,7 +742,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     // initializer, at no use site.
     expect(occurrences(text, "({ Eq: {")).toBe(1);
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     // The behavioral half: one binding for three demands must still hash and
     // compare a tuple key correctly, so the duplicate insert collapses.
     expect(main["seenSize"]).toBe(1);
@@ -797,14 +797,14 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     const files = [
       [
         "/Bool.hex",
-        "export union Bool derives (Eq, Ord, Show, Hash) =\n    | False\n    | True\n",
+        "module Bool\n\n" + "export union Bool derives (Eq, Ord, Show, Hash) =\n    | False\n    | True\n",
       ],
       // The import is what keeps `/Bool.hex` in the emitted graph: nothing
       // reaches its dictionaries by the ordinary route, since `Bool`'s evidence
       // is compiler-built at every use site (#441).
       [
         "/main.hex",
-        'import Boolean from "./Bool"\nlet eagerSlot = 0\nexport let flag: Bool = True\n',
+        "module Main\n\n" + 'import Bool as Boolean\nlet eagerSlot = 0\nexport let flag: Bool = True\n',
       ],
     ] as const;
     const project = compileFiles(files);
@@ -826,7 +826,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     const source =
       "let structuralExports = 0\n" +
       'export let interpolated: String = "u ${()}"\n';
-    const project = compileFiles([["/main.hex", source]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
     expect(project.diagnostics).toEqual([]);
     const module = project.modules.find(({ source: file }) => file.path === "/main.hex")!;
 
@@ -862,7 +862,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
    * because `Show<Unit>`'s body names its parameter nowhere.
    */
   test("a prelude module hoists its own binding for the shape it demands", async () => {
-    const files = [["/main.hex", "let perModule = 0\nDebug.log(())\n"]] as const;
+    const files = [["/main.hex", "module Main\n\n" + "let perModule = 0\nDebug.log(())\n"]] as const;
     const debug = emittedFrom(files, "/Debug.hex");
 
     expect(occurrences(debug, "const __Show_Unit =")).toBe(1);
@@ -878,7 +878,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     const original = host.console.log;
     host.console.log = (...values: unknown[]) => void lines.push(values[0]);
     try {
-      await runProject([["/main.hex", "let perModuleRun = 0\nDebug.log(())\n"]]);
+      await runProject([["/main.hex", "module Main\n\n" + "let perModuleRun = 0\nDebug.log(())\n"]]);
     } finally {
       host.console.log = original;
     }
@@ -902,7 +902,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
     expect(text).not.toContain("({ equals:");
     expect(text).not.toMatch(/^const __Eq_n\b/mu);
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["same"]).toBe(true);
     expect(main["differ"]).toBe(false);
   });
@@ -918,7 +918,7 @@ describe("the ruling's runtime consequence", () => {
       "export fun loop(n: Int): String =\n" +
       "    if n <= 0 then \"\" else render(Box({value = n})) ++ loop(n - 1)\n";
 
-    const main = await runProject([["/main.hex", source]], {
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]], {
       transform: (path, javascript) =>
         path !== "/main.hex" ? javascript : javascript.replace(
           "const __Render_Box = ",

@@ -161,7 +161,7 @@ describe("the module", () => {
   });
 
   test("it compiles with no diagnostics of its own", () => {
-    const compiled = compileFiles([["/main.hex", "export let n: Int = Vector.length([1])\n"]]);
+    const compiled = compileFiles([["/main.hex", "module Main\n\n" + "export let n: Int = Vector.length([1])\n"]]);
     const vector = compiled.modules.find(({ source }) => source.path === "/Vector.hex")!;
     expect(vector.typed.diagnostics).toEqual([]);
     expect(vector.javascript.diagnostics).toEqual([]);
@@ -181,7 +181,7 @@ describe("the module", () => {
    * is the literal builder over a different source.
    */
   test("each declaration binds its lowering", () => {
-    const javascript = emitted([["/main.hex", "export let n: Int = Vector.length([1])\n"]], "/Vector.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let n: Int = Vector.length([1])\n"]], "/Vector.hex");
     expect(javascript).toContain("const length = __trieSize;");
     expect(javascript).toContain("const append = __trieAppend;");
     expect(javascript).toContain("const prepend = __triePrepend;");
@@ -199,7 +199,7 @@ describe("the module", () => {
     expect(javascript).not.toContain("export { toSeq };");
     // The trie arrives as one import line, and `length`'s lowering being an
     // imported name rather than a body is the whole of what makes it O(1).
-    expect(javascript).toContain('} from "./VectorTrie.js";');
+    expect(javascript).toContain('} from "./Hex/VectorTrie.js";');
     // `fromSeq` takes a top-level `Seq(a)` *parameter*, so its export site takes
     // FFI Part 7 §7 occasion 1's wrapper exactly as an exported `.hex` function
     // of that signature would (`spec/intrinsics.md` §8.3's edit note).
@@ -213,7 +213,7 @@ describe("consumers see nothing new (§8.2)", () => {
   test("the qualified spellings answer as before", async () => {
     const main = await runProject([[
       "/main.hex",
-      "let values: Vector(Int) = [10, 20, 30]\n" +
+      "module Main\n\n" + "let values: Vector(Int) = [10, 20, 30]\n" +
       "export let size: Int = Vector.length(values)\n" +
       "export let ended: Vector(Int) = Vector.append(values, 40)\n" +
       "export let begun: Vector(Int) = Vector.prepend(values, 0)\n" +
@@ -240,7 +240,7 @@ describe("consumers see nothing new (§8.2)", () => {
   test("the declared exceptions are constructible with no import", async () => {
     const main = await runProject([[
       "/main.hex",
-      "export fun refuse(index: Int): Int = throw(IndexError(index, 0))\n" +
+      "module Main\n\n" + "export fun refuse(index: Int): Int = throw(IndexError(index, 0))\n" +
       "export fun reject(start: Int): Int = throw(SliceError(start, 0))\n",
     ]]);
 
@@ -260,14 +260,14 @@ describe("consumers see nothing new (§8.2)", () => {
   test("`at` and bracket indexing throw the declared shape", async () => {
     await expect(runProject([[
       "/main.hex",
-      "let values: Vector(Int) = [10, 20]\n" +
+      "module Main\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let bad: Int = Vector.at(values, 99)\n",
     ]])).rejects.toThrowError(
       expect.objectContaining({ name: "IndexError", $hex: "Vector", index: 99, size: 2 }),
     );
     await expect(runProject([[
       "/main.hex",
-      "let values: Vector(Int) = [10, 20]\n" +
+      "module Main\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let bad: Int = values[7]\n",
     ]])).rejects.toThrowError(
       expect.objectContaining({ name: "IndexError", $hex: "Vector", index: 7, size: 2 }),
@@ -287,7 +287,7 @@ describe("consumers see nothing new (§8.2)", () => {
   test("an empty ascending window clamps rather than raising", async () => {
     const main = await runProject([[
       "/main.hex",
-      "let values: Vector(Int) = [10, 20, 30]\n" +
+      "module Main\n\n" + "let values: Vector(Int) = [10, 20, 30]\n" +
       "export let window: Vector(Int) = values[3..1]\n",
     ]]);
 
@@ -304,7 +304,7 @@ describe("consumers see nothing new (§8.2)", () => {
   test("a `catch` arm can name the prelude `IndexError`", async () => {
     const main = await runProject([[
       "/main.hex",
-      "let values: Vector(Int) = [10, 20]\n" +
+      "module Main\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let payload: (Int, Int) = try\n" +
       "    (Vector.at(values, 99), 0)\n" +
       "catch\n" +
@@ -331,18 +331,18 @@ describe("membership drags nothing in", () => {
   test("a program of literals alone imports no `Vector.js`", () => {
     const files = [[
       "/main.hex",
-      "export let values: Vector(Int) = [1, 2, 3]\n" +
+      "module Main\n\n" + "export let values: Vector(Int) = [1, 2, 3]\n" +
       "export let joined: Vector(Int) = [1] ++ [2]\n" +
       "export let head: Int = values[1]\n",
     ]] as const;
 
-    expect(emitted(files, "/main.hex")).not.toContain('from "./Vector.js"');
+    expect(emitted(files, "/main.hex")).not.toContain('from "./Hex/Vector.js"');
     // The trie brings its own dependencies since #344: its index arithmetic is
     // `Integral<Int>`'s members at `stdlib/Int.hex`, which in turn names
     // `Pow.hex`'s and `Integral.hex`'s exceptions and `Option.hex`'s answer for
     // the checked family. `Vector.hex` is what must stay out, and does.
     expect(emittedPaths(files)).toEqual([
-      "/Pow.hex", "/Integral.hex", "/Option.hex", "/Int.hex", "/VectorTrie.hex", "/main.hex",
+      "/Pow.hex", "module Pow\n\n" + "/Integral.hex", "/Option.hex", "/Int.hex", "/VectorTrie.hex", "/main.hex",
     ]);
   });
 
@@ -352,16 +352,16 @@ describe("membership drags nothing in", () => {
    * way a prelude module is, by something the emitter actually wrote.
    */
   test("a program with no vector emits no trie runtime", () => {
-    const files = [["/main.hex", "export let n: Int = 1 + 2\n"]] as const;
+    const files = [["/main.hex", "module Main\n\n" + "export let n: Int = 1 + 2\n"]] as const;
 
     expect(emitted(files, "/main.hex")).not.toContain("VectorTrie");
     expect(emittedPaths(files)).toEqual(["/main.hex"]);
   });
 
   test("one that names a companion function imports exactly that name", () => {
-    const files = [["/main.hex", "export let n: Int = Vector.length([1, 2])\n"]] as const;
+    const files = [["/main.hex", "module Main\n\n" + "export let n: Int = Vector.length([1, 2])\n"]] as const;
 
-    expect(emitted(files, "/main.hex")).toContain('import { length } from "./Vector.js";');
+    expect(emitted(files, "/main.hex")).toContain('import { length } from "./Hex/Vector.js";');
     expect(emittedPaths(files)).toContain("/Vector.hex");
   });
 });
@@ -387,7 +387,7 @@ describe("two prelude members exporting one bare name", () => {
    * §1) and never consults this scope at all.
    */
   test("the bare name is refused, and the diagnostic names every home", () => {
-    expect(projectDiagnostics("export let e: Vector(Int) = empty\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let e: Vector(Int) = empty\n")).toEqual([
       "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
       "or `Set.empty`",
     ]);
@@ -412,8 +412,7 @@ describe("two prelude members exporting one bare name", () => {
    * export `get` was already `Vector`'s and `Map`'s.
    */
   test("every collided name is refused, and only those", () => {
-    expect(projectDiagnostics(
-      "export let a: Vector(Int) = empty\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let a: Vector(Int) = empty\n" +
       "export let b: Vector(Int) = singleton(1)\n" +
       "export let c: Vector(Int) = prepend(b, 1)\n" +
       "export let d: Int = length(b)\n" +
@@ -446,7 +445,7 @@ describe("two prelude members exporting one bare name", () => {
   test("a module's own declaration still occludes the whole layer", async () => {
     const main = await runProject([[
       "/main.hex",
-      "let empty: Int = 0\n" +
+      "module Main\n\n" + "let empty: Int = 0\n" +
       "export let mine: Int = empty\n",
     ]]);
 
@@ -466,7 +465,7 @@ describe("two prelude members exporting one bare name", () => {
   test("a declaration sourced from one member settles the name", async () => {
     const main = await runProject([[
       "/main.hex",
-      'import Seq from "./Seq"\n' +
+      "module Main\n\n" + 'import Seq\n' +
       "let empty = Seq.empty\n" +
       "let length = Seq.length\n" +
       "export let n: Int = length(empty)\n",
@@ -495,10 +494,10 @@ describe("two prelude members exporting one bare name", () => {
    */
   test("a prelude member reaches a predecessor's function qualified, not bare", () => {
     const compiled = compileFiles([
-      ["/main.hex", "export let consumer: Vector(Int) = empty\n"],
+      ["/main.hex", "module Main\n\n" + "export let consumer: Vector(Int) = empty\n"],
       [
         "/Result.hex",
-        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        "module Result\n\n" + `${PRELUDE_SOURCES["Result.hex"]!}\n` +
         "export let member: Seq(Int) = empty\n",
       ],
     ]);
@@ -513,10 +512,10 @@ describe("two prelude members exporting one bare name", () => {
   /** And the qualified spelling is what the member is expected to write. */
   test("the same member compiles once the predecessor is qualified", () => {
     const compiled = compileFiles([
-      ["/main.hex", "export let consumer: Vector(Int) = Vector.empty\n"],
+      ["/main.hex", "module Main\n\n" + "export let consumer: Vector(Int) = Vector.empty\n"],
       [
         "/Result.hex",
-        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        "module Result\n\n" + `${PRELUDE_SOURCES["Result.hex"]!}\n` +
         "export let member: Seq(Int) = Seq.empty\n",
       ],
     ]);
@@ -535,10 +534,10 @@ describe("two prelude members exporting one bare name", () => {
    */
   test("a further exporter joins the enumeration in prelude order", () => {
     const compiled = compileFiles([
-      ["/main.hex", "export let e: Vector(Int) = empty\n"],
+      ["/main.hex", "module Main\n\n" + "export let e: Vector(Int) = empty\n"],
       [
         "/Result.hex",
-        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        "module Result\n\n" + `${PRELUDE_SOURCES["Result.hex"]!}\n` +
         "export let empty: Int = 0\n",
       ],
     ]);
@@ -553,7 +552,7 @@ describe("two prelude members exporting one bare name", () => {
   test("the qualified spellings answer", async () => {
     const main = await runProject([[
       "/main.hex",
-      "export let lazy: Int = Seq.length(Seq.prepend(Seq.empty, 1))\n" +
+      "module Main\n\n" + "export let lazy: Int = Seq.length(Seq.prepend(Seq.empty, 1))\n" +
       "export let eager: Int = Vector.length(Vector.prepend(Vector.empty, 1))\n" +
       "export let one: Vector(Int) = Vector.singleton(7)\n",
     ]]);
@@ -574,7 +573,7 @@ describe("two prelude members exporting one bare name", () => {
   test("the refusal does not decide a dot call", async () => {
     const main = await runProject([[
       "/main.hex",
-      "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
+      "module Main\n\n" + "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
       "export let lazy: Int = source.length()\n" +
       "export let eager: Int = [1, 2].length()\n",
     ]]);
@@ -596,17 +595,17 @@ describe("two prelude members exporting one bare name", () => {
   test("both reach their own import when both are used", () => {
     const javascript = emitted([[
       "/main.hex",
-      "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
+      "module Main\n\n" + "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
       "export let lazy: Int = source.length()\n" +
       "export let eager: Int = Vector.length([1, 2])\n",
     ]], "/main.hex");
 
-    expect(javascript).toContain('import { length } from "./Seq.js";');
+    expect(javascript).toContain('import { length } from "./Hex/Seq.js";');
     // `Vector.toSeq` no longer comes from `Vector.js` (#353) — it is the
     // provided row's member, so the companion contributes only the collided
     // `length`, under its distinguished local.
     expect(javascript).toContain(
-      'import { length as __prelude_length } from "./Vector.js";',
+      'import { length as __prelude_length } from "./Hex/Vector.js";',
     );
     expect(javascript).toContain("const lazy = length(source);");
     expect(javascript).toContain("const eager = __prelude_length(__vectorOf([1, 2]));");
@@ -621,7 +620,7 @@ describe("the public-name door is gone", () => {
    * against a module that is now perfectly ordinary.
    */
   test("an operation the module does not export is an ordinary missing export", () => {
-    expect(projectDiagnostics("export let n: Int = Vector.reverse([1, 2])\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = Vector.reverse([1, 2])\n")).toEqual([
       "module `Vector` does not export `reverse`",
     ]);
   });

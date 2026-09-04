@@ -16,7 +16,7 @@ import { projectDiagnostics, runProject } from "../support/test-project.js";
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Int = noSuchName\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Int = noSuchName\n"))
       .toEqual(["unknown name `noSuchName`"]);
   });
 });
@@ -143,11 +143,11 @@ describe("what the claim does not reach", () => {
    */
   test("two constraints with one member name, honored at one type", async () => {
     const exports = await runProject([
-      ["/loud.hex", "export constraint Loud<a> =\n    volume(value: a): Int\n"],
-      ["/soft.hex", "export constraint Soft<a> =\n    volume(value: a): Int\n"],
-      ["/main.hex", [
-        "import Loud from \"./loud\"",
-        "import Soft from \"./soft\"",
+      ["/loud.hex", "module Loud\n\n" + "export constraint Loud<a> =\n    volume(value: a): Int\n"],
+      ["/soft.hex", "module Soft\n\n" + "export constraint Soft<a> =\n    volume(value: a): Int\n"],
+      ["/main.hex", "module Main\n\n" + [
+        "import Loud",
+        "import Soft",
         "",
         "export record Horn = {n: Int}",
         "",
@@ -176,7 +176,7 @@ describe("what the claim does not reach", () => {
    * grew an honor block.
    */
   test("a module may declare a constraint and honor it", async () => {
-    const exports = await runProject([["/main.hex", [
+    const exports = await runProject([["/main.hex", "module Main\n\n" + [
       "export constraint Describe<a> =",
       "    describe(value: a): String",
       "",
@@ -199,7 +199,7 @@ describe("what the claim does not reach", () => {
    * what the prelude exports.
    */
   test("a module-level `let show` with no `Show` instance of its own is fine", async () => {
-    const exports = await runProject([["/main.hex", [
+    const exports = await runProject([["/main.hex", "module Main\n\n" + [
       "export let show(n: Int): String = \"local ${n}\"",
       "",
       "export let local: String = show(7)",
@@ -218,7 +218,7 @@ describe("what the claim does not reach", () => {
    * refused — the claim reaches member *spellings*, not the module's helpers.
    */
   test("helpers a member body calls are ordinary bindings", async () => {
-    const exports = await runProject([["/main.hex", [
+    const exports = await runProject([["/main.hex", "module Main\n\n" + [
       "export record Ratio = {top: Int, bottom: Int}",
       "",
       "let build(top: Int, bottom: Int): Ratio = Ratio({top = top, bottom = bottom})",

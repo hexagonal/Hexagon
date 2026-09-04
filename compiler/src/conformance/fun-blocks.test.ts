@@ -27,7 +27,7 @@ function distinct(label: string): (path: string, javascript: string) => string {
 }
 
 function compiled(source: string) {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!;
 }
@@ -54,14 +54,13 @@ const EVEN_ODD =
 
 describe("the block parses (§12.1)", () => {
   test("a bare head over two members", () => {
-    expect(projectDiagnostics(`${EVEN_ODD}export let answer: Bool = even(4)\n`))
+    expect(projectDiagnostics("module Main\n\n" + `${EVEN_ODD}export let answer: Bool = even(4)\n`))
       .toEqual([]);
   });
 
   test("a binder head, annotations, and `export` members", () => {
     expect(
-      projectDiagnostics(
-        "fun<a: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    walk(x: a, y: a, n: Int): Int =\n" +
           "        if n <= 0 then 0 else if x == y then 1 + step(x, y, n - 1) else 0\n" +
           "    export search(x: a, y: a): Int = walk(x, y, 3)\n" +
@@ -72,8 +71,7 @@ describe("the block parses (§12.1)", () => {
 
   test("a single-member block, and the fused spelling beside it", () => {
     expect(
-      projectDiagnostics(
-        "fun\n" +
+      projectDiagnostics("module Main\n\n" + "fun\n" +
           "    twice(n: Int): Int = n * 2\n" +
           "fun thrice(n: Int): Int = n * 3\n" +
           "export let answer: Int = twice(1) + thrice(1)\n",
@@ -83,8 +81,7 @@ describe("the block parses (§12.1)", () => {
 
   test("blocks in inner scopes, and a block nested inside a member", () => {
     expect(
-      projectDiagnostics(
-        "export fun run(n: Int): Int =\n" +
+      projectDiagnostics("module Main\n\n" + "export fun run(n: Int): Int =\n" +
           "    fun\n" +
           "        up(k: Int): Int = if k <= 0 then 0 else 1 + down(k - 1)\n" +
           "        down(k: Int): Int = if k <= 0 then 0 else up(k - 1)\n" +
@@ -93,8 +90,7 @@ describe("the block parses (§12.1)", () => {
     ).toEqual([]);
 
     expect(
-      projectDiagnostics(
-        "fun\n" +
+      projectDiagnostics("module Main\n\n" + "fun\n" +
           "    outer(n: Int): Int =\n" +
           "        fun\n" +
           "            inner(k: Int): Int = if k <= 0 then 0 else inner(k - 1)\n" +
@@ -106,8 +102,7 @@ describe("the block parses (§12.1)", () => {
 
   test("two blocks back to back are two blocks, and both compile", () => {
     expect(
-      projectDiagnostics(
-        "fun\n" +
+      projectDiagnostics("module Main\n\n" + "fun\n" +
           "    a1(n: Int): Int = n\n" +
           "fun\n" +
           "    b1(n: Int): Int = a1(n)\n" +
@@ -126,7 +121,7 @@ describe("mutual recursion through a block runs (§12.2)", () => {
     expect(javascript).toContain("function odd(n) {");
 
     const exports = await runProject(
-      [["/main.hex", `${EVEN_ODD}export let answer: Bool = even(4)\n`]],
+      [["/main.hex", "module Main\n\n" + `${EVEN_ODD}export let answer: Bool = even(4)\n`]],
       { transform: distinct("fun block: even/odd") },
     );
     expect(exports["answer"]).toBe(true);
@@ -151,7 +146,7 @@ describe("mutual recursion through a block runs (§12.2)", () => {
     expect(javascript).toContain("pong(x, y, n - 1, __Eq_a)");
     expect(javascript).toContain("ping(x, y, n, __Eq_a)");
 
-    const exports = await runProject([["/main.hex", source]], {
+    const exports = await runProject([["/main.hex", "module Main\n\n" + source]], {
       transform: distinct("fun block: constrained knot"),
     });
     expect(exports["answer"]).toBe(3);
@@ -161,8 +156,7 @@ describe("mutual recursion through a block runs (§12.2)", () => {
 describe("the head's variable is one rigid (§12.3)", () => {
   test("two members writing `a` share it, and the knot compiles", () => {
     expect(
-      projectDiagnostics(
-        "fun<a: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    isEven(x: a, y: a, n: Int): Bool =\n" +
           "        if n <= 0 then x == y else isOdd(x, y, n - 1)\n" +
           "    isOdd(x: a, y: a, n: Int): Bool =\n" +
@@ -186,8 +180,7 @@ describe("the head's variable is one rigid (§12.3)", () => {
     // within the head's `Eq` and says nothing, `right` demands `Show` and is
     // refused. The head is never silently strengthened.
     expect(
-      projectDiagnostics(
-        "fun<a: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    left(x: a, n: Int): String =\n" +
           '        if n <= 0 then "" else right(x, n - 1)\n' +
           "    right(x: a, n: Int): String = show(x)\n",
@@ -201,8 +194,7 @@ describe("the head's variable is one rigid (§12.3)", () => {
     // And the head's own list governs: widen it as advised and the same block
     // compiles — the Rewrite Rule made checkable.
     expect(
-      projectDiagnostics(
-        "fun<a: (Eq, Show)>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: (Eq, Show)>\n" +
           "    left(x: a, n: Int): String =\n" +
           '        if n <= 0 then "" else right(x, n - 1)\n' +
           "    right(x: a, n: Int): String = show(x)\n",
@@ -217,8 +209,7 @@ describe("the head's variable is one rigid (§12.3)", () => {
    */
   test("the report names which member exceeded the head", () => {
     expect(
-      projectDiagnostics(
-        "fun<a: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    shows(x: a, n: Int): String =\n" +
           '        if n <= 0 then show(x) else hashes(x, n - 1)\n' +
           "    hashes(x: a, n: Int): String =\n" +
@@ -240,7 +231,7 @@ describe("the head's variable is one rigid (§12.3)", () => {
    */
   test("the fused spelling's refusal is untouched", () => {
     expect(
-      projectDiagnostics("fun right<a: Eq>(x: a, n: Int): String = show(x)\n"),
+      projectDiagnostics("module Main\n\n" + "fun right<a: Eq>(x: a, n: Int): String = show(x)\n"),
     ).toEqual([
       "`a` is declared to honor `Eq`, but the body requires `Show`; write " +
         "`<a: (Eq, Show)>`, or remove the constraint annotation to let it be inferred",
@@ -256,8 +247,7 @@ describe("the head's variable is one rigid (§12.3)", () => {
    */
   test("under a bare head, one spelling in two members shares nothing", () => {
     expect(
-      projectDiagnostics(
-        "fun\n" +
+      projectDiagnostics("module Main\n\n" + "fun\n" +
           "    isEven(x: a, n: Int): Bool =\n" +
           "        if n <= 0 then True else isOdd(x, n - 1)\n" +
           "    isOdd(x: a, n: Int): Bool =\n" +
@@ -279,8 +269,7 @@ describe("the head's variable is one rigid (§12.3)", () => {
    */
   test("a member's own variable meeting the head's names the head", () => {
     expect(
-      projectDiagnostics(
-        "fun<a: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    top(x: a, n: Int): Bool =\n" +
           "        if n <= 0 then x == x else bottom(x, n - 1)\n" +
           "    bottom(x: b, n: Int): Bool =\n" +
@@ -303,8 +292,7 @@ describe("sharing is opt-in, and grouping bounds visibility only (§12.4)", () =
    */
   test("a member outside the knot generalizes independently", () => {
     expect(
-      projectDiagnostics(
-        "fun<a: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    same(x: a, y: a): Bool = x == y\n" +
           "    pick(x: b, y: b): b = x\n" +
           "export let one: Int = pick(1, 2)\n" +
@@ -321,13 +309,11 @@ describe("sharing is opt-in, and grouping bounds visibility only (§12.4)", () =
    * unmentioned binder, the block says too.
    */
   test("a head variable no member mentions behaves as on a fused `fun`", () => {
-    const blocked = projectDiagnostics(
-      "fun<a: Eq>\n" +
+    const blocked = projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
         "    plain(n: Int): Int = n + 1\n" +
         "export let answer: Int = plain(1)\n",
     );
-    const fused = projectDiagnostics(
-      "fun plain<a: Eq>(n: Int): Int = n + 1\n" +
+    const fused = projectDiagnostics("module Main\n\n" + "fun plain<a: Eq>(n: Int): Int = n + 1\n" +
         "export let answer: Int = plain(1)\n",
     );
     expect(blocked).toEqual(fused);
@@ -379,7 +365,7 @@ describe("the exported constrained knot (§12.5)", () => {
     const exports = await runProject(
       [[
         "/main.hex",
-        `${SOURCE}export let answer: Int = countUp(Box({v = 2}), Box({v = 2}), 3)\n`,
+        "module Main\n\n" + `${SOURCE}export let answer: Int = countUp(Box({v = 2}), Box({v = 2}), 3)\n`,
       ]],
       { transform: distinct("fun block: exported knot") },
     );
@@ -394,7 +380,7 @@ describe("the exported constrained knot (§12.5)", () => {
    */
   test("a defective head list is reported once, however many members export", () => {
     const defective = (members: string): readonly string[] =>
-      projectDiagnostics(`fun<a: (Eq, Hash)>\n${members}`);
+      projectDiagnostics("module Main\n\n" + `fun<a: (Eq, Hash)>\n${members}`);
     const report = "exported function `first` must omit base constraint `Eq` from `a`; " +
       "`Hash` already provides it";
 
@@ -421,8 +407,7 @@ describe("the exported constrained knot (§12.5)", () => {
    */
   test("a member demanding fewer constraints than the head still compiles", () => {
     expect(
-      projectDiagnostics(
-        "fun<a: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    export keep(x: a): a = x\n" +
           "    export compare(x: a, y: a): Bool = x == y\n",
       ),
@@ -511,7 +496,7 @@ describe("emission: the block is invisible (§12.8)", () => {
   });
 
   test("a retired form emits nothing for the refused binding", () => {
-    const project = compileFiles([["/main.hex", "fun f = (n) => n\n"]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + "fun f = (n) => n\n"]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([
       "`fun` defines functions by header; write `fun f(n) = …`",
     ]);
@@ -523,23 +508,22 @@ describe("emission: the block is invisible (§12.8)", () => {
 
 describe("the diagnostics family (§12.6)", () => {
   test("the retired lambda right-hand side", () => {
-    expect(projectDiagnostics("fun fact = (n) => n\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "fun fact = (n) => n\n")).toContain(
       "`fun` defines functions by header; write `fun fact(n) = …`",
     );
     // Read through the pure wrappers: the same right-hand side, written two
     // other ways, is the same spelling and takes the same rewrite.
-    expect(projectDiagnostics("fun identity = ((x) => x)\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "fun identity = ((x) => x)\n")).toContain(
       "`fun` defines functions by header; write `fun identity(x) = …`",
     );
-    expect(projectDiagnostics("fun identity =\n    (x) => x\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "fun identity =\n    (x) => x\n")).toContain(
       "`fun` defines functions by header; write `fun identity(x) = …`",
     );
   });
 
   test("the retired match-function right-hand side", () => {
     expect(
-      projectDiagnostics(
-        "fun size = match\n" +
+      projectDiagnostics("module Main\n\n" + "fun size = match\n" +
           "    0 => 1\n" +
           "    _ => 2\n",
       ),
@@ -550,12 +534,12 @@ describe("the diagnostics family (§12.6)", () => {
   });
 
   test("any other `fun name =`", () => {
-    expect(projectDiagnostics("fun x = 5\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "fun x = 5\n")).toContain(
       "`fun` defines functions by header; write `fun x(params) = …`, or bind the value " +
         "with `let`",
     );
     expect(
-      projectDiagnostics("let memoize(f: (Int) -> Int): (Int) -> Int = f\nfun fib = memoize(f)\n"),
+      projectDiagnostics("module Main\n\n" + "let memoize(f: (Int) -> Int): (Int) -> Int = f\nfun fib = memoize(f)\n"),
     ).toContain(
       "`fun` defines functions by header; write `fun fib(params) = …`, or bind the value " +
         "with `let`",
@@ -564,8 +548,7 @@ describe("the diagnostics family (§12.6)", () => {
 
   test("the wrap rewrite on two separate `fun`s", () => {
     expect(
-      projectDiagnostics(
-        "fun even(n: Int): Int = odd(n - 1)\n" +
+      projectDiagnostics("module Main\n\n" + "fun even(n: Int): Int = odd(n - 1)\n" +
           "fun odd(n: Int): Int = even(n - 1)\n",
       ),
     ).toContain(
@@ -576,8 +559,7 @@ describe("the diagnostics family (§12.6)", () => {
     // And with an item between them: adjacency is no longer load-bearing, so
     // the same program draws the same message either way.
     expect(
-      projectDiagnostics(
-        "fun even(n: Int): Int = odd(n - 1)\n" +
+      projectDiagnostics("module Main\n\n" + "fun even(n: Int): Int = odd(n - 1)\n" +
           "let gap: Int = 1\n" +
           "fun odd(n: Int): Int = even(n - 1)\n",
       ),
@@ -589,15 +571,14 @@ describe("the diagnostics family (§12.6)", () => {
 
   test("`export` before a block head", () => {
     expect(
-      projectDiagnostics("export fun\n    f(n: Int): Int = n\n"),
+      projectDiagnostics("module Main\n\n" + "export fun\n    f(n: Int): Int = n\n"),
     ).toContain("`export` marks members: put it on each member to export");
 
     // Below module level the per-member advice would be wrong twice over — an
     // inner block's members take no marker either — so that seat takes Modules
     // §4.1's own refusal.
     expect(
-      projectDiagnostics(
-        "export fun run(n: Int): Int =\n" +
+      projectDiagnostics("module Main\n\n" + "export fun run(n: Int): Int =\n" +
           "    export fun\n" +
           "        helper(k: Int): Int = k\n" +
           "    helper(n)\n",
@@ -609,8 +590,7 @@ describe("the diagnostics family (§12.6)", () => {
 
   test("a binder list on a member line", () => {
     expect(
-      projectDiagnostics(
-        "fun\n" +
+      projectDiagnostics("module Main\n\n" + "fun\n" +
           "    parse<b: Show>(x: b): String = show(x)\n",
       ),
     ).toContain(
@@ -619,18 +599,17 @@ describe("the diagnostics family (§12.6)", () => {
   });
 
   test("an empty `fun` block", () => {
-    expect(projectDiagnostics("fun\nlet x: Int = 1\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "fun\nlet x: Int = 1\n")).toContain(
       "a `fun` block needs at least one member; write one, or remove the head",
     );
-    expect(projectDiagnostics("fun<a: Eq>\nlet x: Int = 1\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "fun<a: Eq>\nlet x: Int = 1\n")).toContain(
       "a `fun` block needs at least one member; write one, or remove the head",
     );
   });
 
   test("`export` on an inner block's member, and on a function-body binding", () => {
     expect(
-      projectDiagnostics(
-        "export fun run(n: Int): Int =\n" +
+      projectDiagnostics("module Main\n\n" + "export fun run(n: Int): Int =\n" +
           "    fun\n" +
           "        export helper(k: Int): Int = k\n" +
           "    helper(n)\n",
@@ -640,8 +619,7 @@ describe("the diagnostics family (§12.6)", () => {
     );
 
     expect(
-      projectDiagnostics(
-        "export fun run(n: Int): Int =\n" +
+      projectDiagnostics("module Main\n\n" + "export fun run(n: Int): Int =\n" +
           "    export let k: Int = n\n" +
           "    k\n",
       ),
@@ -657,8 +635,7 @@ describe("the diagnostics family (§12.6)", () => {
    */
   test("the §4.1.1 advice on a knot member names the block head", () => {
     expect(
-      projectDiagnostics(
-        "fun\n" +
+      projectDiagnostics("module Main\n\n" + "fun\n" +
           "    export countdown(x: a, y: a, n: Int): Bool =\n" +
           "        if n <= 0 then x == y else countdown(x, y, n - 1)\n",
       ),
@@ -670,8 +647,7 @@ describe("the diagnostics family (§12.6)", () => {
     // The fused spelling *is* the head, so its advice stays the binder form —
     // the advice follows the spelling, which is the whole of the carve-out.
     expect(
-      projectDiagnostics(
-        "export fun countdown(x: a, y: a, n: Int): Bool =\n" +
+      projectDiagnostics("module Main\n\n" + "export fun countdown(x: a, y: a, n: Int): Bool =\n" +
           "    if n <= 0 then x == y else countdown(x, y, n - 1)\n",
       ),
     ).toContain(
@@ -682,8 +658,7 @@ describe("the diagnostics family (§12.6)", () => {
 
   test("a doc comment on the block head documents nothing", () => {
     expect(
-      projectDiagnostics(
-        "(** The pair. *)\n" +
+      projectDiagnostics("module Main\n\n" + "(** The pair. *)\n" +
           "fun\n" +
           "    up(n: Int): Int = n\n",
       ),
@@ -711,8 +686,7 @@ describe("the diagnostics family (§12.6)", () => {
 
   test("a dot call cannot target the caller's own block", () => {
     expect(
-      projectDiagnostics(
-        "export record Box2 = {value: Int}\n" +
+      projectDiagnostics("module Main\n\n" + "export record Box2 = {value: Int}\n" +
           "fun\n" +
           "    export twice(b: Box2): Int = b.value * 2\n" +
           "    export once(b: Box2): Int = b.twice()\n",
@@ -726,8 +700,7 @@ describe("the diagnostics family (§12.6)", () => {
 describe("`var` may not have a function type (§7, §12.6)", () => {
   test("at the declaration, annotated and inferred alike", () => {
     expect(
-      projectDiagnostics(
-        "export fun run(n: Int): Int =\n" +
+      projectDiagnostics("module Main\n\n" + "export fun run(n: Int): Int =\n" +
           "    var step: (Int) -> Int = (k) => k\n" +
           "    step(n)\n",
       ),
@@ -737,8 +710,7 @@ describe("`var` may not have a function type (§7, §12.6)", () => {
     );
 
     expect(
-      projectDiagnostics(
-        "export fun run(n: Int): Int =\n" +
+      projectDiagnostics("module Main\n\n" + "export fun run(n: Int): Int =\n" +
           "    var step = (k: Int) => k\n" +
           "    step(n)\n",
       ),
@@ -754,8 +726,7 @@ describe("`var` may not have a function type (§7, §12.6)", () => {
    */
   test("`var f = identity(x => x)` does not walk past it", () => {
     expect(
-      projectDiagnostics(
-        "let identity(f: (Int) -> Int): (Int) -> Int = f\n" +
+      projectDiagnostics("module Main\n\n" + "let identity(f: (Int) -> Int): (Int) -> Int = f\n" +
           "export fun run(n: Int): Int =\n" +
           "    var f = identity(x => x)\n" +
           "    f(n)\n",
@@ -770,8 +741,7 @@ describe("`var` may not have a function type (§7, §12.6)", () => {
    * use settles it to an arrow. The report lands at that use. */
   test("at the pinning use", () => {
     expect(
-      projectDiagnostics(
-        "let nothing<a>(): Vector(a) = []\n" +
+      projectDiagnostics("module Main\n\n" + "let nothing<a>(): Vector(a) = []\n" +
           "export fun run(n: Int): Int =\n" +
           "    var slot = Vector.at(nothing(), 0)\n" +
           "    slot := (k: Int) => k\n" +
@@ -785,8 +755,7 @@ describe("`var` may not have a function type (§7, §12.6)", () => {
 
   test("functions inside data stay legal", () => {
     expect(
-      projectDiagnostics(
-        "let onOpen(n: Int): Int = n\n" +
+      projectDiagnostics("module Main\n\n" + "let onOpen(n: Int): Int = n\n" +
           "let onClose(n: Int): Int = n + 1\n" +
           "export fun run(n: Int): Int =\n" +
           "    var handlers = [onOpen, onClose]\n" +
@@ -796,8 +765,7 @@ describe("`var` may not have a function type (§7, §12.6)", () => {
     ).toEqual([]);
 
     expect(
-      projectDiagnostics(
-        "let onOpen(n: Int): Int = n\n" +
+      projectDiagnostics("module Main\n\n" + "let onOpen(n: Int): Int = n\n" +
           "export fun run(n: Int): Int =\n" +
           "    var slot = {handle = onOpen}\n" +
           "    slot.handle(n)\n",
@@ -807,8 +775,7 @@ describe("`var` may not have a function type (§7, §12.6)", () => {
 
   test("an ordinary data `var` is untouched", () => {
     expect(
-      projectDiagnostics(
-        "export fun run(n: Int): Int =\n" +
+      projectDiagnostics("module Main\n\n" + "export fun run(n: Int): Int =\n" +
           "    var total = 0\n" +
           "    total := total + n\n" +
           "    total\n",

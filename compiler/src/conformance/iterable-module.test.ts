@@ -26,7 +26,7 @@ import { compileFiles, projectDiagnostics, runMain } from "../support/test-proje
  */
 
 const mainOf = async (source: string): Promise<unknown> => {
-  const exports = await runMain(source);
+  const exports = await runMain("module Main\n\n" + source);
   return (exports["main"] as () => unknown)();
 };
 
@@ -42,8 +42,7 @@ describe("the declaration lands, and the twin is refused", () => {
    * eleven names now carry (Constraints §5.1.1).
    */
   test("a source `constraint Iterable` is refused like every other pre-registered name", () => {
-    expect(projectDiagnostics(
-      "constraint Iterable<c> =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "constraint Iterable<c> =\n" +
         "    type Item\n" +
         "    toSeq(xs: c): Seq(Item)\n",
     )).toContain("constraint `Iterable` is pre-registered and cannot be redeclared");
@@ -62,7 +61,7 @@ describe("the declaration lands, and the twin is refused", () => {
    * every home. One exporter is what makes the section's examples compile.
    */
   test("`toSeq` has one prelude exporter, so the bare name is not ambiguous", () => {
-    expect(projectDiagnostics("export let main(): Int = Seq.length(Iterable.toSeq([1]))\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let main(): Int = Seq.length(Iterable.toSeq([1]))\n"))
       .toEqual([]);
   });
 });
@@ -134,7 +133,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
       "export let main(): Int =\n" +
       "    let sequence: Seq(Int) = Seq.prepend(Seq.prepend(Seq.empty, 2), 1)\n" +
       "    Seq.fold(Iterable.toSeq(sequence), 0, (acc, n) => acc + n)\n";
-    const project = compileFiles([["/main.hex", source]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
     expect(project.diagnostics).toEqual([]);
     const javascript = project.modules
       .find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
@@ -170,7 +169,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
    */
   test("Array(a) gives a", () => {
     expect(messagesOf([["/main.hex",
-      'extern from "./rows.js"\n' +
+      "module Main\n\n" + 'extern from "./rows.js"\n' +
         "    fun rows(): Array(Int)\n" +
         "\n" +
         "export let main(): Int = Seq.length(Iterable.toSeq(rows!()))\n",
@@ -179,7 +178,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
 
   test("JsMap(k, v) gives the pair (k, v)", () => {
     expect(messagesOf([["/main.hex",
-      'extern from "./rows.js"\n' +
+      "module Main\n\n" + 'extern from "./rows.js"\n' +
         "    fun table(): JsMap(String, Int)\n" +
         "\n" +
         "export let main(): Int = Seq.length(Iterable.toSeq(table!()))\n",
@@ -188,7 +187,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
 
   test("JsSet(a) gives a", () => {
     expect(messagesOf([["/main.hex",
-      'extern from "./rows.js"\n' +
+      "module Main\n\n" + 'extern from "./rows.js"\n' +
         "    fun flags(): JsSet(Int)\n" +
         "\n" +
         "export let main(): Int = Seq.length(Iterable.toSeq(flags!()))\n",
@@ -206,7 +205,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
    */
   test("the borrowed views' `Item` bindings are (k, v) and a", () => {
     expect(messagesOf([["/main.hex",
-      'extern from "./rows.js"\n' +
+      "module Main\n\n" + 'extern from "./rows.js"\n' +
         "    fun table(): JsMap(String, Int)\n" +
         "    fun flags(): JsSet(Int)\n" +
         "\n" +
@@ -225,7 +224,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
   /** The pair is a pair: a single binder cannot stand for a `JsMap` item. */
   test("a `JsMap` item does not bind at the key's type", () => {
     expect(messagesOf([["/main.hex",
-      'extern from "./rows.js"\n' +
+      "module Main\n\n" + 'extern from "./rows.js"\n' +
         "    fun table(): JsMap(String, Int)\n" +
         "\n" +
         "export fun main(): String =\n" +
@@ -245,7 +244,7 @@ describe("the provided rows: bare `toSeq` and the `Item` projection", () => {
   test("`for..in` over a provided type still erases to a native loop", () => {
     const project = compileFiles([[
       "/main.hex",
-      "export let main(): Int =\n" +
+      "module Main\n\n" + "export let main(): Int =\n" +
         "    var total = 0\n" +
         "    for n in [1, 2, 3]\n" +
         "        total := total + n\n" +
@@ -284,8 +283,7 @@ describe("the qualified spellings survive the retirement (Modules §5.3)", () =>
    * bare member.
    */
   test("the qualifier pins the subject", () => {
-    expect(projectDiagnostics(
-      "export let main(): Int = Seq.length(Map.toSeq([1, 2]))\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let main(): Int = Seq.length(Map.toSeq([1, 2]))\n",
     )).not.toEqual([]);
   });
 });
@@ -327,9 +325,9 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
   /** The full §3.3 sentence, once, so the other cases can assert only what they vary. */
   test("a user nominal names both legal homes, leading with the actionable one", () => {
     expect(messagesOf([
-      ["/app/bag.hex", BAG],
+      ["/app/bag.hex", "module Bag\n\n" + BAG],
       ["/app/main.hex",
-        'import Bag from "./bag"\n' +
+        "module Main\n\n" + 'import Bag\n' +
           "let bag: Bag(Int) = Bag.Empty\n" +
           "export fun run(): Unit =\n" +
           "    for item in bag\n" +
@@ -358,12 +356,12 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
       "        ()\n";
 
     expect(messagesOf([
-      ["/app/lib/bag.hex", BAG],
+      ["/app/lib/bag.hex", "module Bag\n\n" + BAG],
       ["/app/main.hex", iterate("./lib/bag")],
     ]).join("\n")).toContain("in `./lib/bag.hex`, which declares `Bag`");
 
     expect(messagesOf([
-      ["/app/lib/bag.hex", BAG],
+      ["/app/lib/bag.hex", "module Bag\n\n" + BAG],
       ["/app/src/main.hex", iterate("../lib/bag")],
     ]).join("\n")).toContain("in `../lib/bag.hex`, which declares `Bag`");
   });
@@ -393,9 +391,9 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
    */
   test("the honor fixit spells the declaration's own parameters, binder-less", () => {
     const messages = messagesOf([
-      ["/app/pair.hex", "export record Pair(left, right) = {first: left, second: right}\n"],
+      ["/app/pair.hex", "module Pair\n\n" + "export record Pair(left, right) = {first: left, second: right}\n"],
       ["/app/main.hex",
-        'import Pair from "./pair"\n' +
+        "module Main\n\n" + 'import Pair\n' +
           'let pair: Pair(Int, String) = Pair({first = 1, second = "a"})\n' +
           "export fun run(): Unit =\n" +
           "    for item in pair\n" +
@@ -412,9 +410,9 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
   /** A zero-parameter nominal is applied to nothing, so the head is the bare name. */
   test("a zero-parameter nominal gets an unapplied honor subject", () => {
     expect(messagesOf([
-      ["/app/widget.hex", "export record Widget = {size: Int}\n"],
+      ["/app/widget.hex", "module Widget\n\n" + "export record Widget = {size: Int}\n"],
       ["/app/main.hex",
-        'import Widget from "./widget"\n' +
+        "module Main\n\n" + 'import Widget\n' +
           "let widget: Widget = Widget({size = 1})\n" +
           "export fun run(): Unit =\n" +
           "    for item in widget\n" +
@@ -436,13 +434,13 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
    */
   test("a nominal reached only through an imported function's type still names its file", () => {
     expect(messagesOf([
-      ["/app/lib/bag.hex", BAG],
+      ["/app/lib/bag.hex", "module Bag\n\n" + BAG],
       ["/app/middle.hex",
-        'import Bag from "./lib/bag"\n' +
+        "module Middle\n\n" + 'import Bag\n' +
           "export fun make(): Bag(Int) = Bag.Empty\n",
       ],
       ["/app/src/main.hex",
-        'import Middle from "../middle"\n' +
+        "module Main\n\n" + 'import Middle\n' +
           "export fun run(): Unit =\n" +
           "    for item in Middle.make()\n" +
           "        ()\n",
@@ -459,8 +457,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
    * take the concrete-non-iterable row's generic report instead.
    */
   test("a prelude union keeps the generic requirement failure", () => {
-    const messages = projectDiagnostics(
-      "let maybe: Option(Int) = Some(1)\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "let maybe: Option(Int) = Some(1)\n" +
         "export fun run(): Unit =\n" +
         "    for item in maybe\n" +
         "        ()\n",
@@ -483,8 +480,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
    * surfacing at a use site.
    */
   test("a rigid declared variable and an unsolved one get different messages", () => {
-    expect(projectDiagnostics(
-      "export fun visit(items: c): Unit =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun visit(items: c): Unit =\n" +
         "    for item in items\n" +
         "        ()\n",
     )).toContain(
@@ -493,8 +489,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
     );
 
     // Unchanged by the split, which is the point of splitting rather than rewording.
-    expect(projectDiagnostics(
-      "export let visit = (items) =>\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let visit = (items) =>\n" +
         "    for item in items\n" +
         "        ()\n",
     )).toContain(
@@ -512,8 +507,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
    * to write (#287).
    */
   test("a concrete non-nominal type keeps its own report", () => {
-    const messages = projectDiagnostics(
-      "export fun run(): Unit =\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "export fun run(): Unit =\n" +
         "    for item in 42\n" +
         "        ()\n",
     );
@@ -543,8 +537,7 @@ describe("provided rows occupy real slots (Part 5 §7.3)", () => {
    * rule would mean editing the prelude.
    */
   test("the orphan report names the row the prelude already provides", () => {
-    const messages = projectDiagnostics(
-      "honor Iterable<Vector(a)> =\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "honor Iterable<Vector(a)> =\n" +
         "    type Item = a\n" +
         "    toSeq(xs) = Vector.toSeq(xs)\n",
     );
@@ -563,16 +556,14 @@ describe("provided rows occupy real slots (Part 5 §7.3)", () => {
    * what the `Vector` assertion above cannot distinguish from a missing row.
    */
   test("the borrowed views' rows are found by the same orphan appendix", () => {
-    expect(projectDiagnostics(
-      "honor Iterable<JsMap(k, v)> =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "honor Iterable<JsMap(k, v)> =\n" +
         "    type Item = (k, v)\n" +
         "    toSeq(xs) = Seq.empty\n",
     )).toContain(
       "orphan instance: this module declares neither `Iterable` nor the instance " +
         "subject; the prelude already provides `Iterable<JsMap(k, v)>`",
     );
-    expect(projectDiagnostics(
-      "honor Iterable<JsSet(a)> =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "honor Iterable<JsSet(a)> =\n" +
         "    type Item = a\n" +
         "    toSeq(xs) = Seq.empty\n",
     )).toContain(
@@ -583,8 +574,7 @@ describe("provided rows occupy real slots (Part 5 §7.3)", () => {
 
   /** No source form, from the other side: a structural head is not a legal subject. */
   test("a structural head is refused outright (Constraints §5.4)", () => {
-    expect(projectDiagnostics(
-      "honor Iterable<Vector(a)> =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "honor Iterable<Vector(a)> =\n" +
         "    type Item = a\n" +
         "    toSeq(xs) = Vector.toSeq(xs)\n",
     )).toContain("an instance head must name a primitive or nominal type constructor");
@@ -631,7 +621,7 @@ describe("provided rows occupy real slots (Part 5 §7.3)", () => {
    */
   test("no `Iterable` machinery reaches the `.d.ts` face", () => {
     const project = compileFiles([["/main.hex",
-      "export record Bag = {items: Vector(Int)}\n" +
+      "module Main\n\n" + "export record Bag = {items: Vector(Int)}\n" +
         "honor Iterable<Bag> =\n" +
         "    type Item = Int\n" +
         "    toSeq(bag) = Vector.toSeq(bag.items)\n" +
@@ -705,7 +695,7 @@ describe("`String.fromSeq`, the full §5.3 contract", () => {
   test("the lowering joins rather than folding `++`", () => {
     const project = compileFiles([[
       "/main.hex",
-      'export let main(): String = String.fromSeq(Iterable.toSeq(["a"]))\n',
+      "module Main\n\n" + 'export let main(): String = String.fromSeq(Iterable.toSeq(["a"]))\n',
     ]]);
     expect(project.diagnostics).toEqual([]);
     const javascript = project.modules
@@ -715,15 +705,13 @@ describe("`String.fromSeq`, the full §5.3 contract", () => {
 
   /** `Seq` is exempt from the conversion suite: the currency needs none into itself. */
   test("there is no `Seq.fromSeq`", () => {
-    expect(projectDiagnostics(
-      "export let main(): Seq(Int) = Seq.fromSeq(Vector.toSeq([1]))\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let main(): Seq(Int) = Seq.fromSeq(Vector.toSeq([1]))\n",
     )).toContain("module `Seq` does not export `fromSeq`");
   });
 
   /** `Range` is iterable but is not a collection, so it has no `fromSeq` either (§1). */
   test("there is no `Range.fromSeq`", () => {
-    expect(projectDiagnostics(
-      "export let main(): Int = Range.fromSeq(Vector.toSeq([1]))\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let main(): Int = Range.fromSeq(Vector.toSeq([1]))\n",
     )).not.toEqual([]);
   });
 });

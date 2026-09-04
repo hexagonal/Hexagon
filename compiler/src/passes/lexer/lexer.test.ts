@@ -502,7 +502,7 @@ describe("documentation trivia", () => {
 });
 
 function lexSource(text: string) {
-  return lex(new Source.File(Source.fileId(0), "test.hex", text));
+  return lex(new Source.File(Source.fileId(0), "test.hex", "module Test\n\n" + text));
 }
 
 function kinds(tokens: readonly Lexed.Token[]): readonly Lexed.Token["kind"][] {

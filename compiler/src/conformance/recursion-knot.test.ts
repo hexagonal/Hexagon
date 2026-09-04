@@ -29,7 +29,7 @@ function distinct(label: string): (path: string, javascript: string) => string {
 }
 
 function emitted(source: string): string {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
@@ -263,7 +263,7 @@ describe("the asymmetric knot", () => {
     expect(javascript).toContain("function outer(x, n) {");
     expect(javascript).toContain("outer(__trieEmpty, n - 1)");
 
-    const exports = await runProject([["/main.hex", source]], {
+    const exports = await runProject([["/main.hex", "module Main\n\n" + source]], {
       transform: distinct("recursion knot: asymmetric vector"),
     });
 
@@ -278,8 +278,7 @@ describe("the asymmetric knot", () => {
    * is honored (the pre-registered test), so `Blip` is the shape that reaches it.
    */
   test("a non-defaultable callee-only variable is refused on the ambiguity path", () => {
-    const messages = projectDiagnostics(
-      "constraint Blip<a> =\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "constraint Blip<a> =\n" +
         "    blip(x: a): Int\n" +
         "record Crate(a) = {items: Vector(a)}\n" +
         "honor<a: Blip> Blip<Crate(a)> =\n" +
@@ -340,7 +339,7 @@ describe("the declared-heads refusal", () => {
    * what this program already writes, which is why the row fences it out.
    */
   test("the hint never offers the same-name advice", () => {
-    for (const message of projectDiagnostics(TWO_HEADS)) {
+    for (const message of projectDiagnostics("module Main\n\n" + TWO_HEADS)) {
       expect(message).not.toContain("use one type variable name in both annotations");
     }
   });
@@ -348,8 +347,7 @@ describe("the declared-heads refusal", () => {
   /** Distinct spellings: the qualification is per member, not a de-duplicator. */
   test("each side is qualified by its declaring member", () => {
     expect(
-      projectDiagnostics(
-        "fun\n" +
+      projectDiagnostics("module Main\n\n" + "fun\n" +
           "    isEven(x: p, n: Int): Bool = if n <= 0 then x == x else isOdd(x, n - 1)\n" +
           "    isOdd(x: q, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
       ),
@@ -369,8 +367,7 @@ describe("the declared-heads refusal", () => {
    */
   test("a side declared on the block head is qualified by the head", () => {
     expect(
-      projectDiagnostics(
-        "fun<p: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<p: Eq>\n" +
           "    isEven(x: p, n: Int): Bool = if n <= 0 then x == x else isOdd(x, n - 1)\n" +
           "    isOdd(x: q, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
       ),
@@ -392,8 +389,7 @@ describe("the declared-heads refusal", () => {
    */
   test("a three-member knot is refused once, and leaves no head to default", () => {
     expect(
-      projectDiagnostics(
-        "fun\n" +
+      projectDiagnostics("module Main\n\n" + "fun\n" +
           "    t1(x: a, n: Int): Bool = if n <= 0 then x == x else t2(x, n - 1)\n" +
           "    t2(x: b, n: Int): Bool = if n <= 0 then x == x else t3(x, n - 1)\n" +
           "    t3(x: c, n: Int): Bool = if n <= 0 then x == x else t1(x, n - 1)\n",
@@ -415,8 +411,7 @@ describe("the declared-heads refusal", () => {
    * wrapper was the only one, and the next test compiles the head.
    */
   test("two exporting members are offered the head and the wrapper", () => {
-    const messages = projectDiagnostics(
-      "fun\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "fun\n" +
         "    export isEven(x: a, n: Int): Bool =\n" +
         "        if n <= 0 then True else isOdd(x, n - 1)\n" +
         "    export isOdd(x: a, n: Int): Bool =\n" +
@@ -437,8 +432,7 @@ describe("the declared-heads refusal", () => {
    */
   test("the offered head spelling compiles for two exporting members", () => {
     expect(
-      projectDiagnostics(
-        "fun<a: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    export isEven(x: a, n: Int): Bool =\n" +
           "        if n <= 0 then x == x else isOdd(x, n - 1)\n" +
           "    export isOdd(x: a, n: Int): Bool =\n" +
@@ -456,7 +450,7 @@ describe("the declared-heads refusal", () => {
    * that, in both source orders.
    */
   test("one exporting member is offered the single-head spelling", () => {
-    const message = (source: string): readonly string[] => projectDiagnostics(source);
+    const message = (source: string): readonly string[] => projectDiagnostics("module Main\n\n" + source);
     const expected = (plain: string, exporting: string): string =>
       `\`a\` declared on \`isEven\` and \`a\` declared on \`isOdd\` are distinct declared type ` +
       "variables, but members of a recursive knot are checked together at not-yet-general " +
@@ -494,8 +488,7 @@ describe("the declared-heads refusal", () => {
     // generically, and the exporting member keeps the head it must write — which
     // is the head on the block, since a member line takes no binder (#700).
     expect(
-      projectDiagnostics(
-        "fun<a: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    isEven(x, n: Int): Bool = if n <= 0 then True else isOdd(x, n - 1)\n" +
           "    export isOdd(x: a, n: Int): Bool =\n" +
           "        if n <= 0 then x == x else isEven(x, n - 1)\n",
@@ -503,8 +496,7 @@ describe("the declared-heads refusal", () => {
     ).toEqual([]);
 
     expect(
-      projectDiagnostics(
-        "fun<a: Eq>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Eq>\n" +
           "    export isEven(x: a, n: Int): Bool =\n" +
           "        if n <= 0 then x == x else isOdd(x, n - 1)\n" +
           "    isOdd(x, n: Int): Bool = if n <= 0 then False else isEven(x, n - 1)\n",
@@ -514,8 +506,7 @@ describe("the declared-heads refusal", () => {
     // And the annotation-free knot is not a spelling an *export* can take: the
     // Rewrite Rule's own failure is what the arm above exists to avoid.
     expect(
-      projectDiagnostics(
-        "fun\n" +
+      projectDiagnostics("module Main\n\n" + "fun\n" +
           "    isEven(x, n: Int): Bool = if n <= 0 then True else isOdd(x, n - 1)\n" +
           "    export isOdd(x, n: Int): Bool =\n" +
           "        if n <= 0 then False else isEven(x, n - 1)\n",
@@ -532,8 +523,7 @@ describe("the declared-heads refusal", () => {
    */
   test("a concrete use of a headed member inside the knot keeps its own message", () => {
     expect(
-      projectDiagnostics(
-        "fun<a: Show>\n" +
+      projectDiagnostics("module Main\n\n" + "fun<a: Show>\n" +
           "    alpha(x: a, n: Int): String =\n" +
           "        if n <= 0 then show(x) else beta(x, n - 1)\n" +
           "    beta(x, n: Int): String =\n" +
@@ -559,8 +549,7 @@ describe("the declared-heads refusal", () => {
    */
   test("a head errored by the refusal still reports its own body's demand", () => {
     expect(
-      projectDiagnostics(
-        "fun\n" +
+      projectDiagnostics("module Main\n\n" + "fun\n" +
           "    r1(x: a, n: Int): String =\n" +
           "        if n <= 0 then show(x) else r2(x, n - 1)\n" +
           "    r2(x: b, n: Int): String =\n" +
@@ -587,8 +576,7 @@ describe("the declared-heads refusal", () => {
    */
   test("one member's own two heads keep the general message", () => {
     expect(
-      projectDiagnostics(
-        "fun same<a>(x: a, y: a): Bool = True\n" +
+      projectDiagnostics("module Main\n\n" + "fun same<a>(x: a, y: a): Bool = True\n" +
           "fun cross<b, c>(x: b, y: c): Bool = same(x, y)\n",
       ),
     ).toContain(
@@ -609,8 +597,7 @@ describe("the declared-heads refusal", () => {
    */
   test("different members' heads outside one component keep the general message", () => {
     expect(
-      projectDiagnostics(
-        "fun f<a>(x: a): a =\n" +
+      projectDiagnostics("module Main\n\n" + "fun f<a>(x: a): a =\n" +
           "    fun g<b>(y: b): b = x\n" +
           "    g(x)\n",
       ),

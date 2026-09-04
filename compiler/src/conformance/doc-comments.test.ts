@@ -23,7 +23,7 @@ import type { CompiledModule } from "../project.js";
  */
 
 function compiled(source: string): CompiledModule {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!;
 }
 
@@ -42,7 +42,7 @@ function attachments(source: string): readonly string[] {
 }
 
 function diagnostics(source: string): readonly string[] {
-  return compileMain(source).diagnostics.map(({ message }) => message);
+  return compileMain("module Main\n\n" + source).diagnostics.map(({ message }) => message);
 }
 
 const DANGLING =
@@ -255,7 +255,7 @@ describe("§5: the hard errors", () => {
   });
 
   test("an import is not documentable, and the message names the deferral", () => {
-    const source = '(** Module header? *)\nimport Other from "./other.hex"\n';
+    const source = '(** Module header? *)\nimport Other\n';
 
     expect(diagnostics(source)[0]).toBe(
       `${DANGLING} imports are not documentable; module-level documentation is not in v1.`,

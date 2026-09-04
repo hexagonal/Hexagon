@@ -40,13 +40,13 @@ const MAGNET = "export record Magnet = {poles: Int}\n";
 describe("a plain exported record carries its fields across the import", () => {
   test("the filed acceptance: field access through the same-spelled alias (#285)", () => {
     const { compiled, messages } = project([
-      ["/geo.hex", MAGNET],
+      ["/geo.hex", "module Geo\n\n" + MAGNET],
       [
         "/main.hex",
         // Rule 3's companion fallback (Modules §3.2, #762): the alias's own
         // spelling `Magnet` equals the exported record's, so the annotation
         // reaches it bare with no separate import for the type.
-        'import Magnet from "./geo"\n' +
+        'import Geo as Magnet\n' +
           "export fun poleCount(m: Magnet): Int = m.poles\n",
       ],
     ]);
@@ -58,10 +58,10 @@ describe("a plain exported record carries its fields across the import", () => {
 
   test("the whole §4.1 row through the same-spelled alias: construct, read, update", () => {
     const { compiled, messages } = project([
-      ["/geo.hex", MAGNET],
+      ["/geo.hex", "module Geo\n\n" + MAGNET],
       [
         "/main.hex",
-        'import Magnet from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Magnet\n' +
           "export let north: Magnet = Magnet({poles = 2})\n" +
           "export fun poleCount(m: Magnet): Int = m.poles\n" +
           "export fun retune(m: Magnet): Magnet = {m with poles = 3}\n",
@@ -78,10 +78,10 @@ describe("a plain exported record carries its fields across the import", () => {
 
   test("the same row through a namespace import — the other inclusion path", () => {
     const { compiled, messages } = project([
-      ["/geo.hex", MAGNET],
+      ["/geo.hex", "module Geo\n\n" + MAGNET],
       [
         "/main.hex",
-        'import Geo from "./geo"\n' +
+        "module Main\n\n" + 'import Geo\n' +
           "export let north: Geo.Magnet = Geo.Magnet({poles = 2})\n" +
           "export fun poleCount(m: Geo.Magnet): Int = m.poles\n" +
           "export fun retune(m: Geo.Magnet): Geo.Magnet = {m with poles = 3}\n",
@@ -100,10 +100,10 @@ describe("a plain exported record carries its fields across the import", () => {
     // lose to: an invisible representation sends `m.show(1)` to companion
     // dispatch, which is a different function with a different type.
     const { compiled, messages } = project([
-      ["/geo.hex", "export record Magnet = {poles: Int, show: (Int) -> Int}\n"],
+      ["/geo.hex", "module Geo\n\n" + "export record Magnet = {poles: Int, show: (Int) -> Int}\n"],
       [
         "/main.hex",
-        'import Magnet from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Magnet\n' +
           "export fun describe(m: Magnet): Int = m.show(1)\n",
       ],
     ]);
@@ -126,10 +126,10 @@ describe("opacity is unchanged — the control on §4.2", () => {
     // opacity — companion-fallback.test.ts pins that the fallback answers the
     // same type, not a looser one — but the fields it withholds stay withheld.
     const { messages } = project([
-      ["/vault.hex", VAULT],
+      ["/vault.hex", "module Vault\n\n" + VAULT],
       [
         "/main.hex",
-        'import Token from "./vault"\n' +
+        "module Main\n\n" + 'import Vault as Token\n' +
           "export fun leak(t: Token): Int = t.value\n",
       ],
     ]);
@@ -141,10 +141,10 @@ describe("opacity is unchanged — the control on §4.2", () => {
 
   test("an opaque record cannot be updated through a namespace import", () => {
     const { messages } = project([
-      ["/vault.hex", VAULT],
+      ["/vault.hex", "module Vault\n\n" + VAULT],
       [
         "/main.hex",
-        'import Vault from "./vault"\n' +
+        "module Main\n\n" + 'import Vault\n' +
           "export fun bump(t: Vault.Token): Vault.Token = {t with value = 1}\n",
       ],
     ]);

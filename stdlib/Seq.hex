@@ -1,3 +1,5 @@
+module Seq
+
 (** Raised when a sequence position is forced while it is already being
     forced (FFI Part 3 section 7.3-7.4). *)
 export exception ReentrancyError

@@ -38,7 +38,7 @@ describe("compileSource", () => {
     // names none — it erases into its object literal — so only the shared
     // `None` constant is left to bind.
     expect(vectorModule?.javascript).toContain(
-      'import { None } from "./Option.js";',
+      'import { None } from "./Hex/Option.js";',
     );
     expect(vectorModule?.javascript).toContain('{ tag: "Some", value: ');
   });
@@ -227,7 +227,7 @@ describe("compileSource", () => {
     // `String` reaches `logString` and needs no companion dictionary at all.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/Pow.hex",
-      "/Ordering.hex",
+      "module Pow\n\n" + "/Ordering.hex",
       "/Integral.hex",
       "/stdlib/Option.hex",
       "/Int.hex",
@@ -561,7 +561,7 @@ describe("compileSource", () => {
     // observable — name, message, `$hex` — is pinned by the executed test
     // below, which is where it belongs.
     expect(ratModule?.javascript).toContain("DivideByZeroError(\"Rat.create: bottom is zero\")");
-    expect(ratModule?.javascript).toContain('from "../Integral.js"');
+    expect(ratModule?.javascript).toContain('from "./Hex/Integral.js"');
     expect(ratModule?.javascript).toContain(
       "const __Frac_Rat = { Signed: __Signed_Rat, divide:",
     );
@@ -712,7 +712,7 @@ describe("compileSource", () => {
   test("compiles a buffer that writes the equipment import itself", () => {
     const response = compileSource(
       20,
-      "import Rat from \"./stdlib/Rat\"\n" +
+      "import Rat\n" +
         "let half = Rat.create(1, 2)\n" +
         "Debug.log(\"${half}\")\n",
     );
@@ -755,7 +755,7 @@ describe("compileSource", () => {
       "module Helper\n" +
         "    export let twice(n: Int): Int = n * 2\n" +
         "end module Helper\n" +
-        "import Rat from \"./Helper\"\n" +
+        "import Helper as Rat\n" +
         "Debug.log(\"${Rat.twice(3)}\")\n",
     );
 
@@ -769,7 +769,7 @@ describe("compileSource", () => {
   test("compiles a buffer whose own import is the companion's, both faces used", () => {
     const response = compileSource(
       22,
-      "import Rat from \"./stdlib/Rat\"\n" +
+      "import Rat\n" +
         "let half: Rat = Rat.create(1, 2)\n" +
         "Debug.log(\"${half}\")\n",
     );
@@ -799,9 +799,9 @@ describe("compileSource", () => {
     // module with no importer is not emitted.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/Rat.hex",
-      "/main.hex",
+      "module Rat\n\n" + "/main.hex",
     ]);
-    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
+    expect(response.javascript).toContain('import * as Rat from "./Hex/Rat.js";');
     expect(response.javascript).not.toContain("./stdlib/Rat.js");
   });
 

@@ -61,7 +61,7 @@ describe("collectOccurrences", () => {
       "let paint(b: Box(Colour)): Colour = b.item",
       "",
     ].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     for (const occurrence of own) {
       const text = source.slice(occurrence.span.start.offset, occurrence.span.end.offset);
@@ -86,7 +86,7 @@ describe("collectOccurrences", () => {
       "let one = Box({item = 1})",
       "",
     ].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     const boxes = own.filter((occurrence) => occurrence.name === "Box");
     expect(render(boxes, source)).toEqual([
@@ -105,7 +105,7 @@ describe("collectOccurrences", () => {
   test("references reach across modules by shared identity", () => {
     const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
     const main = [
-      'import Helper from "./helper"',
+      'import Helper',
       "",
       "let pick(c: Helper.Colour): Helper.Colour =",
       "    match c",
@@ -113,7 +113,7 @@ describe("collectOccurrences", () => {
       "        other => other",
       "",
     ].join("\n");
-    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
+    const { occurrences } = index([["/helper.hex", "module Helper\n\n" + helper], ["/main.hex", "module Main\n\n" + main]]);
     const helperOwn = occurrences.get("/helper.hex")!;
     const mainOwn = occurrences.get("/main.hex")!;
 
@@ -159,7 +159,7 @@ describe("collectOccurrences", () => {
       "let describe<a: Show2>(value: a): String = show2(value)",
       "",
     ].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     expect(render(own, source, (o) => o.target.kind === "constraint")).toEqual([
       'definition constraint "Show2"',
@@ -176,7 +176,7 @@ describe("collectOccurrences", () => {
 
   test("`derives` is a constraint reference, not a self-reference", () => {
     const source = ["union Colour derives (Eq, Show) =", "    | Red", "    | Green", ""].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     // The resolver turns each `derives` entry into a synthesized `honor` whose
     // every span is the union declaration's. Publishing that would make `Colour`
@@ -197,7 +197,7 @@ describe("collectOccurrences", () => {
       "    fun widen(value: Widget): Widget",
       "",
     ].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     expect(render(own, source, (o) => o.target.kind === "extern-type")).toEqual([
       'definition extern-type "Widget"',
@@ -214,7 +214,7 @@ describe("collectOccurrences", () => {
 
   test("the prelude's injected imports are not occurrences", () => {
     const source = "let flag = Some(1)\n";
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     // Every module carries the prelude's imports, whose names span the whole
     // module. Left in, `Some`, `None`, `True` and `False` would each claim the
@@ -239,7 +239,7 @@ describe("collectOccurrences", () => {
       "let unwrapδ(b: TRésultat(Int)): Int = b.item",
       "",
     ].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     expect(render(own, source, (o) => o.name === "TRésultat")).toEqual([
       'definition record "TRésultat"',
@@ -253,8 +253,8 @@ describe("collectOccurrences", () => {
 
   test("an import publishes nothing, having no names of its own", () => {
     const helper = "export let two: Int = 2\n";
-    const main = ['import H from "./helper"', "", "let four: Int = H.two + H.two", ""].join("\n");
-    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
+    const main = ['import Helper as H', "", "let four: Int = H.two + H.two", ""].join("\n");
+    const { occurrences } = index([["/helper.hex", "module Helper\n\n" + helper], ["/main.hex", "module Main\n\n" + main]]);
     const own = occurrences.get("/main.hex")!;
     // An import binds a module and nothing smaller (Modules §3, #762): the one
     // name on the line is the alias, which is a module and no term or type. The
@@ -275,8 +275,8 @@ describe("collectOccurrences", () => {
     // a specifier resolved to be indexed, and the type's occurrences are the
     // annotations that mention it.
     const helper = ["export union Shade =", "    | Pale", "    | Deep", ""].join("\n");
-    const main = ['import H from "./helper"', "", "let q(y: H.Shade): H.Shade = y", ""].join("\n");
-    const project = compileFiles([["/helper.hex", helper], ["/main.hex", main]]);
+    const main = ['import Helper as H', "", "let q(y: H.Shade): H.Shade = y", ""].join("\n");
+    const project = compileFiles([["/helper.hex", "module Helper\n\n" + helper], ["/main.hex", "module Main\n\n" + main]]);
     expect(project.diagnostics).toEqual([]);
     const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
     const own = collectOccurrences(module);
@@ -292,8 +292,8 @@ describe("collectOccurrences", () => {
 
   test("every occurrence belongs to the module that published it", () => {
     const { project, occurrences } = index([
-      ["/helper.hex", "export let two: Int = 2\n"],
-      ["/main.hex", 'import H from "./helper"\n\nlet four = H.two + H.two\n'],
+      ["/helper.hex", "module Helper\n\n" + "export let two: Int = 2\n"],
+      ["/main.hex", "module Main\n\n" + 'import Helper as H\n\nlet four = H.two + H.two\n'],
     ]);
     for (const module of project.modules) {
       for (const occurrence of occurrences.get(module.source.path) ?? []) {
@@ -312,8 +312,8 @@ describe("collectOccurrences", () => {
     // in by using it.
     const project = compileFiles([[
       "/main.hex",
-      [
-        'import S from "./Seq"',
+      "module Main\n\n" + [
+        'import Seq as S',
         "",
         "let doubled = S.map(Seq.iterate(1, (n) => n + 1), (n) => n * 2)",
         "let maybe: Option(Int) = Some(1)",

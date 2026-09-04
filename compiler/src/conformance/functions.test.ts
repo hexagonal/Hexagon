@@ -96,7 +96,7 @@ describe("Functions specification conformance", () => {
 // declaration, so a module assembled by calling the passes directly cannot type
 // a condition, a guard, a comparison, or a logic operator.
 function checkSource(text: string): Typed.Module {
-  return compileMain(text).modules.find(({ source }) => source.path === "/main.hex")!.typed;
+  return compileMain("module Main\n\n" + text).modules.find(({ source }) => source.path === "/main.hex")!.typed;
 }
 
 const run = runMain;

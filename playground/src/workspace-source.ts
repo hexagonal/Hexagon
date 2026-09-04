@@ -136,7 +136,7 @@ export function parseWorkspaceSource(source: string): WorkspaceSource {
 }
 
 function isUpperName(name: string): boolean {
-  const file = new Source.File(Source.fileId(0), "module-name.hex", name);
+  const file = new Source.File(Source.fileId(0), "module-name.hex", "module ModuleName\n\n" + name);
   const result = lex(file);
   return result.diagnostics.length === 0 && result.tokens.length === 2 &&
     result.tokens[0]?.kind === "UpperName";

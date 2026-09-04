@@ -1759,7 +1759,7 @@ function checkSource(text: string): Typed.Module {
 
 /** A single module checked with no prelude at all. */
 function checkModule(text: string): Typed.Module {
-  const source = new Source.File(Source.fileId(0), "test.hex", text);
+  const source = new Source.File(Source.fileId(0), "test.hex", "module Test\n\n" + text);
   return check(resolve(parse(applyLayout(lex(source)))));
 }
 
@@ -1769,7 +1769,7 @@ function checkModule(text: string): Typed.Module {
  * directly cannot name it.
  */
 function checkProject(text: string): Typed.Module {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", text)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + text)]);
   return project.modules.find((module) => module.source.path === "/main.hex")!.typed;
 }
 

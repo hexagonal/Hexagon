@@ -26,7 +26,7 @@ import { compileFiles, runProject } from "../support/test-project.js";
 
 /** Two modules with same-named, unrelated `Describe` constraints, plus a consumer. */
 const sameNamedConstraints: readonly (readonly [string, string])[] = [
-  ["/alpha.hex", [
+  ["/alpha.hex", "module Alpha\n\n" + [
     "constraint Describe<a> =",
     "    describe(subject: a): String",
     "",
@@ -36,7 +36,7 @@ const sameNamedConstraints: readonly (readonly [string, string])[] = [
     "export fun alphaLine(n: Int): String = describe(n)",
     "",
   ].join("\n")],
-  ["/beta.hex", [
+  ["/beta.hex", "module Beta\n\n" + [
     "constraint Describe<a> =",
     "    describe(value: a): String",
     "",
@@ -46,9 +46,9 @@ const sameNamedConstraints: readonly (readonly [string, string])[] = [
     "export fun betaLine(count: Int): String = describe(count)",
     "",
   ].join("\n")],
-  ["/main.hex", [
-    "import Alpha from \"./alpha\"",
-    "import Beta from \"./beta\"",
+  ["/main.hex", "module Main\n\n" + [
+    "import Alpha",
+    "import Beta",
     "",
     "export fun both(): String = Alpha.alphaLine(1) ++ \" / \" ++ Beta.betaLine(2)",
     "",
@@ -74,15 +74,15 @@ describe("same-named constraints in different modules are distinct", () => {
   test("the consumer need not import both directly — evidence flows transitively", () => {
     const compiled = compileFiles([
       ...sameNamedConstraints.slice(0, 2),
-      ["/middle.hex", [
-        "import Alpha from \"./alpha\"",
-        "import Beta from \"./beta\"",
+      ["/middle.hex", "module Middle\n\n" + [
+        "import Alpha",
+        "import Beta",
         "",
         "export fun joined(): String = Alpha.alphaLine(3) ++ Beta.betaLine(4)",
         "",
       ].join("\n")],
-      ["/tip.hex", [
-        "import Middle from \"./middle\"",
+      ["/tip.hex", "module Tip\n\n" + [
+        "import Middle",
         "",
         "export fun report(): String = Middle.joined()",
         "",
@@ -98,9 +98,9 @@ describe("same-named constraints in different modules are distinct", () => {
     // instance; the imported ones are not even nameable here.
     const compiled = compileFiles([
       ...sameNamedConstraints.slice(0, 2),
-      ["/main.hex", [
-        "import Alpha from \"./alpha\"",
-        "import Beta from \"./beta\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Alpha",
+        "import Beta",
         "",
         "constraint Describe<a> =",
         "    describe(item: a): String",
@@ -120,7 +120,7 @@ describe("same-named constraints in different modules are distinct", () => {
 
 describe("coherence still holds within one constraint declaration", () => {
   test("two instances of the *same* declaration are a duplicate", () => {
-    const compiled = compileFiles([["/main.hex", [
+    const compiled = compileFiles([["/main.hex", "module Main\n\n" + [
       "constraint Describe<a> =",
       "    describe(subject: a): String",
       "",
@@ -145,7 +145,7 @@ describe("coherence still holds within one constraint declaration", () => {
     // the same declaration is still an error. Pinned so that keying on identity
     // is not mistaken for switching duplicate detection off.
     const compiled = compileFiles([
-      ["/lib.hex", [
+      ["/lib.hex", "module Lib\n\n" + [
         "export record Tag = {label: String}",
         "",
         "honor Eq<Tag> = derive",
@@ -153,8 +153,8 @@ describe("coherence still holds within one constraint declaration", () => {
         "export fun tag(label: String): Tag = Tag({label = label})",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Lib from \"./lib\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Lib",
         "",
         "export fun same(): Bool = Lib.tag(\"x\") == Lib.tag(\"x\")",
         "",
@@ -173,7 +173,7 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
     // constraint. Executed, because the failure mode after the diagnostic is a
     // dictionary that is imported but never the right one.
     const exports = await runProject([
-      ["/alpha.hex", [
+      ["/alpha.hex", "module Alpha\n\n" + [
         "constraint Describe<a> =",
         "    describe(subject: a): String",
         "",
@@ -183,8 +183,8 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
         "export fun announce<a: Describe>(subject: a): String = describe(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Alpha from \"./alpha\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Alpha",
         "",
         "let seven: Int = 7",
         "export fun greet(): String = Alpha.announce(seven)",
@@ -200,15 +200,15 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
     // imported requirement were keyed on the name, that local declaration would
     // be what the call site consulted.
     const compiled = compileFiles([
-      ["/alpha.hex", [
+      ["/alpha.hex", "module Alpha\n\n" + [
         "constraint Describe<a> =",
         "    describe(subject: a): String",
         "",
         "export fun announce<a: Describe>(subject: a): String = describe(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Alpha from \"./alpha\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Alpha",
         "",
         "constraint Describe<a> =",
         "    describe(item: a): String",
@@ -234,7 +234,7 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
 
 describe("pre-registered constraints have one identity, held by the compiler", () => {
   test("a module may not redeclare a pre-registered name", () => {
-    const compiled = compileFiles([["/main.hex", [
+    const compiled = compileFiles([["/main.hex", "module Main\n\n" + [
       "constraint Hash<a> =",
       "    hash(subject: a): Int",
       "",
@@ -257,7 +257,7 @@ describe("pre-registered constraints have one identity, held by the compiler", (
     // `NON_REDECLARABLE_CONSTRAINTS`, which no longer filters anything out.
     for (const name of PRE_REGISTERED_CONSTRAINTS) {
       const compiled = compileFiles([["/main.hex",
-        `constraint ${name}<a> =\n    probe(subject: a): Int\n`,
+        "module Main\n\n" + `constraint ${name}<a> =\n    probe(subject: a): Int\n`,
       ]]);
 
       expect(compiled.diagnostics.map(({ message }) => message)).toContain(
@@ -267,7 +267,7 @@ describe("pre-registered constraints have one identity, held by the compiler", (
   }, 20000);
 
   test("redeclaring a module's own constraint keeps its own report", () => {
-    const compiled = compileFiles([["/main.hex", [
+    const compiled = compileFiles([["/main.hex", "module Main\n\n" + [
       "constraint Describe<a> =",
       "    describe(subject: a): String",
       "",
@@ -286,7 +286,7 @@ describe("pre-registered constraints have one identity, held by the compiler", (
     // one declaration, so two modules honoring `Eq` for the same type still
     // collide. `Ordering` is the prelude's, honored by the prelude already.
     const compiled = compileFiles([["/main.hex",
-      "honor Eq<Ordering> =\n    equals(x, y) = True\n",
+      "module Main\n\n" + "honor Eq<Ordering> =\n    equals(x, y) = True\n",
     ]]);
 
     expect(compiled.diagnostics.map(({ message }) => message)).toContain(

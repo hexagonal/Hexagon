@@ -33,7 +33,7 @@ function stdlib(basename: string): string {
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Bool = equalz(1, 1)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Bool = equalz(1, 1)\n"))
       .toEqual(["unknown name `equalz`"]);
   });
 });
@@ -230,7 +230,7 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
  */
 describe("`concat` has two prelude exporters (Modules §5.5, accepted)", () => {
   test("the bare name is refused, naming both qualified homes", () => {
-    expect(projectDiagnostics("export let r: String = concat(\"a\", \"b\")\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let r: String = concat(\"a\", \"b\")\n")).toEqual([
       "no bare `concat`; write `(\"a\").concat(\"b\")`, " +
         "`Concat.concat(\"a\", \"b\")`, or `Seq.concat(\"a\", \"b\")`",
     ]);
@@ -338,8 +338,8 @@ describe("`Hash` stays derivable-only with its declaration in view", () => {
  */
 describe("Rat after the fold-in", () => {
   const project = [
-    ["/main.hex", [
-      "import Rat from \"./Rat\"",
+    ["/main.hex", "module Main\n\n" + [
+      "import Rat",
       "",
       "let half: Rat.Rat = Rat.create(1n, 2n)",
       "let third: Rat.Rat = Rat.create(1n, 3n)",
@@ -372,8 +372,8 @@ describe("Rat after the fold-in", () => {
 
   test("`divide`'s zero check moved with its body", async () => {
     const exports = await runProject([
-      ["/main.hex", [
-        "import Rat from \"./Rat\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Rat",
         "",
         "export fun attempt(): String =",
         "    \"${Rat.create(1n, 2n) / Rat.create(0n, 5n)}\"",
@@ -400,8 +400,8 @@ describe("Rat after the fold-in", () => {
    */
   test("`Num.add` at `Rat` reaches the honored member through the prelude export", async () => {
     const exports = await runProject([
-      ["/main.hex", [
-        "import Rat from \"./Rat\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Rat",
         "",
         "export let bare: String =",
         "    \"${Num.add(Rat.create(1n, 2n), Rat.create(1n, 3n))}\"",

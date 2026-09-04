@@ -1,3 +1,5 @@
+module Concat
+
 (** The polymorphic face of concatenation. Honoring `Concat` gives a type the
     `++` operator. *)
 export constraint Concat<a> =

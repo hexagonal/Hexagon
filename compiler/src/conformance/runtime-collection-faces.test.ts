@@ -155,7 +155,7 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
 
   test("the import leads the file, ahead of the module's own imports", () => {
     const compiled = project({
-      "/src/main.hex": "import Other from \"./other\"\n" +
+      "/src/main.hex": "import Other\n" +
         "export let seat(x: Other.Row): Vector(Int) = Other.rows\n",
       "/src/other.hex": "export record Row = { n: Int }\nexport let rows: Vector(Int) = [1]\n",
     });
@@ -176,7 +176,7 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   // §14.3 names as legitimately changed text.
   test("a namespace import no face qualifies through contributes no line", () => {
     const compiled = project({
-      "/src/main.hex": "import Other from \"./other\"\n" +
+      "/src/main.hex": "import Other\n" +
         "export let rows: Vector(Int) = Other.rows\n",
       "/src/other.hex": "export let rows: Vector(Int) = [1]\n",
     });
@@ -197,7 +197,7 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   // The face below does, so the collision is real and the generated alias moves.
   test("a source namespace import aliased `Hex` pushes the generated alias to `Hex_1`", () => {
     const compiled = project({
-      "/src/main.hex": "import Hex from \"./other\"\n" +
+      "/src/main.hex": "import Other as Hex\n" +
         "export let seat(x: Hex.Row): Vector(Int) = Hex.rows\n",
       "/src/other.hex": "export record Row = { n: Int }\nexport let rows: Vector(Int) = [1]\n",
     });
@@ -213,7 +213,7 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   // `.d.ts` contests nothing in it, so the generated alias keeps `Hex`.
   test("a source alias `Hex` no face qualifies through contests nothing", () => {
     const compiled = project({
-      "/src/main.hex": "import Hex from \"./other\"\n" +
+      "/src/main.hex": "import Other as Hex\n" +
         "export let rows: Vector(Int) = Hex.rows\n",
       "/src/other.hex": "export let rows: Vector(Int) = [1]\n",
     });

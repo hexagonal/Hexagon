@@ -309,8 +309,8 @@ describe("the dot spelling checks as a named call (Method Syntax §2.2)", () => 
   test("both spellings accept, the callback reading `Int` off the sibling", () => {
     const dot = home + "export let out: String = bag.zipWith(ys, match\n" + arms + ")\n";
     const qualified = home + "export let out: String = zipWith(bag, ys, match\n" + arms + ")\n";
-    expect(projectDiagnostics(dot)).toEqual([]);
-    expect(projectDiagnostics(qualified)).toEqual(projectDiagnostics(dot));
+    expect(projectDiagnostics("module Main\n\n" + dot)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + qualified)).toEqual(projectDiagnostics("module Main\n\n" + dot));
   });
 
   test("a clashing sibling reports once, and identically in both spellings", () => {
@@ -327,8 +327,8 @@ describe("the dot spelling checks as a named call (Method Syntax §2.2)", () => 
     const dot = clash + "export let out: String = bag.pairWith(ints, texts, match\n" + arms + ")\n";
     const qualified = clash +
       "export let out: String = pairWith(bag, ints, texts, match\n" + arms + ")\n";
-    expect(projectDiagnostics(dot)).toEqual(["type mismatch: expected Int, found String"]);
-    expect(projectDiagnostics(qualified)).toEqual(projectDiagnostics(dot));
+    expect(projectDiagnostics("module Main\n\n" + dot)).toEqual(["type mismatch: expected Int, found String"]);
+    expect(projectDiagnostics("module Main\n\n" + qualified)).toEqual(projectDiagnostics("module Main\n\n" + dot));
   });
 
   test("a receiver still unsolved at the dot keeps the pending path", () => {
@@ -374,7 +374,7 @@ describe("the schedule reorders no runtime effect", () => {
     const source = fixtures +
       "let apply(value: Int, cb: (Int) -> Int): Int = cb(value)\n" +
       "export let out: Int = apply(1, x => x)\n";
-    const project = compileMain(source);
+    const project = compileMain("module Main\n\n" + source);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const javascript = project.modules
       .find(({ source: file }) => file.path === "/main.hex")!.javascript.text;

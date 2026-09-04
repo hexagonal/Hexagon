@@ -28,14 +28,14 @@ function diagnostics(files: readonly (readonly [string, string])[]): readonly st
 
 /** `/main.hex`'s emitted JavaScript, which must have compiled cleanly. */
 function emitted(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
 /** `stdlib/BigInt.hex`'s emitted JavaScript, as the prelude compiled it. */
 function companion(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules
     .find(({ source: file }) => file.path.endsWith("BigInt.hex"))!.javascript.text;
@@ -53,7 +53,7 @@ function threw(run: () => unknown): unknown {
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Bool = equalz(1n, 1n)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Bool = equalz(1n, 1n)\n"))
       .toEqual(["unknown name `equalz`"]);
   });
 });
@@ -433,7 +433,7 @@ describe("the conversions (Primitive Types §6)", () => {
     // #562: the door's doc spells the manifest sentence the deriver recognizes
     // (Doc Comments §6.1), so the exported face carries the tag a JSDoc reader
     // expects — the one word "when" is what the derivation turns on.
-    const project = compileMain("export let f: Float = BigInt.toFloat(5n)\n");
+    const project = compileMain("module Main\n\n" + "export let f: Float = BigInt.toFloat(5n)\n");
     expect(project.diagnostics).toEqual([]);
     const declarations = project.modules
       .find(({ source }) => source.path.endsWith("BigInt.hex"))!.declarations.text;
@@ -520,8 +520,7 @@ describe("the orphan rule reads for a primitive as it does for a nominal (§5.3)
    * claimable by any module in the graph.
    */
   test("a user module cannot honor a prelude constraint at BigInt", () => {
-    expect(projectDiagnostics(
-      "honor Show<BigInt> =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "honor Show<BigInt> =\n" +
       '    show(value) = "mine"\n',
     )).toContain(
       "orphan instance: this module declares neither `Show` nor the instance subject",
@@ -530,8 +529,7 @@ describe("the orphan rule reads for a primitive as it does for a nominal (§5.3)
 
   /** The other half: the module that *does* declare the constraint still may. */
   test("a module declaring its own constraint may still honor it at BigInt", () => {
-    expect(projectDiagnostics(
-      "export constraint Describe<a> =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export constraint Describe<a> =\n" +
       "    describe(value: a): String\n" +
       "honor Describe<BigInt> =\n" +
       '    describe(value) = "a big integer"\n' +
@@ -541,7 +539,7 @@ describe("the orphan rule reads for a primitive as it does for a nominal (§5.3)
 
   /** And `stdlib/BigInt.hex` itself is accepted, which the prelude proves. */
   test("the companion's own eight instances compile", () => {
-    expect(projectDiagnostics("export let r: BigInt = 1n\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let r: BigInt = 1n\n")).toEqual([]);
   });
 
   /**
@@ -556,8 +554,7 @@ describe("the orphan rule reads for a primitive as it does for a nominal (§5.3)
    * pin doubles as a regression site for it.
    */
   test("a user `honor Hash<BigInt>` keeps the derivable-only refusal", () => {
-    expect(projectDiagnostics(
-      "honor Hash<BigInt> =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "honor Hash<BigInt> =\n" +
       "    hash(value) = toIntUnchecked(value) * 31\n",
     )).toContain(
       "`Hash` instances must be derived, and this subject has no declaration " +
@@ -583,7 +580,7 @@ describe("the wired rows are gone, not dormant", () => {
     ].join("\n"));
 
     expect(text).not.toContain("__bigInt");
-    expect(text).toContain('from "./BigInt.js"');
+    expect(text).toContain('from "./Hex/BigInt.js"');
   });
 
   /**
@@ -606,8 +603,8 @@ describe("the wired rows are gone, not dormant", () => {
     expect(text).not.toContain("__int");
     expect(text).not.toContain("__float");
     expect(text).not.toContain("__bigInt");
-    expect(text).toContain('from "./Int.js"');
-    expect(text).toContain('from "./Float.js"');
+    expect(text).toContain('from "./Hex/Int.js"');
+    expect(text).toContain('from "./Hex/Float.js"');
   });
 
   /**
@@ -678,8 +675,7 @@ describe("the companion is an ordinary module (Modules §5.3, §5.4)", () => {
    * refusal like any other (`spec/intrinsics.md` §5.1).
    */
   test("a user module cannot reach the new inventory keys", () => {
-    expect(projectDiagnostics(
-      'extern from "hex:intrinsic"\n' +
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "hex:intrinsic"\n' +
       "    export fun bigIntQuot as mine(left: BigInt, right: BigInt): BigInt\n",
     )).toEqual([
       "the `hex:` specifier scheme is reserved to standard-library source; " +
@@ -757,6 +753,6 @@ describe("Rat, the live consumer, is unmoved", () => {
 
   /** The shipped file itself, compiled as a project supplies it. */
   test("`stdlib/Rat.hex` no longer declares its own DivideByZeroError", () => {
-    expect(diagnostics([["/main.hex", "export let r: Int = 1\n"]])).toEqual([]);
+    expect(diagnostics([["/main.hex", "module Main\n\n" + "export let r: Int = 1\n"]])).toEqual([]);
   });
 });

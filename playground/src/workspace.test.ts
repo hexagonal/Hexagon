@@ -37,7 +37,7 @@ describe("layOutWorkspace", () => {
     );
 
     expect(equippedMain?.source).toContain(
-      'import Rat from "./stdlib/Rat"',
+      'import Rat',
     );
     expect(bareMain?.source).toBe("Debug.log(\"hello\")\n");
   });
@@ -53,7 +53,7 @@ describe("layOutWorkspace", () => {
     // a consumer writes.
     expect(main?.source).not.toContain("import { Rat }");
     expect(main?.source.trimEnd().split("\n").filter((line) => line.startsWith("import")))
-      .toEqual(['import Rat from "./stdlib/Rat"']);
+      .toEqual(['import Rat']);
   });
 
   test("a buffer declaring its own `Rat` keeps the line, and it collides with nothing", () => {
@@ -64,12 +64,12 @@ describe("layOutWorkspace", () => {
     // The alias binds nothing in the type namespace, so the declaration wins
     // outright and there is nothing to drop. The gate that used to drop the
     // named half — and the whole declared-type scan behind it — went with it.
-    expect(own?.source).toContain('import Rat from "./stdlib/Rat"');
+    expect(own?.source).toContain('import Rat');
     expect(own?.source).not.toContain("import { Rat }");
   });
 
   test("keeps out of the way of a buffer that writes the import itself", () => {
-    const own = 'import Rat from "./stdlib/Rat"\n' +
+    const own = 'import Rat\n' +
       "let half = Rat.create(1, 2)\n";
     const main = layOutWorkspace(own).files.find(({ path }) => path === entryPath);
 
@@ -86,7 +86,7 @@ describe("layOutWorkspace", () => {
     const source = "module Helper\n" +
       "    export let twice(n: Int): Int = n * 2\n" +
       "end module Helper\n" +
-      'import Rat from "./Helper"\n' +
+      'import Helper as Rat\n' +
       "Debug.log(\"${Rat.twice(3)}\")\n";
     const main = layOutWorkspace(source).files.find(({ path }) => path === entryPath);
 
@@ -108,7 +108,7 @@ describe("layOutWorkspace", () => {
     // Read from the front, not with `toContain`: the buffer's own import line
     // spells enough of the injected one to satisfy a substring search that the
     // prefix had gone missing.
-    expect(main?.source.startsWith('import Rat from "./stdlib/Rat"\n'))
+    expect(main?.source.startsWith('import Rat\n'))
       .toBe(true);
     expect(main?.source.endsWith(named)).toBe(true);
   });
@@ -138,26 +138,26 @@ describe("layOutWorkspace", () => {
     const main = layOutWorkspace(quoted).files.find(({ path }) => path === entryPath);
 
     // One token, no head — the buffer's `Rat.create` still gets its module.
-    expect(main?.source.startsWith('import Rat from "./stdlib/Rat"\n'))
+    expect(main?.source.startsWith('import Rat\n'))
       .toBe(true);
   });
 
   test("reads a commented-out import as the comment it is", () => {
-    const commented = '// import Rat from "./stdlib/Rat"\n' +
+    const commented = '// import Rat\n' +
       "let half = Rat.create(1, 2)\n";
     const main = layOutWorkspace(commented).files.find(({ path }) => path === entryPath);
 
     // A comment is trivia and holds no tokens, so a line the user has commented
     // out binds nothing and stands down for nothing — the shape a buffer
     // mid-edit is in.
-    expect(main?.source.startsWith('import Rat from "./stdlib/Rat"\n'))
+    expect(main?.source.startsWith('import Rat\n'))
       .toBe(true);
     expect(prefixLength(commented)).toBeGreaterThan(0);
   });
 
   test("finds no alias at all in a buffer that does not lex", () => {
     const midEdit = 'let advice = "unterminated\n' +
-      'import Rat from "./stdlib/Rat"\n' +
+      'import Rat\n' +
       "let half = Rat.create(1, 2)\n";
     const main = layOutWorkspace(midEdit).files.find(({ path }) => path === entryPath);
 
@@ -166,13 +166,13 @@ describe("layOutWorkspace", () => {
     // regardless — the direction a half-typed buffer should fail in. What the
     // user sees is the lex error they are in the middle of fixing; the alias
     // collision waits until there is an alias to collide with.
-    expect(main?.source.startsWith('import Rat from "./stdlib/Rat"\n'))
+    expect(main?.source.startsWith('import Rat\n'))
       .toBe(true);
   });
 
   test("leaves a module block's own alias to that block's file", () => {
     const source = "module Helper\n" +
-      '    import Rat from "./stdlib/Rat"\n' +
+      '    import Rat\n' +
       "    export let one(): Int = 1\n" +
       "end module Helper\n" +
       "let half = Rat.create(1, 2)\n";
@@ -182,7 +182,7 @@ describe("layOutWorkspace", () => {
     // with nothing and must not disarm the entry's line — which is why the
     // scan reads `/main.hex`'s masked text rather than the whole buffer, the
     // opposite of the mention gate below.
-    expect(main?.source.startsWith('import Rat from "./stdlib/Rat"\n'))
+    expect(main?.source.startsWith('import Rat\n'))
       .toBe(true);
   });
 
@@ -212,8 +212,8 @@ describe("layOutWorkspace", () => {
     // written by the Playground rather than the user.
     expect(main?.source.split("\n").filter((line) => line.startsWith("import")))
       .toEqual([
-        'import Rat from "./stdlib/Rat"',
-        'import Helper from "./Helper"',
+        'import Rat',
+        'import Helper',
       ]);
     // And the block is still a file of its own, masked out of the entry: the
     // header's `module` never reached the language's grammar.
@@ -242,7 +242,7 @@ describe("layOutWorkspace", () => {
 
     expect(files.map(({ path }) => path)).toEqual([
       "/stdlib/Option.hex",
-      "/stdlib/Vector.hex",
+      "module Option\n\n" + "/stdlib/Vector.hex",
       "/stdlib/Rat.hex",
       entryPath,
     ]);

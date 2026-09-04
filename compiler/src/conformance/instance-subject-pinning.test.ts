@@ -67,8 +67,7 @@ describe("a ground instance head imposes its arguments", () => {
     // parameters before unifying, so a genuinely generic instance imposes
     // nothing and both element types go through.
     expect(
-      projectDiagnostics(
-        "export record Box(a) = { value: a }\n" +
+      projectDiagnostics("module Main\n\n" + "export record Box(a) = { value: a }\n" +
           "constraint Sh<a> =\n" +
           "    sh(x: a): String\n" +
           "honor Sh<Box(a)> =\n" +

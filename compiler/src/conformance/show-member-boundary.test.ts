@@ -19,7 +19,7 @@ import { compileFiles, projectDiagnostics, runProject, runMain } from "../suppor
 describe("an honoring module's member is not a bare export (the §5 item 8 boundary)", () => {
   const box = [
     "/box.hex",
-    [
+    "module Box\n\n" + [
       "export record Box = {value: Int}",
       "",
       "honor Show<Box> =",
@@ -31,8 +31,8 @@ describe("an honoring module's member is not a bare export (the §5 item 8 bound
   test("a consumer's bare `show` is still the polymorphic member, at Int and at Box", async () => {
     const exports = await runProject([
       box,
-      ["/main.hex", [
-        "import Box from \"./box\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Box",
         "",
         "export let atInt: String = show(42)",
         "export let atBox: String = show(Box({value = 3}))",
@@ -56,11 +56,11 @@ describe("an honoring module's member is not a bare export (the §5 item 8 bound
   test("a named import of the member is a parse error, not an export refusal", () => {
     const compiled = compileFiles([
       box,
-      ["/main.hex", 'import { show } from "./box"\nexport let r: String = show(42)\n'],
+      ["/main.hex", "module Main\n\n" + 'import { show } from "./box"\nexport let r: String = show(42)\n'],
     ]);
 
     expect(compiled.diagnostics.map(({ message }) => message)).toContain(
-      "Hexagon imports bind modules: write `import Box from \"./box\"` and reach " +
+      "Hexagon imports bind modules: write `import Box` and reach " +
         "`show` as `Box.show`",
     );
   });

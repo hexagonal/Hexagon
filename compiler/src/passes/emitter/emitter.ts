@@ -540,7 +540,7 @@ function mintedImportLocals(module: Core.Module): readonly string[] {
  * side refuses it (§3.1, #762) and §11.2 spells the emitted shape. The source
  * line this plan renames the local of is `import Point`.
  *
- * Modules §5.2 makes `import Point from "./point"` beside a declared
+ * Modules §5.2 makes `import Point` beside a declared
  * `Point` legal and load-bearing — it is the companion idiom — and the checker
  * reports nothing, so the two Hexagon namespaces must reach JavaScript as two
  * bindings. §11.2 already says whose problem that is: "emitted-name collisions
@@ -2607,7 +2607,7 @@ function qualifyingAliases(
  * **Where the alias is contested, the alias yields the bare spelling to the
  * declaration** (FFI Part 7 §2.4; Modules §11.2).
  *
- * Modules §5.2 makes `import Point from "./point"` beside a declared
+ * Modules §5.2 makes `import Point` beside a declared
  * `Point` legal — it is the companion idiom, not an accident — so rung 3's
  * `Point.Point` can meet a top-level `Point` this same file emits. The
  * declaration is, or may become, the module's public face; the alias is internal
@@ -8790,7 +8790,7 @@ class JavaScriptEmitter {
    * The `specifier` is reported for **both**, which is the half that is not
    * cosmetic. A synthesized import whose every name went to an edition emits no
    * term line at all, so this is the only record that `Debug.js` has to be
-   * written beside an emitted `import { logString } from "./Debug.js"` — defect
+   * written beside an emitted `import { logString } from "./Hex/Debug.js"` — defect
    * 8's shape. A source-written import's edge is already readable from the tree;
    * reporting it too costs a duplicate in a set and keeps the channel's meaning
    * "what this file imports editions from" rather than "what the other rule

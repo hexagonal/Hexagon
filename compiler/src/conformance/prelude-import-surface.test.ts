@@ -27,7 +27,7 @@ function elements(value: unknown): unknown[] {
  * rather than against a convenient subset of it.
  */
 const VECTOR_LITERAL_IMPORT =
-  'import { empty as __trieEmpty, append as __trieAppend } from "./VectorTrie.js";';
+  'import { empty as __trieEmpty, append as __trieAppend } from "./Hex/VectorTrie.js";';
 
 /**
  * Conformance for what a module's synthesized and explicit prelude imports put
@@ -97,7 +97,7 @@ describe("the synthesized prelude import is what Core references", () => {
   test("a function-valued record field imports nothing", () => {
     const files = [[
       "/a.hex",
-      "export record Box = {map: (Int) -> Int}\n" +
+      "module A\n\n" + "export record Box = {map: (Int) -> Int}\n" +
       "export fun run(b: Box): Int = b.map(3)\n",
     ]] as const;
     const javascript = emitted(files, "/a.hex");
@@ -112,7 +112,7 @@ describe("the synthesized prelude import is what Core references", () => {
   test("a field named `length` imports nothing either", () => {
     const files = [[
       "/a.hex",
-      "export record Ruler = {length: (Int) -> Int}\n" +
+      "module A\n\n" + "export record Ruler = {length: (Int) -> Int}\n" +
       "export fun run(r: Ruler): Int = r.length(2)\n",
     ]] as const;
     expect(importLines(emitted(files, "/a.hex"))).toEqual([]);
@@ -134,12 +134,12 @@ describe("the synthesized prelude import is what Core references", () => {
     // row whose evidence is compiler-built, so the call reads the member off
     // Dictionary Sharing §3.4's hoisted binding rather than importing the
     // forwarder (Constraints §6.1's third arm).
-    expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
-      'import { fromSeq } from "./Vector.js";',
-      'import { map } from "./Seq.js";',
+    expect(importLines(emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex"))).toEqual([
+      'import { fromSeq } from "./Hex/Vector.js";',
+      'import { map } from "./Hex/Seq.js";',
       VECTOR_LITERAL_IMPORT,
     ]);
-    const main = await runProject([["/main.hex", source]]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(elements(main["out"])).toEqual([2, 4, 6]);
   });
 
@@ -155,16 +155,16 @@ describe("the synthesized prelude import is what Core references", () => {
       "export fun run(r: Ruler): Int = r.length(4)\n" +
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([5, 6]).map(x => x * 2))\n";
-    const javascript = emitted([["/main.hex", source]], "/main.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex");
     // `Seq.js` comes first because the `r.length(4)` candidate registered its
     // `length` before anything named `Vector.hex` — one import item per
     // specifier, in the order the module first reached that member.
     expect(importLines(javascript)).toEqual([
-      'import { map } from "./Seq.js";',
-      'import { fromSeq } from "./Vector.js";',
+      'import { map } from "./Hex/Seq.js";',
+      'import { fromSeq } from "./Hex/Vector.js";',
       VECTOR_LITERAL_IMPORT,
     ]);
-    const main = await runProject([["/main.hex", source]]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(elements(main["out"])).toEqual([10, 12]);
     const run = main["run"] as (r: { length: (n: number) => number }) => number;
     expect(run({ length: (n) => n + 1 })).toBe(5);
@@ -191,13 +191,13 @@ describe("the synthesized prelude import is what Core references", () => {
       "export fun map(x: Int): Int = x * 10\n" +
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Seq.prepend(Seq.map(Vector.toSeq([7, 8]), x => x + 1), 0))\n";
-    const javascript = emitted([["/main.hex", source]], "/main.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex");
     expect(importLines(javascript)).toEqual([
-      'import { fromSeq } from "./Vector.js";',
-      'import { prepend, map as __prelude_map } from "./Seq.js";',
+      'import { fromSeq } from "./Hex/Vector.js";',
+      'import { prepend, map as __prelude_map } from "./Hex/Seq.js";',
       VECTOR_LITERAL_IMPORT,
     ]);
-    const main = await runProject([["/main.hex", source]]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(elements(main["out"])).toEqual([0, 8, 9]);
     expect((main["map"] as (x: number) => number)(3)).toBe(30);
   });
@@ -213,14 +213,14 @@ describe("the synthesized prelude import is what Core references", () => {
   test("a dispatch through a distinguished local keeps the local", () => {
     const javascript = emitted([[
       "/main.hex",
-      'extern from "lib"\n' +
+      "module Main\n\n" + 'extern from "lib"\n' +
       "    fun map(x: Int): Int\n" +
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([9]).map(x => x * 2))\n",
     ]], "/main.hex");
     expect(importLines(javascript)).toEqual([
-      'import { fromSeq } from "./Vector.js";',
-      'import { map as __prelude_map } from "./Seq.js";',
+      'import { fromSeq } from "./Hex/Vector.js";',
+      'import { map as __prelude_map } from "./Hex/Seq.js";',
       VECTOR_LITERAL_IMPORT,
       'import { map } from "lib";',
     ]);
@@ -235,7 +235,7 @@ describe("the synthesized prelude import is what Core references", () => {
   test("a fully filtered import does not degrade to a side-effect import", () => {
     const javascript = emitted([[
       "/a.hex",
-      "export record Box = {map: (Int) -> Int, length: (Int) -> Int}\n" +
+      "module A\n\n" + "export record Box = {map: (Int) -> Int, length: (Int) -> Int}\n" +
       "export fun run(b: Box): Int = b.map(b.length(1))\n",
     ]], "/a.hex");
     expect(javascript).not.toContain("Seq.js");
@@ -253,7 +253,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
   test("a module import of a prelude module imports and re-exports no dictionary", () => {
     const javascript = emitted([[
       "/a.hex",
-      'import Option from "./Option"\n' +
+      "module A\n\n" + 'import Option\n' +
       "export fun mk(x: Int): Option(Int) = Option.Some(x)\n",
     ]], "/a.hex");
     // One line, the namespace import the module alias itself always carries.
@@ -262,7 +262,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
     // used to bind `Some` has nothing left to bind. Neither line is a
     // dictionary: that is the property this test is about.
     expect(importLines(javascript)).toEqual([
-      'import * as Option from "./Option.js";',
+      'import * as Option from "./Hex/Option.js";',
     ]);
     expect(javascript).toContain('return { tag: "Some", value: x };');
     expect(exportLines(javascript)).toEqual(["export { mk };"]);
@@ -272,7 +272,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
   test("a namespace import of a prelude module carries none either", () => {
     const javascript = emitted([[
       "/a.hex",
-      'import Option from "./Option"\n' +
+      "module A\n\n" + 'import Option\n' +
       "export fun mk(x: Int): Option(Int) = Option.Some(x)\n",
     ]], "/a.hex");
     expect(javascript).not.toContain("__");
@@ -288,22 +288,22 @@ describe("an explicit import of a prelude module carries no evidence", () => {
    */
   test("a used instance beside an explicit import binds one dictionary", async () => {
     const source =
-      'import Option from "./Option"\n' +
+      'import Option\n' +
       "export fun same(a: Option(Int), b: Option(Int)): Bool = a == b\n" +
       "export fun mk(x: Int): Option(Int) = Option.Some(x + 20)\n";
-    const javascript = emitted([["/main.hex", source]], "/main.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex");
     // The `Eq<Int>` line is the *component* instance `Eq<Option(Int)>` selects
     // (#278), and it is an import since #344 because `Int`'s instances are
     // `stdlib/Int.hex`'s source. The point of the case is the `Option.js` pair:
     // one dictionary binding, not two.
     expect(importLines(javascript)).toEqual([
-      'import { __Eq_Option } from "./Option.js";',
-      'import { __Eq_Int } from "./Int.js";',
-      'import * as Option from "./Option.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
+      'import * as Option from "./Hex/Option.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { same };", "export { mk };"]);
 
-    const main = await runProject([["/main.hex", source]]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     const same = main["same"] as (a: unknown, b: unknown) => boolean;
     const mk = main["mk"] as (x: number) => unknown;
     expect(same(mk(1), mk(1))).toBe(true);
@@ -319,7 +319,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
   test("the prelude's own explicit imports still link and run", async () => {
     const main = await runProject([[
       "/main.hex",
-      "export let out: Vector(Int) =\n" +
+      "module Main\n\n" + "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Seq.take(Seq.iterate(30, x => x + 1), 3))\n",
     ]]);
     expect(elements(main["out"])).toEqual([30, 31, 32]);
@@ -338,8 +338,8 @@ describe("an explicit import of a prelude module carries no evidence", () => {
   test("an orphan `honor Eq<Bool>` reports the same with or without the import", () => {
     const orphan = "honor Eq<Bool> =\n    equals(a, b) = True\n";
     const messages = (source: string): readonly string[] =>
-      compileFiles([["/main.hex", source]]).diagnostics.map(({ message }) => message);
-    expect(messages(`import Bool from "./Bool"\n${orphan}`)).toEqual([
+      compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics.map(({ message }) => message);
+    expect(messages(`import Bool\n${orphan}`)).toEqual([
       "orphan instance: this module declares neither `Eq` nor the instance subject",
     ]);
     expect(messages(orphan)).toEqual([
@@ -347,7 +347,7 @@ describe("an explicit import of a prelude module carries no evidence", () => {
     ]);
     // `Ordering` is on the channel, so its orphan still collides — the asymmetry
     // is `Bool`'s filter, not the explicit import.
-    expect(messages('import Ordering from "./Ordering"\nhonor Eq<Ordering> =\n    equals(a, b) = True\n'))
+    expect(messages('import Ordering\nhonor Eq<Ordering> =\n    equals(a, b) = True\n'))
       .toEqual([
         "orphan instance: this module declares neither `Eq` nor the instance subject",
         "duplicate instance of `Eq<Ordering>`",
@@ -365,7 +365,7 @@ describe("non-prelude instance evidence still transits", () => {
   test("A honors, B relays, C uses", async () => {
     const files = [
       ["/a.hex",
-        "export record Box = {v: Int}\n" +
+        "module A\n\n" + "export record Box = {v: Int}\n" +
         "honor Show<Box> =\n" +
         '    show(b) = "box"\n'],
       ["/b.hex",
@@ -373,10 +373,10 @@ describe("non-prelude instance evidence still transits", () => {
         // reached bare through rule 3's companion fallback (Modules §3.2,
         // #762) — nothing binds it, so there is nothing new for the
         // collision rule to find.
-        'import Box from "./a"\n' +
+        'import A as Box\n' +
         "export fun mk(v: Int): Box = Box({v = v})\n"],
       ["/c.hex",
-        'import B from "./b"\n' +
+        "module C\n\n" + 'import B\n' +
         'export fun s(v: Int): String = "${B.mk(v)}"\n'],
     ] as const;
     const b = emitted(files, "/b.hex");
@@ -399,7 +399,7 @@ describe("non-prelude instance evidence still transits", () => {
     const main = await runProject([
       ...files.slice(0, 2),
       ["/main.hex",
-        'import B from "./b"\n' +
+        "module Main\n\n" + 'import B\n' +
         'export fun t(v: Int): String = "<${B.mk(v)}>"\n'],
     ] as const);
     expect((main["t"] as (v: number) => string)(1)).toBe("<box>");

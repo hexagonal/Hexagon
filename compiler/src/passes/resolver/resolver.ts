@@ -22,6 +22,7 @@ import {
   nearestIntrinsicKey,
 } from "../../intrinsics.js";
 import { relativeSpecifier } from "../../support/paths.js";
+import { moduleImportLine } from "../../packages.js";
 import type * as Source from "../../support/source.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
@@ -533,7 +534,7 @@ function refusedBarePreludeMessage(
 /**
  * Modules §10's row for a bare constructor in an **expression** that neither
  * scope nor rule 3's fallback reaches, but that a visible alias's module
- * exports (#763): `Circle(1.0)` under `import Shape from "./shape"`.
+ * exports (#763): `Circle(1.0)` under `import Shape`.
  *
  * The same sentence shape as the prelude refusal above and for the same
  * reason — one bare name, the routes it has, in the program's own words
@@ -584,8 +585,26 @@ export interface PreludeImport {
   readonly specifier: string;
 }
 
+/**
+ * One module this module imports, keyed by the **name it wrote** (Modules
+ * §2.3): `Geometry`, `Render.Geometry`, `Hex.Option`. The resolution of that
+ * spelling against the program's package set is the project's (Packages §3),
+ * so a name with no entry here was refused there and binds no alias (§5.2).
+ */
+export interface ModuleImport {
+  readonly interface: ModuleInterface;
+  /**
+   * The **specifier the emitter writes** for this edge — computed from the two
+   * modules' full names and their package directories (Modules §11.2, Packages
+   * §6), never from any path the source wrote, because the source wrote none.
+   */
+  readonly specifier: string;
+  /** The imported module's full name, for the diagnostics that name it. */
+  readonly name: string;
+}
+
 export interface ResolveOptions {
-  readonly imports?: ReadonlyMap<string, ModuleInterface>;
+  readonly imports?: ReadonlyMap<string, ModuleImport>;
   readonly symbolBase?: number;
   readonly unionBase?: number;
   readonly recordBase?: number;
@@ -1229,7 +1248,7 @@ class Resolver {
   readonly #recordDeclarations = new WeakMap<Parsed.RecordItem, Resolved.RecordId>();
   readonly #externTypeDeclarations = new WeakMap<Parsed.ExternTypeDeclaration, Resolved.ExternTypeId>();
   readonly #resolvingAliases: string[] = [];
-  readonly #imports: ReadonlyMap<string, ModuleInterface>;
+  readonly #imports: ReadonlyMap<string, ModuleImport>;
   readonly #runtime: boolean;
   readonly #privileged: boolean;
   readonly #companionPrimitive: Resolved.PrimitiveName | undefined;
@@ -1358,7 +1377,7 @@ class Resolver {
    * own path is not that line — the route from here is what the import already
    * spells.
    */
-  readonly #moduleAliasSpecifiers = new Map<string, string>();
+  readonly #moduleAliasModules = new Map<string, ModuleImport>();
   /**
    * The import aliases whose item the walk has not reached yet, each
    * mapped to the alias's own name node.
@@ -1590,7 +1609,7 @@ class Resolver {
 
   /**
    * Modules §10's **opaque-construction row** at rule 3's own seat: a bare
-   * `Point({x = 1.0})` under `import Point from "./point"` whose `Point` is
+   * `Point({x = 1.0})` under `import Point` whose `Point` is
    * opaque at home.
    *
    * The alias is bound and rule 2 reaches the *type* through it; only the
@@ -1605,10 +1624,10 @@ class Resolver {
    * that line's.
    *
    * The seat is reachable **only where the alias is spelled like the opaque
-   * type itself** — `import Point from "./point"` over an `opaque record
-   * Point`, or `import Tag from "./tag"` over an `opaque union Tag = Tag(…)`.
+   * type itself** — `import Point` over an `opaque record
+   * Point`, or `import Tag` over an `opaque union Tag = Tag(…)`.
    * An alias spelled like some *other* constructor of an opaque union
-   * (`import FileHandle from "./handles"` over `opaque union Handle =
+   * (`import Handles as FileHandle` over `opaque union Handle =
    * FileHandle(…)`) reaches nothing at all: that module exports only the type
    * `Handle`, nothing spelled `FileHandle` crosses, and there is no type's
    * home the row could name without inventing one. The plain unknown-name
@@ -1618,13 +1637,15 @@ class Resolver {
    */
   #reportOpaqueConstruction(name: Parsed.Name): boolean {
     const module = this.#moduleAliases.get(name.text);
-    const specifier = this.#moduleAliasSpecifiers.get(name.text);
-    if (module === undefined || specifier === undefined) return false;
+    const home = this.#moduleAliasModules.get(name.text);
+    if (module === undefined || home === undefined) return false;
     const opaque = this.#opaqueConstructorHome(module, name.text);
     if (opaque === undefined || opaque.name !== name.text) return false;
     this.#diagnostics.add({
       severity: "error",
-      message: `\`${opaque.name}\` is opaque outside \`${specifier}\`; ` +
+      // Modules §10: the row names the **module**, never a path — a module's
+      // identity is its declared name (§1) and a file is a container.
+      message: `\`${opaque.name}\` is opaque outside module \`${home.name}\`; ` +
         "use its exported functions",
       primary: name.span,
     });
@@ -1672,7 +1693,7 @@ class Resolver {
   /**
    * The qualified spellings this module can write for a constructor spelling —
    * Modules §10's row for a bare constructor the alias's own name does not
-   * reach (`Circle(1.0)` under `import Shape from "./shape"`), and the
+   * reach (`Circle(1.0)` under `import Shape`), and the
    * closed-door refusal's rewrite in a pattern (Pattern Matching §12).
    *
    * Every visible alias is asked, so "exactly one" and "several" are answered
@@ -1779,7 +1800,7 @@ class Resolver {
     if (this.#honoredMemberCandidates(iface, field.text).length > 0) return true;
     if (field.text !== "toSeq" || !PROVIDED_ROW_ALIASES.has(alias)) return false;
     // The seating test `#providedRowMemberAccess` makes, and for its reason: a
-    // project's own `import Vector from "./mine"` is not the companion, and
+    // project's own `import Mine as Vector` is not the companion, and
     // the same file reached two ways yields two interfaces, so the comparison is
     // by `fileId`. The alias filter above it is what keeps this from claiming
     // `Int.toSeq` — every prelude basename a project file may take is seated,
@@ -2339,9 +2360,11 @@ class Resolver {
   #predeclareImports(items: readonly Parsed.Item[]): void {
     for (const item of items) {
       if (item.kind !== "Import") continue;
-      const imported = this.#imports.get(item.specifier);
-      // An unresolvable specifier binds nothing, and the item reports it once.
-      if (imported === undefined) continue;
+      const home = this.#imports.get(item.module.text);
+      // A refused import binds no alias, whatever refused it (Modules §5.2);
+      // the project reported it where the package set is known.
+      if (home === undefined) continue;
+      const imported = home.interface;
       const constraints: Resolved.ConstraintImport[] = [];
       let aliasBound = false;
       if (this.#moduleAliases.has(item.alias.text)) {
@@ -2353,7 +2376,7 @@ class Resolver {
       } else {
         aliasBound = true;
         this.#moduleAliases.set(item.alias.text, imported);
-        this.#moduleAliasSpecifiers.set(item.alias.text, item.specifier);
+        this.#moduleAliasModules.set(item.alias.text, home);
         // Bound but not yet *reached*: the alias's term-position doors
         // (`Lib.area`, `Lib.Circle`) stay shut until the walk passes the item.
         this.#pendingImportAliases.set(item.alias.text, item.alias);
@@ -2408,7 +2431,7 @@ class Resolver {
       ) {
         continue;
       }
-      const declaration = this.#imports.get(item.specifier)?.constraints.get(alias);
+      const declaration = this.#imports.get(item.module.text)?.interface.constraints.get(alias);
       if (declaration === undefined) continue;
       this.#companionConstraints.set(alias, declaration);
       this.#importTypeBindings.set(item, {
@@ -2728,21 +2751,12 @@ class Resolver {
   #resolveItem(item: Parsed.Item, scope: Scope): Resolved.Item {
     switch (item.kind) {
       case "Import": {
-        if (!item.specifier.startsWith("./") && !item.specifier.startsWith("../")) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: "package imports are not yet supported; use a relative module path",
-            primary: item.span,
-          });
-        }
-        const importedModule = this.#imports.get(item.specifier);
-        if (importedModule === undefined) {
-          this.#diagnostics.add({
-            severity: "error",
-            message: `cannot resolve module \`${item.specifier}\``,
-            primary: item.span,
-          });
-        }
+        // The name's resolution against the program's package set is the
+        // project's (Packages §3), which reports every way it can fail —
+        // unknown module, a contest between packages, a package's own name.
+        // A name with no entry here was refused there and binds nothing.
+        const home = this.#imports.get(item.module.text);
+        const importedModule = home?.interface;
         /**
          * What this line put in the constraint namespace; see
          * `ConstraintImport`. A constraint *name* is type-namespace, so the
@@ -2801,7 +2815,7 @@ class Resolver {
           this.#preludeFileIds.has(Number(importedModule.module.fileId));
         return {
           kind: "Import",
-          specifier: item.specifier,
+          specifier: home?.specifier ?? "",
           synthesized: false,
           form: {
             kind: "Namespace",
@@ -4597,7 +4611,7 @@ class Resolver {
     }
     // Modules §10's row: a constructor a visible alias's module exports but
     // whose spelling the alias itself does not carry — `Circle(1.0)` under
-    // `import Shape from "./shape"`. Expression position has no door (§9.13),
+    // `import Shape`. Expression position has no door (§9.13),
     // so the qualified spelling is the whole repair, written in the program's
     // own words: one exporter names it, several name each, none falls through
     // to the plain unknown-name report.
@@ -5458,7 +5472,6 @@ class Resolver {
    * singular and no one realias is the answer), the general form stands.
    */
   #aliasIsNotATypeMessage(name: string, aliased: ModuleInterface): string {
-    const specifier = this.#moduleAliasSpecifiers.get(name);
     const exported = [
       ...aliased.unions.keys(),
       ...aliased.records.keys(),
@@ -5466,13 +5479,14 @@ class Resolver {
       ...aliased.externTypes.keys(),
     ];
     const only = exported.length === 1 ? exported[0]! : undefined;
-    if (only === undefined || specifier === undefined) {
+    const home = this.#moduleAliasModules.get(name);
+    if (only === undefined || home === undefined) {
       return `\`${name}\` is a module alias, not a type; the types it exports are reached ` +
         `through it, as \`${name}.Name\``;
     }
     return `\`${name}\` is a module alias, not a type; write \`${name}.${only}\` for the type it ` +
       `exports, name it bare with \`type ${only} = ${name}.${only}\`, ` +
-      `or realias as \`import ${only} from ${JSON.stringify(specifier)}\``;
+      `or realias as \`${moduleImportLine(home.name, only)}\``;
   }
 
   #includeNominals(imported: ModuleInterface, qualifier?: string): void {
@@ -5999,12 +6013,12 @@ class Resolver {
     // this admitted would be the drift the shared constant exists to prevent.
     if (!PROVIDED_ROW_ALIASES.has(alias)) return undefined;
     // Keyed on the *module*, never on the spelling: a user's own
-    // `import Vector from "./mine"` shadows the prelude alias, and the row
+    // `import Mine as Vector` shadows the prelude alias, and the row
     // belongs to the prelude companion or to nothing.
     //
     // Compared by `fileId` rather than by object identity, because reaching the
     // same module two ways yields two interfaces. An explicit
-    // `import Vector from "./stdlib/Vector"` of the very file the prelude
+    // `import Vector` of the very file the prelude
     // seated — what the Playground's hosted equipment does — resolves through
     // `#moduleAliases`, and identity would reject the module it is *about*.
     const companion = this.#preludeModuleAliases.get(alias);

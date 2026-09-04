@@ -241,7 +241,7 @@ describe("semantic tokens", () => {
       "",
     ].join("\n");
     const main = [
-      'import Helper from "./helper"',
+      'import Helper',
       "",
       "let answer: Int = Helper.compute!(1)",
       "let label: String = Helper.version",

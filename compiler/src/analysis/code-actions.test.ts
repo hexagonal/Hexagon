@@ -98,7 +98,7 @@ describe("code actions: the diagnostic's own fixes", () => {
     // the head's own tokens, and the whitespace they spent, are what the edit
     // deletes — so the file it produces is the sentence the message printed.
     expect(applied(source, action)).toBe(
-      'import Geo from "./geometry"\nlet n: Int = 1\n',
+      'import Geometry as Geo\nlet n: Int = 1\n',
     );
     expect(action.disabled).toBeUndefined();
     // And it compiles, which is the property that makes an *applied* edit
@@ -274,13 +274,13 @@ describe("code actions: infer return type", () => {
   });
 
   test("spells an imported record, whose alias is a type and a constructor", () => {
-    // `import Point from "./helper"` reaches both namespaces at once through
+    // `import Helper as Point` reaches both namespaces at once through
     // §5.1's two companion fallbacks — rule 2's type and rule 3's constructor —
     // so the clause carries a value symbol *and* names a type. Reading the
     // symbol as "this is not a type import" made every imported record
     // unspellable.
     const helper = "export record Point = {x: Int, y: Int}\n";
-    const source = ['import Point from "./helper"', "", "export fun same(p: Point) = p", ""]
+    const source = ['import Helper as Point', "", "export fun same(p: Point) = p", ""]
       .join("\n");
     const { session } = sessionOf({ "/helper.hex": helper, "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "same"));
@@ -290,7 +290,7 @@ describe("code actions: infer return type", () => {
   test("qualifies a type reached only through a namespace import", () => {
     const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
     const source = [
-      'import Palette from "./helper"',
+      'import Helper as Palette',
       "",
       "export fun pick() = Palette.Red",
       "",
@@ -306,8 +306,8 @@ describe("code actions: infer return type", () => {
     // runs would not, so the first is kept.
     const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
     const source = [
-      'import Palette from "./helper"',
-      'import Shades from "./helper"',
+      'import Helper as Palette',
+      'import Helper as Shades',
       "",
       "export fun pick() = Palette.Red",
       "",
@@ -360,8 +360,8 @@ describe("code actions: infer return type", () => {
     // declaration and no prelude entry spells it — exactly the case a silent
     // insertion would break.
     const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
-    const mid = 'import H from "./helper"\nexport fun red(): H.Colour = H.Red\n';
-    const source = ['import Mid from "./mid"', "", "export fun pick() = Mid.red()", ""]
+    const mid = 'import Helper as H\nexport fun red(): H.Colour = H.Red\n';
+    const source = ['import Mid', "", "export fun pick() = Mid.red()", ""]
       .join("\n");
     const { session } = sessionOf({
       "/helper.hex": helper,
@@ -1094,7 +1094,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
 
   test("an imported declaration's head is not this file's to edit", () => {
     const box = "opaque record Box(a) = { get: () -> a }\n";
-    const main = 'import B from "./box.hex"\nexport let n: Int = 1\n';
+    const main = 'import Box as B\nexport let n: Int = 1\n';
     const { session } = sessionOf({ "/box.hex": box, "/main.hex": main });
     expect(session.codeActions("/main.hex", { start: 0, end: main.length })).toEqual([]);
   });
@@ -1129,7 +1129,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     // module. The alias joins the import block, and the line the author already
     // wrote is left exactly as it is — this action adds a line, it does not
     // rewrite one.
-    const main = 'import S from "./shape"\ntype Shape = S.Shape\n\n' +
+    const main = 'import Shape as S\ntype Shape = S.Shape\n\n' +
       "export fun go(s: Shape): Float = Shape.area(s)\n";
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
@@ -1137,8 +1137,8 @@ describe("code actions: the module-import repair family (#577)", () => {
     expect(action.kind).toBe("quickfix");
     expect(action.disabled).toBeUndefined();
     expect(applied(main, action)).toBe(
-      'import S from "./shape"\n' +
-        'import Shape from "./shape"\n' +
+      'import Shape as S\n' +
+        'import Shape\n' +
         "type Shape = S.Shape\n\n" +
         "export fun go(s: Shape): Float = Shape.area(s)\n",
     );
@@ -1148,7 +1148,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     // The property that makes an *applied* edit honest: the file it produces
     // compiles. Asserted for the seat whose message the author cannot act on
     // without knowing the path.
-    const main = 'import S from "./shape"\ntype Shape = S.Shape\n' +
+    const main = 'import Shape as S\ntype Shape = S.Shape\n' +
       "export fun go(s: Shape): Float = Shape.area(s)\n";
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
@@ -1164,7 +1164,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     const first = sole(actionsOn(session, "/main.hex", binder, "Scale>"));
     expect(first.title).toBe("import `Scale`");
     expect(applied(binder, first)).toBe(
-      'import Scale from "./scale"\n' +
+      'import Scale\n' +
         "export fun go<a: Scale>(x: a): a = x\n",
     );
 
@@ -1173,7 +1173,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     session.setFile("/main.hex", head);
     const second = sole(actionsOn(session, "/main.hex", head, "Scale.scale"));
     expect(applied(head, second)).toBe(
-      'import Scale from "./scale"\n' +
+      'import Scale\n' +
         "export record Metre = {m: Float}\n" +
         "widens Scale.scale(value: Metre, factor: Float): Metre = value\n",
     );
@@ -1187,7 +1187,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     });
     const action = sole(actionsOn(session, "/src/main.hex", main, "Scale>"));
     expect(applied(main, action)).toBe(
-      'import Scale from "../lib/scaling/scale"\n' +
+      'import Scale\n' +
         "export fun go<a: Scale>(x: a): a = x\n",
     );
   });
@@ -1205,7 +1205,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
     const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
     expect(applied(main, action)).toBe(
-      'import Scale from "./scale"\n' +
+      'import Scale\n' +
         "(** The metre, and nothing else. *)\n" +
         "export record Metre = {m: Float}\n" +
         "\n" +
@@ -1222,11 +1222,11 @@ describe("code actions: the module-import repair family (#577)", () => {
     // §3's top-down half is the whole of the placement rule for term positions:
     // only imports the refused use is already *below* are candidates to join.
     const main = "export fun go(s: Shape): Float = Shape.area(s)\n" +
-      'import S from "./shape"\ntype Shape = S.Shape\n';
+      'import Shape as S\ntype Shape = S.Shape\n';
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const actions = actionsOn(session, "/main.hex", main, "Shape.area");
     const action = actions.find(({ title }) => title === "import `Shape`")!;
-    expect(applied(main, action).startsWith('import Shape from "./shape"\n'))
+    expect(applied(main, action).startsWith('import Shape\n'))
       .toBe(true);
   });
 
@@ -1311,7 +1311,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     // The line the tier would otherwise write is `import
     // JsConversionError from "./JsValue"`, which repairs nothing — the
     // recompiled file reports ``module `JsConversionError` does not export
-    // `rank```` — and emits `import * as JsConversionError from "./JsValue.js"`
+    // `rank```` — and emits `import * as JsConversionError from "./Hex/JsValue.js"`
     // into the user's JavaScript.
     expect(actionsOn(session, "/main.hex", REACHES_PRELUDE, "JsConversionError.rank"))
       .toEqual([]);
@@ -1330,7 +1330,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     );
     expect(action.disabled).toBeUndefined();
     expect(applied(REACHES_PRELUDE, action)).toBe(
-      'import JsConversionError from "./mine"\n' + REACHES_PRELUDE,
+      'import Mine as JsConversionError\n' + REACHES_PRELUDE,
     );
   });
 
@@ -1339,7 +1339,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     // which classifies by *basename*: this file is the user's, and dropping it
     // would be the mirror-image defect — a repair withheld because of what the
     // author happened to name their module.
-    const main = 'import P from "./lib/Prelude"\ntype Meters = P.Meters\n' +
+    const main = 'import Prelude as P\ntype Meters = P.Meters\n' +
       "export let n: Float = Meters.zero\n";
     const { session } = sessionOf({
       "/lib/Prelude.hex": "export type Meters = Float\n",
@@ -1347,8 +1347,8 @@ describe("code actions: the module-import repair family (#577)", () => {
     });
     const action = sole(actionsOn(session, "/main.hex", main, "Meters.zero"));
     expect(applied(main, action)).toBe(
-      'import P from "./lib/Prelude"\n' +
-        'import Meters from "./lib/Prelude"\n' +
+      'import Prelude as P\n' +
+        'import Prelude as Meters\n' +
         "type Meters = P.Meters\n" +
         "export let n: Float = Meters.zero\n",
     );
@@ -1370,9 +1370,9 @@ describe("code actions: the module-import repair family (#577)", () => {
     // one. Repairing the lower use seats the alias below the upper one, which
     // keeps its own refusal — now with a fixit of its own — rather than having
     // the author's own import line reordered under them.
-    const main = 'import S from "./shape"\ntype Shape = S.Shape\n' +
+    const main = 'import Shape as S\ntype Shape = S.Shape\n' +
       "export fun a(s: Shape): Float = Shape.area(s)\n" +
-      'import Other from "./other"\n' +
+      'import Other\n' +
       "export fun b(s: Shape): Float = Shape.area(s)\n";
     const { session } = sessionOf({
       "/shape.hex": SHAPE,
@@ -1381,10 +1381,10 @@ describe("code actions: the module-import repair family (#577)", () => {
     });
     const lower = sole(actionsOn(session, "/main.hex", main, "Shape.area", 2));
     expect(applied(main, lower)).toBe(
-      'import S from "./shape"\ntype Shape = S.Shape\n' +
+      'import Shape as S\ntype Shape = S.Shape\n' +
         "export fun a(s: Shape): Float = Shape.area(s)\n" +
-        'import Other from "./other"\n' +
-        'import Shape from "./shape"\n' +
+        'import Other\n' +
+        'import Shape\n' +
         "export fun b(s: Shape): Float = Shape.area(s)\n",
     );
     session.setFile("/main.hex", applied(main, lower));

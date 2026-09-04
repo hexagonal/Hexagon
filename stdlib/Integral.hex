@@ -1,3 +1,5 @@
+module Integral
+
 (** Raised when a division or remainder is asked for with a zero divisor, at any
     integer type. `message` names the operation that threw. *)
 export exception DivideByZeroError(message: String)

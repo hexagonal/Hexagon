@@ -103,7 +103,7 @@ describe("the instance crosses the module boundary (seeding path)", () => {
   test("an importer's `for` discharges against the imported instance", async () => {
     const main = await runProject([
       library,
-      ["/main.hex", "import Bag from \"./bags\"\n" +
+      ["/main.hex", "module Main\n\n" + "import Bags as Bag\n" +
         "\n" +
         "export fun run(ignored: Int): Int =\n" +
         "    var sum = 0\n" +
@@ -117,7 +117,7 @@ describe("the instance crosses the module boundary (seeding path)", () => {
   test("the imported projection at Bag(String) is String, not defaulted", () => {
     const messages = messagesOf([
       library,
-      ["/main.hex", "import Bag from \"./bags\"\n" +
+      ["/main.hex", "module Main\n\n" + "import Bags as Bag\n" +
         "\n" +
         "fun total(bag: Bag(String)): Int =\n" +
         "    var sum = 0\n" +

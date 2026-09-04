@@ -59,7 +59,7 @@ import { compileMain, runMain } from "../support/test-project.js";
 
 /** One module's emitted JavaScript, with the project's diagnostics asserted empty. */
 function javascript(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
@@ -89,7 +89,7 @@ describe("an operand-free element equality leaves only the size check", () => {
     expect(emitted).not.toContain("__rightElement");
     expect(emitted).not.toContain("if (!(true))");
     expect(emitted).not.toContain("__rightStep");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     // Same length equal, different length not: the whole of unit-vector
     // equality, and the emitted text is now exactly that claim.
     expect(module.bothTwo).toBe(true);
@@ -115,7 +115,7 @@ describe("an operand-free element equality leaves only the size check", () => {
       "Eq: { equals: (__left, __right) => __trieSize(__left) === __trieSize(__right), ",
     );
     expect(emitted).not.toContain("if (!(true))");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     // Equal-length unit vectors are one member; different lengths are two.
     expect(module.onePair).toBe(1);
     expect(module.twoLengths).toBe(2);
@@ -142,7 +142,7 @@ describe("an operand-free element equality leaves only the size check", () => {
     // And the inner walk minted no binder of its own.
     expect(emitted).not.toContain("__rightElement_1");
     expect(emitted).not.toContain("if (!(true))");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.gridsMatch).toBe(true);
     // Inner lengths decide: `[(), ()]` against `[()]`.
     expect(module.gridsPartApart).toBe(false);
@@ -191,7 +191,7 @@ describe("an operand-free element that is not `true` keeps its loop", () => {
     // And the two names it genuinely does not read are still shed.
     expect(emitted).not.toContain("__rightElement");
     expect(emitted).not.toContain("__rightStep");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.pairsMatch).toBe(true);
     expect(module.pairsCountApart).toBe(false);
   });
@@ -229,7 +229,7 @@ describe("an operand-free element that is not `true` keeps its loop", () => {
     expect(emitted).toContain("if (__step.done) return __Greater; ");
     expect(emitted).toContain("return __rightStep.next().done ? __Equal : __Less;");
     expect(emitted).not.toContain("const __rightElement = __step.value;");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.shortPairFirst).toBe(true);
     expect(module.longPairFirst).toBe(false);
   });
@@ -264,7 +264,7 @@ describe("the collapse reaches dictionaries whose names never say `Vector`", () 
         "__trieSize(__left.rows) === __trieSize(__right.rows) && __left.tag === __right.tag;",
     );
     expect(heldEmitted).not.toContain("if (!(true))");
-    const heldModule = await runMain(held);
+    const heldModule = await runMain("module Main\n\n" + held);
     expect(heldModule.sheetsMatch).toBe(true);
     expect(heldModule.sheetsRowsApart).toBe(false);
 
@@ -285,7 +285,7 @@ describe("the collapse reaches dictionaries whose names never say `Vector`", () 
       "__trieSize(__left[0]) === __trieSize(__right[0]) && __left[1] === __right[1]",
     );
     expect(carriedEmitted).not.toContain("if (!(true))");
-    const carriedModule = await runMain(carried);
+    const carriedModule = await runMain("module Main\n\n" + carried);
     expect(carriedModule.holdersMatch).toBe(true);
     expect(carriedModule.holdersTagApart).toBe(false);
   });
@@ -313,7 +313,7 @@ describe("an operand-free element order sheds its binding, not its loop", () => 
       "const __step = __rightStep.next(); if (__step.done) return __Greater; ",
     );
     expect(emitted).toContain("return __rightStep.next().done ? __Equal : __Less;");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     // A proper prefix is `Less`; the longer side is `Greater`.
     expect(module.shortFirst).toBe(true);
     expect(module.longFirst).toBe(false);
@@ -347,7 +347,7 @@ describe("a planner edition at `Unit` collapses, and its siblings do not", () =>
     // rule protects: the `Unit` edition is minted last and still claims `_7`.
     expect(emitted).toContain("if (!(__leftElement_2 === __rightElement_2)) return false;");
     expect(emitted).not.toContain("if (!(true))");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.blanksAgree).toBe(true);
     expect(module.countsAgree).toBe(true);
     expect(module.countsDiffer).toBe(false);

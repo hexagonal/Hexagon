@@ -221,7 +221,7 @@ const declaredConstraints = [
 
 describe("a declared constraint's edition names its instance's dictionary", () => {
   test("at a primitive, where `Primitive` evidence used to ICE", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
     const { item, variable, constraint } = constrainedItem(module, "tell");
     const { instances, asked } = resolver(module);
 
@@ -246,7 +246,7 @@ describe("a declared constraint's edition names its instance's dictionary", () =
   });
 
   test("at `Bool`, where `Structural` evidence used to fail silently", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
     const { item, variable, constraint } = constrainedItem(module, "tag");
     const { instances, asked } = resolver(module);
 
@@ -266,7 +266,7 @@ describe("a declared constraint's edition names its instance's dictionary", () =
   });
 
   test("nothing is invented where the instance is missing", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
     const { item, variable } = constrainedItem(module, "tell");
     // `Nat` is the case leg 2's derived judgment will never offer and a
     // hand-written table could: no `Describe<Nat>` is declared anywhere.
@@ -290,7 +290,7 @@ describe("a declared constraint's edition names its instance's dictionary", () =
 
 describe("the face emitters resolve nothing", () => {
   test("`faceOnlyEditionInstances` answers as a declining resolver does", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
     const { item, variable } = constrainedItem(module, "tell");
 
     const specialized = specializeItem(
@@ -311,7 +311,7 @@ describe("the face emitters resolve nothing", () => {
 
 describe("a pre-registered constraint's edition is unmoved", () => {
   test("`Show` at a primitive stays `Primitive` evidence, and asks nothing", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
     const { item, variable } = constrainedItem(module, "render");
     const { instances, asked } = resolver(module);
 
@@ -329,7 +329,7 @@ describe("a pre-registered constraint's edition is unmoved", () => {
   });
 
   test("`Show` at `Bool` stays the derived walk over the prelude union", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
     const { item, variable } = constrainedItem(module, "render");
     const { instances, asked } = resolver(module);
 
@@ -351,7 +351,7 @@ describe("a pre-registered constraint's edition is unmoved", () => {
   });
 
   test("`Show` at `Unit` stays the automatic tuple instance at arity 0", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
     const { item, variable } = constrainedItem(module, "render");
     const { instances, asked } = resolver(module);
 
@@ -384,7 +384,7 @@ const describeModule = [
 
 describe("the lookup walks all three channels, keyed on identity", () => {
   test("this module's own `honor` items", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
     const { constraint } = constrainedItem(module, "tell");
 
     expect(sourceInstanceDictionary(module, constraint.identity, "Int", boolUnion(module)))
@@ -392,7 +392,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
   });
 
   test("`Bool` matches on the union's identity, never its name", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
     const { constraint } = constrainedItem(module, "tag");
 
     expect(sourceInstanceDictionary(module, constraint.identity, "Bool", boolUnion(module)))
@@ -404,7 +404,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
   });
 
   test("the prelude's, for a pre-registered constraint at a companion", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
 
     expect(sourceInstanceDictionary(module, "hex:Show", "Int", boolUnion(module)))
       .toBe("__Show_Int");
@@ -422,26 +422,26 @@ describe("the lookup walks all three channels, keyed on identity", () => {
   // fallback available at all.
   test.each([
     ["the bare companion fallback", [
-      "import Describe from \"./describe\"",
+      "import Describe",
       "",
       "export fun tell<a: Describe>(x: a): String = Describe.describe(x)",
       "",
     ]],
     ["the same alias, qualified explicitly", [
-      "import Describe from \"./describe\"",
+      "import Describe",
       "",
       "export fun tell<a: Describe.Describe>(x: a): String = Describe.describe(x)",
       "",
     ]],
     ["a renamed alias, qualified", [
-      "import Portray from \"./describe\"",
+      "import Describe as Portray",
       "",
       "export fun tell<a: Portray.Describe>(x: a): String = Portray.describe(x)",
       "",
     ]],
   ])("an import's instances: %s", (_label, lines) => {
     const module = core([
-      ["/describe.hex", describeModule],
+      ["/describe.hex", "module Describe\n\n" + describeModule],
       ["/main.hex", lines.join("\n")],
     ]);
     const { constraint } = constrainedItem(module, "tell");
@@ -458,8 +458,8 @@ describe("the lookup walks all three channels, keyed on identity", () => {
 
   test("two same-named constraints answer separately (§5.1.1)", () => {
     const module = core([
-      ["/describe.hex", describeModule],
-      ["/portray.hex", [
+      ["/describe.hex", "module Describe\n\n" + describeModule],
+      ["/portray.hex", "module Portray\n\n" + [
         "export constraint Describe<a> =",
         "    portray(value: a): String",
         "",
@@ -467,9 +467,9 @@ describe("the lookup walks all three channels, keyed on identity", () => {
         "    portray(count) = \"counted ${count}\"",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Describe from \"./describe\"",
-        "import Portray from \"./portray\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Describe",
+        "import Portray",
         "",
         "export fun tell<a: Describe>(x: a): String = Describe.describe(x)",
         "export fun other<a: Portray.Describe>(x: a): String = Portray.portray(x)",
@@ -496,7 +496,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
 
   test("an import's instances, at the `Bool` union", () => {
     const module = core([
-      ["/mark.hex", [
+      ["/mark.hex", "module Mark\n\n" + [
         "export constraint Mark<a> =",
         "    mark(subject: a): String",
         "",
@@ -504,8 +504,8 @@ describe("the lookup walks all three channels, keyed on identity", () => {
         "    mark(b) = if b then \"yes\" else \"no\"",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Mark from \"./mark\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Mark",
         "",
         "export fun tag<a: Mark>(x: a): String = Mark.mark(x)",
         "",
@@ -527,7 +527,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
     // `{ kind: "Tuple", elements: [] }` with a dictionary name of its own. So
     // the lookup is asked the question for real here rather than being handed a
     // module where nothing could have matched anyway.
-    const project = compileFiles([["/main.hex", [
+    const project = compileFiles([["/main.hex", "module Main\n\n" + [
       "constraint Describe<a> =",
       "    describe(subject: a): String",
       "",
@@ -563,7 +563,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
 
 describe("a declared constraint's binder mints the editions its instances back", () => {
   test("one per fundamental it is honored at, and no other", () => {
-    const module = core([["/main.hex", declaredConstraints]]);
+    const module = core([["/main.hex", "module Main\n\n" + declaredConstraints]]);
 
     const planned = planFundamentalSpecializations(
       module,
@@ -608,7 +608,7 @@ describe("a declared constraint's binder mints the editions its instances back",
       "export fun tag<a: Mark>(x: a): String = mark(x)",
       "",
     ].join("\n");
-    const project = compileFiles([["/main.hex", source]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
 
     // Leg 1's repair, now on a reachable program: the primitive editions name
@@ -620,7 +620,7 @@ describe("a declared constraint's binder mints the editions its instances back",
     expect(emitted).not.toContain("undefined.");
     expect(emitted).not.toContain("({})");
 
-    const exports = await runProject([["/main.hex", source]]);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect((exports.tellInt as (x: number) => string)(3)).toBe("int 3");
     expect((exports.tellString as (x: string) => string)("x")).toBe("string x");
     expect((exports.tagBool as (x: boolean) => string)(true)).toBe("marked");

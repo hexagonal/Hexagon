@@ -337,10 +337,10 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     // The head has one word of its own since #762: `module` left the import
     // grammar with the form that carried it, so the alias stands immediately
     // after the keyword and is painted as the namespace it names.
-    expect(await tokenOf('import Geo from "./geometry"', "import")).toBe(
+    expect(await tokenOf('import Geometry as Geo', "import")).toBe(
       "keyword.control.import.hexagon",
     );
-    expect(await tokenOf('import Geo from "./geometry"', "from")).toBe(
+    expect(await tokenOf('import Geometry as Geo', "from")).toBe(
       "keyword.other.from.hexagon",
     );
   });
@@ -407,7 +407,7 @@ describe("the Playground-only module notation (injection)", () => {
     // injection's header rule is the word's only claimant and cannot reach for
     // an import's line — which begins with `import`, never at column zero with
     // the word.
-    const source = ['import Geo from "./geometry"', "module Numbers"].join("\n");
+    const source = ['import Geometry as Geo', "module Numbers"].join("\n");
     expect(await allTokensFor(source, "module")).toEqual([control]);
     expect(await allTokensFor(source, "Numbers")).toEqual([namespace]);
   });

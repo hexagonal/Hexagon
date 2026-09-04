@@ -1,3 +1,5 @@
+module Set
+
 // The public Set companion over the runtime's hash array mapped trie.
 
 // Eight rows: the seven Collections Part 4 section 6.2 pins — construction, the

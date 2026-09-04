@@ -56,8 +56,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
    * value restriction admits unconstrained, covariant-only variables.
    */
   test("`Set.empty` is a value, and generalizes", async () => {
-    const main = await runMain(
-      "let e = Set.empty\n" +
+    const main = await runMain("module Main\n\n" + "let e = Set.empty\n" +
         "let byInt: Set(Int) = Set.add(e, 1)\n" +
         "let byText: Set(String) = Set.add(e, \"one\")\n" +
         "export let counted: (Int, Int, Int) = (Set.size(e), Set.size(byInt), Set.size(byText))\n",
@@ -73,7 +72,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
     // with every unrelated change to the prelude. No arrow appears: the report's
     // subject is that there is no function here, so a demanded arrow's colour
     // would be a claim about a call that does not exist.
-    const messages = projectDiagnostics("export let e: Set(Int) = Set.empty()\n");
+    const messages = projectDiagnostics("module Main\n\n" + "export let e: Set(Int) = Set.empty()\n");
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("`empty` is not a function — it has type `Set(");
     expect(messages[0]).toContain("and this call supplies no arguments");
@@ -91,8 +90,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
    * what #366 recorded; it exists now and takes the signature §12.4 fixes.
    */
   test("`Set.singleton` takes an element type with no `Hash` instance", async () => {
-    const main = await runMain(
-      "record Weird = {s: String}\n" +
+    const main = await runMain("module Main\n\n" + "record Weird = {s: String}\n" +
         "let odd: Set(Weird) = Set.singleton(Weird({s = \"K\"}))\n" +
         "export let counted: Int = Set.size(odd)\n" +
         "export let blank: Bool = Set.isEmpty(odd)\n" +
@@ -116,8 +114,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
    * element type.
    */
   test("a keyed operation at the same element type is refused, with the derivation repair", () => {
-    expect(projectDiagnostics(
-      "record Point = {s: String}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "record Point = {s: String}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({s = \"K\"}))\n",
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
@@ -128,8 +125,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
 
   /** §3.2's `fromVector`, and §3.4's synonym pair. */
   test("`fromVector` collects left to right, duplicates collapsing", async () => {
-    const main = await runMain(
-      "let s: Set(Int) = Set.fromVector([1, 2, 3])\n" +
+    const main = await runMain("module Main\n\n" + "let s: Set(Int) = Set.fromVector([1, 2, 3])\n" +
         "let duplicated: Set(Int) = Set.fromVector([1, 1, 2])\n" +
         "export let counted: (Int, Int) = (Set.size(s), Set.size(duplicated))\n" +
         "export let viaSeq: Int = Set.size(Set.fromSeq(Set.toSeq(s)))\n",
@@ -148,8 +144,7 @@ describe("§16 (d) no brackets, and `contains` is the only Boolean read", () => 
    * one — no bespoke message is owed (§9).
    */
   test("`s[x]` is a type error", () => {
-    const messages = projectDiagnostics(
-      "let s: Set(Int) = Set.fromVector([1, 2])\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "let s: Set(Int) = Set.fromVector([1, 2])\n" +
         "export let bad: Int = s[1]\n",
     );
     expect(messages).not.toEqual([]);
@@ -160,8 +155,7 @@ describe("§16 (d) no brackets, and `contains` is the only Boolean read", () => 
 
   /** Part 1 §7, restated at §5.3: set union is not concatenation. */
   test("`++` is refused for `Set`", () => {
-    const messages = projectDiagnostics(
-      "let s: Set(Int) = Set.fromVector([1, 2])\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "let s: Set(Int) = Set.fromVector([1, 2])\n" +
         "export let bad: Set(Int) = s ++ s\n",
     );
     expect(messages).not.toEqual([]);
@@ -170,8 +164,7 @@ describe("§16 (d) no brackets, and `contains` is the only Boolean read", () => 
 
   /** §6.2: `contains` is membership, and the surface's only Boolean read. */
   test("`contains` answers membership", async () => {
-    const main = await runMain(
-      "let s: Set(Int) = Set.fromVector([1, 2, 3])\n" +
+    const main = await runMain("module Main\n\n" + "let s: Set(Int) = Set.fromVector([1, 2, 3])\n" +
         "export let held: Bool = Set.contains(s, 2)\n" +
         "export let absent: Bool = Set.contains(s, 9)\n" +
         "export let neverInEmpty: Bool = Set.contains(Set.empty, 1)\n",
@@ -194,8 +187,7 @@ describe("§16 (e) idempotent add and forgiving removal", () => {
    * not owe.
    */
   test("add is idempotent, remove is forgiving, and the round trip returns", async () => {
-    const main = await runMain(
-      "let s: Set(Int) = Set.fromVector([1, 2, 3])\n" +
+    const main = await runMain("module Main\n\n" + "let s: Set(Int) = Set.fromVector([1, 2, 3])\n" +
         "export let grew: Int = Set.size(Set.add(s, 4))\n" +
         "export let unchanged: Int = Set.size(Set.add(s, 1))\n" +
         "export let stillEqual: Bool = Set.add(s, 1) == s\n" +
@@ -227,8 +219,7 @@ describe("§16 (f) / §5.3 the algebra, in both directions", () => {
    * is where §5.4's left-representative retention stops being free.
    */
   test("union, intersect, difference, and isSubsetOf, both operand orders", async () => {
-    const main = await runMain(
-      "let small: Set(Int) = Set.fromVector([1, 2])\n" +
+    const main = await runMain("module Main\n\n" + "let small: Set(Int) = Set.fromVector([1, 2])\n" +
         "let large: Set(Int) = Set.fromVector([2, 3, 4, 5])\n" +
         "let blank: Set(Int) = Set.empty\n" +
         "let collected(s: Set(Int)): Vector(Int) = Vector.fromSeq(Set.toSeq(s))\n" +
@@ -422,8 +413,7 @@ describe("§16 (g) iteration", () => {
    * what `Hex.Set<a> extends Iterable<a>` promises.
    */
   test("`for x in s` iterates the elements", async () => {
-    const main = await runMain(
-      "let s: Set(Int) = Set.fromVector([1, 2, 3])\n" +
+    const main = await runMain("module Main\n\n" + "let s: Set(Int) = Set.fromVector([1, 2, 3])\n" +
         "let total(source: Set(Int)): Int =\n" +
         "    var sum = 0\n" +
         "    for x in source\n" +
@@ -442,8 +432,7 @@ describe("§16 (g) iteration", () => {
 
   /** §16 (h): two traversals of one set value within one run agree. */
   test("two traversals of one value produce the same order", async () => {
-    const main = await runMain(
-      "let s: Set(Int) = Set.fromVector([5, 12, 33, 44, 71, 98])\n" +
+    const main = await runMain("module Main\n\n" + "let s: Set(Int) = Set.fromVector([5, 12, 33, 44, 71, 98])\n" +
         "export let first: Vector(Int) = Vector.fromSeq(Set.toSeq(s))\n" +
         "export let second: Vector(Int) = Vector.fromSeq(Set.toSeq(s))\n",
     );
@@ -460,8 +449,7 @@ describe("§16 (i) the instances", () => {
    * order-sensitive fold would make `hash(s)` a per-process value.
    */
   test("Eq is extensional and Hash is permutation-invariant", async () => {
-    const main = await runMain(
-      "let left: Set(Int) = Set.fromVector([1, 2, 3])\n" +
+    const main = await runMain("module Main\n\n" + "let left: Set(Int) = Set.fromVector([1, 2, 3])\n" +
         "let right: Set(Int) = Set.fromVector([3, 2, 1])\n" +
         "let different: Set(Int) = Set.fromVector([1, 2, 4])\n" +
         "let shorter: Set(Int) = Set.fromVector([1, 2])\n" +
@@ -495,8 +483,7 @@ describe("§16 (i) the instances", () => {
    * about. The seed is this file's own (`vitest.setup.ts`), never the suite's.
    */
   test("Eq and Hash ignore insertion order, over generated orders", async () => {
-    const main = await runMain(
-      "let build(a: Int, b: Int, c: Int): Set(Int) = Set.fromVector([a, b, c])\n" +
+    const main = await runMain("module Main\n\n" + "let build(a: Int, b: Int, c: Int): Set(Int) = Set.fromVector([a, b, c])\n" +
         "export fun agrees(a: Int, b: Int, c: Int): (Bool, Bool, Int) =\n" +
         "    let one = build(a, b, c)\n" +
         "    let other = build(c, a, b)\n" +
@@ -528,8 +515,7 @@ describe("§16 (i) the instances", () => {
    * is owed.
    */
   test("there is no `Ord` instance for `Set`", () => {
-    const messages = projectDiagnostics(
-      "let a: Set(Int) = Set.fromVector([1, 2])\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "let a: Set(Int) = Set.fromVector([1, 2])\n" +
         "let b: Set(Int) = Set.fromVector([1, 2, 3])\n" +
         "export let ordered: Bool = a < b\n",
     );
@@ -539,8 +525,7 @@ describe("§16 (i) the instances", () => {
 
   /** §8.3: constructor-shaped display, `Set.empty` when empty. */
   test("Show renders the constructor form", async () => {
-    const main = await runMain(
-      "let blank: Set(Int) = Set.empty\n" +
+    const main = await runMain("module Main\n\n" + "let blank: Set(Int) = Set.empty\n" +
         "let one: Set(String) = Set.singleton(\"one\")\n" +
         "let two: Set(Int) = Set.fromVector([1, 2])\n" +
         "export let shownEmpty: String = show(blank)\n" +
@@ -561,8 +546,7 @@ describe("§16 (i) the instances", () => {
    * as operators.
    */
   test("a set is usable as a set element and as a map key", async () => {
-    const main = await runMain(
-      "let one: Set(Int) = Set.singleton(1)\n" +
+    const main = await runMain("module Main\n\n" + "let one: Set(Int) = Set.singleton(1)\n" +
         "let alsoOne: Set(Int) = Set.fromVector([1, 1])\n" +
         "let two: Set(Int) = Set.singleton(2)\n" +
         "let nested: Set(Set(Int)) = Set.fromVector([one, alsoOne, two])\n" +
@@ -589,8 +573,7 @@ describe("the companion's surface", () => {
    * would call the same function one argument short.
    */
   test("dot call and qualified call agree, evidence included", async () => {
-    const main = await runMain(
-      "let s: Set(Int) = Set.fromVector([1, 2])\n" +
+    const main = await runMain("module Main\n\n" + "let s: Set(Int) = Set.fromVector([1, 2])\n" +
         "let other: Set(Int) = Set.fromVector([2, 3])\n" +
         "export let dotted: Int = Set.size(s.add(3))\n" +
         "export let qualified: Int = Set.size(Set.add(s, 3))\n" +
@@ -625,19 +608,18 @@ describe("the companion's surface", () => {
    * declared `Concat` — the rule, not a new one.
    */
   test("the bare collided names are refused, and the qualified ones answer", async () => {
-    expect(projectDiagnostics("export let e: Set(Int) = empty\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let e: Set(Int) = empty\n")).toEqual([
       "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
       "or `Set.empty`",
     ]);
-    expect(projectDiagnostics("export let n: Int = add(1, 2)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = add(1, 2)\n")).toEqual([
       "no bare `add`; write `(1).add(2)`, `Num.add(1, 2)`, or `Set.add(1, 2)`",
     ]);
-    expect(projectDiagnostics("export let n: Int = size(Set.empty)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = size(Set.empty)\n")).toEqual([
       "no bare `size`; write `Set.empty.size()`, `Map.size(Set.empty)`, " +
       "`Set.size(Set.empty)`, `JsMap.size(Set.empty)`, or `JsSet.size(Set.empty)`",
     ]);
-    const main = await runMain(
-      "export let n: Int = Set.size(Set.singleton(1))\n" +
+    const main = await runMain("module Main\n\n" + "export let n: Int = Set.size(Set.singleton(1))\n" +
         "export let v: Int = Vector.length(Vector.singleton(1))\n" +
         "export let m: Int = Map.size(Map.singleton(1, 2))\n",
     );
@@ -656,8 +638,7 @@ describe("the companion's surface", () => {
    * break.
    */
   test("`union` resolves qualified and after a dot, and still declares", async () => {
-    const main = await runMain(
-      "union Colour = Red | Green\n" +
+    const main = await runMain("module Main\n\n" + "union Colour = Red | Green\n" +
         "let left: Set(Int) = Set.fromVector([1, 2])\n" +
         "let right: Set(Int) = Set.fromVector([2, 3])\n" +
         "export let bare: Int = Set.size(Set.union(left, right))\n" +
@@ -698,7 +679,7 @@ describe("the companion's surface", () => {
   test("every export is documented, and the private rows stay private", () => {
     const project = compileFiles([[
       "/main.hex",
-      "export let n: Int = Set.size(Set.singleton(1))\n",
+      "module Main\n\n" + "export let n: Int = Set.size(Set.singleton(1))\n",
     ]]);
     expect(project.diagnostics).toEqual([]);
     const set = project.modules.find(({ source }) => source.path === "/Set.hex");
@@ -752,7 +733,7 @@ describe("the companion's surface", () => {
   test("the `.d.ts` face carries the unconstrained surface only", () => {
     const project = compileFiles([[
       "/main.hex",
-      "export let n: Int = Set.size(Set.singleton(1))\n",
+      "module Main\n\n" + "export let n: Int = Set.size(Set.singleton(1))\n",
     ]]);
     expect(project.diagnostics).toEqual([]);
     const set = project.modules.find(({ source }) => source.path === "/Set.hex");
@@ -794,14 +775,13 @@ describe("the companion's surface", () => {
    * most.
    */
   test("no exception and no `isSupersetOf`", () => {
-    expect(projectDiagnostics(
-      "let a: Set(Int) = Set.fromVector([1])\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let a: Set(Int) = Set.fromVector([1])\n" +
         "export let bad: Bool = Set.isSupersetOf(a, a)\n",
     )).toContain("module `Set` does not export `isSupersetOf`");
 
     const project = compileFiles([[
       "/main.hex",
-      "export let n: Int = Set.size(Set.singleton(1))\n",
+      "module Main\n\n" + "export let n: Int = Set.size(Set.singleton(1))\n",
     ]]);
     const set = project.modules.find(({ source }) => source.path === "/Set.hex");
     expect(set!.typed.items.some((item) => item.kind === "Exception")).toBe(false);

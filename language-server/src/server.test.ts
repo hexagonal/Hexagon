@@ -58,7 +58,7 @@ const HELPER = [
 ].join("\n");
 
 const MAIN = [
-  'import Helper from "./helper"',
+  'import Helper',
   "",
   "let start: Helper.Colour = Helper.Red",
   "let finish: Helper.Colour = Helper.brighten(start)",
@@ -601,7 +601,7 @@ describe("the Hexagon language server", () => {
   test("a rename writes each edit's own text, so a derived name follows its type", async () => {
     const bindings = 'export extern enum Direction = "up" as Up | "down" as Down\n';
     const consumer = [
-      'import Bindings from "./bindings"',
+      'import Bindings',
       "",
       "export let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)",
       "",
@@ -689,7 +689,7 @@ describe("the Hexagon language server", () => {
   test("renaming a generated conversion is refused with the reason", async () => {
     const bindings = 'export extern enum Direction = "up" as Up | "down" as Down\n';
     const consumer = [
-      'import Bindings from "./bindings"',
+      'import Bindings',
       "",
       "export let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)",
       "",
@@ -770,7 +770,7 @@ describe("the Hexagon language server", () => {
 
   test("an unopened file's diagnostics reach the editor too", async () => {
     const solo = await harness({
-      "main.hex": 'import Helper from "./helper"\nlet n: Int = Helper.absent\n',
+      "main.hex": 'import Helper\nlet n: Int = Helper.absent\n',
       "helper.hex": "export let present: Int = 1\n",
     });
     try {
@@ -779,7 +779,7 @@ describe("the Hexagon language server", () => {
           uri: solo.uriOf("main.hex"),
           languageId: "hexagon",
           version: 1,
-          text: 'import Helper from "./helper"\nlet n: Int = Helper.absent\n',
+          text: 'import Helper\nlet n: Int = Helper.absent\n',
         },
       });
       const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
@@ -794,7 +794,7 @@ describe("the Hexagon language server", () => {
   test("the buffer wins over disk while a document is open", async () => {
     const solo = await harness({
       "helper.hex": "export let two: Int = 2\n",
-      "main.hex": 'import Helper from "./helper"\n\nlet four: Int = Helper.two + Helper.two\n',
+      "main.hex": 'import Helper\n\nlet four: Int = Helper.two + Helper.two\n',
     });
     try {
       const helperUri = solo.uriOf("helper.hex");
@@ -804,7 +804,7 @@ describe("the Hexagon language server", () => {
           uri: mainUri,
           languageId: "hexagon",
           version: 1,
-          text: 'import Helper from "./helper"\n\nlet four: Int = Helper.two + Helper.two\n',
+          text: 'import Helper\n\nlet four: Int = Helper.two + Helper.two\n',
         },
       });
       await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
@@ -1263,8 +1263,8 @@ describe("the companion fallback reaches the editor", () => {
   ].join("\n");
 
   const CONSUMER = [
-    'import Point from "./point"',
-    'import Render from "./render"',
+    'import Point',
+    'import Render',
     "",
     "export let norm(p: Point): Float = Point.getX(p)",
     "",

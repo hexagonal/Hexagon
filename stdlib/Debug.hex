@@ -1,3 +1,5 @@
+module Debug
+
 // The debugging probe, and the one place in the standard library where a
 // pure-faced operation writes to the world.
 //

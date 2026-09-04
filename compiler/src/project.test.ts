@@ -13,20 +13,20 @@ test("compiles a relative module import, alongside a bystander import", () => {
     new Source.File(
       Source.fileId(0),
       "/app/geometry.hex",
-      "export record Point = {x: Int}\n" +
+      "module Geometry\n\n" + "export record Point = {x: Int}\n" +
         "export fun make(x: Int): Point = Point({x = x})\n" +
         "export fun coordinate(point: Point): Int = point.x",
     ),
     new Source.File(
       Source.fileId(1),
       "/app/telemetry.hex",
-      'Debug.log("loaded")',
+      "module Telemetry\n\n" + 'Debug.log("loaded")',
     ),
     new Source.File(
       Source.fileId(2),
       "/app/main.hex",
-      'import Geo from "./geometry"\n' +
-        'import Telemetry from "./telemetry"\n' +
+      "module Main\n\n" + 'import Geometry as Geo\n' +
+        'import Telemetry\n' +
         "export let point: Geo.Point = Geo.make(3)\n" +
         "export let answer: Int = point.coordinate()",
     ),
@@ -43,7 +43,7 @@ test("compiles a relative module import, alongside a bystander import", () => {
   // from a program that never needed its dictionary is the point of the change.
   expect(project.modules.map(({ source }) => source.path)).toEqual([
     "/app/Debug.hex",
-    "/app/geometry.hex",
+    "module Debug\n\n" + "/app/geometry.hex",
     "/app/telemetry.hex",
     "/app/main.hex",
   ]);
@@ -61,14 +61,14 @@ test("re-exports extern bindings and opaque types through Hexagon modules", () =
     new Source.File(
       Source.fileId(0),
       "/tiny-json.hex",
-      "extern from \"tiny-json\"\n" +
+      "module TinyJson\n\n" + "extern from \"tiny-json\"\n" +
         "    export type JsonValue\n" +
         "    export fun parse(text: String): JsonValue",
     ),
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import Json from "./tiny-json"\n' +
+      "module Main\n\n" + 'import TinyJson as Json\n' +
         "export let document: Json.JsonValue = Json.parse!(\"{}\")",
     ),
   ]);
@@ -94,7 +94,7 @@ test("makes an imported module's coherent instances available to operators", () 
     new Source.File(
       Source.fileId(0),
       "/box.hex",
-      "opaque record Box = {value: Int}\n" +
+      "module Box\n\n" + "opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
         "honor Num<Box> =\n" +
         "    add(left, right) = create(left.value + right.value)\n" +
@@ -108,7 +108,7 @@ test("makes an imported module's coherent instances available to operators", () 
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import Box from "./box"\n' +
+      "module Main\n\n" + 'import Box\n' +
         "export let answer: Box.Box = Box.create(20) + Box.create(22)",
     ),
   ]);
@@ -129,7 +129,7 @@ test("propagates coherent instances through the complete import graph", () => {
     new Source.File(
       Source.fileId(0),
       "/box.hex",
-      "opaque record Box = {value: Int}\n" +
+      "module Box\n\n" + "opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
         "honor Num<Box> =\n" +
         "    add(left, right) = create(left.value + right.value)\n" +
@@ -143,14 +143,14 @@ test("propagates coherent instances through the complete import graph", () => {
     new Source.File(
       Source.fileId(1),
       "/facade.hex",
-      'import Box from "./box"\n' +
+      "module Facade\n\n" + 'import Box\n' +
         "export type Box = Box.Box\n" +
         "export let makeAnswer(): Box.Box = Box.create(20)",
     ),
     new Source.File(
       Source.fileId(2),
       "/main.hex",
-      'import Facade from "./facade"\n' +
+      "module Main\n\n" + 'import Facade\n' +
         "export let answer: Facade.Box = Facade.makeAnswer() + Facade.makeAnswer()",
     ),
   ]);
@@ -172,7 +172,7 @@ test("deduplicates one coherent instance reached through a diamond import", () =
     new Source.File(
       Source.fileId(0),
       "/box.hex",
-      "opaque record Box = {value: Int}\n" +
+      "module Box\n\n" + "opaque record Box = {value: Int}\n" +
         "export let create(value: Int): Box = Box({value})\n" +
         "honor Num<Box> =\n" +
         "    add(left, right) = create(left.value + right.value)\n" +
@@ -186,19 +186,19 @@ test("deduplicates one coherent instance reached through a diamond import", () =
     new Source.File(
       Source.fileId(1),
       "/left.hex",
-      'import Box from "./box"\nexport let left(): Box.Box = Box.create(20)',
+      "module Left\n\n" + 'import Box\nexport let left(): Box.Box = Box.create(20)',
     ),
     new Source.File(
       Source.fileId(2),
       "/right.hex",
-      'import Box from "./box"\nexport let right(): Box.Box = Box.create(22)',
+      "module Right\n\n" + 'import Box\nexport let right(): Box.Box = Box.create(22)',
     ),
     new Source.File(
       Source.fileId(3),
       "/main.hex",
-      'import Left from "./left"\n' +
-        'import Right from "./right"\n' +
-        'import Box from "./box"\n' +
+      "module Main\n\n" + 'import Left\n' +
+        'import Right\n' +
+        'import Box\n' +
         "export let answer: Box = Left.left() + Right.right()",
     ),
   ]);
@@ -209,8 +209,8 @@ test("deduplicates one coherent instance reached through a diamond import", () =
 
 test("reports import cycles before project checking", () => {
   const project = compileProject([
-    new Source.File(Source.fileId(0), "/a.hex", 'import B from "./b"'),
-    new Source.File(Source.fileId(1), "/b.hex", 'import A from "./a"'),
+    new Source.File(Source.fileId(0), "/a.hex", "module A\n\n" + 'import B'),
+    new Source.File(Source.fileId(1), "/b.hex", "module B\n\n" + 'import A'),
   ]);
 
   expect(project.diagnostics.map(({ message }) => message)).toContain(
@@ -220,11 +220,11 @@ test("reports import cycles before project checking", () => {
 
 test("rejects extern linkage to a Hexagon source module", () => {
   const project = compileProject([
-    new Source.File(Source.fileId(0), "/library.hex", "export let answer: Int = 42"),
+    new Source.File(Source.fileId(0), "/library.hex", "module Library\n\n" + "export let answer: Int = 42"),
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'extern from "./library"\n    fun answer(): Int',
+      "module Main\n\n" + 'extern from "./library"\n    fun answer(): Int',
     ),
   ]);
 
@@ -244,12 +244,12 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
     new Source.File(
       Source.fileId(0),
       "/math.hex",
-      "export let plus<a: Num>(x: a, y: a): a = x + y",
+      "module Math\n\n" + "export let plus<a: Num>(x: a, y: a): a = x + y",
     ),
     new Source.File(
       Source.fileId(1),
       "/namespace.hex",
-      'import Math from "./math"\nDebug.log("${Math.plus(20, 22)}")',
+      "module Namespace\n\n" + 'import Math\nDebug.log("${Math.plus(20, 22)}")',
     ),
   ]);
 
@@ -284,7 +284,7 @@ test("compiles Unicode module paths and cultural M namespace aliases", () => {
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import Mगणित from "./गणित"\n' +
+      "module Main\n\n" + 'import Mगणित from "./गणित"\n' +
         "export let उत्तर: Int = Mगणित.जोड़(20, 22)",
     ),
   ]);
@@ -301,7 +301,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
     new Source.File(
       Source.fileId(0),
       "/vault.hex",
-      "export type Pair(a) = (a, a)\n" +
+      "module Vault\n\n" + "export type Pair(a) = (a, a)\n" +
         "opaque record Token = {value: Int}\n" +
         "export fun issue(value: Int): Token = Token({value = value})\n" +
         "export fun reveal(token: Token): Int = token.value",
@@ -309,7 +309,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      'import Vault from "./vault"\n' +
+      "module Main\n\n" + 'import Vault\n' +
         "export let pair: Vault.Pair(Int) = (1, 2)\n" +
         "let token = Vault.issue(7)\n" +
         "export let answer: Int = Vault.reveal(token)",
@@ -327,7 +327,7 @@ test("links exported aliases and enforces opaque module boundaries", () => {
     new Source.File(
       Source.fileId(2),
       "/bad.hex",
-      'import Vault from "./vault"\n' +
+      "module Bad\n\n" + 'import Vault\n' +
         "let token = Vault.issue(7)\n" +
         "let leaked = token.value",
     ),
@@ -343,7 +343,7 @@ test("the implicit prelude supplies Ordering to Ord instances", () => {
     new Source.File(
       Source.fileId(0),
       "/point.hex",
-      "export record Point derives (Eq) = {x: Int}\n" +
+      "module Point\n\n" + "export record Point derives (Eq) = {x: Int}\n" +
         "honor Ord<Point> =\n" +
         "    compare(left, right) =\n" +
         "        if left.x < right.x then Ordering.Less else if left.x > right.x then Ordering.Greater else Ordering.Equal",
@@ -355,7 +355,7 @@ test("the implicit prelude supplies Ordering to Ord instances", () => {
   expect(point.typed.diagnostics).toEqual([]);
   // Only the referenced constructors are imported from the implicit prelude.
   expect(point.javascript.text).toContain(
-    'import { Less, Greater, Equal } from "./Ordering.js";',
+    'import { Less, Greater, Equal } from "./Hex/Ordering.js";',
   );
   // The prelude module is emitted because a module imports from it.
   expect(project.modules.map(({ source }) => source.path)).toContain("/Ordering.hex");
@@ -363,7 +363,7 @@ test("the implicit prelude supplies Ordering to Ord instances", () => {
 
 test("a project that never touches the prelude does not emit it", () => {
   const project = compileProject([
-    new Source.File(Source.fileId(0), "/plain.hex", "export let answer: Int = 42"),
+    new Source.File(Source.fileId(0), "/plain.hex", "module Plain\n\n" + "export let answer: Int = 42"),
   ]);
 
   expect(project.diagnostics).toEqual([]);
@@ -375,7 +375,7 @@ test("Ord.compare must return Ordering, not a bare Int", () => {
     new Source.File(
       Source.fileId(0),
       "/bad.hex",
-      "export record Point derives (Eq) = {x: Int}\n" +
+      "module Bad\n\n" + "export record Point derives (Eq) = {x: Int}\n" +
         "honor Ord<Point> =\n" +
         "    compare(left, right) = 0",
     ),
@@ -395,7 +395,7 @@ test("the implicit prelude supplies Option without an import", () => {
     new Source.File(
       Source.fileId(0),
       "/app.hex",
-      "export fun head<a>(xs: Vector(a)): Option(a) =\n" +
+      "module App\n\n" + "export fun head<a>(xs: Vector(a)): Option(a) =\n" +
         "    if Vector.length(xs) == 0 then None else Some(xs[0])\n",
     ),
   ]);
@@ -405,7 +405,7 @@ test("the implicit prelude supplies Option without an import", () => {
   expect(app.typed.diagnostics).toEqual([]);
   // `None` is a shared constant a reference reads; `Some(...)` is an
   // application and erases (#770), so the import binds only the constant.
-  expect(app.javascript.text).toContain('import { None } from "./Option.js";');
+  expect(app.javascript.text).toContain('import { None } from "./Hex/Option.js";');
   expect(app.javascript.text).toContain('{ tag: "Some", value: __vectorIndex(xs, 0) }');
   // Each prelude module is emitted only when used: Option is, Ordering's home is not.
   const paths = project.modules.map(({ source }) => source.path);
@@ -418,7 +418,7 @@ test("reports each module's own diagnostics on the project", () => {
     new Source.File(
       Source.fileId(0),
       "/app/main.hex",
-      "export let broken: Int = missing(1)\n",
+      "module Main\n\n" + "export let broken: Int = missing(1)\n",
     ),
   ]);
 
@@ -436,7 +436,7 @@ test("reports a type error found only by the checker", () => {
     new Source.File(
       Source.fileId(0),
       "/app/main.hex",
-      "let identity(value: Int): Int = value\nexport let out: Int = identity(\"text\")\n",
+      "module Main\n\n" + "let identity(value: Int): Int = value\nexport let out: Int = identity(\"text\")\n",
     ),
   ]);
 

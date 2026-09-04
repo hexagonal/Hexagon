@@ -76,7 +76,7 @@ async function run(
   source: string,
   foreign: Readonly<Record<string, string>>,
 ): Promise<Record<string, unknown>> {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
   expect(project.diagnostics).toEqual([]);
   runTag += 1;
   const url = (text: string): string =>
@@ -104,7 +104,7 @@ async function run(
 
 /** The generated `.d.ts` text of a one-module program that must compile clean. */
 function declarations(source: string): string {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!
     .declarations.text;
@@ -112,7 +112,7 @@ function declarations(source: string): string {
 
 /** The emitted JavaScript of a one-module program that must compile clean. */
 function javascript(source: string): string {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!
     .javascript.text;
@@ -332,8 +332,7 @@ describe("boundary legality of the parameters (Part 10 §8)", () => {
    * wrap — and a borrowed view is a container like any other.
    */
   test("`JsMap(String, Seq(Int))` is the nested-adapter hard error", () => {
-    expect(projectDiagnostics(
-      'extern from "./feed.js"\n    fun feed(): JsMap(String, Seq(Int))\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./feed.js"\n    fun feed(): JsMap(String, Seq(Int))\n',
     )).toContain(
       "extern type `Seq` requires adaptation inside a direct value; use an " +
         "explicit eager conversion at the boundary or a foreign shim",
@@ -341,8 +340,7 @@ describe("boundary legality of the parameters (Part 10 §8)", () => {
   });
 
   test("`JsSet(Seq(Int))` is refused the same way", () => {
-    expect(projectDiagnostics(
-      'extern from "./bunch.js"\n    fun bunch(): JsSet(Seq(Int))\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./bunch.js"\n    fun bunch(): JsSet(Seq(Int))\n',
     )).toContain(
       "extern type `Seq` requires adaptation inside a direct value; use an " +
         "explicit eager conversion at the boundary or a foreign shim",
@@ -351,8 +349,7 @@ describe("boundary legality of the parameters (Part 10 §8)", () => {
 
   /** The key position is walked too, not only the value. */
   test("the key position is checked as well", () => {
-    expect(projectDiagnostics(
-      'extern from "./index.js"\n    fun keyed(): JsMap(Seq(Int), String)\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./index.js"\n    fun keyed(): JsMap(Seq(Int), String)\n',
     )).toContain(
       "extern type `Seq` requires adaptation inside a direct value; use an " +
         "explicit eager conversion at the boundary or a foreign shim",
@@ -364,8 +361,7 @@ describe("boundary legality of the parameters (Part 10 §8)", () => {
    * so the restriction is about adaptation and not about nesting.
    */
   test("borrowed and representation-direct types nest freely", () => {
-    expect(projectDiagnostics(
-      'extern from "./mixed.js"\n' +
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./mixed.js"\n' +
         "    fun mixed(): JsMap(String, Array(Int))\n" +
         "    fun sets(): JsSet(Vector(Float))\n",
     )).toEqual([]);
@@ -374,14 +370,12 @@ describe("boundary legality of the parameters (Part 10 §8)", () => {
 
 describe("arity, and what outranks the intrinsic", () => {
   test("`JsMap` takes two arguments", () => {
-    expect(projectDiagnostics(
-      'extern from "./one.js"\n    fun one(): JsMap(Int)\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./one.js"\n    fun one(): JsMap(Int)\n',
     )).toContain("type `JsMap` expects 2 arguments, but 1 were provided");
   });
 
   test("`JsSet` takes one", () => {
-    expect(projectDiagnostics(
-      'extern from "./two.js"\n    fun two(): JsSet(Int, Int)\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./two.js"\n    fun two(): JsSet(Int, Int)\n',
     )).toContain("type `JsSet` expects 1 argument, but 2 were provided");
   });
 
@@ -421,8 +415,7 @@ describe("arity, and what outranks the intrinsic", () => {
    * and the user declaration is a different type entirely.
    */
   test("a user type of the name does not inherit the provided row", () => {
-    expect(projectDiagnostics(
-      "record JsSet(a) = { only: a }\n" +
+    expect(projectDiagnostics("module Main\n\n" + "record JsSet(a) = { only: a }\n" +
         "export fun scan(): Unit =\n" +
         "    for item in JsSet({ only = 1 })\n" +
         "        ()\n",
@@ -979,8 +972,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
    * both messages advise `` `JsMap(String, Int).size(…)` ``.
    */
   test("the dispatch rescue names the companion, not the type's display spelling", () => {
-    expect(projectDiagnostics(
-      'extern from "./t.js"\n' +
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./t.js"\n' +
         "    fun t(): JsMap(String, Int)\n" +
         "let peek(v) = v.size()\n" +
         "export fun out(): Int = peek(t!())\n",
@@ -992,8 +984,7 @@ describe("the qualified and dot spellings (Part 10 §3, §6.1)", () => {
   });
 
   test("...and the same at a borrowed set", () => {
-    expect(projectDiagnostics(
-      'extern from "./t.js"\n' +
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./t.js"\n' +
         "    fun t(): JsSet(Int)\n" +
         "let peek(v) = v.contains(1)\n" +
         "export fun out(): Bool = peek(t!())\n",
@@ -1073,7 +1064,7 @@ describe("the faces and the emitted text the new surfaces produce", () => {
     const project = compileFiles([
       [
         "/main.hex",
-        "export fun m(): JsMap(String, Int) =\n" +
+        "module Main\n\n" + "export fun m(): JsMap(String, Int) =\n" +
           '    JsMap.fromSeq(Vector.toSeq([("a", 1)]))\n' +
           "export fun s(): JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1]))\n",
       ],
@@ -1096,7 +1087,7 @@ describe("the faces and the emitted text the new surfaces produce", () => {
     const project = compileFiles([
       [
         "/main.hex",
-        "export fun m(): JsMap(String, Int) =\n" +
+        "module Main\n\n" + "export fun m(): JsMap(String, Int) =\n" +
           '    JsMap.fromSeq(Vector.toSeq([("a", 1)]))\n' +
           "export fun s(): JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1]))\n",
       ],
@@ -1125,7 +1116,7 @@ describe("the faces and the emitted text the new surfaces produce", () => {
     const project = compileFiles([
       [
         "/main.hex",
-        "export let count(m: JsMap(String, Int)): Int = JsMap.size(m)\n" +
+        "module Main\n\n" + "export let count(m: JsMap(String, Int)): Int = JsMap.size(m)\n" +
           "export let read(m: JsMap(String, Int)): Option(Int) =\n" +
           '    JsMap.get(m, "a")\n',
       ],

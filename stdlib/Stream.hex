@@ -1,3 +1,5 @@
+module Stream
+
 (** An effectful pull sequence: every pull asks the world for the next element,
     and a pull is spent. It is `Seq`'s impure nominal sibling — no tail, no
     persistence, and no replay of any kind. *)

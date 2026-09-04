@@ -123,7 +123,7 @@ const REACHES_EARLY_SEATS = [
 
 describe("the judgment over the pre-registered constraints", () => {
   test("is the prelude's instances, and this is the whole of it", () => {
-    const compiled = project([["/main.hex", "export let x: Int = 1\n"]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]]);
 
     // The full inventory, spelled out. This is the row set the retired table
     // held **plus `Hash` on all seven** — the drift #679 was filed for — and it
@@ -144,7 +144,7 @@ describe("the judgment over the pre-registered constraints", () => {
   });
 
   test("`Iterable`'s provided row is not a candidate", () => {
-    const compiled = project([["/main.hex", "export let x: Int = 1\n"]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]]);
 
     // `String` satisfies `Iterable` through a *provided* row (Collections Part 5
     // §4) — a coherence slot no module writes an instance for and no module
@@ -159,7 +159,7 @@ describe("the judgment over the pre-registered constraints", () => {
   });
 
   test("every pre-registered constraint is accounted for, none silently absent", () => {
-    const compiled = project([["/main.hex", "export let x: Int = 1\n"]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]]);
     const seen = new Set(
       [...compiled.fundamentalInstances].map((row) => row.slice(0, row.lastIndexOf("|"))),
     );
@@ -178,7 +178,7 @@ describe("the judgment over the pre-registered constraints", () => {
 
 describe("the program table is what makes a prelude module's plan the consumer's", () => {
   test("nine prelude modules see strictly fewer rows than the program does", () => {
-    const compiled = project([["/main.hex", COLLECTIONS]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + COLLECTIONS]]);
     const shortfalls = compiled.modules
       .map(({ source, core }) => ({
         path: source.path,
@@ -194,7 +194,7 @@ describe("the program table is what makes a prelude module's plan the consumer's
     // smaller edition set for its own exports than a consumer recomputes.
     expect(shortfalls.map(({ path }) => path)).toEqual([
       "/Pow.hex",
-      "/Hash.hex",
+      "module Pow\n\n" + "/Hash.hex",
       "/Integral.hex",
       "/Option.hex",
       "/Int.hex",
@@ -208,7 +208,7 @@ describe("the program table is what makes a prelude module's plan the consumer's
   });
 
   test("emission plans from the table it is handed, not from the module", () => {
-    const compiled = project([["/main.hex", [
+    const compiled = project([["/main.hex", "module Main\n\n" + [
       "export fun render<a: Show>(x: a): String = \"${x}\"",
       "",
     ].join("\n")]]);
@@ -230,7 +230,7 @@ describe("the program table is what makes a prelude module's plan the consumer's
   });
 
   test("no prelude module's plan differs from its own view — the tripwire", () => {
-    const compiled = project([["/main.hex", COLLECTIONS]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + COLLECTIONS]]);
     const differing = compiled.modules.filter(({ core }) => {
       const visible = fundamentalInstancesOf([core], preludeBoolUnion(core));
       return planFundamentalSpecializations(core, compiled.fundamentalInstances)
@@ -277,7 +277,7 @@ describe("the program table is what makes a prelude module's plan the consumer's
     // no-diagnostics guard. The symptom is asserted too, separately: the two
     // are the same fact read at its cause and at its report, and neither
     // should be able to go quiet while the other holds.
-    const compiled = compileFiles([["/main.hex", REACHES_EARLY_SEATS]]);
+    const compiled = compileFiles([["/main.hex", "module Main\n\n" + REACHES_EARLY_SEATS]]);
     const unresolvable: string[] = [];
     for (const { source, core } of compiled.modules) {
       const bool = preludeBoolUnion(core);
@@ -306,7 +306,7 @@ describe("the program table is what makes a prelude module's plan the consumer's
     // the seats the obligation is about or the row asserts nothing about them.
     // `Show.hex` is prelude seat 1 and the hardest case there is.
     const emitted = compiled.modules.map(({ source }) => source.path);
-    for (const seat of ["/Show.hex", "/Eq.hex", "/Ord.hex", "/Hash.hex", "/Signed.hex"]) {
+    for (const seat of ["/Show.hex", "module Show\n\n" + "/Eq.hex", "/Ord.hex", "/Hash.hex", "/Signed.hex"]) {
       expect(emitted).toContain(seat);
     }
   });
@@ -328,7 +328,7 @@ describe("a declared constraint's candidates are its own instances", () => {
   ].join("\n");
 
   test("one edition per fundamental honored, including `Bool`", async () => {
-    const compiled = project([["/main.hex", DESCRIBE]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + DESCRIBE]]);
     const planned = planFundamentalSpecializations(
       main(compiled),
       compiled.fundamentalInstances,
@@ -339,7 +339,7 @@ describe("a declared constraint's candidates are its own instances", () => {
     // §3.2's judgment at `Unit` and `Bool` — which is the evidence leg 1 taught
     // the edition to resolve. Before that repair this edition emitted an empty
     // dictionary literal and called a member on it, silently.
-    const exports = await runProject([["/main.hex", DESCRIBE]]);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + DESCRIBE]]);
     expect((exports.tellInt as (x: number) => string)(3)).toBe("int 3");
     expect((exports.tellBool as (x: boolean) => string)(true)).toBe("yes");
   });
@@ -351,7 +351,7 @@ describe("a declared constraint's candidates are its own instances", () => {
     // refusal still leaves a `Honor` item over the empty tuple in Core, so both
     // halves below are asked for real and redden together if `instanceSubjectHead`
     // ever grows a tuple branch.
-    const compiled = compileFiles([["/main.hex", [
+    const compiled = compileFiles([["/main.hex", "module Main\n\n" + [
       "constraint Describe<a> =",
       "    describe(subject: a): String",
       "",
@@ -387,7 +387,7 @@ describe("a declared constraint's candidates are its own instances", () => {
   });
 
   test("no instance at any fundamental is §3.4's zero-entry-point export", () => {
-    const compiled = project([["/main.hex", [
+    const compiled = project([["/main.hex", "module Main\n\n" + [
       "constraint Render<a> =",
       "    render(value: a): String",
       "",
@@ -404,7 +404,7 @@ describe("a declared constraint's candidates are its own instances", () => {
   });
 
   test("a candidate the judgment admits always resolves to a dictionary", () => {
-    const compiled = project([["/main.hex", DESCRIBE]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + DESCRIBE]]);
     const module = main(compiled);
     const bool = preludeBoolUnion(module);
     const fundamentals: readonly FundamentalType[] = [
@@ -450,7 +450,7 @@ describe("a declared constraint's candidates are its own instances", () => {
     // C would plan nothing here and keep the generic call while `tellInt` sat
     // published in B.
     const compiled = project([
-      ["/describe.hex", [
+      ["/describe.hex", "module Describe\n\n" + [
         "export constraint Describe<a> =",
         "    describe(subject: a): String",
         "",
@@ -458,14 +458,14 @@ describe("a declared constraint's candidates are its own instances", () => {
         "    describe(n) = \"int ${n}\"",
         "",
       ].join("\n")],
-      ["/tell.hex", [
-        "import Describe from \"./describe\"",
+      ["/tell.hex", "module Tell\n\n" + [
+        "import Describe",
         "",
         "export fun tell<a: Describe>(x: a): String = Describe.describe(x)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Tell from \"./tell\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Tell",
         "",
         "let one: Int = 1",
         "export let told: String = Tell.tell(one)",
@@ -516,7 +516,7 @@ describe("a declared constraint's candidates are its own instances", () => {
 
 describe("the collections API gains its JavaScript entry points", () => {
   test("`Set` and `Map` publish editions where they published none", () => {
-    const compiled = project([["/main.hex", COLLECTIONS]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + COLLECTIONS]]);
     const editionsOf = (basename: string): number => {
       const module = compiled.modules.find(({ source }) => source.path === `/${basename}.hex`)!;
       return planFundamentalSpecializations(module.core, compiled.fundamentalInstances)
@@ -544,7 +544,7 @@ describe("the collections API gains its JavaScript entry points", () => {
       "export let groundUnit: Int = Hash.hash(())",
       "",
     ].join("\n");
-    const exports = await runProject([["/main.hex", source]]);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + source]]);
 
     for (const edition of ["Nat", "Int", "Float", "BigInt", "Bool", "String", "Unit"]) {
       expect(typeof exports[`keyed${edition}`]).toBe("function");

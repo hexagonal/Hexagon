@@ -22,14 +22,14 @@ import { emitDeclarations, emitJavaScript } from "../passes/emitter/emitter.js";
 // Through the whole project, prelude included: since #147 `Bool` is a prelude
 // declaration, so a probe module compiled on its own cannot name it.
 function diagnostics(source: string): string[] {
-  return [...compileMain(source).diagnostics.map(({ message }) => message)];
+  return [...compileMain("module Main\n\n" + source).diagnostics.map(({ message }) => message)];
 }
 
 /** Where a `duplicate parameter` diagnostic puts its two markers, as source offsets. */
 function duplicateParameterSpans(
   source: string,
 ): { readonly primary: number; readonly label: number } | undefined {
-  const file = new Source.File(Source.fileId(0), "/probe.hex", source);
+  const file = new Source.File(Source.fileId(0), "/probe.hex", "module Probe\n\n" + source);
   const found = resolve(parse(applyLayout(lex(file))), {}).diagnostics.find(
     ({ message }) => message.startsWith("duplicate parameter"),
   );
@@ -46,7 +46,7 @@ function renderedParameterNames(source: string): string[] {
 }
 
 function declarations(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.declarations.text;
 }

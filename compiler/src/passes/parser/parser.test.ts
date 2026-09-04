@@ -1860,7 +1860,7 @@ describe("parse", () => {
 
   /**
    * Modules §3.1 and Lexer §4.2's deleted row: an `import` binds a module and
-   * nothing smaller (#762), so the head is `import Geo from "./geometry"` and
+   * nothing smaller (#762), so the head is `import Geometry as Geo` and
    * the grammar has one alias seat and no items. `*`, `{` and the word
    * `module` have all left the import grammar; `module` is an ordinary name
    * everywhere again, recognised after `import` only to redirect.
@@ -1879,7 +1879,7 @@ describe("parse", () => {
       parseSource(text).items.map(({ kind }) => kind);
 
     test("the head binds an alias, and that is the whole form", () => {
-      const module = parseSource('import Geo from "./geometry"\n');
+      const module = parseSource('import Geometry as Geo\n');
       expect(module.diagnostics).toEqual([]);
       expect(module.items).toMatchObject([{
         kind: "Import",
@@ -1930,7 +1930,7 @@ describe("parse", () => {
     test("the `import module` head is refused with the word dropped", () => {
       const module = parseSource('import module Geo from "./geometry"\n');
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        'Hexagon imports bind modules: write `import Geo from "./geometry"`',
+        'Hexagon imports bind modules: write `import Geometry as Geo`',
       ]);
       const [fix] = module.diagnostics[0]?.fixes ?? [];
       expect(fix?.message).toBe("write `import`");
@@ -1942,7 +1942,7 @@ describe("parse", () => {
         replacement,
       ])).toEqual([[7, 14, ""]]);
       const text = 'import module Geo from "./geometry"\n';
-      expect(text.slice(0, 7) + text.slice(14)).toBe('import Geo from "./geometry"\n');
+      expect(text.slice(0, 7) + text.slice(14)).toBe('import Geometry as Geo\n');
       expect(parseSource(text.slice(0, 7) + text.slice(14)).diagnostics).toEqual([]);
       // The item still binds the alias the head named: a migration costs one
       // diagnostic per line, never a cascade of unknown names below it.
@@ -1957,8 +1957,8 @@ describe("parse", () => {
      * what the reader is told about.
      */
     test("`import module` with no alias dies in the alias seat", () => {
-      expect(messages('import module from "./x"\n')).toEqual([
-        'Hexagon imports bind modules: write `import X from "./x"`',
+      expect(messages('import X as module\n')).toEqual([
+        'Hexagon imports bind modules: write `import X`',
       ]);
     });
 
@@ -1968,9 +1968,9 @@ describe("parse", () => {
      * own basename — which is what the author was naming the module after.
      */
     test("a non-uppercase-start alias is refused with the derived spelling", () => {
-      const module = parseSource('import geometry from "./geometry"\n');
+      const module = parseSource('import Geometry as geometry\n');
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        'a module alias is uppercase-start; write `import Geometry from "./geometry"`',
+        'a module alias is uppercase-start; write `import Geometry`',
       ]);
       const [fix] = module.diagnostics[0]?.fixes ?? [];
       expect(fix?.message).toBe("write `Geometry`");
@@ -1979,7 +1979,7 @@ describe("parse", () => {
 
     test("`import from` draws the alias seat's refusal, alone", () => {
       expect(messages('import from "./x"\n')).toEqual([
-        'a module alias is uppercase-start; write `import X from "./x"`',
+        'a module alias is uppercase-start; write `import X`',
       ]);
     });
 
@@ -1992,7 +1992,7 @@ describe("parse", () => {
     test("JavaScript's `import * as` head is refused with its rewrite", () => {
       const module = parseSource('import * as Geo from "./geometry"\n');
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        'Hexagon imports bind modules: write `import Geo from "./geometry"`',
+        'Hexagon imports bind modules: write `import Geometry as Geo`',
       ]);
       const [fix] = module.diagnostics[0]?.fixes ?? [];
       expect(fix?.message).toBe("write `import`");
@@ -2006,7 +2006,7 @@ describe("parse", () => {
       // the alias and the path are never retyped, and the whitespace the head
       // spent goes with the head.
       const text = 'import * as Geo from "./geometry"\n';
-      expect(text.slice(0, 7) + text.slice(12)).toBe('import Geo from "./geometry"\n');
+      expect(text.slice(0, 7) + text.slice(12)).toBe('import Geometry as Geo\n');
       expect(parseSource(text.slice(0, 7) + text.slice(12)).diagnostics).toEqual([]);
       expect(module.items).toMatchObject([{ kind: "Import", alias: { text: "Geo" } }]);
     });
@@ -2019,7 +2019,7 @@ describe("parse", () => {
     test("a `*` head with no `as` reports against the star", () => {
       const module = parseSource('import * Geo from "./geometry"\n');
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        'Hexagon imports bind modules: write `import Geo from "./geometry"`',
+        'Hexagon imports bind modules: write `import Geometry as Geo`',
       ]);
       expect(module.diagnostics[0]?.primary.start.offset).toBe(7);
       expect(module.diagnostics[0]?.primary.end.offset).toBe(8);
@@ -2034,18 +2034,18 @@ describe("parse", () => {
      */
     test("JavaScript's named list is refused with the item's qualified spelling", () => {
       expect(messages('import { area } from "./geometry"\n')).toEqual([
-        'Hexagon imports bind modules: write `import Geometry from "./geometry"` ' +
+        'Hexagon imports bind modules: write `import Geometry` ' +
           "and reach `area` as `Geometry.area`",
       ]);
       expect(itemKinds('import { area } from "./geometry"\n')).toEqual(["ErrorItem"]);
       expect(messages('import { get, set } from "./search-params"\n')).toEqual([
-        'Hexagon imports bind modules: write `import SearchParams from "./search-params"` ' +
+        'Hexagon imports bind modules: write `import SearchParams` ' +
           "and reach `get` as `SearchParams.get`",
       ]);
       // A renamed item is still one item: the rewrite names what the module
       // exports, since that is what the qualified spelling reaches.
       expect(messages('import { area as a } from "./geometry"\n')).toEqual([
-        'Hexagon imports bind modules: write `import Geometry from "./geometry"` ' +
+        'Hexagon imports bind modules: write `import Geometry` ' +
           "and reach `area` as `Geometry.area`",
       ]);
     });
@@ -2069,7 +2069,7 @@ describe("parse", () => {
     test("the effect import is refused with the route named", () => {
       expect(messages('import "./telemetry"\n')).toEqual([
         "Hexagon has no effect import; a module is imported for its names — " +
-          '`import Telemetry from "./telemetry"` — or run as a root',
+          '`import Telemetry` — or run as a root',
       ]);
       expect(itemKinds('import "./telemetry"\n')).toEqual(["ErrorItem"]);
       // The foreign form is untouched (FFI Part 4 §8): it loads a JavaScript
@@ -2080,7 +2080,7 @@ describe("parse", () => {
 });
 
 function parseSource(text: string): Parsed.Module {
-  const source = new Source.File(Source.fileId(0), "test.hex", text);
+  const source = new Source.File(Source.fileId(0), "test.hex", "module Test\n\n" + text);
   return parse(applyLayout(lex(source)));
 }
 

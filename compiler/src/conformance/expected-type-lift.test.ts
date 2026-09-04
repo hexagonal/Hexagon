@@ -62,7 +62,7 @@ function verdict(source: string): readonly string[] {
 }
 
 function withRat(source: string): readonly (readonly [string, string])[] {
-  return [["/main.hex", `import Rat from "./Rat"\n${fixtures}${source}`], ["/Rat.hex", RAT]];
+  return [["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`], ["/Rat.hex", "module Rat\n\n" + RAT]];
 }
 
 function ratVerdict(source: string): readonly string[] {
@@ -132,7 +132,7 @@ describe("observable exactness at a wider-than-f64 home", () => {
     // folds it to 2^53, and only then injects. The lift runs the addition at
     // `BigInt` and the value survives. This *is* the rule's reason.
     const exports = await runProject([["/main.hex",
-      "// exactness at BigInt\n" +
+      "module Main\n\n" + "// exactness at BigInt\n" +
       "let large: Int = 9007199254740991\n" +
       "let two: Int = 2\n" +
       "export let lifted: BigInt = large + two\n" +
@@ -166,7 +166,7 @@ describe("the `Pow` home selection — the base seat alone (#541)", () => {
     // selection would have taken `Pow<Int>` and thrown. The exponent itself is
     // an `Int` in both readings — the member's seat is concrete.
     const exports = await runProject([["/main.hex",
-      "// Pow home\n" +
+      "module Main\n\n" + "// Pow home\n" +
       "let negOne: Int = -1\n" +
       "export let x: Float = 2 ** negOne\n",
     ]]);
@@ -274,7 +274,7 @@ describe("the boundaries", () => {
     // Arithmetic happens at the type written on *its own* seat, never one
     // written somewhere later: the finished `Int` value widens at the second
     // binding's annotation, exactly as written.
-    const project = compileFiles([["/main.hex", `${fixtures}let s = count + count\n` +
+    const project = compileFiles([["/main.hex", "module Main\n\n" + `${fixtures}let s = count + count\n` +
       "export let r: BigInt = s\n"]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const main = project.modules.find(({ source: file }) => file.path === "/main.hex")!;
@@ -288,7 +288,7 @@ describe("the boundaries", () => {
     const source = fixtures +
       "let g(value: a): String = \"x\"\n" +
       "export let r: String = g(count + count)\n";
-    expect(projectDiagnostics(source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
   });
 
   test("a concrete expectation without the instance lifts nothing", () => {
@@ -321,7 +321,7 @@ describe("the recursion", () => {
     // outermost operation, the inner sum would elaborate at `Int` and the
     // finished, already-folded value would inject.
     const exports = await runProject([["/main.hex",
-      "// nested exactness\n" +
+      "module Main\n\n" + "// nested exactness\n" +
       "let large: Int = 9007199254740991\n" +
       "let two: Int = 2\n" +
       "let unit: Int = 1\n" +

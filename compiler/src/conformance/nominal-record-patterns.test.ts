@@ -49,7 +49,7 @@ function emitted(files: readonly (readonly [string, string])[], path: string): s
 }
 
 function mainJs(source: string): string {
-  const compiled = compileMain(source);
+  const compiled = compileMain("module Main\n\n" + source);
   return compiled.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
@@ -88,8 +88,7 @@ describe("the constructor pattern destructures a nominal record in its home modu
   });
 
   test("record sub-patterns nest and rename like any other record pattern", async () => {
-    const exports = await runMain(
-      "export record Inner = {depth: Int}\n" +
+    const exports = await runMain("module Main\n\n" + "export record Inner = {depth: Int}\n" +
       "export record Outer = {inner: Inner, name: String}\n" +
       "export fun reach(o: Outer): Int =\n" +
       "    let Outer({inner = Inner({depth}), name = _}) = o\n" +
@@ -100,15 +99,13 @@ describe("the constructor pattern destructures a nominal record in its home modu
   });
 
   test("a parameterized record instantiates its row at the pattern", async () => {
-    expect(projectDiagnostics(
-      "export record Box(a) = {item: a}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export record Box(a) = {item: a}\n" +
       "export fun bump(b: Box(Int)): Int =\n" +
       "    let Box({item}) = b\n" +
       "    item + 1\n",
     )).toEqual([]);
 
-    const exports = await runMain(
-      "export record Box(a) = {item: a}\n" +
+    const exports = await runMain("module Main\n\n" + "export record Box(a) = {item: a}\n" +
       "export fun bump(b: Box(Int)): Int =\n" +
       "    match b\n" +
       "        Box({item}) => item + 1\n" +
@@ -120,7 +117,7 @@ describe("the constructor pattern destructures a nominal record in its home modu
   test("`opaque` changes nothing inside the home module (§4.2)", () => {
     expect(compileFiles([
       ["/geo.hex",
-        "opaque record Crate = {n: Float}\n" +
+        "module Geo\n\n" + "opaque record Crate = {n: Float}\n" +
         "export fun size(c: Crate): Float =\n" +
         "    let Crate({n}) = c\n" +
         "    n\n"],
@@ -381,10 +378,10 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     // the type bare with no named import to carry it (#762).
     const messages = compileFiles([
       ["/geo.hex",
-        "opaque record Crate = {n: Float}\n" +
+        "module Geo\n\n" + "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
         "    let {n} = c\n" +
         "    n\n"],
@@ -404,13 +401,13 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     // seat, and the redirect is what fires there.
     const reached = (head: string) => compileFiles([
       ["/geo.hex",
-        `${head} record Crate = {n: Float}\n` +
+        "module Geo\n\n" + `${head} record Crate = {n: Float}\n` +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/mid.hex",
-        'import Geo from "./geo"\n' +
+        "module Mid\n\n" + 'import Geo\n' +
         "export fun forged(): Geo.Crate = Geo.make()\n"],
       ["/main.hex",
-        'import Mid from "./mid"\n' +
+        "module Main\n\n" + 'import Mid\n' +
         "export fun size(): Float =\n" +
         "    let {n} = Mid.forged()\n" +
         "    n\n"],
@@ -428,7 +425,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     // spelling to send the reader to and sends them to it.
     expect(compileFiles([
       ["/geo.hex",
-        "opaque record Crate = {n: Float}\n" +
+        "module Geo\n\n" + "opaque record Crate = {n: Float}\n" +
         "export fun size(c: Crate): Float =\n" +
         "    let {n} = c\n" +
         "    n\n"],
@@ -440,10 +437,10 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
   test("a `match` arm outside the home module is intercepted too", () => {
     expect(compileFiles([
       ["/geo.hex",
-        "opaque record Crate = {n: Float}\n" +
+        "module Geo\n\n" + "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
         "    match c\n" +
         "        {n} => n\n"],
@@ -453,8 +450,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
   });
 
   test("a structural record scrutinee is untouched by the redirect", () => {
-    expect(projectDiagnostics(
-      "export fun size(c: {n: Float}): Float =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun size(c: {n: Float}): Float =\n" +
       "    let {n} = c\n" +
       "    n\n",
     )).toEqual([]);
@@ -494,18 +490,18 @@ describe("outside the home module the name carries it, and only the name", () =>
     // alias is spelled `Crate`, the module exports a same-spelled constructor,
     // and term position has nothing of its own to answer with.
     expect(compileFiles([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
         "    let Crate({n}) = c\n" +
         "    n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([]);
 
     const exports = await runProject([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
         "    match c\n" +
         "        Crate({n}) => n\n" +
@@ -516,18 +512,18 @@ describe("outside the home module the name carries it, and only the name", () =>
 
   test("a module alias qualifies it, exactly as it qualifies a union's (§3.3)", async () => {
     expect(compileFiles([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Geo from "./geo"\n' +
+        "module Main\n\n" + 'import Geo\n' +
         "export fun size(c: Geo.Crate): Float =\n" +
         "    let Geo.Crate({n}) = c\n" +
         "    n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([]);
 
     const exports = await runProject([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Geo from "./geo"\n' +
+        "module Main\n\n" + 'import Geo\n' +
         "export fun size(c: Geo.Crate): Float =\n" +
         "    match c\n" +
         "        Geo.Crate({n}) => n\n" +
@@ -543,9 +539,9 @@ describe("outside the home module the name carries it, and only the name", () =>
     // regardless, so this seat cannot tell the two mechanisms apart on its own;
     // `qualified-constructor-patterns.test.ts` §303 pins the mechanism itself.
     expect(compileFiles([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(): Float =\n" +
         "    let Crate({n}) = Crate.make()\n" +
         "    n\n"],
@@ -561,9 +557,9 @@ describe("outside the home module the name carries it, and only the name", () =>
     // spelled `Geo`, not `Crate`, so rule 3 never fires either) and the seat
     // that would open the door.
     expect(compileFiles([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Geo from "./geo"\n' +
+        "module Main\n\n" + 'import Geo\n' +
         "let size = Crate({n}) => n\n" +
         "export let v: Float = size(Geo.make())\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
@@ -583,7 +579,7 @@ describe("outside the home module the name carries it, and only the name", () =>
     // opaque family's own — the sibling of the field access and the update.
     expect(compileFiles([
       ["/geo.hex",
-        "opaque record Crate = {n: Float}\n" +
+        "module Geo\n\n" + "opaque record Crate = {n: Float}\n" +
         "export fun size(c: Crate): Float =\n" +
         "    let Crate({n}) = c\n" +
         "    n\n"],
@@ -844,10 +840,10 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     // the type bare with no named import to carry it (#762).
     const messages = compileFiles([
       ["/geo.hex",
-        "opaque record Crate = {n: Float}\n" +
+        "module Geo\n\n" + "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
         "    let {n} = c\n" +
         "    n\n"],
@@ -867,13 +863,13 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     // seat, and the redirect is what fires there.
     const reached = (head: string) => compileFiles([
       ["/geo.hex",
-        `${head} record Crate = {n: Float}\n` +
+        "module Geo\n\n" + `${head} record Crate = {n: Float}\n` +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/mid.hex",
-        'import Geo from "./geo"\n' +
+        "module Mid\n\n" + 'import Geo\n' +
         "export fun forged(): Geo.Crate = Geo.make()\n"],
       ["/main.hex",
-        'import Mid from "./mid"\n' +
+        "module Main\n\n" + 'import Mid\n' +
         "export fun size(): Float =\n" +
         "    let {n} = Mid.forged()\n" +
         "    n\n"],
@@ -891,7 +887,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
     // spelling to send the reader to and sends them to it.
     expect(compileFiles([
       ["/geo.hex",
-        "opaque record Crate = {n: Float}\n" +
+        "module Geo\n\n" + "opaque record Crate = {n: Float}\n" +
         "export fun size(c: Crate): Float =\n" +
         "    let {n} = c\n" +
         "    n\n"],
@@ -903,10 +899,10 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
   test("a `match` arm outside the home module is intercepted too", () => {
     expect(compileFiles([
       ["/geo.hex",
-        "opaque record Crate = {n: Float}\n" +
+        "module Geo\n\n" + "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
         "    match c\n" +
         "        {n} => n\n"],
@@ -916,8 +912,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
   });
 
   test("a structural record scrutinee is untouched by the redirect", () => {
-    expect(projectDiagnostics(
-      "export fun size(c: {n: Float}): Float =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun size(c: {n: Float}): Float =\n" +
       "    let {n} = c\n" +
       "    n\n",
     )).toEqual([]);
@@ -957,18 +952,18 @@ describe("outside the home module the name carries it, and only the name", () =>
     // alias is spelled `Crate`, the module exports a same-spelled constructor,
     // and term position has nothing of its own to answer with.
     expect(compileFiles([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
         "    let Crate({n}) = c\n" +
         "    n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([]);
 
     const exports = await runProject([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
         "    match c\n" +
         "        Crate({n}) => n\n" +
@@ -979,18 +974,18 @@ describe("outside the home module the name carries it, and only the name", () =>
 
   test("a module alias qualifies it, exactly as it qualifies a union's (§3.3)", async () => {
     expect(compileFiles([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Geo from "./geo"\n' +
+        "module Main\n\n" + 'import Geo\n' +
         "export fun size(c: Geo.Crate): Float =\n" +
         "    let Geo.Crate({n}) = c\n" +
         "    n\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([]);
 
     const exports = await runProject([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Geo from "./geo"\n' +
+        "module Main\n\n" + 'import Geo\n' +
         "export fun size(c: Geo.Crate): Float =\n" +
         "    match c\n" +
         "        Geo.Crate({n}) => n\n" +
@@ -1006,9 +1001,9 @@ describe("outside the home module the name carries it, and only the name", () =>
     // regardless, so this seat cannot tell the two mechanisms apart on its own;
     // `qualified-constructor-patterns.test.ts` §303 pins the mechanism itself.
     expect(compileFiles([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(): Float =\n" +
         "    let Crate({n}) = Crate.make()\n" +
         "    n\n"],
@@ -1024,9 +1019,9 @@ describe("outside the home module the name carries it, and only the name", () =>
     // spelled `Geo`, not `Crate`, so rule 3 never fires either) and the seat
     // that would open the door.
     expect(compileFiles([
-      ["/geo.hex", GEO],
+      ["/geo.hex", "module Geo\n\n" + GEO],
       ["/main.hex",
-        'import Geo from "./geo"\n' +
+        "module Main\n\n" + 'import Geo\n' +
         "let size = Crate({n}) => n\n" +
         "export let v: Float = size(Geo.make())\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
@@ -1051,10 +1046,10 @@ describe("outside the home module the name carries it, and only the name", () =>
     // checker.ts:6492) never runs for the door-resolved case.
     expect(compileFiles([
       ["/geo.hex",
-        "opaque record Crate = {n: Float}\n" +
+        "module Geo\n\n" + "opaque record Crate = {n: Float}\n" +
         "export fun make(): Crate = Crate({n = 1.0})\n"],
       ["/main.hex",
-        'import Crate from "./geo"\n' +
+        "module Main\n\n" + 'import Geo as Crate\n' +
         "export fun size(c: Crate): Float =\n" +
         "    let Crate({n}) = c\n" +
         "    n\n"],
@@ -1108,9 +1103,9 @@ describe("emission erases the wrapper, because there is none (Products §5.4)", 
 
   test("the qualified spelling emits the same erased read", () => {
     expect(emitted([
-      ["/geo.hex", CRATE],
+      ["/geo.hex", "module Geo\n\n" + CRATE],
       ["/main.hex",
-        'import Geo from "./geo"\n' +
+        "module Main\n\n" + 'import Geo\n' +
         "export fun size(c: Geo.Crate): Float =\n" +
         "    let Geo.Crate({n}) = c\n" +
         "    n\n"],

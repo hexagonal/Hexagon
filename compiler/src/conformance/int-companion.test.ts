@@ -26,14 +26,14 @@ import { compileFiles, compileMain, projectDiagnostics, runMain, runProject } fr
 
 /** `/main.hex`'s emitted JavaScript, which must have compiled cleanly. */
 function emitted(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
 /** `stdlib/Int.hex`'s emitted JavaScript, as the prelude compiled it. */
 function companion(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules
     .find(({ source: file }) => file.path.endsWith("/Int.hex"))!.javascript.text;
@@ -56,7 +56,7 @@ function threw(run: () => unknown): unknown {
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Bool = equalz(1, 1)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Bool = equalz(1, 1)\n"))
       .toEqual(["unknown name `equalz`"]);
   });
 });
@@ -410,7 +410,7 @@ describe("the wired rows are gone, not dormant", () => {
 
     expect(text).not.toContain("__int");
     expect(text).not.toContain("__checkedPower");
-    expect(text).toContain('from "./Int.js"');
+    expect(text).toContain('from "./Hex/Int.js"');
   });
 
   /**
@@ -428,7 +428,7 @@ describe("the wired rows are gone, not dormant", () => {
 
     expect(text).not.toContain("__floatMod");
     expect(text).not.toContain("__floatRem");
-    expect(text).toContain('from "./Float.js"');
+    expect(text).toContain('from "./Hex/Float.js"');
   });
 
   /**
@@ -437,7 +437,7 @@ describe("the wired rows are gone, not dormant", () => {
    * the curated sentence that says *why* travels with it.
    */
   test("`Int.lcm` misses with its curated hint, not a bare does-not-export", () => {
-    expect(projectDiagnostics("export let m: Int = Int.lcm(4, 6)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let m: Int = Int.lcm(4, 6)\n")).toEqual([
       "`Int` has no `lcm` — its results overflow `Int`'s safe range for ordinary " +
         "inputs; use `BigInt.lcm`",
     ]);
@@ -571,7 +571,7 @@ describe("Numeric Literals §4's defaulting follows the instances home", () => {
   test("a user constraint still blocks defaulting, naming itself", () => {
     expect(diagnostics([
       ["/main.hex",
-        "constraint Conjure<a> =\n" +
+        "module Main\n\n" + "constraint Conjure<a> =\n" +
         "    summon(value: a): a\n" +
         "honor Conjure<Int> =\n" +
         "    summon(value) = value\n" +
@@ -592,8 +592,7 @@ describe("`fromInt` gained a second exporter", () => {
    * makes: the bare spelling was never going to resolve either way.
    */
   test("the bare spelling is refused, naming both homes", () => {
-    expect(projectDiagnostics(
-      "export let widen<a: Signed>(value: Int): a = fromInt(value)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let widen<a: Signed>(value: Int): a = fromInt(value)\n",
     )).toContain(
       "no bare `fromInt`; write `Signed.fromInt(value)` or `Nat.fromInt(value)`",
     );
@@ -608,9 +607,9 @@ describe("`fromInt` gained a second exporter", () => {
    */
   test("a module exporting its own `fromInt` still works", async () => {
     const exports = await runProject([
-      ["/ids.hex", "export let fromInt(value: Int): String = \"id-${value}\"\n"],
+      ["/ids.hex", "module Ids\n\n" + "export let fromInt(value: Int): String = \"id-${value}\"\n"],
       ["/main.hex",
-        'import Ids from "./ids"\n' +
+        "module Main\n\n" + 'import Ids\n' +
         "let fromInt = Ids.fromInt\n" +
         "export let label: String = fromInt(7)\n"],
     ]);
@@ -659,7 +658,7 @@ describe("Collections Part 2 §2.5's `Hash` row, now hand-written source", () =>
    */
   test("a hand-written `honor Hash<Int>` in user source is still refused", () => {
     expect(diagnostics([
-      ["/main.hex", "honor Hash<Int> =\n    hash(value) = value * 31\n"],
+      ["/main.hex", "module Main\n\n" + "honor Hash<Int> =\n    hash(value) = value * 31\n"],
     ])).toContain(
       "`Hash` instances must be derived, and this subject has no declaration " +
         "that could carry a `derives` clause",
@@ -682,7 +681,7 @@ describe("the widenings still cross where §5.1 says they do", () => {
       "export let narrowed: Int = counted(9)",
       "",
     ].join("\n");
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
     const text = emitted(source);
 
     expect(exports["bigger"]).toBe(6n);

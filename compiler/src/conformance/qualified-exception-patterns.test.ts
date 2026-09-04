@@ -40,8 +40,7 @@ import {
 
 describe("a prelude module's own name qualifies its exceptions in catch arms", () => {
   test("`Vector.IndexError(i, s)` catches and binds both payload slots", async () => {
-    const exports = await runMain(
-      "export fun guarded(v: Vector(Int)): Int =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun guarded(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
@@ -56,8 +55,7 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
   test("`Map.KeyError` catches the bracket's throw, nullary", async () => {
     // The one nullary prelude exception a program can provoke without help:
     // §4.1's bracket asserts presence and raises `KeyError` on absence.
-    const exports = await runMain(
-      "let m: Map(Int, String) = Map.fromVector([(1, \"one\")])\n" +
+    const exports = await runMain("module Main\n\n" + "let m: Map(Int, String) = Map.fromVector([(1, \"one\")])\n" +
       "export fun lookup(key: Int): String =\n" +
       "    try\n" +
       "        m[key]\n" +
@@ -74,8 +72,7 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
     // §5.5 puts a prelude module's exports in bare scope, so this is the same
     // constructor by the other name — the half that has to keep working, and
     // the reason the widened table is not a qualified-only door.
-    const exports = await runMain(
-      "export fun guarded(v: Vector(Int)): Int =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun guarded(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
@@ -105,8 +102,7 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
     ];
     for (const [home, arm] of arms) {
       for (const spelling of [arm, `${home}.${arm}`]) {
-        expect(projectDiagnostics(
-          "export fun f(n: Int): Int =\n" +
+        expect(projectDiagnostics("module Main\n\n" + "export fun f(n: Int): Int =\n" +
           "    try\n" +
           "        n\n" +
           "    catch\n" +
@@ -131,10 +127,10 @@ describe("a module alias qualifies an imported exception", () => {
   // time. That looks like a real emission gap, out of scope for a test-file
   // sweep; avoided here rather than pinned.
   const project = (arm: string): readonly (readonly [string, string])[] => [
-    ["/lib.hex", "export exception Boom(code: Int)\n"],
+    ["/lib.hex", "module Lib\n\n" + "export exception Boom(code: Int)\n"],
     ["/main.hex",
-      "import Lib from \"./lib\"\n" +
-      "import Boom from \"./lib\"\n" +
+      "module Main\n\n" + "import Lib\n" +
+      "import Lib as Boom\n" +
       "export fun f(): Int =\n" +
       "    try\n" +
       "        throw(Lib.Boom(3))\n" +
@@ -154,9 +150,9 @@ describe("a module alias qualifies an imported exception", () => {
     // `import Lib` binds no bare `Boom`, so this is the qualified form
     // carrying the whole reference, throw side and catch side both.
     const files = [
-      ["/lib.hex", "export exception Boom(code: Int)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
         "        throw(Lib.Boom(5))\n" +
@@ -179,9 +175,9 @@ describe("a module alias qualifies an imported exception", () => {
     // importer chose is nowhere in the emitted text, and neither is the
     // importer's own identity.
     const javascript = compileFiles([
-      ["/lib.hex", "export exception Boom(code: Int)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun f(g: (() ->? Int)): Int =\n" +
         "    try\n" +
         "        g?()\n" +
@@ -201,8 +197,7 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
     // declaration, occluding `Vector`'s (Modules §5.4); before #469 the
     // prelude's had no spelling left in a catch arm at all, and the only way
     // out was a catch-all arm and a rethrow.
-    const exports = await runMain(
-      "export exception IndexError(code: Int)\n" +
+    const exports = await runMain("module Main\n\n" + "export exception IndexError(code: Int)\n" +
       "export fun theirs(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
@@ -221,8 +216,7 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
   });
 
   test("an occluded nullary prelude exception is catchable qualified", async () => {
-    const exports = await runMain(
-      "export exception KeyError(reason: String)\n" +
+    const exports = await runMain("module Main\n\n" + "export exception KeyError(reason: String)\n" +
       "let m: Map(Int, String) = Map.fromVector([(1, \"one\")])\n" +
       "export fun lookup(key: Int): String =\n" +
       "    try\n" +
@@ -253,11 +247,11 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
    */
   test("two exceptions of one declared name are two representations", async () => {
     const files = [
-      ["/a.hex", "export exception Boom(code: Int)\nexport fun raise(): Int = throw(Boom(1))\n"],
-      ["/b.hex", "export exception Boom(tag: String)\n"],
+      ["/a.hex", "module A\n\n" + "export exception Boom(code: Int)\nexport fun raise(): Int = throw(Boom(1))\n"],
+      ["/b.hex", "module B\n\n" + "export exception Boom(tag: String)\n"],
       ["/main.hex",
-        "import A from \"./a\"\n" +
-        "import B from \"./b\"\n" +
+        "module Main\n\n" + "import A\n" +
+        "import B\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
         "        A.raise()\n" +
@@ -279,11 +273,11 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
     // implicit rethrow carries the exception out of the `try` intact — payload
     // and all, which is what a `tag` bound `undefined` used to destroy.
     const files = [
-      ["/a.hex", "export exception Boom(code: Int)\nexport fun raise(): Int = throw(Boom(7))\n"],
-      ["/b.hex", "export exception Boom(tag: String)\n"],
+      ["/a.hex", "module A\n\n" + "export exception Boom(code: Int)\nexport fun raise(): Int = throw(Boom(7))\n"],
+      ["/b.hex", "module B\n\n" + "export exception Boom(tag: String)\n"],
       ["/main.hex",
-        "import A from \"./a\"\n" +
-        "import B from \"./b\"\n" +
+        "module Main\n\n" + "import A\n" +
+        "import B\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
         "        A.raise()\n" +
@@ -301,8 +295,7 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
 
 describe("reachability reads the constructor, not the spelling (§5.3)", () => {
   test("a qualified arm after the bare one for the same declaration is refused", () => {
-    expect(projectDiagnostics(
-      "export fun f(v: Vector(Int)): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
@@ -312,8 +305,7 @@ describe("reachability reads the constructor, not the spelling (§5.3)", () => {
   });
 
   test("and so is the bare arm after the qualified one", () => {
-    expect(projectDiagnostics(
-      "export fun f(v: Vector(Int)): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
@@ -326,8 +318,7 @@ describe("reachability reads the constructor, not the spelling (§5.3)", () => {
     // The other side of the same rule, and the reason it cannot be spelling
     // arithmetic: `IndexError` and `Vector.IndexError` are one constructor in
     // the test above and two here, purely by what each name resolves to.
-    expect(projectDiagnostics(
-      "export exception IndexError(code: Int)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export exception IndexError(code: Int)\n" +
       "export fun f(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
@@ -344,10 +335,10 @@ describe("reachability reads the constructor, not the spelling (§5.3)", () => {
     // already caught exactly as it was when a named import supplied the bare
     // spelling.
     expect(compileFiles([
-      ["/lib.hex", "export exception Boom(code: Int)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
-        "import Boom from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
+        "import Lib as Boom\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
         "        throw(Lib.Boom(3))\n" +
@@ -368,15 +359,13 @@ describe("reachability reads the constructor, not the spelling (§5.3)", () => {
 describe("what a qualified exception pattern refuses", () => {
   test("arity is reported as it is for the bare form, naming the constructor", () => {
     const message = "exception pattern `IndexError` expects 2 arguments, got 1";
-    expect(projectDiagnostics(
-      "export fun f(v: Vector(Int)): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
       "        Vector.IndexError(index) => 0\n",
     )).toEqual([message]);
-    expect(projectDiagnostics(
-      "export fun f(v: Vector(Int)): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(v: Vector(Int)): Int =\n" +
       "    try\n" +
       "        v.at(9)\n" +
       "    catch\n" +
@@ -387,8 +376,7 @@ describe("what a qualified exception pattern refuses", () => {
   test("a constructor that is not an exception's is still refused, either spelling", () => {
     // The table grew to every exception in scope, not to every constructor:
     // `Ordering`'s are union constructors and a catch arm has never taken one.
-    expect(projectDiagnostics(
-      "export fun f(n: Int): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(n: Int): Int =\n" +
       "    try\n" +
       "        n\n" +
       "    catch\n" +
@@ -401,16 +389,14 @@ describe("what a qualified exception pattern refuses", () => {
     // visible module alias to offer a qualified rewrite (`Ordering` is a
     // prelude module, never a user import), the plain unknown-constructor
     // report is what is left.
-    expect(projectDiagnostics(
-      "export fun f(n: Int): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(n: Int): Int =\n" +
       "    try\n" +
       "        n\n" +
       "    catch\n" +
       "        Less => 0\n",
     )).toEqual(["unknown constructor `Less`"]);
     // And an *open* union's constructor still reaches the arm-shape refusal.
-    expect(projectDiagnostics(
-      "export fun f(n: Int): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(n: Int): Int =\n" +
       "    try\n" +
       "        n\n" +
       "    catch\n" +
@@ -420,9 +406,9 @@ describe("what a qualified exception pattern refuses", () => {
 
   test("an unknown qualifier and an unexported name read as they do in a match", () => {
     expect(compileFiles([
-      ["/lib.hex", "export exception Boom(code: Int)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun f(n: Int): Int =\n" +
         "    try\n" +
         "        n\n" +
@@ -432,9 +418,9 @@ describe("what a qualified exception pattern refuses", () => {
     ]).diagnostics.map(({ message }) => message)).toContain("unknown module alias `Nope`");
 
     expect(compileFiles([
-      ["/lib.hex", "export exception Boom(code: Int)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun f(n: Int): Int =\n" +
         "    try\n" +
         "        n\n" +
@@ -451,9 +437,9 @@ describe("what a qualified exception pattern refuses", () => {
     // resolution. An unexported `exception` crosses no module boundary, so
     // neither spelling finds it.
     const messages = compileFiles([
-      ["/lib.hex", "exception Hidden(code: Int)\nexport let seed: Int = 1\n"],
+      ["/lib.hex", "module Lib\n\n" + "exception Hidden(code: Int)\nexport let seed: Int = 1\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun f(n: Int): Int =\n" +
         "    try\n" +
         "        n\n" +
@@ -471,9 +457,9 @@ describe("the widened table costs the rest of the module nothing", () => {
     // Exceptions §1's one door: `match` is not it, and the sentence that says
     // so is untouched by the table's width.
     expect(compileFiles([
-      ["/lib.hex", "export exception Boom(code: Int)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import { Boom } from \"./lib\"\n" +
+        "module Main\n\n" + "import { Boom } from \"./lib\"\n" +
         "export fun f(e: Exn): Int =\n" +
         "    match e\n" +
         "        Boom(c) => c\n"],
@@ -485,8 +471,7 @@ describe("the widened table costs the rest of the module nothing", () => {
   test("a program that never catches emits nothing for the visible declarations", () => {
     // `visibleExceptions` is a candidate set the checker and emission read, and
     // never an obligation: no import line, no declaration, no runtime value.
-    const javascript = compileMain(
-      "export let doubled: Int = 21 * 2\n",
+    const javascript = compileMain("module Main\n\n" + "export let doubled: Int = 21 * 2\n",
     ).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
     expect(javascript).not.toContain("IndexError");

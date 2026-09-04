@@ -26,14 +26,14 @@ import { compileFiles, compileMain, projectDiagnostics, runMain } from "../suppo
 
 /** `/main.hex`'s emitted JavaScript, which must have compiled cleanly. */
 function emitted(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
 /** `stdlib/Nat.hex`'s emitted JavaScript, as the prelude compiled it. */
 function companion(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules
     .find(({ source: file }) => file.path.endsWith("/Nat.hex"))!.javascript.text;
@@ -56,7 +56,7 @@ function threw(run: () => unknown): unknown {
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Nat = countt(1)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Nat = countt(1)\n"))
       .toEqual(["unknown name `countt`"]);
   });
 });
@@ -204,7 +204,7 @@ describe("`Pow<Nat>` carries the guard the `Int` exponent made reachable (#541)"
       "export let big: Nat = 3 ** 5",
       "",
     ].join("\n");
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
     const text = emitted(source);
 
     expect(exports["eight"]).toBe(8);
@@ -256,7 +256,7 @@ describe("`Nat` honors no `Signed`", () => {
    */
   test("subtraction and negation at `Nat` are refused", () => {
     expect(diagnostics([
-      ["/main.hex", "export let gap(a: Nat, b: Nat): Nat = a - b\n"],
+      ["/main.hex", "module Main\n\n" + "export let gap(a: Nat, b: Nat): Nat = a - b\n"],
     ])).toContain(
       "type `Nat` has no `Signed` instance; its only legal homes are the module declaring " +
         "`Signed` and `Nat`'s prelude companion module, both outside project source, so " +
@@ -265,7 +265,7 @@ describe("`Nat` honors no `Signed`", () => {
         "result (`let difference: Int = …`)",
     );
     expect(diagnostics([
-      ["/main.hex", "export let flipped(a: Nat): Nat = -a\n"],
+      ["/main.hex", "module Main\n\n" + "export let flipped(a: Nat): Nat = -a\n"],
     ])).toContain(
       "type `Nat` has no `Signed` instance; its only legal homes are the module declaring " +
         "`Signed` and `Nat`'s prelude companion module, both outside project source, so " +
@@ -377,7 +377,7 @@ describe("`Nat` widens, and its literals erase", () => {
       "export let asBig: BigInt = toBig(8)",
       "",
     ].join("\n");
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
     const text = emitted(source);
 
     expect(exports["asInt"]).toBe(8);
@@ -418,7 +418,7 @@ describe("the wired `Nat` row is gone, not dormant", () => {
     expect(text).not.toContain("__int");
     expect(text).not.toContain("__nat");
     expect(text).not.toContain("__checkedPower");
-    expect(text).toContain('from "./Nat.js"');
+    expect(text).toContain('from "./Hex/Nat.js"');
   });
 
   /**
@@ -455,7 +455,7 @@ describe("the wired `Nat` row is gone, not dormant", () => {
    */
   test("a hand-written `honor Hash<Nat>` in user source is still refused", () => {
     expect(diagnostics([
-      ["/main.hex", "honor Hash<Nat> =\n    hash(value) = value * 31\n"],
+      ["/main.hex", "module Main\n\n" + "honor Hash<Nat> =\n    hash(value) = value * 31\n"],
     ])).toContain(
       "`Hash` instances must be derived, and this subject has no declaration " +
         "that could carry a `derives` clause",

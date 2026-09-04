@@ -24,7 +24,7 @@ import { compileProject, Source } from "../index";
  */
 
 function diagnostics(source: string): readonly string[] {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
   return project.diagnostics.map((diagnostic) => diagnostic.message);
 }
 

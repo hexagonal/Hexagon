@@ -36,7 +36,7 @@ import { compileFiles, compileMain, runMain, runProject } from "../support/test-
 
 /** One module's emitted JavaScript, with the project's diagnostics asserted empty. */
 function javascript(source: string, path = "/main.hex"): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === path)!.javascript.text;
 }
@@ -69,7 +69,7 @@ describe("the issue specimen: a container agrees with its field's own instance",
       "export record Leg derives (Eq, Ord) = {distance: Metres}\n" +
       "export let legLt: Bool = Leg({distance = Metres({span = 1})}) < Leg({distance = Metres({span = 2})})\n" +
       "export let metresLt: Bool = Metres({span = 1}) < Metres({span = 2})\n";
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
 
     // The filed acceptance: the two answers agree. Both are `false`, because
     // the honor reverses; a structural re-derivation answered `true` for the
@@ -96,8 +96,7 @@ describe("the issue specimen: a container agrees with its field's own instance",
 
 describe("record fields", () => {
   test("`Eq`: a perverse hand-written `equals` decides the container", async () => {
-    const module = await runMain(
-      "export record Odd = {n: Int}\n" +
+    const module = await runMain("module Main\n\n" + "export record Odd = {n: Int}\n" +
         "honor Eq<Odd> =\n" +
         "    equals(left, right) = False\n" +
         "export record Holder derives Eq = {part: Odd}\n" +
@@ -117,8 +116,7 @@ describe("record fields", () => {
   });
 
   test("`Show`: the container shows its field through the field's `show`", async () => {
-    const module = await runMain(
-      "export record Loud = {n: Int}\n" +
+    const module = await runMain("module Main\n\n" + "export record Loud = {n: Int}\n" +
         "honor Show<Loud> =\n" +
         "    show(value) = \"LOUD\"\n" +
         "export record Quiet derives Show = {part: Loud}\n" +
@@ -132,8 +130,7 @@ describe("record fields", () => {
   });
 
   test("`Ord`: the field's order decides, and equality still falls through to the next field", async () => {
-    const module = await runMain(
-      "export record Backwards derives Eq = {rank: Int}\n" +
+    const module = await runMain("module Main\n\n" + "export record Backwards derives Eq = {rank: Int}\n" +
         "honor Ord<Backwards> =\n" +
         "    compare(left, right) = if left.rank < right.rank then Ordering.Greater else if right.rank < left.rank then Ordering.Less else Ordering.Equal\n" +
         "export record Pair derives (Eq, Ord) = {first: Backwards, second: Int}\n" +
@@ -153,8 +150,7 @@ describe("record fields", () => {
 
 describe("union payload slots", () => {
   test("`Eq`, `Ord` and `Show` all reach the slot type's instance", async () => {
-    const module = await runMain(
-      "export record Payload = {n: Int}\n" +
+    const module = await runMain("module Main\n\n" + "export record Payload = {n: Int}\n" +
         "honor Eq<Payload> =\n" +
         "    equals(left, right) = False\n" +
         "honor Ord<Payload> =\n" +
@@ -183,8 +179,7 @@ describe("union payload slots", () => {
 
 describe("direct structural use sites run the same walk", () => {
   test("`[m1] == [m2]` and `(m1, 2) == (m2, 2)` consult the element's `Eq`", async () => {
-    const module = await runMain(
-      "export record Never = {n: Int}\n" +
+    const module = await runMain("module Main\n\n" + "export record Never = {n: Int}\n" +
         "honor Eq<Never> =\n" +
         "    equals(left, right) = False\n" +
         "export let inVector: Bool = [Never({n = 1})] == [Never({n = 1})]\n" +
@@ -204,8 +199,7 @@ describe("direct structural use sites run the same walk", () => {
   });
 
   test("a structural `Ord` and `Show` dispatch their components too", async () => {
-    const module = await runMain(
-      "export record Flip derives Eq = {rank: Int}\n" +
+    const module = await runMain("module Main\n\n" + "export record Flip derives Eq = {rank: Int}\n" +
         "honor Ord<Flip> =\n" +
         "    compare(left, right) = if left.rank < right.rank then Ordering.Greater else if right.rank < left.rank then Ordering.Less else Ordering.Equal\n" +
         "honor Show<Flip> =\n" +
@@ -223,8 +217,7 @@ describe("direct structural use sites run the same walk", () => {
   });
 
   test("nested structural components recurse, carrying their own selection", async () => {
-    const module = await runMain(
-      "export record Deep = {n: Int}\n" +
+    const module = await runMain("module Main\n\n" + "export record Deep = {n: Int}\n" +
         "honor Eq<Deep> =\n" +
         "    equals(left, right) = False\n" +
         "honor Show<Deep> =\n" +
@@ -240,8 +233,7 @@ describe("direct structural use sites run the same walk", () => {
   });
 
   test("a `Map`'s values are compared and shown by their own instance", async () => {
-    const module = await runMain(
-      "export record Val = {n: Int}\n" +
+    const module = await runMain("module Main\n\n" + "export record Val = {n: Int}\n" +
         "honor Eq<Val> =\n" +
         "    equals(left, right) = False\n" +
         "honor Show<Val> =\n" +
@@ -267,14 +259,14 @@ describe("across module boundaries and through `opaque`", () => {
     "    show(value) = \"LOUD\"\n";
 
   const container =
-    "import Metre from \"./metre\"\n" +
+    "import Metre\n" +
     "export record Journey derives (Eq, Ord, Show) = {leg: Metre.Metre}\n" +
     "export let shortFirst: Bool = Journey({leg = Metre.metre(1)}) < Journey({leg = Metre.metre(2)})\n" +
     "export let longFirst: Bool = Journey({leg = Metre.metre(2)}) < Journey({leg = Metre.metre(1)})\n" +
     "export let shown: String = \"${Journey({leg = Metre.metre(1)})}\"\n";
 
   test("the imported instance answers, and the representation is never touched", async () => {
-    const module = await runProject([["/metre.hex", component], ["/main.hex", container]]);
+    const module = await runProject([["/metre.hex", "module Metre\n\n" + component], ["/main.hex", "module Main\n\n" + container]]);
 
     expect(module.shortFirst).toBe(false);
     expect(module.longFirst).toBe(true);
@@ -283,7 +275,7 @@ describe("across module boundaries and through `opaque`", () => {
 
   test("emission names the imported dictionary rather than the opaque representation", () => {
     const emitted = javascriptOf(
-      [["/metre.hex", component], ["/main.hex", container]],
+      [["/metre.hex", "module Metre\n\n" + component], ["/main.hex", "module Main\n\n" + container]],
       "/main.hex",
     );
 
@@ -308,7 +300,7 @@ describe("the shape of a composed dictionary", () => {
       "export record Crate derives (Eq, Ord) = {boxed: Box(Span)}\n" +
       "export let crateLt: Bool = Crate({boxed = Box({item = Span({units = 1})})}) < Crate({boxed = Box({item = Span({units = 2})})})\n";
     const emitted = javascript(source);
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
 
     // The factory, applied — not re-derived, and not passed unapplied. Since
     // #449 the application is a hoisted module-level binding (Dictionary
@@ -323,8 +315,7 @@ describe("the shape of a composed dictionary", () => {
   });
 
   test("the container's exported dictionary is composed with the component's", async () => {
-    const module = await runMain(
-      "export record Weight derives Eq = {grams: Int}\n" +
+    const module = await runMain("module Main\n\n" + "export record Weight derives Eq = {grams: Int}\n" +
         "honor Ord<Weight> =\n" +
         "    compare(left, right) = if left.grams < right.grams then Ordering.Greater else if right.grams < left.grams then Ordering.Less else Ordering.Equal\n" +
         "export record Parcel derives (Eq, Ord) = {mass: Weight}\n",
@@ -400,7 +391,7 @@ describe("recursive subjects", () => {
       "export let leafBeforeBranch: Bool = leaf < branch\n" +
       "export let shownBranch: String = \"${branch}\"\n";
     const emitted = javascript(source);
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
 
     // Legal at module level: the reference is inside a function body, so it is
     // resolved at call time, not at initialization.
@@ -411,8 +402,7 @@ describe("recursive subjects", () => {
   });
 
   test("a recursive parameterized union derives and runs", async () => {
-    const module = await runMain(
-      "union Tree(a) derives (Eq, Ord, Show) = Leaf | Branch(left: Tree(a), item: a, right: Tree(a))\n" +
+    const module = await runMain("module Main\n\n" + "union Tree(a) derives (Eq, Ord, Show) = Leaf | Branch(left: Tree(a), item: a, right: Tree(a))\n" +
         "let one: Tree(Int) = Branch(Leaf, 1, Leaf)\n" +
         "let two: Tree(Int) = Branch(Leaf, 2, Leaf)\n" +
         "export let same: Bool = one == one\n" +
@@ -471,8 +461,7 @@ describe("the licensed shortcuts stay inline", () => {
 
 describe("`Hash` keeps its structural walk, and the law with it", () => {
   test("equal container values hash equal, so a set collapses them", async () => {
-    const module = await runMain(
-      "export record Cell derives (Eq, Hash) = {value: Int}\n" +
+    const module = await runMain("module Main\n\n" + "export record Cell derives (Eq, Hash) = {value: Int}\n" +
         "export record Row derives (Eq, Hash) = {cell: Cell, tag: String}\n" +
         "let first = Row({cell = Cell({value = 1}), tag = \"a\"})\n" +
         "let second = Row({cell = Cell({value = 1}), tag = \"a\"})\n" +

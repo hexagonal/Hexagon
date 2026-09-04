@@ -263,7 +263,7 @@ function spelledWords(source: string): ReadonlySet<string> {
  * to report, against the same text.
  *
  * Keyed on the alias rather than on the module it names, because the collision
- * is over the bound name: `import Rat from "./Helper"` claims `Rat` just
+ * is over the bound name: `import Helper as Rat` claims `Rat` just
  * as firmly, and the prefix has to stay out of its way. And it reads
  * `/main.hex`'s masked text where `spelledWords` reads the whole buffer, which
  * is the same fact told twice: a block's own file never carries the prefix, so
@@ -283,7 +283,7 @@ function aliasedModules(mainText: string): ReadonlySet<string> {
     // uppercase-start mandatorily — a lowercase one is the parser's error to
     // report and binds no companion's name whatever it does with it. The
     // Playground's own `module X` header is no near miss here: it is rewritten
-    // to a synthesized `import X from "./X"` line before this scan runs and is
+    // to a synthesized `import X` line before this scan runs and is
     // masked out of the text everywhere else.
     const alias = tokens[index + 1];
     if (alias?.kind === "UpperName") aliases.add(alias.text);

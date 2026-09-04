@@ -46,8 +46,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
    * exact inverse of what §3.5 says.
    */
   test("`Map.empty` is a value, and generalizes", async () => {
-    const main = await runMain(
-      "let e = Map.empty\n" +
+    const main = await runMain("module Main\n\n" + "let e = Map.empty\n" +
         "let byInt: Map(Int, String) = Map.set(e, 1, \"one\")\n" +
         "let byText: Map(String, Int) = Map.set(e, \"one\", 1)\n" +
         "export let counted: (Int, Int, Int) = (Map.size(e), Map.size(byInt), Map.size(byText))\n",
@@ -63,7 +62,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
     // with every unrelated change to the prelude. No arrow appears: the report's
     // subject is that there is no function here, so a demanded arrow's colour
     // would be a claim about a call that does not exist.
-    const messages = projectDiagnostics("export let e: Map(Int, Int) = Map.empty()\n");
+    const messages = projectDiagnostics("module Main\n\n" + "export let e: Map(Int, Int) = Map.empty()\n");
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("`empty` is not a function — it has type `Map(");
     expect(messages[0]).toContain("and this call supplies no arguments");
@@ -77,8 +76,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
    * map, because the entry is held unplaced until a keyed operation arrives.
    */
   test("`Map.singleton` takes a key type with no `Hash` instance", async () => {
-    const main = await runMain(
-      "record Weird = {s: String}\n" +
+    const main = await runMain("module Main\n\n" + "record Weird = {s: String}\n" +
         "let odd: Map(Weird, Int) = Map.singleton(Weird({s = \"K\"}), 7)\n" +
         "export let counted: Int = Map.size(odd)\n" +
         "export let blank: Bool = Map.isEmpty(odd)\n" +
@@ -104,8 +102,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
    * §"`m[k]` where `k`'s type lacks `Hash`" row reading it at a real key.
    */
   test("a keyed operation at the same key type is refused, with the derivation repair", () => {
-    expect(projectDiagnostics(
-      "record Point = {s: String}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "record Point = {s: String}\n" +
         "export let bad: Map(Point, Int) = Map.set(Map.empty, Point({s = \"K\"}), 1)\n",
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
@@ -116,8 +113,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
 
   /** §3.2's `fromVector`, and §3.3's duplicate rule: the last value wins. */
   test("`fromVector` collects left to right, last value winning", async () => {
-    const main = await runMain(
-      "let m: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
+    const main = await runMain("module Main\n\n" + "let m: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
         "let duplicated: Map(Int, String) = " +
         "Map.fromEntries(Vector.toSeq([(1, \"old\"), (1, \"new\")]))\n" +
         "export let counted: (Int, Int) = (Map.size(m), Map.size(duplicated))\n" +
@@ -142,8 +138,7 @@ describe("§16 (c) the accessor pair", () => {
    * written, and every reader was pushed onto the throwing bracket.
    */
   test("the bracket retrieves, `get` answers, and `containsKey` asks", async () => {
-    const main = await runMain(
-      "let m: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
+    const main = await runMain("module Main\n\n" + "let m: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
         "export let present: String = m[1]\n" +
         "export let held: Bool = Map.containsKey(m, 2)\n" +
         "export let absent: Bool = Map.containsKey(m, 9)\n" +
@@ -174,8 +169,7 @@ describe("§16 (e) upsert, forgiving removal, and §7.3's correspondence", () =>
    * "equal" and is asserted as identity.
    */
   test("set inserts and replaces; remove is forgiving and idempotent", async () => {
-    const main = await runMain(
-      "let m: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
+    const main = await runMain("module Main\n\n" + "let m: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
         "export let inserted: Int = Map.size(Map.set(m, 3, \"three\"))\n" +
         "export let replaced: Int = Map.size(Map.set(m, 1, \"uno\"))\n" +
         "export let replacedValue: String = Map.set(m, 1, \"uno\")[1]\n" +
@@ -202,8 +196,7 @@ describe("§16 (e) upsert, forgiving removal, and §7.3's correspondence", () =>
    * asserted without naming an order, which is the only way §7.1 permits it.
    */
   test("keys, values, and entries correspond position for position", async () => {
-    const main = await runMain(
-      "let m: Map(Int, Int) = Map.fromVector([(1, 10), (2, 20), (3, 30), (4, 40)])\n" +
+    const main = await runMain("module Main\n\n" + "let m: Map(Int, Int) = Map.fromVector([(1, 10), (2, 20), (3, 30), (4, 40)])\n" +
         "let paired(pair: (Int, Int)): Bool =\n" +
         "    let (key, value) = pair\n" +
         "    value == key * 10\n" +
@@ -236,8 +229,7 @@ describe("§16 (e) upsert, forgiving removal, and §7.3's correspondence", () =>
 
   /** §7.2: the tuple-of-binders loop head, which is a pattern position. */
   test("`for (k, v) in m` iterates the pairs", async () => {
-    const main = await runMain(
-      "let m: Map(Int, Int) = Map.fromVector([(1, 10), (2, 20), (3, 30)])\n" +
+    const main = await runMain("module Main\n\n" + "let m: Map(Int, Int) = Map.fromVector([(1, 10), (2, 20), (3, 30)])\n" +
         "export fun run(ignored: Int): (Int, Int) =\n" +
         // `keySum`/`valueSum`, not `keys`/`values`: both are prelude names now,
         // and a `var` may not rebind one.
@@ -264,8 +256,7 @@ describe("§16 (i) the instances", () => {
    * so an order-sensitive fold would make `hash(m)` a per-process value.
    */
   test("Eq is extensional and Hash is permutation-invariant", async () => {
-    const main = await runMain(
-      "let left: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
+    const main = await runMain("module Main\n\n" + "let left: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
         "let right: Map(Int, String) = Map.fromVector([(2, \"two\"), (1, \"one\")])\n" +
         "let different: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"TWO\")])\n" +
         "let shorter: Map(Int, String) = Map.singleton(1, \"one\")\n" +
@@ -289,8 +280,7 @@ describe("§16 (i) the instances", () => {
    * this file's own (`vitest.setup.ts`), never the suite's.
    */
   test("Eq and Hash ignore insertion order, over generated orders", async () => {
-    const main = await runMain(
-      "let build(a: Int, b: Int, c: Int): Map(Int, Int) =\n" +
+    const main = await runMain("module Main\n\n" + "let build(a: Int, b: Int, c: Int): Map(Int, Int) =\n" +
         "    Map.fromVector([(a, a * 10), (b, b * 10), (c, c * 10)])\n" +
         "export fun agrees(a: Int, b: Int, c: Int): (Bool, Bool, Int) =\n" +
         "    let one = build(a, b, c)\n" +
@@ -321,8 +311,7 @@ describe("§16 (i) the instances", () => {
    * unsatisfied-constraint one — §9's row says no bespoke message is owed.
    */
   test("there is no `Ord` instance for `Map`", () => {
-    const messages = projectDiagnostics(
-      "let a: Map(Int, Int) = Map.singleton(1, 1)\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "let a: Map(Int, Int) = Map.singleton(1, 1)\n" +
         "let b: Map(Int, Int) = Map.singleton(2, 2)\n" +
         "export let ordered: Bool = a < b\n",
     );
@@ -332,8 +321,7 @@ describe("§16 (i) the instances", () => {
 
   /** §8.3: constructor-shaped display, `Map.empty` when empty. */
   test("Show renders the constructor form", async () => {
-    const main = await runMain(
-      "let blank: Map(Int, String) = Map.empty\n" +
+    const main = await runMain("module Main\n\n" + "let blank: Map(Int, String) = Map.empty\n" +
         "let one: Map(Int, String) = Map.singleton(1, \"one\")\n" +
         "let two: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
         "export let shownEmpty: String = show(blank)\n" +
@@ -356,8 +344,7 @@ describe("§16 (i) the instances", () => {
    * and `Eq<Map>` as *evidence* rather than as operators.
    */
   test("a map is usable as a set element and as a map key", async () => {
-    const main = await runMain(
-      "let one: Map(Int, Int) = Map.singleton(1, 1)\n" +
+    const main = await runMain("module Main\n\n" + "let one: Map(Int, Int) = Map.singleton(1, 1)\n" +
         "let alsoOne: Map(Int, Int) = Map.fromVector([(1, 1)])\n" +
         "let two: Map(Int, Int) = Map.singleton(2, 2)\n" +
         "let nested: Set(Map(Int, Int)) = Set.fromVector([one, alsoOne, two])\n" +
@@ -388,8 +375,7 @@ describe("§16 (j) representative retention (§5.4)", () => {
    * directly, keeps the stored one, and replaces the value — exactly §5.4.
    */
   test("an `equals`-equal newcomer does not replace the stored key", async () => {
-    const main = await runMain(
-      "let m0: Map(Float, String) = Map.singleton(-0.0, \"a\")\n" +
+    const main = await runMain("module Main\n\n" + "let m0: Map(Float, String) = Map.singleton(-0.0, \"a\")\n" +
         "let m1: Map(Float, String) = Map.set(m0, 0.0, \"b\")\n" +
         "export let counted: Int = Map.size(m1)\n" +
         "export let latest: String = m1[0.0]\n" +
@@ -415,8 +401,7 @@ describe("§16 (j) representative retention (§5.4)", () => {
    * already held.
    */
   test("±0 Float keys are one placed entry, and the first representative is kept", async () => {
-    const main = await runMain(
-      "let m0: Map(Float, String) = Map.set(Map.empty, -0.0, \"a\")\n" +
+    const main = await runMain("module Main\n\n" + "let m0: Map(Float, String) = Map.set(Map.empty, -0.0, \"a\")\n" +
         "let m1: Map(Float, String) = Map.set(m0, 0.0, \"b\")\n" +
         "export let equated: Bool = -0.0 == 0.0\n" +
         "export let counted: Int = Map.size(m1)\n" +
@@ -443,8 +428,7 @@ describe("the companion's surface", () => {
    * dropped the evidence suffix would call the same function one argument short.
    */
   test("dot call and qualified call agree, evidence included", async () => {
-    const main = await runMain(
-      "let m: Map(Int, String) = Map.fromVector([(1, \"one\")])\n" +
+    const main = await runMain("module Main\n\n" + "let m: Map(Int, String) = Map.fromVector([(1, \"one\")])\n" +
         "export let dotted: Int = Map.size(m.set(2, \"two\"))\n" +
         "export let qualified: Int = Map.size(Map.set(m, 2, \"two\"))\n" +
         "let describe(option: Option(String)): String =\n" +
@@ -471,13 +455,12 @@ describe("the companion's surface", () => {
    * on several names, and that is expected rather than a thing to rename around.
    */
   test("the bare collided names are refused, and the qualified ones answer", async () => {
-    expect(projectDiagnostics("export let e: Map(Int, Int) = empty\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let e: Map(Int, Int) = empty\n")).toEqual([
       // Four homes since #373 seated `Set.hex`, which exports `empty` too.
       "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, " +
       "or `Set.empty`",
     ]);
-    const main = await runMain(
-      "export let n: Int = Map.size(Map.singleton(1, 2))\n" +
+    const main = await runMain("module Main\n\n" + "export let n: Int = Map.size(Map.singleton(1, 2))\n" +
         "export let v: Int = Vector.length(Vector.singleton(1))\n",
     );
     expect(main["n"]).toBe(1);
@@ -493,7 +476,7 @@ describe("the companion's surface", () => {
   test("every export is documented", () => {
     const project = compileFiles([[
       "/main.hex",
-      "export let n: Int = Map.size(Map.singleton(1, 2))\n",
+      "module Main\n\n" + "export let n: Int = Map.size(Map.singleton(1, 2))\n",
     ]]);
     expect(project.diagnostics).toEqual([]);
     const map = project.modules.find(({ source }) => source.path === "/Map.hex");
@@ -549,7 +532,7 @@ describe("the companion's surface", () => {
   test("the `.d.ts` face carries the unconstrained surface only", () => {
     const project = compileFiles([[
       "/main.hex",
-      "export let n: Int = Map.size(Map.singleton(1, 2))\n",
+      "module Main\n\n" + "export let n: Int = Map.size(Map.singleton(1, 2))\n",
     ]]);
     expect(project.diagnostics).toEqual([]);
     const map = project.modules.find(({ source }) => source.path === "/Map.hex");
@@ -598,12 +581,12 @@ describe("the companion's surface", () => {
   test("`KeyError` is nameable with no import (throw shape pinned; imported nullary defect)", async () => {
     const project = compileFiles([[
       "/main.hex",
-      "export fun refuse(ignored: Int): Int = throw(KeyError)\n",
+      "module Main\n\n" + "export fun refuse(ignored: Int): Int = throw(KeyError)\n",
     ]]);
     expect(project.diagnostics).toEqual([]);
     const main = await runProject([[
       "/main.hex",
-      "export fun refuse(ignored: Int): Int = throw(KeyError)\n",
+      "module Main\n\n" + "export fun refuse(ignored: Int): Int = throw(KeyError)\n",
     ]]);
     let thrown: unknown;
     try {

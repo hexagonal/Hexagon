@@ -1,3 +1,5 @@
+module Ord
+
 (** The polymorphic face of ordering. Honoring `Ord` gives a type the `<`, `<=`,
     `>`, and `>=` operators.
 

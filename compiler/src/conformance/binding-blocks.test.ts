@@ -17,8 +17,8 @@ import { projectDiagnostics, runMain } from "../support/test-project.js";
  * well, since `Num<Int>` is `stdlib/Int.hex`'s `honor` block rather than a
  * compiler row.
  */
-const diagnostics = (source: string): readonly string[] => projectDiagnostics(source);
-const run = (source: string): Promise<Record<string, unknown>> => runMain(source);
+const diagnostics = (source: string): readonly string[] => projectDiagnostics("module Main\n\n" + source);
+const run = (source: string): Promise<Record<string, unknown>> => runMain("module Main\n\n" + source);
 
 // Proves this file's harness can observe a failure (see emission-shapes).
 test("the harness reports a broken module rather than passing it", async () => {

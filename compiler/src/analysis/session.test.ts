@@ -49,7 +49,7 @@ const HELPER = [
 ].join("\n");
 
 const MAIN = [
-  'import Helper from "./helper"',
+  'import Helper',
   "",
   "let start: Helper.Colour = Helper.Red",
   "let finish: Helper.Colour = Helper.brighten(start)",
@@ -63,7 +63,7 @@ describe("AnalysisSession", () => {
       "/other.hex": "let fine: Int = 1\n",
     });
     const all = session.allDiagnostics();
-    expect([...all.keys()].sort()).toEqual(["/main.hex", "/other.hex"]);
+    expect([...all.keys()].sort()).toEqual(["/main.hex", "module Main\n\n" + "/other.hex"]);
     expect(all.get("/main.hex")!.length).toBeGreaterThan(0);
     // An editor clears stale squiggles by being told a file has none, so the
     // clean file has to appear with an empty list rather than be absent.
@@ -73,7 +73,7 @@ describe("AnalysisSession", () => {
 
   test("a diagnostic lands in the file its span names", () => {
     const { session } = sessionOf({
-      "/main.hex": 'import Helper from "./helper"\nlet n: Int = Helper.missing\n',
+      "/main.hex": 'import Helper\nlet n: Int = Helper.missing\n',
       "/helper.hex": "export let present: Int = 1\n",
     });
     expect(session.diagnostics("/helper.hex")).toEqual([]);
@@ -417,7 +417,7 @@ describe("AnalysisSession", () => {
   test("a generated conversion is redirected abroad too", () => {
     const bindings = 'export extern enum Direction = "up" as Up | "down" as Down\n';
     const main = [
-      'import Bindings from "./bindings"',
+      'import Bindings',
       "let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)",
       "",
     ].join("\n");
@@ -466,7 +466,7 @@ describe("AnalysisSession", () => {
 
     session.setFile(
       "/main.hex",
-      'import Helper from "./helper"\n\nlet start: Helper.Colour = Purple\n',
+      'import Helper\n\nlet start: Helper.Colour = Purple\n',
     );
     expect(session.version).toBeGreaterThan(before);
     expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
@@ -563,8 +563,8 @@ describe("AnalysisSession", () => {
     const shade = ["export union Shade =", "    | Pale", "    | Deep", ""].join("\n");
     const other = ["export union Shade =", "    | Faint", "    | Vivid", ""].join("\n");
     const main = [
-      'import Shade from "./a"',
-      'import Other from "./b"',
+      'import A as Shade',
+      'import B as Other',
       "",
       "let p(x: Shade): Shade = x",
       "let q(y: Other.Shade): Other.Shade = y",
@@ -617,15 +617,15 @@ describe("AnalysisSession", () => {
   });
 
   test("reconfiguring with the same options keeps the analysis", () => {
-    const session = new AnalysisSession({ runtimePaths: ["/a.hex", "/b.hex"] });
+    const session = new AnalysisSession({ runtimePaths: ["/a.hex", "module A\n\n" + "/b.hex"] });
     session.setFile("/main.hex", "let value: Int = 1\n");
     const settled = session.version;
-    session.configure({ runtimePaths: ["/a.hex", "/b.hex"] });
+    session.configure({ runtimePaths: ["/a.hex", "module A\n\n" + "/b.hex"] });
     expect(session.version).toBe(settled);
     // Order is not meaningful — `compileProject` reads the list as a set — so a
     // host that rebuilds it in a different order must not discard analysis it is
     // about to ask questions of.
-    session.configure({ runtimePaths: ["/b.hex", "/a.hex"] });
+    session.configure({ runtimePaths: ["/b.hex", "module B\n\n" + "/a.hex"] });
     expect(session.version).toBe(settled);
   });
 
@@ -659,7 +659,7 @@ describe("AnalysisSession.hover documentation", () => {
   ].join("\n");
 
   const USES = [
-    'import Helper from "./helper"',
+    'import Helper',
     "",
     "let start: Helper.Colour = Helper.Red",
     "let finish: Helper.Colour = Helper.brighten(start)",
@@ -954,7 +954,7 @@ describe("AnalysisSession.rename", () => {
 
   test("a namespace-qualified use is rewritten past its qualifier", () => {
     const helper = "export let two: Int = 2\n";
-    const main = ['import H from "./helper"', "", "let four: Int = H.two + H.two", ""]
+    const main = ['import Helper as H', "", "let four: Int = H.two + H.two", ""]
       .join("\n");
     const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
     const plan = session.rename("/helper.hex", at(helper, "two"), "pair");
@@ -973,7 +973,7 @@ describe("AnalysisSession.rename", () => {
     // the constructor moves, the module alias does not.
     const shapes = "export union Shape =\n    | Circle\n    | Square\n";
     const main = [
-      'import Shapes from "./shapes"',
+      'import Shapes',
       "",
       "let name(s: Shapes.Shape): Int =",
       "    match s",
@@ -1079,10 +1079,10 @@ describe("AnalysisSession.rename", () => {
     // clients are the refusal tests below.
     const a = ["export union Shade =", "    | Pale", "", "export fun tag(s: Shade): Int = 1", ""]
       .join("\n");
-    const b = ['import A from "./a"', "", "export fun mark(s: A.Shade): Int = 2", ""].join("\n");
+    const b = ['import A', "", "export fun mark(s: A.Shade): Int = 2", ""].join("\n");
     const main = [
-      'import A from "./a"',
-      'import B from "./b"',
+      'import A',
+      'import B',
       "",
       "let m = B.mark",
       "let x: Int = A.Pale.tag()",
@@ -1115,7 +1115,7 @@ describe("AnalysisSession.rename", () => {
       "",
     ].join("\n");
     const main = [
-      'import H from "./helper"',
+      'import Helper as H',
       "let b = H.brighten",
       "",
       "let x: Int = H.Pale.brighten()",
@@ -1154,7 +1154,7 @@ describe("AnalysisSession.rename", () => {
       "",
     ].join("\n");
     const main = [
-      'import H from "./helper"',
+      'import Helper as H',
       "let b = H.brighten",
       "",
       "let x: Int = H.Pale.brighten()",
@@ -1220,7 +1220,7 @@ describe("AnalysisSession.rename", () => {
     // merged with anything.
     const helper = "export let two: Int = 2\n";
     const main = [
-      'import H from "./helper"',
+      'import Helper as H',
       "let deux: Int = H.two",
       "",
       "let four: Int = deux + deux",

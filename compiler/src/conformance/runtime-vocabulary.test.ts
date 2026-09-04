@@ -94,7 +94,7 @@ describe("class 1 — `record Error` and `record Object` beside a raise", () => 
     "export let raise(): Int = throw(Boom(3))\n";
 
   test("the raise reaches the real `Error`, and the helper says which spellings moved", () => {
-    const text = javascript([["/main.hex", PROGRAM]]);
+    const text = javascript([["/main.hex", "module Main\n\n" + PROGRAM]]);
 
     // The import line is a manifest: exactly the two spellings this module
     // binds, and nothing else. `Symbol`, `String`, and the rest stay bare here
@@ -112,7 +112,7 @@ describe("class 1 — `record Error` and `record Object` beside a raise", () => 
   });
 
   test("executed: the raise throws the declared exception", async () => {
-    const exports = await runProject([["/main.hex", PROGRAM]]);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + PROGRAM]]);
 
     expect(thrown(exports["raise"] as () => number)).toEqual({
       name: "Boom",
@@ -149,14 +149,14 @@ describe("class 2 — `record Symbol` beside a `for` loop", () => {
     "    sum\n";
 
   test("the range's iterator key qualifies", () => {
-    const text = javascript([["/main.hex", PROGRAM]]);
+    const text = javascript([["/main.hex", "module Main\n\n" + PROGRAM]]);
 
     expect(text).toContain('import { __Symbol } from "./hex.js";');
     expect(text).toContain("    *[__Symbol.iterator]() {");
   });
 
   test("executed: the loop runs", async () => {
-    const exports = await runProject([["/main.hex", PROGRAM]]);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + PROGRAM]]);
 
     expect((exports["total"] as (n: number) => number)(4)).toBe(10);
   });
@@ -187,7 +187,7 @@ describe("class 2 — `record Symbol` beside a `for` loop", () => {
 
 describe("class 3 — a bound `undefined`, the silent-wrong-value class", () => {
   test("a module-level binding: Unit takes `void 0` throughout", () => {
-    const text = javascript([["/main.hex", [
+    const text = javascript([["/main.hex", "module Main\n\n" + [
       "export let undefined: Int = 1",
       "export let unit(): Unit = ()",
       "",
@@ -211,7 +211,7 @@ describe("class 3 — a bound `undefined`, the silent-wrong-value class", () => 
     // exposure only. The trigger reads the module's own symbols at every scope,
     // and the answer applies throughout — the Unit below is *inside* the
     // shadowing function, which is where the measured failure was.
-    expect(javascript([["/main.hex", [
+    expect(javascript([["/main.hex", "module Main\n\n" + [
       "export let unit(): Unit =",
       "    let undefined = 1",
       "    ignore(undefined)",
@@ -232,12 +232,12 @@ describe("class 3 — a bound `undefined`, the silent-wrong-value class", () => 
     // refuses the rebinding, which is the shadowing JavaScript would have
     // allowed and is exactly why the module-level and function-level exposures
     // are separate classes.
-    const outer = await runProject([["/main.hex", [
+    const outer = await runProject([["/main.hex", "module Main\n\n" + [
       "export let undefined: Int = 1",
       "export let unit(): Unit = ()",
       "",
     ].join("\n")]]);
-    const inner = await runProject([["/main.hex", [
+    const inner = await runProject([["/main.hex", "module Main\n\n" + [
       "export let unit(): Unit =",
       "    let undefined = 2",
       "    ignore(undefined)",
@@ -271,7 +271,7 @@ describe("class 4 — `exception Boolean` beside a `Seq` boundary", () => {
     "export let count(): Int = Seq.length(Vector.toSeq([1, 2, 3]))\n";
 
   test("the inbound adapter's coercion qualifies", () => {
-    const text = javascript([["/main.hex", PROGRAM]]);
+    const text = javascript([["/main.hex", "module Main\n\n" + PROGRAM]]);
 
     expect(text).toContain('import { __Boolean } from "./hex.js";');
     expect(text).toContain("            __step = __Boolean(__next.done)");
@@ -281,7 +281,7 @@ describe("class 4 — `exception Boolean` beside a `Seq` boundary", () => {
   });
 
   test("executed: `Seq.length` of a three-element sequence answers 3", async () => {
-    const exports = await runProject([["/main.hex", PROGRAM]]);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + PROGRAM]]);
 
     expect((exports["count"] as () => number)()).toBe(3);
   });
@@ -308,22 +308,22 @@ describe("the two `SyntaxError` classes — the module never parsed at all", () 
     // lawful here on the lowercase gate — every JavaScript reserved word is
     // lowercase and a Hexagon type name is parser-gated uppercase, so a
     // `__binding` alias can carry a value's export seat but never a type's.
-    expect(javascript([["/main.hex", "export let eval: Int = 7\n"]])).toBe(
+    expect(javascript([["/main.hex", "module Main\n\n" + "export let eval: Int = 7\n"]])).toBe(
       "const __binding0 = 7;\n" +
         "export { __binding0 as eval };\n",
     );
 
-    const exports = await runProject([["/main.hex", "export let eval: Int = 7\n"]]);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + "export let eval: Int = 7\n"]]);
     expect(exports["eval"]).toBe(7);
   });
 
   test("`arguments` is the same hole and closes with it", async () => {
-    expect(javascript([["/main.hex", "export let arguments: Int = 8\n"]])).toBe(
+    expect(javascript([["/main.hex", "module Main\n\n" + "export let arguments: Int = 8\n"]])).toBe(
       "const __binding0 = 8;\n" +
         "export { __binding0 as arguments };\n",
     );
 
-    const exports = await runProject([["/main.hex", "export let arguments: Int = 8\n"]]);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + "export let arguments: Int = 8\n"]]);
     expect(exports["arguments"]).toBe(8);
   });
 
@@ -358,8 +358,8 @@ describe("the trigger's cross-module leg", () => {
     // measured control). The alias keeps its own spelling; what steps aside
     // is the compiler's reference.
     const FILES = [
-      ["/lib.hex", "export let zero: Int = 0\n"],
-      ["/main.hex", 'import Error from "./lib"\n' +
+      ["/lib.hex", "module Lib\n\n" + "export let zero: Int = 0\n"],
+      ["/main.hex", "module Main\n\n" + 'import Lib as Error\n' +
         "exception Boom(value: Int)\n" +
         "export let raise(): Int = throw(Boom(3))\n" +
         "export let z: Int = Error.zero\n"],
@@ -404,8 +404,8 @@ describe("the minted-local negative — the trigger reads source bindings only",
     // this module binds no vocabulary spelling of its own, so it keeps
     // `undefined` for Unit.
     const FILES = [
-      ["/lib.hex", "export record Box = {n: Int}\nexport let undefined(b: Box): Int = b.n\n"],
-      ["/main.hex", 'import Box from "./lib"\n' +
+      ["/lib.hex", "module Lib\n\n" + "export record Box = {n: Int}\nexport let undefined(b: Box): Int = b.n\n"],
+      ["/main.hex", "module Main\n\n" + 'import Lib as Box\n' +
         "export let use(b: Box): Int = b.undefined()\n" +
         "export let unit(): Unit = ()\n"],
     ] as const;
@@ -435,7 +435,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
    * importing module's own vocabulary.
    */
   const CONSTRAINT = (member: string): readonly (readonly [string, string])[] => [
-    ["/lib.hex", [
+    ["/lib.hex", "module Lib\n\n" + [
       "export constraint Boxy<a> =",
       `    ${member}(x: a): Int`,
       "",
@@ -444,8 +444,8 @@ describe("the minted-local negative — the trigger reads source bindings only",
       `    ${member}(x) = x.n`,
       "",
     ].join("\n")],
-    ["/main.hex", [
-      'import Boxy from "./lib"',
+    ["/main.hex", "module Main\n\n" + [
+      'import Lib as Boxy',
       `export let twice<a: Boxy>(x: a): Int = Boxy.${member}(x) + Boxy.${member}(x)`,
       "export let unit(): Unit = ()",
       "",
@@ -512,7 +512,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     // The forwarder is a *source*-derived top-level binding there — Constraints
     // §6.5's `const undefined = (x, evidence) => …` — so that module is
     // contested by rule 2's trigger and spells its own Unit `void 0`.
-    expect(javascript([["/main.hex", [
+    expect(javascript([["/main.hex", "module Main\n\n" + [
       "export constraint Boxy<a> =",
       "    undefined(x: a): Int",
       "",
@@ -536,7 +536,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     // a term, so non-uppercase-start, and `undefined` is settled by the
     // function-scope symbol check that a routed member never reaches.
     const FILES = [
-      ["/lib.hex", [
+      ["/lib.hex", "module Lib\n\n" + [
         "export constraint Boxy<a> =",
         "    console(x: a): Int",
         "",
@@ -545,8 +545,8 @@ describe("the minted-local negative — the trigger reads source bindings only",
         "    console(x) = x.n",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        'import Lib from "./lib"',
+      ["/main.hex", "module Main\n\n" + [
+        'import Lib',
         "export let use(b: Lib.Box): Int = Lib.console(b)",
         "export let unit(): Unit = ()",
         "",
@@ -584,7 +584,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     // emits `import { __Boxy_Box_undefined as undefined }` and every Unit in it
     // reads the seat, and `… as eval` is a module that does not parse.
     const namespaced = (member: string): readonly (readonly [string, string])[] => [
-      ["/lib.hex", [
+      ["/lib.hex", "module Lib\n\n" + [
         "export constraint Boxy<a> =",
         `    ${member}(x: a): Int`,
         "",
@@ -593,8 +593,8 @@ describe("the minted-local negative — the trigger reads source bindings only",
         `    ${member}(x) = x.n`,
         "",
       ].join("\n")],
-      ["/main.hex", [
-        'import Lib from "./lib"',
+      ["/main.hex", "module Main\n\n" + [
+        'import Lib',
         `export let use(b: Lib.Box): Int = Lib.${member}(b)`,
         "export let unit(): Unit = ()",
         "",
@@ -785,7 +785,7 @@ const ALL_CONTESTED = [
 
 describe("completeness — the worst-contested module writes no bare global", () => {
   test("every seat steps around every spelling, in one module", () => {
-    const text = javascript([["/main.hex", ALL_CONTESTED]]);
+    const text = javascript([["/main.hex", "module Main\n\n" + ALL_CONTESTED]]);
 
     // The manifest names every capturable spelling this module binds — which is
     // the whole vocabulary but `Map` and `Set`. Those two are deliberately
@@ -840,7 +840,7 @@ describe("completeness — the worst-contested module writes no bare global", ()
   });
 
   test("executed: the whole of it runs", async () => {
-    const exports = await runProject([["/main.hex", ALL_CONTESTED]]);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + ALL_CONTESTED]]);
 
     expect(thrown(exports["raise"] as () => number)).toMatchObject({ name: "Boom" });
     expect((exports["loop"] as (n: number) => number)(4)).toBe(10);
@@ -876,7 +876,7 @@ describe("the negatives — an uncontested module emits the text it always did",
   });
 
   test("a representative uncontested module, pinned whole", () => {
-    expect(javascript([["/main.hex", "exception Boom(value: Int)\n" +
+    expect(javascript([["/main.hex", "module Main\n\n" + "exception Boom(value: Int)\n" +
       "export let raise(): Int = throw(Boom(3))\n"]])).toBe(
       "function __exception(__name, __message, __fields) {\n" +
         '  return Object.assign(new Error(__message), { $hex: "main", name: __name }, __fields);\n' +
@@ -913,7 +913,7 @@ describe("what joining the vocabulary costs a module that merely binds the word"
   test("binding `Set` now owes `hex.js` and imports a capture the module never writes", () => {
     const PROGRAM = "export record Set = { items: Vector(Int) }\n" +
       "export let n(s: Set): Int = Vector.length(s.items)\n";
-    const project = compileFiles([["/main.hex", PROGRAM]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + PROGRAM]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
 
@@ -922,7 +922,7 @@ describe("what joining the vocabulary costs a module that merely binds the word"
     expect(module.javascript.text).toBe(
       'import { __Set } from "./hex.js";\n' +
         "\n" +
-        'import { length } from "./Vector.js";\n' +
+        'import { length } from "./Hex/Vector.js";\n' +
         "const Set = __record => __record;\n" +
         "const n = s => length(s.items);\n" +
         "export { Set };\n" +
@@ -936,7 +936,7 @@ describe("what joining the vocabulary costs a module that merely binds the word"
 
   test("and binding `Map` does the same", () => {
     const project = compileFiles([["/main.hex",
-      "export record Map = { items: Vector(Int) }\n" +
+      "module Main\n\n" + "export record Map = { items: Vector(Int) }\n" +
       "export let n(m: Map): Int = Vector.length(m.items)\n"]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
@@ -950,10 +950,10 @@ describe("what joining the vocabulary costs a module that merely binds the word"
 
 describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
   test("its bytes depend on the vocabulary alone, not on the program that asked", () => {
-    const first = compileFiles([["/main.hex", "export record Error = {code: Int}\n" +
+    const first = compileFiles([["/main.hex", "module Main\n\n" + "export record Error = {code: Int}\n" +
       "exception Boom(value: Int)\n" +
       "export let raise(): Int = throw(Boom(3))\n"]]).runtimeGlobals;
-    const second = compileFiles([["/main.hex", "export record Symbol = {code: Int}\n" +
+    const second = compileFiles([["/main.hex", "module Main\n\n" + "export record Symbol = {code: Int}\n" +
       "export let total(n: Int): Int =\n" +
       "    var sum = 0\n" +
       "    for i in 1..n\n" +
@@ -990,15 +990,15 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
     // the type home's probe settled, and the probe's input is the source
     // basenames, so the stem is defined for a program owing `hex.js` alone.
     const collided = compileFiles([
-      ["/src/hex.hex", "export let z: Int = 0\n"],
-      ["/src/main.hex", "export record Error = {code: Int}\n" +
+      ["/src/hex.hex", "module Hex\n\n" + "export let z: Int = 0\n"],
+      ["/src/main.hex", "module Main\n\n" + "export record Error = {code: Int}\n" +
         "exception Boom(value: Int)\n" +
         "export let raise(): Int = throw(Boom(3))\n"],
     ]);
     expect(collided.runtimeGlobals?.path).toBe("/src/hex1.js");
     expect(javascript(
-      [["/src/hex.hex", "export let z: Int = 0\n"], ["/src/main.hex",
-        "export record Error = {code: Int}\n" +
+      [["/src/hex.hex", "module Hex\n\n" + "export let z: Int = 0\n"], ["/src/main.hex",
+        "module Main\n\n" + "export record Error = {code: Int}\n" +
         "exception Boom(value: Int)\n" +
         "export let raise(): Int = throw(Boom(3))\n"]],
       "/src/main.hex",
@@ -1013,10 +1013,10 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
 
   test("a module below the root spells the specifier relative to itself", () => {
     expect(javascript([
-      ["/src/a/main.hex", "export record Error = {code: Int}\n" +
+      ["/src/a/main.hex", "module Main\n\n" + "export record Error = {code: Int}\n" +
         "exception Boom(value: Int)\n" +
         "export let raise(): Int = throw(Boom(3))\n"],
-      ["/src/b/other.hex", "export let z: Int = 0\n"],
+      ["/src/b/other.hex", "module Other\n\n" + "export let z: Int = 0\n"],
     ], "/src/a/main.hex")).toContain('import { __Error } from "../hex.js";');
   });
 
@@ -1025,7 +1025,7 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
     // materializes only source-derived modules loses every contested program at
     // its first import, so the execution set carries this one like a prelude
     // module — `runProject` is this repo's instance of that.
-    const exports = await runProject([["/main.hex", "export record Error = {code: Int}\n" +
+    const exports = await runProject([["/main.hex", "module Main\n\n" + "export record Error = {code: Int}\n" +
       "export record Object = {tag: Int}\n" +
       "exception Late(message: String)\n" +
       "export let boom(): Int = throw(Late(\"gone\"))\n"]]);

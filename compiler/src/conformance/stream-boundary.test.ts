@@ -69,7 +69,7 @@ async function run(
   source: string,
   foreign: Readonly<Record<string, string>>,
 ): Promise<Record<string, unknown>> {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   runTag += 1;
   const url = (text: string): string =>

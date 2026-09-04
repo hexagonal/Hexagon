@@ -50,6 +50,15 @@ import {
   type ProjectOptions,
 } from "../project.js";
 import { moduleInterface } from "../passes/resolver/resolver.js";
+import { displayModuleName, moduleImportLine } from "../packages.js";
+
+/** One module that exports a spelling, as `exportersOf` answers (Modules §5.1). */
+export interface ModuleExporter {
+  /** The source file the module was written in, for the `#texts` filter. */
+  readonly path: string;
+  /** Its full name (Packages §2.3) — what the offered import line names. */
+  readonly name: string;
+}
 import {
   collectOccurrences,
   targetKey,
@@ -726,9 +735,9 @@ export class AnalysisSession {
    * defensive: `compileProject` returns every module the program *reached*, and
    * a program that reaches `Prelude.hex` — one mention of a prelude name does
    * it — puts a compiler-injected module in the inventory. Offering it would
-   * write `import Ordering from "./Prelude"` into the user's source,
+   * write `import Prelude as Ordering` into the user's source,
    * which repairs nothing (`` module `Ordering` does not export `rank` ``) and
-   * emits `import * as Ordering from "./Prelude.js"` into their JavaScript.
+   * emits `import * as Ordering from "./Hex/Prelude.js"` into their JavaScript.
    * Injected sources are not what the user wrote (`isInjectedModule`'s own
    * rule), and nothing here may hand one to them to type.
    *
@@ -747,7 +756,7 @@ export class AnalysisSession {
     if (repair === undefined || text === undefined) return undefined;
     const exporters = analysis
       .exportersOf(repair.name, repair.namespace)
-      .filter((exporter) => exporter !== path && this.#texts.has(exporter));
+      .filter((exporter) => exporter.path !== path && this.#texts.has(exporter.path));
     if (exporters.length === 0) return undefined;
     const title = `import \`${repair.name}\``;
     if (exporters.length > 1) {
@@ -758,11 +767,14 @@ export class AnalysisSession {
         edits: [],
         disabled: `${exporters.length} modules export a ${repair.namespace} ` +
           `\`${repair.name}\`: ` +
-          exporters.map((exporter) => `\`${specifierFor(path, exporter)}\``).join(", ") +
+          exporters.map((exporter) => `\`${displayModuleName(exporter.name)}\``).join(", ") +
           " — write the import for the one you mean",
       };
     }
-    const specifier = specifierFor(path, exporters[0]!);
+    // #829: a module import names a module and carries no path, so the line is
+    // complete as written — the workspace tier's remaining job is *which*
+    // module, not where its file sits.
+    const importLine = moduleImportLine(exporters[0]!.name);
     const offset = importInsertionOffset(
       analysis.resolvedOf(path),
       text,
@@ -776,7 +788,7 @@ export class AnalysisSession {
       edits: [{
         path,
         span: file.span(offset, offset),
-        replacement: `import ${repair.name} from ${JSON.stringify(specifier)}\n`,
+        replacement: `${importLine}\n`,
       }],
     };
   }
@@ -1300,7 +1312,7 @@ class Analysis {
   readonly #fileIdsByPath: ReadonlyMap<string, Source.FileId>;
   /** The project's modules, for the export inventory built on demand below. */
   readonly #modules: readonly CompiledModule[];
-  #exporters: Map<string, readonly string[]> | undefined;
+  #exporters: Map<string, readonly ModuleExporter[]> | undefined;
   /** Gathered once for the whole project — see `collectSymbolFacts`. */
   readonly symbolFacts: ReadonlyMap<number, SymbolFacts>;
   /** Attached documentation, indexed for lookup by name and by position. */
@@ -1396,19 +1408,20 @@ class Analysis {
    * needs it, and a workspace's whole export surface is not worth computing for
    * the hovers and completions that make up nearly every request.
    */
-  exportersOf(name: string, namespace: "type" | "constraint"): readonly string[] {
+  exportersOf(name: string, namespace: "type" | "constraint"): readonly ModuleExporter[] {
     if (this.#exporters === undefined) {
-      const exporters = new Map<string, string[]>();
+      const exporters = new Map<string, ModuleExporter[]>();
       for (const module of this.#modules) {
         const iface = moduleInterface(module.resolved);
         const seen = new Set<string>();
+        const entry = { path: module.source.path, name: module.name };
         const record = (namespaceKey: string, spelling: string): void => {
           const key = `${namespaceKey}:${spelling}`;
           if (seen.has(key)) return;
           seen.add(key);
           const bucket = exporters.get(key);
-          if (bucket === undefined) exporters.set(key, [module.source.path]);
-          else bucket.push(module.source.path);
+          if (bucket === undefined) exporters.set(key, [entry]);
+          else bucket.push(entry);
         };
         for (const spelling of iface.unions.keys()) record("type", spelling);
         for (const spelling of iface.records.keys()) record("type", spelling);
@@ -1416,7 +1429,9 @@ class Analysis {
         for (const spelling of iface.externTypes.keys()) record("type", spelling);
         for (const spelling of iface.constraints.keys()) record("constraint", spelling);
       }
-      for (const bucket of exporters.values()) bucket.sort();
+      for (const bucket of exporters.values()) {
+        bucket.sort((left, right) => left.name.localeCompare(right.name));
+      }
       this.#exporters = exporters;
     }
     return this.#exporters.get(`${namespace}:${name}`) ?? [];
@@ -1783,11 +1798,15 @@ function diagnosticTally(
  */
 function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
   const compared = (
-    { runtimePaths, ...rest }: SessionOptions,
+    { runtimePaths, packageName, dependencies, ...rest }: SessionOptions,
   ): readonly string[] => {
     const exhaustive: Record<string, never> = rest;
     void exhaustive;
-    return [...[...(runtimePaths ?? [])].sort()];
+    return [
+      `name:${packageName ?? ""}`,
+      ...[...(dependencies ?? [])].sort().map((name) => `dependency:${name}`),
+      ...[...(runtimePaths ?? [])].sort(),
+    ];
   };
   const [before, after] = [compared(left), compared(right)];
   return before.length === after.length && before.every((path, at) => path === after[at]);

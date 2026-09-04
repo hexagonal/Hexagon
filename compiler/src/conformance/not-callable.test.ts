@@ -38,7 +38,7 @@ function diagnostics(
 }
 
 /** The common single-module shape. */
-const main = (source: string): readonly string[] => diagnostics([["/main.hex", source]]);
+const main = (source: string): readonly string[] => diagnostics([["/main.hex", "module Main\n\n" + source]]);
 
 /** What a hover where `needle` is written shows as the type there. */
 function hoveredType(source: string, needle: string): string | undefined {
@@ -73,7 +73,7 @@ describe("the report itself", () => {
     // is worth emitting. The caret covers the whole call, as the sibling arity
     // report's does — the callee alone would point at a name that is fine.
     const source = 'export let s: String = "text"\nexport let bad: Int = s(1)\n';
-    const reported = compileFiles([["/main.hex", source]]).diagnostics;
+    const reported = compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics;
     expect(reported).toHaveLength(1);
     expect(reported[0]!.severity).toBe("error");
     expect(source.slice(reported[0]!.primary.start.offset, reported[0]!.primary.end.offset))
@@ -184,7 +184,7 @@ describe("every shape of concrete non-function reaches it", () => {
 
   test("an extern type", () => {
     expect(
-      diagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      diagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export type Handle
     export let handle: Handle
 
@@ -226,7 +226,7 @@ describe("the branches the split must leave alone", () => {
    */
   test("effectful mutual recursion inside an SCC stays clean", () => {
     expect(
-      diagnostics([["/world.js", ""], ["/main.hex", `${world}
+      diagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 fun
     export ping(n: Int): Unit =
         save!("ping")
@@ -297,7 +297,7 @@ fun
 
   test("the hint's fixit deletes exactly the argument list", () => {
     const source = "export let bad: Option(Int) = None()\n";
-    const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
+    const [diagnostic] = compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics;
     expect(diagnostic?.fixes).toHaveLength(1);
     const fix = diagnostic!.fixes![0]!;
     expect(fix.message).toBe("delete the `()`");
@@ -315,7 +315,7 @@ fun
 
   test("a nullary constructor called with arguments keeps the hint, minus the fixit", () => {
     const source = "export let bad: Option(Int) = None(1)\n";
-    const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
+    const [diagnostic] = compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics;
     expect(diagnostic?.message).toBe(
       "`None` is a value, not a function; write it without `()`",
     );
@@ -356,8 +356,8 @@ fun
     // reaches it bare through rule 3's same-spelled-alias fallback (§3.2)
     // instead, which is what "imported" now means for a nullary constructor.
     const compiled = compileFiles([
-      ["/lib.hex", "export exception Missing\n"],
-      ["/main.hex", 'import Missing from "./lib"\nexport let bad: Exn = Missing()\n'],
+      ["/lib.hex", "module Lib\n\n" + "export exception Missing\n"],
+      ["/main.hex", "module Main\n\n" + 'import Lib as Missing\nexport let bad: Exn = Missing()\n'],
     ]);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "`Missing` is a value, not a function; write it without `()`",
@@ -376,10 +376,10 @@ fun
     // `companion-fallback.test.ts` and `qualified-exception-patterns.test.ts`
     // use to keep one imported name's bare spelling under test.
     const mainSource =
-      'import Colour from "./lib"\nimport Red from "./lib"\nexport let bad: Colour = Red()\n';
+      'import Lib as Colour\nimport Lib as Red\nexport let bad: Colour = Red()\n';
     const compiled = compileFiles([
-      ["/lib.hex", "export union Colour = Red | Mixed(Int)\n"],
-      ["/main.hex", mainSource],
+      ["/lib.hex", "module Lib\n\n" + "export union Colour = Red | Mixed(Int)\n"],
+      ["/main.hex", "module Main\n\n" + mainSource],
     ]);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "`Red` is a value, not a function; write it without `()`",
@@ -397,7 +397,7 @@ fun
     // would leave `1 |> None`, still an error. The one shape where the gate's
     // two halves disagree, so the only pin the count conjunct has.
     const [diagnostic, ...rest] = compileFiles([
-      ["/main.hex", "export let bad: Int = 1 |> None()\n"],
+      ["/main.hex", "module Main\n\n" + "export let bad: Int = 1 |> None()\n"],
     ]).diagnostics;
     expect(rest).toEqual([]);
     expect(diagnostic?.message).toBe(
@@ -412,7 +412,7 @@ fun
     // the writer's text, so the sentence stands alone there.
     for (const call of ["None ()", "None((* why *))", "None!()"]) {
       const [diagnostic, ...rest] = compileFiles([
-        ["/main.hex", `export let bad: Option(Int) = ${call}\n`],
+        ["/main.hex", "module Main\n\n" + `export let bad: Option(Int) = ${call}\n`],
       ]).diagnostics;
       expect(rest).toEqual([]);
       expect(diagnostic?.message).toBe(

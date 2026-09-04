@@ -1,3 +1,5 @@
+module JsError
+
 // The one door the whole foreign world enters through (`spec/exceptions.md`
 // section 6). JavaScript may throw any value at all — a `TypeError`, a bare
 // string, `null`, a function — and every one of them arrives in Hexagon as a

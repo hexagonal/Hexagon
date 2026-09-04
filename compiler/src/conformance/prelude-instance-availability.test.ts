@@ -45,7 +45,7 @@ import { compileFiles, runProject } from "../support/test-project.js";
  * its fix has a silent failure mode of its own: a prelude module is emitted only
  * when something emitted imports it, and this channel's imports are decided
  * during emission rather than declared as import items. Get that wrong and the
- * project compiles clean while emitting `import … from "./Prelude.js"` beside no
+ * project compiles clean while emitting `import … from "./Hex/Prelude.js"` beside no
  * `Prelude.js` — defect 8, invisible to a diagnostics-only test. `danglingImports`
  * and the executing tests are both there for that.
  */
@@ -109,16 +109,16 @@ describe("a type-only prelude mention has its instances", () => {
    */
   test("`Ordering` equality compiles, links, and computes", async () => {
     const source = "export fun f(a: Ordering, b: Ordering): Bool = a == b\n";
-    expect(diagnostics([["/main.hex", source]])).toEqual([]);
+    expect(diagnostics([["/main.hex", "module Main\n\n" + source]])).toEqual([]);
 
-    const javascript = emitted([["/main.hex", source]], "/main.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex");
     // Imported from `Ordering.js`, which declares it — not from an intermediate,
     // and not re-exported onward.
     expect(importLines(javascript)).toEqual([
-      'import { __Eq_Ordering } from "./Ordering.js";',
+      'import { __Eq_Ordering } from "./Hex/Ordering.js";',
     ]);
     expect(exportLines(javascript)).toEqual(["export { f };"]);
-    expect(danglingImports([["/main.hex", source]])).toEqual([]);
+    expect(danglingImports([["/main.hex", "module Main\n\n" + source]])).toEqual([]);
 
     const main = await runProject([[
       "/main.hex",
@@ -136,21 +136,21 @@ describe("a type-only prelude mention has its instances", () => {
 
   test("`Option` equality compiles and computes", async () => {
     const source = "export fun f(a: Option(Int), b: Option(Int)): Bool = a == b\n";
-    expect(diagnostics([["/main.hex", source]])).toEqual([]);
-    expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
-      'import { __Eq_Option } from "./Option.js";',
+    expect(diagnostics([["/main.hex", "module Main\n\n" + source]])).toEqual([]);
+    expect(importLines(emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex"))).toEqual([
+      'import { __Eq_Option } from "./Hex/Option.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __Eq_Int } from "./Int.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
     ]);
-    expect(danglingImports([["/main.hex", source]])).toEqual([]);
+    expect(danglingImports([["/main.hex", "module Main\n\n" + source]])).toEqual([]);
 
     // `mk` is here only so the test can build `Option` values without hard-coding
     // their runtime representation; the type-only claim is the assertions above,
     // which run against a module that names no `Option` term at all.
     const main = await runProject([[
       "/main.hex",
-      "export fun o(a: Option(Int), b: Option(Int)): Bool = a == b\n" +
+      "module Main\n\n" + "export fun o(a: Option(Int), b: Option(Int)): Bool = a == b\n" +
       "export fun mk(x: Int): Option(Int) = Some(x)\n",
     ]]);
     const o = main["o"] as (a: unknown, b: unknown) => boolean;
@@ -166,9 +166,9 @@ describe("a type-only prelude mention has its instances", () => {
    */
   test("interpolating an `Ordering` has `Show`", () => {
     const source = 'export fun f(a: Ordering): String = "v: ${a}"\n';
-    expect(diagnostics([["/main.hex", source]])).toEqual([]);
-    expect(importLines(emitted([["/main.hex", source]], "/main.hex"))).toEqual([
-      'import { __Show_Ordering } from "./Ordering.js";',
+    expect(diagnostics([["/main.hex", "module Main\n\n" + source]])).toEqual([]);
+    expect(importLines(emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex"))).toEqual([
+      'import { __Show_Ordering } from "./Hex/Ordering.js";',
     ]);
   });
 
@@ -181,7 +181,7 @@ describe("a type-only prelude mention has its instances", () => {
   test("matching on a constructor and comparing in one module", () => {
     expect(diagnostics([[
       "/main.hex",
-      "export fun g(a: Ordering): Int =\n" +
+      "module Main\n\n" + "export fun g(a: Ordering): Int =\n" +
       "    match a\n" +
       "        Ordering.Less => 0\n" +
       "        _ => 1\n" +
@@ -197,7 +197,7 @@ describe("a type-only prelude mention has its instances", () => {
    */
   test("type-only `Bool` equality still emits inline structural code", () => {
     const javascript = emitted(
-      [["/main.hex", "export fun f(a: Bool, b: Bool): Bool = a == b\n"]],
+      [["/main.hex", "module Main\n\n" + "export fun f(a: Bool, b: Bool): Bool = a == b\n"]],
       "/main.hex",
     );
     expect(importLines(javascript)).toEqual([]);
@@ -207,7 +207,7 @@ describe("a type-only prelude mention has its instances", () => {
 });
 
 describe("transit shapes keep working and shrink", () => {
-  const A = ["/a.hex", "export fun mk(x: Int): Option(Int) = Some(x)\n"] as const;
+  const A = ["/a.hex", "module A\n\n" + "export fun mk(x: Int): Option(Int) = Some(x)\n"] as const;
 
   /**
    * `b` names no `Option` term, so before the fix it had no prelude import of
@@ -218,17 +218,17 @@ describe("transit shapes keep working and shrink", () => {
   test("a qualified reference still sees `Eq<Option>`, now from `Option.js`", async () => {
     const files = [
       A,
-      ["/b.hex", 'import A from "./a"\nexport fun g(x: Int): Bool = A.mk(x) == A.mk(x)\n'],
+      ["/b.hex", "module B\n\n" + 'import A\nexport fun g(x: Int): Bool = A.mk(x) == A.mk(x)\n'],
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(danglingImports(files)).toEqual([]);
 
     const b = emitted(files, "/b.hex");
     expect(importLines(b)).toEqual([
-      'import { __Eq_Option } from "./Option.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __Eq_Int } from "./Int.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
       'import * as A from "./a.js";',
     ]);
     // The point of the fix: no evidence re-export anywhere on the path.
@@ -243,7 +243,7 @@ describe("transit shapes keep working and shrink", () => {
 
     const main = await runProject([
       A,
-      ["/b.hex", 'import A from "./a"\nexport fun t(x: Int): Bool = A.mk(x) == A.mk(x)\n'],
+      ["/b.hex", "module B\n\n" + 'import A\nexport fun t(x: Int): Bool = A.mk(x) == A.mk(x)\n'],
     ], { entry: "/b.hex" });
     expect((main["t"] as (x: number) => boolean)(7)).toBe(true);
   });
@@ -257,14 +257,14 @@ describe("transit shapes keep working and shrink", () => {
   test("a module import needs no evidence from the module it loads", () => {
     const files = [
       A,
-      ["/b.hex", 'import A from "./a"\nexport fun g(a: Option(Int), b: Option(Int)): Bool = a == b\n'],
+      ["/b.hex", "module B\n\n" + 'import A\nexport fun g(a: Option(Int), b: Option(Int)): Bool = a == b\n'],
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(importLines(emitted(files, "/b.hex"))).toEqual([
-      'import { __Eq_Option } from "./Option.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __Eq_Int } from "./Int.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
       'import * as A from "./a.js";',
     ]);
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
@@ -278,15 +278,15 @@ describe("transit shapes keep working and shrink", () => {
   test("a two-hop chain reaches the declaring module in one hop", () => {
     const files = [
       A,
-      ["/b.hex", 'import A from "./a"\nexport fun h(x: Int): Option(Int) = A.mk(x)\n'],
-      ["/c.hex", 'import B from "./b"\nexport fun g(x: Int): Bool = B.h(x) == B.h(x)\n'],
+      ["/b.hex", "module B\n\n" + 'import A\nexport fun h(x: Int): Option(Int) = A.mk(x)\n'],
+      ["/c.hex", "module C\n\n" + 'import B\nexport fun g(x: Int): Bool = B.h(x) == B.h(x)\n'],
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(importLines(emitted(files, "/c.hex"))).toEqual([
-      'import { __Eq_Option } from "./Option.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __Eq_Int } from "./Int.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
       'import * as B from "./b.js";',
     ]);
     expect(exportLines(emitted(files, "/b.hex"))).toEqual(["export { h };"]);
@@ -304,17 +304,17 @@ describe("transit shapes keep working and shrink", () => {
   test("a false companion candidate no longer smuggles evidence", () => {
     const files = [[
       "/main.hex",
-      "export record Box = {map: (Int) -> Int}\n" +
+      "module Main\n\n" + "export record Box = {map: (Int) -> Int}\n" +
       "export fun run(b: Box): Int = b.map(3)\n" +
       "export fun eq(x: Option(Int), y: Option(Int)): Bool = x == y\n",
     ]] as const;
     expect(diagnostics(files)).toEqual([]);
     const javascript = emitted(files, "/main.hex");
     expect(importLines(javascript)).toEqual([
-      'import { __Eq_Option } from "./Option.js";',
+      'import { __Eq_Option } from "./Hex/Option.js";',
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
-      'import { __Eq_Int } from "./Int.js";',
+      'import { __Eq_Int } from "./Hex/Int.js";',
     ]);
     expect(javascript).not.toContain("Seq.js");
     expect(exportLines(javascript)).toEqual([
@@ -337,25 +337,25 @@ describe("an explicit import of a prelude module coexists with the channel", () 
    */
   test("no duplicate binding when the prelude module is imported explicitly", async () => {
     const source =
-      'import Ordering from "./Ordering"\n' +
+      'import Ordering\n' +
       "export fun f(a: Ordering, b: Ordering): Bool = a == b\n" +
       "export let first: Ordering = Ordering.Less\n";
-    expect(diagnostics([["/main.hex", source]])).toEqual([]);
+    expect(diagnostics([["/main.hex", "module Main\n\n" + source]])).toEqual([]);
 
-    const javascript = emitted([["/main.hex", source]], "/main.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex");
     // Unaliased since #425: the spelling is uncontested here, so the consumer
     // binds the exporter's interface name as it stands.
     const binding = importLines(javascript).filter((line) =>
       line.includes("__Eq_Ordering")
     );
     expect(binding).toEqual([
-      'import { __Eq_Ordering } from "./Ordering.js";',
+      'import { __Eq_Ordering } from "./Hex/Ordering.js";',
     ]);
     // And nothing re-exports it: the channel never calls `#exportEvidence`, and
     // the import item has no evidence to export (#263).
     expect(exportLines(javascript)).toEqual(["export { f };", "export { first };"]);
 
-    const main = await runProject([["/main.hex", source]]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(
       (main["f"] as (a: unknown, b: unknown) => boolean)({ tag: "Less" }, { tag: "Less" }),
     ).toBe(true);
@@ -374,8 +374,8 @@ describe("an explicit import of a prelude module coexists with the channel", () 
    */
   test("a prelude instance reaches a consumer by one name only", () => {
     const files = [
-      ["/a.hex", 'import Option from "./Option"\nexport fun mk(x: Int): Option(Int) = Option.Some(x)\n'],
-      ["/b.hex", 'import A from "./a"\nexport fun g(x: Int): Bool = A.mk(x) == A.mk(x)\n'],
+      ["/a.hex", "module A\n\n" + 'import Option\nexport fun mk(x: Int): Option(Int) = Option.Some(x)\n'],
+      ["/b.hex", "module B\n\n" + 'import A\nexport fun g(x: Int): Bool = A.mk(x) == A.mk(x)\n'],
     ] as const;
     expect(diagnostics(files)).toEqual([]);
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
@@ -409,7 +409,7 @@ describe("seeding is universal, so coherence reports are too", () => {
   test("an orphan honor of a prelude instance also collides with it", () => {
     expect(diagnostics([[
       "/main.hex",
-      "honor Eq<Ordering> =\n" +
+      "module Main\n\n" + "honor Eq<Ordering> =\n" +
       "    equals(a, b) = True\n",
     ]])).toEqual([
       "orphan instance: this module declares neither `Eq` nor the instance subject",
@@ -421,7 +421,7 @@ describe("seeding is universal, so coherence reports are too", () => {
   test("honoring a constraint for a locally declared union is unaffected", () => {
     expect(diagnostics([[
       "/main.hex",
-      "export union Colour = Red | Blue\n" +
+      "module Main\n\n" + "export union Colour = Red | Blue\n" +
       "honor Eq<Colour> =\n" +
       "    equals(a, b) = True\n",
     ]])).toEqual([]);

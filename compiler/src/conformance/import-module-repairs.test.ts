@@ -41,14 +41,14 @@ const TYPE_NOT_A_MODULE = "`Shape` is a type, not a module; import its home " +
 /** A union and an ordinary function over it: the type-only import's fixture. */
 const SHAPE = [
   "/shape.hex",
-  "export union Shape = Circle(Float) | Square(Float)\n" +
+  "module Shape\n\n" + "export union Shape = Circle(Float) | Square(Float)\n" +
     "export fun area(s: Shape): Float = 1.0\n",
 ] as const;
 
 /** A user constraint, unimported: the arrival state both constraint seats own. */
 const SCALE = [
   "/scale.hex",
-  "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
+  "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
 ] as const;
 
 describe("the type seat (Modules §5.1 rule 1)", () => {
@@ -60,7 +60,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     expect(messages([
       SHAPE,
       ["/main.hex",
-        'import S from "./shape"\n' +
+        "module Main\n\n" + 'import Shape as S\n' +
         "type Shape = S.Shape\n" +
         "export fun go(s: Shape): Float = Shape.area(s)\n"],
     ])).toEqual([TYPE_NOT_A_MODULE]);
@@ -69,16 +69,16 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
   test("the module's own type reads the same — the seat is the namespace, not the import", () => {
     expect(messages([
       ["/main.hex",
-        "union Shape = Circle(Float)\n" +
+        "module Main\n\n" + "union Shape = Circle(Float)\n" +
         "export let n: Float = Shape.area(1.0)\n"],
     ])).toEqual([TYPE_NOT_A_MODULE]);
   });
 
   test("a transparent alias is a type too, and says so under its own name", () => {
     expect(messages([
-      ["/lib.hex", "export type Meters = Float\n"],
+      ["/lib.hex", "module Lib\n\n" + "export type Meters = Float\n"],
       ["/main.hex",
-        'import Lib from "./lib"\n' +
+        "module Main\n\n" + 'import Lib\n' +
         "type Meters = Lib.Meters\n" +
         "export let n: Float = Meters.zero\n"],
     ])).toEqual([
@@ -93,7 +93,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     expect(messages([
       SHAPE,
       ["/main.hex",
-        'import S from "./shape"\n' +
+        "module Main\n\n" + 'import Shape as S\n' +
         "type Shape = S.Shape\n" +
         "export fun go(s: Shape): Float = Shape.area(s) + Shape.area(s)\n"],
     ])).toEqual([TYPE_NOT_A_MODULE, TYPE_NOT_A_MODULE]);
@@ -107,7 +107,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // qualified-only default, `Shape` is `JsConversionReason`'s constructor and
     // draws §5.5's refusal rather than the unknown name this seat is about.
     expect(messages([
-      ["/main.hex", "export let n: Float = Chevron.area(1.0)\n"],
+      ["/main.hex", "module Main\n\n" + "export let n: Float = Chevron.area(1.0)\n"],
     ])).toEqual(["unknown name `Chevron`"]);
   });
 
@@ -116,7 +116,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // an ordinary value, and its miss is an ordinary unknown name.
     expect(messages([
       ["/main.hex",
-        "export union Shape = Circle(Float)\n" +
+        "module Main\n\n" + "export union Shape = Circle(Float)\n" +
         "export let n: Float = shape.area(1.0)\n"],
     ])).toEqual(["unknown name `shape`"]);
   });
@@ -128,7 +128,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // a report about the recovery rather than about the source.
     expect(messages([
       ["/main.hex",
-        'extern from "./x.js"\n    type foo\n' +
+        "module Main\n\n" + 'extern from "./x.js"\n    type foo\n' +
         "export let n: Int = foo.bar(1)\n"],
     ])).toEqual([
       "foreign type `foo` needs an uppercase-start local alias; write " +
@@ -141,7 +141,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // `Int` is a type *and* a module (Modules §6.4 gives every prelude member a
     // qualified home), so `Int.` resolves before rule 1's refusal is consulted.
     expect(messages([
-      ["/main.hex", "export let n: String = Int.show(3)\n"],
+      ["/main.hex", "module Main\n\n" + "export let n: String = Int.show(3)\n"],
     ])).toEqual([]);
   });
 
@@ -151,7 +151,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // would be a false classification of a name that resolves fine one line down.
     expect(messages([
       ["/main.hex",
-        "export let n: Int = Shape.make(3)\n" +
+        "module Main\n\n" + "export let n: Int = Shape.make(3)\n" +
         "export record Shape = {n: Int}\n"],
     ])).toEqual([
       "`Shape` is declared later in this block; declarations are read top-down " +
@@ -169,7 +169,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // alias at the spelling and so answers `Shape.` before rule 1 is asked.
     const reported = messages([
       ["/main.hex",
-        "export record Shape = {n: Int}\n" +
+        "module Main\n\n" + "export record Shape = {n: Int}\n" +
         "export let s: Shape = Shape.make(3)\n"],
     ]);
     // The claim is that the writer is shown a *mismatch*, with the constructor
@@ -187,7 +187,7 @@ describe("the `widens` head seat (Constraints §8's row)", () => {
     expect(messages([
       SCALE,
       ["/main.hex",
-        "export record Metre = {m: Float}\n" +
+        "module Main\n\n" + "export record Metre = {m: Float}\n" +
         "widens Scale.scale(value: Metre, factor: Float): Metre = value\n"],
     ])).toEqual([
       "unknown module `Scale`; a `widens` head names its member through a " +
@@ -198,7 +198,7 @@ describe("the `widens` head seat (Constraints §8's row)", () => {
   test("the route is the alias's own spelling, whatever it is", () => {
     expect(messages([
       ["/main.hex",
-        "export record Metre = {m: Float}\n" +
+        "module Main\n\n" + "export record Metre = {m: Float}\n" +
         "widens Sizing.scale(value: Metre, factor: Float): Metre = value\n"],
     ])).toEqual([
       "unknown module `Sizing`; a `widens` head names its member through a " +
@@ -211,7 +211,7 @@ describe("the `widens` head seat (Constraints §8's row)", () => {
     expect(messages([
       SCALE,
       ["/main.hex",
-        'import Scale from "./scale"\n' +
+        "module Main\n\n" + 'import Scale\n' +
         "export record Metre = {m: Float}\n" +
         "widens Scale.stretch(value: Metre, factor: Float): Metre = value\n"],
     ])).toEqual([
@@ -225,7 +225,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     expect(messages([
       SCALE,
       ["/main.hex",
-        "export record Metre = {m: Float}\n" +
+        "module Main\n\n" + "export record Metre = {m: Float}\n" +
         "honor Scale<Metre> =\n    scale(value, factor) = value\n"],
     ])).toEqual([
       "unknown constraint `Scale`; import its home module under the alias " +
@@ -236,7 +236,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
   test("a binder reads identically — one message, both positions", () => {
     expect(messages([
       SCALE,
-      ["/main.hex", "export fun go<a: Scale>(x: a): a = x\n"],
+      ["/main.hex", "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n"],
     ])).toEqual([
       "unknown constraint `Scale`; import its home module under the alias " +
         "`Scale` for qualified access",
@@ -251,13 +251,13 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     expect(messages([
       SCALE,
       ["/main.hex",
-        'import Scale from "./scale"\n' +
+        "module Main\n\n" + 'import Scale\n' +
         "export fun go<a: Scale.Scale>(x: a): a = x\n"],
     ])).toEqual([]);
     expect(messages([
       SCALE,
       ["/main.hex",
-        'import Scale from "./scale"\n' +
+        "module Main\n\n" + 'import Scale\n' +
         "export fun go<a: Scale>(x: a): a = x\n"],
     ])).toEqual([]);
   });
@@ -267,20 +267,20 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     // standing at the spelling, so the family signpost never gets its turn, and
     // these two sentences are the ones this change must not have moved.
     expect(messages([
-      ["/render.hex", "export constraint Render<a> =\n    render(value: a): String\n"],
+      ["/render.hex", "module Render\n\n" + "export constraint Render<a> =\n    render(value: a): String\n"],
       ["/main.hex",
-        'import R from "./render"\n' +
+        "module Main\n\n" + 'import Render as R\n' +
         "export fun label<a: R>(x: a): String = R.render(x)\n"],
     ])).toContain(
       "unknown constraint `R`; `R` is a module alias — write `R.Render` for the " +
-        'constraint it exports, or realias as `import Render from "./render"`',
+        'constraint it exports, or realias as `import Render`',
     );
     expect(messages([
       ["/lib.hex",
-        "export constraint One<a> =\n    one(value: a): Int\n" +
+        "module Lib\n\n" + "export constraint One<a> =\n    one(value: a): Int\n" +
         "export constraint Two<a> =\n    two(value: a): Int\n"],
       ["/main.hex",
-        'import Lib from "./lib"\n' +
+        "module Main\n\n" + 'import Lib\n' +
         "export fun size<a: Lib>(x: a): Int = 1\n"],
     ])).toContain(
       "unknown constraint `Lib`; `Lib` is a module alias — the constraints it " +
@@ -292,9 +292,9 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     // §4.1's `Alias.Name` spelling arrives under its whole dotted name. That
     // writer already holds an alias; `import D.NotThere` names no module.
     expect(messages([
-      ["/describe.hex", "export constraint Describe<a> =\n    describe(value: a): String\n"],
+      ["/describe.hex", "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a): String\n"],
       ["/main.hex",
-        'import D from "./describe"\n' +
+        "module Main\n\n" + 'import Describe as D\n' +
         "export record Box = {n: Int}\n" +
         'honor D.NotThere<Box> =\n    describe(value) = "x"\n'],
     ])).toEqual(["unknown constraint `D.NotThere`"]);
@@ -310,7 +310,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     // the `widens` head resolves and fails one step further on, at the honor.
     expect(messages([
       ["/main.hex",
-        "export record Box = {value: Float}\n" +
+        "module Main\n\n" + "export record Box = {value: Float}\n" +
         "widens Pow.pow(value: Box, exponent: Float): Box = value\n"],
     ])).toEqual(["`Pow.pow` is not a member this module honors at its own type"]);
     // The constraint namespace holds all eleven, so the bare spellings resolve:
@@ -324,11 +324,11 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     // the subject's own module and stating `Num`'s prelude home as fact rather
     // than offering it.
     expect(messages([
-      ["/main.hex", "export fun go<a: Pow>(x: a): a = x\n"],
+      ["/main.hex", "module Main\n\n" + "export fun go<a: Pow>(x: a): a = x\n"],
     ])).toEqual([]);
     expect(messages([
       ["/main.hex",
-        "export record Box = {value: Float}\n" +
+        "module Main\n\n" + "export record Box = {value: Float}\n" +
         "honor Pow<Box> =\n    pow(value, exponent) = value\n"],
     ])).toEqual([
       "type `Box` has no `Num` instance; it could only be declared in " +
@@ -350,11 +350,11 @@ describe("the specifier the workspace tier writes (`specifierFor`)", () => {
   test("the round trip through `resolveSpecifier` is the identity", () => {
     for (
       const [importer, target] of [
-        ["/main.hex", "/scale.hex"],
-        ["/src/main.hex", "/lib/scale.hex"],
-        ["/src/main.hex", "/src/deep/nested/scale.hex"],
-        ["/a/b/c/main.hex", "/scale.hex"],
-        ["/src/main.hex", "/src/scale.hex"],
+        ["/main.hex", "module Main\n\n" + "/scale.hex"],
+        ["/src/main.hex", "module Main\n\n" + "/lib/scale.hex"],
+        ["/src/main.hex", "module Main\n\n" + "/src/deep/nested/scale.hex"],
+        ["/a/b/c/main.hex", "module Main\n\n" + "/scale.hex"],
+        ["/src/main.hex", "module Main\n\n" + "/src/scale.hex"],
       ] as const
     ) {
       expect(resolveSpecifier(importer, specifierFor(importer, target))).toBe(target);

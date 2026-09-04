@@ -163,11 +163,11 @@ describe("a dot call reads top-down too (Method Syntax §4.4)", () => {
     // so where `twice` sits in its home file is not the importer's business.
     const main = await runProject([
       ["/main.hex",
-        "import Boxes from \"./boxes\"\n" +
+        "module Main\n\n" + "import Boxes\n" +
         "export let out: Int = Boxes.Box({value = 3}).twice()\n",
       ],
       ["/boxes.hex",
-        "export record Box = {value: Int}\n" +
+        "module Boxes\n\n" + "export record Box = {value: Int}\n" +
         "export let unrelated: Int = 1\n" +
         "export fun twice(b: Box): Int = b.value * 2\n",
       ],
@@ -214,7 +214,7 @@ describe("a dot call cannot make a `let` recursive (Functions §6)", () => {
 describe("a `fun` block is one group (Functions §7.3, #700)", () => {
   test("mutual recursion inside the block compiles and runs", async () => {
     const main = await runProject([["/main.hex",
-      "fun\n" +
+      "module Main\n\n" + "fun\n" +
       "    even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
       "    odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
       "export let fourIsEven: Bool = even(4)\n" +
@@ -228,15 +228,13 @@ describe("a `fun` block is one group (Functions §7.3, #700)", () => {
   test("two separate `fun`s are two blocks, adjacent or not", () => {
     // Adjacency is no longer load-bearing: the same program draws the same
     // wrap rewrite whether or not an item stands between the two `fun`s.
-    expect(projectDiagnostics(
-      "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
       "let gap: Int = 1\n" +
       "fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
       "export let fourIsEven: Bool = even(4)\n",
     )).toEqual([CROSS_BLOCK("odd")]);
 
-    expect(projectDiagnostics(
-      "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "fun even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
       "fun odd(n: Int): Bool = if n == 0 then False else even(n - 1)\n" +
       "export let fourIsEven: Bool = even(4)\n",
     )).toEqual([CROSS_BLOCK("odd")]);
@@ -244,7 +242,7 @@ describe("a `fun` block is one group (Functions §7.3, #700)", () => {
 
   test("a comment between members does not end the block", async () => {
     const main = await runProject([["/main.hex",
-      "fun\n" +
+      "module Main\n\n" + "fun\n" +
       "    even(n: Int): Bool = if n == 0 then True else odd(n - 1)\n" +
       "    // the parity pair\n" +
       "    (** Answers whether `n` is odd. *)\n" +
@@ -260,7 +258,7 @@ describe("a `fun` block is one group (Functions §7.3, #700)", () => {
     // references actually written, so `ident` generalizes before `atInt`'s body
     // is checked and its use at `Int` there costs it nothing.
     const main = await runProject([["/main.hex",
-      "fun\n" +
+      "module Main\n\n" + "fun\n" +
       "    ident(value) = value\n" +
       "    atInt(n: Int): Int = ident(n)\n" +
       "export let text: String = ident(\"hex\")\n" +
@@ -334,28 +332,28 @@ describe("a dot call never targets its own `fun` block (§9 row 13)", () => {
 describe("the term names a type declaration binds read top-down (§7.2)", () => {
   test("a type-position mention above the declaration is free", () => {
     expect(diagnostics([["/main.hex",
-      "export fun unwrap(b: Box): Int = b.value\n" +
+      "module Main\n\n" + "export fun unwrap(b: Box): Int = b.value\n" +
       "export record Box = {value: Int}\n",
     ]])).toEqual([]);
   });
 
   test("...but a value-position constructor use is not", () => {
     expect(diagnostics([["/main.hex",
-      "export fun wrap(n: Int): Box = Box({value = n})\n" +
+      "module Main\n\n" + "export fun wrap(n: Int): Box = Box({value = n})\n" +
       "export record Box = {value: Int}\n",
     ]])).toEqual([DECLARED_LATER("Box")]);
   });
 
   test("a union constructor is the same", () => {
     expect(diagnostics([["/main.hex",
-      "export let here: Spot = Origin\n" +
+      "module Main\n\n" + "export let here: Spot = Origin\n" +
       "export union Spot = Origin | Away(Int)\n",
     ]])).toEqual([DECLARED_LATER("Origin")]);
   });
 
   test("a constraint member is the same", () => {
     expect(diagnostics([["/main.hex",
-      "export record Box = {value: Int}\n" +
+      "module Main\n\n" + "export record Box = {value: Int}\n" +
       "export let label: Int = render(Box({value = 1}))\n" +
       "export constraint Render<a> =\n" +
       "    render(value: a): Int\n" +
@@ -366,14 +364,14 @@ describe("the term names a type declaration binds read top-down (§7.2)", () => 
 
   test("an exception constructor is the same", () => {
     expect(diagnostics([["/main.hex",
-      "export let e: Exn = Bad(1)\n" +
+      "module Main\n\n" + "export let e: Exn = Bad(1)\n" +
       "exception Bad(Int)\n",
     ]])).toEqual([DECLARED_LATER("Bad")]);
   });
 
   test("a match arm above the union names the union as the move", () => {
     expect(diagnostics([["/main.hex",
-      "export fun distance(s: Spot): Int = match s\n" +
+      "module Main\n\n" + "export fun distance(s: Spot): Int = match s\n" +
       "    Origin => 0\n" +
       "    Away(n) => n\n" +
       "export union Spot = Origin | Away(Int)\n",
@@ -385,7 +383,7 @@ describe("the term names a type declaration binds read top-down (§7.2)", () => 
 
   test("a catch arm above the exception names the exception", () => {
     expect(diagnostics([["/main.hex",
-      "export fun safe(): Int =\n" +
+      "module Main\n\n" + "export fun safe(): Int =\n" +
       "    try\n" +
       "        1\n" +
       "    catch\n" +
@@ -399,7 +397,7 @@ describe("the term names a type declaration binds read top-down (§7.2)", () => 
 
   test("a constructor named in a `fun` body above the union is the same", () => {
     expect(diagnostics([["/main.hex",
-      "export fun start(): Spot = Origin\n" +
+      "module Main\n\n" + "export fun start(): Spot = Origin\n" +
       "export union Spot = Origin | Away(Int)\n",
     ]])).toEqual([DECLARED_LATER("Origin")]);
   });
@@ -425,7 +423,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
 
   const GEOMETRY = [
     "/geometry.hex",
-    "export record Point = {x: Int, y: Int}\n" +
+    "module Geometry\n\n" + "export record Point = {x: Int, y: Int}\n" +
     "export union Shape = Circle(radius: Int) | Square(side: Int)\n" +
     "export type Span = Int\n" +
     "export let area(p: Point): Int = p.x * p.y\n" +
@@ -444,14 +442,14 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
     // exporter declares does read top-down" — this block does not repeat them.
     test("a value reference above the import that binds it", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export let early: Int = Geometry.area(Geometry.Point({x = 2, y = 3}))\n" +
-        "import Geometry from \"./geometry\"\n",
+        "module Main\n\n" + "export let early: Int = Geometry.area(Geometry.Point({x = 2, y = 3}))\n" +
+        "import Geometry\n",
       ]])).toEqual([MOVE_IMPORT("Geometry.area"), MOVE_IMPORT("Geometry.Point")]);
     });
 
     test("...and the control below the import runs", async () => {
       const exports = await runProject([GEOMETRY, ["/main.hex",
-        "import Geometry from \"./geometry\"\n" +
+        "module Main\n\n" + "import Geometry\n" +
         "export let below: Int = Geometry.area(Geometry.Point({x = 2, y = 3}))\n",
       ]]);
 
@@ -460,8 +458,8 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
 
     test("a qualified union constructor, in value position", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export let early: Geometry.Shape = Geometry.Circle(4)\n" +
-        "import Geometry from \"./geometry\"\n",
+        "module Main\n\n" + "export let early: Geometry.Shape = Geometry.Circle(4)\n" +
+        "import Geometry\n",
       ]])).toEqual([MOVE_IMPORT("Geometry.Circle")]);
     });
   });
@@ -477,25 +475,25 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
     // above or below the reference.
     test("a record, a union, and an alias, all named above their import", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export fun across(p: Geometry.Point): Int = p.x\n" +
+        "module Main\n\n" + "export fun across(p: Geometry.Point): Int = p.x\n" +
         "export fun sides(s: Geometry.Shape): Int = 4\n" +
         "export let width: Geometry.Span = 3\n" +
-        "import Geometry from \"./geometry\"\n",
+        "import Geometry\n",
       ]])).toEqual([]);
     });
 
     test("a local record whose field type is imported, the import at the bottom", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export record Placed = {at: Geometry.Point, label: String}\n" +
+        "module Main\n\n" + "export record Placed = {at: Geometry.Point, label: String}\n" +
         "export fun where(p: Placed): Int = p.at.x\n" +
-        "import Geometry from \"./geometry\"\n",
+        "import Geometry\n",
       ]])).toEqual([]);
     });
 
     test("a constraint name in a binder above its import", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export fun pace<a: Geometry.Walk>(x: a, fallback: Int): Int = fallback\n" +
-        "import Geometry from \"./geometry\"\n",
+        "module Main\n\n" + "export fun pace<a: Geometry.Walk>(x: a, fallback: Int): Int = fallback\n" +
+        "import Geometry\n",
       ]])).toEqual([]);
     });
 
@@ -506,10 +504,10 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // member is reached by dispatch (`.step()`), since #762 leaves nothing
       // bare for a bare `step(…)` call to name.
       const exports = await runProject([GEOMETRY, ["/main.hex",
-        "record Leg = {count: Int}\n" +
+        "module Main\n\n" + "record Leg = {count: Int}\n" +
         "honor Geometry.Walk<Leg> =\n" +
         "    step(l) = l.count + 40\n" +
-        "import Geometry from \"./geometry\"\n" +
+        "import Geometry\n" +
         "export let paces: Int = Leg({count = 2}).step()\n",
       ]]);
 
@@ -520,31 +518,31 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
   describe("the alias straddles too (§3.3)", () => {
     test("`Geo.Point` in an annotation is free above the item", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export fun across(p: Geo.Point): Int = p.x\n" +
-        "import Geo from \"./geometry\"\n",
+        "module Main\n\n" + "export fun across(p: Geo.Point): Int = p.x\n" +
+        "import Geometry as Geo\n",
       ]])).toEqual([]);
     });
 
     test("...but `Geo.area(p)` is a term the line binds, and reads top-down", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export fun size(p: Geo.Point): Int = Geo.area(p)\n" +
-        "import Geo from \"./geometry\"\n",
+        "module Main\n\n" + "export fun size(p: Geo.Point): Int = Geo.area(p)\n" +
+        "import Geometry as Geo\n",
       ]])).toEqual([MOVE_IMPORT("Geo.area")]);
     });
 
     test("...as does `Geo.Circle(r)` in a pattern", () => {
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export fun radius(s: Geo.Shape): Int =\n" +
+        "module Main\n\n" + "export fun radius(s: Geo.Shape): Int =\n" +
         "    match s\n" +
         "        Geo.Circle(r) => r\n" +
         "        _ => 0\n" +
-        "import Geo from \"./geometry\"\n",
+        "import Geometry as Geo\n",
       ]])[0]).toBe(MOVE_IMPORT("Geo.Circle"));
     });
 
     test("...and both controls below the item run", async () => {
       const exports = await runProject([GEOMETRY, ["/main.hex",
-        "import Geo from \"./geometry\"\n" +
+        "module Main\n\n" + "import Geometry as Geo\n" +
         "export fun size(p: Geo.Point): Int = Geo.area(p)\n" +
         "export fun radius(s: Geo.Shape): Int =\n" +
         "    match s\n" +
@@ -581,26 +579,26 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
 
     test("a field the exporter never offers reports what moving the import would", () => {
       const above = diagnostics([GEOMETRY, ["/main.hex",
-        "export let early: Int = Geo.zork(1)\n" +
-        "import Geo from \"./geometry\"\n",
+        "module Main\n\n" + "export let early: Int = Geo.zork(1)\n" +
+        "import Geometry as Geo\n",
       ]]);
 
       expect(above).toEqual([NOT_EXPORTED("Geo", "zork")]);
       // The proposed repair, carried out: an identical report is the proof that
       // the declared-later wording would have sent the reader nowhere.
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "import Geo from \"./geometry\"\n" +
+        "module Main\n\n" + "import Geometry as Geo\n" +
         "export let early: Int = Geo.zork(1)\n",
       ]])).toEqual(above);
     });
 
     test("...and in pattern position, where the surface is `terms` alone", () => {
       const above = diagnostics([GEOMETRY, ["/main.hex",
-        "export fun radius(s: Geo.Shape): Int =\n" +
+        "module Main\n\n" + "export fun radius(s: Geo.Shape): Int =\n" +
         "    match s\n" +
         "        Geo.Zork(r) => r\n" +
         "        _ => 0\n" +
-        "import Geo from \"./geometry\"\n",
+        "import Geometry as Geo\n",
       ]]);
 
       // The whole list, cascades included: a repair that leaves the diagnostics
@@ -611,7 +609,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
         "this match arm is unreachable; an earlier pattern matches everything",
       ]);
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "import Geo from \"./geometry\"\n" +
+        "module Main\n\n" + "import Geometry as Geo\n" +
         "export fun radius(s: Geo.Shape): Int =\n" +
         "    match s\n" +
         "        Geo.Zork(r) => r\n" +
@@ -623,8 +621,8 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // §3.3: a declared constraint's members qualify through the alias as
       // ordinary terms, so the line binds `Geo.step` and moving it is the repair.
       expect(diagnostics([GEOMETRY, ["/main.hex",
-        "export let early: Int = Geo.step(1)\n" +
-        "import Geo from \"./geometry\"\n",
+        "module Main\n\n" + "export let early: Int = Geo.step(1)\n" +
+        "import Geometry as Geo\n",
       ]])).toEqual([MOVE_IMPORT("Geo.step")]);
     });
 
@@ -639,25 +637,25 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // all) still answers here; a project-declared constraint's honor does
       // not (`resolver.ts`'s `#honoredMemberAccess`, reading `#reachPreludeTerm`).
       const BOXED = ["/boxed.hex",
-        "export record Box = {n: Int}\n" +
+        "module Boxed\n\n" + "export record Box = {n: Int}\n" +
         "honor Show<Box> =\n" +
         "    show(b) = \"Box(${b.n})\"\n",
       ] as const;
 
       expect(diagnostics([BOXED, ["/main.hex",
-        "export let early: String = B.show(B.Box({n = 7}))\n" +
-        "import B from \"./boxed\"\n",
+        "module Main\n\n" + "export let early: String = B.show(B.Box({n = 7}))\n" +
+        "import Boxed as B\n",
       ]])).toEqual([MOVE_IMPORT("B.show"), MOVE_IMPORT("B.Box")]);
     });
 
     test("...and the control below the item runs", async () => {
       const exports = await runProject([
         ["/boxed.hex",
-          "export record Box = {n: Int}\n" +
+          "module Boxed\n\n" + "export record Box = {n: Int}\n" +
           "honor Show<Box> =\n" +
           "    show(b) = \"Box(${b.n})\"\n"],
         ["/main.hex",
-          "import B from \"./boxed\"\n" +
+          "module Main\n\n" + "import Boxed as B\n" +
           "export let boxed: String = B.show(B.Box({n = 4}))\n"],
       ]);
 
@@ -675,8 +673,8 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       expect(diagnostics([
         ["/Vector.hex", PRELUDE_SOURCES["Vector.hex"]!],
         ["/main.hex",
-          "export let n: Int = Vector.toSeq([1, 2]).length()\n" +
-          "import Vector from \"./Vector\"\n"],
+          "module Main\n\n" + "export let n: Int = Vector.toSeq([1, 2]).length()\n" +
+          "import Vector\n"],
       ])).toEqual([MOVE_IMPORT("Vector.toSeq")]);
     });
 
@@ -691,12 +689,12 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
 
       for (const alias of ["Int", "Debug"]) {
         const above = diagnostics([seated(alias), ["/main.hex",
-          `export let n: Int = ${alias}.toSeq(1)\n` +
+          "module Main\n\n" + `export let n: Int = ${alias}.toSeq(1)\n` +
           `import ${alias} from "./${alias}"\n`]]);
 
         expect(above).toEqual([NOT_EXPORTED(alias, "toSeq")]);
         expect(diagnostics([seated(alias), ["/main.hex",
-          `import ${alias} from "./${alias}"\n` +
+          "module Main\n\n" + `import ${alias} from "./${alias}"\n` +
           `export let n: Int = ${alias}.toSeq(1)\n`]])).toEqual(above);
       }
 
@@ -721,17 +719,17 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // survive its body's errors. So one broken module does not turn every
       // qualified spelling above an import into a promise the repair breaks.
       const BROKEN = ["/broken.hex",
-        "export let ok(n: Int): Int = n\n" +
+        "module Broken\n\n" + "export let ok(n: Int): Int = n\n" +
         "export let bad(n: Int): Int = nope(n)\n",
       ] as const;
 
       expect(diagnostics([BROKEN, ["/main.hex",
-        "export let early: Int = Lib.zork(1)\n" +
-        "import Lib from \"./broken\"\n",
+        "module Main\n\n" + "export let early: Int = Lib.zork(1)\n" +
+        "import Broken as Lib\n",
       ]])).toEqual(["unknown name `nope`", NOT_EXPORTED("Lib", "zork")]);
       expect(diagnostics([BROKEN, ["/main.hex",
-        "export let early: Int = Lib.ok(1)\n" +
-        "import Lib from \"./broken\"\n",
+        "module Main\n\n" + "export let early: Int = Lib.ok(1)\n" +
+        "import Broken as Lib\n",
       ]])).toEqual(["unknown name `nope`", MOVE_IMPORT("Lib.ok")]);
     });
 
@@ -740,19 +738,19 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // qualifier is not a module here at any line, and the reading laws never
       // enter. The item's own report is the one that names the repair.
       expect(diagnostics([["/main.hex",
-        "export let early: Int = Nope.zork(1)\n" +
-        "import Nope from \"./nowhere\"\n",
+        "module Main\n\n" + "export let early: Int = Nope.zork(1)\n" +
+        "import Nowhere as Nope\n",
       ]])).toEqual([
         "unknown name `Nope`",
         "cannot resolve module `./nowhere` from `/main.hex`",
         "cannot resolve module `./nowhere`",
       ]);
       expect(diagnostics([["/main.hex",
-        "export fun pick(s: Int): Int =\n" +
+        "module Main\n\n" + "export fun pick(s: Int): Int =\n" +
         "    match s\n" +
         "        Nope.Zork(x) => x\n" +
         "        _ => 0\n" +
-        "import Nope from \"./nowhere\"\n",
+        "import Nowhere as Nope\n",
       ]])[0]).toBe("unknown module alias `Nope`");
     });
   });
@@ -770,9 +768,9 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
   describe("load order and emission are untouched (§8.2)", () => {
     test("a module whose imports sit at the bottom still loads them first", () => {
       const project = compileFiles([GEOMETRY, ["/main.hex",
-        "export fun corner(p: Geometry.Point): Int = p.y\n" +
+        "module Main\n\n" + "export fun corner(p: Geometry.Point): Int = p.y\n" +
         "export let origin: Int = 0\n" +
-        "import Geometry from \"./geometry\"\n",
+        "import Geometry\n",
       ]]);
 
       expect(project.diagnostics).toEqual([]);
@@ -781,7 +779,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // module that imports it, wherever the line sits in it.
       expect(project.modules.map(({ source }) => source.path)).toEqual([
         "/geometry.hex",
-        "/main.hex",
+        "module Geometry\n\n" + "/main.hex",
       ]);
     });
 
@@ -790,8 +788,8 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // emission — what is pinned is that the program links and runs, not where
       // the statement landed in the text.
       const files = [GEOMETRY, ["/main.hex",
-        "export fun corner(p: Geometry.Point): Int = p.y + 1\n" +
-        "import Geometry from \"./geometry\"\n" +
+        "module Main\n\n" + "export fun corner(p: Geometry.Point): Int = p.y + 1\n" +
+        "import Geometry\n" +
         "export let high: Int = corner(Geometry.Point({x = 1, y = 8}))\n",
       ]] as const;
 

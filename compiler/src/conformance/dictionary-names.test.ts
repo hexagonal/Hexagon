@@ -63,12 +63,12 @@ describe("an uncontested spelling is bare on both sides", () => {
   test("an imported dictionary binds under the exporter's interface name", async () => {
     const files = [
       ["/a.hex",
-        "export record Crate = {size: Int}\n" +
+        "module A\n\n" + "export record Crate = {size: Int}\n" +
         "honor Show<Crate> =\n" +
         '    show(c) = "crate ${c.size}"\n' +
         "export fun crate(size: Int): Crate = Crate({size = size})\n"],
       ["/b.hex",
-        'import A from "./a"\n' +
+        "module B\n\n" + 'import A\n' +
         'export fun label(size: Int): String = "${A.crate(size)}"\n'],
     ] as const;
 
@@ -94,7 +94,7 @@ describe("an uncontested spelling is bare on both sides", () => {
     const main = await runProject([
       ...files,
       ["/main.hex",
-        'import B from "./b"\n' +
+        "module Main\n\n" + 'import B\n' +
         "export fun run(size: Int): String = B.label(size)\n"],
     ]);
     expect((main["run"] as (size: number) => string)(3)).toBe("crate 3");
@@ -109,19 +109,19 @@ describe("an uncontested spelling is bare on both sides", () => {
   test("the same project compiles to the same text twice", () => {
     const files = [
       ["/a.hex",
-        "export record Tally = {count: Int}\n" +
+        "module A\n\n" + "export record Tally = {count: Int}\n" +
         "honor Show<Tally> =\n" +
         '    show(t) = "tally ${t.count}"\n' +
         "honor Eq<Tally> =\n" +
         "    equals(l, r) = l.count == r.count\n" +
         "export fun tally(count: Int): Tally = Tally({count = count})\n"],
       ["/b.hex",
-        'import A from "./a"\n' +
+        "module B\n\n" + 'import A\n' +
         'export fun twice(n: Int): String = "${A.tally(n)}${A.tally(n)}"\n' +
         "export fun same(n: Int): Bool = A.tally(n) == A.tally(n)\n"],
     ] as const;
 
-    for (const path of ["/a.hex", "/b.hex"]) {
+    for (const path of ["/a.hex", "module A\n\n" + "/b.hex"]) {
       expect(emitted(files, path)).toBe(emitted(files, path));
     }
   });
@@ -143,18 +143,18 @@ describe("a re-export chain stops compounding", () => {
   test("transited evidence keeps the declaring module's spelling", async () => {
     const files = [
       ["/a.hex",
-        "export record Relayed = {tag: Int}\n" +
+        "module A\n\n" + "export record Relayed = {tag: Int}\n" +
         "honor Show<Relayed> =\n" +
         '    show(r) = "relayed ${r.tag}"\n'],
       ["/b.hex",
-        'import A from "./a"\n' +
+        "module B\n\n" + 'import A\n' +
         "export fun viaB(tag: Int): A.Relayed = A.Relayed({tag = tag})\n"],
       ["/c.hex",
-        'import B from "./b"\n' +
+        "module C\n\n" + 'import B\n' +
         'export fun render(tag: Int): String = "${B.viaB(tag)}"\n'],
     ] as const;
 
-    for (const path of ["/b.hex", "/c.hex"]) {
+    for (const path of ["/b.hex", "module B\n\n" + "/c.hex"]) {
       expect(new Set(showNames(emitted(files, path)))).toEqual(
         new Set(["__Show_Relayed"]),
       );
@@ -169,7 +169,7 @@ describe("a re-export chain stops compounding", () => {
     const main = await runProject([
       ...files,
       ["/main.hex",
-        'import C from "./c"\n' +
+        "module Main\n\n" + 'import C\n' +
         "export fun run(tag: Int): String = C.render(tag)\n"],
     ]);
     expect((main["run"] as (tag: number) => string)(7)).toBe("relayed 7");
@@ -189,12 +189,12 @@ describe("a contested spelling suffixes every contestant", () => {
   test("an import and a local instance both take suffixes, and the export stays bare", async () => {
     const files = [
       ["/a.hex",
-        "export record Ledger = {rows: Int}\n" +
+        "module A\n\n" + "export record Ledger = {rows: Int}\n" +
         "honor Show<Ledger> =\n" +
         '    show(l) = "a-ledger ${l.rows}"\n' +
         "export fun aLedger(rows: Int): Ledger = Ledger({rows = rows})\n"],
       ["/b.hex",
-        'import A from "./a"\n' +
+        "module B\n\n" + 'import A\n' +
         "export record Ledger = {name: String}\n" +
         "honor Show<Ledger> =\n" +
         '    show(l) = "b-ledger ${l.name}"\n' +
@@ -231,7 +231,7 @@ describe("a contested spelling suffixes every contestant", () => {
     const files2 = [
       ...files,
       ["/c.hex",
-        'import B from "./b"\n' +
+        "module C\n\n" + 'import B\n' +
         'export fun show(name: String): String = "${B.Ledger({name = name})}"\n'],
     ] as const;
     const c = emitted(files2, "/c.hex");
@@ -247,7 +247,7 @@ describe("a contested spelling suffixes every contestant", () => {
     const main = await runProject([
       ...files,
       ["/main.hex",
-        'import B from "./b"\n' +
+        "module Main\n\n" + 'import B\n' +
         "export fun runMine(name: String): String = B.mine(name)\n" +
         "export fun runTheirs(rows: Int): String = B.theirs(rows)\n"],
     ]);
@@ -266,12 +266,12 @@ describe("a contested spelling suffixes every contestant", () => {
   test("the numbering probes past a spelling another dictionary already prefers", () => {
     const files = [
       ["/a.hex",
-        "export record Note = {n: Int}\n" +
+        "module A\n\n" + "export record Note = {n: Int}\n" +
         "honor Show<Note> =\n" +
         '    show(x) = "a-note ${x.n}"\n' +
         "export fun aNote(n: Int): Note = Note({n = n})\n"],
       ["/b.hex",
-        'import A from "./a"\n' +
+        "module B\n\n" + 'import A\n' +
         "export record Note = {m: Int}\n" +
         "export record Note_1 = {k: Int}\n" +
         "honor Show<Note> =\n" +

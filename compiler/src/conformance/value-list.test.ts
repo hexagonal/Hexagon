@@ -78,7 +78,7 @@ describe("Step 1: the completed syntactic-value list", () => {
     const compiled = project({
       "/lib.hex": "export let empty: Seq(a) = Seq.empty\n",
       "/main.hex":
-        'import Lib from "./lib.hex"\n' +
+        'import Lib\n' +
         "let e = Lib.empty\n" +
         "export let ys: Seq(Int) = Seq.prepend(e, 42)\n" +
         'export let xs: Seq(String) = Seq.prepend(e, "Briar")\n',
@@ -205,11 +205,11 @@ describe("Step 1: the completed syntactic-value list", () => {
       "let twice = double\n" +
       "export let i: Int = twice(21)\n" +
       "export let f: Float = twice(1.5)\n";
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
     expect(exports.i).toBe(42);
     expect(exports.f).toBe(3);
     const javascript = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", source),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     expect(javascript).toContain("const twice = double;");
   });
@@ -243,7 +243,7 @@ describe("Step 1: the completed syntactic-value list", () => {
       'export let s: String = (holder.f)("x")\n';
     expect(diagnostics(source)).toEqual([]);
     const javascript = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", source),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     // `main`'s emission, exactly: the use pinned `a` to `String`, the evidence
     // went concrete, and the field holds the eta-expansion. Never the bare
@@ -356,7 +356,7 @@ describe("Step 1: the completed syntactic-value list", () => {
       const source = TAG + binding + use;
       expect(diagnostics(source)).toEqual([]);
       const javascript = compileProject([
-        new Source.File(Source.fileId(0), "/main.hex", source),
+        new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
       ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
       // Built inside the aggregate literal, at the concrete instance...
       expect(javascript).toContain(ETA);
@@ -374,7 +374,7 @@ describe("Step 1: the completed syntactic-value list", () => {
       '    g("x")\n';
     expect(diagnostics(source)).toEqual([]);
     const javascript = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", source),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     expect(javascript).toContain(ETA);
   });
@@ -402,7 +402,7 @@ describe("Step 1: the completed syntactic-value list", () => {
       const source = TAG + binding + use;
       expect(diagnostics(source)).toEqual([]);
       const javascript = compileProject([
-        new Source.File(Source.fileId(0), "/main.hex", source),
+        new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
       ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
       expect(javascript).toContain("= describe;");
       expect(javascript).not.toContain("undefined)");
@@ -430,7 +430,7 @@ describe("Step 1: the completed syntactic-value list", () => {
     ) {
       expect(diagnostics(source)).toEqual([]);
       const javascript = compileProject([
-        new Source.File(Source.fileId(0), "/main.hex", source),
+        new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
       ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
       expect(javascript).toContain(ETA);
       expect(javascript).not.toContain("undefined)");
@@ -447,7 +447,7 @@ describe("Step 1: the completed syntactic-value list", () => {
     const source = TAG + "let (g | g) = describe\n" + 'export let s: String = g("x")\n';
     expect(diagnostics(source)).toEqual([]);
     const javascript = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", source),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     expect(javascript).toContain("= describe;");
     expect(javascript).not.toContain("undefined)");
@@ -467,7 +467,7 @@ describe("Step 1: the completed syntactic-value list", () => {
       'export let s: String = g("x")\n';
     expect(diagnostics(destructuring)).toEqual([]);
     const other = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", destructuring),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + destructuring),
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     expect(other).toContain(ETA);
     expect(other).not.toContain("undefined)");
@@ -500,7 +500,7 @@ describe("Step 1: the completed syntactic-value list", () => {
     ) {
       expect(diagnostics(source)).toEqual([]);
       const javascript = compileProject([
-        new Source.File(Source.fileId(0), "/main.hex", source),
+        new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
       ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
       expect(javascript).toContain(ETA);
       expect(javascript).not.toContain("undefined)");
@@ -533,12 +533,12 @@ describe("Step 1: the completed syntactic-value list", () => {
       'export let s: String = g("a", True)\n';
     expect(diagnostics(one)).toEqual([]);
     const javascript = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", one),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + one),
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     expect(javascript).not.toContain("undefined");
     // Three parameters, not two: two values and the residual dictionary.
     expect(javascript).toMatch(/const g = \(__arg0, __arg1, __Tag_a\) =>/);
-    expect((await runMain(one)).s).toBe("bool");
+    expect((await runMain("module Main\n\n" + one)).s).toBe("bool");
 
     // Two residuals, to pin the *order*: consumers append in
     // `dictionaryEntries`' order — by (variable, constraint) — so the minted
@@ -549,7 +549,7 @@ describe("Step 1: the completed syntactic-value list", () => {
       "let g: (String, b, c) -> String = trio\n" +
       'export let s: String = g("a", True, n)\n';
     expect(diagnostics(two)).toEqual([]);
-    expect((await runMain(two)).s).toBe("int");
+    expect((await runMain("module Main\n\n" + two)).s).toBe("int");
 
     // The two ends of the gate still behave: all-resolved eta-expands with the
     // concrete instances, all-residual emits bare.
@@ -557,15 +557,15 @@ describe("Step 1: the completed syntactic-value list", () => {
       "let g: (String, Bool) -> String = pair\n" +
       'export let s: String = g("a", True)\n';
     expect(diagnostics(pinned)).toEqual([]);
-    expect((await runMain(pinned)).s).toBe("bool");
+    expect((await runMain("module Main\n\n" + pinned)).s).toBe("bool");
     const bare = PAIR +
       "let g: (a, b) -> String = pair\n" +
       'export let s: String = g("a", True)\n';
     expect(
-      compileProject([new Source.File(Source.fileId(0), "/main.hex", bare)])
+      compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + bare)])
         .modules.find((module) => module.source.path === "/main.hex")!.javascript.text,
     ).toContain("const g = pair;");
-    expect((await runMain(bare)).s).toBe("bool");
+    expect((await runMain("module Main\n\n" + bare)).s).toBe("bool");
   });
 
   test("(x-k) a declined variable is sunk, so a sibling cannot quantify it", () => {
@@ -580,7 +580,7 @@ describe("Step 1: the completed syntactic-value list", () => {
       'export let s: String = (k())("x")\n';
     expect(diagnostics(source)).toEqual([]);
     const javascript = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", source),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     expect(javascript).toContain(ETA);
     expect(javascript).toContain("const k = () =>");

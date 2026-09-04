@@ -19,7 +19,7 @@ import * as Typed from "../syntax/typed/index.js";
 
 /** The scheme the checker gave a top-level binding, as it renders it. */
 function scheme(source: string, name: string): string {
-  const compiled = compileMain(source);
+  const compiled = compileMain("module Main\n\n" + source);
   expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   const typed = compiled.modules.find(({ source: file }) => file.path === "/main.hex")!.typed;
   const symbol = typed.symbols.find(
@@ -31,7 +31,7 @@ function scheme(source: string, name: string): string {
 
 // Proves this file's harness can observe a failure.
 test("the harness reports a broken module rather than passing it", () => {
-  expect(projectDiagnostics("export let broken: Int = missing(1)\n").length).toBeGreaterThan(0);
+  expect(projectDiagnostics("module Main\n\n" + "export let broken: Int = missing(1)\n").length).toBeGreaterThan(0);
 });
 
 describe("§8.1 the proof pair", () => {
@@ -47,7 +47,7 @@ describe("§8.1 the proof pair", () => {
     // declared variable, being rigid, refuses it. Pinned to this row and not
     // merely to the family — the evidence-seat row is a different member, about
     // constraints defaulting cannot discharge, and it is not what fires here.
-    const messages = projectDiagnostics("let n: a = 42\nexport let out: Int = n\n");
+    const messages = projectDiagnostics("module Main\n\n" + "let n: a = 42\nexport let out: Int = n\n");
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("`a` is a declared type variable, but the body requires `Int`");
     // The Rewrite Rule: the diagnostic says what to write instead.
@@ -68,24 +68,21 @@ describe("§8.2 the degenerate whole-type hole is inert", () => {
   });
 
   test("§5.2 a hole in a `var` binding is inert too", () => {
-    expect(projectDiagnostics(
-      "export let out(): Int =\n    var total: _ = 0\n    total := total + 1\n    total\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let out(): Int =\n    var total: _ = 0\n    total := total + 1\n    total\n",
     )).toEqual([]);
   });
 });
 
 describe("§8.3 a constructor-claim hole", () => {
   test("§5.1 `Vector(_)` accepts a vector", () => {
-    expect(projectDiagnostics(
-      "let count(xs: Vector(_)): Int = Vector.length(xs)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let count(xs: Vector(_)): Int = Vector.length(xs)\n" +
         "export let out: Int = count([1, 2])\n",
     )).toEqual([]);
   });
 
   test("§5.1 `Vector(_)` still rejects a non-vector", () => {
     // The claim written *around* the hole is a claim like any other.
-    const messages = projectDiagnostics(
-      "let count(xs: Vector(_)): Int = Vector.length(xs)\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "let count(xs: Vector(_)): Int = Vector.length(xs)\n" +
         'export let out: Int = count("no")\n',
     );
     expect(messages.length).toBeGreaterThan(0);
@@ -103,8 +100,7 @@ describe("§8.3 a constructor-claim hole", () => {
 
 describe("§8.4 holes are independent", () => {
   test("§4.1 two holes in one annotation fill independently", () => {
-    expect(projectDiagnostics(
-      'let pair(p: (_, _)): Int = 1\nexport let out: Int = pair((1, "two"))\n',
+    expect(projectDiagnostics("module Main\n\n" + 'let pair(p: (_, _)): Int = 1\nexport let out: Int = pair((1, "two"))\n',
     )).toEqual([]);
   });
 
@@ -120,8 +116,7 @@ describe("§8.4 holes are independent", () => {
   test("§2.3 a hole links nothing — unlike a written variable", () => {
     // The same two positions, written `a` twice, claim generality *and* link.
     // The contrast is the point: no annotation form links without claiming.
-    expect(projectDiagnostics(
-      'let pair(p: (a, a)): Int = 1\nexport let out: Int = pair((1, "two"))\n',
+    expect(projectDiagnostics("module Main\n\n" + 'let pair(p: (a, a)): Int = 1\nexport let out: Int = pair((1, "two"))\n',
     ).length).toBeGreaterThan(0);
   });
 });
@@ -156,7 +151,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
       "export fun f(x: _): Int = 1\n",
       "export let v: _ = 42\n",
     ]) {
-      const messages = projectDiagnostics(source);
+      const messages = projectDiagnostics("module Main\n\n" + source);
       expect(messages).toContain(
         `an exported signature is complete (Modules §4.1.1); ${rewrite}`,
       );
@@ -166,8 +161,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
   test("an exported function's *body* is still an inference surface", () => {
     // The fence is on the signature. Fencing the body would make holes useless
     // in exactly the module that exports anything.
-    expect(projectDiagnostics(
-      "export let f(x: Int): Int =\n    let n: _ = x\n    n\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let f(x: Int): Int =\n    let n: _ = x\n    n\n",
     )).toEqual([]);
   });
 
@@ -191,7 +185,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
       ],
     ];
     for (const [source, form] of cases) {
-      expect(projectDiagnostics(source)).toContain(
+      expect(projectDiagnostics("module Main\n\n" + source)).toContain(
         `${form} writes its types in full; ${rewrite}`,
       );
     }
@@ -200,15 +194,13 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
   test("the intrinsic door is a declaration surface too", () => {
     // `spec/intrinsics.md` §3.4 grants the door *genericity*, which a hole is
     // not: it is still a written signature checked against no body.
-    expect(projectDiagnostics(
-      'extern from "hex:intrinsic"\n    fun seqMemoize as memoize(source: _): Int\n' +
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "hex:intrinsic"\n    fun seqMemoize as memoize(source: _): Int\n' +
         "export let out: Int = 1\n",
     )).toContain(`an \`extern\` declaration writes its types in full; ${rewrite}`);
   });
 
   test("an instance head is fenced, and the fence speaks before coherence does", () => {
-    const messages = projectDiagnostics(
-      "constraint C<a> =\n    m(x: a): Int\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "constraint C<a> =\n    m(x: a): Int\n" +
         "honor C<_> =\n    m(x) = 1\n" +
         "export let out: Int = 1\n",
     );
@@ -216,8 +208,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
   });
 
   test("a hole among the subject's *arguments* is fenced too", () => {
-    const messages = projectDiagnostics(
-      "constraint C<a> =\n    m(x: a): Int\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "constraint C<a> =\n    m(x: a): Int\n" +
         "honor C<Vector(_)> =\n    m(x) = 1\n" +
         "export let out: Int = 1\n",
     );
@@ -229,12 +220,10 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
   test("a hole cannot buy an extern the genericity v1 refuses it", () => {
     // The two refusals answer different questions and must not be confused: the
     // fence fires for `_`, the generic-extern rule for a written variable.
-    const hole = projectDiagnostics(
-      'extern from "./foreign.js"\n    fun f(x: _): Int\nexport let out: Int = 1\n',
+    const hole = projectDiagnostics("module Main\n\n" + 'extern from "./foreign.js"\n    fun f(x: _): Int\nexport let out: Int = 1\n',
     );
     expect(hole).not.toContain("generic extern declarations are not part of Hexagon v1");
-    expect(projectDiagnostics(
-      'extern from "./foreign.js"\n    fun f(x: a): Int\nexport let out: Int = 1\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./foreign.js"\n    fun f(x: a): Int\nexport let out: Int = 1\n',
     )).toContain("generic extern declarations are not part of Hexagon v1");
   });
 
@@ -245,7 +234,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
   describe("one written hole is one fence error, through an alias", () => {
     const PAIR = "type Pair(a) = (a, a)\n";
     const fences = (source: string): readonly string[] =>
-      projectDiagnostics(source).filter((message) => message.includes(rewrite));
+      projectDiagnostics("module Main\n\n" + source).filter((message) => message.includes(rewrite));
 
     test("an exported signature reports `Pair(_)` once", () => {
       expect(fences(`${PAIR}export let h(q: Pair(_)): Int = 1\n`)).toEqual([
@@ -316,7 +305,7 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
       // `withTypeSpan` exempts holes from substitution's re-pointing — so the
       // one error left is the one that was always right.
       const source = `${PAIR}export let h(q: Pair(_)): Int = 1\n`;
-      const { diagnostics } = compileMain(source);
+      const { diagnostics } = compileMain("module Main\n\n" + source);
       expect(diagnostics).toHaveLength(1);
       const { start, end } = diagnostics[0]!.primary;
       expect(source.split("\n")[start.line]!.slice(start.column, end.column)).toBe("_");
@@ -328,11 +317,11 @@ describe("§8.7 no hole in a constraint binder list (§5.3)", () => {
   test("`<a: _>` is a parse error, with no rule of its own to make it one", () => {
     // A constraint reference is an uppercase name, so there is no hole-shaped
     // position here to reject. The grammar already answers.
-    expect(projectDiagnostics("let f<a: _>(x: a) = x\n")).toContain("expected a constraint name");
+    expect(projectDiagnostics("module Main\n\n" + "let f<a: _>(x: a) = x\n")).toContain("expected a constraint name");
   });
 
   test("`<_: C>` is a parse error", () => {
-    expect(projectDiagnostics("let f<_: Num>(x: Int) = x\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "let f<_: Num>(x: Int) = x\n")).toContain(
       "type parameters must be non-uppercase-start names",
     );
   });
@@ -345,15 +334,13 @@ describe("§8.9 one written hole is one metavariable through substitution", () =
     // The alias body mentions `a` twice, so substitution copies the hole into
     // both positions. Freshening per copy would make `Pair(_)` mean `(a, b)`
     // and accept this, un-writing the alias's own contract.
-    const messages = projectDiagnostics(
-      `${PAIR}let f(p: Pair(_)): Int = 1\nexport let out: Int = f((1, "two"))\n`,
+    const messages = projectDiagnostics("module Main\n\n" + `${PAIR}let f(p: Pair(_)): Int = 1\nexport let out: Int = f((1, "two"))\n`,
     );
     expect(messages.length).toBeGreaterThan(0);
   });
 
   test("§4.1 `Pair(_)` accepts a tuple of one type", () => {
-    expect(projectDiagnostics(
-      `${PAIR}let f(p: Pair(_)): Int = 1\nexport let out: Int = f((1, 2))\n`,
+    expect(projectDiagnostics("module Main\n\n" + `${PAIR}let f(p: Pair(_)): Int = 1\nexport let out: Int = f((1, 2))\n`,
     )).toEqual([]);
   });
 
@@ -370,7 +357,7 @@ describe("§8.9 one written hole is one metavariable through substitution", () =
     const source = `${PAIR}let g(p: Pair(_)): Int = 1\n` +
       "let h(q: Pair(String)): Int = 1\n" +
       "export let out: Int = g((1, 2)) + h((\"a\", \"b\"))\n";
-    expect(projectDiagnostics(source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
   });
 
   test("§4.1 sharing survives an alias defined in terms of another", () => {
@@ -474,7 +461,7 @@ describe("§8.10 a seeded constraint reaches the scheme", () => {
   test("§4.4 base constraints ride along unstated", () => {
     // The constraint-list form is reused wholesale, entailment included: `Hash`
     // has `Eq` as a base, so `==` is reachable and adds nothing to the scheme.
-    expect(projectDiagnostics(`let f(x: _ : Hash) = x == x\n${TAIL}`)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + `let f(x: _ : Hash) = x == x\n${TAIL}`)).toEqual([]);
     expect(scheme(`let f(x: _ : Hash) = x == x\n${TAIL}`, "f")).toBe("<a: Hash> a -> Bool");
   });
 });
@@ -483,7 +470,7 @@ describe("§8.11 a seeded constraint refuses a bad fill", () => {
   test("§6.1 `_ : Num` filled at `Bool` is the ordinary missing-instance error", () => {
     // No new diagnostic family (§6.1): the error arises at the use that fixes
     // the fill, from ordinary instance resolution, and says only what it says.
-    expect(projectDiagnostics(`let f(x: _ : Num) = x and True\n${TAIL}`))
+    expect(projectDiagnostics("module Main\n\n" + `let f(x: _ : Num) = x and True\n${TAIL}`))
       .toEqual([
         "type `Bool` has no `Num` instance; its only legal homes are the module declaring " +
           "`Num` and the prelude module declaring `Bool`, both outside project source, so " +
@@ -497,15 +484,14 @@ describe("§8.11 a seeded constraint refuses a bad fill", () => {
     // indistinguishable here. The binder is *not* the twin to compare against:
     // a written variable is rigid, and rigidity answers first with Functions
     // §10's forced-to-a-concrete-type row — §3's divergence, not this one.
-    expect(projectDiagnostics(`let f(x: _ : Num) = x and True\n${TAIL}`))
-      .toEqual(projectDiagnostics(`let f(x: _) = x + x and True\n${TAIL}`));
-    expect(projectDiagnostics(`let f(x: _ : Num) = x and True\n${TAIL}`))
-      .toEqual(projectDiagnostics(`let f(x: Bool) = x + x\n${TAIL}`));
+    expect(projectDiagnostics("module Main\n\n" + `let f(x: _ : Num) = x and True\n${TAIL}`))
+      .toEqual(projectDiagnostics("module Main\n\n" + `let f(x: _) = x + x and True\n${TAIL}`));
+    expect(projectDiagnostics("module Main\n\n" + `let f(x: _ : Num) = x and True\n${TAIL}`))
+      .toEqual(projectDiagnostics("module Main\n\n" + `let f(x: Bool) = x + x\n${TAIL}`));
   });
 
   test("§4.4 a fill that satisfies the seed is accepted, dictionary and all", () => {
-    expect(projectDiagnostics(
-      "let double(x: _ : Num) = x + x\nexport let out: Int = double(21)\n",
+    expect(projectDiagnostics("module Main\n\n" + "let double(x: _ : Num) = x + x\nexport let out: Int = double(21)\n",
     )).toEqual([]);
   });
 });
@@ -557,30 +543,30 @@ describe("§8.13 grammar boundaries", () => {
   test("§9 item 9 `x: Int : Num` is a parse error", () => {
     // Only a hole admits the suffix. A written type's instances are facts the
     // checker already knows, so the claim would be redundant where it is true.
-    const messages = projectDiagnostics(`let f(x: Int : Num) = x\n${TAIL}`);
+    const messages = projectDiagnostics("module Main\n\n" + `let f(x: Int : Num) = x\n${TAIL}`);
     expect(messages).toContain("expected `)` after parameters");
   });
 
   test("§9 item 9 `Vector(a : Show)` is a parse error", () => {
     // The named variable's constraint home is its binder, and nothing changed
     // about that: the suffix rides the hole, not the type-argument position.
-    const messages = projectDiagnostics(`let f(xs: Vector(a : Show)) = xs\n${TAIL}`);
+    const messages = projectDiagnostics("module Main\n\n" + `let f(xs: Vector(a : Show)) = xs\n${TAIL}`);
     expect(messages).toContain("expected `)` after type arguments");
   });
 
   test("§5.3 the binder list still refuses both hole shapes", () => {
     // §8.7's pins restated against the new grammar: adding the suffix to the
     // hole must not have opened a hole-shaped position inside `<...>`.
-    expect(projectDiagnostics("let f<a: _>(x: a) = x\n")).toContain("expected a constraint name");
-    expect(projectDiagnostics("let f<_: Num>(x: Int) = x\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "let f<a: _>(x: a) = x\n")).toContain("expected a constraint name");
+    expect(projectDiagnostics("module Main\n\n" + "let f<_: Num>(x: Int) = x\n")).toContain(
       "type parameters must be non-uppercase-start names",
     );
   });
 
   test("§4.4 an unknown constraint reads exactly as it does in a binder", () => {
-    expect(projectDiagnostics(`let f(x: _ : Nope) = x\n${TAIL}`))
-      .toEqual(projectDiagnostics(`let f<a: Nope>(x: a) = x\n${TAIL}`));
-    expect(projectDiagnostics(`let f(x: _ : Nope) = x\n${TAIL}`))
+    expect(projectDiagnostics("module Main\n\n" + `let f(x: _ : Nope) = x\n${TAIL}`))
+      .toEqual(projectDiagnostics("module Main\n\n" + `let f<a: Nope>(x: a) = x\n${TAIL}`));
+    expect(projectDiagnostics("module Main\n\n" + `let f(x: _ : Nope) = x\n${TAIL}`))
       .toContain(
         "unknown constraint `Nope`; import its home module under the alias " +
           "`Nope` for qualified access",
@@ -595,7 +581,7 @@ describe("§8.13 grammar boundaries", () => {
       "{ name: _ : Show }",
       "Map(String, _ : Show)",
     ]) {
-      expect(projectDiagnostics(`let f(x: ${annotation}) = x\n${TAIL}`), annotation).toEqual([]);
+      expect(projectDiagnostics("module Main\n\n" + `let f(x: ${annotation}) = x\n${TAIL}`), annotation).toEqual([]);
     }
   });
 });
@@ -613,15 +599,14 @@ describe("§8.14 seeding survives substitution as one obligation", () => {
   test("§4.4 one obligation, not two — one dictionary reaches the emitted function", () => {
     // The scheme's display would dedupe a doubled obligation; the evidence
     // parameter list is where a second variable would actually show.
-    const compiled = compileMain(`${PAIR}let g(p: Pair(_ : Num)) = p\n${TAIL}`);
+    const compiled = compileMain("module Main\n\n" + `${PAIR}let g(p: Pair(_ : Num)) = p\n${TAIL}`);
     expect(compiled.diagnostics).toEqual([]);
     const emitted = compiled.modules.find(({ source }) => source.path === "/main.hex")!.javascript;
     expect(emitted.text.match(/__Num_a\b/g) ?? []).toHaveLength(1);
   });
 
   test("§4.4 the shared seed is checked once, at whatever fixes the fill", () => {
-    expect(projectDiagnostics(
-      `${PAIR}let g(p: Pair(_ : Num)): Int = 1\nexport let out: Int = g(("a", "b"))\n`,
+    expect(projectDiagnostics("module Main\n\n" + `${PAIR}let g(p: Pair(_ : Num)): Int = 1\nexport let out: Int = g(("a", "b"))\n`,
     )).toEqual([
       "type `String` has no `Num` instance; its only legal homes are the module declaring " +
         "`Num` and `String`'s prelude companion module, both outside project source, so " +
@@ -634,10 +619,10 @@ describe("§8.14 seeding survives substitution as one obligation", () => {
 describe("§8 residue: the fence and hover need no new case (§5.4, §7)", () => {
   test("§5.4 a constrained hole in a fenced position still errors", () => {
     // The suffix rides the hole, so the existing sweep already sees it.
-    expect(projectDiagnostics("export let f(x: _ : Show): Int = 1\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "export let f(x: _ : Show): Int = 1\n")).toContain(
       "an exported signature is complete (Modules §4.1.1); replace `_` with the intended type",
     );
-    expect(projectDiagnostics(`type T = Vector(_ : Show)\n${TAIL}`)).toContain(
+    expect(projectDiagnostics("module Main\n\n" + `type T = Vector(_ : Show)\n${TAIL}`)).toContain(
       "a `type` declaration writes its types in full; replace `_` with the intended type",
     );
   });

@@ -5,7 +5,7 @@ import { displayScheme } from "./display.js";
 import { type Effect, typeVariableId, type Scheme, type Type } from "./tree.js";
 import { unionId } from "../resolved/tree.js";
 
-const source = new Source.File(Source.fileId(0), "test.hex", "");
+const source = new Source.File(Source.fileId(0), "test.hex", "module Test\n\n" + "");
 
 describe("displayScheme", () => {
   test("uses Hexagon names for primitive and polymorphic function types", () => {

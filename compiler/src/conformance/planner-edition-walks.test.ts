@@ -61,7 +61,7 @@ import { compileMain, runMain } from "../support/test-project.js";
 
 /** One module's emitted JavaScript, with the project's diagnostics asserted empty. */
 function javascript(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
@@ -110,7 +110,7 @@ describe("the derived walks reach an edition's substituted component types", () 
     for (const edition of ["Int", "Bool", "Unit", "String"]) {
       expect(emitted).toContain(`ranks${edition}(`);
     }
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     // The head decides in the first three; the tail decides nowhere, because
     // every pair's heads differ. `Unit`'s heads are equal, so its tail decides.
     expect(module.byCount).toBe(true);
@@ -136,7 +136,7 @@ describe("the derived walks reach an edition's substituted component types", () 
       "",
     ].join("\n");
     expect(javascript(source)).not.toContain("undefined.");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     // `Bool`'s rendering is the union's own — `"True"`, not the host's
     // `String(x)` — which is exactly what the edition's `Structural` evidence
     // over `stdlib/Bool.hex`'s declaration buys (#147).
@@ -168,7 +168,7 @@ describe("the derived walks reach an edition's substituted component types", () 
     ].join("\n");
     const emitted = javascript(source);
     expect(emitted).not.toContain("undefined.");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.sameCounts).toBe(true);
     expect(module.otherCounts).toBe(false);
     expect(module.sameMarks).toBe(false);
@@ -196,7 +196,7 @@ describe("the derived walks reach an edition's substituted component types", () 
       "",
     ].join("\n");
     expect(javascript(source)).not.toContain("undefined.");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.digitsAgree).toBe(true);
     expect(module.digitsDiffer).toBe(false);
     expect(module.marksAgree).toBe(true);
@@ -233,7 +233,7 @@ describe("the derived walks reach an edition's substituted component types", () 
     // The edition body is the ground one: the whole nest folds into a single
     // hoisted dictionary named for the substituted element type.
     expect(emitted).toContain("__Eq_Vector_String_Int.equals(x, y)");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.rowsAgree).toBe(true);
     expect(module.rowsDiffer).toBe(false);
     expect(module.flagsAgree).toBe(true);
@@ -254,7 +254,7 @@ describe("the derived walks reach an edition's substituted component types", () 
       "",
     ].join("\n");
     expect(javascript(shown)).not.toContain("undefined.");
-    expect((await runMain(shown)).raisedText).toBe("[True, False]");
+    expect((await runMain("module Main\n\n" + shown)).raisedText).toBe("[True, False]");
 
     const ordered = [
       "export let sortedBefore<a: Ord>(x: Vector(a), y: Vector(a)): Bool =",
@@ -267,7 +267,7 @@ describe("the derived walks reach an edition's substituted component types", () 
       "",
     ].join("\n");
     expect(javascript(ordered)).not.toContain("undefined.");
-    expect((await runMain(ordered)).runsAscend).toBe(true);
+    expect((await runMain("module Main\n\n" + ordered)).runsAscend).toBe(true);
   });
 
   test("a structural record's field component", async () => {
@@ -287,7 +287,7 @@ describe("the derived walks reach an edition's substituted component types", () 
       "",
     ].join("\n");
     expect(javascript(source)).not.toContain("undefined.");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.rowsAgree).toBe(true);
     expect(module.rowsDiffer).toBe(false);
     expect(module.blankRowsAgree).toBe(true);
@@ -310,7 +310,7 @@ describe("the derived walks reach an edition's substituted component types", () 
     const emitted = javascript(source);
     expect(emitted).not.toContain("undefined.");
     expect(emitted).toContain("chainedOrderInt(lowPair, highPair)");
-    expect((await runMain(source)).chainAscends).toBe(true);
+    expect((await runMain("module Main\n\n" + source)).chainAscends).toBe(true);
   });
 });
 
@@ -347,7 +347,7 @@ describe("the multi-variable cartesian, the defect's largest instance", () => {
     // Both positions substituted, in the same edition and in both orders.
     expect(emitted).toContain("function pairedIntString(");
     expect(emitted).toContain("function pairedStringInt(");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     // `pairedIntString` and `pairedBoolUnit` are the two run here: a primitive
     // beside a primitive, and the two `Structural`-evidence fundamentals beside
     // each other — the pairing a `Primitive`-only repair would miss twice over.
@@ -390,7 +390,7 @@ describe("an edition does not reach past a hand-written component instance", () 
     // And never reads the component's representation itself: `.reach` belongs to
     // `Yards`' own instances alone.
     expect(emitted).not.toContain("__left[1].reach");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     // The heads are equal, so the component decides — and it decides the honor's
     // way, which is backwards. Agreement with the ground expression is the pin;
     // `false` is what agreement happens to equal.
@@ -429,7 +429,7 @@ describe("the `Map` value seat an edition reaches through `#subDictionary`", () 
     expect(emitted).not.toContain("undefined.");
     expect(emitted).toContain("__mapEquals(__Hash_Int, __Eq_Bool, x, y)");
     expect(emitted).toContain("keyedSameBool(stored, restored)");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.storesAgree).toBe(true);
     expect(module.storesDiffer).toBe(false);
   });

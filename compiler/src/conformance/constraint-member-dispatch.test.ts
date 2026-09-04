@@ -44,7 +44,7 @@ function diagnostics(files: readonly (readonly [string, string])[]): readonly st
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let n: Int = totl(1)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = totl(1)\n")).toEqual([
       "unknown name `totl`",
     ]);
   });
@@ -127,7 +127,7 @@ describe("only subject-first members are in the operation set (§4.2)", () => {
    * member exists and has a spelling, just not this one.
    */
   test("a member whose subject appears only in the return is not a spelling", () => {
-    expect(projectDiagnostics("export let n: Int = 3.fromNat(2)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = 3.fromNat(2)\n")).toEqual([
       "`Int` has no field `fromNat`, its companion exports no operation `fromNat`, " +
       "and no constraint honored at `Int` has a subject-first member `fromNat`; " +
       "`Num`'s member `fromNat` does not take its constraint's subject first — " +
@@ -269,8 +269,7 @@ describe("declared type variables dispatch their bounds' members (§3.4)", () =>
   });
 
   test("a bound with no such member takes §9 row 7's options message, never a row", () => {
-    expect(projectDiagnostics(
-      "export let go<a: Show>(value: a): Int = value.process()\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let go<a: Show>(value: a): Int = value.process()\n",
     )).toEqual([
       "`a` is a declared type variable, so `.process` can only be one of its " +
       "constraints' members, and none of `a`'s constraints has a subject-first " +
@@ -306,8 +305,7 @@ describe("the defaulting step precedes the row fallback (§3.3, §3.5)", () => {
    * this test is about is unchanged.
    */
   test("an unknown name on a defaultable receiver is the row-4 error, phrased against `Int`", () => {
-    expect(projectDiagnostics(
-      "let m(x) = Num.add(x, x.total(1))\nexport let n: Int = m(1)\n",
+    expect(projectDiagnostics("module Main\n\n" + "let m(x) = Num.add(x, x.total(1))\nexport let n: Int = m(1)\n",
     )).toEqual([
       "`Int` has no field `total`, its companion exports no operation `total`, " +
       "and no constraint honored at `Int` has a subject-first member `total`; " +
@@ -336,8 +334,8 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
   test("`Rat.add(r1, r2)` is `Num<Rat>`'s member, executed", async () => {
     const exports = await runProject([
       ["/Rat.hex", stdlib("Rat.hex")],
-      ["/main.hex", [
-        'import Rat from "./Rat"',
+      ["/main.hex", "module Main\n\n" + [
+        'import Rat',
         "",
         "export let total: String = \"${Rat.add(Rat.fromInt(1), Rat.fromInt(2))}\"",
         "export let scaled: String = \"${Rat.multiply(Rat.fromInt(3), Rat.fromInt(4))}\"",
@@ -391,7 +389,7 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
   });
 
   test("a qualified member reference is pinned at the type the module honors", () => {
-    expect(projectDiagnostics('export let wrong: String = Int.show("hi")\n')).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + 'export let wrong: String = Int.show("hi")\n')).toEqual([
       "type mismatch: expected Int, found String",
     ]);
   });
@@ -407,7 +405,7 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
 
   test("honoring one constraint at several own types makes the spelling ambiguous", () => {
     expect(diagnostics([
-      ["/shapes.hex", [
+      ["/shapes.hex", "module Shapes\n\n" + [
         "export record Disc = {radius: Int}",
         "export record Bar = {width: Int}",
         "",
@@ -418,8 +416,8 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
         '    show(bar) = "Bar"',
         "",
       ].join("\n")],
-      ["/main.hex", [
-        'import Shapes from "./shapes"',
+      ["/main.hex", "module Main\n\n" + [
+        'import Shapes',
         "",
         "export let drawn: String = Shapes.show(Shapes.Disc({radius = 1}))",
         "",
@@ -453,19 +451,19 @@ describe("qualified access reaches the members a module honors (Modules §5.3)",
 describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
   test("two constraints honored at one type refuse the fused form, naming both homes", () => {
     expect(diagnostics([
-      ["/loud.hex", [
+      ["/loud.hex", "module Loud\n\n" + [
         "export constraint Loud<a> =",
         "    volume(value: a): Int",
         "",
       ].join("\n")],
-      ["/soft.hex", [
+      ["/soft.hex", "module Soft\n\n" + [
         "export constraint Soft<a> =",
         "    volume(value: a): Int",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        'import Loud from "./loud"',
-        'import Soft from "./soft"',
+      ["/main.hex", "module Main\n\n" + [
+        'import Loud',
+        'import Soft',
         "",
         "export record Gauge = {needle: Int}",
         "",
@@ -486,19 +484,19 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
 
   test("a binder carrying two same-spelled members refuses on the declared variable", () => {
     expect(diagnostics([
-      ["/near.hex", [
+      ["/near.hex", "module Near\n\n" + [
         "export constraint Near<a> =",
         "    reach(value: a): Int",
         "",
       ].join("\n")],
-      ["/far.hex", [
+      ["/far.hex", "module Far\n\n" + [
         "export constraint Far<a> =",
         "    reach(value: a): Int",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        'import Near from "./near"',
-        'import Far from "./far"',
+      ["/main.hex", "module Main\n\n" + [
+        'import Near',
+        'import Far',
         "",
         "export let span<a: (Near.Near, Far.Far)>(value: a): Int = value.reach()",
         "",
@@ -518,13 +516,13 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
    */
   test("a refusal inside the declaring module spells its own claimant bare", () => {
     expect(diagnostics([
-      ["/quiet.hex", [
+      ["/quiet.hex", "module Quiet\n\n" + [
         "export constraint Quiet<a> =",
         "    level(value: a): Int",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        'import Quiet from "./quiet"',
+      ["/main.hex", "module Main\n\n" + [
+        'import Quiet',
         "",
         "constraint Brash<a> =",
         "    level(value: a): Int",
@@ -561,13 +559,13 @@ describe("duplicate claimants refuse, and never rank (§6, §9 row 6)", () => {
    */
   test("two constraints binding one spelling refuse the bare in-module use", () => {
     expect(diagnostics([
-      ["/warm.hex", [
+      ["/warm.hex", "module Warm\n\n" + [
         "export constraint Warm<a> =",
         "    show(value: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        'import Warm from "./warm"',
+      ["/main.hex", "module Main\n\n" + [
+        'import Warm',
         "",
         "export record Probe = {reading: Int}",
         "",

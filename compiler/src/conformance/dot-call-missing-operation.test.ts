@@ -36,7 +36,7 @@ function diagnostics(files: readonly (readonly [string, string])[]): readonly st
 describe("a missing companion operation reports rather than crashing (#212)", () => {
   test("the filed reproduction: a `Seq` receiver with a bare integer argument", () => {
     expect(
-      projectDiagnostics("export fun go(s: Seq(Int)): Seq(Int) = s.bogus(1)\n"),
+      projectDiagnostics("module Main\n\n" + "export fun go(s: Seq(Int)): Seq(Int) = s.bogus(1)\n"),
     ).toEqual([
       "`Seq(Int)` has no field `bogus`, its companion exports no operation `bogus`, and no constraint honored at `Seq(Int)` has a subject-first member `bogus`; call an available subject-first function explicitly",
     ]);
@@ -44,8 +44,7 @@ describe("a missing companion operation reports rather than crashing (#212)", ()
 
   test("a `Vector` receiver, reached through an annotation", () => {
     expect(
-      projectDiagnostics(
-        "export let blank: Vector(Int) = []\n" +
+      projectDiagnostics("module Main\n\n" + "export let blank: Vector(Int) = []\n" +
           "export let counts: Vector(Int) = blank.nope(1)\n",
       ),
     ).toEqual([
@@ -55,8 +54,7 @@ describe("a missing companion operation reports rather than crashing (#212)", ()
 
   test("a record receiver whose representation is visible", () => {
     expect(
-      projectDiagnostics(
-        "record P = {x: Int}\n" +
+      projectDiagnostics("module Main\n\n" + "record P = {x: Int}\n" +
           "let p = P({x = 1})\n" +
           "export let q = p.nope(1)\n",
       ),
@@ -73,8 +71,7 @@ describe("a misspelling beside a correctly-spelled operation", () => {
   // still takes the diagnostic — with a bare integer argument, the shape that
   // used to crash the compile.
   test("a correctly-spelled core operation reports nothing", () => {
-    expect(projectDiagnostics(
-      "export let v: Vector(Int) = [1, 2].append(3)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let v: Vector(Int) = [1, 2].append(3)\n" +
         "export let n: Int = [1, 2].at(1)\n",
     )).toEqual([]);
   });
@@ -83,7 +80,7 @@ describe("a misspelling beside a correctly-spelled operation", () => {
   // when the message is rendered — `Vector(a)` since #649, where it used to be
   // an allocation counter the pin could only match rather than spell.
   test("a misspelled one on the same receiver still reports", () => {
-    const messages = projectDiagnostics("export let v: Vector(Int) = [1, 2].appendd(3)\n");
+    const messages = projectDiagnostics("module Main\n\n" + "export let v: Vector(Int) = [1, 2].appendd(3)\n");
 
     expect(messages).toEqual([
       "`Vector(a)` has no field `appendd`, its companion exports no operation " +
@@ -104,8 +101,7 @@ describe("a module-level binding that shadows a real operation", () => {
   // other case here; this one no longer abandons.
   test("`s.take(1)` under `let take: Int` reaches `Seq.take`", () => {
     expect(
-      projectDiagnostics(
-        "export let take: Int = 5\n" +
+      projectDiagnostics("module Main\n\n" + "export let take: Int = 5\n" +
           "export fun go(s: Seq(Int)): Seq(Int) = s.take(1)\n",
       ),
     ).toEqual([]);
@@ -125,7 +121,7 @@ describe("a member name with no instance behind it is still a misspelling", () =
       diagnostics([
         [
           "/vault.hex",
-          "opaque record Token = {show: (Int) -> Int}\n" +
+          "module Vault\n\n" + "opaque record Token = {show: (Int) -> Int}\n" +
             "export fun issue(f: (Int) -> Int): Token = Token({show = f})\n",
         ],
         [
@@ -133,7 +129,7 @@ describe("a member name with no instance behind it is still a misspelling", () =
           // Rule 3's companion fallback (Modules §3.2, #762): the alias's own
           // spelling `Token` equals the exported record's, so the annotation
           // reaches it bare with no named import to write.
-          'import Token from "./vault"\n' +
+          'import Vault as Token\n' +
             "export fun probe(t: Token): Int = t.show(1)\n",
         ],
       ]),
@@ -149,7 +145,7 @@ describe("the controls that already reported before the fix", () => {
   // argument had anything for materialization to miss. They must keep reporting.
   test("a float argument", () => {
     expect(
-      projectDiagnostics("export fun go(s: Seq(Int)): Seq(Int) = s.bogus(1.5)\n"),
+      projectDiagnostics("module Main\n\n" + "export fun go(s: Seq(Int)): Seq(Int) = s.bogus(1.5)\n"),
     ).toEqual([
       "`Seq(Int)` has no field `bogus`, its companion exports no operation `bogus`, and no constraint honored at `Seq(Int)` has a subject-first member `bogus`; call an available subject-first function explicitly",
     ]);
@@ -157,8 +153,7 @@ describe("the controls that already reported before the fix", () => {
 
   test("a named `Int` binding as the argument", () => {
     expect(
-      projectDiagnostics(
-        "export let blank: Vector(Int) = []\n" +
+      projectDiagnostics("module Main\n\n" + "export let blank: Vector(Int) = []\n" +
           "let one: Int = 1\n" +
           "export let counts: Vector(Int) = blank.nope(one)\n",
       ),
@@ -169,8 +164,7 @@ describe("the controls that already reported before the fix", () => {
 
   test("no arguments at all", () => {
     expect(
-      projectDiagnostics(
-        "let xs: Vector(Int) = [1, 2]\n" +
+      projectDiagnostics("module Main\n\n" + "let xs: Vector(Int) = [1, 2]\n" +
           "export let blank = xs.vacant()\n",
       ),
     ).toContain(

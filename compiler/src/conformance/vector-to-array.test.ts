@@ -163,7 +163,7 @@ function counting(count: number): readonly number[] {
 }
 
 beforeAll(async () => {
-  exports_ = await runMain(PROGRAM);
+  exports_ = await runMain("module Main\n\n" + PROGRAM);
 });
 
 describe("eager: the answer is a real JavaScript array (§9)", () => {
@@ -421,11 +421,9 @@ describe("total: there is no failure mode (§9)", () => {
 
 describe("both spellings reach the same door row (Modules §5.5)", () => {
   test("the qualified form and the dot call compile", () => {
-    expect(projectDiagnostics(
-      "export let a(v: Vector(Int)): Array(Int) = Vector.toArray(v)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let a(v: Vector(Int)): Array(Int) = Vector.toArray(v)\n",
     )).toEqual([]);
-    expect(projectDiagnostics(
-      "export let b(v: Vector(Int)): Array(Int) = v.toArray()\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let b(v: Vector(Int)): Array(Int) = v.toArray()\n",
     )).toEqual([]);
   });
 
@@ -445,7 +443,7 @@ describe("both spellings reach the same door row (Modules §5.5)", () => {
    * can see.
    */
   test("the bare call is refused, naming the dot form and both exporters", () => {
-    expect(projectDiagnostics("export let c(v: Vector(Int)): Array(Int) = toArray(v)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let c(v: Vector(Int)): Array(Int) = toArray(v)\n"))
       .toEqual([
         "no bare `toArray`; write `v.toArray()`, `Vector.toArray(v)`, or `JsValue.toArray(v)`",
       ]);
@@ -453,8 +451,7 @@ describe("both spellings reach the same door row (Modules §5.5)", () => {
 
   /** `JsValue`'s row is untouched: its own qualified spelling still resolves. */
   test("`JsValue.toArray` still means `JsValue`'s", () => {
-    expect(projectDiagnostics(
-      "export let d(v: JsValue): Result(Array(JsValue), JsConversionError) = JsValue.toArray(v)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let d(v: JsValue): Result(Array(JsValue), JsConversionError) = JsValue.toArray(v)\n",
     )).toEqual([]);
   });
 });
@@ -471,7 +468,7 @@ describe("the `.d.ts` face is the `Array(a)` row (Part 1 §4.1, §9.1 obligation
    * still typecheck.
    */
   test("the prelude's `Vector.d.ts` carries the generic row and its doc", () => {
-    const compiled = compileMain(FACE);
+    const compiled = compileMain("module Main\n\n" + FACE);
     expect(compiled.diagnostics).toEqual([]);
     const vector = compiled.modules.find(({ source }) => source.path.endsWith("/Vector.hex"));
     expect(vector).toBeDefined();
@@ -488,7 +485,7 @@ describe("the `.d.ts` face is the `Array(a)` row (Part 1 §4.1, §9.1 obligation
   });
 
   test("the result position renders `ReadonlyArray<number>`", () => {
-    const compiled = compileMain(FACE);
+    const compiled = compileMain("module Main\n\n" + FACE);
     expect(compiled.diagnostics).toEqual([]);
     const main = compiled.modules.find(({ source }) => source.path === "/main.hex");
     expect(main!.declarations.text).toContain(
@@ -505,7 +502,7 @@ describe("the `.d.ts` face is the `Array(a)` row (Part 1 §4.1, §9.1 obligation
    * one it borrowed, and the face is the same either way.
    */
   test("a TypeScript consumer reads the produced array and cannot write to it", async () => {
-    const compiled = compileMain(FACE);
+    const compiled = compileMain("module Main\n\n" + FACE);
     expect(compiled.diagnostics).toEqual([]);
     const files: Record<string, string> = {};
     for (const module of compiled.modules) {

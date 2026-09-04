@@ -10,9 +10,29 @@ import type * as Source from "../../support/source.js";
 import type { Documentation } from "../../support/documentation.js";
 import type { ForeignLiteral } from "../../support/foreign-literal.js";
 
+/**
+ * A module's declared name — the header's own text (Modules §2.1, #829).
+ *
+ * Dotted names are one name, not a path: `text` is the whole spelling
+ * (`Render.Geometry`) and `segments` its uppercase-start parts, which the
+ * first-segment rule (Modules §2.2) reads and nothing else does.
+ *
+ * `declared` is false for the name a **headerless** file recovers under — the
+ * basename derivation the fixit offers (§2.1). The derivation serves the fixit
+ * only; a false flag is how every later pass knows the file said nothing.
+ */
+export interface ModuleName {
+  readonly text: string;
+  readonly segments: readonly Name[];
+  readonly span: Source.Span;
+  readonly declared: boolean;
+}
+
 export interface Module {
   readonly kind: "Module";
   readonly fileId: Source.FileId;
+  /** This module's declared name (Modules §2.1) — its identity (§1). */
+  readonly name: ModuleName;
   readonly items: readonly Item[];
   readonly comments: readonly Source.Comment[];
   /**
@@ -148,16 +168,21 @@ export interface WidensTarget {
 }
 
 /**
- * An `import` binds a module and nothing smaller (Modules §3, #762). One
- * binding form reaches this tree — `import Geo from "./geometry"` — so the
- * item carries the alias directly and there is no form to discriminate: the
- * named list, the namespace glob, the former `import module` head, and the
- * effect import are all refused in the parser, and none of them survives as a
- * shape a later pass has to read.
+ * An `import` names a module and binds it, and nothing smaller (Modules §3,
+ * #762, #829). One binding form reaches this tree — `import Geometry`,
+ * `import Render.Geometry as Geo` — so the item carries the written module
+ * name and the alias directly and there is no form to discriminate: the path
+ * form, the named list, the namespace glob, the former `import module` head,
+ * and the effect import are all refused in the parser, and none of them
+ * survives as a shape a later pass has to read.
+ *
+ * There is no specifier. A module's name is its identity (Modules §1), and the
+ * path of the file holding it means nothing to the language; the specifier the
+ * emitter writes is computed from the two modules' names (§11.2).
  */
 export interface ImportItem {
   readonly kind: "Import";
-  readonly specifier: string;
+  readonly module: ModuleName;
   readonly alias: Name;
   readonly span: Source.Span;
 }

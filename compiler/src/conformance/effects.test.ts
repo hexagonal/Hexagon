@@ -31,7 +31,7 @@ function effectDiagnostics(
  * this is only a name for the one-file shape the `Seq` probes below share.
  */
 function withSeq(main: string): readonly string[] {
-  return effectDiagnostics([["/main.hex", main]]);
+  return effectDiagnostics([["/main.hex", "module Main\n\n" + main]]);
 }
 
 /** Every fix replacement a project offered, so a test can pin the fixit text. */
@@ -103,7 +103,7 @@ const typeArrowRedirect =
 
 describe("the discipline, unconditional", () => {
   it("compiles the whole prelude and runtime clean", () => {
-    expect(effectDiagnostics([["/main.hex", "export let x: Int = 1\n"]])).toEqual([]);
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]])).toEqual([]);
   });
 
   it("compiles the migrated Seq clean — the acceptance test", () => {
@@ -126,7 +126,7 @@ describe("#355 fold's body — the designated specimen, six directions", () => {
     // no-mutation case may leave the body untouched.
     expect(mutatedBody === foldBody).toBe(next === "" && combine === "?");
     const mutated = seqSource.slice(0, seqSource.indexOf("export let fold(")) + mutatedBody;
-    return effectDiagnostics([["/Seq.hex", mutated], ["/main.hex", "export let x: Int = 1\n"]]);
+    return effectDiagnostics([["/Seq.hex", "module Seq\n\n" + mutated], ["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]]);
   }
 
   it("wants no mark on `next` and `?` on `combine`", () => {
@@ -143,7 +143,7 @@ describe("#355 fold's body — the designated specimen, six directions", () => {
   it("bare -> `!`: a bare call on a constant-impure arrow is refused", () => {
     // `save` is impure by ruling 4's extern default, and the report names `!`.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let run(document: String): Unit = save(document)
 `]]),
     ).toEqual([
@@ -172,7 +172,7 @@ export let run(document: String): Unit = save(document)
 
   it("`?` -> `!`: a conduit claimed where the colour is the impure constant", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let run(document: String): Unit = save?(document)
 `]]),
     ).toEqual([
@@ -183,7 +183,7 @@ export let run(document: String): Unit = save?(document)
   it("offers exactly one token as the fix, in each direction", () => {
     const mutated = seqSource.replace("combine?(accumulator, value)", "combine!(accumulator, value)");
     expect(
-      effectFixes([["/Seq.hex", mutated], ["/main.hex", "export let x: Int = 1\n"]]),
+      effectFixes([["/Seq.hex", "module Seq\n\n" + mutated], ["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"]]),
     ).toEqual(['mark the call `?`: "?"']);
   });
 });
@@ -204,7 +204,7 @@ export let compose(first: String ->? String, second: String ->? String): (String
 
   it("a call that only wires impurity through is bare", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${compose}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${compose}
 export let wired: (String ->! String) = compose(save2, audit2)
 `]]),
     ).toEqual([]);
@@ -212,7 +212,7 @@ export let wired: (String ->! String) = compose(save2, audit2)
 
   it("but the composite it returns demands `!` at its own call", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${compose}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${compose}
 export let run(document: String): String = compose(save2, audit2)(document)
 `]]),
     ).toEqual([
@@ -233,7 +233,7 @@ describe("#405 the inlet rule — `->?` is refused where nothing can link it", (
     // Never the else-constant rule's client: a user extern is impure by the
     // ownership split (§6.1), and always was.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let ask(): String = readLine!()
 `]]),
     ).toEqual([]);
@@ -241,7 +241,7 @@ export let ask(): String = readLine!()
 
   it("refuses to let a caller instantiate it pure", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let ask(): String = readLine()
 `]]),
     ).toEqual([
@@ -251,7 +251,7 @@ export let ask(): String = readLine()
 
   it("colours the enclosing function, so its own callers wear `!` too", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let ask(): String = readLine!()
 export let twice(): String = ask() ++ ask!()
 `]]),
@@ -265,7 +265,7 @@ export let twice(): String = ask() ++ ask!()
     // a record declaration has no signature to quantify over, so the arrow has
     // nothing to denote — and a rejection is not a second meaning.
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export record Source = { step: () ->? String }
 export let drive(source: Source): String = (source.step)!()
 `]]),
@@ -278,7 +278,7 @@ export let drive(source: Source): String = (source.step)!()
 
   it("offers `->!` as the fix, which is what the writer meant", () => {
     expect(
-      effectFixes([["/main.hex", `
+      effectFixes([["/main.hex", "module Main\n\n" + `
 export record Source = { step: () ->? String }
 `]]),
     ).toEqual(['write `->!`: "->!"']);
@@ -286,7 +286,7 @@ export record Source = { step: () ->? String }
 
   it("refuses `->?` in a `union` field for the same reason", () => {
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export union Step = Ready(() ->? String) | Done
 `]]),
     ).toEqual([
@@ -302,7 +302,7 @@ export union Step = Ready(() ->? String) | Done
     // silently link, and one alias would name two colours across two mentions
     // (Declarations Preamble §5.1.1).
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 type Handler = () ->? String
 `]]),
     ).toEqual([
@@ -314,7 +314,7 @@ type Handler = () ->? String
 
   it("refuses it once, not twice, when the alias is also used", () => {
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 type Handler = () ->? String
 export let run(h: Handler): String = h!()
 `]]),
@@ -332,7 +332,7 @@ export let run(h: Handler): String = h!()
     // per-file latch: a writer fixed one arrow, recompiled, and discovered the
     // next. Three independent offences owe three reports.
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export record R = { step: () ->? String }
 export record S = { other: (Int) ->? Int }
 export union U = A(() ->? Int) | B
@@ -345,7 +345,7 @@ export union U = A(() ->? Int) | B
     // "function-typed slots carry whatever arrows the author writes" covers
     // `->?` too. The parameter is its own inlet (§2.2.1).
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export fun run(k: () ->? String): String
 `]]),
     ).toEqual([]);
@@ -357,7 +357,7 @@ export union U = A(() ->? Int) | B
     // variable that the first call site pinned for every other — so a pure
     // callback and an impure one in the same module is the test that matters.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export fun run(k: () ->? String): String
     export fun save(document: String): Unit
 
@@ -375,7 +375,7 @@ export let impureUse(): String = run!(() =>
     // walk reaches this result and finds the colour only on the arrow's own
     // slot, which is not an inlet.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export fun mk(seed: String): (String ->? String)
 `]]),
     ).toEqual([
@@ -388,7 +388,7 @@ export let impureUse(): String = run!(() =>
 
   it("takes the impure constant in a data field, spelled", () => {
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export record Source = { step: () ->! String }
 export let drive(source: Source): String = (source.step)!()
 `]]),
@@ -397,7 +397,7 @@ export let drive(source: Source): String = (source.step)!()
 
   it("refuses the bare call through that field", () => {
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export record Source = { step: () ->! String }
 export let drive(source: Source): String = (source.step)()
 `]]),
@@ -412,7 +412,7 @@ export let drive(source: Source): String = (source.step)()
     // annotation, so it is part of this signature, links, and *is* the inlet
     // that makes itself legal.
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export let drive(source: { step: () ->? String }): String = (source.step)?()
 `]]),
     ).toEqual([]);
@@ -420,7 +420,7 @@ export let drive(source: { step: () ->? String }): String = (source.step)?()
 
   it("keeps a `->` field pure beside it — branch (ii)'s posture", () => {
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export record Pure = { step: () -> String }
 export let drive(source: Pure): String = (source.step)()
 `]]),
@@ -429,7 +429,7 @@ export let drive(source: Pure): String = (source.step)()
 
   it("honours a user extern's `pure` claim", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let clean(document: String): String = trim(document)
 `]]),
     ).toEqual([]);
@@ -452,7 +452,7 @@ describe("#408 the inlet reaches the whole application spine", () => {
     const inferred = `let mk() = (g: (Int) ->? Int): Int => g?(1)
 export let z: Int = mk()((n) => n)
 `;
-    expect(effectDiagnostics([["/main.hex", inferred]])).toEqual([]);
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + inferred]])).toEqual([]);
     // §10's premise, restored: the display shows one variable undecorated, and
     // the grammar can now spell what it shows. Nothing about the inferred form
     // moved — the widening changes which *written* faces are legal.
@@ -460,12 +460,12 @@ export let z: Int = mk()((n) => n)
   });
 
   it("now admits that face written down, and exported", () => {
-    expect(effectDiagnostics([["/main.hex", mk]])).toEqual([]);
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + mk]])).toEqual([]);
   });
 
   it("admits a three-step spine, whose inlet arrives at the third application", () => {
     expect(
-      effectDiagnostics([["/main.hex", `export let mk3(): (Int) -> (((Int) ->? Int) ->? Int) =
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let mk3(): (Int) -> (((Int) ->? Int) ->? Int) =
     (a: Int): (((Int) ->? Int) ->? Int) => (g: (Int) ->? Int): Int => g?(a)
 `]]),
     ).toEqual([]);
@@ -475,7 +475,7 @@ export let z: Int = mk()((n) => n)
     // Depth and polarity stay irrelevant *within* the supplied argument (§2.2.1):
     // the caller hands over the whole record, so it pins the field's colour too.
     expect(
-      effectDiagnostics([["/main.hex", `export let mkr(): ({ step: () ->? String }) ->? String =
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let mkr(): ({ step: () ->? String }) ->? String =
     (source: { step: () ->? String }): String => (source.step)?()
 `]]),
     ).toEqual([]);
@@ -489,11 +489,11 @@ export let z: Int = mk()((n) => n)
     expect(
       effectDiagnostics([
         ["/world.js", ""],
-        ["/maker.hex", mk],
-        ["/main.hex", `extern from "./world.js"
+        ["/maker.hex", "module Maker\n\n" + mk],
+        ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export fun save(document: String): Unit
 
-import Maker from "./maker"
+import Maker
 
 export let pureUse(): Int = Maker.mk()((n) => n)
 export let impureUse(): Int = Maker.mk()!((n) =>
@@ -509,14 +509,14 @@ export let impureUse(): Int = Maker.mk()!((n) =>
     // outer colour, which the header form does not spell and which an
     // inlet-bearing body does not default (§3.4). The same shape `store`'s face
     // has displayed since #364.
-    expect(declarationsOf([["/main.hex", mk]])).toContain(
+    expect(declarationsOf([["/main.hex", "module Main\n\n" + mk]])).toContain(
       "Hexagon: `() ->?¹ (Int ->?² Int) ->?² Int`",
     );
   });
 
   it("still refuses the outer-only face — a spine arrow's colour is not an inlet", () => {
     expect(
-      effectDiagnostics([["/main.hex", `export let f(x: Int): Int =
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
     let g: (String) ->? Int = (s: String): Int => 1
     x
 `]]),
@@ -533,7 +533,7 @@ export let impureUse(): Int = Maker.mk()!((n) =>
     // colour stands on the arrow the caller *receives*, and in no parameter of
     // any step, so nothing instantiates it.
     expect(
-      effectDiagnostics([["/main.hex", `export let f(x: Int): (String) ->? Int = (s: String): Int => 1
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): (String) ->? Int = (s: String): Int => 1
 `]]),
     ).toEqual([
       "`->?` is the caller's colour, and this position has no caller to choose it — " +
@@ -545,7 +545,7 @@ export let impureUse(): Int = Maker.mk()!((n) =>
 
   it("offers `->!` at both refusals, the fixit §4.4 gives every position", () => {
     expect(
-      effectFixes([["/main.hex", `export let f(x: Int): (String) ->? Int = (s: String): Int => 1
+      effectFixes([["/main.hex", "module Main\n\n" + `export let f(x: Int): (String) ->? Int = (s: String): Int => 1
 `]]),
     ).toEqual(['write `->!`: "->!"']);
   });
@@ -565,8 +565,8 @@ describe("#408 §2.2.2 — a local type position names the enclosing colour", ()
   it("accepts the binding annotation, which the ascription always accepted", () => {
     // The divergence the issue found: same intent, same position, opposite
     // outcomes, and no rule distinguishing them. Both now link.
-    expect(effectDiagnostics([["/main.hex", annotated]])).toEqual([]);
-    expect(effectDiagnostics([["/main.hex", ascribed]])).toEqual([]);
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + annotated]])).toEqual([]);
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + ascribed]])).toEqual([]);
   });
 
   it("names the *enclosing* variable, not a fresh one — one colour in the face", () => {
@@ -585,7 +585,7 @@ describe("#408 §2.2.2 — a local type position names the enclosing colour", ()
     // a second use may instantiate afresh. A bare call is refused for exactly
     // that reason.
     expect(
-      effectDiagnostics([["/main.hex", `export let f(g: () ->? String): String =
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: () ->? String): String =
     let h: () ->? String = g
     h()
 `]]),
@@ -601,7 +601,7 @@ describe("#408 §2.2.2 — a local type position names the enclosing colour", ()
     // face, which stays effect-polymorphic. Were the two one variable, this
     // program would take §4.2's constantified-face report.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let f(g: () ->? String): String =
     let k(q: () ->? String): String = q?()
     k!(readLine) ++ g?()
@@ -618,13 +618,13 @@ export let f(g: () ->? String): String =
       "nothing instantiates it; write `->!` for a function that pulls the world, " +
       "or `->` for one that does not";
     expect(
-      effectDiagnostics([["/main.hex", `export let f(x: Int): Int =
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
     let h: () ->? String = () => "s"
     x
 `]]),
     ).toEqual([clause]);
     expect(
-      effectDiagnostics([["/main.hex", `export let f(x: Int): Int =
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
     let h = ((): String => "s" : () ->? String)
     x
 `]]),
@@ -641,12 +641,12 @@ export let f(g: () ->? String): String =
       "choose it — this annotation is not part of a function signature; write " +
       "`->!` for a function that pulls the world, or `->` for one that does not";
     expect(
-      effectDiagnostics([["/main.hex", `let h: { step: () ->? String } = { step = () => "x" }
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: { step: () ->? String } = { step = () => "x" }
 export let z: Int = 1
 `]]),
     ).toEqual([clause]);
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export let handler: () ->? String
 `]]),
     ).toEqual([
@@ -660,7 +660,7 @@ export let z: Int = 1
     // inlet-less body there is one — it is the thing without the inlet — so a
     // `->?` in a record-type annotation is told what it actually lacks.
     expect(
-      effectDiagnostics([["/main.hex", `export let f(x: Int): Int =
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
     let h: { step: () ->? String } = { step = () => "s" }
     x
 `]]),
@@ -683,12 +683,12 @@ export let z: Int = 1
       "nothing instantiates it; write `->!` for a function that pulls the world, " +
       "or `->` for one that does not";
     expect(
-      effectDiagnostics([["/main.hex", `let h: () ->? String = () => "x"
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: () ->? String = () => "x"
 export let z: Int = 1
 `]]),
     ).toEqual([clause]);
     expect(
-      effectDiagnostics([["/main.hex", `var h: () ->? String = () => "x"
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `var h: () ->? String = () => "x"
 export let z: Int = 1
 `]]),
     ).toEqual([
@@ -703,12 +703,12 @@ export let z: Int = 1
     // And the module-level function type *with* an inlet is a signature that has
     // one, so it opens and stays legal.
     expect(
-      effectDiagnostics([["/main.hex", `let h: (() ->? String) ->? String = (k: () ->? String): String => k?()
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: (() ->? String) ->? String = (k: () ->? String): String => k?()
 export let z: Int = 1
 `]]),
     ).toEqual([]);
     expect(
-      effectFixes([["/main.hex", `let h: () ->? String = () => "x"
+      effectFixes([["/main.hex", "module Main\n\n" + `let h: () ->? String = () => "x"
 export let z: Int = 1
 `]]),
     ).toEqual(['write `->!`: "->!"']);
@@ -728,12 +728,12 @@ export let f(h: ((Int) ->? Int) -> Int): Int = h(step)
     // `f`'s own outer arrow is `->`, returning `Int`, and it is honest: the
     // arrow that constantified is `h`'s parameter's. The advice to give the
     // *binding* an explicit face would have fixed nothing here.
-    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", nested]])).toEqual([
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + nested]])).toEqual([
       "this signature's `->?` promises a colour the caller chooses, but the body " +
       "solves it to the impure constant — a function that performs its own " +
       "unconditional effects rounds up, and its face is `->!`",
     ]);
-    const [report] = effectSpans([["/world.js", ""], ["/main.hex", nested]]);
+    const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + nested]]);
     expect(report).toEqual({
       primary: nested.indexOf("->?"),
       edits: [nested.indexOf("->?")],
@@ -751,7 +751,7 @@ export let step(n: Int): Int =
 
 export let f(h: ((Int) ->? Int) -> Int, k: ((Int) ->? Int) -> Int): Int = h(step) + k(step)
 `;
-    const [report] = effectSpans([["/world.js", ""], ["/main.hex", two]]);
+    const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + two]]);
     expect(report?.edits).toEqual([
       two.indexOf("->?"),
       two.indexOf("->?", two.indexOf("->?") + 1),
@@ -766,18 +766,18 @@ export let f(h: ((Int) ->? Int) -> Int, k: ((Int) ->? Int) -> Int): Int = h(step
 export let f: ((String ->? String) ->? String) = (run: String ->? String): String =>
     strict(run, "body")
 `;
-    expect(effectDiagnostics([["/main.hex", pureFace]])).toEqual([
+    expect(effectDiagnostics([["/main.hex", "module Main\n\n" + pureFace]])).toEqual([
       "this signature's `->?` promises a colour the caller chooses, but the body " +
       "solves it to the pure constant — the honest face is `->`",
     ]);
-    expect(effectFixes([["/main.hex", pureFace]])).toEqual([
+    expect(effectFixes([["/main.hex", "module Main\n\n" + pureFace]])).toEqual([
       'write `->`: "->"',
       'write `->`: "->"',
       'write `->`: "->"',
     ]);
     // And the rewrite is a repair: the same program with `->` throughout checks.
     expect(
-      effectDiagnostics([["/main.hex", `export let strict(step: String -> String, d: String): String = step(d)
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let strict(step: String -> String, d: String): String = step(d)
 export let f: ((String -> String) -> String) = (run: String -> String): String =>
     strict(run, "body")
 `]]),
@@ -791,7 +791,7 @@ describe("#408 §4.4 — the recovery is scaffolding, not a second claim", () =>
     // §4.3 reverse demand — a sentence about a declared impure constant the
     // program never wrote, produced by the recovery itself.
     expect(
-      effectDiagnostics([["/main.hex", `let h: { step: () ->? String } = { step = () => "x" }
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `let h: { step: () ->? String } = { step = () => "x" }
 export let z: Int = 1
 `]]).length,
     ).toBe(1);
@@ -802,7 +802,7 @@ export let z: Int = 1
     // when what made the call impure was the recovery standing in for the
     // refused arrow.
     expect(
-      effectDiagnostics([["/main.hex", `export let f(x: Int): Int =
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(x: Int): Int =
     let h: () ->? String = () => "s"
     let y = h?()
     x
@@ -816,7 +816,7 @@ export let z: Int = 1
     // contradict it is impure by recovery. Un-suppressed this adds "a pure face
     // cannot run effects" — about effects the program does not perform.
     expect(
-      effectDiagnostics([["/main.hex", `export let f: ((Int) -> Int) = (x: Int): Int =>
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f: ((Int) -> Int) = (x: Int): Int =>
     let h: () ->? String = () => "s"
     let y = h?()
     x
@@ -835,7 +835,7 @@ export let z: Int = 1
     // a face for a colour the writer never wrote. (The `?` on `mkBad` is an
     // ordinary conservative mark, §3.4's, and stands on its own.)
     expect(
-      effectDiagnostics([["/main.hex", `export let f(g: (() ->? String) -> String): String =
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f(g: (() ->? String) -> String): String =
     let mkBad = (): (() ->? String) => (): String => "x"
     g(mkBad())
 `]]),
@@ -879,7 +879,7 @@ export let withTransaction: ((String ->? String) ${arrow} String) = (run: String
     ]);
     // The one edit lands on the outer arrow, and the repaired source compiles.
     const source = shape("->?");
-    const [report] = effectSpans([["/world.js", ""], ["/main.hex", source]]);
+    const [report] = effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]]);
     // `((String ->? String) ->? String)`: the arrow after the callback's closing
     // paren is the outer one, and it is the only span the fixit touches.
     expect(report?.edits).toEqual([source.indexOf(") ->? String) =") + 2]);
@@ -892,16 +892,16 @@ export let withTransaction: ((String ->? String) ${arrow} String) = (run: String
     const source = `${world}
 export let apply: ((String ->? String) ->! String) = (run: String ->? String): String => run?("body")
 `;
-    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", source]])).toEqual([
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([
       "this face is the impure constant `->!`, but the body performs no " +
       "unconditional effect — it is effect-polymorphic, and its face is `->?`",
     ]);
-    expect(effectFixes([["/world.js", ""], ["/main.hex", source]])).toEqual(['write `->?`: "->?"']);
+    expect(effectFixes([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual(['write `->?`: "->?"']);
   });
 
   it("demands `!` at every call site, pure callback or not", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${shape("->!")}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${shape("->!")}
 export let go(): String = withTransaction((document) => document)
 `]]),
     ).toEqual([
@@ -911,7 +911,7 @@ export let go(): String = withTransaction((document) => document)
 
   it("keeps a pure callback pure through the banged face", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${shape("->!")}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${shape("->!")}
 export let go(): String = withTransaction!((document) => document)
 `]]),
     ).toEqual([]);
@@ -939,7 +939,7 @@ export let fold(values: Vector(a), initial: b, combine: (b, a) ->? b): b =
 
   it("takes a pure callback bare and an impure one banged", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${eager}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${eager}
 export let stamped(values: Vector(String)): Vector(String) =
     map(values, (text) => text ++ ".")
 
@@ -953,7 +953,7 @@ export let saveAll(values: Vector(String)): Vector(String) =
 
   it("refuses the bare call at an impure instantiation", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${eager}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${eager}
 export let saveAll(values: Vector(String)): Vector(String) =
     map(values, (document) =>
         save!(document)
@@ -966,7 +966,7 @@ export let saveAll(values: Vector(String)): Vector(String) =
 
   it("refuses `!` at a pure instantiation — symmetric enforcement", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${eager}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${eager}
 export let stamped(values: Vector(String)): Vector(String) =
     map!(values, (text) => text ++ ".")
 `]]),
@@ -979,7 +979,7 @@ export let stamped(values: Vector(String)): Vector(String) =
 describe("#355 grammar — where a mark may stand", () => {
   it("carries a bare pipe stage's mark onto the call the rewrite makes", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let run(document: String): Unit = document |> save!
 `]]),
     ).toEqual([]);
@@ -987,7 +987,7 @@ export let run(document: String): Unit = document |> save!
 
   it("keeps the bare pipe legal for pure stages", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let clean(document: String): String = document |> trim
 `]]),
     ).toEqual([]);
@@ -995,7 +995,7 @@ export let clean(document: String): String = document |> trim
 
   it("refuses a bare pipe stage whose call is impure", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let run(document: String): Unit = document |> save
 `]]),
     ).toEqual([
@@ -1005,7 +1005,7 @@ export let run(document: String): Unit = document |> save
 
   it("marks a call through a non-identifier callee", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let pull(source: { step: (() ->! String) }): String = (source.step)!()
 `]]),
     ).toEqual([]);
@@ -1013,7 +1013,7 @@ export let pull(source: { step: (() ->! String) }): String = (source.step)!()
 
   it("marks a dot call before its own argument list", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let stamp(document: String): String = document.show()
 `]]),
     ).toEqual([]);
@@ -1021,7 +1021,7 @@ export let stamp(document: String): String = document.show()
 
   it("refuses a mark on a reference — references are colourless", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let held: (String ->! Unit) = save!
 `]]),
     ).toEqual([markSeat]);
@@ -1029,7 +1029,7 @@ export let held: (String ->! Unit) = save!
 
   it("stores an impure function without a mark", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let held: (String ->! Unit) = save
 export let run(document: String): Unit = held!(document)
 `]]),
@@ -1042,19 +1042,19 @@ export let run(document: String): Unit = held!(document)
     // reported the mark-position row here, which tells a reader writing `not`
     // to go and find an argument list.
     expect(
-      effectDiagnostics([["/main.hex", "export let f(flag: Bool): Bool = !flag\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "export let f(flag: Bool): Bool = !flag\n"]]),
     ).toEqual(["Hexagon spells logical negation `not`"]);
     // Parenthesizing the operand does not make it a call: nothing precedes the
     // mark, so there is no argument list for it to govern either way.
     expect(
-      effectDiagnostics([["/main.hex", "export let f(flag: Bool): Bool = !(flag)\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "export let f(flag: Bool): Bool = !(flag)\n"]]),
     ).toEqual(["Hexagon spells logical negation `not`"]);
   });
 
   it("gives a prefix `?` the mark-position row instead", () => {
     // `?` never had the negation reading, so the same seat takes the other row.
     expect(
-      effectDiagnostics([["/main.hex", "export let f(flag: Bool): Bool = ?flag\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "export let f(flag: Bool): Bool = ?flag\n"]]),
     ).toEqual([markSeat]);
   });
 
@@ -1065,10 +1065,10 @@ export let run(document: String): Unit = held!(document)
     // layout pass's "expected a newline or `;` between block items"; neither
     // mentioned an arrow. The teaching report replaces the lot, one per typo.
     expect(
-      effectDiagnostics([["/main.hex", "let f(g: (Int) => Int): Int = g(1)\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "let f(g: (Int) => Int): Int = g(1)\n"]]),
     ).toEqual([typeArrowRedirect]);
     expect(
-      effectDiagnostics([["/main.hex", "type H = (Int) =>! Int\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "type H = (Int) =>! Int\n"]]),
     ).toEqual([typeArrowRedirect]);
   });
 
@@ -1078,14 +1078,14 @@ export let run(document: String): Unit = held!(document)
     // rather than abandoned. `=>!` recovers as `->!`, which is visible here as
     // the impure call's own mark row firing behind the redirect.
     expect(
-      effectDiagnostics([["/main.hex", "let f(g: (Int) =>! Int): Int = g(1)\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "let f(g: (Int) =>! Int): Int = g(1)\n"]]),
     ).toEqual([typeArrowRedirect, "this call runs effects, so `g` wants `!`, not no mark"]);
     // And taking the advice is the whole repair — nothing else was wrong.
     expect(
-      effectDiagnostics([["/main.hex", "let f(g: (Int) -> Int): Int = g(1)\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "let f(g: (Int) -> Int): Int = g(1)\n"]]),
     ).toEqual([]);
     expect(
-      effectDiagnostics([["/main.hex", "let f(g: (Int) ->! Int): Int = g!(1)\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "let f(g: (Int) ->! Int): Int = g!(1)\n"]]),
     ).toEqual([]);
   });
 
@@ -1094,10 +1094,10 @@ export let run(document: String): Unit = held!(document)
     // slot where a fat arrow after a complete annotation is legal — so it is
     // pinned as *silence*, not as a different message.
     expect(
-      effectDiagnostics([["/main.hex", "export let k = (x: Int): (Int) -> Int => (y: Int) => x\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "export let k = (x: Int): (Int) -> Int => (y: Int) => x\n"]]),
     ).toEqual([]);
     expect(
-      effectDiagnostics([["/main.hex", "export let f = (x: Int): Int -> Int -> Int => (y: Int) => (z: Int) => x\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "export let f = (x: Int): Int -> Int -> Int => (y: Int) => (z: Int) => x\n"]]),
     ).toEqual([]);
   });
 
@@ -1107,13 +1107,13 @@ export let run(document: String): Unit = held!(document)
     const spellings = ["readLine ! ()", "readLine! ()", "readLine !()"];
     for (const spelling of spellings) {
       expect(
-        effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+        effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let ask(): String = ${spelling}
 `]]),
       ).toEqual([markSeat]);
     }
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let ask(): String = readLine!()
 `]]),
     ).toEqual([]);
@@ -1121,7 +1121,7 @@ export let ask(): String = readLine!()
 
   it("requires a pipe stage's mark glued to the stage", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let run(document: String): Unit = document |> save !
 `]]),
     ).toEqual([markSeat]);
@@ -1132,7 +1132,7 @@ export let run(document: String): Unit = document |> save !
     // never an arrow. Pinned on the exact reports, because "it errors" is true
     // of the admitted spelling too.
     expect(
-      effectDiagnostics([["/main.hex", "export let f: (Int !=> Int) = (x) => x\n"]]),
+      effectDiagnostics([["/main.hex", "module Main\n\n" + "export let f: (Int !=> Int) = (x) => x\n"]]),
     ).toEqual(["expected `)` after type", "expected `=` in `let` binding"]);
   });
 });
@@ -1140,7 +1140,7 @@ export let run(document: String): Unit = document |> save !
 describe("#355 the `pure` claim — FFI Part 4 §4.5", () => {
   it("honours it on an extern `fun`", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let clean(document: String): String = trim(document)
 `]]),
     ).toEqual([]);
@@ -1148,7 +1148,7 @@ export let clean(document: String): String = trim(document)
 
   it("refuses it on an extern `let` — a value reference has no face", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export pure let seed: Int
 `]]),
     ).toEqual([
@@ -1159,7 +1159,7 @@ export let clean(document: String): String = trim(document)
 
   it("refuses it on an extern `type`", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export pure type Handle
 `]]),
     ).toEqual([
@@ -1172,7 +1172,7 @@ export let clean(document: String): String = trim(document)
     // Contextual vocabulary (Lexer §4.2's family): the refusals above must not
     // have reserved the word.
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export let pure(value: Int): Int = value
 export let doubled: Int = pure(21) + pure(21)
 `]]),
@@ -1212,7 +1212,7 @@ describe("#409 the `conduit` claim — FFI Part 4 §4.5", () => {
     // No new face vocabulary: what the keyword yields is a face the written
     // grammar can already spell, displayed with the plain `->?` because it
     // carries exactly one variable (§10's single-variable rule).
-    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", runner]])).toEqual([]);
+    expect(effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + runner]])).toEqual([]);
     expect(hoveredType(runner, "runner")).toBe("(() ->? String) ->? Int");
   });
 
@@ -1220,7 +1220,7 @@ describe("#409 the `conduit` claim — FFI Part 4 §4.5", () => {
     // The whole point of the claim, and the thing the impure default could not
     // express: a pure callback costs its caller no mark at all.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${runner}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${runner}
 export let n: Int = runner(() => "x")
 `]]),
     ).toEqual([]);
@@ -1228,12 +1228,12 @@ export let n: Int = runner(() => "x")
 
   it("demands `!` with an impure callback, and refuses the bare call", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${runner}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${runner}
 export let n: Int = runner!(() => readLine!())
 `]]),
     ).toEqual([]);
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${runner}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${runner}
 export let n: Int = runner(() => readLine!())
 `]]),
     ).toEqual([
@@ -1245,7 +1245,7 @@ export let n: Int = runner(() => readLine!())
     // §3.3's third arm, reached with no FFI-specific rule: the enclosing
     // signature's variable is what the row's outer arrow instantiates to.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${runner}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${runner}
 export let use(k: () ->? String): Int = runner?(k)
 `]]),
     ).toEqual([]);
@@ -1266,12 +1266,12 @@ export let both(first: () ->? String, second: () ->? String): Int =
 `;
     for (const source of [both, twin]) {
       expect(
-        effectDiagnostics([["/world.js", ""], ["/main.hex", `${source}
+        effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${source}
 export let pureUse: Int = both(() => "a", () => "b")
 `]]),
       ).toEqual([]);
       expect(
-        effectDiagnostics([["/world.js", ""], ["/main.hex", `${source}
+        effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${source}
 export let impureUse: Int = both!(() => readLine!(), () => readLine!())
 `]]),
       ).toEqual([]);
@@ -1280,7 +1280,7 @@ export let impureUse: Int = both!(() => readLine!(), () => readLine!())
       // `->`. Pinned on both spellings because "the extern behaves like the
       // written signature" is the claim, and a difference here would be one.
       expect(
-        effectDiagnostics([["/world.js", ""], ["/main.hex", `${source}
+        effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${source}
 export let mixed: Int = both!(() => "a", () => readLine!())
 `]]),
       ).toEqual([
@@ -1293,7 +1293,7 @@ export let mixed: Int = both!(() => "a", () => readLine!())
 
   it("quantifies the colour, so two call sites instantiate it apart", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${runner}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${runner}
 export let pureUse: Int = runner(() => "x")
 export let impureUse: Int = runner!(() => readLine!())
 `]]),
@@ -1305,13 +1305,13 @@ export let impureUse: Int = runner!(() => readLine!())
     // and where the meaning is unavailable, a diagnostic rather than a silent
     // re-read as the impure default.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export conduit fun runner(step: () -> String): Int
 `]]),
     ).toEqual([unlinkedConduit]);
     // A row with no function-typed parameter at all takes the same report.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export conduit fun trim(document: String): String
 `]]),
     ).toEqual([unlinkedConduit]);
@@ -1321,7 +1321,7 @@ export let impureUse: Int = runner!(() => readLine!())
     const source = `extern from "./world.js"
     export conduit fun trim(document: String): String
 `;
-    expect(effectSpans([["/world.js", ""], ["/main.hex", source]])).toEqual([
+    expect(effectSpans([["/world.js", ""], ["/main.hex", "module Main\n\n" + source]])).toEqual([
       { primary: source.indexOf("conduit"), edits: [] },
     ]);
   });
@@ -1329,7 +1329,7 @@ export let impureUse: Int = runner!(() => readLine!())
   it("refuses `pure conduit`, in either order — one row, one claim", () => {
     for (const claims of ["pure conduit", "conduit pure"]) {
       expect(
-        effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+        effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export ${claims} fun runner(step: () ->? String): Int
 `]]),
       ).toEqual([oneClaim]);
@@ -1340,7 +1340,7 @@ export let impureUse: Int = runner!(() => readLine!())
     // The honest fallback for a row that claimed nothing — and the reason the
     // conflict costs exactly one report rather than cascading through the body.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export pure conduit fun runner(step: () ->? String): Int
 
 export let n: Int = runner!(() => "x")
@@ -1350,7 +1350,7 @@ export let n: Int = runner!(() => "x")
 
   it("refuses it on an extern `let` and an extern `type`, as `pure` is refused", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export conduit let seed: Int
 `]]),
     ).toEqual([
@@ -1358,7 +1358,7 @@ export let n: Int = runner!(() => "x")
       "— the claim belongs on an extern `fun`",
     ]);
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export conduit type Handle
 `]]),
     ).toEqual([
@@ -1374,7 +1374,7 @@ export let n: Int = runner!(() => "x")
     // — this is an ordinary user file — and the claim refusal rides beside it.
     for (const claim of ["pure", "conduit"]) {
       expect(
-        effectDiagnostics([["/main.hex", `extern from "hex:intrinsic"
+        effectDiagnostics([["/main.hex", "module Main\n\n" + `extern from "hex:intrinsic"
     ${claim} fun seqMemoize(source: Seq(a)): Seq(a)
 `]]),
       ).toEqual([
@@ -1390,7 +1390,7 @@ export let n: Int = runner!(() => "x")
     // Contextual vocabulary (Lexer §4.2's family), exactly as `pure` is: the
     // refusals above must not have reserved the word.
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export record Pipe = { conduit: Int }
 export let conduit(value: Int): Int = value
 export let total: Int = conduit(21) + Pipe({ conduit = 21 }).conduit
@@ -1398,14 +1398,14 @@ export let total: Int = conduit(21) + Pipe({ conduit = 21 }).conduit
     ).toEqual([]);
     // And the foreign side of a row is not the claim slot either.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `extern from "./world.js"
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export fun conduit(value: Int): Int
 `]]),
     ).toEqual([]);
   });
 
   it("carries the linked face into the emitted `.d.ts`", () => {
-    expect(declarationsOf([["/world.js", ""], ["/main.hex", runner]])).toContain(
+    expect(declarationsOf([["/world.js", ""], ["/main.hex", "module Main\n\n" + runner]])).toContain(
       "/** Hexagon: `(() ->? String) ->? Int` */\nexport declare function runner(",
     );
   });
@@ -1460,7 +1460,7 @@ export let x: Int = 1
     // mark on a fallback-resolved dot call was silently accepted.
     for (const [mark, name] of [["!", "`!`"], ["?", "`?`"]] as const) {
       expect(
-        effectDiagnostics([["/main.hex", `
+        effectDiagnostics([["/main.hex", "module Main\n\n" + `
 let drive(source): String = source.next${mark}()
 
 export let x: Int = 1
@@ -1468,7 +1468,7 @@ export let x: Int = 1
       ).toEqual([`this call is pure, so \`.next\` wants no mark, not ${name}`]);
     }
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 let drive(source): String = source.next()
 
 export let x: Int = 1
@@ -1480,7 +1480,7 @@ export let x: Int = 1
     // The other half of the same arrow: the row demands purity, so supplying an
     // impure step is §4.3's refusal rather than a silent widening.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 let drive(source): Unit = source.step()
 
 export let go(): Unit = drive({ step = () => save!("x") })
@@ -1509,7 +1509,7 @@ let stored = pick(store)
     // covariant-only — so the two faces below are two instantiations, not a
     // contradiction.
     expect(
-      effectDiagnostics([["/main.hex", `${inletFace}
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `${inletFace}
 export let asPure: ((() -> String) -> Int) = stored
 export let asImpure: ((() -> String) ->! Int) = stored
 `]]),
@@ -1522,7 +1522,7 @@ export let asImpure: ((() -> String) ->! Int) = stored
     // is an occurrence count, not an exemption. The first face pins the callback
     // pure; the second demands the constant of the same, now monomorphic, slot.
     expect(
-      effectDiagnostics([["/main.hex", `${inletFace}
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `${inletFace}
 export let asPure: ((() -> String) -> Int) = stored
 export let asImpure: ((() ->! String) -> Int) = stored
 `]]),
@@ -1550,7 +1550,7 @@ describe("#405 the return-annotation slot needs no parentheses", () => {
 
   it("takes an unparenthesized function type as the return type", () => {
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export let curried(seed: Int): Int =
     let make = (x: Int): Int -> Int => (y: Int) => x
     make(seed)(seed)
@@ -1560,7 +1560,7 @@ export let curried(seed: Int): Int =
 
   it("takes an unparenthesized impure function type too", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let maker = (seed: String): String ->! Unit => save
 export let run(document: String): Unit = maker("s")!(document)
 `]]),
@@ -1571,7 +1571,7 @@ export let run(document: String): Unit = maker("s")!(document)
     // Parentheses did not stop meaning grouping; they merely stopped being
     // mandatory.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let maker = (seed: String): (String ->! Unit) => save
 export let run(document: String): Unit = maker("s")!(document)
 `]]),
@@ -1585,7 +1585,7 @@ export let run(document: String): Unit = maker("s")!(document)
     // and still starts the body. What changed is that nothing had to be ruled
     // to make it so.
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export let curried(seed: Int): Int =
     let make = (x: Int): Int => (y: Int) => x
     make(seed)(seed)
@@ -1598,7 +1598,7 @@ export let curried(seed: Int): Int =
     // provoked type errors that described a tree the writer did not write. With
     // no misparse there is nothing to supersede, and the sibling reports alone.
     expect(
-      effectDiagnostics([["/main.hex", `export let f = (x: Int): Int -> Int => x
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let f = (x: Int): Int -> Int => x
 export let g: Int = "text"
 `]]),
     ).toEqual([
@@ -1738,7 +1738,7 @@ export let hold(step: () ->? Int, value: a): a = value
     // itself; `spec/doc-comments.md` §7.3 provides the one channel that is left,
     // and the author's own documentation shares the block.
     const emitted = declarationsOf(
-      [["/world.js", ""], ["/main.hex", `${world}
+      [["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 (** Runs both, in order. *)
 export let compose(first: String ->? String, second: String ->? String): (String ->? String) =
     (document) => second?(first?(document))
@@ -1755,7 +1755,7 @@ export let compose(first: String ->? String, second: String ->? String): (String
 
   it("gives an impure extern row its face and a pure one none", () => {
     const emitted = declarationsOf(
-      [["/world.js", ""], ["/main.hex", world]],
+      [["/world.js", ""], ["/main.hex", "module Main\n\n" + world]],
     );
     expect(emitted).toContain("/** Hexagon: `String ->! Unit` */\nexport declare function save(");
     // Purity is the silent one (§1): a face with nothing but pure arrows says
@@ -1769,7 +1769,7 @@ export let compose(first: String ->? String, second: String ->? String): (String
     // the type, and an unnumbered face in a report would be the same ambiguity
     // in the one place a reader is already confused.
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${composeSource}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${composeSource}
 export let wrong: Int = compose
 `]]),
     ).toEqual([
@@ -1783,7 +1783,7 @@ export let wrong: Int = compose
 export let hold(f: (() -> String) ->? Int): Int = f?(make)
 `;
     expect(
-      effectDiagnostics([["/main.hex", `${holder}
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `${holder}
 export let wrong: Int = hold
 `]]),
     ).toEqual([
@@ -1792,7 +1792,7 @@ export let wrong: Int = hold
     // The same colour, displayed as `f`'s own type — no inlet in view, and
     // still the plain spelling, because it is still one colour.
     expect(
-      effectDiagnostics([["/main.hex", `export let make(): String = "x"
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `export let make(): String = "x"
 export let hold(f: (() -> String) ->? Int): Int =
     let n: String = f
     f?(make)
@@ -1861,7 +1861,7 @@ describe("#355 the pure demand", () => {
 
   it("refuses an impure function where `->` is demanded", () => {
     expect(
-      effectDiagnostics([["/world.js", ""], ["/main.hex", `${world}
+      effectDiagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
 export let strict(step: String -> Unit, document: String): Unit = step(document)
 export let go(document: String): Unit = strict(save, document)
 `]]),
@@ -1877,7 +1877,7 @@ export let go(document: String): Unit = strict(save, document)
     // only be a constant and a pure function cannot weaken it. Under the §4.3
     // message every clause named a `->` this program does not contain.
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export record Source = { step: () ->! String }
 export let hold(step: () -> String): Source = Source({ step = step })
 `]]),
@@ -1889,7 +1889,7 @@ export let hold(step: () -> String): Source = Source({ step = step })
     // re-reads an arrow as the constant, so a binding that means the constant
     // spells it (§2.3).
     expect(
-      effectDiagnostics([["/main.hex", `
+      effectDiagnostics([["/main.hex", "module Main\n\n" + `
 export let pureStep(): String = "x"
 export let held: (() ->! String) = pureStep
 `]]),

@@ -97,14 +97,14 @@ function emittedMain(files: readonly (readonly [string, string])[]): string {
 
 describe("two imported constraints sharing a word take two seats", () => {
   const files = (main: string) => [
-    ["/lib1.hex", LIB1],
-    ["/lib2.hex", LIB2],
-    ["/main.hex", main],
+    ["/lib1.hex", "module Lib1\n\n" + LIB1],
+    ["/lib2.hex", "module Lib2\n\n" + LIB2],
+    ["/main.hex", "module Main\n\n" + main],
   ] as const;
 
   const INFERRED = [
-    'import Lib1 from "./lib1.hex"',
-    'import Lib2 from "./lib2.hex"',
+    'import Lib1',
+    'import Lib2',
     "",
     "let both(v) = Lib1.useOne(v) + Lib2.useTwo(v)",
     "export let r: Int = both(1)",
@@ -140,8 +140,8 @@ describe("two imported constraints sharing a word take two seats", () => {
     // decided by list order at the Typed boundary, and the answer has to be the
     // *same* dictionary the source's own first call reads — `lib1`'s.
     const main = [
-      'import Lib1 from "./lib1.hex"',
-      'import Lib2 from "./lib2.hex"',
+      'import Lib1',
+      'import Lib2',
       "",
       "let sum(v) = Lib1.useOne(v) + Lib2.useTwo(v) + v",
       "export let r: Int = sum(1)",
@@ -162,19 +162,19 @@ describe("two imported constraints sharing a word take two seats", () => {
     // Two seats can be got right by accident — a swap and a shadow look alike
     // when there are only two names to hand out. Three cannot.
     const main = [
-      'import Lib1 from "./lib1.hex"',
-      'import Lib2 from "./lib2.hex"',
-      'import Lib3 from "./lib3.hex"',
+      'import Lib1',
+      'import Lib2',
+      'import Lib3',
       "",
       "let all(v) = Lib1.useOne(v) + Lib2.useTwo(v) + Lib3.useThree(v)",
       "export let r: Int = all(1)",
       "",
     ].join("\n");
     const graph = [
-      ["/lib1.hex", LIB1],
-      ["/lib2.hex", LIB2],
-      ["/lib3.hex", LIB3],
-      ["/main.hex", main],
+      ["/lib1.hex", "module Lib1\n\n" + LIB1],
+      ["/lib2.hex", "module Lib2\n\n" + LIB2],
+      ["/lib3.hex", "module Lib3\n\n" + LIB3],
+      ["/main.hex", "module Main\n\n" + main],
     ] as const;
     expect(emittedMain(graph)).toContain(
       "const all = (v, __Describe_a, __Describe_a_1, __Describe_a_2) => " +
@@ -196,9 +196,9 @@ describe("the binders a signature writes down seat the same way", () => {
   // and the one whose two words are visibly distinct in source while the
   // emitted parameters are not.
   const files = (main: string) => [
-    ["/lib1.hex", LIB1],
-    ["/lib2.hex", LIB2],
-    ["/main.hex", main],
+    ["/lib1.hex", "module Lib1\n\n" + LIB1],
+    ["/lib2.hex", "module Lib2\n\n" + LIB2],
+    ["/main.hex", "module Main\n\n" + main],
   ] as const;
 
   // Under #762 an import binds a module alias and nothing smaller, so neither
@@ -209,8 +209,8 @@ describe("the binders a signature writes down seat the same way", () => {
   // *written*, and only the qualified spelling can write two same-named
   // constraints into one.
   const WRITTEN = [
-    'import Lib1 from "./lib1.hex"',
-    'import Lib2 from "./lib2.hex"',
+    'import Lib1',
+    'import Lib2',
     "",
     "let both<a: (Lib1.Describe, Lib2.Describe)>(n: a): a = " +
       "Lib1.useOne(n) + Lib2.useTwo(n)",
@@ -243,8 +243,8 @@ describe("an instance head's own binders", () => {
   // had to be resolved, which the declaring module is the authority for, a
   // header being able to spell only what is in scope where it is written.
   const HONOR = [
-    'import Lib1 from "./lib1.hex"',
-    'import Lib2 from "./lib2.hex"',
+    'import Lib1',
+    'import Lib2',
     "",
     "record Box(x) = {value: x}",
     "",
@@ -259,7 +259,7 @@ describe("an instance head's own binders", () => {
   const files = [
     ["/lib1.hex", tagLib("one", "useOne", "one")],
     ["/lib2.hex", tagLib("two", "useTwo", "two")],
-    ["/main.hex", HONOR],
+    ["/main.hex", "module Main\n\n" + HONOR],
   ] as const;
 
   test("hand each member body the dictionary its own constraint demanded", () => {
@@ -284,7 +284,7 @@ describe("a program whose constraint names are unambiguous is unmoved", () => {
     // every seat resolved by name before and by identity now, and the emitted
     // text is required to be the same character for character.
     const project = compileFiles([
-      ["/main.hex", "let d1(n) = if n <= 0 then 0 else n - 1\nexport let keep: Int = d1(3)\n"],
+      ["/main.hex", "module Main\n\n" + "let d1(n) = if n <= 0 then 0 else n - 1\nexport let keep: Int = d1(3)\n"],
     ]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(
@@ -302,9 +302,9 @@ describe("a program whose constraint names are unambiguous is unmoved", () => {
     // the specimens above reach theirs: one parameter, no suffix.
     expect(
       emittedMain([
-        ["/lib1.hex", LIB1],
-        ["/main.hex", [
-          'import Lib1 from "./lib1.hex"',
+        ["/lib1.hex", "module Lib1\n\n" + LIB1],
+        ["/main.hex", "module Main\n\n" + [
+          'import Lib1',
           "",
           "let once(v) = Lib1.useOne(v) + v",
           "export let r: Int = once(1)",

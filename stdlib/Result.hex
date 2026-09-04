@@ -1,3 +1,5 @@
+module Result
+
 // The canonical success-or-error union used across the standard library.
 export union Result(a, e) =
     | Ok(value: a)

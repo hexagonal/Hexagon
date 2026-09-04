@@ -322,7 +322,7 @@ describe("the universe decides — per file, per spelling", () => {
     // and not a claim this test makes.
     const compiled = project({
       "/lib.hex": "export record Iterable = {x: Int}\n" + SEQ_FACE,
-      "/main.hex": 'import Lib from "./lib"\n' +
+      "/main.hex": 'import Lib\n' +
         "export type Iterable = Lib.Iterable\n" +
         "export let f(p: Iterable): Int = p.x\n" + SEQ_FACE,
     });
@@ -372,7 +372,7 @@ describe("the universe decides — per file, per spelling", () => {
     // — and the face therefore emits the bare text it always emitted.
     const text = declarations(project({
       "/lib.hex": "export record Point = {x: Int}\nexport let zero: Int = 0\n",
-      "/main.hex": 'import Iterable from "./lib"\n' +
+      "/main.hex": 'import Lib as Iterable\n' +
         "export let n: Int = Iterable.zero\n" + SEQ_FACE,
     }));
 
@@ -391,7 +391,7 @@ describe("the universe decides — per file, per spelling", () => {
     // own source spelling, which is the half a yielding rule would have moved.
     const compiled = project({
       "/lib.hex": "export record Point = {x: Int}\n",
-      "/main.hex": 'import Iterable from "./lib"\n' +
+      "/main.hex": 'import Lib as Iterable\n' +
         "export let f(p: Iterable.Point): Int = p.x\n" + SEQ_FACE,
     });
     const text = declarations(compiled);
@@ -440,7 +440,7 @@ describe("compiler-chosen spellings never contest the vocabulary (§1.1 half 1)"
     // belt-and-braces.
     const compiled = project({
       "/lib.hex": "export record Iterable = {x: Int}\nexport type Holder = Iterable\n",
-      "/main.hex": 'import Holder from "./lib"\n' +
+      "/main.hex": 'import Lib as Holder\n' +
         "export let f(h: Holder): Int = h.x\n" + SEQ_FACE,
     });
     const text = declarations(compiled);
@@ -474,7 +474,7 @@ describe("the negatives — nothing else moves", () => {
   // the guard. Multi-module, so a cross-file import line is in the picture too.
   const UNCONTESTED = {
     "/lib.hex": "export record Point = {x: Int}\n",
-    "/main.hex": 'import Point from "./lib"\n' +
+    "/main.hex": 'import Lib as Point\n' +
       'extern from "./x.js"\n' +
       "    fun rows(): Array(Int)\n" +
       "    fun table(): JsMap(String, Int)\n" +

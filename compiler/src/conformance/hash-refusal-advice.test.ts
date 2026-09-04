@@ -137,14 +137,14 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
    */
   test("a declaration in another file is named, beside the orphan error", () => {
     expect(messagesOf([
-      ["/types.hex", "export record Weird = {n: Int}\n"],
+      ["/types.hex", "module Types\n\n" + "export record Weird = {n: Int}\n"],
       [
         "/main.hex",
-        [
+        "module Main\n\n" + [
           // Rule 3's companion fallback (Modules §3.2, #762): the alias's
           // own spelling equals the exported record's, so the `honor` head
           // reaches it bare with no separate import for the type.
-          "import Weird from \"./types\"",
+          "import Types as Weird",
           "honor Hash<Weird> =",
           "    hash(w) = w.n * 31",
           "",

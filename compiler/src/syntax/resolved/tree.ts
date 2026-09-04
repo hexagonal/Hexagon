@@ -1516,7 +1516,7 @@ export interface NameExpr {
    * The spelling the **emitted module** must use, where it is not `text`.
    *
    * Modules §5.1 rule 3's fallback is the one reader that parts them: a bare
-   * `Tag(7)` under `import Tag from "./tag"` is written bare and *emitted* as
+   * `Tag(7)` under `import Tag` is written bare and *emitted* as
    * the qualified access on the alias's local (`Tag.Tag(7)`, §11.2's own
    * golden), because in the emitted module the bare spelling is the alias's
    * namespace binding and calling it would throw. A reference that carried the

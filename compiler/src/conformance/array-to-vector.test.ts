@@ -192,7 +192,7 @@ function weightedSum(values: readonly number[]): number {
 }
 
 beforeAll(async () => {
-  exports_ = await runMain(PROGRAM);
+  exports_ = await runMain("module Main\n\n" + PROGRAM);
 });
 
 describe("eager: the answer is a genuine vector, built at the call (§9)", () => {
@@ -510,8 +510,7 @@ describe("what makes the Hexagon body possible (`stdlib-roadmap.md` §5.1)", () 
    * this is where that shows, rather than in a puzzling failure elsewhere.
    */
   test("a borrowed array can be walked in Hexagon source", () => {
-    expect(projectDiagnostics(
-      "export let f(xs: Array(Int)): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let f(xs: Array(Int)): Int =\n" +
         "    var total = 0\n" +
         "    for value in xs\n" +
         "        total := total + value\n" +
@@ -540,7 +539,7 @@ describe("what makes the Hexagon body possible (`stdlib-roadmap.md` §5.1)", () 
    * open-coded walk the door was rejected for not needing.
    */
   test("the shipped body emits §8.2's native `for...of`", () => {
-    const compiled = compileMain("export let f(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n");
+    const compiled = compileMain("module Main\n\n" + "export let f(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n");
     expect(compiled.diagnostics).toEqual([]);
     const array = compiled.modules.find(({ source }) => source.path.endsWith("/Array.hex"));
     expect(array).toBeDefined();
@@ -582,11 +581,9 @@ describe("the round trip through §9's other shipped conversion", () => {
 
 describe("both spellings reach the same export (Modules §5.5)", () => {
   test("the qualified form and the dot call compile", () => {
-    expect(projectDiagnostics(
-      "export let a(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let a(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n",
     )).toEqual([]);
-    expect(projectDiagnostics(
-      "export let b(xs: Array(Int)): Vector(Int) = xs.toVector()\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let b(xs: Array(Int)): Vector(Int) = xs.toVector()\n",
     )).toEqual([]);
   });
 
@@ -622,7 +619,7 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () =>
    * still typecheck.
    */
   test("the prelude's `Array.d.ts` carries the generic row and its doc", () => {
-    const compiled = compileMain(FACE);
+    const compiled = compileMain("module Main\n\n" + FACE);
     expect(compiled.diagnostics).toEqual([]);
     const array = compiled.modules.find(({ source }) => source.path.endsWith("/Array.hex"));
     expect(array).toBeDefined();
@@ -638,7 +635,7 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () =>
   });
 
   test("a user export renders the argument and result rows together", () => {
-    const compiled = compileMain(FACE);
+    const compiled = compileMain("module Main\n\n" + FACE);
     expect(compiled.diagnostics).toEqual([]);
     const main = compiled.modules.find(({ source }) => source.path === "/main.hex");
     expect(main!.declarations.text).toContain(
@@ -655,7 +652,7 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () =>
    * Hexagon while the branded one governs what comes out.
    */
   test("a TypeScript consumer passes an array in and gets a branded vector out", async () => {
-    const compiled = compileMain(FACE);
+    const compiled = compileMain("module Main\n\n" + FACE);
     expect(compiled.diagnostics).toEqual([]);
     const files: Record<string, string> = {};
     for (const module of compiled.modules) {
@@ -683,7 +680,7 @@ describe("the `.d.ts` face is `ReadonlyArray<a>` in, `Hex.Vector<a>` out", () =>
    * consumer instantiates it at its own element type.
    */
   test("the prelude row typechecks when a consumer calls it directly", async () => {
-    const compiled = compileMain(FACE);
+    const compiled = compileMain("module Main\n\n" + FACE);
     expect(compiled.diagnostics).toEqual([]);
     const files: Record<string, string> = {};
     for (const module of compiled.modules) {

@@ -1167,7 +1167,7 @@ describe("`widens` and `widened` are contextual (#546)", () => {
 
 /**
  * The import head #762 shrank to its one binding form (spec/modules.md §3.1,
- * Lexer §4.2's deleted row): `import Geo from "./geometry"`, where the alias
+ * Lexer §4.2's deleted row): `import Geometry as Geo`, where the alias
  * stands immediately after the keyword. `module` has left the import grammar
  * with the head that carried it, and is an ordinary name everywhere again.
  *
@@ -1176,7 +1176,7 @@ describe("`widens` and `widened` are contextual (#546)", () => {
  */
 describe("the import head paints its keywords and nothing else (#762)", () => {
   it("paints the whole head", async () => {
-    expect(await scopePairs('import Geo from "./geometry"')).toEqual([
+    expect(await scopePairs('import Geometry as Geo')).toEqual([
       ["import", "keyword.control.import.hexagon"],
       // The alias seat has never had a paint of its own: an uppercase name that
       // is not left of a `.` is a type name to #names, which is what `Geo` got

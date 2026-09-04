@@ -101,8 +101,7 @@ describe("the head introduces its own binders", () => {
     // the report blamed an annotation the source does not contain:
     // "`a` is a declared type variable, but the body requires `Int`; change the
     // annotation to `Int`, or remove it to let the type be inferred".
-    expect(projectDiagnostics(
-      "record Box(a) = {value: a}\n" + sh +
+    expect(projectDiagnostics("module Main\n\n" + "record Box(a) = {value: a}\n" + sh +
         "honor Sh<Box(a)> =\n" +
         "    sh(x) = Show.show(x.value)\n",
     )).toEqual([
@@ -125,8 +124,7 @@ describe("the head-lawfulness law runs without a prefix (the regressions)", () =
   test("a concrete head argument is refused", () => {
     // Also clean on `main`. `#instanceKey` keys on the head *constructor*, so a
     // ground argument is a promise coherence cannot keep.
-    expect(projectDiagnostics(
-      "record Box(a) = {value: a}\n" + sh +
+    expect(projectDiagnostics("module Main\n\n" + "record Box(a) = {value: a}\n" + sh +
         "honor Sh<Box(Int)> =\n" +
         '    sh(x) = "b"\n',
     )).toEqual([HEAD_LAW]);
@@ -219,7 +217,7 @@ describe("the binder-less instance crosses the module boundary", () => {
   test("an importer's `for` over Bag(String) discharges against the imported instance", async () => {
     const main = await runProject([
       library,
-      ["/main.hex", "import Bags from \"./bags\"\n" +
+      ["/main.hex", "module Main\n\n" + "import Bags\n" +
         "\n" +
         "export fun run(ignored: Int): String =\n" +
         "    var out = \"\"\n" +
@@ -233,7 +231,7 @@ describe("the binder-less instance crosses the module boundary", () => {
   test("the imported projection at Bag(String) is String, not defaulted", () => {
     expect(messagesOf([
       library,
-      ["/main.hex", "import Bags from \"./bags\"\n" +
+      ["/main.hex", "module Main\n\n" + "import Bags\n" +
         "\n" +
         "fun total(bag: Bags.Bag(String)): Int =\n" +
         "    var sum = 0\n" +
@@ -249,7 +247,7 @@ describe("the binder-less instance crosses the module boundary", () => {
     // project is silent, not merely free of the messages this file names.
     expect(messagesOf([
       library,
-      ["/main.hex", "import Bags from \"./bags\"\n" +
+      ["/main.hex", "module Main\n\n" + "import Bags\n" +
         "\n" +
         "export fun joined(bag: Bags.Bag(String)): String =\n" +
         "    var out = \"\"\n" +

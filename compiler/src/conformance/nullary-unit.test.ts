@@ -14,7 +14,7 @@ import { projectDiagnostics } from "../support/test-project.js";
  * prelude-free harness cannot type the `Int` these probes are written over —
  * the same reason #147 gave for `Bool` (`test-project.ts`).
  */
-const diagnostics = (source: string): readonly string[] => projectDiagnostics(source);
+const diagnostics = (source: string): readonly string[] => projectDiagnostics("module Main\n\n" + source);
 
 // Proves this file's harness can observe a failure.
 test("the harness reports a broken module rather than passing it", () => {

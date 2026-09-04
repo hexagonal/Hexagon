@@ -47,10 +47,10 @@ import { compileFiles, runProject } from "../support/test-project.js";
 
 /** `union Flag = On | Off`, and a maker in a second module whose result carries it. */
 const FLAG = [
-  ["/a.hex", "export union Flag = On | Off\n"],
+  ["/a.hex", "module A\n\n" + "export union Flag = On | Off\n"],
   [
     "/b.hex",
-    "import A from \"./a\"\n" +
+    "module B\n\n" + "import A\n" +
     "export fun make(): A.Flag = A.On\n",
   ],
 ] as const;
@@ -66,7 +66,7 @@ describe("the coverage column answers from the reached declaration", () => {
       ...FLAG,
       [
         "/main.hex",
-        "import B from \"./b\"\n" +
+        "module Main\n\n" + "import B\n" +
         "export fun probe(): Int =\n" +
         "    match B.make()\n" +
         "        _ => 1\n",
@@ -79,7 +79,7 @@ describe("the coverage column answers from the reached declaration", () => {
       ...FLAG,
       [
         "/main.hex",
-        "import B from \"./b\"\n" +
+        "module Main\n\n" + "import B\n" +
         "export fun probe(): Int =\n" +
         "    match B.make()\n" +
         "        On => 1\n",
@@ -99,15 +99,15 @@ describe("the coverage column answers from the reached declaration", () => {
 
   test("a reached union's missing payload carries its slot witness", () => {
     expect(diagnostics([
-      ["/a.hex", "export union Shape = Dot | Circle(radius: Float)\n"],
+      ["/a.hex", "module A\n\n" + "export union Shape = Dot | Circle(radius: Float)\n"],
       [
         "/b.hex",
-        "import A from \"./a\"\n" +
+        "module B\n\n" + "import A\n" +
         "export fun make(): A.Shape = A.Dot\n",
       ],
       [
         "/main.hex",
-        "import B from \"./b\"\n" +
+        "module Main\n\n" + "import B\n" +
         "export fun probe(): Int =\n" +
         "    match B.make()\n" +
         "        Dot => 1\n",
@@ -125,10 +125,10 @@ describe("the coverage column answers from the reached declaration", () => {
     // which reads the pattern's expected type, not from whether this module
     // happens to hold an alias for the constructor's home module too.
     expect(diagnostics([
-      ["/a.hex", "export union Flag = On | Off\n"],
+      ["/a.hex", "module A\n\n" + "export union Flag = On | Off\n"],
       [
         "/main.hex",
-        "import A from \"./a\"\n" +
+        "module Main\n\n" + "import A\n" +
         "export fun probe(f: A.Flag): Int =\n" +
         "    match f\n" +
         "        On => 1\n",
@@ -144,12 +144,12 @@ describe("the coverage column answers from the reached declaration", () => {
     expect(diagnostics([
       [
         "/a.hex",
-        "opaque union Flag = On | Off\n" +
+        "module A\n\n" + "opaque union Flag = On | Off\n" +
         "export fun make(): Flag = On\n",
       ],
       [
         "/main.hex",
-        "import A from \"./a\"\n" +
+        "module Main\n\n" + "import A\n" +
         "export fun probe(): Int =\n" +
         "    match A.make()\n" +
         "        _ => 1\n",
@@ -164,12 +164,12 @@ describe("the coverage column answers from the reached declaration", () => {
     const files = [
       [
         "/a.hex",
-        "union Flag = On | Off\n" +
+        "module A\n\n" + "union Flag = On | Off\n" +
         "export fun make(): Flag = On\n",
       ],
       [
         "/main.hex",
-        "import A from \"./a\"\n" +
+        "module Main\n\n" + "import A\n" +
         "export fun probe(): Int =\n" +
         "    match A.make()\n" +
         "        _ => 1\n",
@@ -205,10 +205,10 @@ describe("constructor-pattern typing answers from the reached declaration", () =
     // `A.On`, qualified through the alias, resolves at name resolution and
     // never asks the door at all (§763: "scope first").
     const messages = diagnostics([
-      ["/a.hex", "export union Flag = On | Off\n"],
+      ["/a.hex", "module A\n\n" + "export union Flag = On | Off\n"],
       [
         "/main.hex",
-        "import A from \"./a\"\n" +
+        "module Main\n\n" + "import A\n" +
         "export fun probe(s: String): Int =\n" +
         "    match s\n" +
         "        A.On => 1\n" +
@@ -226,16 +226,16 @@ describe("the emitter reads a reached union from the same declaration", () => {
     // Textually distinct from the harness below on purpose: byte-identical
     // emitted JavaScript shares one module instance across the `data:` URL cache.
     const exports = await runProject([
-      ["/a.hex", "export union Shape = Dot | Circle(radius: Float)\n"],
+      ["/a.hex", "module A\n\n" + "export union Shape = Dot | Circle(radius: Float)\n"],
       [
         "/b.hex",
-        "import A from \"./a\"\n" +
+        "module B\n\n" + "import A\n" +
         "export fun dot(): A.Shape = A.Dot\n" +
         "export fun circle(r: Float): A.Shape = A.Circle(r)\n",
       ],
       [
         "/main.hex",
-        "import B from \"./b\"\n" +
+        "module Main\n\n" + "import B\n" +
         "export let atDot: Int =\n" +
         "    match B.dot()\n" +
         "        Dot => 11\n" +
@@ -252,16 +252,16 @@ describe("the emitter reads a reached union from the same declaration", () => {
 
   test("a reached union of nullary constructors runs without a `RangeError`", async () => {
     const exports = await runProject([
-      ["/a.hex", "export union Signal = Red | Green\n"],
+      ["/a.hex", "module A\n\n" + "export union Signal = Red | Green\n"],
       [
         "/b.hex",
-        "import A from \"./a\"\n" +
+        "module B\n\n" + "import A\n" +
         "export fun red(): A.Signal = A.Red\n" +
         "export fun green(): A.Signal = A.Green\n",
       ],
       [
         "/main.hex",
-        "import B from \"./b\"\n" +
+        "module Main\n\n" + "import B\n" +
         "export let atRed: Int =\n" +
         "    match B.red()\n" +
         "        Red => 7\n" +
@@ -283,7 +283,7 @@ describe("the emitter reads a reached union from the same declaration", () => {
       ...FLAG,
       [
         "/main.hex",
-        "import B from \"./b\"\n" +
+        "module Main\n\n" + "import B\n" +
         "export fun probe(): Int =\n" +
         "    match B.make()\n" +
         "        _ => 1\n",
@@ -307,13 +307,13 @@ describe("a reached union is still the importer's copy, for §4.3's reading", ()
     expect(diagnostics([
       [
         "/a.hex",
-        "export union Flag = On | Off\n" +
+        "module A\n\n" + "export union Flag = On | Off\n" +
         "export type Pair = (Flag, Int)\n" +
         "export fun make(): Pair = (On, 1)\n",
       ],
       [
         "/main.hex",
-        "import A from \"./a\"\n" +
+        "module Main\n\n" + "import A\n" +
         "export fun pass(): A.Pair = A.make()\n" +
         "export fun probe(): Int =\n" +
         "    match pass()\n" +

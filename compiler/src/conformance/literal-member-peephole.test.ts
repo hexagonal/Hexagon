@@ -38,7 +38,7 @@ import { compileFiles, runProject } from "../support/test-project.js";
 
 /** `/main.hex`'s emitted JavaScript, with the project asserted clean. */
 function emitted(source: string): string {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!
     .javascript.text;
@@ -99,7 +99,7 @@ describe("the headline: `Show<Bool>` selected and applied in place", () => {
    * on that regression where a text pin might be edited to match it.
    */
   test("the concatenation answers the string, not the condition", async () => {
-    const module = await runProject([["/main.hex", source]]);
+    const module = await runProject([["/main.hex", "module Main\n\n" + source]]);
 
     expect(module["line"]).toBe("Does 1 = 1? True");
   });
@@ -120,7 +120,7 @@ describe("structural evidence reduces where the guard allows it", () => {
     );
     expect(javascript).not.toContain("({ show:");
 
-    expect((await runProject([["/main.hex", source]]))["text"])
+    expect((await runProject([["/main.hex", "module Main\n\n" + source]]))["text"])
       .toBe("v = [1, 2, 3]");
   });
 
@@ -140,7 +140,7 @@ describe("structural evidence reduces where the guard allows it", () => {
     );
     expect(javascript).not.toContain("({ equals:");
 
-    const module = await runProject([["/main.hex", source]]);
+    const module = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(module["same"]).toBe(true);
     expect(module["differ"]).toBe(false);
   });
@@ -172,7 +172,7 @@ describe("the guard refuses, and the selection reads off the binding", () => {
     // binding's initializer and appears nowhere else.
     expect(javascript).not.toContain("}).equals(");
 
-    const module = await runProject([["/main.hex", source]]);
+    const module = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(module["same"]).toBe(true);
     expect(module["differ"]).toBe(false);
   });
@@ -202,7 +202,7 @@ describe("the guard refuses, and the selection reads off the binding", () => {
     );
     expect(javascript).not.toContain("}).compare(");
 
-    const module = await runProject([["/main.hex", source]]);
+    const module = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(module["less"]).toBe(true);
     expect(module["more"]).toBe(false);
   });
@@ -222,7 +222,7 @@ describe("the guard refuses, and the selection reads off the binding", () => {
     expect(javascript).toContain('const text = "u = " + __Show_Unit.show(undefined);');
     expect(javascript).not.toContain("}).show(");
 
-    expect((await runProject([["/main.hex", source]]))["text"]).toBe("u = ()");
+    expect((await runProject([["/main.hex", "module Main\n\n" + source]]))["text"]).toBe("u = ()");
   });
 
   /**
@@ -234,7 +234,7 @@ describe("the guard refuses, and the selection reads off the binding", () => {
   test("the refused shape still evaluates its operand", async () => {
     const lines = await written(async () => {
       const module = await runProject([["/main.hex",
-        "let mark(label: String): Unit =\n" +
+        "module Main\n\n" + "let mark(label: String): Unit =\n" +
           "    Debug.log(label)\n" +
           "    ()\n" +
           'export let text(): String = "u = ${mark("unit-operand")}"\n',
@@ -273,7 +273,7 @@ describe("what the rule does not reach", () => {
     expect(javascript).toContain("render(undefined, __Show_Unit)");
     expect(javascript).not.toContain("render(undefined, ({");
 
-    const module = await runProject([["/main.hex", source]]);
+    const module = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect((module["text"] as () => string)()).toBe("()");
   });
 
@@ -294,7 +294,7 @@ describe("what the rule does not reach", () => {
     );
     expect(javascript).not.toContain("({ concat:");
 
-    const module = await runProject([["/main.hex", source]]);
+    const module = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(module["size"]).toBe(3);
   });
 });
@@ -308,7 +308,7 @@ describe("a reduced site evaluates its arguments exactly once, in order", () => 
   test("one argument, one effect", async () => {
     const lines = await written(async () => {
       const module = await runProject([["/main.hex",
-        "let audit(label: String): Bool =\n" +
+        "module Main\n\n" + "let audit(label: String): Bool =\n" +
           "    Debug.log(label)\n" +
           "    True\n" +
           'export let line(): String = "answer: ${audit("once")}"\n',
@@ -322,7 +322,7 @@ describe("a reduced site evaluates its arguments exactly once, in order", () => 
   test("two arguments, in the order the source wrote them", async () => {
     const lines = await written(async () => {
       const module = await runProject([["/main.hex",
-        "let stamp(label: String): Int =\n" +
+        "module Main\n\n" + "let stamp(label: String): Int =\n" +
           "    Debug.log(label)\n" +
           "    1\n" +
           "export let same(): Bool =\n" +

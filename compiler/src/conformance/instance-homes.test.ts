@@ -31,18 +31,18 @@ const messagesOf = (files: readonly (readonly [string, string])[]): readonly str
 describe("the ordinary branch: both homes named, offerable ones offered", () => {
   test("two project homes are two paths, each with what it declares", () => {
     expect(messagesOf([
-      ["/badge.hex", [
+      ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
         "    mark(subject: a): String",
         "",
       ].join("\n")],
-      ["/token.hex", [
+      ["/token.hex", "module Token\n\n" + [
         "export record Token = {serial: Int}",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Badge from \"./badge\"",
-        "import Token from \"./token\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Badge",
+        "import Token",
         "",
         "export fun go(t: Token.Token): String = Badge.mark(t)",
         "",
@@ -57,15 +57,15 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
     // §7.6's parenthesis: "the two legal homes (or the one home when they
     // coincide)". Naming `./kit.hex` twice would read as two places to look.
     expect(messagesOf([
-      ["/kit.hex", [
+      ["/kit.hex", "module Kit\n\n" + [
         "export constraint Badge<a> =",
         "    mark(subject: a): String",
         "",
         "export record Token = {serial: Int}",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Kit from \"./kit\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Kit",
         "",
         "export fun go(t: Kit.Token): String = Kit.mark(t)",
         "",
@@ -88,12 +88,12 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
     // a hand-written honor, so the fixit is the cheaper repair beside them, not
     // a replacement for them.
     expect(messagesOf([
-      ["/widget.hex", [
+      ["/widget.hex", "module Widget\n\n" + [
         "export record Widget = {size: Int}",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Widget from \"./widget\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Widget",
         "",
         "export fun go(w: Widget.Widget): String = show(w)",
         "",
@@ -110,13 +110,13 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
     // `honor Badge<Int>` is legal in exactly two files and only one of them is
     // the user's. That one is offered; the companion is stated (#287).
     expect(messagesOf([
-      ["/badge.hex", [
+      ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
         "    mark(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Badge from \"./badge\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Badge",
         "",
         "export fun go(n: Int): String = Badge.mark(n)",
         "",
@@ -133,7 +133,7 @@ describe("the closed pair: no offerable home, so no honor offered", () => {
     // Both legal homes sit outside project source. §7.6: "an impossible fixit
     // would be worse than none" — the actionable content is the two exits that
     // need no instance at all.
-    expect(projectDiagnostics("export fun gap(a: Nat, b: Nat): Nat = a - b\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export fun gap(a: Nat, b: Nat): Nat = a - b\n")).toEqual([
       "type `Nat` has no `Signed` instance; its only legal homes are the module " +
         "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
         "source, so this pair's honored set is closed — change the type, or go through " +
@@ -149,7 +149,7 @@ describe("the closed pair: no offerable home, so no honor offered", () => {
   test("no `honor` and no file path appear in a closed-pair report", () => {
     // The negative half, pinned rather than assumed: the closed branch must not
     // leak the offering vocabulary of the branch above it.
-    const [message] = projectDiagnostics("export fun gap(a: Nat, b: Nat): Nat = a - b\n");
+    const [message] = projectDiagnostics("module Main\n\n" + "export fun gap(a: Nat, b: Nat): Nat = a - b\n");
 
     expect(message).not.toContain("honor ");
     expect(message).not.toContain(".hex");
@@ -173,19 +173,19 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
    */
   test("an exported constraint this module never imported takes the ordinary branch", () => {
     expect(messagesOf([
-      ["/units.hex", [
+      ["/units.hex", "module Units\n\n" + [
         "export constraint Loud<a> =",
         "    shout(subject: a): String",
         "",
       ].join("\n")],
-      ["/middle.hex", [
-        "import Units from \"./units\"",
+      ["/middle.hex", "module Middle\n\n" + [
+        "import Units",
         "",
         "export fun banner<a: Units.Loud>(subject: a): String = Units.shout(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Middle from \"./middle\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Middle",
         "",
         "export record Siren = {pitch: Int}",
         "",
@@ -202,12 +202,12 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
     // The other half of the pair: `Gate` is private, but *here* it is nameable,
     // so nothing is sealed away from this reader and the two homes stand.
     expect(messagesOf([
-      ["/token.hex", [
+      ["/token.hex", "module Token\n\n" + [
         "export record Token = {serial: Int}",
         "",
       ].join("\n")],
-      ["/gatekeeper.hex", [
-        "import Token from \"./token\"",
+      ["/gatekeeper.hex", "module Gatekeeper\n\n" + [
+        "import Token",
         "",
         "constraint Gate<a> =",
         "    pass(subject: a): String",
@@ -230,7 +230,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
    */
   test("a private middle link names its own module, never the subject's", () => {
     expect(messagesOf([
-      ["/scales.hex", [
+      ["/scales.hex", "module Scales\n\n" + [
         "constraint Tiny<a> =",
         "    tiny(subject: a): String",
         "",
@@ -241,8 +241,8 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "    big(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Scales from \"./scales\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Scales",
         "",
         "export record Ounce = {drams: Int}",
         "",
@@ -264,7 +264,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
    */
   test("a private constraint gating an exported binding names its home", () => {
     expect(messagesOf([
-      ["/gatekeeper.hex", [
+      ["/gatekeeper.hex", "module Gatekeeper\n\n" + [
         "constraint Gate<a> =",
         "    pass(subject: a): String",
         "",
@@ -276,8 +276,8 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "export fun admit<a: Gate>(subject: a): String = pass(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Gatekeeper from \"./gatekeeper\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Gatekeeper",
         "",
         "export record Badge = {serial: Int}",
         "",
@@ -293,7 +293,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
   /** Route (c) — a private **base of an exported constraint**, one hop (#633). */
   test("a sealed base of an exported constraint names its home", () => {
     expect(messagesOf([
-      ["/seal.hex", [
+      ["/seal.hex", "module Seal\n\n" + [
         "constraint Sealed<a> =",
         "    seal(subject: a): String",
         "",
@@ -301,8 +301,8 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "    face(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Seal from \"./seal\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Seal",
         "",
         "export record Panel = {width: Int}",
         "",
@@ -321,7 +321,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     // *is* a lawful home under the orphan rule, and the honor cannot be written
     // there, because no import or alias in it reaches the constraint's name.
     const [message] = messagesOf([
-      ["/seal.hex", [
+      ["/seal.hex", "module Seal\n\n" + [
         "constraint Sealed<a> =",
         "    seal(subject: a): String",
         "",
@@ -329,8 +329,8 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "    face(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Seal from \"./seal\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Seal",
         "",
         "export record Panel = {width: Int}",
         "",
@@ -353,7 +353,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
    */
   test("a sealed constraint whose subject shares its module names that module", () => {
     expect(messagesOf([
-      ["/gate.hex", [
+      ["/gate.hex", "module Gate\n\n" + [
         "constraint Gate<a> =",
         "    pass(subject: a): String",
         "",
@@ -362,8 +362,8 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "export fun admit<a: Gate>(subject: a): String = pass(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Gate from \"./gate\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Gate",
         "",
         "export fun go(t: Gate.Ticket): String = Gate.admit(t)",
         "",
@@ -394,9 +394,9 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       "so the honor can only be written in `./gate.hex`, which declares it";
 
     expect(messagesOf([
-      ["/gate.hex", gate],
-      ["/main.hex", [
-        "import Gate from \"./gate\"",
+      ["/gate.hex", "module Gate\n\n" + gate],
+      ["/main.hex", "module Main\n\n" + [
+        "import Gate",
         "",
         "export fun go(m: Option(Int)): String = Gate.admit(m)",
         "",
@@ -404,9 +404,9 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     ])).toEqual([sealed("Option(Int)")]);
 
     expect(messagesOf([
-      ["/gate.hex", gate],
-      ["/main.hex", [
-        "import Gate from \"./gate\"",
+      ["/gate.hex", "module Gate\n\n" + gate],
+      ["/main.hex", "module Main\n\n" + [
+        "import Gate",
         "",
         "export union Colour = Red | Green",
         "",
@@ -426,15 +426,15 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
    */
   test("a same-spelled local constraint gets the identity wording, not the name wording", () => {
     const messages = messagesOf([
-      ["/alpha.hex", [
+      ["/alpha.hex", "module Alpha\n\n" + [
         "constraint Describe<a> =",
         "    describe(subject: a): String",
         "",
         "export fun render<a: Describe>(subject: a): String = describe(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Alpha from \"./alpha\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Alpha",
         "",
         "export constraint Describe<a> =",
         "    describe(subject: a): String",
@@ -468,15 +468,15 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
    */
   test("a sealed constraint at a tuple subject still keeps the bare head", () => {
     expect(messagesOf([
-      ["/gate.hex", [
+      ["/gate.hex", "module Gate\n\n" + [
         "constraint Gate<a> =",
         "    pass(subject: a): String",
         "",
         "export fun admit<a: Gate>(subject: a): String = pass(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Gate from \"./gate\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Gate",
         "",
         "export fun go(p: (Int, Int)): String = Gate.admit(p)",
         "",
@@ -489,15 +489,15 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
     // is lawful (Constraints §5.3 gives `Int` a home, and the constraint's own
     // module is always a legal seat), so this one is genuinely directed.
     expect(messagesOf([
-      ["/gate.hex", [
+      ["/gate.hex", "module Gate\n\n" + [
         "constraint Gate<a> =",
         "    pass(subject: a): String",
         "",
         "export fun admit<a: Gate>(subject: a): String = pass(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Gate from \"./gate\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Gate",
         "",
         "export fun go(n: Int): String = Gate.admit(n)",
         "",
@@ -514,13 +514,13 @@ describe("what the clause does not reach", () => {
     // §7.6 scopes the obligation to "subjects that have a declaring module to
     // name"; a tuple has none, so nothing is appended.
     expect(messagesOf([
-      ["/badge.hex", [
+      ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
         "    mark(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Badge from \"./badge\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Badge",
         "",
         "export fun go(p: (Int, Int)): String = Badge.mark(p)",
         "",
@@ -530,13 +530,13 @@ describe("what the clause does not reach", () => {
 
   test("a function subject keeps its own message", () => {
     expect(messagesOf([
-      ["/badge.hex", [
+      ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
         "    mark(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Badge from \"./badge\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Badge",
         "",
         "export fun go(f: ((Int) -> Int)): String = Badge.mark(f)",
         "",
@@ -547,15 +547,14 @@ describe("what the clause does not reach", () => {
   test("a literal-origin failure keeps the numeric-literal message", () => {
     // Numeric Literals §6 owns this seat, and §7.6's clause has no business on
     // it: the fault is the literal's type, not a missing home.
-    expect(projectDiagnostics("export let flag: Bool = 1\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let flag: Bool = 1\n"))
       .toEqual(["integer literal cannot have type `Bool`"]);
   });
 
   test("the §3.3 loop-head report still wins at a user nominal", () => {
     // Collections Part 5 §3.3 is the more specific report and is untouched: it
     // already keeps the offering discipline §7.6 generalised.
-    const messages = projectDiagnostics(
-      "export record Bag = {size: Int}\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "export record Bag = {size: Int}\n" +
         "export fun run(bag: Bag): Unit =\n" +
         "    for item in bag\n" +
         "        ()\n",

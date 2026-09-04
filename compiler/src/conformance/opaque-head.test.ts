@@ -43,15 +43,15 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
   const vault = (body: string) =>
     [
       ["/vault.hex",
-        "opaque record Ticket = {serial: Int}\n" +
+        "module Vault\n\n" + "opaque record Ticket = {serial: Int}\n" +
         "export fun issue(serial: Int): Ticket = Ticket({serial = serial})\n" +
         "export fun serialOf(t: Ticket): Int = t.serial\n"],
-      ["/main.hex", body],
+      ["/main.hex", "module Main\n\n" + body],
     ] as const;
 
   test("the type name crosses: a stranger may name it and pass it around", () => {
     expect(messages(vault(
-      'import Vault from "./vault"\n' +
+      'import Vault\n' +
       "export fun round(t: Vault.Ticket): Int = Vault.serialOf(t)\n" +
       "export let one: Int = round(Vault.issue(7))\n",
     ))).toEqual([]);
@@ -59,7 +59,7 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
 
   test("the field does not cross", () => {
     expect(messages(vault(
-      'import Vault from "./vault"\n' +
+      'import Vault\n' +
       "export fun peek(t: Vault.Ticket): Int = t.serial\n",
     ))).toEqual([
       "cannot access field `serial` of opaque record `Ticket`; " +
@@ -69,7 +69,7 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
 
   test("the constructor does not cross", () => {
     expect(messages(vault(
-      'import Vault from "./vault"\n' +
+      'import Vault\n' +
       "export fun forge(): Vault.Ticket = Ticket({serial = 1})\n",
     ))).toEqual([
       // The constructor is opaque, so no visible alias's module exports it —
@@ -81,8 +81,7 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
   });
 
   test("inside the home module `opaque` changes nothing", () => {
-    expect(projectDiagnostics(
-      "opaque record Crate = {weight: Float}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "opaque record Crate = {weight: Float}\n" +
       "export fun heavier(c: Crate): Float = c.weight + 1.0\n" +
       "export let built: Float = heavier(Crate({weight = 2.0}))\n",
     )).toEqual([]);
@@ -91,14 +90,14 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
   test("an `opaque union`'s constructors stay home, and the type name travels", () => {
     const files = [
       ["/handles.hex",
-        "opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)\n" +
+        "module Handles\n\n" + "opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)\n" +
         "export fun openFile(fd: Int): Handle = FileHandle(fd)\n" +
         "export fun describe(h: Handle): Int =\n" +
         "    match h\n" +
         "        FileHandle(fd) => fd\n" +
         "        NetHandle(sock) => sock\n"],
       ["/main.hex",
-        'import Handles from "./handles"\n' +
+        "module Main\n\n" + 'import Handles\n' +
         "export fun show(h: Handles.Handle): Int = Handles.describe(h)\n" +
         "export let n: Int = show(Handles.openFile(3))\n"],
     ] as const;
@@ -112,8 +111,8 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
     expect(messages([
       files[0],
       ["/main.hex",
-        'import Handles from "./handles"\n' +
-        'import FileHandle from "./handles"\n' +
+        "module Main\n\n" + 'import Handles\n' +
+        'import Handles as FileHandle\n' +
         "export fun forge(): Handles.Handle = FileHandle(1)\n"],
     ])).toEqual([
       "unknown name `FileHandle`",
@@ -123,11 +122,11 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
   test("the emitted module still runs, and the opaque value is real", async () => {
     const exports = await runProject([
       ["/badge.hex",
-        "opaque record Badge = {number: Int}\n" +
+        "module Badge\n\n" + "opaque record Badge = {number: Int}\n" +
         "export fun mint(number: Int): Badge = Badge({number = number})\n" +
         "export fun numberOf(b: Badge): Int = b.number\n"],
       ["/main.hex",
-        'import Badge from "./badge"\n' +
+        "module Main\n\n" + 'import Badge\n' +
         "export let answer: Int = Badge.numberOf(Badge.mint(42))\n"],
     ]);
     expect(exports["answer"]).toBe(42);
@@ -136,16 +135,14 @@ describe("the `opaque` head means what `export opaque` meant (§4.2)", () => {
 
 describe("`export opaque` is refused with the required rewrite (§4.2, §10)", () => {
   test("a record head names the record exemplar", () => {
-    expect(projectDiagnostics(
-      "export opaque record Point = {x: Float, y: Float}\n",
+    expect(projectDiagnostics("module Main\n\n" + "export opaque record Point = {x: Float, y: Float}\n",
     )).toEqual([
       "`opaque` already exports the type name; write `opaque record Point = …`",
     ]);
   });
 
   test("a union head names the union exemplar", () => {
-    expect(projectDiagnostics(
-      "export opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export opaque union Handle = FileHandle(fd: Int) | NetHandle(sock: Int)\n",
     )).toEqual([
       "`opaque` already exports the type name; write `opaque union Handle = …`",
     ]);
@@ -160,10 +157,10 @@ describe("`export opaque` is refused with the required rewrite (§4.2, §10)", (
   test("the declaration is still parsed, opacity and all", () => {
     expect(messages([
       ["/mint.hex",
-        "export opaque record Coin = {face: Int}\n" +
+        "module Mint\n\n" + "export opaque record Coin = {face: Int}\n" +
         "export fun strike(face: Int): Coin = Coin({face = face})\n"],
       ["/main.hex",
-        'import Mint from "./mint"\n' +
+        "module Main\n\n" + 'import Mint\n' +
         "export fun read(c: Mint.Coin): Int = c.face\n"],
     ])).toEqual([
       "`opaque` already exports the type name; write `opaque record Point = …`",
@@ -177,7 +174,7 @@ describe("`export opaque` is refused with the required rewrite (§4.2, §10)", (
     // and the claim being made is that the repair produces the spelling the
     // message asked for and touches nothing else on the line.
     const source = "export opaque record Point = {x: Float, y: Float}\n";
-    const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
+    const [diagnostic] = compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics;
     expect(diagnostic?.fixes).toMatchObject([{ message: "write `opaque`" }]);
     const edits = diagnostic?.fixes?.[0]?.edits ?? [];
     expect(edits).toHaveLength(1);
@@ -191,24 +188,23 @@ describe("`export opaque` is refused with the required rewrite (§4.2, §10)", (
 describe("`opaque` on a subject it does not apply to (§10)", () => {
   test("`type` gets the alias redirect", () => {
     const alias = "aliases are transparent; make it a `record` or single-constructor `union`";
-    expect(projectDiagnostics("opaque type Name = String\n")).toEqual([alias]);
+    expect(projectDiagnostics("module Main\n\n" + "opaque type Name = String\n")).toEqual([alias]);
     // The pair reaches the same sentence, and **only** it: §10's `export opaque`
     // row presupposes a lawful subject, so a crossed head over an unlawful one
     // draws the subject's redirect and never the pair rewrite — the rewrite's
     // output would still be ill-formed, and the subject is the deeper fault.
     // Equality, not containment: "never" is the claim, and a containment
     // assertion cannot fail on an extra sentence.
-    expect(projectDiagnostics("export opaque type Name = String\n")).toEqual([alias]);
+    expect(projectDiagnostics("module Main\n\n" + "export opaque type Name = String\n")).toEqual([alias]);
   });
 
   test("`let`, `fun`, `constraint` and `exception` get the general redirect", () => {
     const applies = "`opaque` applies to `record` and `union` declarations";
-    expect(projectDiagnostics("opaque let width: Int = 3\n")).toContain(applies);
-    expect(projectDiagnostics("opaque fun width(): Int = 3\n")).toContain(applies);
-    expect(projectDiagnostics(
-      "opaque constraint Hidden<a> =\n    peek(subject: a): Int\n",
+    expect(projectDiagnostics("module Main\n\n" + "opaque let width: Int = 3\n")).toContain(applies);
+    expect(projectDiagnostics("module Main\n\n" + "opaque fun width(): Int = 3\n")).toContain(applies);
+    expect(projectDiagnostics("module Main\n\n" + "opaque constraint Hidden<a> =\n    peek(subject: a): Int\n",
     )).toContain(applies);
-    expect(projectDiagnostics("opaque exception Torn(reason: String)\n")).toContain(applies);
+    expect(projectDiagnostics("module Main\n\n" + "opaque exception Torn(reason: String)\n")).toContain(applies);
   });
 
   /**
@@ -228,9 +224,9 @@ describe("`opaque` on a subject it does not apply to (§10)", () => {
    */
   test("a redirected subject is not exported by the word that was refused", () => {
     const applies = "`opaque` applies to `record` and `union` declarations";
-    expect(projectDiagnostics("opaque let width = 3\n")).toEqual([applies]);
-    expect(projectDiagnostics("opaque fun width(n: Int) = n * 2\n")).toEqual([applies]);
-    expect(projectDiagnostics("export opaque let width = 3\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "opaque let width = 3\n")).toEqual([applies]);
+    expect(projectDiagnostics("module Main\n\n" + "opaque fun width(n: Int) = n * 2\n")).toEqual([applies]);
+    expect(projectDiagnostics("module Main\n\n" + "export opaque let width = 3\n")).toEqual([
       applies,
       "exported value `width` requires a type annotation",
     ]);
@@ -244,8 +240,8 @@ describe("`opaque` on a subject it does not apply to (§10)", () => {
     // access that misses reports itself and stops, unlike a term reference
     // that also had a binding form of its own to fail.
     expect(messages([
-      ["/hidden.hex", "opaque let width = 3\n"],
-      ["/main.hex", 'import Hidden from "./hidden"\nexport let n: Int = Hidden.width\n'],
+      ["/hidden.hex", "module Hidden\n\n" + "opaque let width = 3\n"],
+      ["/main.hex", "module Main\n\n" + 'import Hidden\nexport let n: Int = Hidden.width\n'],
     ])).toEqual([
       "`opaque` applies to `record` and `union` declarations",
       "module `Hidden` does not export `width`",
@@ -260,8 +256,7 @@ describe("`opaque` on a subject it does not apply to (§10)", () => {
    * words instead of by §10's row.
    */
   test("the redirected declaration is still read, so the module below it survives", () => {
-    expect(projectDiagnostics(
-      "opaque type Name = String\n" +
+    expect(projectDiagnostics("module Main\n\n" + "opaque type Name = String\n" +
       "export fun greet(n: Name): Name = n\n",
     )).toEqual([
       "aliases are transparent; make it a `record` or single-constructor `union`",
@@ -271,15 +266,14 @@ describe("`opaque` on a subject it does not apply to (§10)", () => {
 
 describe("`opaque` is contextual, never reserved (Lexer §4.2)", () => {
   test("`let opaque = 3` binds", () => {
-    expect(projectDiagnostics(
-      "let opaque = 3\nexport let doubled: Int = opaque * 2\n",
+    expect(projectDiagnostics("module Main\n\n" + "let opaque = 3\nexport let doubled: Int = opaque * 2\n",
     )).toEqual([]);
   });
 
   test("the word is an ordinary term, parameter and field", async () => {
     const exports = await runProject([
       ["/main.hex",
-        "export fun scale(opaque: Int): Int = opaque + 1\n" +
+        "module Main\n\n" + "export fun scale(opaque: Int): Int = opaque + 1\n" +
         "record Cover = {opaque: Bool}\n" +
         "let sheet = Cover({opaque = True})\n" +
         "export let veiled: Bool = sheet.opaque\n" +
@@ -292,14 +286,12 @@ describe("`opaque` is contextual, never reserved (Lexer §4.2)", () => {
   test("a head is a head only where a declaration follows", () => {
     // No juxtaposition in the grammar, so a term `opaque` is followed by `(`,
     // an operator, a newline, or nothing — never by a declaration keyword.
-    expect(projectDiagnostics(
-      "fun opaque(n: Int): Int = n\nexport let called: Int = opaque(1)\n",
+    expect(projectDiagnostics("module Main\n\n" + "fun opaque(n: Int): Int = n\nexport let called: Int = opaque(1)\n",
     )).toEqual([]);
   });
 
   test("`opaque` at a block's item position is not a module-level declaration", () => {
-    expect(projectDiagnostics(
-      "export fun wrap(): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun wrap(): Int =\n" +
       "    opaque record Inner = {n: Int}\n" +
       "    1\n",
     )).toContain("`opaque` is only allowed at module top level");
@@ -319,8 +311,7 @@ describe("`opaque` is contextual, never reserved (Lexer §4.2)", () => {
  */
 describe("the `opaque` head lays out like the head it replaced (Lexer & Layout)", () => {
   test("an indented alternative list still belongs to its declaration", () => {
-    expect(projectDiagnostics(
-      "opaque union Tree(a) =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "opaque union Tree(a) =\n" +
       "    | Leaf\n" +
       "    | Fork(left: Tree(a), value: a)\n" +
       "export fun leaf(): Tree(Int) = Leaf\n",
@@ -328,8 +319,7 @@ describe("the `opaque` head lays out like the head it replaced (Lexer & Layout)"
   });
 
   test("an indented record body still belongs to its declaration", () => {
-    expect(projectDiagnostics(
-      "opaque record Ledger = {\n" +
+    expect(projectDiagnostics("module Main\n\n" + "opaque record Ledger = {\n" +
       "    total: Int,\n" +
       "    count: Int,\n" +
       "}\n" +
@@ -343,8 +333,7 @@ describe("the `opaque` head lays out like the head it replaced (Lexer & Layout)"
    * defect, and it should be the only report.
    */
   test("a redirected `opaque constraint` still opens its body", () => {
-    expect(projectDiagnostics(
-      "opaque constraint Hidden<a> =\n    peek(subject: a): Int\n",
+    expect(projectDiagnostics("module Main\n\n" + "opaque constraint Hidden<a> =\n    peek(subject: a): Int\n",
     )).toEqual([
       "`opaque` applies to `record` and `union` declarations",
     ]);
@@ -353,8 +342,7 @@ describe("the `opaque` head lays out like the head it replaced (Lexer & Layout)"
   test("a redirected `opaque fun` still opens its body", () => {
     // Two statements, not one: a single indented line would ride in as a
     // continuation whether or not a block opened, and would pass either way.
-    expect(projectDiagnostics(
-      "opaque fun width(n: Int): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "opaque fun width(n: Int): Int =\n" +
       "    let doubled = n * 2\n" +
       "    doubled + 1\n",
     )).toEqual([
@@ -363,8 +351,7 @@ describe("the `opaque` head lays out like the head it replaced (Lexer & Layout)"
   });
 
   test("the refused pair lays out as the declaration it plainly is", () => {
-    expect(projectDiagnostics(
-      "export opaque union Colour =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export opaque union Colour =\n" +
       "    | Red\n" +
       "    | Green\n",
     )).toEqual([
@@ -375,17 +362,14 @@ describe("the `opaque` head lays out like the head it replaced (Lexer & Layout)"
 
 describe("variance sigils read the `opaque` head (Preamble §2.1, §4.2.1)", () => {
   test("a sigil on a bare `opaque` head is accepted and claimed", () => {
-    expect(projectDiagnostics(
-      "opaque record Holder(+a) = { get: () -> a }\n",
+    expect(projectDiagnostics("module Main\n\n" + "opaque record Holder(+a) = { get: () -> a }\n",
     )).toEqual([]);
-    expect(projectDiagnostics(
-      "opaque record Drain(-a) = { accept: a -> Unit }\n",
+    expect(projectDiagnostics("module Main\n\n" + "opaque record Drain(-a) = { accept: a -> Unit }\n",
     )).toEqual([]);
   });
 
   test("the claim is still verified against the representation", () => {
-    expect(projectDiagnostics(
-      "opaque record Drain(+a) = { accept: a -> Unit }\n",
+    expect(projectDiagnostics("module Main\n\n" + "opaque record Drain(+a) = { accept: a -> Unit }\n",
     )).toContain(
       "`a` cannot be declared covariant in `Drain`: field `accept` uses `a` in argument position. " +
         "Remove the `+`, or change the field",
@@ -393,11 +377,9 @@ describe("variance sigils read the `opaque` head (Preamble §2.1, §4.2.1)", () 
   });
 
   test("a sigil on a transparent declaration is still refused", () => {
-    expect(projectDiagnostics(
-      "export record Pair(+a, b) = { left: a, right: b }\n",
+    expect(projectDiagnostics("module Main\n\n" + "export record Pair(+a, b) = { left: a, right: b }\n",
     )).toContain("variance is inferred for transparent types; remove the `+`");
-    expect(projectDiagnostics(
-      "record Solo(-a) = { accept: a -> Unit }\n",
+    expect(projectDiagnostics("module Main\n\n" + "record Solo(-a) = { accept: a -> Unit }\n",
     )).toContain("variance is inferred for transparent types; remove the `-`");
   });
 });

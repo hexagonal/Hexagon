@@ -35,7 +35,7 @@ import { typeScriptErrors } from "../support/typescript-check.js";
 
 /** The emitted `.d.ts` text of a one-module program at `/main.hex`. */
 function declarations(source: string): string {
-  const compiled = compileFiles([["/main.hex", source]]);
+  const compiled = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(compiled.diagnostics).toEqual([]);
   return compiled.modules.find(({ source: file }) => file.path === "/main.hex")!
     .declarations.text;
@@ -43,7 +43,7 @@ function declarations(source: string): string {
 
 /** The emitted JavaScript of a one-module program at `/main.hex`. */
 function javascript(source: string): string {
-  const compiled = compileFiles([["/main.hex", source]]);
+  const compiled = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(compiled.diagnostics).toEqual([]);
   return compiled.modules.find(({ source: file }) => file.path === "/main.hex")!
     .javascript.text;
@@ -57,8 +57,7 @@ describe("the type (§2)", () => {
    * ordinary as a parameter.
    */
   test("it is legal in every direct position", () => {
-    expect(projectDiagnostics(
-      "export record Envelope = { payload: JsValue, tag: String }\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export record Envelope = { payload: JsValue, tag: String }\n" +
         "export let wrap(v: JsValue): Envelope = Envelope({ payload = v, tag = \"x\" })\n" +
         "export let many(v: JsValue): Vector(JsValue) = [v, v]\n" +
         "export let through(v: JsValue, f: JsValue -> JsValue): JsValue = f(v)\n" +
@@ -68,10 +67,10 @@ describe("the type (§2)", () => {
 
   /** §2: it unifies with itself and with nothing else. */
   test("it unifies with itself and nothing else", () => {
-    expect(projectDiagnostics("export let same(v: JsValue): JsValue = v\n")).toEqual([]);
-    expect(projectDiagnostics("export let no(v: JsValue): Int = v\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let same(v: JsValue): JsValue = v\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let no(v: JsValue): Int = v\n"))
       .toEqual(["type mismatch: expected Int, found JsValue"]);
-    expect(projectDiagnostics("export let no(n: Int): JsValue = n\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let no(n: Int): JsValue = n\n"))
       .toEqual(["type mismatch: expected JsValue, found Int"]);
   });
 
@@ -81,12 +80,11 @@ describe("the type (§2)", () => {
    * operation that asserts something, so each of the three refuses.
    */
   test("it has no instances — not showable, not comparable, not iterable", () => {
-    expect(projectDiagnostics("export let s(v: JsValue): String = show(v)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let s(v: JsValue): String = show(v)\n"))
       .toEqual(["type `JsValue` has no `Show` instance"]);
-    expect(projectDiagnostics("export let e(v: JsValue, w: JsValue): Bool = v == w\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let e(v: JsValue, w: JsValue): Bool = v == w\n"))
       .toEqual(["type `JsValue` has no `Eq` instance"]);
-    expect(projectDiagnostics(
-      "export let count(v: JsValue): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let count(v: JsValue): Int =\n" +
         "    var n = 0\n" +
         "    for x in v\n" +
         "        n = n + 1\n" +
@@ -96,7 +94,7 @@ describe("the type (§2)", () => {
 
   /** §2: no type parameters. An applied spelling gets the boundary family's arity refusal. */
   test("it takes no type arguments", () => {
-    expect(projectDiagnostics("export let f(v: JsValue(Int)): Int = 1\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let f(v: JsValue(Int)): Int = 1\n"))
       .toEqual(["type `JsValue` expects 0 arguments, but 1 were provided"]);
   });
 
@@ -182,7 +180,7 @@ describe("the `.d.ts` face is `unknown`, never `any` (§2)", () => {
    */
   test("the conversion-error data face as ordinary record and union", async () => {
     const compiled = compileFiles([["/main.hex",
-      "export let e(x: JsConversionError): JsConversionError = x\n"]]);
+      "module Main\n\n" + "export let e(x: JsConversionError): JsConversionError = x\n"]]);
     expect(compiled.diagnostics).toEqual([]);
     const faceOf = (path: string): string =>
       compiled.modules.find(({ source }) => source.path === path)!.declarations.text;
@@ -216,8 +214,7 @@ describe("nullish absorption (§8, §13.3)", () => {
    * conversion, and the face is the face of `JsValue`.
    */
   test("`Nullable(JsValue) ≡ JsValue`", () => {
-    expect(projectDiagnostics(
-      "export let down(v: Nullable(JsValue)): JsValue = v\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let down(v: Nullable(JsValue)): JsValue = v\n" +
         "export let up(v: JsValue): Nullable(JsValue) = v\n",
     )).toEqual([]);
     expect(declarations("export let down(v: Nullable(JsValue)): JsValue = v\n"))
@@ -226,8 +223,7 @@ describe("nullish absorption (§8, §13.3)", () => {
 
   /** Part 2 §2.1's first instance of the same principle. */
   test("`Nullable(Nullable(a)) ≡ Nullable(a)`", () => {
-    expect(projectDiagnostics(
-      "export let flat(v: Nullable(Nullable(Int))): Nullable(Int) = v\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let flat(v: Nullable(Nullable(Int))): Nullable(Int) = v\n",
     )).toEqual([]);
     expect(declarations("export let flat(v: Nullable(Nullable(Int))): Nullable(Int) = v\n"))
       .toContain("(v: number | null | undefined) => number | null | undefined");
@@ -241,8 +237,7 @@ describe("nullish absorption (§8, §13.3)", () => {
    * the constructors alone would answer the first and not the second.
    */
   test("it applies through an alias and through generic substitution", () => {
-    expect(projectDiagnostics(
-      "type Maybe(a) = Nullable(a)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "type Maybe(a) = Nullable(a)\n" +
         "export let viaAlias(v: Maybe(JsValue)): JsValue = v\n" +
         "export let alsoFlat(v: Maybe(Nullable(Int))): Nullable(Int) = v\n",
     )).toEqual([]);
@@ -267,8 +262,7 @@ describe("nullish absorption (§8, §13.3)", () => {
    * together, in one program, on one line each.
    */
   test("the collapse does not depend on the order the arguments solve in", () => {
-    expect(projectDiagnostics(
-      "let witnessFirst(witness: a, value: Nullable(a)): Nullable(a) = value\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let witnessFirst(witness: a, value: Nullable(a)): Nullable(a) = value\n" +
         "let valueFirst(value: Nullable(a), witness: a): Nullable(a) = value\n" +
         "export let before(v: JsValue): JsValue = witnessFirst(v, v)\n" +
         "export let after(v: JsValue): JsValue = valueFirst(v, v)\n",
@@ -288,8 +282,7 @@ describe("nullish absorption (§8, §13.3)", () => {
    * mismatch.
    */
   test("an unsolved variable under the `Nullable` is solved, not refused", () => {
-    expect(projectDiagnostics(
-      "let take(y: Nullable(a)): Int = 1\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let take(y: Nullable(a)): Int = 1\n" +
         "export let go(v: JsValue): Int = take(v)\n",
     )).toEqual([]);
     // The **result** position too, and it is a distinct pin rather than a
@@ -299,15 +292,13 @@ describe("nullish absorption (§8, §13.3)", () => {
     // fixture — its result variable is named by nothing in its parameters, which
     // is the only way to hand the unifier a `Nullable` whose argument no
     // argument has already ground.
-    expect(projectDiagnostics(
-      "fun unconstrained(n: Int): Nullable(a) = unconstrained(n)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "fun unconstrained(n: Int): Nullable(a) = unconstrained(n)\n" +
         "export let out(n: Int): JsValue = unconstrained(n)\n",
     )).toEqual([]);
     // The same orientation reached through a collection element and through a
     // conditional's two branches, so it is the *equation* that is pinned rather
     // than one seat's argument order.
-    expect(projectDiagnostics(
-      "fun unconstrained(n: Int): Nullable(a) = unconstrained(n)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "fun unconstrained(n: Int): Nullable(a) = unconstrained(n)\n" +
         "fun anyValue(n: Int): JsValue = anyValue(n)\n" +
         "export let xs(n: Int): Vector(JsValue) = [anyValue(n), unconstrained(n)]\n" +
         "export let pick(c: Bool, n: Int): JsValue =\n" +
@@ -322,8 +313,7 @@ describe("nullish absorption (§8, §13.3)", () => {
    * separate code and a fix to one need not have reached the other.
    */
   test("a nested `Nullable` around an unsolved variable resolves too", () => {
-    expect(projectDiagnostics(
-      "let deep(y: Nullable(Nullable(a))): Int = 1\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let deep(y: Nullable(Nullable(a))): Int = 1\n" +
         "export let go(v: JsValue): Int = deep(v)\n",
     )).toEqual([]);
   });
@@ -337,24 +327,20 @@ describe("nullish absorption (§8, §13.3)", () => {
   test("nothing leaks into ordinary `Nullable(?a)` unification", () => {
     // `?a` solves to `Int` because that is what the *wrapped* type says, not to
     // `Nullable(Int)` and not to anything else.
-    expect(projectDiagnostics(
-      "let take(y: Nullable(a), witness: a): Int = 1\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let take(y: Nullable(a), witness: a): Int = 1\n" +
         "export let go(v: Nullable(Int)): Int = take(v, 1)\n",
     )).toEqual([]);
-    expect(projectDiagnostics(
-      "let take(y: Nullable(a), witness: a): Int = 1\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let take(y: Nullable(a), witness: a): Int = 1\n" +
         "export let bad(v: Nullable(Int)): Int = take(v, \"s\")\n",
     )).toEqual(["type mismatch: expected Int, found String"]);
     // A non-`JsValue` argument meeting `Nullable(?a)` is still the mismatch it
     // was: no other type absorbs the wrapper, and the report still names the
     // `Nullable` shape the reader wrote.
-    expect(projectDiagnostics(
-      "let take(y: Nullable(a)): Int = 1\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let take(y: Nullable(a)): Int = 1\n" +
         "export let n: Int = take(\"s\")\n",
     )).toEqual(["type mismatch: expected Nullable(a), found String"]);
     // And the unwrapping direction is refused as before.
-    expect(projectDiagnostics(
-      "export let unwrap(v: Nullable(Int)): Int = v\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let unwrap(v: Nullable(Int)): Int = v\n",
     )).toEqual(["type mismatch: expected Int, found Nullable(Int)"]);
   });
 
@@ -366,12 +352,10 @@ describe("nullish absorption (§8, §13.3)", () => {
    * variable inside it.
    */
   test("a declared type variable under the `Nullable` is refused, both orders", () => {
-    expect(projectDiagnostics(
-      "let use(v: JsValue): Int = 1\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let use(v: JsValue): Int = 1\n" +
         "export let go<a>(v: Nullable(a)): Int = use(v)\n",
     )).toEqual(["type mismatch: expected JsValue, found Nullable(a)"]);
-    expect(projectDiagnostics(
-      "let use<a>(v: Nullable(a)): Int = 1\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let use<a>(v: Nullable(a)): Int = 1\n" +
         "export let go(v: JsValue): Int = use(v)\n",
     )).toEqual([]);
   });
@@ -394,8 +378,7 @@ describe("nullish absorption (§8, §13.3)", () => {
     expect(text).toContain("export declare const maybe: Handle | null | undefined;");
     // And the type is genuinely still wrapped: the unwrapped spelling does not
     // typecheck, which is what `JsValue`'s does.
-    expect(projectDiagnostics(
-      'extern from "./handle.js"\n' +
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "./handle.js"\n' +
         "    export type Handle\n" +
         "    fun find(): Nullable(Handle)\n" +
         "\n" +
@@ -442,8 +425,7 @@ describe("`JsValue.from` is the erased injection (§2)", () => {
 
   /** §2: total. Every Hexagon value already is a JS value, so nothing is refused. */
   test("it accepts every type, and the qualified spelling is the only one", () => {
-    expect(projectDiagnostics(
-      "export let a(n: Int): JsValue = JsValue.from(n)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let a(n: Int): JsValue = JsValue.from(n)\n" +
         "export let b(s: String): JsValue = JsValue.from(s)\n" +
         "export let c(v: Vector(Int)): JsValue = JsValue.from(v)\n" +
         "export let d(f: Int -> Int): JsValue = JsValue.from(f)\n" +
@@ -451,7 +433,7 @@ describe("`JsValue.from` is the erased injection (§2)", () => {
     )).toEqual([]);
     // #742 took the bare spelling: `from` is `JsValue.hex`'s export like any
     // other, so the refusal names its one home rather than the erasure running.
-    expect(projectDiagnostics("export let bare(n: Int): JsValue = from(n)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let bare(n: Int): JsValue = from(n)\n"))
       .toEqual(["no bare `from`; write `JsValue.from(n)`"]);
   });
 
@@ -470,8 +452,7 @@ describe("`JsValue.from` is the erased injection (§2)", () => {
 
   /** And the erased program runs, answering the injected value by identity. */
   test("the erased call answers the very value it was given", async () => {
-    const main = await runMain(
-      "export let wrap(n: Int): JsValue = JsValue.from(n)\n" +
+    const main = await runMain("module Main\n\n" + "export let wrap(n: Int): JsValue = JsValue.from(n)\n" +
         "export let wrapText(s: String): JsValue = JsValue.from(s)\n",
     );
     expect((main["wrap"] as (n: number) => unknown)(7)).toBe(7);

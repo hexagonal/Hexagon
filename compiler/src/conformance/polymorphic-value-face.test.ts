@@ -23,7 +23,7 @@ import { typeScriptErrors } from "../support/typescript-check.js";
 /** Compiles one module and returns its generated `.d.ts` text. */
 function declarations(source: string): string {
   const project = compileProject([
-    new Source.File(Source.fileId(0), "/main.hex", source),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
   ]);
   expect(project.diagnostics).toEqual([]);
   const main = project.modules.find(({ source: file }) => file.path === "/main.hex");
@@ -42,7 +42,7 @@ function declarations(source: string): string {
  */
 function declarationSet(source: string): Record<string, string> {
   const project = compileProject([
-    new Source.File(Source.fileId(0), "/main.hex", source),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
   ]);
   expect(project.diagnostics).toEqual([]);
   const files: Record<string, string> = {};
@@ -56,7 +56,7 @@ function declarationSet(source: string): Record<string, string> {
 /** Compiles one module and returns the inspection-only preview text (§14.1 scope). */
 function preview(source: string): string {
   const project = compileProject([
-    new Source.File(Source.fileId(0), "/main.hex", source),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
   ]);
   // The preview describes a module whatever its diagnostics say, so without
   // this a specimen that stopped compiling would still produce text for the
@@ -76,7 +76,7 @@ describe("a polymorphic non-function export faces as its `never` instantiation",
 
   test("`stdlib/Seq.hex`'s `empty` — the live instance (#132)", () => {
     const project = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", "export let e: Seq(Int) = Seq.empty\n"),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + "export let e: Seq(Int) = Seq.empty\n"),
     ]);
     expect(project.diagnostics).toEqual([]);
     const seq = project.modules.find(({ source }) => source.path.endsWith("Seq.hex"));

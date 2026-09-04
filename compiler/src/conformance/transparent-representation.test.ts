@@ -53,9 +53,9 @@ function messages(files: readonly (readonly [string, string])[]): readonly strin
  * module, and the intermediary that is the only module naming it.
  */
 const CRATE = [
-  ["/crate.hex", "export record Crate = {n: Float}\n"],
+  ["/crate.hex", "module Crate\n\n" + "export record Crate = {n: Float}\n"],
   ["/mid.hex",
-    'import Crate from "./crate"\n' +
+    "module Mid\n\n" + 'import Crate\n' +
     "export fun make(value: Float): Crate.Crate = Crate.Crate({n = value})\n"],
 ] as const;
 
@@ -63,7 +63,7 @@ const CRATE = [
 const FIXTURE = [
   ...CRATE,
   ["/main.hex",
-    'import Mid from "./mid"\n' +
+    "module Main\n\n" + 'import Mid\n' +
     "export let out: Float = Mid.make(1.5).n\n"],
 ] as const;
 
@@ -87,8 +87,8 @@ describe("the field reaches through a home module the call site never imported (
     // arrangement with it and the arrangement without it are compared, and both
     // are silent.
     expect(messages([...CRATE, ["/main.hex",
-      'import Crate from "./crate"\n' +
-      'import Mid from "./mid"\n' +
+      "module Main\n\n" + 'import Crate\n' +
+      'import Mid\n' +
       "export let out: Float = Mid.make(1.5).n\n"]])).toEqual([]);
   });
 
@@ -104,16 +104,16 @@ describe("the field reaches through a home module the call site never imported (
     // can do is hand the fields along or hold them back — that is the sentence
     // about intermediary re-abstraction, and it is why depth changes nothing.
     const files = [
-      ["/keg.hex", "export record Keg = {litres: Float}\n"],
+      ["/keg.hex", "module Keg\n\n" + "export record Keg = {litres: Float}\n"],
       ["/mid.hex",
-        'import Keg from "./keg"\n' +
+        "module Mid\n\n" + 'import Keg\n' +
         "export fun tap(value: Float): Keg.Keg = Keg.Keg({litres = value})\n"],
       ["/relay.hex",
-        'import Keg from "./keg"\n' +
-        'import Mid from "./mid"\n' +
+        "module Relay\n\n" + 'import Keg\n' +
+        'import Mid\n' +
         "export fun relay(value: Float): Keg.Keg = Mid.tap(value * 2.0)\n"],
       ["/main.hex",
-        'import Relay from "./relay"\n' +
+        "module Main\n\n" + 'import Relay\n' +
         "export let out: Float = Relay.relay(3.0).litres\n"],
     ] as const;
 
@@ -127,13 +127,13 @@ describe("the field reaches through a home module the call site never imported (
     // substitution would type `held` as the declaration's `a` rather than as
     // this occurrence's `String`, and the annotation below would refuse it.
     const files = [
-      ["/carton.hex", "export record Carton(a) = {held: a, tag: Int}\n"],
+      ["/carton.hex", "module Carton\n\n" + "export record Carton(a) = {held: a, tag: Int}\n"],
       ["/pack.hex",
-        'import Carton from "./carton"\n' +
+        "module Pack\n\n" + 'import Carton\n' +
         'export fun pack(value: String): Carton.Carton(String) = ' +
         "Carton.Carton({held = value, tag = 7})\n"],
       ["/main.hex",
-        'import Pack from "./pack"\n' +
+        "module Main\n\n" + 'import Pack\n' +
         'export let out: String = Pack.pack("cargo").held\n'],
     ] as const;
 
@@ -148,16 +148,16 @@ describe("update and the bare copy travel with it too (#587)", () => {
   // "record update cannot add fields" against a row it could not see, which is
   // the same defect wearing a second message.
   const CASK = [
-    ["/cask.hex", "export record Cask = {volume: Float}\n"],
+    ["/cask.hex", "module Cask\n\n" + "export record Cask = {volume: Float}\n"],
     ["/fill.hex",
-      'import Cask from "./cask"\n' +
+      "module Fill\n\n" + 'import Cask\n' +
       "export fun fill(value: Float): Cask.Cask = Cask.Cask({volume = value})\n" +
       "export fun volumeOf(value: Cask.Cask): Float = value.volume\n"],
   ] as const;
 
   test("`{p with f = e}` on a transitively reached record", async () => {
     const files = [...CASK, ["/main.hex",
-      'import Fill from "./fill"\n' +
+      "module Main\n\n" + 'import Fill\n' +
       "export let out: Float =\n" +
       "    let base = Fill.fill(1.0)\n" +
       "    Fill.volumeOf({base with volume = 4.0})\n"]] as const;
@@ -172,7 +172,7 @@ describe("update and the bare copy travel with it too (#587)", () => {
     // without a name for the type, the destructure spelling is `let {n} = {...v}`"
     // — is the one spelling that reads a field out by pattern here.
     const files = [...CASK, ["/main.hex",
-      'import Fill from "./fill"\n' +
+      "module Main\n\n" + 'import Fill\n' +
       "export let out: Float =\n" +
       "    let copied = {...Fill.fill(2.0)}\n" +
       "    let {volume} = copied\n" +
@@ -189,7 +189,7 @@ describe("the missing-field diagnostic names the fields it knows (#587)", () => 
     // is the *same* sentence the importing module has always got. The empty
     // enumeration was this message with nothing to enumerate.
     expect(messages([...CRATE, ["/main.hex",
-      'import Mid from "./mid"\n' +
+      "module Main\n\n" + 'import Mid\n' +
       "export let out: Float = Mid.make(1.5).m\n"]])).toEqual([
       "`Crate` has fields `n`, not `m`",
     ]);
@@ -197,8 +197,8 @@ describe("the missing-field diagnostic names the fields it knows (#587)", () => 
 
   test("— and the module with the home module's own alias in scope gets it word for word", () => {
     expect(messages([...CRATE, ["/main.hex",
-      'import Crate from "./crate"\n' +
-      'import Mid from "./mid"\n' +
+      "module Main\n\n" + 'import Crate\n' +
+      'import Mid\n' +
       "export let out: Float = Mid.make(1.5).m\n"]])).toEqual([
       "`Crate` has fields `n`, not `m`",
     ]);
@@ -213,8 +213,7 @@ describe("an empty field enumeration is unprintable (#587, half one)", () => {
   // taken a first name off the list — so there is no path that renders the join
   // of nothing.
   test("a nominal record with no fields refuses in words", () => {
-    expect(projectDiagnostics(
-      "record Hollow = {}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "record Hollow = {}\n" +
       "let empty = Hollow({})\n" +
       "let reading = empty.depth\n",
     )).toEqual(["`Hollow` has no fields, so it has no field `depth`"]);
@@ -223,12 +222,12 @@ describe("an empty field enumeration is unprintable (#587, half one)", () => {
   test("the structural empty row keeps the sentence it already had", () => {
     // Unmoved: the two arms now share one renderer, and this is the pin that
     // says the sharing did not reword the arm that was already correct.
-    expect(projectDiagnostics("let reading = {}.depth\n"))
+    expect(projectDiagnostics("module Main\n\n" + "let reading = {}.depth\n"))
       .toEqual(["the empty record has no field `depth`"]);
   });
 
   test("a non-empty structural row keeps its wording too", () => {
-    expect(projectDiagnostics("let reading = {a = 1, b = 2}.c\n"))
+    expect(projectDiagnostics("module Main\n\n" + "let reading = {a = 1, b = 2}.c\n"))
       .toEqual(["record has fields `a`, `b`, not `c`"]);
   });
 });
@@ -247,7 +246,7 @@ describe("an import binds a module and nothing smaller: the constructor does not
     // here, so there is nothing to name, and the refusal is the plain one an
     // unbound identifier always draws.
     expect(messages([...CRATE, ["/main.hex",
-      'import Mid from "./mid"\n' +
+      "module Main\n\n" + 'import Mid\n' +
       "export let out: Float = Crate({n = 1.0}).n\n"]])).toEqual([
       "unknown name `Crate`",
     ]);
@@ -259,7 +258,7 @@ describe("an import binds a module and nothing smaller: the constructor does not
     // own name — and no alias named `Crate` is in scope here, only `Mid`. So
     // the type namespace has nothing for it either.
     expect(messages([...CRATE, ["/main.hex",
-      'import Mid from "./mid"\n' +
+      "module Main\n\n" + 'import Mid\n' +
       "export fun reading(value: Crate): Float = value.n\n"]])).toEqual([
       "unknown type `Crate`",
     ]);
@@ -283,7 +282,7 @@ describe("#763's door reaches a nominal record's constructor in pattern position
     // eliminator needs — scheme and all — is materialized off the home
     // module's declaration. Modules §4.2's own example, run.
     const files = [...CRATE, ["/main.hex",
-      'import Mid from "./mid"\n' +
+      "module Main\n\n" + 'import Mid\n' +
       "export fun reading(): Float =\n" +
       "    let Crate(r) = Mid.make(1.5)\n" +
       "    r.n\n" +
@@ -302,18 +301,18 @@ describe("opacity is the one carve, and it is unaffected (#587)", () => {
   // fix in its own right and not merely a control.
   const SEALED = [
     ["/vaulted.hex",
-      "opaque record Ingot = {grams: Float}\n" +
+      "module Vaulted\n\n" + "opaque record Ingot = {grams: Float}\n" +
       "export fun cast(value: Float): Ingot = Ingot({grams = value})\n" +
       "export fun weigh(value: Ingot): Float = value.grams\n"],
     ["/foundry.hex",
-      'import Vaulted from "./vaulted"\n' +
+      "module Foundry\n\n" + 'import Vaulted\n' +
       "export fun forge(value: Float): Vaulted.Ingot = Vaulted.cast(value)\n" +
       "export fun weighed(value: Vaulted.Ingot): Float = Vaulted.weigh(value)\n"],
   ] as const;
 
   test("a transitively reached opaque record refuses field access by name", () => {
     expect(messages([...SEALED, ["/main.hex",
-      'import Foundry from "./foundry"\n' +
+      "module Main\n\n" + 'import Foundry\n' +
       "export let out: Float = Foundry.forge(1.5).grams\n"]])).toEqual([
       "cannot access field `grams` of opaque record `Ingot`; use an operation " +
       "exported by its home module",
@@ -322,7 +321,7 @@ describe("opacity is the one carve, and it is unaffected (#587)", () => {
 
   test("— and refuses the update, with the update's own message", () => {
     expect(messages([...SEALED, ["/main.hex",
-      'import Foundry from "./foundry"\n' +
+      "module Main\n\n" + 'import Foundry\n' +
       "export fun heavier(): Float =\n" +
       "    let bar = Foundry.forge(1.5)\n" +
       "    Foundry.weighed({bar with grams = 2.0})\n"]])).toEqual([
@@ -331,7 +330,7 @@ describe("opacity is the one carve, and it is unaffected (#587)", () => {
   });
 
   test("the home module still sees its own", () => {
-    expect(messages([...SEALED, ["/main.hex", "export let n: Int = 1\n"]])).toEqual([]);
+    expect(messages([...SEALED, ["/main.hex", "module Main\n\n" + "export let n: Int = 1\n"]])).toEqual([]);
   });
 });
 
@@ -347,7 +346,7 @@ describe("the nominal wall still stands in front of a bare record pattern (#587)
     // redirect is what fires. The wall is the same wall — the diagnostic just
     // stopped being the unifier's own report of it.)*
     expect(messages([...CRATE, ["/main.hex",
-      'import Mid from "./mid"\n' +
+      "module Main\n\n" + 'import Mid\n' +
       "export fun reading(): Float =\n" +
       "    let {n} = Mid.make(1.5)\n" +
       "    n\n"]])).toEqual([

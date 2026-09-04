@@ -1,3 +1,5 @@
+module JsConversionReason
+
 // `JsConversionReason`'s home, for the reason `JsPathSegment.hex` is
 // `JsPathSegment`'s: `spec/ffi.md` section 12's extension makes all three
 // constructors qualified-only — `JsConversionReason.Shape`, never a bare

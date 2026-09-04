@@ -54,7 +54,7 @@ function link(
 }
 
 function compile(source: string) {
-  return compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+  return compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
 }
 
 function diagnostics(source: string): readonly string[] {

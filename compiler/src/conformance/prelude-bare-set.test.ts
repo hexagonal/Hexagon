@@ -40,14 +40,14 @@ import {
  * lists against themselves; this reads what a program actually sees.
  */
 function bareNames(source = "export let ok: Int = 1\n"): readonly string[] {
-  const compiled = compileMain(source);
+  const compiled = compileMain("module Main\n\n" + source);
   const main = compiled.modules.find(({ source: file }) => file.path === "/main.hex")!;
   return [...new Set(main.resolved.scopes[0]!.bindings.map(({ name }) => name))].sort();
 }
 
 /** The names the module's **own** layer binds — the scope inside the prelude's. */
 function moduleNames(source: string): readonly string[] {
-  const compiled = compileMain(source);
+  const compiled = compileMain("module Main\n\n" + source);
   const main = compiled.modules.find(({ source: file }) => file.path === "/main.hex")!;
   return [...new Set(main.resolved.scopes[1]!.bindings.map(({ name }) => name))].sort();
 }
@@ -102,7 +102,7 @@ describe("the bare set is exactly sixteen names, and closed", () => {
   test("a module that derives seeds nothing of its own", () => {
     const source = "export record Box derives (Eq, Ord) = {n: Int}\n";
     expect(bareNames(source)).toEqual(BARE_SET);
-    expect(projectDiagnostics(`${source}export let o: Ordering = compare(1, 2)\n`))
+    expect(projectDiagnostics("module Main\n\n" + `${source}export let o: Ordering = compare(1, 2)\n`))
       .toEqual(["no bare `compare`; write `(1).compare(2)` or `Ord.compare(1, 2)`"]);
   });
 
@@ -142,7 +142,7 @@ describe("the bare set is exactly sixteen names, and closed", () => {
     ["isNan", "export let b(x: Float): Bool = isNan(x)\n"],
     ["fromSeq", "export let s(xs: Seq(String)): String = fromSeq(xs)\n"],
   ])("bare `%s` is refused", (name, source) => {
-    expect(projectDiagnostics(source)[0]).toMatch(
+    expect(projectDiagnostics("module Main\n\n" + source)[0]).toMatch(
       new RegExp(`^no bare \`${name}\`; write `, "u"),
     );
   });
@@ -150,9 +150,8 @@ describe("the bare set is exactly sixteen names, and closed", () => {
 
 describe("the function channel: none, and `ignore`", () => {
   test("`ignore` is bare, and is the whole of the channel's survivors", async () => {
-    expect(projectDiagnostics("export let u: Unit = ignore(1)\n")).toEqual([]);
-    const main = await runMain(
-      "export let discarded: Unit = ignore(41)\nexport let n: Int = 1\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let u: Unit = ignore(1)\n")).toEqual([]);
+    const main = await runMain("module Main\n\n" + "export let discarded: Unit = ignore(41)\nexport let n: Int = 1\n",
     );
     expect(main["n"]).toBe(1);
   });
@@ -164,8 +163,7 @@ describe("the function channel: none, and `ignore`", () => {
    * run.
    */
   test("a call's refusal names the dot form and every exporter, in the program's words", () => {
-    expect(projectDiagnostics(
-      "export let f(things: Seq(Int), g: Int -> Int): Seq(Int) = map(things, g)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let f(things: Seq(Int), g: Int -> Int): Seq(Int) = map(things, g)\n",
     )).toEqual([
       "no bare `map`; write `things.map(g)`, `Seq.map(things, g)`, " +
       "or `Stream.map(things, g)`",
@@ -173,7 +171,7 @@ describe("the function channel: none, and `ignore`", () => {
   });
 
   test("a single-homed dot-callable function names two routes", () => {
-    expect(projectDiagnostics("export let b(reading: Float): Bool = isNan(reading)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let b(reading: Float): Bool = isNan(reading)\n"))
       .toEqual(["no bare `isNan`; write `reading.isNan()` or `Float.isNan(reading)`"]);
   });
 
@@ -183,7 +181,7 @@ describe("the function channel: none, and `ignore`", () => {
    * message names the qualified spellings alone.
    */
   test("a function that is not dot-callable names the qualified spellings alone", () => {
-    expect(projectDiagnostics("export let s(pairs: Seq(String)): String = fromSeq(pairs)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let s(pairs: Seq(String)): String = fromSeq(pairs)\n"))
       .toEqual([
         "no bare `fromSeq`; write `String.fromSeq(pairs)`, `Vector.fromSeq(pairs)`, " +
         "`Map.fromSeq(pairs)`, `Set.fromSeq(pairs)`, `Stream.fromSeq(pairs)`, " +
@@ -218,7 +216,7 @@ describe("the function channel: none, and `ignore`", () => {
     ["an index read", "export let n(v: Vector(Int)): Int = hash(v[1])\n",
       "no bare `hash`; write `(v[1]).hash()` or `Hash.hash(v[1])`"],
   ])("%s receiver is parenthesised", (_shape, source, message) => {
-    expect(projectDiagnostics(source)).toEqual([message]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([message]);
   });
 
   test.each([
@@ -237,7 +235,7 @@ describe("the function channel: none, and `ignore`", () => {
       "export record R derives (Eq, Hash) = {x: Int}\nexport let n: Int = hash(R({x = 1}))\n",
       "no bare `hash`; write `R({x = 1}).hash()` or `Hash.hash(R({x = 1}))`"],
   ])("%s receiver is left as written", (_shape, source, message) => {
-    expect(projectDiagnostics(source)).toEqual([message]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([message]);
   });
 
   /**
@@ -246,8 +244,7 @@ describe("the function channel: none, and `ignore`", () => {
    * discriminating case: without them the dot route answers −3.
    */
   test("the dot route and the qualified route agree, at every parenthesised shape", async () => {
-    const main = await runMain(
-      "let v: Vector(Int) = [10, 20, 30]\n" +
+    const main = await runMain("module Main\n\n" + "let v: Vector(Int) = [10, 20, 30]\n" +
       "export let quotient: Bool = (-7).div(2) == Integral.div(-7, 2)\n" +
       "export let euclid: Int = (-7).div(2)\n" +
       "export let ordering: Bool =\n" +
@@ -281,13 +278,13 @@ describe("the function channel: none, and `ignore`", () => {
     ["a tuple in a two-argument call", "export let b: Bool = equals((1, 2), (1, 2))\n",
       "no bare `equals`; write `Eq.equals((1, 2), (1, 2))`"],
   ])("%s receiver takes the qualified route alone", (_shape, source, message) => {
-    expect(projectDiagnostics(source)).toEqual([message]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([message]);
   });
 
   /** And the route it names is one that works, where the dot form would not. */
   test("the qualified route at a structural value compiles; the dot form does not", () => {
-    expect(projectDiagnostics("export let n: Int = Hash.hash((1, 2))\n")).toEqual([]);
-    expect(projectDiagnostics("export let n: Int = (1, 2).hash()\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = Hash.hash((1, 2))\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = (1, 2).hash()\n"))
       .toEqual(["type mismatch: expected (a, b), found {hash: a, ...}"]);
   });
 
@@ -314,7 +311,7 @@ describe("the function channel: none, and `ignore`", () => {
     ["`Ord`'s member", "export let o: Ordering = compare([1], [1])\n",
       "no bare `compare`; write `Ord.compare([1], [1])`"],
   ])("a vector literal takes the qualified route alone for %s", (_seat, source, message) => {
-    expect(projectDiagnostics(source)).toEqual([message]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([message]);
   });
 
   test.each([
@@ -324,7 +321,7 @@ describe("the function channel: none, and `ignore`", () => {
     ["`Iterable`'s member", "export let s: Seq(Int) = toSeq([1, 2])\n",
       "no bare `toSeq`; write `([1, 2]).toSeq()` or `Iterable.toSeq([1, 2])`"],
   ])("a vector literal keeps the dot form for %s", (_seat, source, message) => {
-    expect(projectDiagnostics(source)).toEqual([message]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([message]);
   });
 
   /**
@@ -339,18 +336,18 @@ describe("the function channel: none, and `ignore`", () => {
       ["export let b: Bool = ([1]).notEquals([1])\n", "notEquals"],
       ["export let o: Ordering = ([1]).compare([1])\n", "compare"],
     ] as const) {
-      expect(projectDiagnostics(source)).toEqual([
+      expect(projectDiagnostics("module Main\n\n" + source)).toEqual([
         `\`Vector(a)\` has no field \`${member}\`, its companion exports no operation ` +
         `\`${member}\`, and no constraint honored at \`Vector(a)\` has a subject-first ` +
         `member \`${member}\`; call an available subject-first function explicitly`,
       ]);
     }
-    expect(projectDiagnostics("export let n: Int = ([1, 2]).length()\n")).toEqual([]);
-    expect(projectDiagnostics("export let s: Seq(Int) = ([1, 2]).toSeq()\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = ([1, 2]).length()\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let s: Seq(Int) = ([1, 2]).toSeq()\n")).toEqual([]);
     // And the routes the four are sent to are the ones that work.
-    expect(projectDiagnostics("export let n: Int = Hash.hash([1, 2])\n")).toEqual([]);
-    expect(projectDiagnostics("export let b: Bool = Eq.equals([1], [1])\n")).toEqual([]);
-    expect(projectDiagnostics("export let o: Ordering = Ord.compare([1], [1])\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = Hash.hash([1, 2])\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let b: Bool = Eq.equals([1], [1])\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let o: Ordering = Ord.compare([1], [1])\n")).toEqual([]);
   });
 
   /**
@@ -403,12 +400,12 @@ describe("the function channel: none, and `ignore`", () => {
   test("a second prelude constraint spelling `hash` does not restore the dot form", () => {
     const second: readonly [string, string] = [
       "/Result.hex",
-      `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+      "module Result\n\n" + `${PRELUDE_SOURCES["Result.hex"]!}\n` +
       "export constraint Digest<a> =\n" +
       "    hash(value: a): Int\n",
     ];
     const messages = (main: string) =>
-      compileFiles([["/main.hex", main], second]).diagnostics.map(({ message }) => message);
+      compileFiles([["/main.hex", "module Main\n\n" + main], second]).diagnostics.map(({ message }) => message);
 
     // The supplied member is reachable and the module compiles, so the second
     // route genuinely exists rather than being quietly dropped.
@@ -432,13 +429,13 @@ describe("the function channel: none, and `ignore`", () => {
    * `(5).hash()` is a form that works.
    */
   test("the narrowing reads the written literal, not the receiver's type", () => {
-    expect(projectDiagnostics("export let n(v: Vector(Int)): Int = hash(v)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(v: Vector(Int)): Int = hash(v)\n"))
       .toEqual(["no bare `hash`; write `v.hash()` or `Hash.hash(v)`"]);
-    expect(projectDiagnostics("export let n: Int = hash(([1, 2]))\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = hash(([1, 2]))\n"))
       .toEqual(["no bare `hash`; write `Hash.hash(([1, 2]))`"]);
-    expect(projectDiagnostics("export let n: Int = hash(5)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = hash(5)\n"))
       .toEqual(["no bare `hash`; write `(5).hash()` or `Hash.hash(5)`"]);
-    expect(projectDiagnostics("export let n: Int = (5).hash()\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = (5).hash()\n")).toEqual([]);
   });
 
   /**
@@ -449,18 +446,16 @@ describe("the function channel: none, and `ignore`", () => {
    * form for the better reason.
    */
   test("a name of structural type, and a nominal constructor call, keep the dot form", () => {
-    expect(projectDiagnostics("export let n(t: (Int, Int)): Int = hash(t)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(t: (Int, Int)): Int = hash(t)\n"))
       .toEqual(["no bare `hash`; write `t.hash()` or `Hash.hash(t)`"]);
-    expect(projectDiagnostics("export let n(t: (Int, Int)): Int = Hash.hash(t)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(t: (Int, Int)): Int = Hash.hash(t)\n"))
       .toEqual([]);
-    expect(projectDiagnostics(
-      "export record R derives (Eq, Hash) = {x: Int}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export record R derives (Eq, Hash) = {x: Int}\n" +
       "export let n: Int = hash(R({x = 1}))\n",
     )).toEqual([
       "no bare `hash`; write `R({x = 1}).hash()` or `Hash.hash(R({x = 1}))`",
     ]);
-    expect(projectDiagnostics(
-      "export record R derives (Eq, Hash) = {x: Int}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export record R derives (Eq, Hash) = {x: Int}\n" +
       "export let n: Int = R({x = 1}).hash()\n",
     )).toEqual([]);
   });
@@ -486,7 +481,7 @@ describe("the function channel: none, and `ignore`", () => {
     ["a bare stage", "export let n(xs: Seq(Int)): Int = xs |> length\n",
       ["no bare `length`; write `Seq.length`, `Vector.length`, or `Array.length`"]],
   ])("%s reads as a reference, not a call", (_shape, source, messages) => {
-    expect(projectDiagnostics(source)).toEqual(messages);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual(messages);
   });
 
   /**
@@ -504,20 +499,19 @@ describe("the function channel: none, and `ignore`", () => {
       "export let n(a: Int): Int =\n    hash(if a > 0 then\n        1\n    else\n        2)\n",
       "no bare `hash`; write `Hash.hash`"],
   ])("%s drops the dot form", (_shape, source, message) => {
-    expect(projectDiagnostics(source)[0]).toBe(message);
+    expect(projectDiagnostics("module Main\n\n" + source)[0]).toBe(message);
   });
 
   /** At a reference that is not a call, the qualified names alone. */
   test("a non-call reference names bare qualified spellings", () => {
-    expect(projectDiagnostics("export let e: Vector(Int) = empty\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let e: Vector(Int) = empty\n")).toEqual([
       "no bare `empty`; write `Seq.empty`, `Vector.empty`, `Map.empty`, or `Set.empty`",
     ]);
   });
 
   /** And the message never names an import route (ruling 5; #750 holds the design). */
   test("no route named is an import", () => {
-    const messages = projectDiagnostics(
-      "export let e: Vector(Int) = empty\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "export let e: Vector(Int) = empty\n" +
       'export let u: Unit = log("x")\n' +
       "export let n(xs: Vector(Int)): Int = length(xs)\n",
     );
@@ -571,14 +565,13 @@ describe("§5.5 and §10's exemplars, character for character", () => {
       "no bare `length`; write `([1, 2]).length()`, `Seq.length([1, 2])`, " +
       "`Vector.length([1, 2])`, or `Array.length([1, 2])`"],
   ])("%s", (_seat, source, message) => {
-    expect(projectDiagnostics(source)[0]).toBe(message);
+    expect(projectDiagnostics("module Main\n\n" + source)[0]).toBe(message);
   });
 });
 
 describe("the constructor channel: the open unions only", () => {
   test("the six open constructors are bare in an expression and a pattern", async () => {
-    expect(projectDiagnostics(
-      "export let a: Option(Int) = Some(1)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let a: Option(Int) = Some(1)\n" +
       "export let b: Option(Int) = None\n" +
       "export let c: Result(Int, String) = Ok(1)\n" +
       "export let d: Result(Int, String) = Err(\"e\")\n" +
@@ -594,8 +587,7 @@ describe("the constructor channel: the open unions only", () => {
       "        (Ok(_), False) => 0\n" +
       "        (Err(_), _) => -1\n",
     )).toEqual([]);
-    const main = await runMain(
-      "export fun pick(o: Option(Int)): Int =\n" +
+    const main = await runMain("module Main\n\n" + "export fun pick(o: Option(Int)): Int =\n" +
       "    match o\n" +
       "        Some(v) => v\n" +
       "        None => 0\n" +
@@ -613,16 +605,14 @@ describe("the constructor channel: the open unions only", () => {
    * (pinned below); the qualified spelling stays legal there too.
    */
   test("`Ordering`'s constructors are qualified in both positions", async () => {
-    expect(projectDiagnostics(
-      "export let a: Ordering = Ordering.Less\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let a: Ordering = Ordering.Less\n" +
       "export fun f(o: Ordering): Int =\n" +
       "    match o\n" +
       "        Ordering.Less => -1\n" +
       "        Ordering.Equal => 0\n" +
       "        Ordering.Greater => 1\n",
     )).toEqual([]);
-    const main = await runMain(
-      "export fun sign(o: Ordering): Int =\n" +
+    const main = await runMain("module Main\n\n" + "export fun sign(o: Ordering): Int =\n" +
       "    match o\n" +
       "        Ordering.Less => -1\n" +
       "        Ordering.Equal => 0\n" +
@@ -639,10 +629,9 @@ describe("the constructor channel: the open unions only", () => {
     // reaches every union alike, including a prelude qualified-only one, so
     // `Less` bare in a `match` over `Ordering` now resolves through it. There
     // is no expression-side door, so the expression position is unchanged.
-    expect(projectDiagnostics("export let a: Ordering = Less\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let a: Ordering = Less\n"))
       .toEqual(["no bare `Less`; write `Ordering.Less`"]);
-    expect(projectDiagnostics(
-      "export fun f(o: Ordering): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(o: Ordering): Int =\n" +
       "    match o\n" +
       "        Less => -1\n" +
       "        _ => 0\n",
@@ -654,7 +643,7 @@ describe("the constructor channel: the open unions only", () => {
    * ruling). `Prelude.hex` keeps `ignore` alone, so the union is not there.
    */
   test("`Ordering` is the union's home, and `Prelude` is not", () => {
-    expect(projectDiagnostics("export let a: Ordering = Prelude.Less\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let a: Ordering = Prelude.Less\n"))
       .toEqual(["module `Prelude` does not export `Less`"]);
   });
 
@@ -664,31 +653,29 @@ describe("the constructor channel: the open unions only", () => {
    * than the bare `unknown constructor` they drew before.
    */
   test("the boundary unions' constructors draw the refusal in expression position; the door reaches them in a pattern", () => {
-    expect(projectDiagnostics("export let k: JsKind = Null\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let k: JsKind = Null\n"))
       .toEqual(["no bare `Null`; write `JsKind.Null`"]);
     // #763's door reaches a prelude qualified-only constructor the same way it
     // reaches a project one — `JsKind.Null` bare over a `JsKind` is the
     // brief's own example.
-    expect(projectDiagnostics(
-      "export fun f(k: JsKind): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(k: JsKind): Int =\n" +
       "    match k\n" +
       "        Null => 1\n" +
       "        _ => 0\n",
     )).toEqual([]);
-    expect(projectDiagnostics("export let r: JsConversionReason = Shape\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: JsConversionReason = Shape\n"))
       .toEqual(["no bare `Shape`; write `JsConversionReason.Shape`"]);
   });
 
   /** A name the prelude does not bind at all still gets the plain sentence. */
   test("an unknown name keeps its own message", () => {
-    expect(projectDiagnostics("export let n: Int = frobnicate\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = frobnicate\n"))
       .toEqual(["unknown name `frobnicate`"]);
     // #763: the pattern's expected type is known here (`Option(Int)`, from the
     // scrutinee) and its constructor set lacks the spelling, so the door's
     // closed-door refusal fires — naming the type, not the bare
     // "unknown constructor" a pattern with no determined expected type draws.
-    expect(projectDiagnostics(
-      "export fun f(o: Option(Int)): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(o: Option(Int)): Int =\n" +
       "    match o\n" +
       "        Frobnicate => 1\n" +
       "        _ => 0\n",
@@ -713,15 +700,13 @@ describe("the exception channel: all of them, as a category", () => {
     ["KeyError", "Map", ""],
     ["JsError", "JsError", "(e)"],
   ])("`%s` is bare in a catch arm, and qualified through `%s`", (name, home, slots) => {
-    expect(projectDiagnostics(
-      "export fun f(n: Int): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(n: Int): Int =\n" +
       "    try\n" +
       "        n\n" +
       "    catch\n" +
       `        ${name}${slots} => 0\n`,
     )).toEqual([]);
-    expect(projectDiagnostics(
-      "export fun f(n: Int): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(n: Int): Int =\n" +
       "    try\n" +
       "        n\n" +
       "    catch\n" +
@@ -731,19 +716,16 @@ describe("the exception channel: all of them, as a category", () => {
 
   /** And an exception constructor is bare in expression position too. */
   test("`throw` takes the bare constructor", () => {
-    expect(projectDiagnostics(
-      "export fun f(): Int = throw(KeyError)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(): Int = throw(KeyError)\n",
     )).toEqual([]);
-    expect(projectDiagnostics(
-      "export fun f(): Int = throw(Map.KeyError)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(): Int = throw(Map.KeyError)\n",
     )).toEqual([]);
   });
 });
 
 describe("the member channel: `show` only", () => {
   test("`show` is bare, dot, and qualified alike", async () => {
-    const main = await runMain(
-      "export let bare: String = show(1)\n" +
+    const main = await runMain("module Main\n\n" + "export let bare: String = show(1)\n" +
       "export let dotted: String = 1.show()\n" +
       "export let qualified: String = Show.show(1)\n" +
       "export let companion: String = Int.show(1)\n",
@@ -765,10 +747,10 @@ describe("the member channel: `show` only", () => {
    */
   test("a second prelude constraint spelling `show` seeds nothing", () => {
     const compiled = compileFiles([
-      ["/main.hex", "export let s: String = show(1)\n"],
+      ["/main.hex", "module Main\n\n" + "export let s: String = show(1)\n"],
       [
         "/Result.hex",
-        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        "module Result\n\n" + `${PRELUDE_SOURCES["Result.hex"]!}\n` +
         "export constraint Loud<a> =\n" +
         "    show(value: a): String\n",
       ],
@@ -780,17 +762,17 @@ describe("the member channel: `show` only", () => {
   });
 
   test("every other member is refused, naming the dot and the declaring module", () => {
-    expect(projectDiagnostics("export let o(a: Int, b: Int): Ordering = compare(a, b)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let o(a: Int, b: Int): Ordering = compare(a, b)\n"))
       .toEqual(["no bare `compare`; write `a.compare(b)` or `Ord.compare(a, b)`"]);
-    expect(projectDiagnostics("export let n(x: Int): Int = hash(x)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(x: Int): Int = hash(x)\n"))
       .toEqual(["no bare `hash`; write `x.hash()` or `Hash.hash(x)`"]);
-    expect(projectDiagnostics("export let b(x: Int, y: Int): Bool = equals(x, y)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let b(x: Int, y: Int): Bool = equals(x, y)\n"))
       .toEqual(["no bare `equals`; write `x.equals(y)` or `Eq.equals(x, y)`"]);
   });
 
   /** A receiver-less member has no dot form, so the message names one route. */
   test("a receiver-less member names the declaring module alone", () => {
-    expect(projectDiagnostics("export let n(v: Nat): Int = fromNat(v)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(v: Nat): Int = fromNat(v)\n"))
       .toEqual(["no bare `fromNat`; write `Num.fromNat(v)`"]);
   });
 
@@ -800,8 +782,7 @@ describe("the member channel: `show` only", () => {
    * §4.6 law about that spelling is written against it resolving.
    */
   test("an honoring module still writes its member's spelling bare", async () => {
-    const main = await runMain(
-      "export record Span = {lo: Int, hi: Int}\n" +
+    const main = await runMain("module Main\n\n" + "export record Span = {lo: Int, hi: Int}\n" +
       "\n" +
       "honor Eq<Span> =\n" +
       "    equals(left, right) = left.lo == right.lo and left.hi == right.hi\n" +
@@ -831,19 +812,17 @@ describe("the member channel: `show` only", () => {
       "export record Box derives (Eq) = {n: Int}\n" +
       "honor Ord<Box> =\n" +
       "    compare(left, right) = Ord.compare(left.n, right.n)\n";
-    expect(projectDiagnostics(
-      `${honoring}export let own: Ordering = compare(Box({n = 1}), Box({n = 2}))\n`,
+    expect(projectDiagnostics("module Main\n\n" + `${honoring}export let own: Ordering = compare(Box({n = 1}), Box({n = 2}))\n`,
     )).toEqual([]);
     // Under §4.6's ruled reading this line has no meaning and the module is
     // refused. Today it dispatches `Ord<Int>`.
-    expect(projectDiagnostics(`${honoring}export let other: Ordering = compare(1, 2)\n`))
+    expect(projectDiagnostics("module Main\n\n" + `${honoring}export let other: Ordering = compare(1, 2)\n`))
       .toEqual([]);
   });
 
   /** And a module that honors nothing of the name keeps the refusal. */
   test("a module honoring nothing still meets the refusal", () => {
-    expect(projectDiagnostics(
-      "export record Span = {lo: Int}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export record Span = {lo: Int}\n" +
       "export let same(a: Int, b: Int): Bool = equals(a, b)\n",
     )).toEqual(["no bare `equals`; write `a.equals(b)` or `Eq.equals(a, b)`"]);
   });
@@ -863,16 +842,14 @@ describe("the member channel: `show` only", () => {
  */
 describe("`toSeq` is reachable at every iterable", () => {
   test("the dot form answers wherever the receiver has a companion", async () => {
-    const main = await runMain(
-      "export let text: Int = Seq.length(\"Hexagon\".toSeq())\n" +
+    const main = await runMain("module Main\n\n" + "export let text: Int = Seq.length(\"Hexagon\".toSeq())\n" +
       "export let vector: Int = Seq.length([1, 2, 3].toSeq())\n",
     );
     expect([main["text"], main["vector"]]).toEqual([7, 3]);
   });
 
   test("the declaring constraint's spelling answers everywhere, `Range` included", async () => {
-    const main = await runMain(
-      "export let range: Int = Seq.length(Iterable.toSeq(1..10))\n" +
+    const main = await runMain("module Main\n\n" + "export let range: Int = Seq.length(Iterable.toSeq(1..10))\n" +
       "export let text: Int = Seq.length(Iterable.toSeq(\"Hexagon\"))\n" +
       "export let vector: Int = Seq.length(Iterable.toSeq([1, 2, 3]))\n",
     );
@@ -885,7 +862,7 @@ describe("`toSeq` is reachable at every iterable", () => {
    * as the route. If a `Range` companion ever lands this row is what says so.
    */
   test("a `Range` receiver has no dot dispatch, and is told the route", () => {
-    expect(projectDiagnostics("export let n(r: Range): Int = Seq.length(r.toSeq())\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(r: Range): Int = Seq.length(r.toSeq())\n"))
       .toEqual([
         "this value's type was inferred as a record with a `toSeq` field because " +
         "its type was unknown where it was written; `Range` is not a record. " +
@@ -894,8 +871,7 @@ describe("`toSeq` is reachable at every iterable", () => {
   });
 
   test("`for..in` over a range is untouched — it reads evidence, not this layer", async () => {
-    const main = await runMain(
-      "export fun total(): Int =\n" +
+    const main = await runMain("module Main\n\n" + "export fun total(): Int =\n" +
       "    var t = 0\n" +
       "    for x in 1..4\n" +
       "        t := t + x\n" +
@@ -919,7 +895,7 @@ describe("the collided-name rule survives for the set, and is vacuous in it", ()
     const uses = BARE_SET
       .map((name, index) => `export let n${index} = ${name}\n`)
       .join("");
-    for (const message of projectDiagnostics(uses)) {
+    for (const message of projectDiagnostics("module Main\n\n" + uses)) {
       expect(message).not.toContain("is ambiguous: exported by");
     }
   });

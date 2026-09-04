@@ -96,7 +96,7 @@ describe("emitJavaScript", () => {
   test("executes the Vector representation core without loading the HAMT runtime", async () => {
     const files = [[
       "/main.hex",
-      "let values = [10, 20, 30]\n" +
+      "module Main\n\n" + "let values = [10, 20, 30]\n" +
       "let updated = Vector.set(values, 2, 25)\n" +
       "let replayed = Vector.fromSeq(Vector.toSeq(updated))\n" +
       "let joined = [1, 2] ++ [3, 4]\n" +
@@ -114,14 +114,14 @@ describe("emitJavaScript", () => {
     // row's member, not an export of the companion, and a provided row is
     // rendered inline rather than imported (Collections Part 5 §4).
     expect(text("/main.hex")).toContain(
-      'import { set, fromSeq, at } from "./Vector.js";',
+      'import { set, fromSeq, at } from "./Hex/Vector.js";',
     );
     // The forwarder is gone since #444: `Vector.toSeq(updated)` is a
     // source-written member call at a concrete head, and the head's ground
     // demand is compiler-built — a provided row, rendered rather than declared
     // — so Constraints §6.1's third arm reads the member off the §3.4 binding.
     // No module exports a seat for a row no module declares.
-    expect(text("/main.hex")).not.toContain('from "./Iterable.js";');
+    expect(text("/main.hex")).not.toContain('from "./Hex/Iterable.js";');
     // Ground, so the row's dictionary is Dictionary Sharing §3.4's hoisted
     // module constant since #446 rather than a literal rebuilt at the call.
     expect(text("/main.hex")).toContain(
@@ -138,7 +138,7 @@ describe("emitJavaScript", () => {
     );
     // The trie is the third module in the graph, and only `Vector.hex` and the
     // literal-holding consumer import it.
-    expect(text("/Vector.hex")).toContain('} from "./VectorTrie.js";');
+    expect(text("/Vector.hex")).toContain('} from "./Hex/VectorTrie.js";');
     expect(text("/VectorTrie.hex")).toContain("export { empty, size, get, set,");
 
     // The tuple crosses as a JS array; each `Vector` inside it is a trie, read
@@ -160,7 +160,7 @@ describe("emitJavaScript", () => {
   });
 
   test("brands Vector.at failures and preserves the caller's signed index", async () => {
-    const files = [["/main.hex", "let impossible = Vector.at([10, 20], -3)\n"]] as const;
+    const files = [["/main.hex", "module Main\n\n" + "let impossible = Vector.at([10, 20], -3)\n"]] as const;
 
     expect(compileFiles(files).diagnostics).toEqual([]);
     await expect(runProject(files)).rejects.toThrowError(
@@ -208,8 +208,8 @@ describe("emitJavaScript", () => {
     expect(output.text).not.toContain("const insert =");
     expect(output.text).not.toContain("__hash.eq.equals");
     // What stands in its place: imported companion bindings, called.
-    expect(output.text).toContain('from "./Map.js";');
-    expect(output.text).toContain('from "./Set.js";');
+    expect(output.text).toContain('from "./Hex/Map.js";');
+    expect(output.text).toContain('from "./Hex/Set.js";');
     expect(emitDeclarations(module).text).toContain("Hex.Map<[number, number], string>");
     expect(emitDeclarations(module).text).toContain("Hex.Set<[number, number]>");
   });
@@ -240,7 +240,7 @@ describe("emitJavaScript", () => {
     // hashes its keys with is `stdlib/Int.hex`'s exported dictionary, which the
     // running code does read.
     const files = [["/main.hex",
-      "let m0: Map(Int, String) = Map.empty\n" +
+      "module Main\n\n" + "let m0: Map(Int, String) = Map.empty\n" +
         "let m1 = Map.set(m0, 1, \"one\")\n" +
         "let m2 = Map.set(m1, 33, \"thirty-three\")\n" +
         "export let m3: Map(Int, String) = Map.set(m2, 1, \"replaced\")\n" +
@@ -261,7 +261,7 @@ describe("emitJavaScript", () => {
     expect(exports["unchanged"]).toBe(exports["m3"]);
 
     const missing = await runProject([["/main.hex",
-      "let values: Map(Int, String) = Map.empty\n" +
+      "module Main\n\n" + "let values: Map(Int, String) = Map.empty\n" +
         "export let missing(): String = values[99]\n",
     ]]);
     expect(missing["missing"] as () => unknown).toThrowError(
@@ -286,7 +286,7 @@ describe("emitJavaScript", () => {
         "let setEvidence = setFacts(first, Set.fromVector([3, 2, 1]))\n" +
         "export let result: (Bool, Bool, Int, Int, Int, Bool, Vector(Int), String, String, (Bool, Bool), (Bool, Bool)) =\n" +
         "    (left == right, Hash.hash(left) == Hash.hash(right), Set.size(combined), Set.size(common), Set.size(rest), subset, keys, \"${first}\", \"${left}\", mapEvidence, setEvidence)\n";
-    const files = [["/main.hex", source]] as const;
+    const files = [["/main.hex", "module Main\n\n" + source]] as const;
 
     // Linked and run rather than evaluated as one text: `Vector.fromSeq` is an
     // import of the prelude `Vector.hex` now, not an inline lowering.
@@ -1296,7 +1296,7 @@ describe("emitJavaScript", () => {
     // the widening slot is its `fromInt` member — the door binding over
     // `BigInt(x)` — reached through an import instead of a literal built here.
     const files = [["/main.hex",
-      "let scale<a: Signed>(count: Int, value: a): a = count * value\n" +
+      "module Main\n\n" + "let scale<a: Signed>(count: Int, value: a): a = count * value\n" +
         "let count: Int = 3\n" +
         "export let result: BigInt = scale(count, 2n)\n",
     ]] as const;
@@ -1319,7 +1319,7 @@ describe("emitJavaScript", () => {
     // matter: NaN is the greatest `Float`, and `String` orders by code point,
     // where the host's own `<` would put the astral character first.
     const files = [["/main.hex",
-      "let before<a: Ord>(left: a, right: a): Bool = left < right\n" +
+      "module Main\n\n" + "let before<a: Ord>(left: a, right: a): Bool = left < right\n" +
         "export let finiteBeforeNaN: Bool = before(1.0, 0.0 / 0.0)\n" +
         'export let bmpBeforeAstral: Bool = before("\\u{FFFF}", "\\u{10000}")\n',
     ]] as const;
@@ -1341,7 +1341,7 @@ describe("emitJavaScript", () => {
     // the case worth executing: SameValueZero says the two zeroes agree, and a
     // dictionary that lost the base link would answer through the wrong slot.
     const files = [["/main.hex",
-      "let orderedEqual<a: Ord>(left: a, right: a): Bool = left == right\n" +
+      "module Main\n\n" + "let orderedEqual<a: Ord>(left: a, right: a): Bool = left == right\n" +
         "let addRatio<a: Frac>(left: a, right: a): a = left + right\n" +
         "export let result: (Bool, Float) = (orderedEqual(0.0, -0.0), addRatio(1.5, 2.5))\n",
     ]] as const;
@@ -1363,7 +1363,7 @@ describe("emitJavaScript", () => {
     // `quot`, or `gcd` here and never was. The `__floatMod`/`__floatRem`
     // helpers that used to carry them are gone with the whole family.
     const files = [["/main.hex",
-      "export let result: (Float, Float) = (Float.mod(-7.0, 3.0), Float.rem(-7.0, 3.0))\n",
+      "module Main\n\n" + "export let result: (Float, Float) = (Float.mod(-7.0, 3.0), Float.rem(-7.0, 3.0))\n",
     ]] as const;
     const project = compileFiles(files);
 
@@ -1372,7 +1372,7 @@ describe("emitJavaScript", () => {
     expect(text).not.toContain("__float");
     expect(text).not.toContain("__int");
     expect(text).not.toContain("__bigInt");
-    expect(text).toContain('from "./Float.js"');
+    expect(text).toContain('from "./Hex/Float.js"');
     expect((await runProject(files))["result"]).toEqual([2, -1]);
   });
 
@@ -1385,7 +1385,7 @@ describe("emitJavaScript", () => {
     // every other spelling of the same call. This run is the agreement,
     // measured through both spellings: the ground call and the edition itself.
     const files = [["/main.hex",
-      "export let describe = (<a: Show>(value: a): String => show(value))\n" +
+      "module Main\n\n" + "export let describe = (<a: Show>(value: a): String => show(value))\n" +
       "export let direct: String = describe(True)\n",
     ]] as const;
     const project = compileFiles(files);
@@ -1403,7 +1403,7 @@ describe("emitJavaScript", () => {
     // because the emitted module imports the members' forwarders and the
     // instance dictionary (#344).
     const files = [["/main.hex",
-      "export let result: (BigInt, BigInt, BigInt, BigInt, BigInt, BigInt) = (\n" +
+      "module Main\n\n" + "export let result: (BigInt, BigInt, BigInt, BigInt, BigInt, BigInt) = (\n" +
         "    BigInt.div(7n, -3n), BigInt.mod(7n, -3n), BigInt.quot(7n, -3n),\n" +
         "    BigInt.rem(7n, -3n), BigInt.gcd(-12n, 18n), BigInt.lcm(4n, 6n))\n",
     ]] as const;
@@ -1412,7 +1412,7 @@ describe("emitJavaScript", () => {
     expect(project.diagnostics).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
     expect(text).not.toContain("__bigInt");
-    expect(text).toContain('from "./BigInt.js"');
+    expect(text).toContain('from "./Hex/BigInt.js"');
     expect((await runProject(files))["result"]).toEqual([-2n, 1n, -2n, 1n, 6n, 12n]);
   });
 
@@ -1422,7 +1422,7 @@ describe("emitJavaScript", () => {
     // `div`/`mod`, truncated `quot`/`rem`, non-negative `gcd` — and no
     // `__int*` helper survives to carry them.
     const files = [["/main.hex",
-      "export let result: (Int, Int, Int, Int, Int) = (\n" +
+      "module Main\n\n" + "export let result: (Int, Int, Int, Int, Int) = (\n" +
         "    Int.div(-7, 3), Int.mod(-7, 3), Int.quot(-7, 3), Int.rem(-7, 3), Int.gcd(-12, 18))\n",
     ]] as const;
     const project = compileFiles(files);
@@ -1430,7 +1430,7 @@ describe("emitJavaScript", () => {
     expect(project.diagnostics).toEqual([]);
     const text = project.modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
     expect(text).not.toContain("__int");
-    expect(text).toContain('from "./Int.js"');
+    expect(text).toContain('from "./Hex/Int.js"');
     expect((await runProject(files))["result"]).toEqual([-3, 2, -2, -1, 6]);
   });
 
@@ -1439,7 +1439,7 @@ describe("emitJavaScript", () => {
     // that is the raw `%` (#344), so the module is linked and run rather than
     // evaluated as one text — and the error is `$hex`-branded because it is an
     // ordinary `Integral.hex` exception rather than a helper's hand-built one.
-    const files = [["/main.hex", "export let boom(): Int = Int.mod(1, 0)\n"]] as const;
+    const files = [["/main.hex", "module Main\n\n" + "export let boom(): Int = Int.mod(1, 0)\n"]] as const;
     const boom = (await runProject(files))["boom"] as () => unknown;
     let thrown: unknown;
     try {
@@ -1464,7 +1464,7 @@ describe("emitJavaScript", () => {
     // now (the declaring module emits each member as an evidence-taking
     // function), so the emitted module is a real ES module.
     const files = [["/main.hex",
-      "fun normalize<a: Integral>(n: a, d: a): (a, a) =\n" +
+      "module Main\n\n" + "fun normalize<a: Integral>(n: a, d: a): (a, a) =\n" +
         "    let g = Integral.gcd(n, d)\n" +
         "    let n2 = Integral.quot(n, g)\n" +
         "    let d2 = Integral.quot(d, g)\n" +
@@ -1479,7 +1479,7 @@ describe("emitJavaScript", () => {
     // this module is the import of it rather than a literal built here — which
     // is the whole of the wired row's retirement, seen from the consumer.
     expect(text).toContain("__Integral_BigInt");
-    expect(text).toContain('from "./BigInt.js"');
+    expect(text).toContain('from "./Hex/BigInt.js"');
     const companion = project.modules
       .find(({ source }) => source.path.endsWith("BigInt.hex"))!.javascript.text;
     expect(companion).toContain("gcd:");
@@ -1495,7 +1495,7 @@ describe("emitJavaScript", () => {
     // helper. `DivideByZeroError` comes from the prelude's `Integral.hex` for
     // the same reason, so the program no longer declares one.
     const files = [["/main.hex",
-      "record Rat derives Eq = {top: BigInt, bottom: BigInt}\n" +
+      "module Main\n\n" + "record Rat derives Eq = {top: BigInt, bottom: BigInt}\n" +
           "let create(top: BigInt, bottom: BigInt): Rat =\n" +
           "    if bottom == 0n then\n" +
           "        throw(DivideByZeroError(\"Rat.create: bottom is zero\"))\n" +
@@ -1532,7 +1532,7 @@ describe("emitJavaScript", () => {
     // Same message, same name, one implementation — and a `$hex`-branded one,
     // which the helper never was. Linked and run for that reason.
     const files = [["/main.hex",
-      "let raise<a: Pow>(base: a, exponent: Int): a = base ** exponent\n" +
+      "module Main\n\n" + "let raise<a: Pow>(base: a, exponent: Int): a = base ** exponent\n" +
         "export let boom(): Int = raise(2, -1)\n",
     ]] as const;
     const project = compileFiles(files);
@@ -1558,7 +1558,7 @@ describe("emitJavaScript", () => {
     // (#344) — the guard is `stdlib/BigInt.hex`'s and throws the same
     // `Pow.hex` exception.
     const files = [["/main.hex",
-      "let raise<a: Pow>(base: a, exponent: Int): a = base ** exponent\n" +
+      "module Main\n\n" + "let raise<a: Pow>(base: a, exponent: Int): a = base ** exponent\n" +
         "export let boom(): BigInt = raise(2n, -1)\n",
     ]] as const;
     const project = compileFiles(files);
@@ -2418,7 +2418,7 @@ describe("emitTypeScriptPreview", () => {
 // declaration, so a module assembled by calling the passes directly cannot type
 // a condition, a guard, a comparison, or a logic operator.
 function coreSource(text: string): Core.Module {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", text)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + text)]);
   return project.modules.find((module) => module.source.path === "/main.hex")!.core;
 }
 
@@ -2431,7 +2431,7 @@ function coreSource(text: string): Core.Module {
  * regression. Every test that mentions `Seq` uses this instead.
  */
 function preludeSource(text: string): Core.Module {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", text)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + text)]);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find((module) => module.source.path === "/main.hex")!.core;
 }

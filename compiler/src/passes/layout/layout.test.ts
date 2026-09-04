@@ -439,7 +439,7 @@ describe("applyLayout", () => {
 });
 
 function layout(text: string): LaidOut.File {
-  const source = new Source.File(Source.fileId(0), "test.hex", text);
+  const source = new Source.File(Source.fileId(0), "test.hex", "module Test\n\n" + text);
   return applyLayout(lex(source));
 }
 

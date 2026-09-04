@@ -1,3 +1,5 @@
+module String
+
 // The public `String` companion. A primitive's home module is its fixed prelude
 // companion (Constraints §5.3), so this file is where `String`'s instances are
 // declared and where the orphan rule lets them be declared.

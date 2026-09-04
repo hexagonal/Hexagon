@@ -12,7 +12,7 @@
  *
  * **One channel does that** — Modules §3.3's qualifier:
  *
- *     import M from "./Hash.hex"
+ *     import Hash as M
  *     honor M.Hash<P> = ...
  *
  * `M.Hash` is a second spelling of `hex:Hash`, bound with no redeclaration
@@ -72,18 +72,18 @@ function distinct(label: string): (path: string, javascript: string) => string {
 }
 
 function diagnostics(source: string): readonly string[] {
-  return compileFiles([["/main.hex", source]]).diagnostics.map(({ message }) => message);
+  return compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics.map(({ message }) => message);
 }
 
 /** One module's emitted text, with the module required to compile clean. */
 function emitted(source: string): string {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
 async function runs(label: string, source: string): Promise<Record<string, unknown>> {
-  return await runProject([["/main.hex", source]], { transform: distinct(label) });
+  return await runProject([["/main.hex", "module Main\n\n" + source]], { transform: distinct(label) });
 }
 
 describe("a pre-registered constraint has a second-spelling channel", () => {
@@ -94,7 +94,7 @@ describe("a pre-registered constraint has a second-spelling channel", () => {
     // answered.
     expect(
       diagnostics(
-        'import M from "./Show.hex"\n' +
+        'import Show as M\n' +
           "export fun render<a: M.Show>(value: a): String = show(value)\n" +
           'export let r: String = render("x")\n',
       ),
@@ -109,7 +109,7 @@ describe("a pre-registered constraint has a second-spelling channel", () => {
     // pre-registered name, so there is no aliased `derives` entry to write.
     expect(
       diagnostics(
-        'import M from "./Hash.hex"\nrecord P derives (Eq, M.Hash) = {x: Int}\n',
+        'import Hash as M\nrecord P derives (Eq, M.Hash) = {x: Int}\n',
       ),
     ).toEqual([
       "expected `)` after `derives` constraints",
@@ -146,7 +146,7 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
   // Collections Part 2 §4.1's derivable-only law had a spelling that bypassed
   // it — and the instance it admitted was a hash under no obligation to agree
   // with the subject's equality.
-  const BYPASS = 'import H from "./Hash.hex"\n' +
+  const BYPASS = 'import Hash as H\n' +
     "record P derives (Eq) = {x: Int}\n" +
     "honor H.Hash<P> =\n" +
     "    hash(value) = 7\n";
@@ -175,7 +175,7 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
   test("and the advice it offers is takeable, spelled canonically", async () => {
     const exports = await runs(
       "alias-hash-repair",
-      'import H from "./Hash.hex"\n' +
+      'import Hash as H\n' +
         "record P derives (Eq, Hash) = {x: Int}\n" +
         "export let seen: Bool = " +
         "Set.contains(Set.fromVector([P({x = 1})]), P({x = 1}))\n",
@@ -187,7 +187,7 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
   // closure has to be keyed on the identity rather than on "the word here is
   // not `Hash`", and this and BYPASS above are the measurement of that —
   // two different alias spellings answering alike.
-  const QUALIFIED_BYPASS = 'import M from "./Hash.hex"\n' +
+  const QUALIFIED_BYPASS = 'import Hash as M\n' +
     "record P derives (Eq) = {x: Int}\n" +
     "honor M.Hash<P> =\n" +
     "    hash(value) = 7\n";
@@ -203,7 +203,7 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
     expect(diagnostics(QUALIFIED_BYPASS)).toEqual(diagnostics(BYPASS));
   });
 
-  const QUALIFIED_DERIVE = 'import M from "./Hash.hex"\n' +
+  const QUALIFIED_DERIVE = 'import Hash as M\n' +
     "record P derives (Eq) = {x: Int}\n" +
     "honor M.Hash<P> = derive\n" +
     "export let seen: Bool = " +
@@ -225,7 +225,7 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
     // them.
     expect(
       diagnostics(
-        'import H from "./Hash.hex"\n' +
+        'import Hash as H\n' +
           "record P = {x: Int}\n" +
           "honor Eq<P> =\n" +
           "    equals(left, right) = left.x == right.x\n" +
@@ -239,7 +239,7 @@ describe("the hand-written `Hash` refusal reads the declaration", () => {
 });
 
 describe("defaulting reads the declaration", () => {
-  const ALIASED = 'import S from "./Show.hex"\n' +
+  const ALIASED = 'import Show as S\n' +
     "export fun render<a: S.Show>(value: a): String = show(value)\n" +
     "export let r: String = render(7)\n";
 
@@ -276,7 +276,7 @@ describe("defaulting reads the declaration", () => {
 });
 
 describe("structural satisfaction reads the declaration", () => {
-  const RENDER = 'import S from "./Show.hex"\n' +
+  const RENDER = 'import Show as S\n' +
     "export fun render<a: S.Show>(value: a): String = show(value)\n";
 
   // Each row is a separate arm of the requirement walk, and each one declined
@@ -316,7 +316,7 @@ describe("structural satisfaction reads the declaration", () => {
   // dotted through to the constraint it declares); a second alias word over
   // the same arm would measure nothing the rows do not already show.
 
-  const JOIN = 'import C from "./Concat.hex"\n' +
+  const JOIN = 'import Concat as C\n' +
     "export fun join<a: C.Concat>(x: a, y: a): a = x ++ y\n" +
     "export let r: String = show(join([1], [2]))\n";
 
@@ -347,7 +347,7 @@ describe("a container walk demands of its contents what the identity says", () =
    * `TypeError: __Hash_P.show is not a function`.
    */
   const SHOWLESS = "record P derives (Eq, Hash) = {x: Int}\n";
-  const RENDER = 'import S from "./Show.hex"\n' +
+  const RENDER = 'import Show as S\n' +
     "export fun render<a: S.Show>(value: a): String = show(value)\n";
 
   test("a `Set`'s element is asked for `Show` when `Show` is what was demanded", () => {
@@ -387,7 +387,7 @@ describe("a container walk demands of its contents what the identity says", () =
     // and refused by the right one.
     expect(
       diagnostics(
-        'import H from "./Hash.hex"\n' +
+        'import Hash as H\n' +
           "record K derives (Eq, Hash) = {k: Int}\n" +
           "record V derives (Eq) = {v: Int}\n" +
           "export fun keyed<a: H.Hash>(value: a): Int = 0\n" +
@@ -402,7 +402,7 @@ describe("a container walk demands of its contents what the identity says", () =
 });
 
 describe("a hand-written instance of a qualified constraint stays legal", () => {
-  const SHOW = 'import S from "./Show.hex"\n' +
+  const SHOW = 'import Show as S\n' +
     "record P = {x: Int}\n" +
     "honor S.Show<P> =\n" +
     '    show(value) = "p!"\n' +
@@ -422,7 +422,7 @@ describe("a hand-written instance of a qualified constraint stays legal", () => 
     expect(exports["r"]).toBe("p!");
   });
 
-  const EQ = 'import E from "./Eq.hex"\n' +
+  const EQ = 'import Eq as E\n' +
     "record P = {x: Int}\n" +
     "honor E.Eq<P> =\n" +
     "    equals(left, right) = left.x == right.x\n" +
@@ -442,7 +442,7 @@ describe("the implied-type binder refusal keeps its repair under a qualifier", (
     // it — where the compiler spells the constraint itself — still printed it.
     expect(
       diagnostics(
-        'import I from "./Iterable.hex"\n' +
+        'import Iterable as I\n' +
           "export fun count<c: I.Iterable>(xs: c): Int = 0\n",
       ),
     ).toEqual([

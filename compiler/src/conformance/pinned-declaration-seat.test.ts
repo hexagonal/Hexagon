@@ -139,7 +139,7 @@ describe("a §2.3-pinned type's seat is the pin's alias (§14.5)", () => {
       await typeScriptErrors({
         ...files,
         "consumer.ts":
-          'import type { Seq } from "./Seq.js";\n' +
+          'import type { Seq } from "./Hex/Seq.js";\n' +
           'import { e, twice } from "./main.js";\n' +
           "export const byBrand: Seq<number> = e;\n" +
           "export const roundTrip: number = twice(byBrand);\n" +
@@ -197,7 +197,7 @@ describe("the gate is the pin, not opacity", () => {
     // gate widened to `Stream` would leave its *own* seat branded while every
     // consumer face became the notion — the mismatch this issue closed, in the
     // mirror. Both halves are pinned so that #659 has to move both.
-    expect(lines(files, "main.d.ts")).toContain('import type { Stream } from "./Stream.js";');
+    expect(lines(files, "main.d.ts")).toContain('import type { Stream } from "./Hex/Stream.js";');
     expect(lines(files, "main.d.ts")).toContain("export declare const live: Stream<number>;");
   });
 

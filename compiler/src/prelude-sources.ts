@@ -6,14 +6,18 @@
 
 export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
   "Show.hex":
-    "(** The polymorphic face of textual rendering. Honoring `Show` gives a type one\n"
+    "module Show\n"
+    + "\n"
+    + "(** The polymorphic face of textual rendering. Honoring `Show` gives a type one\n"
     + "    canonical textual form — the form string interpolation produces. `Show`\n"
     + "    carries no algebraic law; it is a display contract. *)\n"
     + "export constraint Show<a> =\n"
     + "    (** The canonical textual form of `value`. *)\n"
     + "    show(value: a): String\n",
   "Num.hex":
-    "(** The polymorphic face of addition and multiplication. Honoring `Num` gives a\n"
+    "module Num\n"
+    + "\n"
+    + "(** The polymorphic face of addition and multiplication. Honoring `Num` gives a\n"
     + "    type the `+` and `*` operators.\n"
     + "\n"
     + "    Each member below states the law an instance is reviewed against\n"
@@ -38,7 +42,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        multiplication. *)\n"
     + "    fromNat(value: Nat): a\n",
   "Signed.hex":
-    "(** The polymorphic face of subtraction and sign. Honoring `Signed` gives a type\n"
+    "module Signed\n"
+    + "\n"
+    + "(** The polymorphic face of subtraction and sign. Honoring `Signed` gives a type\n"
     + "    the binary and unary `-` operators.\n"
     + "\n"
     + "    Each member below states the law an instance is reviewed against\n"
@@ -59,7 +65,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        respects addition and multiplication. *)\n"
     + "    fromInt(value: Int): a\n",
   "Frac.hex":
-    "(** The polymorphic face of division. Honoring `Frac` gives a type the `/`\n"
+    "module Frac\n"
+    + "\n"
+    + "(** The polymorphic face of division. Honoring `Frac` gives a type the `/`\n"
     + "    operator; the quotient is exact where the type is exact and rounded where\n"
     + "    it is not.\n"
     + "\n"
@@ -75,7 +83,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        documents that its `divide` is not also a left inverse. *)\n"
     + "    divide(left: a, right: a): a\n",
   "Pow.hex":
-    "(** Raised when an integer type is raised to a negative power, which has no\n"
+    "module Pow\n"
+    + "\n"
+    + "(** Raised when an integer type is raised to a negative power, which has no\n"
     + "    answer at that type. `message` names the operation that threw. *)\n"
     + "export exception NegativeExponentError(message: String)\n"
     + "\n"
@@ -85,19 +95,25 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    (** `value` raised to the power `exponent`. *)\n"
     + "    pow(value: a, exponent: Int): a\n",
   "Concat.hex":
-    "(** The polymorphic face of concatenation. Honoring `Concat` gives a type the\n"
+    "module Concat\n"
+    + "\n"
+    + "(** The polymorphic face of concatenation. Honoring `Concat` gives a type the\n"
     + "    `++` operator. *)\n"
     + "export constraint Concat<a> =\n"
     + "    (** `left` followed by `right`. *)\n"
     + "    concat(left: a, right: a): a\n",
   "Bool.hex":
-    "// The boolean type. Constructor order `False | True` is normative: it is what makes\n"
+    "module Bool\n"
+    + "\n"
+    + "// The boolean type. Constructor order `False | True` is normative: it is what makes\n"
     + "// the derived `Ord` order `False < True`.\n"
     + "export union Bool derives (Eq, Ord, Show, Hash) =\n"
     + "    | False\n"
     + "    | True\n",
   "Eq.hex":
-    "(** The polymorphic face of equality. Honoring `Eq` gives a type the `==` and\n"
+    "module Eq\n"
+    + "\n"
+    + "(** The polymorphic face of equality. Honoring `Eq` gives a type the `==` and\n"
     + "    `!=` operators, and admits it as a component of a derived equality elsewhere.\n"
     + "\n"
     + "    The members below state the law an instance is reviewed against\n"
@@ -113,7 +129,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        efficiency, but the override must equal the negation of `equals`. *)\n"
     + "    notEquals(left: a, right: a): Bool = not equals(left, right)\n",
   "Hash.hex":
-    "(** The polymorphic face of hashing, and the key contract of the hash-backed\n"
+    "module Hash\n"
+    + "\n"
+    + "(** The polymorphic face of hashing, and the key contract of the hash-backed\n"
     + "    collections. Instances are derived rather than hand-written, which is what\n"
     + "    keeps the law below true by construction. *)\n"
     + "export constraint Hash<a: Eq> =\n"
@@ -121,16 +139,22 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        and the hash is not resistant to an adversary choosing them. *)\n"
     + "    hash(value: a): Int\n",
   "Ordering.hex":
-    "// The outcome of comparing two values, as produced by `Ord.compare`.\n"
+    "module Ordering\n"
+    + "\n"
+    + "// The outcome of comparing two values, as produced by `Ord.compare`.\n"
     + "export union Ordering derives (Eq, Show) =\n"
     + "    | Less\n"
     + "    | Equal\n"
     + "    | Greater\n",
   "Prelude.hex":
-    "(** Evaluates its argument and discards the result, returning `()`. *)\n"
+    "module Prelude\n"
+    + "\n"
+    + "(** Evaluates its argument and discards the result, returning `()`. *)\n"
     + "export let ignore(value: a): Unit = ()\n",
   "Ord.hex":
-    "(** The polymorphic face of ordering. Honoring `Ord` gives a type the `<`, `<=`,\n"
+    "module Ord\n"
+    + "\n"
+    + "(** The polymorphic face of ordering. Honoring `Ord` gives a type the `<`, `<=`,\n"
     + "    `>`, and `>=` operators.\n"
     + "\n"
     + "    The member below states the law an instance is reviewed against\n"
@@ -145,7 +169,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        and antisymmetric and transitive otherwise. *)\n"
     + "    compare(left: a, right: a): Ordering\n",
   "Integral.hex":
-    "(** Raised when a division or remainder is asked for with a zero divisor, at any\n"
+    "module Integral\n"
+    + "\n"
+    + "(** Raised when a division or remainder is asked for with a zero divisor, at any\n"
     + "    integer type. `message` names the operation that threw. *)\n"
     + "export exception DivideByZeroError(message: String)\n"
     + "\n"
@@ -167,12 +193,16 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    (** The greatest common divisor of `left` and `right`, never negative. *)\n"
     + "    gcd(left: a, right: a): a\n",
   "Option.hex":
-    "// The canonical optional-value union used by total standard-library accessors.\n"
+    "module Option\n"
+    + "\n"
+    + "// The canonical optional-value union used by total standard-library accessors.\n"
     + "export union Option(a) derives (Eq, Show) =\n"
     + "    | Some(value: a)\n"
     + "    | None\n",
   "BigInt.hex":
-    "// The public `BigInt` companion. A primitive's home module is its fixed prelude\n"
+    "module BigInt\n"
+    + "\n"
+    + "// The public `BigInt` companion. A primitive's home module is its fixed prelude\n"
     + "// companion (Constraints §5.3), so this file is where `BigInt`'s instances are\n"
     + "// declared and where the orphan rule lets them be declared.\n"
     + "\n"
@@ -338,7 +368,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    else\n"
     + "        throw(FloatRangeError(\"BigInt.toFloat: value does not fit in Float\"))\n",
   "Int.hex":
-    "// The public `Int` companion. A primitive's home module is its fixed prelude\n"
+    "module Int\n"
+    + "\n"
+    + "// The public `Int` companion. A primitive's home module is its fixed prelude\n"
     + "// companion (Constraints §5.3), so this file is where `Int`'s instances are\n"
     + "// declared and where the orphan rule lets them be declared.\n"
     + "\n"
@@ -505,7 +537,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        else\n"
     + "            Some(left * right)\n",
   "Nat.hex":
-    "// The public `Nat` companion. A primitive's home module is its fixed prelude\n"
+    "module Nat\n"
+    + "\n"
+    + "// The public `Nat` companion. A primitive's home module is its fixed prelude\n"
     + "// companion (Constraints §5.3), so this file is where `Nat`'s instances are\n"
     + "// declared and where the orphan rule lets them be declared.\n"
     + "\n"
@@ -626,7 +660,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    else\n"
     + "        Some(fromIntUnchecked(value))\n",
   "Float.hex":
-    "// The public `Float` companion. A primitive's home module is its fixed prelude\n"
+    "module Float\n"
+    + "\n"
+    + "// The public `Float` companion. A primitive's home module is its fixed prelude\n"
     + "// companion (Constraints §5.3), so this file is where `Float`'s instances are\n"
     + "// declared and where the orphan rule lets them be declared.\n"
     + "\n"
@@ -778,7 +814,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "export let isFinite(value: Float): Bool =\n"
     + "    value != infinity and value != -infinity and not isNan(value)\n",
   "Seq.hex":
-    "(** Raised when a sequence position is forced while it is already being\n"
+    "module Seq\n"
+    + "\n"
+    + "(** Raised when a sequence position is forced while it is already being\n"
     + "    forced (FFI Part 3 section 7.3-7.4). *)\n"
     + "export exception ReentrancyError\n"
     + "\n"
@@ -1042,7 +1080,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "export let all(source: Seq(a), matches: a ->? Bool): Bool =\n"
     + "    not any?(source, value => not matches?(value))\n",
   "String.hex":
-    "// The public `String` companion. A primitive's home module is its fixed prelude\n"
+    "module String\n"
+    + "\n"
+    + "// The public `String` companion. A primitive's home module is its fixed prelude\n"
     + "// companion (Constraints §5.3), so this file is where `String`'s instances are\n"
     + "// declared and where the orphan rule lets them be declared.\n"
     + "\n"
@@ -1107,7 +1147,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        is checked against. *)\n"
     + "    hash(value) = nativeHash(value)\n",
   "Iterable.hex":
-    "(** The iteration capability: `for..in` steps through the values of any type\n"
+    "module Iterable\n"
+    + "\n"
+    + "(** The iteration capability: `for..in` steps through the values of any type\n"
     + "    honoring `Iterable`, and `toSeq` is that type's conversion to the common\n"
     + "    `Seq` currency. *)\n"
     + "export constraint Iterable<c> =\n"
@@ -1117,7 +1159,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    (** The elements of `xs` as a sequence, in the type's traversal order. *)\n"
     + "    toSeq(xs: c): Seq(Item)\n",
   "Result.hex":
-    "// The canonical success-or-error union used across the standard library.\n"
+    "module Result\n"
+    + "\n"
+    + "// The canonical success-or-error union used across the standard library.\n"
     + "export union Result(a, e) =\n"
     + "    | Ok(value: a)\n"
     + "    | Err(error: e)\n"
@@ -1142,7 +1186,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    catch\n"
     + "        thrown => Err(thrown)\n",
   "Vector.hex":
-    "// The public Vector companion over the compiler's representation core.\n"
+    "module Vector\n"
+    + "\n"
+    + "// The public Vector companion over the compiler's representation core.\n"
     + "\n"
     + "(** Raised when an asserted index addresses no element, from `values[index]`,\n"
     + "    `at`, `set`, or String indexing. `index` is the index as passed and `size`\n"
@@ -1244,7 +1290,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    else\n"
     + "        Some(values[index])\n",
   "Map.hex":
-    "// The public Map companion over the runtime's hash array mapped trie.\n"
+    "module Map\n"
+    + "\n"
+    + "// The public Map companion over the runtime's hash array mapped trie.\n"
     + "\n"
     + "(** Raised when `map[key]` is read at a key the map does not bind. `Map.get` is\n"
     + "    the total sibling that answers `None` instead. *)\n"
@@ -1345,7 +1393,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "export let fromVector<k: Hash>(pairs: Vector((k, v))): Map(k, v) =\n"
     + "    fromEntries(pairs.toSeq())\n",
   "Set.hex":
-    "// The public Set companion over the runtime's hash array mapped trie.\n"
+    "module Set\n"
+    + "\n"
+    + "// The public Set companion over the runtime's hash array mapped trie.\n"
     + "\n"
     + "// Eight rows: the seven Collections Part 4 section 6.2 pins — construction, the\n"
     + "// maintained size, the keyed trio, and the one traversal — and one unexported\n"
@@ -1513,7 +1563,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "export let fromVector<a: Hash>(values: Vector(a)): Set(a) =\n"
     + "    fromSeq(values.toSeq())\n",
   "Stream.hex":
-    "(** An effectful pull sequence: every pull asks the world for the next element,\n"
+    "module Stream\n"
+    + "\n"
+    + "(** An effectful pull sequence: every pull asks the world for the next element,\n"
     + "    and a pull is spent. It is `Seq`'s impure nominal sibling — no tail, no\n"
     + "    persistence, and no replay of any kind. *)\n"
     + "opaque record Stream(+a) = { next: () ->! Option(a) }\n"
@@ -1613,7 +1665,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "                    searching := False\n"
     + "    result\n",
   "Array.hex":
-    "// The public companion of the borrowed foreign `Array(a)` (FFI Part 2\n"
+    "module Array\n"
+    + "\n"
+    + "// The public companion of the borrowed foreign `Array(a)` (FFI Part 2\n"
     + "// section 6).\n"
     + "//\n"
     + "// `Array(a)` is compiler-owned: no `.hex` file declares it, because a value\n"
@@ -1685,7 +1739,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "        collected := collected.append(value)\n"
     + "    collected\n",
   "JsMap.hex":
-    "// The public companion of the borrowed foreign `JsMap(k, v)` (FFI Part 10).\n"
+    "module JsMap\n"
+    + "\n"
+    + "// The public companion of the borrowed foreign `JsMap(k, v)` (FFI Part 10).\n"
     + "//\n"
     + "// `JsMap(k, v)` is compiler-owned: no `.hex` file declares it, because a value\n"
     + "// that crosses by identity has no Hexagon declaration site, exactly as\n"
@@ -1765,7 +1821,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    any position of it may still be forced (section 2). *)\n"
     + "export let entries(map: JsMap(k, v)): Seq((k, v)) = Iterable.toSeq(map)\n",
   "JsSet.hex":
-    "// The public companion of the borrowed foreign `JsSet(a)` (FFI Part 10).\n"
+    "module JsSet\n"
+    + "\n"
+    + "// The public companion of the borrowed foreign `JsSet(a)` (FFI Part 10).\n"
     + "//\n"
     + "// `JsSet(a)` is compiler-owned: no `.hex` file declares it, so this module is\n"
     + "// its companion by being the module addressable under the name (Method Syntax\n"
@@ -1815,7 +1873,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "// there is no second name for it — the persistent `Set` has no `elements`\n"
     + "// export to mirror.\n",
   "JsKind.hex":
-    "// `JsKind`'s home, and its only reason for being a module of its own: FFI\n"
+    "module JsKind\n"
+    + "\n"
+    + "// `JsKind`'s home, and its only reason for being a module of its own: FFI\n"
     + "// Part 11 section 3 makes all ten constructors qualified-only — `JsKind.Null`,\n"
     + "// never a bare `Null` — and a qualified constructor is spelled through the\n"
     + "// module that declares it (Modules section 3.3, the `Geo.Circle(r)` mechanism).\n"
@@ -1849,7 +1909,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    | Array\n"
     + "    | Object\n",
   "JsPathSegment.hex":
-    "// `JsPathSegment`'s home, and its only reason for being a module of its own:\n"
+    "module JsPathSegment\n"
+    + "\n"
+    + "// `JsPathSegment`'s home, and its only reason for being a module of its own:\n"
     + "// `spec/ffi.md` section 12's extension makes all five constructors\n"
     + "// qualified-only — `JsPathSegment.Index(3)`, never a bare `Index` — and a\n"
     + "// qualified constructor is spelled through the module that declares it (Modules\n"
@@ -1882,7 +1944,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    | MapValue(position: Int)\n"
     + "    | SetElement(position: Int)\n",
   "JsConversionReason.hex":
-    "// `JsConversionReason`'s home, for the reason `JsPathSegment.hex` is\n"
+    "module JsConversionReason\n"
+    + "\n"
+    + "// `JsConversionReason`'s home, for the reason `JsPathSegment.hex` is\n"
     + "// `JsPathSegment`'s: `spec/ffi.md` section 12's extension makes all three\n"
     + "// constructors qualified-only — `JsConversionReason.Shape`, never a bare\n"
     + "// `Shape` — and a qualified constructor is spelled through the module that\n"
@@ -1912,7 +1976,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    | Range\n"
     + "    | Cycle(firstSeen: Vector(JsPathSegment))\n",
   "JsValue.hex":
-    "// The public companion of `JsValue` — the type of a JavaScript value about\n"
+    "module JsValue\n"
+    + "\n"
+    + "// The public companion of `JsValue` — the type of a JavaScript value about\n"
     + "// which Hexagon asserts nothing (FFI Part 11 section 2).\n"
     + "//\n"
     + "// `JsValue` is compiler-owned: no `.hex` file declares it, because a value that\n"
@@ -2075,7 +2141,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    else\n"
     + "        Err(shapeFailure)\n",
   "JsError.hex":
-    "// The one door the whole foreign world enters through (`spec/exceptions.md`\n"
+    "module JsError\n"
+    + "\n"
+    + "// The one door the whole foreign world enters through (`spec/exceptions.md`\n"
     + "// section 6). JavaScript may throw any value at all — a `TypeError`, a bare\n"
     + "// string, `null`, a function — and every one of them arrives in Hexagon as a\n"
     + "// `JsError` carrying the raw thrown value.\n"
@@ -2175,7 +2243,9 @@ export const PRELUDE_SOURCES: Readonly<Record<string, string>> = {
     + "    JsKind.Object | JsKind.Function => readOption(readStack(error))\n"
     + "    _ => None\n",
   "Debug.hex":
-    "// The debugging probe, and the one place in the standard library where a\n"
+    "module Debug\n"
+    + "\n"
+    + "// The debugging probe, and the one place in the standard library where a\n"
     + "// pure-faced operation writes to the world.\n"
     + "//\n"
     + "// `spec/effects.md` section 6.2 species (a): the console is a channel no\n"

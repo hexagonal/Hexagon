@@ -739,8 +739,8 @@ describe("unknown type names", () => {
 
   test("a namespace alias over a same-named type resolves instead of reporting", () => {
     expect(messages([
-      ["/point.hex", "opaque record Point = {x: Float, y: Float}\n"],
-      ["/main.hex", 'import Point from "./point"\nexport let f(p: Point): Int = 1\n'],
+      ["/point.hex", "module Point\n\n" + "opaque record Point = {x: Float, y: Float}\n"],
+      ["/main.hex", "module Main\n\n" + 'import Point\nexport let f(p: Point): Int = 1\n'],
     ])).toEqual([]);
   });
 
@@ -749,16 +749,16 @@ describe("unknown type names", () => {
     // the bare name, which since #762 is a transparent alias of this module's
     // own (§3.2) rather than a named import. They are no longer the only way to
     // write the annotation, but the fallback took nothing away.
-    const point = ["/point.hex", "opaque record Point = {x: Float, y: Float}\n"] as const;
+    const point = ["/point.hex", "module Point\n\n" + "opaque record Point = {x: Float, y: Float}\n"] as const;
 
     expect(messages([
       point,
-      ["/main.hex", 'import Point from "./point"\nexport let f(p: Point.Point): Int = 1\n'],
+      ["/main.hex", "module Main\n\n" + 'import Point\nexport let f(p: Point.Point): Int = 1\n'],
     ])).toEqual([]);
     expect(messages([
       point,
       ["/main.hex",
-        'import P from "./point"\ntype Point = P.Point\nexport let f(p: Point): Int = 1\n'],
+        "module Main\n\n" + 'import Point as P\ntype Point = P.Point\nexport let f(p: Point): Int = 1\n'],
     ])).toEqual([]);
   });
 
@@ -766,12 +766,12 @@ describe("unknown type names", () => {
     // The surviving refusal, and the §10 row verbatim: the alias is one rename
     // away from resolving, so the realias is named beside the other two.
     expect(messages([
-      ["/point.hex", "opaque record Point = {x: Float, y: Float}\n"],
-      ["/main.hex", 'import P from "./point"\nexport let f(p: P): Int = 1\n'],
+      ["/point.hex", "module Point\n\n" + "opaque record Point = {x: Float, y: Float}\n"],
+      ["/main.hex", "module Main\n\n" + 'import Point as P\nexport let f(p: P): Int = 1\n'],
     ])).toEqual([
       "`P` is a module alias, not a type; write `P.Point` for the type it exports, " +
         "name it bare with `type Point = P.Point`, " +
-        'or realias as `import Point from "./point"`',
+        'or realias as `import Point`',
     ]);
   });
 
@@ -779,27 +779,27 @@ describe("unknown type names", () => {
     // The repairs are the message's whole content, so they are asserted rather
     // than described: a message naming a line that does not work is worse than
     // the bare refusal it replaced. The third is the one the fallback added.
-    const point = ["/point.hex", "opaque record Point = {x: Float, y: Float}\n"] as const;
+    const point = ["/point.hex", "module Point\n\n" + "opaque record Point = {x: Float, y: Float}\n"] as const;
 
     expect(messages([
       point,
-      ["/main.hex", 'import P from "./point"\nexport let f(p: P.Point): Int = 1\n'],
+      ["/main.hex", "module Main\n\n" + 'import Point as P\nexport let f(p: P.Point): Int = 1\n'],
     ])).toEqual([]);
     expect(messages([
       point,
       ["/main.hex",
-        'import P from "./point"\ntype Point = P.Point\nexport let f(p: Point): Int = 1\n'],
+        "module Main\n\n" + 'import Point as P\ntype Point = P.Point\nexport let f(p: Point): Int = 1\n'],
     ])).toEqual([]);
     expect(messages([
       point,
-      ["/main.hex", 'import Point from "./point"\nexport let f(p: Point): Int = 1\n'],
+      ["/main.hex", "module Main\n\n" + 'import Point\nexport let f(p: Point): Int = 1\n'],
     ])).toEqual([]);
   });
 
   test("an alias exporting no such type is told where its types are", () => {
     expect(messages([
-      ["/lib.hex", "export let one: Int = 1\n"],
-      ["/main.hex", 'import Lib from "./lib"\nexport let f(x: Lib): Int = 1\n'],
+      ["/lib.hex", "module Lib\n\n" + "export let one: Int = 1\n"],
+      ["/main.hex", "module Main\n\n" + 'import Lib\nexport let f(x: Lib): Int = 1\n'],
     ])).toEqual([
       "`Lib` is a module alias, not a type; the types it exports are reached through it, " +
         "as `Lib.Name`",
@@ -811,8 +811,8 @@ describe("unknown type names", () => {
     // type it exports" would be a false singular and no one realias is the
     // answer, so the general form stands.
     expect(messages([
-      ["/lib.hex", "export record One = {x: Int}\nexport record Two = {y: Int}\n"],
-      ["/main.hex", 'import Lib from "./lib"\nexport let f(x: Lib): Int = 1\n'],
+      ["/lib.hex", "module Lib\n\n" + "export record One = {x: Int}\nexport record Two = {y: Int}\n"],
+      ["/main.hex", "module Main\n\n" + 'import Lib\nexport let f(x: Lib): Int = 1\n'],
     ])).toEqual([
       "`Lib` is a module alias, not a type; the types it exports are reached through it, " +
         "as `Lib.Name`",
@@ -820,13 +820,13 @@ describe("unknown type names", () => {
   });
 
   test("a name that is nothing at all draws the plain refusal", () => {
-    expect(messages([["/main.hex", "export let f(w: Widget): Int = 1\n"]]))
+    expect(messages([["/main.hex", "module Main\n\n" + "export let f(w: Widget): Int = 1\n"]]))
       .toEqual(["unknown type `Widget`"]);
   });
 });
 
 function resolveSource(text: string): Resolved.Module {
-  const source = new Source.File(Source.fileId(0), "test.hex", text);
+  const source = new Source.File(Source.fileId(0), "test.hex", "module Test\n\n" + text);
   return resolve(parse(applyLayout(lex(source))));
 }
 

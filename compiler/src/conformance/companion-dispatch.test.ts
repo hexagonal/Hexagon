@@ -80,13 +80,13 @@ describe("a module-level binding never wins a dot call (#267)", () => {
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([1, 2]).map(x => x + 1))\n";
 
-    expect(projectDiagnostics(source)).toEqual([]);
-    const main = await runProject([["/main.hex", source]]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(elements(main["out"])).toEqual([2, 3]);
     // The local kept its name, so the companion is reached under the
     // collision-cleared spelling (Modules §6.4) — the machinery #266 pinned,
     // now exercised by dispatch rather than by a qualified call.
-    expect(emitted([["/main.hex", source]], "/main.hex")).toContain("__prelude_map(");
+    expect(emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex")).toContain("__prelude_map(");
   });
 
   /**
@@ -100,8 +100,8 @@ describe("a module-level binding never wins a dot call (#267)", () => {
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([1, 2]).map(x => x + 1))\n";
 
-    expect(projectDiagnostics(source)).toEqual([]);
-    const main = await runProject([["/main.hex", source]]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(elements(main["out"])).toEqual([2, 3]);
   });
 
@@ -116,8 +116,8 @@ describe("a module-level binding never wins a dot call (#267)", () => {
       "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([1, 2, 3]).take(2))\n";
 
-    expect(projectDiagnostics(source)).toEqual([]);
-    const main = await runProject([["/main.hex", source]]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(elements(main["out"])).toEqual([1, 2]);
   });
 });
@@ -140,22 +140,22 @@ describe("a built-in receiver reaches the module addressable under its name", ()
   test("`length` on a vector literal means `Vector.length`", async () => {
     const source = "export let n: Int = [1, 2, 3].length()\n";
 
-    expect(projectDiagnostics(source)).toEqual([]);
-    expect((await runProject([["/main.hex", source]]))["n"]).toBe(3);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    expect((await runProject([["/main.hex", "module Main\n\n" + source]]))["n"]).toBe(3);
   });
 
   test("`prepend` on a vector literal answers with a `Vector`", async () => {
     const source = "export let v: Vector(Int) = [1, 2].prepend(0)\n";
 
-    expect(projectDiagnostics(source)).toEqual([]);
-    expect(elements((await runProject([["/main.hex", source]]))["v"])).toEqual([0, 1, 2]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    expect(elements((await runProject([["/main.hex", "module Main\n\n" + source]]))["v"])).toEqual([0, 1, 2]);
   });
 
   test("`isEmpty`, the control that reported before, dispatches", async () => {
     const source = "export let blank: Bool = [1, 2].isEmpty()\n";
 
-    expect(projectDiagnostics(source)).toEqual([]);
-    expect((await runProject([["/main.hex", source]]))["blank"]).toBe(false);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    expect((await runProject([["/main.hex", "module Main\n\n" + source]]))["blank"]).toBe(false);
   });
 
   /**
@@ -168,10 +168,10 @@ describe("a built-in receiver reaches the module addressable under its name", ()
    */
   test("a module addressable as `Vector` supplies the built-in's operations", async () => {
     const files = [
-      ["/vec.hex", "export fun doubled(values: Vector(Int)): Vector(Int) = values\n"],
+      ["/vec.hex", "module Vec\n\n" + "export fun doubled(values: Vector(Int)): Vector(Int) = values\n"],
       [
         "/main.hex",
-        'import Vector from "./vec"\n' +
+        "module Main\n\n" + 'import Vec as Vector\n' +
         "export let out: Vector(Int) = [1, 2].doubled()\n",
       ],
     ] as const;
@@ -188,10 +188,10 @@ describe("a built-in receiver reaches the module addressable under its name", ()
    */
   test("the same module under another alias is not `Vector`'s companion", () => {
     const messages = diagnostics([
-      ["/vec.hex", "export fun doubled(values: Vector(Int)): Vector(Int) = values\n"],
+      ["/vec.hex", "module Vec\n\n" + "export fun doubled(values: Vector(Int)): Vector(Int) = values\n"],
       [
         "/main.hex",
-        'import Bag from "./vec"\n' +
+        "module Main\n\n" + 'import Vec as Bag\n' +
         "export let out: Vector(Int) = [1, 2].doubled()\n",
       ],
     ]);
@@ -214,8 +214,7 @@ describe("a built-in receiver reaches the module addressable under its name", ()
    */
   test("a prelude union receiver does not reach the `Seq` companion", () => {
     expect(
-      projectDiagnostics(
-        "export fun probe(o: Option(Int)): Option(Int) = o.map(x => x + 1)\n",
+      projectDiagnostics("module Main\n\n" + "export fun probe(o: Option(Int)): Option(Int) = o.map(x => x + 1)\n",
       ),
     ).toEqual([
       "`Option(Int)` has no field `map`, its companion exports no operation `map`, and no constraint honored at `Option(Int)` has a subject-first member `map`; call an available subject-first function explicitly",
@@ -233,7 +232,7 @@ describe("the companion is the home module, and only the home module", () => {
   test("an operation declared above its call site dispatches", async () => {
     const main = await runProject([[
       "/main.hex",
-      "export record Box = {value: Int}\n" +
+      "module Main\n\n" + "export record Box = {value: Int}\n" +
       "export fun twice(b: Box): Int = b.value * 2\n" +
       "export let doubled: Int = Box({value = 21}).twice()\n",
     ]]);
@@ -243,8 +242,7 @@ describe("the companion is the home module, and only the home module", () => {
 
   /** §9 row 12: the candidate exists, so "has no operation" would be a lie. */
   test("an operation declared below its call site is refused as such", () => {
-    expect(projectDiagnostics(
-      "export record Box = {value: Int}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export record Box = {value: Int}\n" +
       "export let doubled: Int = Box({value = 21}).twice()\n" +
       "export fun twice(b: Box): Int = b.value * 2\n",
     )).toEqual([
@@ -266,12 +264,12 @@ describe("the companion is the home module, and only the home module", () => {
     const files = [
       [
         "/box.hex",
-        "export record Box = {value: Int}\n" +
+        "module Box\n\n" + "export record Box = {value: Int}\n" +
         "export fun twice(b: Box): Int = b.value * 2\n",
       ],
       [
         "/main.hex",
-        'import Box from "./box"\n' +
+        "module Main\n\n" + 'import Box\n' +
         "export fun twice(b: Box): Int = 0\n" +
         "export let out: Int = Box({value = 21}).twice()\n",
       ],
@@ -291,8 +289,7 @@ describe("the companion is the home module, and only the home module", () => {
    */
   test("a private subject-first function in the home module is not dot-callable", () => {
     expect(
-      projectDiagnostics(
-        "export record Box = {value: Int}\n" +
+      projectDiagnostics("module Main\n\n" + "export record Box = {value: Int}\n" +
         "fun secret(b: Box): Int = 7\n" +
         "export let n: Int = Box({value = 1}).secret() + secret(Box({value = 0}))\n",
       ),
@@ -308,8 +305,7 @@ describe("the companion is the home module, and only the home module", () => {
    */
   test("an exported function whose first parameter is not `T`-headed is not dot-callable", () => {
     expect(
-      projectDiagnostics(
-        "export record Box = {value: Int}\n" +
+      projectDiagnostics("module Main\n\n" + "export record Box = {value: Int}\n" +
         "export fun make(n: Int): Box = Box({value = n})\n" +
         "export let n: Int = make(1).make()\n",
       ),
@@ -322,7 +318,7 @@ describe("the companion is the home module, and only the home module", () => {
   test("a union receiver dispatches to its own declaring module", async () => {
     const main = await runProject([[
       "/main.hex",
-      "export union Shade =\n" +
+      "module Main\n\n" + "export union Shade =\n" +
       "    | Pale\n" +
       "    | Dark\n" +
       "export fun rank(s: Shade): Int =\n" +
@@ -347,7 +343,7 @@ describe("what the fix leaves exactly as it was", () => {
   test("`memoize` still dispatches on a `Seq` receiver", async () => {
     const main = await runProject([[
       "/main.hex",
-      "export let out: Vector(Int) =\n" +
+      "module Main\n\n" + "export let out: Vector(Int) =\n" +
       "    Vector.fromSeq(Vector.toSeq([1, 2, 3]).memoize())\n",
     ]]);
 
@@ -363,7 +359,7 @@ describe("what the fix leaves exactly as it was", () => {
   test("a visible field still wins over a companion operation of the same name", async () => {
     const main = await runProject([[
       "/main.hex",
-      "export record Ruler = {size: (Int) -> Int}\n" +
+      "module Main\n\n" + "export record Ruler = {size: (Int) -> Int}\n" +
       "export fun size(r: Ruler): Int = 99\n" +
       "export fun run(r: Ruler): Int = r.size(4)\n",
     ]]);
@@ -382,7 +378,7 @@ describe("what the fix leaves exactly as it was", () => {
   test("a structural receiver is untouched by companion resolution", async () => {
     const main = await runProject([[
       "/main.hex",
-      "fun bump(r): Int = r.callback(3)\n" +
+      "module Main\n\n" + "fun bump(r): Int = r.callback(3)\n" +
       "export fun run(r: {callback: (Int) -> Int}): Int = bump(r)\n",
     ]]);
 

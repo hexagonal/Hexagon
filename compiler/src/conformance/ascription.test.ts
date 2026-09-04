@@ -18,7 +18,7 @@ import * as Typed from "../syntax/typed/index.js";
 
 /** The scheme the checker gave a top-level binding, as it renders it. */
 function scheme(source: string, name: string): string {
-  const compiled = compileMain(source);
+  const compiled = compileMain("module Main\n\n" + source);
   expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   const typed = compiled.modules.find(({ source: file }) => file.path === "/main.hex")!.typed;
   const symbol = typed.symbols.find(
@@ -33,7 +33,7 @@ function scheme(source: string, name: string): string {
 
 /** `/main.hex`'s emitted JavaScript, with blank lines dropped. */
 function emission(source: string): string {
-  const compiled = compileMain(source);
+  const compiled = compileMain("module Main\n\n" + source);
   expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   return compiled.modules
     .find(({ source: file }) => file.path === "/main.hex")!
@@ -42,7 +42,7 @@ function emission(source: string): string {
 
 /** `/main.hex`'s emitted `.d.ts`. */
 function declarations(source: string): string {
-  const compiled = compileMain(source);
+  const compiled = compileMain("module Main\n\n" + source);
   expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   return compiled.modules
     .find(({ source: file }) => file.path === "/main.hex")!
@@ -70,7 +70,7 @@ const IGNORE = "fun ignore<a>(value: a): Unit = ()\n";
 
 // Proves this file's harness can observe a failure.
 test("the harness reports a broken module rather than passing it", () => {
-  expect(projectDiagnostics("export let broken: Int = missing(1)\n").length).toBeGreaterThan(0);
+  expect(projectDiagnostics("module Main\n\n" + "export let broken: Int = missing(1)\n").length).toBeGreaterThan(0);
 });
 
 describe("§3.1 the four-example block", () => {
@@ -106,8 +106,7 @@ describe("§3.1 the four-example block", () => {
   test("...and `inc` is usable at two numeric types", () => {
     // The scheme is the claim; two call sites are the proof. One numeric type
     // would be satisfied by a monomorphized `a` too.
-    expect(projectDiagnostics(
-      "let inc = (x => x + 1 : a -> a)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let inc = (x => x + 1 : a -> a)\n" +
         "export let i: Int = inc(1)\n" +
         "export let f: Float = inc(1.5)\n",
     )).toEqual([]);
@@ -118,7 +117,7 @@ describe("§3.1 the four-example block", () => {
     // §5 words this row for *this* spelling: no body demanded `Int`, defaulting
     // proposed it, so the binder spelling's "the body requires `Int`" would
     // misdescribe what happened.
-    const messages = projectDiagnostics("let n = (42 : a)\nexport let out: Int = 1\n");
+    const messages = projectDiagnostics("module Main\n\n" + "let n = (42 : a)\nexport let out: Int = 1\n");
     expect(messages).toHaveLength(1);
     expect(messages[0]).toBe(
       "`a` is a declared type variable, but `42` can be only a `Num` type; " +
@@ -126,14 +125,14 @@ describe("§3.1 the four-example block", () => {
         "ascription to let the literal default to `Int`",
     );
     // The Rewrite Rule: both named edits have to compile.
-    expect(projectDiagnostics("let n = (42 : Int)\nexport let out: Int = n\n")).toEqual([]);
-    expect(projectDiagnostics("let n = 42\nexport let out: Int = n\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "let n = (42 : Int)\nexport let out: Int = n\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "let n = 42\nexport let out: Int = n\n")).toEqual([]);
   });
 
   test("the binder spelling keeps Functions §10's own wording", () => {
     // The two spellings are different reports on purpose. Pinned so a later
     // simplification cannot quietly collapse them onto one sentence.
-    const messages = projectDiagnostics("let n: a = 42\nexport let out: Int = 1\n");
+    const messages = projectDiagnostics("module Main\n\n" + "let n: a = 42\nexport let out: Int = 1\n");
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("the body requires `Int`");
     expect(messages[0]).not.toContain("ascribe");
@@ -145,8 +144,7 @@ describe("§3.1 the annotation scope is the declaration's", () => {
     // The mutation-coverage observation §9.8 asks for. Under a
     // fresh-per-ascription reading each `a` is its own variable, each refuses
     // defaulting on its own, and this reports *twice*. One report is the join.
-    const messages = projectDiagnostics(
-      "let pair = ((1 : a), (2 : a))\nexport let out: Int = 1\n",
+    const messages = projectDiagnostics("module Main\n\n" + "let pair = ((1 : a), (2 : a))\nexport let out: Int = 1\n",
     );
     expect(messages).toHaveLength(1);
   });
@@ -154,8 +152,7 @@ describe("§3.1 the annotation scope is the declaration's", () => {
   test("an ascription joins the signature's variable rather than shadowing it", () => {
     // Fresh-per-ascription would make the body's `a` distinct from the
     // parameter's, and `#bind`'s rigid-versus-rigid arm would say so.
-    expect(projectDiagnostics(
-      "let pick(x: a, y: a): a = (if 1 == 1 then x else y : a)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let pick(x: a, y: a): a = (if 1 == 1 then x else y : a)\n" +
         "export let out: Int = pick(1, 2)\n",
     )).toEqual([]);
   });
@@ -163,8 +160,7 @@ describe("§3.1 the annotation scope is the declaration's", () => {
   test("two different declarations do not share a variable", () => {
     // The scope is one declaration (§3.1), so the second `let` starts clean —
     // a module-wide scope would hand it a variable the first already quantified.
-    expect(projectDiagnostics(
-      "let id = (x => x : a -> a)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let id = (x => x : a -> a)\n" +
         "let other = (y => y : a -> a)\n" +
         "export let out: Int = id(other(1))\n",
     )).toEqual([]);
@@ -235,8 +231,7 @@ describe("§2.3 the lambda-header lookalike", () => {
     // *unrelated* `=>` later on the same line. The scan the arrow has to be
     // there to falsify — without one it stops at the layout boundary and gets
     // the right answer for the wrong reason.
-    expect(projectDiagnostics(
-      "let mapFirst(p: (Int, String), g: (Int) -> Int): Int = g(p.item1)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let mapFirst(p: (Int, String), g: (Int) -> Int): Int = g(p.item1)\n" +
         'let a = 1\nlet b = "x"\n' +
         "export let out: Int = ((a, b): (Int, String)) |> mapFirst(x => x)\n",
     )).toEqual([]);
@@ -245,8 +240,7 @@ describe("§2.3 the lambda-header lookalike", () => {
   test("`f(((a, b): (Int, String)), z => z)` is an ascription too", () => {
     // The same shape with a real lambda as a later argument, so the arrow the
     // old scan would have latched onto genuinely exists.
-    expect(projectDiagnostics(
-      "let apply(p: (Int, String), g: (Int) -> Int): Int = g(p.item1)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let apply(p: (Int, String), g: (Int) -> Int): Int = g(p.item1)\n" +
         'let a = 1\nlet b = "x"\n' +
         "export let out: Int = apply(((a, b): (Int, String)), z => z)\n",
     )).toEqual([]);
@@ -255,13 +249,12 @@ describe("§2.3 the lambda-header lookalike", () => {
 
 describe("§5 the diagnostics this spec re-mechanizes and retires", () => {
   test("`(x: 1, y: 2)` still errors with Products §2.2's record hint", () => {
-    const messages = projectDiagnostics("let p = (x: 1, y: 2)\nexport let out: Int = 1\n");
+    const messages = projectDiagnostics("module Main\n\n" + "let p = (x: 1, y: 2)\nexport let out: Int = 1\n");
     expect(messages).toContain(
       "tuples are positional; for named fields use a record: `{x = 1, y = 2}`",
     );
     // The Rewrite Rule: the named rewrite compiles.
-    expect(projectDiagnostics(
-      "let p = {x = 1, y = 2}\nexport let out: Int = p.x\n",
+    expect(projectDiagnostics("module Main\n\n" + "let p = {x = 1, y = 2}\nexport let out: Int = p.x\n",
     )).toEqual([]);
   });
 
@@ -269,7 +262,7 @@ describe("§5 the diagnostics this spec re-mechanizes and retires", () => {
     // §5's mechanism sentence: the element colon is grammar now, and `1` is a
     // term where a type must stand. Carets the `1`, not the `:`.
     const source = "let p = (x: 1, y: 2)\nexport let out: Int = 1\n";
-    const diagnostic = compileMain(source).diagnostics.find(({ message }) =>
+    const diagnostic = compileMain("module Main\n\n" + source).diagnostics.find(({ message }) =>
       message.startsWith("tuples are positional")
     )!;
     expect(source.slice(diagnostic.primary.start.offset, diagnostic.primary.end.offset)).toBe("1");
@@ -288,12 +281,12 @@ describe("§5 the diagnostics this spec re-mechanizes and retires", () => {
   test("`(42: Nat)` no longer dies at the colon", () => {
     // The retired parse error. That token is grammar; there is no shim, because
     // the spelling had no prior meaning.
-    expect(projectDiagnostics("let q = (42: Nat)\nexport let out: Nat = q\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "let q = (42: Nat)\nexport let out: Nat = q\n")).toEqual([]);
   });
 
   test("a mismatch reports against the written type, at the ascribed expression", () => {
     const source = 'let n = ("s" : Int)\nexport let out: Int = 1\n';
-    const messages = projectDiagnostics(source);
+    const messages = projectDiagnostics("module Main\n\n" + source);
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("expected Int");
     expect(messages[0]).toContain("found String");
@@ -305,11 +298,10 @@ describe("§5 the diagnostics this spec re-mechanizes and retires", () => {
     // nothing besides. The numeric *widening* both accept is Numeric Literals'
     // rule reaching an annotated position, and it reaches this one identically —
     // which is §1's claim, not an exception to it.
-    expect(projectDiagnostics("let x: Int = 1\nlet y = (x : Float)\nexport let out: Float = y\n"))
-      .toEqual(projectDiagnostics("let x: Int = 1\nlet y: Float = x\nexport let out: Float = y\n"));
+    expect(projectDiagnostics("module Main\n\n" + "let x: Int = 1\nlet y = (x : Float)\nexport let out: Float = y\n"))
+      .toEqual(projectDiagnostics("module Main\n\n" + "let x: Int = 1\nlet y: Float = x\nexport let out: Float = y\n"));
     // What no annotation admits, the ascription does not admit either.
-    const messages = projectDiagnostics(
-      'let x: String = "s"\nlet y = (x : Float)\nexport let out: Int = 1\n',
+    const messages = projectDiagnostics("module Main\n\n" + 'let x: String = "s"\nlet y = (x : Float)\nexport let out: Int = 1\n',
     );
     expect(messages.length).toBeGreaterThan(0);
     expect(messages.join("\n")).toContain("Float");
@@ -344,8 +336,7 @@ describe("§4 emission: an ascription erases", () => {
     // Vary the emitted value from every other executed specimen in this file:
     // two conformance tests emitting byte-identical JavaScript share one ESM
     // `data:` URL module instance.
-    const exports = await runMain(
-      "export let total: Int = ((17 : Int) + (4 : Int) : Int)\n",
+    const exports = await runMain("module Main\n\n" + "export let total: Int = ((17 : Int) + (4 : Int) : Int)\n",
     );
     expect(exports.total).toBe(21);
   });
@@ -361,8 +352,7 @@ describe("§3.2 holes in ascribed types", () => {
 
   test("`(e : Vector(_))` still rejects a non-vector", () => {
     // The claim written *around* the hole is a claim like any other.
-    const messages = projectDiagnostics(
-      'let v = ("no" : Vector(_))\nexport let out: Int = 1\n',
+    const messages = projectDiagnostics("module Main\n\n" + 'let v = ("no" : Vector(_))\nexport let out: Int = 1\n',
     );
     expect(messages.length).toBeGreaterThan(0);
     expect(messages.join("\n")).toContain("Vector");
@@ -378,8 +368,7 @@ describe("§3.2 holes in ascribed types", () => {
   });
 
   test("a whole-type constrained hole is a floor with no structure claim", () => {
-    expect(projectDiagnostics(
-      "export let total: Int = ((1 + 1) : _ : Num)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let total: Int = ((1 + 1) : _ : Num)\n",
     )).toEqual([]);
   });
 
@@ -396,15 +385,14 @@ describe("§3.2 holes in ascribed types", () => {
     // An ascription is a body position, and the total-contract fence governs
     // export and declaration *surfaces* (§3.2). An exported definition's body
     // admits holes exactly as a private one does.
-    expect(projectDiagnostics(
-      "export let count(xs: Vector(Int)): Int = Vector.length((xs : Vector(_)))\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let count(xs: Vector(Int)): Int = Vector.length((xs : Vector(_)))\n",
     )).toEqual([]);
   });
 });
 
 describe("§9.3 the four declared-variable error paths", () => {
   test("(1) defaulting refusal at a non-function value binding", () => {
-    const messages = projectDiagnostics("let n = (42 : a)\nexport let out: Int = 1\n");
+    const messages = projectDiagnostics("module Main\n\n" + "let n = (42 : a)\nexport let out: Int = 1\n");
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("`a` is a declared type variable");
     expect(messages[0]).toContain("can be only a `Num` type");
@@ -414,31 +402,26 @@ describe("§9.3 the four declared-variable error paths", () => {
     // Functions §8's evidence-seat arm keys on an annotated binding's declared
     // variable; here the binder has no annotation and the *ascription* declared
     // the variable. Declaredness, not the binder's punctuation, is the key.
-    const messages = projectDiagnostics(
-      `${TAG}let holder = { f = (describe : a -> String) }\nexport let out: Int = 1\n`,
+    const messages = projectDiagnostics("module Main\n\n" + `${TAG}let holder = { f = (describe : a -> String) }\nexport let out: Int = 1\n`,
     );
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("`a` is a declared type variable");
     expect(messages[0]).toContain("cannot carry its `Tag` constraint");
     expect(messages[0]).toContain("evidence rides only a function's trailing parameters");
     // The Rewrite Rule: both named edits compile.
-    expect(projectDiagnostics(
-      `${TAG}let holder = { f = (describe : String -> String) }\n` +
+    expect(projectDiagnostics("module Main\n\n" + `${TAG}let holder = { f = (describe : String -> String) }\n` +
         'export let out: String = (holder.f)("x")\n',
     )).toEqual([]);
-    expect(projectDiagnostics(
-      `${TAG}let holder = { f = describe }\nexport let out: String = (holder.f)("x")\n`,
+    expect(projectDiagnostics("module Main\n\n" + `${TAG}let holder = { f = describe }\nexport let out: String = (holder.f)("x")\n`,
     )).toEqual([]);
   });
 
   test("(2) reports where the binder spelling reports, and says the same thing", () => {
     // The arm is one arm. If the ascription path grew its own sentence the two
     // spellings would describe one rule two ways.
-    const ascribed = projectDiagnostics(
-      `${TAG}let holder = { f = (describe : a -> String) }\nexport let out: Int = 1\n`,
+    const ascribed = projectDiagnostics("module Main\n\n" + `${TAG}let holder = { f = (describe : a -> String) }\nexport let out: Int = 1\n`,
     );
-    const annotated = projectDiagnostics(
-      `${TAG}let holder: { f: a -> String } = { f = describe }\nexport let out: Int = 1\n`,
+    const annotated = projectDiagnostics("module Main\n\n" + `${TAG}let holder: { f: a -> String } = { f = describe }\nexport let out: Int = 1\n`,
     );
     expect(ascribed).toEqual(annotated);
   });
@@ -447,8 +430,7 @@ describe("§9.3 the four declared-variable error paths", () => {
     // A destructuring `let`'s components never quantify constrained variables,
     // and a rigid variable cannot be pinned — so the ascription-declared `a`
     // the destructuring sentence would otherwise pin is the same hard error.
-    const messages = projectDiagnostics(
-      `${TAG}let (g, n) = ((describe : a -> String), 1)\nexport let out: Int = 1\n`,
+    const messages = projectDiagnostics("module Main\n\n" + `${TAG}let (g, n) = ((describe : a -> String), 1)\nexport let out: Int = 1\n`,
     );
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("`a` is a declared type variable");
@@ -459,8 +441,7 @@ describe("§9.3 the four declared-variable error paths", () => {
     // The error is about the *claim*, not about destructuring: without a
     // declared variable the component declines and pins at its first use, which
     // is what every expansive binding already does.
-    expect(projectDiagnostics(
-      `${TAG}let (g, n) = (describe, 1)\nexport let out: String = g("x")\n`,
+    expect(projectDiagnostics("module Main\n\n" + `${TAG}let (g, n) = (describe, 1)\nexport let out: String = g("x")\n`,
     )).toEqual([]);
   });
 
@@ -468,14 +449,12 @@ describe("§9.3 the four declared-variable error paths", () => {
     // §3.1's newly reachable corner: `a` occurs nowhere in the declaration's
     // type, so it would quantify with the function and no call site could ever
     // determine its evidence. It must be surfaced, not quietly defaulted.
-    const messages = projectDiagnostics(
-      `${IGNORE}let f() = ignore((42 : a))\nexport let out: Int = 1\n`,
+    const messages = projectDiagnostics("module Main\n\n" + `${IGNORE}let f() = ignore((42 : a))\nexport let out: Int = 1\n`,
     );
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("`a` is a declared type variable");
     // Not defaulted: `f`'s scheme never acquired an `Int` nobody wrote.
-    expect(projectDiagnostics(
-      `${IGNORE}let f() = ignore((42 : Int))\nexport let out: Int = 1\n`,
+    expect(projectDiagnostics("module Main\n\n" + `${IGNORE}let f() = ignore((42 : Int))\nexport let out: Int = 1\n`,
     )).toEqual([]);
   });
 
@@ -483,8 +462,7 @@ describe("§9.3 the four declared-variable error paths", () => {
     // The `Num` orphan is caught by defaulting's own refusal. One carrying a
     // constraint defaulting never touches has no other reader, so without its
     // own report the declaration compiled with an obligation nothing can meet.
-    const messages = projectDiagnostics(
-      `${TAG}${IGNORE}let f() = ignore((describe : a -> String))\nexport let out: Int = 1\n`,
+    const messages = projectDiagnostics("module Main\n\n" + `${TAG}${IGNORE}let f() = ignore((describe : a -> String))\nexport let out: Int = 1\n`,
     );
     expect(messages).toHaveLength(1);
     expect(messages[0]).toContain("`a` is a declared type variable");

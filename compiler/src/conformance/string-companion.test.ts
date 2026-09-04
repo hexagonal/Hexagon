@@ -27,14 +27,14 @@ import { compileFiles, compileMain, projectDiagnostics, runMain } from "../suppo
 
 /** `/main.hex`'s emitted JavaScript, which must have compiled cleanly. */
 function emitted(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
 /** `stdlib/String.hex`'s emitted JavaScript, as the prelude compiled it. */
 function companion(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules
     .find(({ source: file }) => file.path.endsWith("/String.hex"))!.javascript.text;
@@ -47,7 +47,7 @@ function diagnostics(files: readonly (readonly [string, string])[]): readonly st
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics('export let r: String = joyn("a", "b")\n'))
+    expect(projectDiagnostics("module Main\n\n" + 'export let r: String = joyn("a", "b")\n'))
       .toEqual(["unknown name `joyn`"]);
   });
 });
@@ -231,8 +231,8 @@ describe("the wired rows are gone, not dormant", () => {
 
     expect(text).not.toContain("concat: (__a, __b) => __a + __b");
     expect(text).not.toContain("show: __a => __a");
-    expect(text).toContain('__Concat_String } from "./String.js"');
-    expect(text).toContain('__Ord_String } from "./String.js"');
+    expect(text).toContain('__Concat_String } from "./Hex/String.js"');
+    expect(text).toContain('__Ord_String } from "./Hex/String.js"');
   });
 
   /**
@@ -242,9 +242,9 @@ describe("the wired rows are gone, not dormant", () => {
    * companion sentence anywhere.
    */
   test("`String.length` misses as an ordinary export, and so does `String.join`", () => {
-    expect(projectDiagnostics('export let n: Int = String.length("abc")\n'))
+    expect(projectDiagnostics("module Main\n\n" + 'export let n: Int = String.length("abc")\n'))
       .toEqual(["module `String` does not export `length`"]);
-    expect(projectDiagnostics('export let j: String = String.join("a", "b")\n'))
+    expect(projectDiagnostics("module Main\n\n" + 'export let j: String = String.join("a", "b")\n'))
       .toEqual(["module `String` does not export `join`"]);
   });
 
@@ -254,12 +254,12 @@ describe("the wired rows are gone, not dormant", () => {
    * makes this a routing pin rather than a blanket refusal.
    */
   test("a `length` dot call takes the neither-error, `concat` does not", () => {
-    expect(projectDiagnostics('export let n: Int = "abc".length()\n')).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + 'export let n: Int = "abc".length()\n')).toEqual([
       "`String` has no field `length`, its companion exports no operation " +
         "`length`, and no constraint honored at `String` has a subject-first " +
         "member `length`; call an available subject-first function explicitly",
     ]);
-    expect(projectDiagnostics('export let c: String = "ab".concat("cd")\n')).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + 'export let c: String = "ab".concat("cd")\n')).toEqual([]);
   });
 });
 
@@ -304,7 +304,7 @@ describe("Constraints §6.1's inlining survives the move", () => {
       "export let hashed: Bool = Hash.hash(here) == Hash.hash(alsoHere)",
       "",
     ].join("\n");
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
     const text = emitted(source);
 
     expect(exports["same"]).toBe(true);
@@ -405,10 +405,10 @@ describe("`String.hex` is instances and nothing else", () => {
 async function runProjectLike(): Promise<Record<string, unknown>> {
   const files = [
     ["/text.hex",
-      "export let length(value: String): Int = 3\n" +
+      "module Text\n\n" + "export let length(value: String): Int = 3\n" +
       "export let join(left: String, right: String): String = left ++ \"/\" ++ right\n"],
     ["/main.hex",
-      'import Text from "./text"\n' +
+      "module Main\n\n" + 'import Text\n' +
       "let length = Text.length\n" +
       "let join = Text.join\n" +
       'export let size: Int = length("abc")\n' +

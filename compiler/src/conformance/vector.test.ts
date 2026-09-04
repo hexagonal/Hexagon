@@ -55,7 +55,7 @@ async function run(
 ): Promise<Record<string, unknown>> {
   const files = [
     ...extras.map(([path, text], index) => new Source.File(Source.fileId(index + 1), path, text)),
-    new Source.File(Source.fileId(0), "/main.hex", source),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
   ];
   const project = compileProject(files);
   expect(project.diagnostics).toEqual([]);
@@ -262,7 +262,7 @@ describe("Vector specification conformance", () => {
 // Companion surface from stdlib/Vector.hex (the real module, loaded via ?raw), not the
 // core intrinsics. Thin wrappers, but pinned so the trie rewrite can't break them.
 const COMPANION_MAIN =
-  'import Vector from "./Vector"\n' +
+  'import Vector\n' +
   "let three: Vector(Int) = [1, 2, 3]\n" +
   "let none: Vector(Int) = []\n" +
   "export let firstFull: Int = match Vector.first(three)\n    Some(v) => v\n    None => 0 - 1\n" +
@@ -276,7 +276,7 @@ const COMPANION_MAIN =
 
 describe("Vector companion conformance (stdlib/Vector.hex)", () => {
   test("§7 Option-returning and end-dropping companions", async () => {
-    const m = await run(COMPANION_MAIN, [["/Vector.hex", vectorSource]]);
+    const m = await run(COMPANION_MAIN, [["/Vector.hex", "module Vector\n\n" + vectorSource]]);
     expect(m.firstFull).toBe(1);
     expect(m.firstEmpty).toBe(-1);
     expect(m.lastFull).toBe(3);

@@ -36,7 +36,7 @@ import { compileFiles, compileMain, runMain, runProject } from "../support/test-
  */
 
 function emitted(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   const module = project.modules.find(({ source: file }) => file.path === "/main.hex");
   if (module === undefined) throw new Error("/main.hex was not emitted");
@@ -184,7 +184,7 @@ describe("§6.1 — a ground instance's members hoist to member seats", () => {
       "const __Eq_Coupon = { equals: __Eq_Coupon_equals, notEquals: __Eq_Coupon_notEquals };",
     );
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["differs"]).toBe(true);
   });
 
@@ -207,7 +207,7 @@ describe("§6.1 — a ground instance's members hoist to member seats", () => {
     );
     expect(text).toContain("const doubled = __Chirp_Finch_twice({ call: \"pip\" });");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["doubled"]).toBe("pippip");
   });
 
@@ -217,11 +217,11 @@ describe("§6.1 — a ground instance's members hoist to member seats", () => {
     const text = emittedFrom(
       [
         ["/tokens.hex",
-          "export record Chip = {value: Int}\n" +
+          "module Tokens\n\n" + "export record Chip = {value: Int}\n" +
           "honor Show<Chip> =\n" +
           '    show(c) = "chip ${c.value}"\n'],
         ["/main.hex",
-          'import Tokens from "./tokens"\n' +
+          "module Main\n\n" + 'import Tokens\n' +
           "export let one: String = show(Tokens.Chip({value = 9}))\n"],
       ],
       "/tokens.hex",
@@ -252,7 +252,7 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     expect(text).toContain("const dotted = __Show_Note2_show(subject);");
     expect(text).toContain("const piped = __Show_Note2_show(subject);");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["bare"]).toBe("note x");
     expect(main["dotted"]).toBe("note x");
     expect(main["piped"]).toBe("note x");
@@ -262,14 +262,14 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     const source = 'export let rendered: String = show(41) ++ show("!")\n';
     const text = emitted(source);
 
-    expect(text).toContain('import { __Show_Int_show } from "./Int.js";');
-    expect(text).toContain('import { __Show_String_show } from "./String.js";');
+    expect(text).toContain('import { __Show_Int_show } from "./Hex/Int.js";');
+    expect(text).toContain('import { __Show_String_show } from "./Hex/String.js";');
     expect(text).toContain('const rendered = __Show_Int_show(41) + __Show_String_show("!");');
     // The forwarder and the dictionary are both gone from the call.
     expect(text).not.toContain("./Show.js");
     expect(text).not.toContain("__Show_Int }");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["rendered"]).toBe("41!");
   });
 
@@ -277,9 +277,9 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     // The doctrinal offense the issue was filed on: `Rat.fromInt(3)` named the
     // companion's method in source and reached `Signed.hex`'s forwarder.
     const files = [
-      ["/Rat.hex", RAT],
+      ["/Rat.hex", "module Rat\n\n" + RAT],
       ["/main.hex",
-        'import Rat from "./Rat"\n' +
+        "module Main\n\n" + 'import Rat\n' +
         "export let third: String = Rat.show(Rat.fromInt(3))\n"],
     ] as const;
     const text = emittedFrom(files, "/main.hex");
@@ -288,7 +288,7 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     // member's own name and the routed call reads as the source wrote it
     // (Dictionary Sharing §8's seat-binding rule).
     expect(text).toContain(
-      'import { __Show_Rat_show as show, __Signed_Rat_fromInt as fromInt } from "./Rat.js";',
+      'import { __Show_Rat_show as show, __Signed_Rat_fromInt as fromInt } from "./Hex/Rat.js";',
     );
     expect(text).toContain("const third = show(fromInt(3));");
 
@@ -306,12 +306,12 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     // another module.
     const files = [
       ["/box.hex",
-        "export record Box = {value: Int}\n" +
+        "module Box\n\n" + "export record Box = {value: Int}\n" +
         "\n" +
         "honor Eq<Box> =\n" +
         "    equals(left, right) = left.value == right.value\n"],
       ["/main.hex",
-        'import Box from "./box"\n' +
+        "module Main\n\n" + 'import Box\n' +
         "export let differs: Bool = " +
           "Eq.notEquals(Box.Box({value = 2}), Box.Box({value = 3}))\n"],
     ] as const;
@@ -330,7 +330,7 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     // §6.1's companion bullet made true: `div` is ordinary Hexagon over `quot`
     // and `mod`, and the chain terminates because it ends at the door.
     const text = emittedFrom(
-      [["/main.hex", "export let d: Int = Int.div(-7, 2)\n"]],
+      [["/main.hex", "module Main\n\n" + "export let d: Int = Int.div(-7, 2)\n"]],
       "/Int.hex",
     );
 
@@ -338,9 +338,9 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
       "__Integral_Int_quot(left - __Integral_Int_mod(left, right), right)",
     );
     expect(text).toContain("const remainder = __Integral_Int_rem(left, right);");
-    expect(text).not.toContain('from "./Integral.js"; ');
+    expect(text).not.toContain('from "./Hex/Integral.js"; ');
 
-    const main = await runMain("export let d: Int = Int.div(-7, 2)\n");
+    const main = await runMain("module Main\n\n" + "export let d: Int = Int.div(-7, 2)\n");
     expect(main["d"]).toBe(-4);
   });
 });
@@ -359,10 +359,10 @@ describe("§8 — a routed seat binds the member's source spelling when uncontes
     const source = "let uncontestedSeat = 0\nexport let one: String = show(21)\n";
     const text = emitted(source);
 
-    expect(text).toContain('import { __Show_Int_show as show } from "./Int.js";');
+    expect(text).toContain('import { __Show_Int_show as show } from "./Hex/Int.js";');
     expect(text).toContain("const one = show(21);");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("21");
   });
 
@@ -374,13 +374,13 @@ describe("§8 — a routed seat binds the member's source spelling when uncontes
         'export let one: String = show(22) ++ show("!")\n';
     const text = emitted(source);
 
-    expect(text).toContain('import { __Show_Int_show } from "./Int.js";');
-    expect(text).toContain('import { __Show_String_show } from "./String.js";');
+    expect(text).toContain('import { __Show_Int_show } from "./Hex/Int.js";');
+    expect(text).toContain('import { __Show_String_show } from "./Hex/String.js";');
     expect(text).toContain('const one = __Show_Int_show(22) + __Show_String_show("!");');
     expect(text).not.toContain("as show }");
     expect(text).not.toContain("show_1");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("22!");
   });
 
@@ -392,11 +392,11 @@ describe("§8 — a routed seat binds the member's source spelling when uncontes
     const text = emitted(source);
 
     // The forwarder is bound as `show`, so the seat takes its generated name.
-    expect(text).toContain('import { __show as show } from "./Show.js";');
-    expect(text).toContain('import { __Show_Int_show } from "./Int.js";');
+    expect(text).toContain('import { __show as show } from "./Hex/Show.js";');
+    expect(text).toContain('import { __Show_Int_show } from "./Hex/Int.js";');
     expect(text).toContain("__Show_Int_show(24)");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("2324");
   });
 
@@ -407,10 +407,10 @@ describe("§8 — a routed seat binds the member's source spelling when uncontes
         "export let one: String = render5(25) ++ show(26)\n";
     const text = emitted(source);
 
-    expect(text).toContain('import { __show as show } from "./Show.js";');
+    expect(text).toContain('import { __show as show } from "./Hex/Show.js";');
     expect(text).toContain("__Show_Int_show(26)");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("2526");
   });
 
@@ -423,11 +423,11 @@ describe("§8 — a routed seat binds the member's source spelling when uncontes
         "export let two: Int = show\n";
     const text = emitted(source);
 
-    expect(text).toContain('import { __Show_Int_show } from "./Int.js";');
+    expect(text).toContain('import { __Show_Int_show } from "./Hex/Int.js";');
     expect(text).toContain("const one = __Show_Int_show(28);");
     expect(text).toContain("const show = 27;");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("28");
     expect(main["two"]).toBe(27);
   });
@@ -445,11 +445,11 @@ describe("§8 — a routed seat binds the member's source spelling when uncontes
         "export let one: String = show(Slug({n = 29})) ++ Int.show(30)\n";
     const text = emitted(source);
 
-    expect(text).toContain('import { __Show_Int_show } from "./Int.js";');
+    expect(text).toContain('import { __Show_Int_show } from "./Hex/Int.js";');
     expect(text).toContain("const one = __Show_Slug_show({ n: 29 }) + __Show_Int_show(30);");
     expect(text).not.toContain("as show }");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("slug 2930");
   });
 
@@ -460,11 +460,11 @@ describe("§8 — a routed seat binds the member's source spelling when uncontes
     const text = emitted(source);
 
     expect(text).toContain(
-      'import { __Integral_Int_div as div, __Show_Int_show as show } from "./Int.js";',
+      'import { __Integral_Int_div as div, __Show_Int_show as show } from "./Hex/Int.js";',
     );
     expect(text).toContain("const one = show(div(31, 2));");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("15");
   });
 
@@ -486,7 +486,7 @@ describe("§6.1 — arms 2 and 3: the hoisted binding's slot", () => {
       'const shown = __Show_Option_Int.show({ tag: "Some", value: 11 });',
     );
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["shown"]).toBe("Some(11)");
   });
 
@@ -505,7 +505,7 @@ describe("§6.1 — arms 2 and 3: the hoisted binding's slot", () => {
     expect(text).toContain("const nothing = __Show_Unit.show(undefined);");
     expect(text).toContain("const pair = __Show_Int_Int.show([6, 7]);");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["flag"]).toBe("True");
     expect(main["nothing"]).toBe("()");
     expect(main["pair"]).toBe("(6, 7)");
@@ -523,14 +523,14 @@ describe("§8 — the seats travel to the declaring module, not the transit one"
   test("a transited instance's dictionary and seat come from different modules", async () => {
     const files = [
       ["/mint.hex",
-        "export record Coin2 = {edge: Int}\n" +
+        "module Mint\n\n" + "export record Coin2 = {edge: Int}\n" +
         "honor Show<Coin2> =\n" +
         '    show(c) = "coin2 ${c.edge}"\n'],
       ["/purse.hex",
-        'import Mint from "./mint"\n' +
+        "module Purse\n\n" + 'import Mint\n' +
         "export let struck(edge: Int): Mint.Coin2 = Mint.Coin2({edge = edge})\n"],
       ["/main.hex",
-        'import Purse from "./purse"\n' +
+        "module Main\n\n" + 'import Purse\n' +
         "export let one: String = show(Purse.struck(3))\n"],
     ] as const;
     // Behavioral first, because it is the half that cannot be satisfied by a
@@ -552,9 +552,9 @@ describe("§8 — the seats travel to the declaring module, not the transit one"
     // Defect 8's shape: routing every call to a seat removes the dictionary
     // import that used to be the module's only edge, so the seat channel has
     // to report the edge itself.
-    expect(danglingImports([["/main.hex", 'export let s: String = show(7)\n']]))
+    expect(danglingImports([["/main.hex", "module Main\n\n" + 'export let s: String = show(7)\n']]))
       .toEqual([]);
-    expect(danglingImports([["/main.hex", "export let b: Bool = equals(1, 2)\n"]]))
+    expect(danglingImports([["/main.hex", "module Main\n\n" + "export let b: Bool = equals(1, 2)\n"]]))
       .toEqual([]);
   });
 
@@ -580,7 +580,7 @@ describe("what the clause does not reach", () => {
         "export let one: String = render2(12)\n",
     );
 
-    expect(text).toContain('import { __show as show } from "./Show.js";');
+    expect(text).toContain('import { __show as show } from "./Hex/Show.js";');
     expect(text).toContain("const render2 = (value, __Show_a) => show(value, __Show_a);");
     // And the concrete call to `render2` itself is an ordinary constrained
     // call, which still hands over the dictionary.
@@ -597,7 +597,7 @@ describe("what the clause does not reach", () => {
     expect(text).toContain("const render3 = __arg0 => show(__arg0, __Show_Int);");
     expect(text).not.toContain("const render3 = __Show_Int_show");
 
-    const main = await runMain(source);
+    const main = await runMain("module Main\n\n" + source);
     expect(main["one"]).toBe("13");
   });
 

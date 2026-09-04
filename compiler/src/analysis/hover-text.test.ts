@@ -4,7 +4,7 @@ import * as Source from "../support/source.js";
 import type { Target } from "../queries/occurrences.js";
 import { hoverMarkdown } from "./hover-text.js";
 
-const span = new Source.File(Source.fileId(0), "/main.hex", "x").span(0, 1);
+const span = new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + "x").span(0, 1);
 
 const hover = (fields: {
   readonly name: string;
