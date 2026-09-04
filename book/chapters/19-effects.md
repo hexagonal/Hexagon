@@ -235,7 +235,7 @@ manufactures an effect; effects arrive through declared doors.
 ### The debug probe
 
 The first of those two exceptions is a function you have been calling since Chapter 1.
-`Debug.log` is ordinary Hexagon, declared in the standard library's `Debug.hex`; like the rest
+`Debug.log` is ordinary Hexagon, declared in the standard library's `Debug` module; like the rest
 of the prelude it needs no import, and the qualifier is the spelling — `log` alone is a
 word the language leaves to you. It writes to the debugging console, which is a channel
 no Hexagon expression can read back — and that unreadability is the entire reason its
@@ -301,7 +301,7 @@ loophole.
   either `pure` — it never touches the world — or `conduit` — it is exactly as effectful
   as the callbacks it is handed — as trusted, unchecked promises; and
 - the standard library's own exception is the debug probe — `Debug.log` and `Debug.trace`, from
-  `Debug.hex` — pure-faced because the console cannot be read back, and therefore
+  the `Debug` module — pure-faced because the console cannot be read back, and therefore
   indifferent to how many times it runs; counted, ordered output belongs behind a `!`.
 
 Effects explain why `Seq` can promise so much: its producers and combinators are pure by
