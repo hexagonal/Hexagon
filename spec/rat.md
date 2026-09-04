@@ -65,7 +65,7 @@ export pattern rat(top: BigInt, bottom: BigInt): Rat
     build = create
 ```
 
-`rat(n, d)` matches any `Rat` and binds its canonical top and bottom — `rat(0, _)` is zero, `rat(_, 1)` an integer — and `rat(6, 10)` builds one through `create`, so `rat(6, 10) == rat(3, 5)`. The pattern is a view of the canonical pair, not of construction history: `let rat(n, d) = rat(4, -5)` binds `-4n` and `5n`. `create` remains the canonical constructor name; the pattern is the shape.
+`(n, d)rat` matches any `Rat` and binds its canonical top and bottom — `(0, _)rat` is zero, `(_, 1)rat` an integer — and `(6, 10)rat` builds one through `create`, so `(6, 10)rat == (3, 5)rat`. The pattern is a view of the canonical pair, not of construction history: `let (n, d)rat = (4, -5)rat` binds `-4n` and `5n`. Under `import Rat` the suffix is bare (Pattern Declarations §3.3). `create` remains the canonical constructor name; the pattern is the shape.
 
 ## 4. Arithmetic
 
