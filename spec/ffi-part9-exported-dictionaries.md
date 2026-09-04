@@ -119,7 +119,7 @@ giving `Num.nat`, `Num.int`, `Signed.int`, `Signed.float`, `Signed.bigInt`, `Eq.
 Public non-fundamental evidence lives in the public type's companion module under the lowercase constraint name:
 
 ```ts
-// rat.d.ts
+// Hex/Rat.d.ts  (#829: the standard library emits under Hex/, Packages §6)
 import type * as Num from "@hexagon/runtime/num";
 import type * as Signed from "@hexagon/runtime/signed";
 
@@ -130,7 +130,7 @@ export declare const show: Show.Dictionary<Rat>;
 ```
 
 ```ts
-import * as Rat from "./rat.js";
+import * as Rat from "./Hex/Rat.js";
 plus(half, third, Rat.num);
 ```
 

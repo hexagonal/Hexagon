@@ -155,7 +155,7 @@ A qualifier in particular is **not a name for the type**. It names a *binding* �
    ```
 
    ```ts
-   import type * as Lib from "./lib.js";
+   import type * as Lib from "./Lib.js";
    export declare function mk(p: Lib.Point): Lib.Point;
    ```
 
@@ -596,7 +596,7 @@ The fourth row is a usability limit, stated so it is not rediscovered as a defec
 **What investigation narrowed.** The issue's scope claim — "any two-module project where one module's exported signature mentions the other's exported type will emit the same unresolvable name" — is **false as filed**, and the correction matters because it relocates the fix. A source-written `import { Color } from "./lib"` already emitted `import type { Color } from "./lib.js";`, rename included, and that face already compiled (verified on `main` at this ruling). The live routes were exactly two *(falsified below — the namespace-qualified face is a third, #268's)*:
 
 1. **Prelude-supplied types** (Modules §5.5): `Option` and `Ordering` reach every module's scope with no import item for the `.d.ts` to render — the filed instance (`Seq.hex`), and equally any user module writing `export let o: Option(Int) = None`.
-2. **A term+type name on an explicit import**: `import { Point } from "./geometry"` where `Point` is a record binds constructor *and* type; the import name's type-only marking keyed off the term's absence, so the term half silently cost the `.d.ts` the type row.
+2. **A term+type name on an explicit import**: `import { Point } from "./geometry"` (era spelling; #762) where `Point` is a record binds constructor *and* type; the import name's type-only marking keyed off the term's absence, so the term half silently cost the `.d.ts` the type row.
 
 Implementation then surfaced a **third route this record had wrongly excluded** — the first draft here claimed the live routes "were exactly two", from a probe that had misspelled the namespace form and read its parse error as the form's absence. A namespace import (`import * as Lib from "./lib"` — era spelling; #565) binds the *alias*, so a face reached through `Lib.Point` is outside channel 1, and the typed tree keeps no record of the qualifier for emission to spell: the `.d.ts` imports `Lib` and then names `Point` bare. That is its own decision — the fix is the face spelling `Lib.Point`, not an import — and it was **fenced to #268**, which nothing in §2.4 then licensed or foreclosed. *(Discharged: the fence is lifted and the spelling ruled — §2.4's rung 3, recorded in §14.3.)*
 
@@ -616,7 +616,7 @@ The issue is corrected by comment, not by rewriting its body (the #235 precedent
 
 **Rejected alternatives (do not re-litigate):**
 
-- **A type-only namespace import per owning module** (`import type * as Option_ns from "./Option.js"`, faces `Option_ns.Option<a>`). Uniform, but it renames *every* cross-module face to dodge a collision that is nearly unreachable (§2.4's probe note), and the faces stop matching what a Hexagon-side reader sees — the cost §2.2 was written to avoid.
+- **A type-only namespace import per owning module** (`import type * as Option_ns from "./Hex/Option.js"`, faces `Option_ns.Option<a>`). Uniform, but it renames *every* cross-module face to dodge a collision that is nearly unreachable (§2.4's probe note), and the faces stop matching what a Hexagon-side reader sees — the cost §2.2 was written to avoid.
 - **Re-exporting the foreign type from the mentioning module** (`export type { Option }` in `Seq.d.ts`). It changes the module's public surface: §1 fixes export correspondence to the source's `export`, and the compiler does not grow the surface the author declared.
 - **Inlining the foreign face structurally** at each mention. Dies on the branded families — an opaque type's face *is* its module-private brand (§5), and two inlined copies are two incompatible brands; even for structural union faces it duplicates the declaration per consumer and detaches it from its documentation seat.
 - **Riding the synthesized prelude term import** (#263's items) by adding type names to it. Its name list is a deliberate over-approximation filtered at emission — but filtered against *referenced symbols*, a term-shaped question; grafting type names onto it would re-open exactly the over-approximation #263 closed, and prelude modules that need no terms would grow import items only to carry types.
