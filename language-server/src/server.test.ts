@@ -49,6 +49,8 @@ import { createConnection } from "vscode-languageserver/node.js";
 import { startServer } from "./server.js";
 
 const HELPER = [
+  "module Helper",
+  "",
   "export union Colour =",
   "    | Red",
   "    | Green",
@@ -58,7 +60,9 @@ const HELPER = [
 ].join("\n");
 
 const MAIN = [
-  'import Helper',
+  "module Main",
+  "",
+  "import Helper",
   "",
   "let start: Helper.Colour = Helper.Red",
   "let finish: Helper.Colour = Helper.brighten(start)",
@@ -273,7 +277,7 @@ describe("the Hexagon language server", () => {
   });
 
   test("announces exactly the capabilities this slice implements", async () => {
-    const solo = await harness({ "main.hex": "let value: Int = 1\n" });
+    const solo = await harness({ "main.hex": "module Main\n\nlet value: Int = 1\n" });
     try {
       // A capability announced but unimplemented is worse than one withheld:
       // the editor offers the user a command that silently does nothing.
@@ -315,8 +319,8 @@ describe("the Hexagon language server", () => {
     );
     // The range is what the editor underlines; it must cover the name and no more.
     expect(hover!.range).toEqual({
-      start: { line: 3, character: 35 },
-      end: { line: 3, character: 43 },
+      start: { line: 5, character: 35 },
+      end: { line: 5, character: 43 },
     });
   });
 
@@ -338,8 +342,8 @@ describe("the Hexagon language server", () => {
     // definition usually lives in a module the user is not looking at.
     expect(definition![0]!.uri).toBe(hex.uriOf("helper.hex"));
     expect(definition![0]!.range).toEqual({
-      start: { line: 4, character: 11 },
-      end: { line: 4, character: 19 },
+      start: { line: 6, character: 11 },
+      end: { line: 6, character: 19 },
     });
   });
 
@@ -380,6 +384,8 @@ describe("the Hexagon language server", () => {
    */
   describe("documentation", () => {
     const DOCUMENTED = [
+      "module Main",
+      "",
       "(** Brightens a colour.",
       "",
       "    Fenced, even:",
@@ -560,8 +566,8 @@ describe("the Hexagon language server", () => {
       position: positionOf(MAIN, "brighten"),
     }) as Range | null;
     expect(range).toEqual({
-      start: { line: 3, character: 35 },
-      end: { line: 3, character: 43 },
+      start: { line: 5, character: 35 },
+      end: { line: 5, character: 43 },
     });
   });
 
@@ -599,9 +605,12 @@ describe("the Hexagon language server", () => {
    * has an edit whose text differs from the plan's name.
    */
   test("a rename writes each edit's own text, so a derived name follows its type", async () => {
-    const bindings = 'export extern enum Direction = "up" as Up | "down" as Down\n';
+    const bindings = "module Bindings\n\n" +
+      'export extern enum Direction = "up" as Up | "down" as Down\n';
     const consumer = [
-      'import Bindings',
+      "module Consumer",
+      "",
+      "import Bindings",
       "",
       "export let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)",
       "",
@@ -630,7 +639,7 @@ describe("the Hexagon language server", () => {
       // `bindings.hex` was never opened; its declaration still moves, and the
       // generated names it declares have no text of their own to edit.
       expect(applyEdits(bindings, changes[solo.uriOf("bindings.hex")]!)).toBe(
-        'export extern enum Cardinality = "up" as Up | "down" as Down\n',
+        bindings.replaceAll("Direction", "Cardinality"),
       );
       const renamed = applyEdits(consumer, changes[solo.uriOf("consumer.hex")]!);
       expect(renamed).toContain("Option(Bindings.Cardinality)");
@@ -651,6 +660,8 @@ describe("the Hexagon language server", () => {
    */
   test("hover reads an object-reading `extern enum` as the union it is", async () => {
     const source = [
+      "module Main",
+      "",
       'extern from "keyboard"',
       "    enum Key as Direction = ARROW_UP as Up",
       "let start: Direction = Up",
@@ -687,9 +698,12 @@ describe("the Hexagon language server", () => {
    * as a silent `null`.
    */
   test("renaming a generated conversion is refused with the reason", async () => {
-    const bindings = 'export extern enum Direction = "up" as Up | "down" as Down\n';
+    const bindings = "module Bindings\n\n" +
+      'export extern enum Direction = "up" as Up | "down" as Down\n';
     const consumer = [
-      'import Bindings',
+      "module Consumer",
+      "",
+      "import Bindings",
       "",
       "export let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)",
       "",
@@ -739,7 +753,7 @@ describe("the Hexagon language server", () => {
     expect(reported.map(({ message }) => message)).toEqual(["unknown name `Purple`"]);
     expect(reported[0]!.source).toBe("hexagon");
     expect(reported[0]!.severity).toBe(1);
-    expect(reported[0]!.range.start.line).toBe(5);
+    expect(reported[0]!.range.start.line).toBe(broken.split("\n").findIndex((line) => line.includes("Purple")));
 
     await hex.client.sendNotification(DidChangeTextDocumentNotification.type, {
       textDocument: { uri, version: 3 },
@@ -756,7 +770,7 @@ describe("the Hexagon language server", () => {
   });
 
   test("a broken workspace reports before any document is opened", async () => {
-    const solo = await harness({ "main.hex": "let broken: Int =\n" });
+    const solo = await harness({ "main.hex": "module Main\n\nlet broken: Int =\n" });
     try {
       // The Problems panel is the ordinary way to ask "what is wrong here?", and
       // it is reachable without opening a file. Waiting for a document event to
@@ -770,8 +784,8 @@ describe("the Hexagon language server", () => {
 
   test("an unopened file's diagnostics reach the editor too", async () => {
     const solo = await harness({
-      "main.hex": 'import Helper\nlet n: Int = Helper.absent\n',
-      "helper.hex": "export let present: Int = 1\n",
+      "main.hex": "module Main\n\n" + "import Helper\nlet n: Int = Helper.absent\n",
+      "helper.hex": "module Helper\n\n" + "export let present: Int = 1\n",
     });
     try {
       await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
@@ -779,7 +793,7 @@ describe("the Hexagon language server", () => {
           uri: solo.uriOf("main.hex"),
           languageId: "hexagon",
           version: 1,
-          text: 'import Helper\nlet n: Int = Helper.absent\n',
+          text: "module Main\n\n" + "import Helper\nlet n: Int = Helper.absent\n",
         },
       });
       const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
@@ -793,8 +807,8 @@ describe("the Hexagon language server", () => {
 
   test("the buffer wins over disk while a document is open", async () => {
     const solo = await harness({
-      "helper.hex": "export let two: Int = 2\n",
-      "main.hex": 'import Helper\n\nlet four: Int = Helper.two + Helper.two\n',
+      "helper.hex": "module Helper\n\n" + "export let two: Int = 2\n",
+      "main.hex": "module Main\n\n" + "import Helper\n\nlet four: Int = Helper.two + Helper.two\n",
     });
     try {
       const helperUri = solo.uriOf("helper.hex");
@@ -804,17 +818,22 @@ describe("the Hexagon language server", () => {
           uri: mainUri,
           languageId: "hexagon",
           version: 1,
-          text: 'import Helper\n\nlet four: Int = Helper.two + Helper.two\n',
+          text: "module Main\n\n" + "import Helper\n\nlet four: Int = Helper.two + Helper.two\n",
         },
       });
       await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
-        textDocument: { uri: helperUri, languageId: "hexagon", version: 1, text: "export let two: Int = 2\n" },
+        textDocument: {
+          uri: helperUri,
+          languageId: "hexagon",
+          version: 1,
+          text: "module Helper\n\n" + "export let two: Int = 2\n",
+        },
       });
       // Deleting the export in the *buffer* must break the importer, even
       // though disk still has it. Unsaved edits are what the user sees.
       await solo.client.sendNotification(DidChangeTextDocumentNotification.type, {
         textDocument: { uri: helperUri, version: 2 },
-        contentChanges: [{ text: "export let three: Int = 3\n" }],
+        contentChanges: [{ text: "module Helper\n\n" + "export let three: Int = 3\n" }],
       });
       const reported = await solo.diagnosticsFor(mainUri);
       expect(reported.map(({ message }) => message)).toEqual([
@@ -869,7 +888,7 @@ describe("the Hexagon language server", () => {
           text: "let value: Int = 1\n",
         },
       });
-      await writeFile(join(solo.root, "generated.hex"), "let oops: Int = \n");
+      await writeFile(join(solo.root, "generated.hex"), "module Generated\n\n" + "let oops: Int = \n");
       await writeFile(join(solo.root, "hexagon.json"), JSON.stringify({}));
 
       // A client spells a URI its own way — VS Code percent-encodes a Windows
@@ -914,7 +933,7 @@ describe("the Hexagon language server", () => {
   });
 
   test("a nested manifest is skipped, not read into the session as Hexagon", async () => {
-    const solo = await harness({ "main.hex": "let value: Int = 1\n" });
+    const solo = await harness({ "main.hex": "module Main\n\nlet value: Int = 1\n" });
     try {
       // Only a *root's* manifest is read. A vendored sub-project's has to be
       // skipped rather than fall through to the file handler, which would hand
@@ -932,7 +951,7 @@ describe("the Hexagon language server", () => {
 
       // Something has to arrive before absence means anything, so this waits on
       // a real publication for another file and then checks the JSON got none.
-      await writeFile(join(solo.root, "later.hex"), "let broken: Int = \n");
+      await writeFile(join(solo.root, "later.hex"), "module Later\n\n" + "let broken: Int = \n");
       await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
         changes: [{ uri: solo.uriOf("later.hex"), type: 1 }],
       });
@@ -977,7 +996,7 @@ describe("the Hexagon language server", () => {
     try {
       await mkdir(join(solo.root, "vendor"));
       const vendored = join(solo.root, "vendor", "thing.hex");
-      const text = "export let vendored: Int = 7\n";
+      const text = "module Thing\n\n" + "export let vendored: Int = 7\n";
       await writeFile(vendored, text);
       const uri = pathToFileURL(vendored).toString();
       await solo.client.sendNotification(DidOpenTextDocumentNotification.type, {
@@ -996,7 +1015,7 @@ describe("the Hexagon language server", () => {
       // in neither source and stays dead until the user types.
       const hover = await solo.client.sendRequest("textDocument/hover", {
         textDocument: { uri },
-        position: { line: 0, character: 12 },
+        position: { line: 2, character: 12 },
       }) as Hover | null;
       expect(hover).not.toBeNull();
       expect((hover!.contents as { value: string }).value).toContain("vendored");
@@ -1020,7 +1039,7 @@ describe("the Hexagon language server", () => {
   };
 
   /** A file whose exported function has not written its return type. */
-  const UNSIGNED = "export fun brighten(colour: Int) = colour + 1\n";
+  const UNSIGNED = "module Main\n\n" + "export fun brighten(colour: Int) = colour + 1\n";
 
   async function opened(
     text: string,
@@ -1053,7 +1072,7 @@ describe("the Hexagon language server", () => {
       expect(action!.diagnostics?.[0]!.message).toContain("requires a complete signature");
       const edits = action!.edit!.changes![solo.uriOf("main.hex")]!;
       expect(applyEdits(UNSIGNED, edits))
-        .toBe("export fun brighten(colour: Int): Int = colour + 1\n");
+        .toBe("module Main\n\n" + "export fun brighten(colour: Int): Int = colour + 1\n");
     } finally {
       await solo.dispose();
     }
@@ -1063,7 +1082,7 @@ describe("the Hexagon language server", () => {
     // The result is an open record whose row comes from `r`, and `r` has no
     // type yet — so the type is not settled and nothing may be written. What
     // matters at this layer is that the user gets the sentence, not silence.
-    const source = "export fun copy(r) = {...r}\n";
+    const source = "module Main\n\n" + "export fun copy(r) = {...r}\n";
     const solo = await opened(source, MODERN);
     try {
       const reported = await solo.diagnosticsFor(solo.uriOf("main.hex"));
@@ -1083,7 +1102,7 @@ describe("the Hexagon language server", () => {
   });
 
   test("a client that cannot grey one out is sent nothing instead", async () => {
-    const source = "export fun copy(r) = {...r}\n";
+    const source = "module Main\n\n" + "export fun copy(r) = {...r}\n";
     const solo = await opened(source, {
       textDocument: {
         codeAction: { codeActionLiteralSupport: { codeActionKind: { valueSet: ["quickfix"] } } },
@@ -1158,6 +1177,8 @@ describe("the Hexagon language server", () => {
  */
 describe("hover renders the arrow trio", () => {
   const TRIO = [
+    "module Main",
+    "",
     "export let held: Int = Stream.fold",
     "",
     "export let compose(first: String ->? String, second: String ->? String): (String ->? String) =",
@@ -1250,6 +1271,8 @@ describe("hover renders the arrow trio", () => {
  */
 describe("the companion fallback reaches the editor", () => {
   const POINT = [
+    "module Point",
+    "",
     "opaque record Point = {x: Float, y: Float}",
     "",
     "export let getX(p: Point): Float = p.x",
@@ -1257,13 +1280,17 @@ describe("the companion fallback reaches the editor", () => {
   ].join("\n");
 
   const RENDER = [
+    "module Render",
+    "",
     "export constraint Render<a> =",
     "    render(value: a): String",
     "",
   ].join("\n");
 
   const CONSUMER = [
-    'import Point',
+    "module Main",
+    "",
+    "import Point",
     'import Render',
     "",
     "export let norm(p: Point): Float = Point.getX(p)",
@@ -1324,8 +1351,8 @@ describe("the companion fallback reaches the editor", () => {
     expect(definition[0]!.range).toEqual({
       // `opaque record Point` — the head is one word since #590, so the name
       // starts seven columns earlier than it did under `export opaque`.
-      start: { line: 0, character: 14 },
-      end: { line: 0, character: 19 },
+      start: { line: 2, character: 14 },
+      end: { line: 2, character: 19 },
     });
   });
 
@@ -1338,8 +1365,8 @@ describe("the companion fallback reaches the editor", () => {
     expect(definition).toHaveLength(1);
     expect(definition[0]!.uri).toBe(hex.uriOf("render.hex"));
     expect(definition[0]!.range).toEqual({
-      start: { line: 0, character: 18 },
-      end: { line: 0, character: 24 },
+      start: { line: 2, character: 18 },
+      end: { line: 2, character: 24 },
     });
   });
 });

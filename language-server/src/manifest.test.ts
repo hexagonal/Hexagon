@@ -43,7 +43,7 @@ describe("readManifest", () => {
     const result = await readManifest(path);
     expect(result.present).toBe(false);
     expect(result.problems).toEqual([]);
-    expect(result.manifest).toEqual({ runtimePaths: [], exclude: [] });
+    expect(result.manifest).toEqual({ name: undefined, dependencies: [], runtimePaths: [], exclude: [] });
   });
 
   test("paths resolve against the manifest, not the process", async () => {
@@ -89,7 +89,7 @@ describe("readManifest", () => {
     expect(result.problems[0]!.message).toContain("not valid JSON");
     // Defaults still apply, so one broken manifest does not take the whole
     // workspace's language support down with it.
-    expect(result.manifest).toEqual({ runtimePaths: [], exclude: [] });
+    expect(result.manifest).toEqual({ name: undefined, dependencies: [], runtimePaths: [], exclude: [] });
   });
 
   test("a misspelled key is named, and points at its own line", async () => {

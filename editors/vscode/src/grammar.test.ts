@@ -132,8 +132,13 @@ describe("contextual keywords are positional (spec/lexer.md §4.2)", () => {
     expect(await scope("let p = {with}", "with")).toBe("variable.other.hexagon");
   });
 
-  it("recognizes `from` only before a module specifier", async () => {
-    expect(await scope('import { a } from "./m"', "from")).toBe("keyword.other.from.hexagon");
+  it("recognizes `from` only after `extern`", async () => {
+    // Lexer §4.2's row since #829: the Hexagon `import` carries no `from`, so
+    // the only one left is `extern from`, painted with the `extern` it follows.
+    expect(await scope('extern from "./m"', "from")).toBe("keyword.other.from.hexagon");
+    // A `from` in the refused JavaScript-style head is an ordinary name, like
+    // every other word on that line (§3.1's Rewrite Rule).
+    expect(await scope('import { a } from "./m"', "from")).toBe("variable.other.hexagon");
     expect(await scope("let from = 1", "from")).toBe("variable.other.definition.hexagon");
   });
 
@@ -975,7 +980,7 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
     expect(guards).toHaveLength(15);
     for (const guard of guards) {
       expect(guard, guard).toContain(
-        "|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}])",
+        "|union(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]|module",
       );
     }
   });
@@ -1057,23 +1062,38 @@ describe("an unterminated bracket group stays on its line (#162)", () => {
   });
 
   /**
-   * `module` stays out, and the reason is the guard's own criterion (#565).
+   * `module` and `end module` join the guard, on the criterion that kept them
+   * out of it before (#565, reversed by #829).
    *
-   * The two contextual words in the alternation are there because they *open a
-   * declaration* — an unclosed bracket or comment must not swallow one. `module`
-   * opens nothing: there is no module header (Modules §2), and the declaration it
-   * belongs to is headed by `import`, which the hard-keyword alternation already
-   * carries. Adding it would cost the two lines it would then bail at — a
-   * Playground `module X` header inside an open group, and an indented
-   * continuation naming a term called `module` — and buy nothing.
+   * The criterion is unchanged: a word belongs in the guard when it *opens a
+   * declaration*, so that an unclosed bracket or comment cannot swallow one.
+   * `module` opened nothing while there was no module header; there is one now
+   * (Modules §2.1), and a `module Geometry` line is the start of a whole module,
+   * which is the largest thing a runaway region could swallow. `end module Name`
+   * is the same fact at the other end (§2.2): the closer ends the module, and a
+   * region that ate it would paint every following module as its continuation.
+   *
+   * Both are keyed on the follower, exactly as `union`'s and `widens`' arms are,
+   * and for their reason: both words are contextual (Lexer §4.2, §4.3), so an
+   * indented continuation may legitimately read `module(x)` or `end + 1`, and a
+   * bare arm would bail at a line that never left the group.
    */
-  it("keeps `module` out of the guard, `import` being already in it", async () => {
+  it("admits `module` and `end module` to the guard, keyed on the follower", async () => {
     const guards = endPatterns(JSON.parse(await readFile(grammarPath, "utf8")))
       .filter((end) => end.includes("(?=^\\S"));
     expect(guards).toHaveLength(15);
     for (const guard of guards) {
       expect(guard, guard).toContain("|import|");
-      expect(guard, guard).not.toContain("module");
+      expect(guard, guard).toContain(
+        "|module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])[ \\t]+[\\p{Uppercase}\\p{Lt}]",
+      );
+      expect(guard, guard).toContain(
+        "|end[ \\t]+module(?![\\p{ID_Continue}$_\\x{200C}\\x{200D}])",
+      );
+      // Never bare: `module` alone would bail on a continuation that names a
+      // term called `module`, which is a legal name everywhere but the header.
+      expect(guard, guard).not.toContain("|module|");
+      expect(guard, guard).not.toContain("|end|");
     }
   });
 });
@@ -1166,27 +1186,24 @@ describe("`widens` and `widened` are contextual (#546)", () => {
 });
 
 /**
- * The import head #762 shrank to its one binding form (spec/modules.md §3.1,
- * Lexer §4.2's deleted row): `import Geometry as Geo`, where the alias
- * stands immediately after the keyword. `module` has left the import grammar
- * with the head that carried it, and is an ordinary name everywhere again.
- *
- * The rows below measure exactly that: the head's own two keywords are painted,
- * the word is not, and no rule reaches for it in any position.
+ * The import head #762 shrank to its one binding form and #829 emptied of its
+ * path (spec/modules.md §3.1): `import Geometry as Geo` names a module and
+ * nothing else. `module` left the *import* grammar with the head that carried
+ * it and returned as the module **header**'s own word (Lexer §4.2), so the rows
+ * below measure both — the import head paints its two keywords and neither
+ * name, and `module` is painted only where a header stands.
  */
-describe("the import head paints its keywords and nothing else (#762)", () => {
+describe("the import head paints its keywords and nothing else (#762, #829)", () => {
   it("paints the whole head", async () => {
-    expect(await scopePairs('import Geometry as Geo')).toEqual([
+    expect(await scopePairs("import Geometry as Geo")).toEqual([
       ["import", "keyword.control.import.hexagon"],
-      // The alias seat has never had a paint of its own: an uppercase name that
-      // is not left of a `.` is a type name to #names, which is what `Geo` got
-      // in every earlier spelling of this head too. Recorded as the status quo
-      // the shrink inherits, not as a claim that a module alias is a type.
+      // Neither seat has a paint of its own: an uppercase name that is not left
+      // of a `.` is a type name to #names, which is what the module name and the
+      // alias both got in every earlier spelling of this head too. Recorded as
+      // the status quo the shrink inherits, not as a claim that either is a type.
+      ["Geometry", "entity.name.type.hexagon"],
+      ["as", "keyword.other.as.hexagon"],
       ["Geo", "entity.name.type.hexagon"],
-      ["from", "keyword.other.from.hexagon"],
-      ["\"", "punctuation.definition.string.begin.hexagon"],
-      ["./geometry", "string.quoted.double.hexagon"],
-      ["\"", "punctuation.definition.string.end.hexagon"],
     ]);
   });
 
@@ -1198,10 +1215,40 @@ describe("the import head paints its keywords and nothing else (#762)", () => {
       .toBe("keyword.control.import.hexagon");
   });
 
+  it("paints the module header, dotted name and all (#829)", async () => {
+    expect(await scopePairs("module Geometry")).toEqual([
+      ["module", "storage.type.hexagon"],
+      ["Geometry", "entity.name.namespace.hexagon"],
+    ]);
+    // A dotted declared name is one name (Modules §2.1), painted as one.
+    expect(await scopePairs("module Render.Geometry")).toEqual([
+      ["module", "storage.type.hexagon"],
+      ["Render.Geometry", "entity.name.namespace.hexagon"],
+    ]);
+  });
+
+  it("paints the closer as the pair `end module` (#829)", async () => {
+    expect(await scopePairs("end module Geometry")).toEqual([
+      ["end", "storage.type.hexagon"],
+      ["module", "storage.type.hexagon"],
+      ["Geometry", "entity.name.namespace.hexagon"],
+    ]);
+    // `end` alone stays an ordinary name — Lexer §4.2's row names the live use,
+    // `SliceError(start: Int, end: Int)` in `stdlib/Vector.hex`.
+    expect(await scope("let end = 3", "end")).toBe("variable.other.definition.hexagon");
+    expect(
+      (await scopePairs("fun f(start: Int, end: Int): Int = end"))
+        .filter(([text]) => text === "end"),
+    ).toEqual([
+      ["end", "variable.parameter.hexagon"],
+      ["end", "variable.other.hexagon"],
+    ]);
+  });
+
   it("leaves the stale `import module` head's word an ordinary name", async () => {
     // The parser reads this as the retired head and refuses it with the rewrite
-    // that drops the word (§3.1). The grammar has no rule for the word at all,
-    // so it paints as the ordinary name it now is everywhere.
+    // that drops the word (§3.1). The header rule cannot reach it: `module` is
+    // painted only where it *begins* the match, and here `import` stands first.
     expect((await scopePairs('import module Geo from "./x"')).slice(0, 3)).toEqual([
       ["import", "keyword.control.import.hexagon"],
       ["module", "variable.other.hexagon"],
@@ -1209,7 +1256,7 @@ describe("the import head paints its keywords and nothing else (#762)", () => {
     ]);
   });
 
-  it("leaves `module` an ordinary name everywhere else", async () => {
+  it("leaves `module` an ordinary name outside the header", async () => {
     expect(await scope("let module = 3", "module")).toBe("variable.other.definition.hexagon");
     expect(await scope("var module = 1", "module")).toBe("variable.other.definition.hexagon");
     expect(await scope("let r = {module = 1}", "module")).toBe("variable.other.hexagon");
@@ -1221,9 +1268,9 @@ describe("the import head paints its keywords and nothing else (#762)", () => {
       ["module", "variable.parameter.hexagon"],
       ["module", "variable.other.hexagon"],
     ]);
-    // Modules §2: there is no module header, and the context reaches no
-    // declaration seat. `module Geometry` is the two ordinary items it lexes as.
-    expect(await scope("module Geometry", "module")).toBe("variable.other.hexagon");
+    // The follower is the whole test (Lexer §4.2's `union`/`widens`
+    // disambiguation): a lowercase one is no header, so this is a call.
+    expect(await scope("module(geometry)", "module")).toBe("entity.name.function.hexagon");
   });
 
   it("gives JavaScript's dead heads no paint of their own", async () => {

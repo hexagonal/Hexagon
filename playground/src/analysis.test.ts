@@ -484,7 +484,7 @@ describe("rename", () => {
     // it is the reason the user is shown. Swallowing it and answering nothing
     // leaves the editor silent exactly where there is something to say.
     expect(analysis.prepareRename(source, at(source, "Show"))).toEqual({
-      refused: "`Show` is declared in `/Ordering.hex`, which this project does not own",
+      refused: "`Show` is declared in module `Ordering`, which this project does not own",
     });
   });
 

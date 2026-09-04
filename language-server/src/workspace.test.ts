@@ -18,6 +18,13 @@ import { Workspace } from "./workspace.js";
 
 let root = "";
 
+/**
+ * The `module Main` header every `main.hex` fixture below carries (Modules
+ * §2.1), named so the offsets that used to be written against a headerless file
+ * say what they are measuring from rather than carrying its length as a digit.
+ */
+const HEADER = "module Main\n\n";
+
 async function makeRoot(): Promise<string> {
   root = await mkdtemp(join(tmpdir(), "hexagon-workspace-"));
   return root;
@@ -40,10 +47,10 @@ async function scan(path: string): Promise<{ added: number; workspace: Workspace
 describe("the workspace walk", () => {
   test("finds Hexagon files and ignores everything else", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await writeFile(join(path, "notes.md"), "not source\n");
     await mkdir(join(path, "node_modules"));
-    await writeFile(join(path, "node_modules", "vendored.hex"), "let other: Int = 2\n");
+    await writeFile(join(path, "node_modules", "vendored.hex"), "module Vendored\n\n" + "let other: Int = 2\n");
 
     const { added, workspace } = await scan(path);
     expect(added).toBe(1);
@@ -54,7 +61,7 @@ describe("the workspace walk", () => {
     const path = await makeRoot();
     const real = join(path, "real");
     await mkdir(real);
-    await writeFile(join(real, "linked.hex"), "let value: Int = 1\n");
+    await writeFile(join(real, "linked.hex"), "module Linked\n\n" + "let value: Int = 1\n");
     await mkdir(join(path, "workspace"));
     await symlink(real, join(path, "workspace", "src"), "dir");
 
@@ -67,7 +74,7 @@ describe("the workspace walk", () => {
 
   test("a symlink loop terminates instead of multiplying the file", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await symlink(path, join(path, "loop"), "dir");
 
     // `ln -s . loop` makes a directory contain itself. Without memory the walk
@@ -81,7 +88,7 @@ describe("the workspace walk", () => {
 
   test("two links to one file are one module", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "export let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "export let value: Int = 1\n");
     await symlink(join(path, "main.hex"), join(path, "alias.hex"), "file");
 
     // Compiling one source twice would report every declaration in it as a
@@ -94,7 +101,7 @@ describe("the workspace walk", () => {
 
   test("opening a link to an already-scanned file does not double it", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "a-real.hex"), "export let value: Int = 1\n");
+    await writeFile(join(path, "a-real.hex"), "module AReal\n\n" + "export let value: Int = 1\n");
     await symlink(join(path, "a-real.hex"), join(path, "z-link.hex"), "file");
     const { workspace } = await scan(path);
     expect(workspace.session.paths).toHaveLength(1);
@@ -105,7 +112,7 @@ describe("the workspace walk", () => {
     // reports as a duplicate of itself.
     await workspace.openDocument({
       uri: workspace.uris.toUri(join(path, "z-link.hex")),
-      getText: () => "export let value: Int = 2\n",
+      getText: () => "module AReal\n\nexport let value: Int = 2\n",
     } as never);
     expect(workspace.session.paths).toHaveLength(1);
     const only = workspace.session.paths[0]!;
@@ -114,7 +121,7 @@ describe("the workspace walk", () => {
 
   test("a dangling symlink is skipped, not reported as an error", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await symlink(join(path, "absent.hex"), join(path, "broken.hex"), "file");
 
     const { added } = await scan(path);
@@ -123,7 +130,7 @@ describe("the workspace walk", () => {
 
   test("an open buffer is not overwritten by the file on disk", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     const { workspace } = await scan(path);
     const uri = workspace.uris.toUri(workspace.session.paths[0]!);
 
@@ -133,12 +140,12 @@ describe("the workspace walk", () => {
     // supposed to rule out.
     await workspace.openDocument({
       uri,
-      getText: () => "let renamed: Int = 2\n",
+      getText: () => "module Main\n\nlet renamed: Int = 2\n",
     } as never);
     await workspace.setRoots([path], () => {});
     // Re-scanning must not clobber the buffer: the user's unsaved text is what
     // they are looking at, and disk is what they have not saved yet.
-    expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("renamed");
+    expect(workspace.session.hover(workspace.session.paths[0]!, HEADER.length + 4)?.name).toBe("renamed");
   });
 
   test("`runtimePaths` privileges a module, and nothing else does", async () => {
@@ -149,7 +156,7 @@ describe("the workspace walk", () => {
     // with 38 errors that are not errors.
     // Private, because the checker separately forbids `Node` from crossing an
     // exported signature — privilege lets a module *name* it, not publish it.
-    const runtime = "let size(node: Node(Int)): Int = 0\n";
+    const runtime = "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n";
     await writeFile(join(path, "trie.hex"), runtime);
 
     const plain = await scan(path);
@@ -171,9 +178,9 @@ describe("the workspace walk", () => {
 
   test("`exclude` keeps a directory out of the project entirely", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await mkdir(join(path, "examples"));
-    await writeFile(join(path, "examples", "broken.hex"), "let oops: Int = \n");
+    await writeFile(join(path, "examples", "broken.hex"), "module Broken\n\n" + "let oops: Int = \n");
 
     const included = await scan(path);
     expect(included.added).toBe(2);
@@ -188,9 +195,9 @@ describe("the workspace walk", () => {
 
   test("reloading a manifest drops files it newly excludes", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await mkdir(join(path, "examples"));
-    await writeFile(join(path, "examples", "broken.hex"), "let oops: Int = \n");
+    await writeFile(join(path, "examples", "broken.hex"), "module Broken\n\n" + "let oops: Int = \n");
     const { workspace } = await scan(path);
     expect(workspace.session.paths).toHaveLength(2);
 
@@ -205,22 +212,22 @@ describe("the workspace walk", () => {
 
   test("a broken manifest still yields a working workspace", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await writeFile(join(path, MANIFEST_NAME), "{ oops");
     const workspace = new Workspace();
     const { added, manifests } = await workspace.setRoots([path], () => {});
     // The manifest's own failure must not take language support down with it.
     expect(added).toBe(1);
     expect(manifests.get(path)!.problems).toHaveLength(1);
-    expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("value");
+    expect(workspace.session.hover(workspace.session.paths[0]!, HEADER.length + 4)?.name).toBe("value");
   });
 
   test("an excluded file stays out however it is touched", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await mkdir(join(path, "generated"));
     const generated = join(path, "generated", "broken.hex");
-    await writeFile(generated, "let oops: Int = \n");
+    await writeFile(generated, "module Broken\n\n" + "let oops: Int = \n");
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
     const { workspace } = await scan(path);
     expect(workspace.session.paths).toHaveLength(1);
@@ -232,23 +239,23 @@ describe("the workspace walk", () => {
     await workspace.refreshFromDisk(uri);
     expect(workspace.session.paths).toHaveLength(1);
 
-    await workspace.openDocument({ uri, getText: () => "let oops: Int = \n" } as never);
+    await workspace.openDocument({ uri, getText: () => "module Broken\n\nlet oops: Int = \n" } as never);
     expect(workspace.session.paths).toHaveLength(1);
 
-    workspace.updateDocument({ uri, getText: () => "let oops: Int = 2\n" } as never);
+    workspace.updateDocument({ uri, getText: () => "module Broken\n\nlet oops: Int = 2\n" } as never);
     expect(workspace.session.paths).toHaveLength(1);
     expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
 
   test("a file excluded while open does not return on the next keystroke", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await mkdir(join(path, "generated"));
     const generated = join(path, "generated", "broken.hex");
-    await writeFile(generated, "let oops: Int = \n");
+    await writeFile(generated, "module Broken\n\n" + "let oops: Int = \n");
     const { workspace } = await scan(path);
     const uri = workspace.uris.toUri(generated);
-    await workspace.openDocument({ uri, getText: () => "let oops: Int = \n" } as never);
+    await workspace.openDocument({ uri, getText: () => "module Broken\n\nlet oops: Int = \n" } as never);
     expect(workspace.session.paths).toHaveLength(2);
 
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
@@ -258,20 +265,20 @@ describe("the workspace walk", () => {
     // The buffer is still open, so an edit still arrives. Without a check here
     // the workspace's contents would depend on whether the user has typed since
     // the manifest changed.
-    workspace.updateDocument({ uri, getText: () => "let oops: Int = 3\n" } as never);
+    workspace.updateDocument({ uri, getText: () => "module Broken\n\nlet oops: Int = 3\n" } as never);
     expect(workspace.session.paths).toHaveLength(1);
   });
 
   test("un-excluding restores an open file without waiting for a keystroke", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await mkdir(join(path, "generated"));
     const generated = join(path, "generated", "extra.hex");
-    await writeFile(generated, "let extra: Int = 2\n");
+    await writeFile(generated, "module Extra\n\n" + "let extra: Int = 2\n");
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
     const { workspace } = await scan(path);
     const uri = workspace.uris.toUri(generated);
-    const document = { uri, getText: () => "let extra: Int = 2\n" } as never;
+    const document = { uri, getText: () => "module Extra\n\nlet extra: Int = 2\n" } as never;
     await workspace.openDocument(document);
     expect(workspace.session.paths).toHaveLength(1);
 
@@ -292,9 +299,9 @@ describe("the workspace walk", () => {
     const b = join(path, "b");
     await mkdir(join(a, "gen"), { recursive: true });
     await mkdir(b, { recursive: true });
-    await writeFile(join(a, "main.hex"), "let value: Int = 1\n");
-    await writeFile(join(a, "gen", "g.hex"), "let generated: Int = 2\n");
-    await writeFile(join(b, "other.hex"), "let other: Int = 3\n");
+    await writeFile(join(a, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await writeFile(join(a, "gen", "g.hex"), "module G\n\n" + "let generated: Int = 2\n");
+    await writeFile(join(b, "other.hex"), "module Other\n\n" + "let other: Int = 3\n");
     // B's manifest excludes a directory under A. Reading every manifest before
     // any walk is what makes that hold whichever order the roots arrive in: the
     // walk already knows B's exclusion when it descends A, so `g.hex` is never
@@ -320,8 +327,8 @@ describe("the workspace walk", () => {
 
   test("a file deleted from disk is gone after a rescan, with no watcher event", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
-    await writeFile(join(path, "gone.hex"), "let other: Int = 2\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await writeFile(join(path, "gone.hex"), "module Gone\n\n" + "let other: Int = 2\n");
     const { workspace } = await scan(path);
     expect(workspace.session.paths).toHaveLength(2);
 
@@ -335,10 +342,10 @@ describe("the workspace walk", () => {
 
   test("a disk delete does not silence an open buffer", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     const { workspace } = await scan(path);
     const uri = workspace.uris.toUri(workspace.session.paths[0]!);
-    await workspace.openDocument({ uri, getText: () => "let value: Int = 2\n" } as never);
+    await workspace.openDocument({ uri, getText: () => "module Main\n\nlet value: Int = 2\n" } as never);
 
     // A branch switch deletes the file while the editor keeps its dirty buffer
     // open, and the watcher reports the delete. The buffer is still the truth:
@@ -347,8 +354,8 @@ describe("the workspace walk", () => {
     // it is closed and reopened.
     await rm(join(path, "main.hex"));
     await workspace.deleteFile(uri);
-    workspace.updateDocument({ uri, getText: () => "let renamed: Int = 2\n" } as never);
-    expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("renamed");
+    workspace.updateDocument({ uri, getText: () => "module Main\n\nlet renamed: Int = 2\n" } as never);
+    expect(workspace.session.hover(workspace.session.paths[0]!, HEADER.length + 4)?.name).toBe("renamed");
   });
 
   test("dropping a root drops its files", async () => {
@@ -357,8 +364,8 @@ describe("the workspace walk", () => {
     const b = join(path, "b");
     await mkdir(a);
     await mkdir(b);
-    await writeFile(join(a, "one.hex"), "let one: Int = 1\n");
-    await writeFile(join(b, "two.hex"), "let two: Int = 2\n");
+    await writeFile(join(a, "one.hex"), "module One\n\n" + "let one: Int = 1\n");
+    await writeFile(join(b, "two.hex"), "module Two\n\n" + "let two: Int = 2\n");
     const workspace = new Workspace();
     await workspace.setRoots([a, b], () => {});
     expect(workspace.session.paths).toHaveLength(2);
@@ -371,24 +378,24 @@ describe("the workspace walk", () => {
 
   test("an open buffer survives a rescan that does not find it", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     const { workspace } = await scan(path);
     const uri = workspace.uris.toUri(workspace.session.paths[0]!);
-    await workspace.openDocument({ uri, getText: () => "let value: Int = 9\n" } as never);
+    await workspace.openDocument({ uri, getText: () => "module Main\n\nlet value: Int = 9\n" } as never);
 
     // The walk skips what the editor holds open, so an open file is never among
     // the walked paths — retiring on that basis alone would delete every buffer
     // the user has open on the next rescan.
     await workspace.setRoots([path], () => {});
     expect(workspace.session.paths).toHaveLength(1);
-    expect(workspace.session.hover(workspace.session.paths[0]!, 4)?.name).toBe("value");
+    expect(workspace.session.hover(workspace.session.paths[0]!, HEADER.length + 4)?.name).toBe("value");
   });
 
   test("a symlink does not smuggle an excluded directory back in", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "generated"));
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
-    await writeFile(join(path, "generated", "broken.hex"), "let broken: Int = \n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await writeFile(join(path, "generated", "broken.hex"), "module Broken\n\n" + "let broken: Int = \n");
     // The walk follows symlinks on purpose, so an excluded directory has a
     // second name that the exclusion does not mention. Matching only the name
     // the walk arrived by would put every file back — with its diagnostics, the
@@ -411,7 +418,7 @@ describe("the workspace walk", () => {
   test.skipIf(cannotDetectDescent)("an excluded directory reached by a link is not descended at all", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "generated", "deep"), { recursive: true });
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await symlink(join(path, "generated"), join(path, "gen-link"), "dir");
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
     // Rejecting the *files* inside an excluded directory would give the same
@@ -438,8 +445,8 @@ describe("the workspace walk", () => {
   test("a symlink to a single excluded file is excluded too", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "generated"));
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
-    await writeFile(join(path, "generated", "broken.hex"), "let broken: Int = \n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await writeFile(join(path, "generated", "broken.hex"), "module Broken\n\n" + "let broken: Int = \n");
     await symlink(join(path, "generated", "broken.hex"), join(path, "alias.hex"), "file");
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
 
@@ -454,8 +461,8 @@ describe("the workspace walk", () => {
   test("overlapping rescans settle on one manifest's answer", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "gen"));
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
-    await writeFile(join(path, "gen", "g.hex"), "let generated: Int = 2\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await writeFile(join(path, "gen", "g.hex"), "module G\n\n" + "let generated: Int = 2\n");
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["gen"] }));
     const workspace = new Workspace();
 
@@ -474,7 +481,7 @@ describe("the workspace walk", () => {
   test("two roots reaching one file through two names hold it once", async () => {
     const base = await makeRoot();
     await mkdir(join(base, "real"), { recursive: true });
-    await writeFile(join(base, "real", "x.hex"), "let value: Int = 1\n");
+    await writeFile(join(base, "real", "x.hex"), "module X\n\n" + "let value: Int = 1\n");
     await symlink(join(base, "real"), join(base, "link"), "dir");
 
     // Deduplication that restarts at each root is no deduplication at all when
@@ -491,7 +498,7 @@ describe("the workspace walk", () => {
   test("a runtime module the walk never saw is still privileged", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "runtime"));
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await writeFile(
       join(path, MANIFEST_NAME),
       JSON.stringify({ runtimePaths: ["runtime/Trie.hex"] }),
@@ -502,7 +509,7 @@ describe("the workspace walk", () => {
     // the watcher. The manifest named it before it existed, so privilege has to
     // survive the file arriving late.
     const runtime = join(path, "runtime", "Trie.hex");
-    await writeFile(runtime, "let size(node: Node(Int)): Int = 0\n");
+    await writeFile(runtime, "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n");
     await workspace.refreshFromDisk(pathToFileURL(runtime).toString());
     expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
@@ -510,7 +517,7 @@ describe("the workspace walk", () => {
   test("an unsaved runtime module is privileged under the name as written", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "runtime"));
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await writeFile(
       join(path, MANIFEST_NAME),
       JSON.stringify({ runtimePaths: ["runtime/Trie.hex"] }),
@@ -524,7 +531,7 @@ describe("the workspace walk", () => {
     // has something to match on.
     await workspace.openDocument({
       uri: workspace.uris.toUri(join(path, "runtime", "Trie.hex")),
-      getText: () => "let size(node: Node(Int)): Int = 0\n",
+      getText: () => "module Trie\n\nlet size(node: Node(Int)): Int = 0\n",
     } as never);
     expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
@@ -532,17 +539,18 @@ describe("the workspace walk", () => {
   test("an open runtime module keeps its privilege across a manifest reload", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "runtime"));
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({}));
     const { workspace } = await scan(path);
 
     // The module is created after the server started, so the first walk never
     // recorded a spelling for it, and it is open, so no later walk will either.
     const runtime = join(path, "runtime", "T.hex");
-    await writeFile(runtime, "let size(node: Node(Int)): Int = 0\n");
+    const buffer = "module T\n\n" + "let size(node: Node(Int)): Int = 0\n";
+    await writeFile(runtime, buffer);
     await workspace.openDocument({
       uri: workspace.uris.toUri(runtime),
-      getText: () => "let size(node: Node(Int)): Int = 0\n",
+      getText: () => buffer,
     } as never);
 
     // Granting the privilege is the point of the file, and every grant is
@@ -558,8 +566,12 @@ describe("the workspace walk", () => {
     // Still analysed, not merely quiet: a file dropped from the session also
     // reports nothing, and that would pass the assertion above for the wrong
     // reason entirely.
-    expect(workspace.session.hover(workspace.uris.toPath(workspace.uris.toUri(runtime)), 4)?.name)
-      .toBe("size");
+    expect(
+      workspace.session.hover(
+        workspace.uris.toPath(workspace.uris.toUri(runtime)),
+        buffer.indexOf("size"),
+      )?.name,
+    ).toBe("size");
   });
 
   test("a late runtime module is privileged under the name its route gave it", async () => {
@@ -567,7 +579,7 @@ describe("the workspace walk", () => {
     const path = join(base, "project");
     await mkdir(join(base, "external", "runtime"), { recursive: true });
     await mkdir(path);
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await symlink(join(base, "external", "runtime"), join(path, "rt-link"), "dir");
     await writeFile(
       join(path, MANIFEST_NAME),
@@ -581,7 +593,7 @@ describe("the workspace walk", () => {
     // spellings agree on.
     await writeFile(
       join(base, "external", "runtime", "Trie.hex"),
-      "let size(node: Node(Int)): Int = 0\n",
+      "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n",
     );
     await workspace.refreshFromDisk(pathToFileURL(join(path, "rt-link", "Trie.hex")).toString());
     expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
@@ -589,7 +601,7 @@ describe("the workspace walk", () => {
 
   test("excluding a link does not delete the file it points at", async () => {
     const path = await makeRoot();
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await symlink(join(path, "main.hex"), join(path, "alias.hex"), "file");
     // Resolving an exclusion's own components looks like the symmetrical thing
     // to do and silently deletes source: the link resolves to `main.hex`, so the
@@ -604,8 +616,11 @@ describe("the workspace walk", () => {
   test("excluding a linked directory does not delete the directory it points at", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "lib"));
-    await writeFile(join(path, "lib", "kept.hex"), "export let kept: Int = 1\n");
-    await writeFile(join(path, "main.hex"), 'import Kept\n\nlet used: Int = Kept.kept\n');
+    await writeFile(join(path, "lib", "kept.hex"), "module Kept\n\n" + "export let kept: Int = 1\n");
+    await writeFile(
+      join(path, "main.hex"),
+      "module Main\n\n" + "import Kept\n\nlet used: Int = Kept.kept\n",
+    );
     await symlink(join(path, "lib"), join(path, "lib-link"), "dir");
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["lib-link"] }));
 
@@ -625,7 +640,7 @@ describe("the workspace walk", () => {
     await mkdir(path);
     // Private, because the checker separately forbids `Node` from crossing an
     // exported signature — privilege lets a module *name* it, not publish it.
-    const runtime = "let size(node: Node(Int)): Int = 0\n";
+    const runtime = "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n";
     await writeFile(join(base, "external", "runtime", "Trie.hex"), runtime);
     // The real directory is outside the root, so the walk can only reach the
     // file through the link and always keys it under the link's spelling. The
@@ -648,8 +663,8 @@ describe("the workspace walk", () => {
   test("opening an excluded file by its symlinked name does not add it", async () => {
     const path = await makeRoot();
     await mkdir(join(path, "generated"));
-    await writeFile(join(path, "main.hex"), "let value: Int = 1\n");
-    await writeFile(join(path, "generated", "broken.hex"), "let broken: Int = \n");
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await writeFile(join(path, "generated", "broken.hex"), "module Broken\n\n" + "let broken: Int = \n");
     await symlink(join(path, "generated"), join(path, "gen-link"), "dir");
     await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ exclude: ["generated"] }));
     const { workspace } = await scan(path);
@@ -657,7 +672,7 @@ describe("the workspace walk", () => {
     // Exclusion has to hold at every door into the session, and opening the file
     // under the link is a door the walk never used.
     const uri = workspace.uris.toUri(join(path, "gen-link", "broken.hex"));
-    const document = { uri, getText: () => "let broken: Int = \n" };
+    const document = { uri, getText: () => "module Broken\n\nlet broken: Int = \n" };
     await workspace.openDocument(document as never);
     expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["main.hex"]);
 

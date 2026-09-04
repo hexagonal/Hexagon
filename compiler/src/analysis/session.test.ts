@@ -91,6 +91,39 @@ describe("AnalysisSession", () => {
     expect(show(texts, session.definitions("/main.hex", type))).toEqual(["/helper.hex:Colour"]);
   });
 
+  test("go-to-definition on an import name lands on the module's header", () => {
+    // #829: the import line names a module and carries no path, so the name is
+    // the only thing there is to follow — and what it leads to is the header
+    // that declares it, not the first declaration in the file.
+    const { session, texts } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
+    expect(show(texts, session.definitions("/main.hex", at(MAIN, "Helper", 1))))
+      .toEqual(["/helper.hex:Helper"]);
+    const found = session.definitions("/main.hex", at(MAIN, "Helper", 1));
+    expect(found.map(({ target }) => target)).toEqual([{ kind: "module", name: "Helper" }]);
+    // And the header answers with itself, so find-references over it reaches
+    // every importer.
+    expect(session.references("/helper.hex", at(HELPER, "Helper", 1), {
+      includeDeclaration: true,
+    }).map(({ path }) => path).sort()).toEqual(["/helper.hex", "/main.hex"]);
+  });
+
+  test("an import of a module a project also names by package reaches one header", () => {
+    // One module, three spellings (Packages §3.4): the target is keyed by the
+    // full name, so `import Hex.Option` is the prelude's module and never the
+    // project's own `Option`.
+    const text = "module Main\n\n" + "import Option\nimport Hex.Option as Opt\n" +
+      "let n: Int = Option.mine\n";
+    const { session } = sessionOf({
+      "/option.hex": "module Option\n\nexport let mine: Int = 1\n",
+      "/main.hex": text,
+    });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+    expect(session.definitions("/main.hex", at(text, "Option", 1)).map(({ path }) => path))
+      .toEqual(["/option.hex"]);
+    expect(session.definitions("/main.hex", at(text, "Hex.Option", 1)).map(({ target }) => target))
+      .toEqual([{ kind: "module", name: "Hex.Option" }]);
+  });
+
   test("the definition of a declaration is itself", () => {
     const { session, texts } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
     const declaration = at(HELPER, "brighten");

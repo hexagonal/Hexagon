@@ -254,17 +254,23 @@ describe("collectOccurrences", () => {
     ]);
   });
 
-  test("an import publishes nothing, having no names of its own", () => {
+  test("an import publishes the module it names and nothing smaller", () => {
     const helper = "export let two: Int = 2\n";
     const main = ['import Helper as H', "", "let four: Int = H.two + H.two", ""].join("\n");
     const { occurrences } = index([["/helper.hex", "module Helper\n\n" + helper], ["/main.hex", "module Main\n\n" + main]]);
     const own = occurrences.get("/main.hex")!;
     // An import binds a module and nothing smaller (Modules §3, #762): the one
-    // name on the line is the alias, which is a module and no term or type. The
-    // resolver expands it into one entry per reachable member, each carrying the
-    // whole import statement as its span; publishing those would put a member on
-    // top of the `import` keyword and the specifier string.
-    expect(render(own, HEADER + main, (o) => o.span.start.line === 2)).toEqual([]);
+    // name on the line is the module's, and it is a module and no term or type.
+    // The resolver expands it into one entry per reachable member, each carrying
+    // the whole import statement as its span; publishing those would put a
+    // member on top of the `import` keyword and the module name.
+    //
+    // The module itself *is* published (#829) — the reference go-to-definition
+    // follows to the header of `module Helper` — and its span is the written
+    // name alone, not the statement.
+    expect(render(own, HEADER + main, (o) => o.span.start.line === 2)).toEqual([
+      'reference module "Helper"',
+    ]);
     expect(render(own, HEADER + main, (o) => o.span.start.line === 4)).toEqual([
       'definition value "four"',
       'reference value "two"',
@@ -283,7 +289,11 @@ describe("collectOccurrences", () => {
     expect(project.diagnostics).toEqual([]);
     const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
     const own = collectOccurrences(module);
-    expect(render(own, HEADER + main, (o) => o.span.start.line === 2)).toEqual([]);
+    // The module the line names is published, and no *type* is: `Shade` is
+    // reached at its mentions below, never at the import.
+    expect(render(own, HEADER + main, (o) => o.span.start.line === 2)).toEqual([
+      'reference module "Helper"',
+    ]);
     expect(render(own, HEADER + main, (o) => o.span.start.line === 4)).toEqual([
       'definition value "q"',
       'definition value "y"',

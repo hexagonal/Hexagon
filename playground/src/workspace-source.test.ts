@@ -19,7 +19,7 @@ describe("parseWorkspaceSource", () => {
       sourceOffset: source.indexOf("export"),
     }]);
     expect(workspace.mainText).toContain(
-      'import Mगणित from "./Mगणित"\n',
+      "import Mगणित\n",
     );
     const visibleMain = workspace.mainText.slice(workspace.mainPrefixLength);
     expect(visibleMain.length).toBe(source.length);

@@ -321,7 +321,9 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
   });
 
   test("contextual keywords are painted in their positions", async () => {
-    expect(await tokenOf('import {a} from "./m"', "from")).toBe("keyword.other.from.hexagon");
+    // `from` only after `extern` since #829 — the Hexagon `import` carries none
+    // (Lexer §4.2), so a `from` in the refused JavaScript head is a plain name.
+    expect(await tokenOf('extern from "./m"', "from")).toBe("keyword.other.from.hexagon");
     expect(await tokenOf("let q = {p with x = 3}", "with")).toBe("keyword.other.with.hexagon");
     expect(await tokenOf("match e\n    | N(x) when x > 0 => x", "when")).toBe(
       "keyword.other.when.hexagon",
@@ -333,15 +335,30 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     expect(await tokenOf("let r = {with = 3}", "with")).toBe(term);
   });
 
-  test("the import head paints its keyword and its alias (#762)", async () => {
-    // The head has one word of its own since #762: `module` left the import
-    // grammar with the form that carried it, so the alias stands immediately
-    // after the keyword and is painted as the namespace it names.
-    expect(await tokenOf('import Geometry as Geo', "import")).toBe(
+  test("the import head paints its keyword and its alias (#762, #829)", async () => {
+    // The head has one word of its own since #762 and no path since #829: the
+    // module name stands immediately after the keyword, the alias after `as`,
+    // and no `from` appears at all.
+    expect(await tokenOf("import Geometry as Geo", "import")).toBe(
       "keyword.control.import.hexagon",
     );
-    expect(await tokenOf('import Geometry as Geo', "from")).toBe(
-      "keyword.other.from.hexagon",
+    expect(await tokenOf("import Geometry as Geo", "as")).toBe(
+      "keyword.other.as.hexagon",
+    );
+  });
+
+  test("the module header keeps the Playground injection's scope (#829)", async () => {
+    // The Playground's own `module X` notation and the language's header are one
+    // form now (Modules §2.1), and the inherited grammar has grown a rule of its
+    // own for it — but the injection is loaded under `L:` and still wins here,
+    // so the buffer's headers keep exactly the colour they have always had.
+    // Unifying the two is PR B's (#831); this pins which one answers until then.
+    expect(await tokenOf("module Geometry", "module")).toBe("keyword.control.hexagon");
+    expect(await tokenOf("module Geometry", "Geometry")).toBe(
+      "entity.name.namespace.hexagon",
+    );
+    expect(await tokenOf("end module Geometry", "end module")).toBe(
+      "keyword.control.hexagon",
     );
   });
 

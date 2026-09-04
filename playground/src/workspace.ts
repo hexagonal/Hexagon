@@ -26,6 +26,30 @@ import { parseWorkspaceSource } from "./workspace-source";
 /** The entry the Playground compiles and runs; the buffer's own text lives here. */
 export const entryPath = "/main.hex";
 
+/**
+ * The module every virtual file has to declare since #829 (Modules §2.1), as
+ * synthesized text the buffer does not contain.
+ *
+ * The Playground's notation writes a module's *name* on its `module` line and
+ * nothing else, and that line is masked out of every file — so the header a
+ * file's own text now owes is minted here rather than taken from the buffer,
+ * and counted into `prefixLength` like the import prefix beside it. The
+ * entry's name is `Main`, after the path it has always been compiled at.
+ *
+ * **Indented to the body's own first line**, which is not cosmetic: the layout
+ * pass takes a file's baseline from its first item (Lexer & Layout §5), and a
+ * block whose body the user indented under the `module` line — the ordinary way
+ * to write one — would otherwise have every item read as a continuation of a
+ * header standing at column zero. Matching the body puts the header *at* the
+ * baseline the body already establishes, so the file lays out exactly as the
+ * block's text did before it had a header at all.
+ */
+function headerFor(name: string, body: string): string {
+  const firstContent = body.split("\n").find((line) => line.trim() !== "") ?? "";
+  const indent = /^[ \t]*/u.exec(firstContent)![0];
+  return `${indent}module ${name}\n\n`;
+}
+
 /** One file as the compiler will see it. */
 export interface VirtualFile {
   readonly path: string;
@@ -99,7 +123,12 @@ export class WorkspaceMap {
     for (const [path, file] of this.#files) {
       if (path === entryPath) continue;
       const local = bufferOffset - file.bufferStart;
-      if (local >= 0 && local <= file.length) return { path, offset: local };
+      // `prefixLength` back on, which is `toBuffer` read the other way: a block's
+      // file carries a synthesized `module Name` header since #829, so its own
+      // offsets are that much further along than the buffer's.
+      if (local >= 0 && local <= file.length) {
+        return { path, offset: local + file.prefixLength };
+      }
     }
     const main = this.#files.get(entryPath);
     if (main === undefined) return undefined;
@@ -173,8 +202,7 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
       playgroundEquipment.includes(companion) && spelled.has(companion) &&
       !aliased.has(companion)
     )
-    .map(({ companion, path }) => {
-      const specifier = JSON.stringify(`.${path.slice(0, -".hex".length)}`);
+    .map(({ companion }) => {
       // **One line**, the companion idiom's own (Modules §5.3). The alias
       // reaches `Rat.create`, and since §5.1 rule 2's companion fallback (#531)
       // the same alias answers the bare `Rat` face in an annotation — so the
@@ -185,7 +213,11 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
       // to collide against. The alias namespace is the one it does claim, and
       // there a second alias of one name is that namespace's own collision
       // rule (Modules §5.2), which is what `aliasedModules` steps out of.
-      return `import ${companion} from ${specifier}`;
+      //
+      // The line carries no path since #829 (Modules §3.1): the hosted module
+      // declares its own name, and that name is the whole of what an import
+      // writes.
+      return `import ${companion}`;
     }).join("\n");
   const mainPrefix = equipmentPrefix.length === 0 ? "" : `${equipmentPrefix}\n`;
 
@@ -195,20 +227,22 @@ export function layOutWorkspace(source: string): WorkspaceLayout {
   }));
   const buffered = new Map<string, BufferFile>();
   for (const module of workspace.modules) {
-    files.push({ path: module.path, source: module.text });
+    const header = headerFor(module.name, module.text);
+    files.push({ path: module.path, source: `${header}${module.text}` });
     buffered.set(module.path, {
       bufferStart: module.sourceOffset,
-      prefixLength: 0,
+      prefixLength: header.length,
       length: module.text.length,
     });
   }
-  files.push({ path: entryPath, source: `${mainPrefix}${workspace.mainText}` });
+  const mainHeader = headerFor("Main", workspace.mainText);
+  files.push({ path: entryPath, source: `${mainHeader}${mainPrefix}${workspace.mainText}` });
   // `/main.hex` is the whole buffer, masked and prefixed: `parseWorkspaceSource`
   // replaces each module block with spaces rather than removing it, so offsets
   // past a module are still the buffer's own.
   buffered.set(entryPath, {
     bufferStart: 0,
-    prefixLength: mainPrefix.length + workspace.mainPrefixLength,
+    prefixLength: mainHeader.length + mainPrefix.length + workspace.mainPrefixLength,
     length: source.length,
   });
 
@@ -278,15 +312,40 @@ function aliasedModules(mainText: string): ReadonlySet<string> {
   const aliases = new Set<string>();
   for (const [index, token] of tokens.entries()) {
     if (token.kind !== "Import") continue;
-    // The head is one token since #762, not two: an `import` binds a module
-    // and nothing smaller, so the alias stands immediately after the keyword,
-    // uppercase-start mandatorily — a lowercase one is the parser's error to
+    // The head names a module and binds an alias, and the two are the same
+    // token only when the head writes no `as` (Modules §3.1): `import Geometry`
+    // binds `Geometry`, `import Helper as Rat` binds `Rat`, and a dotted name
+    // binds its last segment. What is bound is what collides, so the scan reads
+    // the whole head — an `as` after the module name moves the answer, and
+    // reading the first token alone would let `import Helper as Rat` past a
+    // gate whose whole job is to see it.
+    //
+    // Uppercase-start mandatorily — a lowercase alias is the parser's error to
     // report and binds no companion's name whatever it does with it. The
     // Playground's own `module X` header is no near miss here: it is rewritten
     // to a synthesized `import X` line before this scan runs and is
     // masked out of the text everywhere else.
-    const alias = tokens[index + 1];
-    if (alias?.kind === "UpperName") aliases.add(alias.text);
+    const written = tokens[index + 1];
+    if (written?.kind !== "UpperName") continue;
+    const as = tokens[index + 2];
+    const renamed = tokens[index + 3];
+    if (as?.kind === "NonUpperName" && as.text === "as") {
+      if (renamed?.kind === "UpperName") aliases.add(renamed.text);
+      continue;
+    }
+    // The default alias is the written name's last segment; the lexer splits a
+    // dotted head into names and dots, so the *written* token here is already
+    // the first segment and the last is whatever the dot run ends on.
+    let last = written.text;
+    let at = index + 1;
+    for (;;) {
+      const dot = tokens[at + 1];
+      const segment = tokens[at + 2];
+      if (dot?.kind !== "Dot" || segment?.kind !== "UpperName") break;
+      last = segment.text;
+      at += 2;
+    }
+    aliases.add(last);
   }
   return aliases;
 }

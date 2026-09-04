@@ -1035,9 +1035,14 @@ export class AnalysisSession {
         const owner = analysis.pathOf(occurrence.span.fileId);
         if (owner === undefined) continue;
         if (!this.#texts.has(owner)) {
+          // The **module**, never the path (Modules §1): the file this
+          // declaration sits in may be one the host synthesized — the standard
+          // library's own source arrives that way — and a sentence naming it
+          // would send the reader to a path nothing in their project has.
+          const declaring = analysis.moduleNameOf(occurrence.span.fileId) ?? owner;
           return {
-            refused:
-              `\`${name}\` is declared in \`${owner}\`, which this project does not own`,
+            refused: `\`${name}\` is declared in module \`${declaring}\`, ` +
+              "which this project does not own",
           };
         }
         const key = `${owner}@${occurrence.span.start.offset}:${occurrence.span.end.offset}`;
@@ -1318,6 +1323,8 @@ class Analysis {
    * it, so a lookup through it answers nothing for every import there is.
    */
   readonly #fileIdsByModuleName: ReadonlyMap<string, Source.FileId>;
+  /** The full name each compiled file declares — `fileIdsByModuleName` inverted. */
+  readonly #moduleNamesByFileId: ReadonlyMap<number, string>;
   /** The project's modules, for the export inventory built on demand below. */
   readonly #modules: readonly CompiledModule[];
   #exporters: Map<string, readonly ModuleExporter[]> | undefined;
@@ -1340,6 +1347,9 @@ class Analysis {
     this.#fileIdsByPath = fileIdsByPath;
     this.#fileIdsByModuleName = new Map(
       project.modules.map((module) => [module.name, module.source.id]),
+    );
+    this.#moduleNamesByFileId = new Map(
+      project.modules.map((module) => [Number(module.source.id), module.name]),
     );
     this.#modules = project.modules;
     for (const module of project.modules) {
@@ -1401,6 +1411,16 @@ class Analysis {
   /** The file a module of this full name was compiled from (Packages §2.3). */
   fileIdOfModule(moduleName: string): Source.FileId | undefined {
     return this.#fileIdsByModuleName.get(moduleName);
+  }
+
+  /**
+   * The module a file declares, **as a reader knows it** (Modules §7.6) — for
+   * the reports that have to name where a declaration lives, which name a
+   * module and never a path (§1).
+   */
+  moduleNameOf(fileId: Source.FileId): string | undefined {
+    const full = this.#moduleNamesByFileId.get(Number(fileId));
+    return full === undefined ? undefined : displayModuleName(full);
   }
 
   /**

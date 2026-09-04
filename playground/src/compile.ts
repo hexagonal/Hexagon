@@ -113,12 +113,19 @@ function compileWorkspace(
         path: project.runtimeGlobals.path.replace(/\.js$/u, ".hex"),
         javascript: project.runtimeGlobals.text,
       }]),
+      // Keyed by the module's **layout** path (Packages §6) and not by the file
+      // the buffer supplied it under: since #829 the emitted specifiers are
+      // computed from the two modules' full names, so `linkModule` resolves
+      // `"./Hex/Option.js"` and finds nothing under `/stdlib/Option.hex`. The
+      // hosted library copies are exactly where the two disagree, and they are
+      // the ones every program imports.
       ...outputs.map(({ module, javascript }) => ({
-        path: module.source.path,
+        path: module.path,
         javascript: javascript.text,
       })),
     ],
-    entryPath,
+    // The entry, by the same key, so the worker looks it up where it was put.
+    entryPath: main.module.path,
     generatedJavaScript: main.javascript.generatedSections,
     // The `.d.ts` accounting and §3.4's list come from the project's own
     // declarations rather than a re-emission: `compileProject` emitted them from

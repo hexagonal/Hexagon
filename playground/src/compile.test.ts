@@ -20,7 +20,7 @@ describe("compileSource", () => {
     // prepends `import Vector`: the members arrive named, through the same
     // channel `Seq`'s `take`/`iterate` arrive on, and the calls are bare.
     expect(response.javascript).toContain(
-      'import { fromSeq, append, set, at, get } from "./stdlib/Vector.js";',
+      'import { fromSeq, append, set, at, get } from "./Hex/Vector.js";',
     );
     expect(response.javascript).not.toContain("import * as Vector");
     expect(response.javascript).toContain("append(numbers, 40)");
@@ -28,7 +28,7 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("at(updated, -1)");
     expect(response.javascript).toContain("get(updated, 5)");
     const vectorModule = response.executionModules.find(({ path }) =>
-      path === "/stdlib/Vector.hex"
+      path === "/Hex/Vector.hex"
     );
     expect(vectorModule?.javascript).not.toContain(
       "const __persistentCollections",
@@ -38,7 +38,7 @@ describe("compileSource", () => {
     // names none — it erases into its object literal — so only the shared
     // `None` constant is left to bind.
     expect(vectorModule?.javascript).toContain(
-      'import { None } from "./Hex/Option.js";',
+      'import { None } from "./Option.js";',
     );
     expect(vectorModule?.javascript).toContain('{ tag: "Some", value: ');
   });
@@ -156,7 +156,7 @@ describe("compileSource", () => {
     expect(thrown).toMatchObject({
       name: "IndexError",
       message: "index -3 out of bounds for size 2",
-      $hex: "Vector",
+      $hex: "Hex.Vector",
       index: -3,
       size: 2,
     });
@@ -225,18 +225,24 @@ describe("compileSource", () => {
     // `/String.hex` rode in behind it while #419's widened `log<a: Show>` made
     // the site carry `Show<String>`, and left again at #440: a line written at
     // `String` reaches `logString` and needs no companion dictionary at all.
+    // Every path here is a module's **layout** path (Packages §6) — its full
+    // name laid out — and not the file the buffer or the host supplied it
+    // under: `Hex`'s modules sit under `Hex/`, and the project's own at the
+    // root by their declared names. The two hosted copies are where that shows
+    // most plainly: `/stdlib/Option.hex` is seated as `Hex.Option` and
+    // `/stdlib/Rat.hex`, which is no prelude member, as the project's `Rat`.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
-      "/Pow.hex",
-      "module Pow\n\n" + "/Ordering.hex",
-      "/Integral.hex",
-      "/stdlib/Option.hex",
-      "/Int.hex",
-      "/Float.hex",
-      "/BigInt.hex",
-      "/Debug.hex",
-      "/stdlib/Rat.hex",
+      "/Hex/Pow.hex",
+      "/Hex/Ordering.hex",
+      "/Hex/Integral.hex",
+      "/Hex/Option.hex",
+      "/Hex/Int.hex",
+      "/Hex/Float.hex",
+      "/Hex/BigInt.hex",
+      "/Hex/Debug.hex",
+      "/Rat.hex",
       "/Mगणित.hex",
-      "/main.hex",
+      "/Main.hex",
     ]);
   });
 
@@ -537,7 +543,7 @@ describe("compileSource", () => {
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.diagnostics).toEqual([]);
-    expect(response.javascript).toContain('import * as Rat from "./stdlib/Rat.js";');
+    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
     expect(response.javascript).toContain(
       "const fiveSixths = __Num_Rat.add(half, third);",
     );
@@ -549,10 +555,10 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("tenTwelfths, fiveSixths");
     expect(response.javascript).not.toContain("opaque record Rat");
     expect(response.executionModules.map(({ path }) => path)).toContain(
-      "/stdlib/Rat.hex",
+      "/Rat.hex",
     );
     const ratModule = response.executionModules.find(({ path }) =>
-      path === "/stdlib/Rat.hex"
+      path === "/Rat.hex"
     );
     expect(ratModule?.javascript).toContain('bottom === 0n');
     expect(ratModule?.javascript).toContain('reducedBottom < 0n');
@@ -637,7 +643,7 @@ describe("compileSource", () => {
     expect(thrown).toMatchObject({
       name: "DivideByZeroError",
       message: "Rat.divide: divisor is zero",
-      $hex: "Integral",
+      $hex: "Hex.Integral",
     });
   });
 
@@ -649,8 +655,8 @@ describe("compileSource", () => {
     // #429's complaint: a one-line program opened with three import lines it
     // never asked for — a `Rat` namespace, the eight-instance inventory a
     // non-prelude import carries, and a `Vector` namespace that did nothing.
-    expect(response.javascript).not.toContain("./stdlib/Rat.js");
-    expect(response.javascript).not.toContain("./stdlib/Vector.js");
+    expect(response.javascript).not.toContain("./Rat.js");
+    expect(response.javascript).not.toContain("./Hex/Vector.js");
     expect(response.javascript).not.toContain("__Eq_Rat");
   });
 
@@ -663,7 +669,7 @@ describe("compileSource", () => {
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.javascript).toContain(
-      'import * as Rat from "./stdlib/Rat.js";',
+      'import * as Rat from "./Rat.js";',
     );
     expect(response.javascript).toContain("Rat.reciprocal(third)");
   });
@@ -682,7 +688,7 @@ describe("compileSource", () => {
     // it is gone and nothing here reads any differently. The lift is what makes
     // the whole tree `Rat` arithmetic rather than an `Int` division converted
     // after the damage.
-    expect(response.javascript).toContain('import * as Rat from "./stdlib/Rat.js";');
+    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
     expect(response.javascript).toContain("__Frac_Rat.divide(__Num_Rat.multiply(");
     expect(response.javascript).not.toContain("/ 9");
     expect(response.types).toContainEqual(expect.objectContaining({
@@ -723,7 +729,7 @@ describe("compileSource", () => {
     // program compiles as the ordinary Hexagon file it already was.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain('from "./stdlib/Rat.js"');
+    expect(response.javascript).toContain('from "./Rat.js"');
   });
 
   test("compiles the alias import in every shape the grammar allows it", () => {
@@ -732,8 +738,8 @@ describe("compileSource", () => {
     // spelling does, and each drew the collision back when the equipment read
     // the buffer's lines instead of its tokens.
     const shapes = [
-      "import (* the exact one *) Rat from \"./stdlib/Rat\"\n",
-      "import\n    Rat from \"./stdlib/Rat\"\n",
+      "import (* the exact one *) Rat\n",
+      "import\n    Rat\n",
     ];
 
     for (const head of shapes) {
@@ -763,7 +769,7 @@ describe("compileSource", () => {
     // keyed on the alias: `Rat` here is `/Helper.hex`, and it answers.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).not.toContain("./stdlib/Rat.js");
+    expect(response.javascript).not.toContain("./Rat.js");
   });
 
   test("compiles a buffer whose own import is the companion's, both faces used", () => {
@@ -780,7 +786,7 @@ describe("compileSource", () => {
     // through §5.1 rule 2's companion fallback, and the qualified `Rat.create`.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain('from "./stdlib/Rat.js"');
+    expect(response.javascript).toContain('from "./Rat.js"');
   });
 
   test("lets a workspace Rat module occlude the fundamental companion", () => {
@@ -799,10 +805,16 @@ describe("compileSource", () => {
     // module with no importer is not emitted.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/Rat.hex",
-      "module Rat\n\n" + "/main.hex",
+      "/Main.hex",
     ]);
-    expect(response.javascript).toContain('import * as Rat from "./Hex/Rat.js";');
-    expect(response.javascript).not.toContain("./stdlib/Rat.js");
+    // And the `Rat` the entry imports is the block's own — one module named
+    // `Rat` in the program, emitted at the project root by its declared name,
+    // with the hosted copy never compiled. Its `create` is the buffer's
+    // identity function, not the stdlib's exact constructor.
+    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
+    const rat = response.executionModules.find(({ path }) => path === "/Rat.hex");
+    expect(rat?.javascript).toContain("const create = value => value;");
+    expect(rat?.javascript).not.toContain("bottom");
   });
 
   test("returns exact binding spans for editor hovers", () => {

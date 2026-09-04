@@ -17,8 +17,8 @@ describe("playground module execution", () => {
       'console.log("./Mगणित.js");\n';
     const linked = linkModule(source, "/main.hex", new Map([
       ["/Mगणित.hex", "blob:math"],
-      ["/Value.hex", "module Value\n\n" + "blob:value"],
-      ["/Effect.hex", "module Effect\n\n" + "blob:effect"],
+      ["/Value.hex", "blob:value"],
+      ["/Effect.hex", "blob:effect"],
     ]));
 
     expect(linked).toBe(

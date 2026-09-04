@@ -123,9 +123,12 @@ export function parseWorkspaceSource(source: string): WorkspaceSource {
     ));
   }
 
-  const imports = modules.map(({ name }) =>
-    `import ${name} from ${JSON.stringify(`./${name}`)}`
-  );
+  // #829: an import names a module and carries no path (Modules §3.1). The
+  // Playground's notation already writes the *name* on the `module` line, so the
+  // synthesized line is that name and nothing else — the specifier this used to
+  // compute is not a shorter spelling of the same fact, it is a fact the
+  // language no longer has.
+  const imports = modules.map(({ name }) => `import ${name}`);
   const prefix = imports.length === 0 ? "" : `${imports.join("\n")}\n`;
   return {
     mainText: `${prefix}${maskSource(source, maskedRanges)}`,
@@ -136,7 +139,10 @@ export function parseWorkspaceSource(source: string): WorkspaceSource {
 }
 
 function isUpperName(name: string): boolean {
-  const file = new Source.File(Source.fileId(0), "module-name.hex", "module ModuleName\n\n" + name);
+  // The name alone, and no header: this lexes a *fragment* to ask whether it is
+  // one uppercase-start identifier, and a header prefixed here would put two
+  // more tokens in front of the one being weighed.
+  const file = new Source.File(Source.fileId(0), "module-name.hex", name);
   const result = lex(file);
   return result.diagnostics.length === 0 && result.tokens.length === 2 &&
     result.tokens[0]?.kind === "UpperName";
