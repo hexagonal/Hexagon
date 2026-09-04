@@ -294,6 +294,7 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 
 | Situation | Error |
 |---|---|
+| A pattern's `view` solving to `->?` or `->!` | "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `->?` or `->!`" (§4.3; Pattern Declarations §2.1) |
 | Bare call, `!` required | "this call runs effects, so `save` wants `!`, not no mark" + fixit: mark the call `!` |
 | Bare call, `?` required | "this call is as effectful as the enclosing instantiation makes it, so `combine` wants `?`, not no mark" + fixit: mark the call `?` |
 | `!` written, `?` required | same frame: "…so `combine` wants `?`, not `!`" |
