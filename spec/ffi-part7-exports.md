@@ -135,7 +135,7 @@ export type Seq<a> = Iterable<a>;
 A face may mention a nominal type owned by another Hexagon module: `Seq.hex`'s `next` returns `Option([a, Seq(a)])`, and `Option` is `Option.hex`'s. TypeScript resolves nothing by project-wide scope, so an unimported name is unbound (TS2304) — or, worse, bound by the consumer's configuration: under the default `lib` set a bare `Option` lands on `lib.dom.d.ts`'s legacy `Option` constructor, and which declaration the name means is then decided by the consumer's `lib` and `types` settings rather than by this compiler. A generated `.d.ts` therefore **names every nominal its faces mention under a spelling that file itself binds**:
 
 ```ts
-import type { Option } from "./Option.js";
+import type { Option } from "./Hex/Option.js";
 export declare const next: <a>(source: Iterable<a>) => Option<[a, Iterable<a>]>;
 ```
 
@@ -172,7 +172,7 @@ A qualifier in particular is **not a name for the type**. It names a *binding* �
    Occlusion takes only the bare spelling. A module whose own declaration occludes a prelude type name (Modules §5.4) renders and exports its *own* type bare, while the prelude identity stays reachable **qualified** (`Ordering.Ordering` — Modules §5.4, §6.4; `Ordering.hex` is the union's home), so it can still appear in an exported face — and it then imports under a probed local, the bare name being the module's own:
 
    ```ts
-   import type { Ordering as Ordering_1 } from "./Ordering.js";
+   import type { Ordering as Ordering_1 } from "./Hex/Ordering.js";
    export type Ordering = "Asc" | "Desc";
    export declare const f: (x: Ordering_1) => number;
    ```
