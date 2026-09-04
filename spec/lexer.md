@@ -99,8 +99,8 @@ distinct identifiers. Tooling may offer normalization or confusable warnings, bu
 warnings never alter name identity and are not compiler diagnostics in v1.
 
 Uppercase-start names serve type, union-case, constraint, implied-type, exception,
-module-name, and module-alias roles. Non-uppercase-start names serve term and binder
-roles.
+module-name, and module-alias roles. Non-uppercase-start names serve term and
+binder roles.
 Caseless scripts therefore work naturally as terms (`用户`). Where an uppercase role
 is wanted, one distinct mnemonic prefix per role is the cultural convention:
 
@@ -252,7 +252,7 @@ listed positions:
 | `conduit` | the declared-conduit claim on an extern `fun` declaration, in `pure`'s own slot (FFI Part 4 §4.5, #409) |
 | `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` or `opaque` (one visibility head, Modules §4, #590), always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
 | `widens` | the widens-declaration introducer at declaration head — module top level, never after `export`, always followed by a qualified member path (Constraints §4.7; #546). Same disambiguation as `union`: no juxtaposition exists, so `widens` followed by a name is no term |
-| `module` | the module header at the head of a top-level item, always followed by the module's uppercase-start name, dotted or not (`module Geometry`, `module Render.Geometry` — Modules §2.1, #829); the `union`/`widens` disambiguation: no juxtaposition exists, so `module` followed by a name is no term, and elsewhere `module` is an ordinary name (`let module = 3` binds) |
+| `module` | the module header at the head of a top-level item, always followed by the module's uppercase-start name, dotted or not (`module Geometry`, `module Render.Geometry` — Modules §2.1, #829); the `union`/`widens` disambiguation: no juxtaposition exists, so `module` followed by a name is no term, and elsewhere `module` is an ordinary name (`let module = 3` binds). Recognition includes the refused seat: the same head followed by a name with a segment that is not uppercase-start (`module geometry`), Modules §2.1's casing refusal — the `opaque` row's pattern, a seat no expression could occupy |
 | `end` | the module closer `end module Name` at the head of a top-level item — the two words together, the second the contextual header word above (Modules §2.2, #829); `end` alone is an ordinary name everywhere, and stays one: `SliceError(start: Int, end: Int)` in `stdlib/Vector.hex` is live use |
 | `widened` | the complete RHS of a member line in an `honor` block — `pow = widened` (Constraints §4.7; #546). The position is otherwise always an error (member RHSs must be lambdas), so recognition is total; elsewhere `widened` is an ordinary name |
 
