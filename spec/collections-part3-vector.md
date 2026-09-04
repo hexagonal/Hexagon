@@ -25,7 +25,7 @@ let ys = []                 -- Vector(α), generalizes
 let zs = [f(a), g(b)]       -- elements are arbitrary expressions
 ```
 
-- `[e1, e2, …, en]` in expression-head position is the `Vector(a)` literal — the reading Operators §14 reserved this position for. Postfix `xs[…]` remains indexing/slicing; the lexer/parser distinguish by position exactly as Operators §14 specified.
+- `[e1, e2, …, en]` in expression-head position is the `Vector(a)` literal — the reading Operators §10 reserved this position for. Postfix `xs[…]` remains indexing/slicing; the lexer/parser distinguish by position exactly as Operators §10 specified.
 - All elements unify to one type; a heterogeneous literal is an ordinary type error at the first offending element.
 - `[]` types as `Vector(α)`. It is a syntactic value, so `let xs = []` generalizes normally (value restriction satisfied); `xs` is polymorphic until used.
 - Elements are evaluated left to right (the uniform evaluation order).
@@ -166,7 +166,7 @@ exception IndexError(index: Int, size: Int)
 
 ### 6.1 Semantics
 
-`xs[r]` with `r : Range` — any `Range`-valued expression, not just a literal `lo..hi` (Operators §14). For an **ascending** range: the window is intersected with the valid index range `1..length(xs)`; out-of-window portions are silently dropped; a fully-out-of-window or empty range yields the empty vector. 1-based, inclusive at both ends, per the global doctrine.
+`xs[r]` with `r : Range` — any `Range`-valued expression, not just a literal `lo..hi` (Operators §10). For an **ascending** range: the window is intersected with the valid index range `1..length(xs)`; out-of-window portions are silently dropped; a fully-out-of-window or empty range yields the empty vector. 1-based, inclusive at both ends, per the global doctrine.
 
 ```
 let xs = [10, 20, 30]
