@@ -108,8 +108,8 @@ name: the qualified spelling is never far away, and it never silently changes me
 underneath you.
 
 A dotted spelling has two possible readings, and the rule that keeps them apart is
-small. A dotted spelling like `Acme.Geometry` is read as a package's module wherever `Acme` is a package your module
-can see, and as a module's own dotted name otherwise — and the compiler refuses any
+small. A dotted spelling like `Acme.Geometry` is read as a package's module wherever
+`Acme` is a package your module can see, and as a module's own dotted name otherwise — and the compiler refuses any
 module whose dotted name begins with the name of a package in the program, so a spelling
 never has two readings at once. A dotted `module Acme.Tools` in a project that depends
 on `Acme` is refused at its header; the fix is a different first segment. An undotted
