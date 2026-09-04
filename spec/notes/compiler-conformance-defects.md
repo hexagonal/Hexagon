@@ -1939,7 +1939,7 @@ than settling a style question.
   `undefined`. Nothing in this was about occlusion, the prelude, or the qualified
   spelling; it was simply unwritable while a catch arm could name no foreign
   exception at all, which is why it was recorded here rather than fixed here.
-  **Closed by #488**: the brand now carries the declaring module's path identity,
+  **Closed by #488**: the brand now carries the declaring module's identity *(#829: the module's **full name**; the path is gone)*,
   discrimination is the (module, name) pair (§7.4), and the pin in
   `conformance/qualified-exception-patterns.test.ts` flipped to the capability —
   `A`'s `Boom` passes a `B.Boom` arm and is rethrown intact.
@@ -1970,7 +1970,11 @@ than settling a style question.
 - **Classification:** recorded residue of a landed ruling; resolution belongs to
   **#494**, not here.
 - **Authority:** Exceptions §7.1 — a non-injected module brands "the
-  project-root-relative path, forward slashes, `.hex` dropped".
+  project-root-relative path, forward slashes, `.hex` dropped". *(Amended
+  2026-09-04, #829: §7.1 now brands the module's **full name**, which reads no
+  path; `commonRoot` can no longer move a brand, so this residue is discharged
+  by the spec — the implementation PR flips
+  `conformance/exception-boundary.test.ts`'s root-relative pin to the name.)*
 - **What is recorded:** the compiler's project root is `commonRoot`, the longest
   shared directory prefix of the *files it was handed*, so the root is a property
   of the compilation rather than of the project. With sources under `/app/src`,

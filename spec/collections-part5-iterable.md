@@ -79,7 +79,7 @@ For a user nominal `T` with no instance, the message is the loop-side face of th
 
 > `Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in module `Bag`, which declares `Bag`. The only other legal home is the prelude module declaring `Iterable`. Alternatively, convert with `Bag.toSeq`-style functions, or take a `Seq(a)` parameter.
 
-The prelude home is not user-editable, but naming it makes the two-home rule accurate and explains *why no third module can provide the instance* — the orphan rule handed to the user as a closed search space, not a hint. This subsumes Part 1 §6.4's earlier hint amendment, upgraded to name the files.
+The prelude home is not user-editable, but naming it makes the two-home rule accurate and explains *why no third module can provide the instance* — the orphan rule handed to the user as a closed search space, not a hint. This subsumes Part 1 §6.4's earlier hint amendment, upgraded to name the modules.
 
 ---
 
