@@ -33,7 +33,7 @@ Fixed here, inherited from Part 1:
 
 ### 2.1 Specifiers
 
-The foreign module specifier is a string literal and **may be a bare package specifier** (`"tiny-json"`, `"node:url"`). This construct is explicitly outside Hexagon-to-Hexagon import resolution, so the Modules §2 ban on bare specifiers between `.hex` modules does not apply to it. Relative specifiers addressing foreign `.js`/`.ts` files are equally legal; what the specifier must not name is another Hexagon module — Hexagon-to-Hexagon linkage is `import`'s job, and the diagnostic for an extern specifier resolving to a `.hex` source says so.
+The foreign module specifier is a string literal and **may be a bare package specifier** (`"tiny-json"`, `"node:url"`). This construct is explicitly outside Hexagon-to-Hexagon import resolution: a Hexagon `import` names a module and carries no specifier at all (Modules §3, #829), so the string here is JavaScript's and only JavaScript's. Relative specifiers addressing foreign `.js`/`.ts` files are equally legal; what the specifier must not name is another Hexagon module — Hexagon-to-Hexagon linkage is `import`'s job, and the diagnostic for an extern specifier resolving to a `.hex` source says so. A JavaScript package is never a Hexagon dependency (Packages §4.4); this block is how it enters.
 
 *(2026-07-28.)* The **`hex:` scheme is reserved** in every extern specifier position. `"hex:intrinsic"` designates the compiler's own intrinsic boundary — legal only in privileged standard-library source and owned by `spec/intrinsics.md`, which reuses this part's block grammar with its stated deltas. In unprivileged source any `hex:`-scheme specifier is a hard error with a named rewrite (`intrinsics.md` §11). Foreign extern semantics in this part are unchanged, including §12.4's monomorphism: genericity — and, #370, constraint brackets — exists only inside the reserved boundary (`intrinsics.md` §3.4); foreign extern declarations remain monomorphic and unconstrained.
 
@@ -268,7 +268,7 @@ import { parse } from "tiny-json";
 export { parse };
 ```
 
-(Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §6: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import TinyJson from "./tiny-json"` — the extern block never forces its consumers to know it is an extern block.
+(Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §6: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import TinyJson` — the extern block never forces its consumers to know it is an extern block.
 
 Exported extern bindings are ordinary Hexagon exports thereafter: reached through a module alias like any export (Modules §3.1). The `.d.ts` details of the re-exported face are Part 7's.
 

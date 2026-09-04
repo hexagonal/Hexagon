@@ -231,9 +231,9 @@ listed positions:
 
 | Spelling | Context |
 |---|---|
-| `as` | import/foreign aliases and the pattern `p as name` |
+| `as` | the import alias `import Geometry as Geo` (Modules §3.1), foreign aliases, and the pattern `p as name` |
 | `derives` | a `record`, `union`, or foreign-enum header before `=` |
-| `from` | an `import` clause or `extern from` declaration |
+| `from` | an `extern from` declaration (the Hexagon `import` carries no `from` since #829 — Modules §3; the path form is refused with its rewrite there) |
 | `opaque` | the visibility head on a `record` or `union` declaration at module top level, in `export`'s own slot (Modules §4, #590) — the `union` precedent: head-position-only, never reserved, elsewhere an ordinary name (`let opaque = 3` binds). Recognition includes the refused seats: immediately after `export` (Modules §4.2's required rewrite), and a declaration head whose follower is `type`, `let`, `fun`, `constraint`, or `exception` (the Modules §10 redirects — no term can juxtapose the two spellings, so the seat is no expression) |
 | `when` | between an arm pattern and `=>` |
 | `with` | between a record-update head and its overrides (Products §3.3) |
@@ -251,6 +251,8 @@ listed positions:
 | `conduit` | the declared-conduit claim on an extern `fun` declaration, in `pure`'s own slot (FFI Part 4 §4.5, #409) |
 | `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` or `opaque` (one visibility head, Modules §4, #590), always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
 | `widens` | the widens-declaration introducer at declaration head — module top level, never after `export`, always followed by a qualified member path (Constraints §4.7; #546). Same disambiguation as `union`: no juxtaposition exists, so `widens` followed by a name is no term |
+| `module` | the module header at the head of a top-level item, always followed by the module's uppercase-start name, dotted or not (`module Geometry`, `module Render.Geometry` — Modules §2.1, #829); the `union`/`widens` disambiguation: no juxtaposition exists, so `module` followed by a name is no term, and elsewhere `module` is an ordinary name (`let module = 3` binds) |
+| `end` | the module closer `end module Name` at the head of a top-level item — the two words together, the second the contextual header word above (Modules §2.2, #829); `end` alone is an ordinary name everywhere, and stays one: `SliceError(start: Int, end: Int)` in `stdlib/Vector.hex` is live use |
 | `widened` | the complete RHS of a member line in an `honor` block — `pow = widened` (Constraints §4.7; #546). The position is otherwise always an error (member RHSs must be lambdas), so recognition is total; elsewhere `widened` is an ordinary name |
 
 Contextual status is observable: `let when = True` is legal, while the same spelling
@@ -269,8 +271,8 @@ position; the lexer does not emit contextual-keyword token kinds. And `null` is 
 functions, some name rejected or deferred forms, and some have no meaning at all.
 Library membership never turns a name into a keyword.
 
-`module Geometry`, `export default` outside `extern`, `break`, and similar near misses
-may receive targeted parser diagnostics without acquiring lexical privilege. (`module`, since #565, additionally holds a §4.2 context of its own — the import head; outside that one position it remains an ordinary name, and the header near-miss diagnostic works exactly as before.)
+`export default` outside `extern`, `break`, and similar near misses
+may receive targeted parser diagnostics without acquiring lexical privilege. (`module` held a §4.2 context as the `import module` head from #565 to #762, and since #829 holds one as the module header — Modules §2.1 — with `end module` as the closer; outside those head positions both words remain ordinary names, and `module Geometry` is no longer a near miss but the header itself.)
 
 ## 5. Numeric literals
 

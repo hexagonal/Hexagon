@@ -150,7 +150,7 @@ A qualifier in particular is **not a name for the type**. It names a *binding* �
 3. **The occurrence is qualified through a *module* import's alias** (Modules §3.1) — **`Alias.Name`**, the spelling the source wrote at that seat:
 
    ```hexagon
-   import Lib from "./lib"
+   import Lib
    export fun mk(p: Lib.Point): Lib.Point = p
    ```
 
@@ -189,7 +189,7 @@ An exported **face** cannot mention a type its owner keeps private — the check
 - **Imports are counted per answer, not per module.** A module contributing two types contributes two statements, which is ordinary ESM; the instance-evidence channel does the same on the JavaScript side. One type answered at two rungs likewise contributes two, as rung 5 records.
 - **An occurrence an earlier rung answered is never minted.** That rung took it over, the same take-over the term side already performs. This reaches the prelude channel too: an inventory identity the source qualified through a namespace alias is rung 3's, so the inventory line it would otherwise owe is not written and the face reads `O.Option` rather than `Option`.
 
-**Where the alias is contested.** Modules §5.2 makes `import Point from "./point"` beside a declared `Point` legal — it is the companion idiom, not an accident — so rung 3's `Point.Point` can meet a top-level `Point` this same file emits. Modules §11.2 assigns emitted-name collisions to the emitter as its ordinary renaming problem; this is that problem's answer here, and it is the answer the emitted JavaScript already gives. **The alias yields the bare spelling to the declaration.** The declaration is, or may become, the module's public face; the alias is internal to the file, reaching it on its own import line and in the qualified faces that line serves, and nowhere else.
+**Where the alias is contested.** Modules §5.2 makes `import Point` beside a declared `Point` legal — it is the companion idiom, not an accident — so rung 3's `Point.Point` can meet a top-level `Point` this same file emits. Modules §11.2 assigns emitted-name collisions to the emitter as its ordinary renaming problem; this is that problem's answer here, and it is the answer the emitted JavaScript already gives. **The alias yields the bare spelling to the declaration.** The declaration is, or may become, the module's public face; the alias is internal to the file, reaching it on its own import line and in the qualified faces that line serves, and nowhere else.
 
 A yielding alias is **a source name stepping aside, not a spelling the compiler minted**, so it takes the collision-only suffix its emitted-JavaScript counterpart takes — `Point_1`, counting from `_1` — rather than the probe below, whose subject is names the compiler made up. Lexer §3.2's reserved prefix belongs to generated names, and this is not one.
 

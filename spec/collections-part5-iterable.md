@@ -77,7 +77,7 @@ The single Loops §7.1 unsolved-case message is hereby **split**: an annotation 
 
 For a user nominal `T` with no instance, the message is the loop-side face of the instance-discoverability obligation (Modules §7.6). The compiler always knows both legal homes — the orphan rule's search space of size two — and the message names **both**, leading with the actionable one:
 
-> `Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in `./bag.hex`, which declares `Bag`. The only other legal home is the prelude module declaring `Iterable`. Alternatively, convert with `Bag.toSeq`-style functions, or take a `Seq(a)` parameter.
+> `Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in module `Bag`, which declares `Bag`. The only other legal home is the prelude module declaring `Iterable`. Alternatively, convert with `Bag.toSeq`-style functions, or take a `Seq(a)` parameter.
 
 The prelude home is not user-editable, but naming it makes the two-home rule accurate and explains *why no third module can provide the instance* — the orphan rule handed to the user as a closed search space, not a hint. This subsumes Part 1 §6.4's earlier hint amendment, upgraded to name the files.
 
@@ -209,7 +209,7 @@ honor Iterable<Bag(a)> =
 
 ```
 -- consumer.hex
-import Bag from "./bag"
+import Bag
 
 let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))
 var total = 0
@@ -437,7 +437,7 @@ for x in 42                                 -- ERROR: `Int` is not iterable
     ...
 for x in widget                             -- widget : Widget, user record, no instance
     ...                                       -- ERROR: `Widget` is not iterable. Define
-                                            --   honor Iterable<Widget> in ./widget.hex,
+                                            --   honor Iterable<Widget> in module Widget,
                                             --   which declares Widget. The only other
                                             --   legal home is the prelude module
                                             --   declaring Iterable. Alternatively,
