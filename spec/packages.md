@@ -63,7 +63,7 @@ For a module in package `P`, the **visible modules** are:
 2. the modules of `Hex` (§2.4) — of which the prelude is additionally in scope without an import;
 3. the modules of every package `P`'s manifest lists under `dependencies` (§2.1).
 
-Nothing else. A dependency's own dependencies are invisible to `P`'s imports even though their modules may be in the program — `Acme` importing `Bolt`'s modules does not let the project write `import Bolt.Util` unless the project lists `Bolt` too. The set is **per package**: each package's imports resolve against its own visible set, so `Acme`'s `import Util` means `Acme`'s dependency's `Util` (or `Acme`'s own), never the project's, whatever the project names `Util`. A module is in the program exactly when some import reaches it from a root (Modules §8.3), and once in it, its instances are global (Modules §7.1) — visibility governs what an import may *name*, not what the program *contains*.
+Nothing else. A dependency's own dependencies are invisible to `P`'s imports even though their modules may be in the program — `Acme` importing `Bolt`'s modules does not let the project write `import Bolt.Util` unless the project lists `Bolt` too. The set is **per package**: each package's imports resolve against its own visible set, so `Acme`'s `import Util` means `Acme`'s dependency's `Util` (or `Acme`'s own), never the project's, whatever the project names `Util`. A module is in the program exactly when some import reaches it from a root (Modules §8.3), and once in it, its instances are global (Modules §7.1) — visibility governs what an import may *name*, not what the program *contains*. A **package** is in the program on a different footing: it is the project, or it lies in the transitive `dependencies` closure the resolver assembles from the manifests (§4.1) — a fact of the package set, fixed before any import is resolved and independent of which modules the imports reach. Modules §2.2's first-segment rule reads this set, which is what keeps it well-founded: whether `Acme` is in the program never depends on how an `import Acme.Tools` resolves.
 
 ### 3.2 The resolving package's own module wins
 
@@ -73,7 +73,7 @@ Where the package resolving an import — the project, or a dependency resolving
 
 Where the resolving package has no module of the written name and **two or more** visible packages provide one — a dependency and `Hex`, or two dependencies — the import is an error naming every full spelling, in a fixed order (the resolving package's `dependencies` order, then `Hex`): "`Geometry` is provided by `Acme` and `Hex`; write `import Acme.Geometry` or `import Hex.Geometry`". The rule is Modules §5.5's collided-name refusal one level up: neither provider owns the bare spelling, the use site qualifies, and no order of installation, declaration, or listing ever decides silently. The break this admits is the one Modules §5.4 already admits for names — a module the standard library or a dependency adds under a spelling one dependency already provides turns a working bare import into this refusal — and it is a reference-shaped break with a mechanical fix named in the message, never a silent re-meaning.
 
-**A dotted spelling has one reading, and a package never qualifies its own modules.** Where the first segment of a written dotted name names a package visible to the resolving package other than itself, the import is that package's module by its full name; otherwise it is a visible module by its declared name. The two never meet: Modules §2.2 forbids every module in the program a dotted name beginning with any package in the program, refusing it at the header where the declaring package sees the package and at the whole-program check where it does not (a dependency `Bolt` that lists no `Acme` may declare `module Acme.Tools` and compile alone; a program holding both `Bolt` and `Acme` is refused naming the module and both packages — §7). The exclusion of the resolving package's own name is what makes a package's own modules reachable by their declared names alone: `import MyApp.Geometry` inside `MyApp` is the unknown-module error (§2.5 states it for the project, the ordinary instance), since the full-name reading excludes `MyApp` and no module in the program is declared `MyApp.Geometry` while `MyApp` is a package in it.
+**A dotted spelling has one reading, and a package never qualifies its own modules.** Where the first segment of a written dotted name names a package visible to the resolving package other than itself, the import is that package's module by its full name; otherwise it is a visible module by its declared name. The two never meet: Modules §2.2 forbids every module in the program a dotted name beginning with any package in the program, refusing it at the header where the declaring package sees the package and at the whole-program check where it does not (a dependency `Bolt` that lists no `Acme` may declare `module Acme.Tools` and compile alone; a program holding both `Bolt` and `Acme` in its package set — §3.1 — is refused naming the module and both packages — §7). The exclusion of the resolving package's own name is what makes a package's own modules reachable by their declared names alone: `import MyApp.Geometry` inside `MyApp` is the unknown-module error (§2.5 states it for the project, the ordinary instance), since the full-name reading excludes `MyApp` and no module in the program is declared `MyApp.Geometry` while `MyApp` is a package in it.
 
 ### 3.4 What an importer writes
 
@@ -161,7 +161,8 @@ Modules §11 owns emission; packages add the layout. The program's output root h
 | A manifest `name` that is not one uppercase-start identifier (`"acme"`, `"Acme.Tools"`) | "a package name is one uppercase-start identifier: write `\"Acme\"`" — a dotted spelling names the module-name form as the place for dots (§2.1) |
 | Two modules of one name in one package | Modules §2.2's report at the second header |
 | A dotted module whose first segment names a package the declaring package sees | Modules §2.2's report at the header: "`Acme.Geometry` begins with the name of the package `Acme`; a dotted module's first segment cannot name a package in the program" (§6) |
-| A dependency's dotted module whose first segment names another package in the program (`Bolt` declares `module Acme.Tools`; the program holds `Acme`) | at the whole-program check: "module `Acme.Tools` of package `Bolt` begins with the name of the package `Acme`, also in this program; the two packages cannot be combined until one is renamed" (Modules §2.2) |
+| A dependency's dotted module whose first segment names another package in the program (`Bolt` declares `module Acme.Tools`; the program holds `Acme`) | at the whole-program check: "module `Acme.Tools` of package `Bolt` begins with the name of the package `Acme`, also in this program; the two cannot be combined until `Acme` is renamed or `Bolt` renames its module" (Modules §2.2) |
+| The project's dotted module whose first segment names a package it reaches only through a dependency | "module `Acme.Parser` of the project begins with the name of the package `Acme`, also in this program (a dependency of `Bolt`); rename the module, or drop the dependency that brings `Acme`" (Modules §2.2) |
 | Installed package advertised as compiled Hexagon, no source (stage one) | "`Acme` ships no Hexagon source; a Hexagon package is installed as source until compiled distribution exists" (§4.1, §5.2) |
 
 ---
@@ -188,8 +189,9 @@ Modules §11 owns emission; packages add the layout. The program's output root h
 -- Bolt: module Util                             Bolt hexagon.json: {"name": "Bolt"}
 import Geometry                              -- OK: Acme.Geometry, the one visible provider
 import Util                                  -- OK: Acme.Util — Bolt is not visible to the project
-import Bolt.Util                             -- ERROR: Bolt is not a dependency of this package;
+import Bolt.Util as BoltUtil                 -- ERROR: Bolt is not a dependency of this package;
                                              --   add "Bolt" to dependencies in hexagon.json
+                                             --   (`as`: the default alias Util is bound above)
 -- inside Acme's module Geometry (Acme sees Acme, the prelude, and Bolt):
 import Util                                  -- OK: Acme.Util — Acme's own module wins over
                                              --   Bolt.Util (§3.2), no contest
@@ -244,12 +246,13 @@ import Acme.Tools                            -- OK: Bolt's module by its declare
 -- the project adds a dependency Acme (module Tools):
                                              -- ERROR at program check: module Acme.Tools of package
                                              --   Bolt begins with the name of the package Acme, also
-                                             --   in this program; the two packages cannot be
-                                             --   combined until one is renamed
--- project depends on Bolt, which depends on Acme (not visible to the project):
+                                             --   in this program; the two cannot be combined until
+                                             --   Acme is renamed or Bolt renames its module
+-- project depends on Bolt, which depends on Acme (in the program's package set, not visible to the project):
 module Acme.Parser                           -- ERROR at program check: module Acme.Parser of the
                                              --   project begins with the name of the package Acme,
-                                             --   also in this program (reached through Bolt)
+                                             --   also in this program (a dependency of Bolt); rename
+                                             --   the module, or drop the dependency that brings Acme
 ```
 
 ---
