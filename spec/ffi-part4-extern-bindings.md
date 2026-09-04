@@ -33,7 +33,9 @@ Fixed here, inherited from Part 1:
 
 ### 2.1 Specifiers
 
-The foreign module specifier is a string literal and **may be a bare package specifier** (`"tiny-json"`, `"node:url"`). This construct is explicitly outside Hexagon-to-Hexagon import resolution: a Hexagon `import` names a module and carries no specifier at all (Modules §3, #829), so the string here is JavaScript's and only JavaScript's. Relative specifiers addressing foreign `.js`/`.ts` files are equally legal; what the specifier must not name is another Hexagon module — Hexagon-to-Hexagon linkage is `import`'s job, and the diagnostic for an extern specifier resolving to a `.hex` source says so. A JavaScript package is never a Hexagon dependency (Packages §4.4); this block is how it enters.
+The foreign module specifier — in an `extern from` head and in `extern import` (§8) alike — is a string literal and **may be a bare package specifier** (`"tiny-json"`, `"node:url"`). This construct is explicitly outside Hexagon-to-Hexagon import resolution: a Hexagon `import` names a module and carries no specifier at all (Modules §3, #829), so the string here is JavaScript's and only JavaScript's. Relative specifiers addressing foreign `.js`/`.ts` files are equally legal, and they too are JavaScript's own: a relative specifier is emitted **verbatim** and resolves from the emitted file's place (Modules §11.1; Packages §6), never from the source file's directory. What the specifier must not name is another Hexagon module — Hexagon-to-Hexagon linkage is `import`'s job, and the diagnostic for a relative extern specifier naming a `.hex` source, extension written or not, says so (§13). That refusal is the one reading the specifier ever gets from the compiler: read once against the source tree from the importing file's own directory — the one time that directory is a base, and never for the specifier's own resolution. Nothing else reads it, and emission copies it unchanged. A JavaScript package is never a Hexagon dependency (Packages §4.4); this block — or `extern import` — is how it enters.
+
+`extern from "./world.js"` in the project's `module Deep.Nested` names `Deep/world.js` beside the emitted `Deep/Nested.js`, wherever the source file sat. The compiler rewrites no such string and places no such file: it is the host's or the author's to put there, and a specifier naming a file nobody put there fails, when the emitted module is loaded, as any missing relative import fails.
 
 *(2026-07-28.)* The **`hex:` scheme is reserved** in every extern specifier position. `"hex:intrinsic"` designates the compiler's own intrinsic boundary — legal only in privileged standard-library source and owned by `spec/intrinsics.md`, which reuses this part's block grammar with its stated deltas. In unprivileged source any `hex:`-scheme specifier is a hard error with a named rewrite (`intrinsics.md` §11). Foreign extern semantics in this part are unchanged, including §12.4's monomorphism: genericity — and, #370, constraint brackets — exists only inside the reserved boundary (`intrinsics.md` §3.4); foreign extern declarations remain monomorphic and unconstrained.
 
@@ -58,7 +60,7 @@ Nothing forbids several `extern from` blocks naming the same specifier, in one m
 import { parse, stringify, VERSION as version } from "tiny-json";
 ```
 
-Emission shape is representative, not normative; what is normative is that the emitted code is readable ESM importing the declared foreign names (Part 1 §1). If whole-program analysis proves that every binding supplied by an `extern from` block is dead, the compiler may elide that binding import entirely. Code that requires evaluation for effects uses `extern import` (§8, §12.1).
+Emission shape is representative, not normative; what is normative is that the emitted code is readable ESM importing the declared foreign names (Part 1 §1), and that the specifier itself is not representative: where it is emitted at all, it is emitted verbatim (§2.1). If whole-program analysis proves that every binding supplied by an `extern from` block is dead, the compiler may elide that binding import entirely. Code that requires evaluation for effects uses `extern import` (§8, §12.1).
 
 ---
 
@@ -373,7 +375,7 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 | `as` alias on a `default` declaration | "a `default` binding has no foreign export name; name the binding directly" | §6 |
 | extern declaration with a body | syntax error — extern declarations are bodyless typed assertions | §1 |
 | missing type annotation on an extern declaration | hard error — nothing to infer from; annotate fully | §1 |
-| extern specifier resolving to a Hexagon module | "use `import` for Hexagon modules; `extern from` is for foreign JavaScript" | §2.1 |
+| relative extern specifier naming a `.hex` source, extension written or not (read once from the importing file's own directory, §2.1) | "use `import` for Hexagon modules; `extern from` is for foreign JavaScript" | §2.1 |
 | extern binding colliding with a local binding or import | ordinary Modules §5 collision errors, unchanged | §3.2 |
 | nested adapter-requiring type in an extern signature | Part 1 §5.3's hard error, applied at declaration site | §1 |
 | type parameters on an extern `type`, `fun`, or class | hard error — generic extern declarations are deferred from v1 | §11, §12.4 |
@@ -386,7 +388,7 @@ Hard errors introduced or relied on by this part, each with its named rewrite pe
 |---|---|
 | `extern from "specifier"` block: JS `from` vocabulary, TS-like bodyless typed declarations, ordinary Hexagon layout; introduces ordinary module-level bindings | §1, §2 |
 | Extern declarations are bodyless and fully annotated; declaration-site validation (incl. Part 1 §5.3), no call-site validation; extern imports are acyclicity leaf edges | §1 |
-| Bare package specifiers legal (outside Hexagon-to-Hexagon resolution); a specifier must not name a Hexagon module | §2.1 |
+| Bare package specifiers legal (outside Hexagon-to-Hexagon resolution); a relative specifier emitted verbatim, resolving from the emitted file's place and never the source file's; a relative specifier must not name a `.hex` source in the tree (that refusal is the compiler's one reading of the specifier) | §2.1 |
 | Block is the only v1 form for bindings read from a module — the literal `extern enum` head stands alone (`ffi-foreign-enums.md` §2.4); multiple blocks per specifier fine; emission may coalesce imports | §2.2, §2.3 |
 | Foreign-name-first `as` (JS import order); right-hand/unaliased name is the local binding; local names obey ordinary case and collision rules; case-illegal foreign names require an alias | §3 |
 | Strict `fun` = callable / `let` = value distinction; contextual vocabulary; both misuses are hard errors with named rewrites | §4.1, §4.2 |
