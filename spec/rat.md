@@ -119,7 +119,7 @@ The minimum v1 companion inventory is:
 Rat.create
 Rat.top
 Rat.bottom
-Rat.rat        -- the pattern (§3)
+rat            -- the pattern: (n, d)rat under import Rat (§3)
 Rat.add
 Rat.subtract
 Rat.multiply

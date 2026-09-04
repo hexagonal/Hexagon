@@ -298,7 +298,7 @@ One message family, the carrier's own noun in both seats — `` exported type al
 
 ## 5. Namespaces and resolution
 
-Hexagon now has **four namespaces**: terms, types, constraints (Constraints §2.2), and **module aliases**. Position resolves; one new collision rule exists.
+Hexagon now has **five namespaces**: terms, types, constraints (Constraints §2.2), **module aliases**, and **patterns** (Pattern Declarations §3.3). Position resolves; one new collision rule exists.
 
 ### 5.1 Resolution by position
 
