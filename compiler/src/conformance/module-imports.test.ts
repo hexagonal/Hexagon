@@ -578,7 +578,8 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
         "import Render.geometry\n" +
         "import geometry as Geo\n" +
         "import geometry as geo\n" +
-        "import 用户 as Geo\n"],
+        "import 用户 as Geo\n" +
+        "import _internal.util\n"],
     ])).toEqual([
       "a module name is uppercase-start; write `import Geometry`",
       "a module name is uppercase-start; write `import Render.Geometry`",
@@ -590,7 +591,27 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
       // Upper-casing a caseless script is a no-op, so the slot — and the
       // written alias is kept after it.
       "a module name is uppercase-start; write `import <Name> as Geo`",
+      // The slot's test is that upper-casing yields no *lawful* module name,
+      // every segment having to be uppercase-start — not that it yields the
+      // spelling back. `_internal.util` upper-cases to `_internal.Util`, which
+      // is a different spelling and still no module name, so the message names
+      // the slot rather than a rewrite the language would refuse again (§3.1,
+      // §13(n); #838).
+      "a module name is uppercase-start; write `import <Name>`",
     ]);
+  });
+
+  test("a dotted head whose upper-casing yields no lawful name names the slot, no edit", () => {
+    const [diagnostic, ...rest] = parseHead("import _internal.util");
+    expect(diagnostic?.message).toBe("a module name is uppercase-start; write `import <Name>`");
+    // Never `import _internal.Util`: the rewrite is offered only where it
+    // reaches a lawful name, and an edit here would write a second refusal.
+    expect(diagnostic?.fixes ?? []).toEqual([]);
+    expect(rest).toEqual([]);
+    // The alias the author wrote is kept after the slot, as at `用户`.
+    expect(parseHead("import _internal.util as Geo")[0]?.message).toBe(
+      "a module name is uppercase-start; write `import <Name> as Geo`",
+    );
   });
 
   test("the miscased head's rewrite is the applied edit, both seats at once", () => {

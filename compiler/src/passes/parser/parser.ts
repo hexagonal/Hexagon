@@ -153,11 +153,28 @@ export function derivedModuleName(pathOrSpecifier: string): string {
 function capitalisedModuleName(
   segments: readonly { readonly text: string }[],
 ): string | undefined {
-  const capitalised = segments.map(({ text }) => text.charAt(0).toUpperCase() + text.slice(1));
-  return capitalised.length > 0 &&
-      capitalised.every((segment) => /^[A-Z][A-Za-z0-9_]*$/u.test(segment))
-    ? capitalised.join(".")
-    : undefined;
+  const capitalised = segments
+    .map(({ text }) => text.charAt(0).toUpperCase() + text.slice(1))
+    .join(".");
+  return segments.length > 0 && lawfulModuleName(capitalised) ? capitalised : undefined;
+}
+
+/** One segment of a module name: an uppercase-start identifier (Modules §2.1). */
+const MODULE_NAME_SEGMENT = /^[A-Z][A-Za-z0-9_]*$/u;
+
+/**
+ * Whether a written module name is one §2.1 admits: every dot-separated segment
+ * an uppercase-start identifier.
+ *
+ * The test `capitalisedModuleName` answers `undefined` against — "upper-casing
+ * yields no lawful module name" — hoisted out and exported for the one rule
+ * downstream of the casing recovery that must tell a lawful declared name from
+ * the **slot**'s (§2.1, #838): §2.2's duplicate report, whose dotted hint is
+ * itself unspellable at a name no dotting could make lawful, and which says
+ * "rename the module" there instead (§10).
+ */
+export function lawfulModuleName(name: string): boolean {
+  return name.split(".").every((segment) => MODULE_NAME_SEGMENT.test(segment));
 }
 
 /** Whether every segment of a written module name is uppercase-start (§2.1). */

@@ -199,7 +199,7 @@ describe("the workspace walk", () => {
       [...named.workspace.session.allDiagnostics().values()].flat().map(({ message }) => message),
     ).toEqual([
       "`Acme.Geometry` begins with the name of the package `Acme`; a dotted module's " +
-      "first segment cannot name a package in the program",
+      "first segment cannot name a package in the program; rename the module",
     ]);
   });
 
@@ -217,7 +217,7 @@ describe("the workspace walk", () => {
       [...listed.workspace.session.allDiagnostics().values()].flat().map(({ message }) => message),
     ).toEqual([
       "`Bolt.Tools` begins with the name of the package `Bolt`; a dotted module's " +
-      "first segment cannot name a package in the program",
+      "first segment cannot name a package in the program; rename the module",
     ]);
   });
 

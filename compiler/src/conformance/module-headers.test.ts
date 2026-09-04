@@ -196,6 +196,72 @@ describe("§13 (o) — the miscased header (#838)", () => {
     expect(rest).toEqual([]);
   });
 
+  test("the slot's test is that no *lawful* name results, not that nothing changed", () => {
+    // §13(o)'s `internal.hex`. Upper-casing `_internal.util` yields
+    // `_internal.Util` — a different spelling, and still no module name, since
+    // every segment has to be uppercase-start. The message names the slot, and
+    // no edit is offered: writing `_internal.Util` would repair one refusal
+    // into another (#838).
+    const [diagnostic, ...rest] = reports([["/internal.hex", `module _internal.util\n${POINT}`]]);
+    expect(diagnostic?.message).toBe("a module name is uppercase-start; write `module <Name>`");
+    expect(diagnostic?.fixes ?? []).toEqual([]);
+    expect(rest).toEqual([]);
+    // And the reading recovers under the *written* spelling, there being no
+    // other: the file has its header, so no headerless report follows, and the
+    // name the file's own checks see is `_internal.util`.
+    expect(
+      compileFiles([["/internal.hex", `module _internal.util\n${POINT}`]])
+        .modules.filter(({ name }) => !name.startsWith("Hex."))
+        .map(({ name }) => name),
+    ).toEqual(["_internal.util"]);
+  });
+
+  test("the recovered name meets §2.2's first-segment rule at the same header", () => {
+    // §13(o)'s `util.hex`: two reports at one line. The casing rewrite names
+    // the very spelling the first-segment rule then refuses, so the rewrite is
+    // one repair of two and the rename is the one that reaches legal code.
+    expect(messages([["/util.hex", `module hex.util\n${POINT}`]])).toEqual([
+      "a module name is uppercase-start; write `module Hex.Util`",
+      "`Hex.Util` begins with the name of the package `Hex`; a dotted module's first " +
+      "segment cannot name a package in the program; rename the module",
+    ]);
+    // At the slot the reach is the same: a dotted slot name whose first segment
+    // names a package draws the first-segment report beside the casing one,
+    // against the spelling the file recovered under.
+    expect(messages([["/i.hex", `module Hex._internal\n${POINT}`]])).toEqual([
+      "a module name is uppercase-start; write `module <Name>`",
+      "`Hex._internal` begins with the name of the package `Hex`; a dotted module's first " +
+      "segment cannot name a package in the program; rename the module",
+    ]);
+  });
+
+  test("a slot name is a declaration for the package's duplicate rule, and renames", () => {
+    // §13(o)'s `a.hex`/`b.hex`. The written spelling is a declaration for the
+    // file's and the package's own checks — no importer can spell it — so two
+    // files declaring `用户` collide. The dotted hint is unspellable here, no
+    // dotting making such a name lawful, so the hint is a rename instead.
+    const [first, second, duplicate, ...rest] = reports([
+      ["/a.hex", `module 用户\n${POINT}`],
+      ["/b.hex", "module 用户\nexport let n: Int = 1\n"],
+    ]);
+    // a.hex draws its casing report; b.hex draws its own and the duplicate.
+    expect([first?.message, second?.message, duplicate?.message]).toEqual([
+      "a module name is uppercase-start; write `module <Name>`",
+      "a module name is uppercase-start; write `module <Name>`",
+      "module `用户` is declared twice: `/a.hex` (line 1) and `/b.hex` (line 1)",
+    ]);
+    expect(duplicate?.notes).toEqual(["rename the module"]);
+    expect(rest).toEqual([]);
+    // A lawful name keeps the dotted hint: the rename is the slot's answer,
+    // not the rule's.
+    expect(
+      reports([
+        ["/a.hex", `module Geometry\n${POINT}`],
+        ["/b.hex", "module Geometry\nexport let n: Int = 1\n"],
+      ])[0]?.notes,
+    ).toEqual(["give one a dotted name, `module Render.Geometry`"]);
+  });
+
   test("§2.2's reports fire against the rewritten name, each at its own seat", () => {
     // The closer is never a casing seat: `end module geometry` under the
     // recovered `Geometry` draws §2.2's closer-naming rule and nothing else.
@@ -265,6 +331,21 @@ describe("§2.2 — two modules of one name in one package", () => {
     expect(rest).toEqual([]);
   });
 
+  test("the file the duplicate shadows keeps its own parse reports", () => {
+    // Only one of two same-named modules is compiled — they share one layout
+    // address (Packages §6) — and the other's reports would go down with it.
+    // A file's *parse* reports are the file's, whatever the index then decides
+    // (§2.1's stage line), so the shadowed file still draws them.
+    expect(messages([
+      ["/a.hex", "module Geometry\nexport let n: Int = \n"],
+      ["/b.hex", `module Geometry\n${POINT}`],
+    ])).toEqual([
+      "expected an indented block",
+      "expected an expression, found the end of a block",
+      "module `Geometry` is declared twice: `/a.hex` (line 1) and `/b.hex` (line 1)",
+    ]);
+  });
+
   test("the comparison folds case, on the emitted filesystem's account (§11.1)", () => {
     expect(messages([
       ["/a.hex", `module Geometry\n${POINT}`],
@@ -285,7 +366,7 @@ describe("§2.2 — a dotted module's first segment never names a package", () =
   test("the standard library's own name is refused at the header", () => {
     expect(messages([["/f.hex", "module Hex.Util\nexport let n: Int = 1\n"]])).toEqual([
       "`Hex.Util` begins with the name of the package `Hex`; a dotted module's first " +
-      "segment cannot name a package in the program",
+      "segment cannot name a package in the program; rename the module",
     ]);
   });
 
@@ -295,7 +376,7 @@ describe("§2.2 — a dotted module's first segment never names a package", () =
       { dependencies: ["Acme"] },
     )).toEqual([
       "`Acme.Geometry` begins with the name of the package `Acme`; a dotted module's " +
-      "first segment cannot name a package in the program",
+      "first segment cannot name a package in the program; rename the module",
     ]);
   });
 
@@ -305,7 +386,7 @@ describe("§2.2 — a dotted module's first segment never names a package", () =
       { packageName: "MyApp" },
     )).toEqual([
       "`MyApp.Geometry` begins with the name of the package `MyApp`; a dotted module's " +
-      "first segment cannot name a package in the program",
+      "first segment cannot name a package in the program; rename the module",
     ]);
   });
 

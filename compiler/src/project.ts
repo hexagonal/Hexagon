@@ -10,7 +10,7 @@ import type * as Core from "./syntax/core/index.js";
 import type * as Emitted from "./emission/index.js";
 import { lex } from "./passes/lexer/lexer.js";
 import { applyLayout } from "./passes/layout/layout.js";
-import { parseFile } from "./passes/parser/parser.js";
+import { lawfulModuleName, parseFile } from "./passes/parser/parser.js";
 import {
   displayModuleName,
   firstSegmentPackage,
@@ -687,6 +687,24 @@ export function compileProject(
     }
   }
 
+  // Two modules of one name in one package (Modules §2.2) share one layout
+  // address, so only one of them is compiled — and the other's reports would go
+  // down with it, silently. Its **parse** reports belong to the file, which was
+  // read whatever the index then decided: §2.1's stage line puts every check
+  // that runs where parsing does inside the recovery's reach, and the duplicate
+  // rule is one of them. So a file refused for its casing and shadowed by a
+  // namesake still draws its casing report (§13(o)'s `a.hex`/`b.hex`), and a
+  // duplicate-named file's syntax errors are never swallowed. Nothing later
+  // than parsing is surfaced here: the module was never resolved or checked.
+  for (const unit of units) {
+    if (compiled.get(unit.path)?.parsed === unit.parsed) continue;
+    for (const diagnostic of unit.parsed.diagnostics) {
+      if (surfaced.has(diagnostic)) continue;
+      surfaced.add(diagnostic);
+      diagnostics.add(diagnostic);
+    }
+  }
+
   // Emit a prelude module only when something emitted imports it, so a project
   // that never touches its nominals is unchanged by the prelude's existence.
   // Since §5.5 lets prelude modules import each other, this is reachability
@@ -970,9 +988,14 @@ function moduleIndexOf(
     if (offending !== undefined) {
       diagnostics.add({
         severity: "error",
+        // The repair clause is the message's own (Modules §2.2, §10; Packages
+        // §7): the header seat's one repair is a rename, and at a name the
+        // casing refusal recovered under — `module hex.util` recovering as
+        // `Hex.Util` — it is the repair that reaches legal code, the casing
+        // rewrite being one repair of two.
         message: `\`${unit.declaredName}\` begins with the name of the package ` +
           `\`${offending}\`; a dotted module's first segment cannot name a package ` +
-          "in the program",
+          "in the program; rename the module",
         primary: unit.parsed.name.span,
       });
       continue;
@@ -991,7 +1014,16 @@ function moduleIndexOf(
           `\`${unit.source.path}\` (line ${unit.parsed.name.span.start.line + 1})`,
         primary: unit.parsed.name.span,
         fixes: [],
-        notes: [`give one a dotted name, \`module Render.${unit.declaredName}\``],
+        // The dotted hint is the ordinary repair, and it is unspellable at a
+        // name §2.1's casing refusal recovered under its **slot** (`用户`,
+        // `_internal.util`): no dotting makes such a name lawful, so the hint
+        // there is the repair that does — a rename, lawful and local (§2.2,
+        // §10; #838).
+        notes: [
+          lawfulModuleName(unit.declaredName)
+            ? `give one a dotted name, \`module Render.${unit.declaredName}\``
+            : "rename the module",
+        ],
       });
       continue;
     }
