@@ -49,7 +49,7 @@ The standard library's modules form the package `Hex`. Its **prelude** — the f
 
 ### 2.5 The project
 
-The root package — the one the host compiles — is the **project**. Its manifest may carry no `name`: a project that is never published needs none, since its own modules are addressed by their declared names alone (§3.2), and a project never qualifies its own module by its own package name — `import MyApp.Geometry` inside `MyApp` is the unknown-module error, not a synonym (and no module *declared* `MyApp.Geometry` can exist there to answer it: Modules §2.2 refuses a dotted module whose first segment names a package the declaring package sees, itself included). A project that is published as a dependency of others gives its manifest a `name`, and that name is what its consumers write; it may not be the name of a package the project installs (§4.3). Library and application are therefore not distinct kinds of package, exactly as they are not distinct kinds of module (Modules §8.3): the same directory may be compiled as a root and installed as a dependency.
+The root package — the one the host compiles — is the **project**. Its manifest may carry no `name`: a project that is never published needs none, since its own modules are addressed by their declared names alone (§3.2), and a project never qualifies its own module by its own package name — `import MyApp.Geometry` inside `MyApp` is the unknown-module error, not a synonym, the project's instance of §3.3's rule for every package (and no module in the program can be *declared* `MyApp.Geometry` to answer it: Modules §2.2 forbids a dotted module beginning with any package in the program). A project that is published as a dependency of others gives its manifest a `name`, and that name is what its consumers write; it may not be the name of a package the project installs (§4.3). Library and application are therefore not distinct kinds of package, exactly as they are not distinct kinds of module (Modules §8.3): the same directory may be compiled as a root and installed as a dependency.
 
 ---
 
@@ -73,7 +73,7 @@ Where the package resolving an import — the project, or a dependency resolving
 
 Where the resolving package has no module of the written name and **two or more** visible packages provide one — a dependency and `Hex`, or two dependencies — the import is an error naming every full spelling, in a fixed order (the resolving package's `dependencies` order, then `Hex`): "`Geometry` is provided by `Acme` and `Hex`; write `import Acme.Geometry` or `import Hex.Geometry`". The rule is Modules §5.5's collided-name refusal one level up: neither provider owns the bare spelling, the use site qualifies, and no order of installation, declaration, or listing ever decides silently. The break this admits is the one Modules §5.4 already admits for names — a module the standard library or a dependency adds under a spelling one dependency already provides turns a working bare import into this refusal — and it is a reference-shaped break with a mechanical fix named in the message, never a silent re-meaning.
 
-**A dotted spelling is matched under two readings**, and a contest between them is refused the same way (Modules §2.3). `import Acme.Tools` matches a visible module whose declared name is `Acme.Tools` and a visible package `Acme`'s module `Tools`. Inside one package Modules §2.2's first-segment rule keeps the two apart; across packages they can meet, since a dependency `Bolt` that does not list `Acme` may lawfully declare `module Acme.Tools`. The second reading is taken over the visible packages other than the resolving package's own, which never qualifies its own modules (§2.5). Where both readings answer in the resolving package, the import is refused naming both full spellings — "`Acme.Tools` names `Acme`'s module `Tools` and `Bolt`'s module `Acme.Tools`; write `import Tools` for the first and `import Bolt.Acme.Tools` for the second". The written spelling is genuinely ambiguous and neither reading is ranked ahead; the bare spelling `Tools` reaches `Acme`'s module alone, since Bolt's declared name is longer (Modules §2.3), and where that bare spelling is itself occluded or contested the message states the block in its first clause and offers only the second repair (Modules §2.3). Adding `Acme` to a project that already imported `Bolt`'s `Acme.Tools` bare turns the line loud, never silently re-means it.
+**A dotted spelling has one reading, and a package never qualifies its own modules.** Where the first segment of a written dotted name names a package visible to the resolving package other than itself, the import is that package's module by its full name; otherwise it is a visible module by its declared name. The two never meet: Modules §2.2 forbids every module in the program a dotted name beginning with any package in the program, refusing it at the header where the declaring package sees the package and at the whole-program check where it does not (a dependency `Bolt` that lists no `Acme` may declare `module Acme.Tools` and compile alone; a program holding both `Bolt` and `Acme` is refused naming the module and both packages — §7). The exclusion of the resolving package's own name is what makes a package's own modules reachable by their declared names alone: `import MyApp.Geometry` inside `MyApp` is the unknown-module error (§2.5 states it for the project, the ordinary instance), since the full-name reading excludes `MyApp` and no module in the program is declared `MyApp.Geometry` while `MyApp` is a package in it.
 
 ### 3.4 What an importer writes
 
@@ -83,9 +83,9 @@ Modules §2.3 and §3 own the syntax; restated here as the resolution they invok
 |---|---|
 | `import Geometry` | the resolving package's own `Geometry` if it has one (§3.2); else the one visible package module declared exactly `Geometry` (§3.1); two → §3.3's refusal; none → unknown module, near misses named (Modules §2.3) |
 | `import Render.Geometry` | the same, for the declared name `Render.Geometry`; never reached by `import Geometry` |
-| `import Acme.Geometry` | `Acme`'s module `Geometry`, where `Acme` is visible (§3.1) — the full name; contested only where another visible package declares a module whose *declared* name is `Acme.Geometry` (§3.3) |
+| `import Acme.Geometry` | `Acme`'s module `Geometry`, where `Acme` is visible (§3.1) and is not the resolving package itself (§3.3) — the full name, the one reading of the spelling |
 | `import Hex.Option` | the prelude module, already in scope (§2.4); binds the alias and nothing new |
-| `import MyApp.Geometry` inside `MyApp` | unknown module (§2.5): a package never qualifies its own modules |
+| `import MyApp.Geometry` inside `MyApp` | unknown module (§3.3, §2.5): a package never qualifies its own modules |
 
 The default alias of every form is the declared name's last segment; `as` overrides it (Modules §3.1).
 
@@ -142,7 +142,7 @@ The seed for this stage's specification is the non-normative planning note `spec
 
 ## 6. Emission under packages
 
-Modules §11 owns emission; packages add the layout. The program's output root holds the **project's** modules by their declared names, dotted segments as directories (`Geometry.js`, `Render/Geometry.js`), and each dependency's modules under a directory named by the package (`Acme/Geometry.js`, `Acme/Render/Geometry.js`) — the full name (§2.3) as a path, with the project's package segment elided because a project may have none (§2.5). A dependency's source directory is never written into. Program-scoped artifacts — `hex.d.ts`, `hex.js` (FFI Part 1 §8.3, Part 7 §1.2) — sit at the root, their filename probe reading the emitted filenames as Part 1 §8.3 states. Two packages' same-named modules therefore never collide on disk — and a project module could collide with a dependency's directory only by beginning with that package's name, which Modules §2.2 refuses at the header (`module Acme.Geometry` under a dependency `Acme`; a dependency's own `module Acme.Tools` emits under its package, `Bolt/Acme/Tools.js`, and collides with nothing) — and the emitted import specifiers — computed from the two modules' full names (Modules §11.2) — are relative paths within the root, so the output runs from any location and imports nothing from `node_modules` on Hexagon's account; a package's JavaScript dependencies keep their bare specifiers (FFI Part 4 §2.3) and resolve as npm resolves them.
+Modules §11 owns emission; packages add the layout. The program's output root holds the **project's** modules by their declared names, dotted segments as directories (`Geometry.js`, `Render/Geometry.js`), and each dependency's modules under a directory named by the package (`Acme/Geometry.js`, `Acme/Render/Geometry.js`) — the full name (§2.3) as a path, with the project's package segment elided because a project may have none (§2.5). A dependency's source directory is never written into. Program-scoped artifacts — `hex.d.ts`, `hex.js` (FFI Part 1 §8.3, Part 7 §1.2) — sit at the root, their filename probe reading the emitted filenames as Part 1 §8.3 states. Two packages' same-named modules therefore never collide on disk — and a project module could collide with a package's directory only by beginning with that package's name, which Modules §2.2 refuses for every package in the program — at the header where the project sees the package, at the whole-program check where the package is reached only transitively (a dependency's own `module Acme.Tools` emits under its package, `Bolt/Acme/Tools.js`, and is refused by the same rule whenever `Acme` is in the program) — and the emitted import specifiers — computed from the two modules' full names (Modules §11.2) — are relative paths within the root, so the output runs from any location and imports nothing from `node_modules` on Hexagon's account; a package's JavaScript dependencies keep their bare specifiers (FFI Part 4 §2.3) and resolve as npm resolves them.
 
 ---
 
@@ -152,16 +152,16 @@ Modules §11 owns emission; packages add the layout. The program's output root h
 |---|---|
 | Bare module name two visible packages provide | "`Geometry` is provided by `Acme` and `Hex`; write `import Acme.Geometry` or `import Hex.Geometry`" (§3.3) — in `dependencies` order, then `Hex` |
 | Qualified import of a package not in the resolving package's `dependencies` | "`Bolt` is not a dependency of this package; add `"Bolt"` to `dependencies` in `hexagon.json`" — applied edit where the host can write the manifest (§3.1) |
-| A package qualifying its own module (`import MyApp.Geometry` inside `MyApp`) | unknown module — hint: "a package's own modules are imported by their declared names: `import Geometry`" (§2.5) |
+| A package qualifying its own module (`import MyApp.Geometry` inside `MyApp`) | unknown module — hint: "a package's own modules are imported by their declared names: `import Geometry`" (§3.3; §2.5) |
 | `dependencies` names a Hexagon package no installed package declares | "no installed package declares `\"name\": \"Bolt\"`; install it, or check the name in its `hexagon.json`" (§2.1) |
 | `dependencies` names an npm package with no `hexagon.json` | "`tiny-json` is not a Hexagon package: bind it with `extern from \"tiny-json\"`" (§4.4) |
 | Two installed packages declare one name | "package `Acme` is installed twice: `<dir>` (`<version>`) and `<dir>` (`<version>`); a program holds one copy of each Hexagon package" (§4.3) |
-| The project's `name` is also an installed package's | "this project declares `"name": "Acme"`, and `Acme` is also installed at `<dir>`; a program holds one package of each name" (§4.3) |
+| The project's `name` is also an installed package's | "this project declares `\"name\": \"Acme\"`, and `Acme` is also installed at `<dir>`; a program holds one package of each name" (§4.3) |
 | A manifest declares `"name": "Hex"` | "`Hex` is the standard library's package name" (§2.1, §2.4) |
 | A manifest `name` that is not one uppercase-start identifier (`"acme"`, `"Acme.Tools"`) | "a package name is one uppercase-start identifier: write `\"Acme\"`" — a dotted spelling names the module-name form as the place for dots (§2.1) |
 | Two modules of one name in one package | Modules §2.2's report at the second header |
-| A dotted module whose first segment names a visible package | Modules §2.2's report at the header: "`Acme.Geometry` begins with the name of the package `Acme`; a dotted module's first segment cannot name a visible package" (§6) |
-| A dotted import matched under both readings | "`Acme.Tools` names `Acme`'s module `Tools` and `Bolt`'s module `Acme.Tools`; write `import Tools` for the first and `import Bolt.Acme.Tools` for the second" — where bare `Tools` is itself occluded or contested, the first clause states the block and only the second repair is offered (§3.3; Modules §2.3) |
+| A dotted module whose first segment names a package the declaring package sees | Modules §2.2's report at the header: "`Acme.Geometry` begins with the name of the package `Acme`; a dotted module's first segment cannot name a package in the program" (§6) |
+| A dependency's dotted module whose first segment names another package in the program (`Bolt` declares `module Acme.Tools`; the program holds `Acme`) | at the whole-program check: "module `Acme.Tools` of package `Bolt` begins with the name of the package `Acme`, also in this program; the two packages cannot be combined until one is renamed" (Modules §2.2) |
 | Installed package advertised as compiled Hexagon, no source (stage one) | "`Acme` ships no Hexagon source; a Hexagon package is installed as source until compiled distribution exists" (§4.1, §5.2) |
 
 ---
@@ -193,7 +193,8 @@ import Bolt.Util                             -- ERROR: Bolt is not a dependency 
 -- inside Acme's module Geometry (Acme sees Acme, the prelude, and Bolt):
 import Util                                  -- OK: Acme.Util — Acme's own module wins over
                                              --   Bolt.Util (§3.2), no contest
-import Bolt.Util                             -- OK: Acme lists Bolt
+import Bolt.Util as BoltUtil                 -- OK: Acme lists Bolt; `as` because the default
+                                             --   alias Util is bound above (Modules §5.2)
 
 -- (b) Occlusion (§3.2)
 -- project: module Vector
@@ -207,10 +208,11 @@ import Color                                 -- ERROR: Color is provided by Acme
                                              --   write import Acme.Color or import Chroma.Color
 import Chroma.Color                          -- OK
 
--- (d) A package does not qualify itself (§2.5)
+-- (d) A package does not qualify itself (§3.3, §2.5)
 -- project hexagon.json: {"name": "MyApp"}; module Geometry
 import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry; a package's own
-                                             --   modules are imported by their declared names
+                                             --   modules are imported by their declared names:
+                                             --   import Geometry
 
 -- (e) Manifest refusals (§2.1, §4.3, §4.4)
 -- {"name": "Hex"}                           -- ERROR: Hex is the standard library's package name
@@ -218,6 +220,10 @@ import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry;
 -- {"dependencies": ["tiny-json"]}           -- ERROR: tiny-json is not a Hexagon package; bind it
                                              --   with extern from "tiny-json"
 -- two node_modules copies declaring "Acme"  -- ERROR: package Acme is installed twice: … and …
+-- {"name": "Acme"}, with Acme installed at node_modules/@acme/geometry
+                                             -- ERROR: this project declares "name": "Acme", and Acme
+                                             --   is also installed at node_modules/@acme/geometry;
+                                             --   a program holds one package of each name
 
 -- (f) Coherence and the orphan rule across packages (§5.1)
 -- Acme: module Shape — export union Shape = …; honor Show<Shape> = …
@@ -226,27 +232,24 @@ import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry;
                                              --   Show<Shape>: declared in module Shape and in
                                              --   module Main (Main also violates the orphan rule)
 
--- (h) The two readings of a dotted import (§3.3)
--- project hexagon.json: {"dependencies": ["Acme", "Bolt"]}
--- Acme: module Tools;  Bolt: module Acme.Tools   (Bolt's hexagon.json lists no Acme — lawful, Modules §2.2)
-import Acme.Tools                            -- ERROR: Acme.Tools names Acme's module Tools and
-                                             --   Bolt's module Acme.Tools; write import Tools for
-                                             --   the first and import Bolt.Acme.Tools for the second
-import Tools                                 -- OK: Acme.Tools — Bolt's declared name is longer
-import Bolt.Acme.Tools                       -- OK
--- with a third dependency Chroma also declaring module Tools:
-import Acme.Tools                            -- ERROR: … the first has no shorter spelling here:
-                                             --   Tools is also provided by Chroma; write
-                                             --   import Bolt.Acme.Tools for the second
--- project hexagon.json: {"name": "Acme", "dependencies": ["Acme"]}
-                                             -- ERROR: this project declares "name": "Acme", and Acme
-                                             --   is also installed at node_modules/@acme/geometry;
-                                             --   a program holds one package of each name
-
 -- (g) Emission layout (§6)
 -- project: module Main; module Render.Geometry; Acme: module Geometry
 -- emits: Main.js, Render/Geometry.js, Acme/Geometry.js, hex.d.ts (when owed) at the root;
 --   Main.js imports "./Acme/Geometry.js" — nothing from node_modules on Hexagon's account
+
+-- (h) One reading of a dotted spelling; the program-wide first-segment rule (§3.3; Modules §2.2)
+-- project depends on Bolt; Bolt (listing no Acme) declares module Acme.Tools
+import Acme.Tools                            -- OK: Bolt's module by its declared name — no package
+                                             --   Acme is in the program
+-- the project adds a dependency Acme (module Tools):
+                                             -- ERROR at program check: module Acme.Tools of package
+                                             --   Bolt begins with the name of the package Acme, also
+                                             --   in this program; the two packages cannot be
+                                             --   combined until one is renamed
+-- project depends on Bolt, which depends on Acme (not visible to the project):
+module Acme.Parser                           -- ERROR at program check: module Acme.Parser of the
+                                             --   project begins with the name of the package Acme,
+                                             --   also in this program (reached through Bolt)
 ```
 
 ---
@@ -260,7 +263,7 @@ import Acme.Tools                            -- ERROR: … the first has no shor
 | The standard library is the package `Hex`; the prelude is in scope without import; `import Hex.Option as Opt` is a second alias | §2.4 |
 | The project is the root package, unnamed unless published, and never qualifies itself | §2.5 |
 | Visible set = own modules + prelude + direct dependencies, per package; transitive dependencies invisible to import though present in the program | §3.1 |
-| The resolving package's own module wins silently (Modules §5.4 one level up); a contest between packages is refused naming every full spelling (Modules §5.5 one level up); never ranked | §3.2–§3.3 |
+| The resolving package's own module wins silently (Modules §5.4 one level up); a contest between packages is refused naming every full spelling (Modules §5.5 one level up); never ranked; a dotted spelling has one reading and a package never qualifies its own modules, resting on Modules §2.2's program-wide first-segment rule | §3.2–§3.3 |
 | Distribution rides npm; versions and lockfile are npm's; the npm name is not the Hexagon name | §4.1–§4.2 |
 | One installed copy per package name per program, refused otherwise — conservative, revisable at stage two | §4.3 |
 | JavaScript-only packages are the FFI's; never listed as Hexagon dependencies | §4.4 |
