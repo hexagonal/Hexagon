@@ -24,9 +24,10 @@ A package is a directory holding a `hexagon.json` file, and the file names it:
 Every `.hex` file beneath that directory belongs to the package, each declaring its
 module as the Modules chapter described. There is no list of modules in the manifest.
 The headers are the declarations, and the tooling finds the files. Within one package
-no two modules may declare the same name; the fix is a dotted name on one of them. A directory that
-carries a manifest of its own is a package of its own, which is how a workspace of
-several packages sits in one tree without any file belonging to two of them.
+no two modules may declare the same name; the fix is a dotted name on one of them. A
+directory that carries a manifest of its own is a package of its own, which is how a
+workspace of several packages sits in one tree without any file belonging to two of
+them.
 
 The package name is one uppercase-start identifier, never dotted. It supplies the first
 segment of every one of its modules' **full names**: `module Geometry` in `Acme` is
