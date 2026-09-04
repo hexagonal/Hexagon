@@ -14,9 +14,10 @@ the grammar is where the decisions are; the client is thin on purpose.
 **Playground reads this same file** (`playground/src/monaco-textmate.ts`), so it is
 not the extension's private grammar: it is the one Hexagon grammar, and a rule
 changed here changes both editors. Playground used to carry a second, hand-written
-Monarch tokenizer, which drifted (#145) until it was deleted for #161. The one construct
-Playground does not share is its own `module` / `end module` notation, which is not
-`.hex` syntax and lives in a Playground-side injection rather than here.
+Monarch tokenizer, which drifted (#145) until it was deleted for #161, and a TextMate
+injection for its own `module` / `end module` notation, which #829 made `.hex` syntax
+(`spec/modules.md` §2.1) and which is therefore painted here now. Playground loads no
+grammar of its own.
 
 ## The language client
 

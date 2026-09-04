@@ -23,7 +23,8 @@ import {
  * inherits from the grammar for free. Scope-level assertions are not repeated here:
  * `editors/vscode/src/grammar.test.ts` owns those, and after #161 it owns them for both
  * editors. What this file is for is the bridge — that a scope survives the trip into
- * Monaco intact, and that the Playground-only injection loads.
+ * Monaco intact, over the one grammar both editors now load (#829 retired the
+ * Playground-only injection).
  */
 
 const require = createRequire(import.meta.url);
