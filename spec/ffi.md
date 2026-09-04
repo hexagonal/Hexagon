@@ -165,7 +165,7 @@ Each row: the observable claim an implementation must satisfy, and the owner who
 - **Single-pass/resource-managed stream type** (Part 3 §10 — must not be called `Seq`) — *partially discharged for #355: the single-pass type is `Stream(a)` (`stream.md`; raw crossing, Part 3 §14). The resource-managed half — prompt disposal — remains open (Part 3 §10 deferral 4).*
 - **Typed upcasts across foreign inheritance** (Part 5 §13.1); **selective class-member visibility** (Part 5 §7); **opaque callables/constructor objects as values** (Part 4 §11; Part 5 §12).
 - **Flow-sensitive narrowing** — a language/type-system deep dive, not FFI (Part 2 §2.5).
-- **Package/runtime-subpath layout, dictionary-ABI metadata, cross-package resolution** — the package-system design (Modules §12.1; Part 9 §11/§13.3).
+- **Package/runtime-subpath layout, dictionary-ABI metadata, cross-package resolution** — `packages.md` (stage one decided; the dictionary-ABI metadata half is stage two, Packages §5.2; Part 9 §11/§13.3).
 
 ## 10. Companion discharges applied at promotion
 

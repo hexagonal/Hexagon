@@ -295,7 +295,7 @@ New rows first; inherited rows by reference (unchanged, listed for the consolida
 | `for x in xs`, `xs` an unsolved inference variable | "cannot determine what `xs` iterates over; add a type annotation" | §3.2 (Loops §7.1, unchanged) |
 | `for x in xs`, `xs : c` a rigid declared variable | "`xs` has the generic type `c`, and `Iterable` cannot constrain a type variable in v1; take a `Seq(a)` parameter instead" | **§3.2 (new split)** |
 | Non-iterable concrete type, not user-nominal | "`Int` is not iterable" (+ conversion hint where one exists) | §3.2 |
-| Non-iterable user nominal type | two-legal-homes form: the type's home file with the `honor` fixit, the prelude as the only other legal home, and the `toSeq`/`Seq(a)` alternatives | **§3.3 (new)** |
+| Non-iterable user nominal type | two-legal-homes form: the type's home module with the `honor` fixit, the prelude as the only other legal home, and the `toSeq`/`Seq(a)` alternatives | **§3.3 (new)** |
 | `honor` of a provided-row head outside the prelude | orphan-rule error + "the prelude already provides `Iterable<Vector(a)>`" | **§7.3 (new hint)** |
 | Projection-bearing constraint on a binder | Part 2 §9 row, unchanged | Part 2 §7.2 |
 | `Item` in a type expression | Part 2 §9 row, unchanged | Part 2 §7.3 |

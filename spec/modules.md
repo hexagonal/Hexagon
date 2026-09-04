@@ -60,16 +60,17 @@ end module Shapes
 - **The closer names the module it closes.** `end module Shapes` under a `module Geometry` header is an error at the closing name, naming both. Anything after a closer that is not a header is an error: code outside a module.
 - **Modules sharing a file are strangers.** A module sees exactly what it imports (§3), wherever its neighbours sit: `Shapes` above imports `Geometry` although the two share a file, and would be refused without the line. File grouping is physical, and it means nothing to scope or to load order (§8.2) — moving a module between files changes what compiles in no way at all, which is the path-meaning §2.1 removes kept out of a side door (§9.15).
 - **Two modules of one name in one package** are an error at the second header, naming both files: "module `Geometry` is declared twice: `render.hex` (line N) and `physics.hex` (line M)". The repair is a dotted name on one or both (`module Render.Geometry`), which makes them two modules (§2.3). Module names are compared case-insensitively for this rule alone, on the emitted filesystem's account (§11.1): `Json` and `JSON` in one package draw the same report.
-- **A module's first segment is never a visible package's name.** `module Acme.Geometry` in a package that can see a package `Acme` — a listed dependency, or `Hex`, which every package sees — is refused at the header: "`Acme.Geometry` begins with the name of the package `Acme`; a module's first segment cannot name a visible package". Without the rule the two spellings `Acme.Geometry` would collide: the own-module-wins rule of §2.3 would make the package's module unreachable by its full name, and the emitted layout would write both to one path (Packages §6). The rule reads the resolving package's visible set (Packages §3.1), so a project that later adds a dependency `Acme` meets the refusal at the declaration it must rename — loud, never a silent re-meaning.
-- **A header or closer below the top level is refused.** `module` and `end module` are head words of a *top-level* item (§2.1): inside a function body or any nested block, `module Geometry` draws "`module` declares a module at a file's top level; a module cannot be declared inside a block" (Declarations Preamble §7.1's family), and nesting one module in another is the second-header error above, since the first is still open.
+- **A dotted module's first segment never names a package visible to the declaring package — its own package's name included.** `module Acme.Geometry` in a package that sees a package `Acme` — a listed dependency; `Hex`, which every package sees; or the declaring package itself, whose modules it sees (Packages §3.1) — is refused at the header: "`Acme.Geometry` begins with the name of the package `Acme`; a dotted module's first segment cannot name a visible package". An **undotted** module is untouched: `module Json` beside a dependency `Json` is the companion idiom's plainest spelling, `import Json` resolves to the declaring package's own by §2.3, no spelling of the package's could ever be `Json` alone, and on disk `Json.js` sits beside the directory `Json/` (§11.1). Without the rule the two spellings `Acme.Geometry` would collide **inside the declaring package**: §2.3's own-module-wins reading would make the package's module unreachable by its full name, and in a project the emitted layout would write both to one path (Packages §6). The rule closes that collision and no wider — a package that does not see `Acme` may declare `module Acme.Tools`, and a consumer that sees both meets §2.3's contest at the import, not a refusal at the header. The rule reads the declaring package's visible set, so a project that later adds a dependency `Acme` meets the refusal at the declaration it must rename — loud, never a silent re-meaning.
+- **A header or closer below the top level is refused.** `module` and `end module` are head words of a *top-level* item (§2.1): inside a function body or any nested block, `module Geometry` or `end module Geometry` draws "`module` and `end module` mark a module at a file's top level; a module cannot be declared or closed inside a block" (Declarations Preamble §7.1's family), and nesting one module in another is the second-header error above, since the first is still open.
 
 ### 2.3 Names, and what an importer may omit
 
 A module's **full name** is its package's name, a dot, and its declared name: `Acme.Render.Geometry` for `module Render.Geometry` in the package `Acme`; the standard library is the package `Hex`, so the prelude's `Option` is `Hex.Option`. What a package is, what names a program can see, and how the set is assembled are the Packages spec's (Packages §2–§3); this section states only what an importer writes.
 
-- **Only the package segment is ever omittable.** `import Geometry` resolves among the visible modules whose declared name is exactly `Geometry` — the project's own, `Hex.Geometry`, `Acme.Geometry` — and never reaches `Render.Geometry`, whose declared name is longer; that module is imported as `import Render.Geometry`. No suffix of a name is ever searched, and no segment but the package's is ever supplied by the compiler.
+- **Only the package segment is ever omittable.** `import Geometry` resolves among the visible modules whose declared name is exactly `Geometry` — the resolving package's own, `Hex.Geometry`, `Acme.Geometry` — and never reaches `Render.Geometry`, whose declared name is longer; that module is imported as `import Render.Geometry`. No suffix of a name is ever searched, and no segment but the package's is ever supplied by the compiler.
 - **The resolving package's own module wins.** Where the package resolving the import — the project, or a dependency resolving one of its own imports — declares a module of the written name, the import resolves to it, silently, and a same-named module of a visible package stays reachable by its full name (`import Hex.Geometry`) — the §5.4 occlusion rule one level up, and for the same reason: a module added to the standard library or to a dependency cannot break a program that already has one (Packages §3.2).
 - **Between packages, a contested name is refused, never ranked.** Where the resolving package has no module of the written name and two visible packages provide one, the import is an error naming every full spelling: "`Geometry` is provided by `Acme` and `Hex`; write `import Acme.Geometry` or `import Hex.Geometry`" — §5.5's collided-name rule one level up (Packages §3.3).
+- **A written dotted name has two readings, and both are matched.** `import Acme.Tools` matches a visible module whose *declared* name is `Acme.Tools`, and a visible package `Acme`'s module `Tools` — its full name. Inside one package §2.2's first-segment rule keeps the readings apart; across packages they can meet, since a dependency `Bolt` that does not see `Acme` may declare `module Acme.Tools`. Where both readings answer, the import is refused naming both full spellings, the contest rule again: "`Acme.Tools` names `Acme`'s module `Tools` and `Bolt`'s module `Acme.Tools`; write `import Bolt.Acme.Tools` for the second — the first has no other spelling while `Bolt` declares a module of that name" (Packages §3.3). The boundary is named honestly rather than ranked away: a program combining those two packages cannot reach `Acme.Tools` bare-of-contest until one of them changes, and the message says which line would need to.
 - **A name no visible module bears** is the unknown-module error, naming the near misses the visible set holds — the dotted modules whose declared name ends in the written one included, since that is the miss this rule invites ("no module `Geometry`; did you mean `Render.Geometry` or `Physics.Geometry`?").
 - **Nominal identity is declaration-site identity.** `Point` declared in module `Geometry` is one type constructor everywhere it flows, under any alias. Two modules each declaring `record Point` produce two unrelated types; the Declarations Preamble §7.3 duplicate rule remains per-module. Structural records and tuples are the same type in every module, need no export, cannot be hidden, and their instances remain exclusively compiler-derived: "which module owns `{x: Float}`" has no answer because structural types have no home module, and nothing needs one (Constraints §9.3).
 
@@ -480,7 +481,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 13. **Type-directed constructor resolution in expressions** (`let d: Direction = North`; OCaml's disambiguation) *(#763)*: declined for v1 — §3.2 states why; Pattern Matching §2.2 owns the pattern-side door, which rests on a guarantee expressions lack.
 14. **The path-form import, `import Geo from "./geometry"`** — v1's own head, superseded *(#829)*. A path names a file, and a file is a container, not a module (§1); the head that names a module is `import Geometry as Geo` (§3.1). Kept out rather than kept beside the name form: two ways to address one module is the drift hazard §9.2 was right about, arriving from the other side. The head is refused with the rewrite (§3.1, §10), so the JavaScript author's habit — and the v1 corpus — lands on the form.
 15. **Modules sharing a file see each other** (a file as an implicit scope): refused (§2.2). It would give the file a meaning — moving a module between files would change what compiles — and §1 removes the file's meaning on purpose. One line, `import Geometry`, says what the reader needs and costs what it says.
-16. **Ranked or suffix-searched module resolution** — nearest package wins, or `import Geometry` reaching `Render.Geometry` by its last segment: refused (§2.3). Hexagon resolves a contested name by refusing it and naming the spellings (§5.5's rule and Constraints §5.1.1's law), never by ranking candidates or searching for one; the module namespace takes the same rule, with the one carve §5.4 already owns — the project's own module over a package's, which is occlusion, not a rank between rivals.
+16. **Ranked or suffix-searched module resolution** — nearest package wins, or `import Geometry` reaching `Render.Geometry` by its last segment: refused (§2.3). Hexagon resolves a contested name by refusing it and naming the spellings (§5.5's rule and Constraints §5.1.1's law), never by ranking candidates or searching for one; the module namespace takes the same rule, with the one carve §5.4 already owns — the resolving package's own module over a package's, which is occlusion, not a rank between rivals.
 
 ---
 
@@ -492,8 +493,9 @@ Library versus application is therefore not a distinction in Hexagon module sema
 | A second `module` header while the module before it is open | "a file holding several modules closes each with `end module Geometry`" — applied fixit inserting the closer above the new header (§2.2) |
 | `end module B` under `module A` | "`end module B` closes `module A`; write `end module A`" (§2.2) |
 | Items after a closer that are not a header | "code outside a module: `end module Geometry` ended the module above; open another with `module Name`" (§2.2) |
-| A module whose first segment names a visible package (`module Acme.Geometry` under a dependency `Acme`; `module Hex.Util` anywhere) | "`Acme.Geometry` begins with the name of the package `Acme`; a module's first segment cannot name a visible package" (§2.2; Packages §6) |
-| `module Name` or `end module Name` below the top level | "`module` declares a module at a file's top level; a module cannot be declared inside a block" (§2.2; Preamble §7.1's family) |
+| A dotted module whose first segment names a visible package (`module Acme.Geometry` under a dependency `Acme`; `module Hex.Util` anywhere; `module MyApp.X` inside `MyApp`) | "`Acme.Geometry` begins with the name of the package `Acme`; a dotted module's first segment cannot name a visible package" (§2.2; Packages §6) |
+| A dotted import matched under both readings (`import Acme.Tools` where `Acme` has `Tools` and a visible `Bolt` declares `module Acme.Tools`) | "`Acme.Tools` names `Acme`'s module `Tools` and `Bolt`'s module `Acme.Tools`; write `import Bolt.Acme.Tools` for the second — the first has no other spelling while `Bolt` declares a module of that name" (§2.3; Packages §3.3) |
+| `module Name` or `end module Name` below the top level | "`module` and `end module` mark a module at a file's top level; a module cannot be declared or closed inside a block" (§2.2; Preamble §7.1's family) |
 | Two modules of one name in one package (case-insensitively) | error at the second header: "module `Geometry` is declared twice: `render.hex` (line N) and `physics.hex` (line M)" — hint: "give one a dotted name, `module Render.Geometry`" (§2.2) |
 | Contested module name between packages | "`Geometry` is provided by `Acme` and `Hex`; write `import Acme.Geometry` or `import Hex.Geometry`" (§2.3; Packages §3.3) |
 | Unknown module name | "no module `Geometry`" — near misses named, dotted modules ending in the written name included: "did you mean `Render.Geometry`?" (§2.3) |
@@ -564,7 +566,7 @@ Library versus application is therefore not a distinction in Hexagon module sema
 ```
 -- (a) Privacy default
 module Geometry
-export fun area(r: Float): Float = pi() * r * r
+export fun area(r: Float): Float = 3.14159 * r * r
 fun helper(x: Float): Float = x * x          -- private
 end module Geometry
 
@@ -577,7 +579,7 @@ import { area } from "./geometry"            -- ERROR (parse): Hexagon imports n
 
 -- (b) The companion fallbacks, both namespaces (§5.1 rules 2 and 3)
 -- module Point: export record Point = {x: Float, y: Float}
---               export let area(p: Point): Float = p.x * p.y
+--               export fun area(p: Point): Float = p.x * p.y
 import Point
 let p = Point({x = 1.0, y = 2.0})            -- constructor: rule 3, through the alias
 fun f(q: Point): Float = q.x                 -- type: rule 2; fields visible (not opaque)
@@ -737,13 +739,16 @@ end module Geometry                          -- required: a second module follow
 module Shapes
 export fun unit(): Geometry.Point = ...      -- ERROR: no module alias Geometry; import Geometry
                                              --   (strangers, §2.2 — sharing a file binds nothing)
--- project depending on Acme:
+-- (a third file, in a project depending on Acme:)
 module Acme.Geometry                         -- ERROR: Acme.Geometry begins with the name of the
-                                             --   package Acme; a module's first segment cannot
-                                             --   name a visible package (§2.2)
+                                             --   package Acme; a dotted module's first segment
+                                             --   cannot name a visible package (§2.2)
+-- (a fourth file:)
+module Json                                  -- OK beside a dependency Json: undotted (§2.2)
 fun f() =
-    module Inner                             -- ERROR: module declares a module at a file's top
-                                             --   level; a module cannot be declared inside a block
+    module Inner                             -- ERROR: module and end module mark a module at a
+                                             --   file's top level; a module cannot be declared
+                                             --   or closed inside a block
 
 -- (p) Names, and what an importer may omit (§2.3)
 -- project: module Render.Geometry; module Physics.Geometry; package Acme: module Geometry
@@ -767,7 +772,7 @@ import Hex.Option as Opt                     -- OK: a second alias onto a prelud
 | Decision | Where |
 |---|---|
 | **A module is a named declaration; a file is a container** (#829): `module Geometry` header line, body unindented; every file declares a module (headerless refused with the derived-name fixit); several modules per file, `end module Name` required between them and optional for a lone module; sibling modules are strangers; dotted names; two of one name in a package refused (case-insensitively); the path means nothing to the language | §1, §2 |
-| **Only the package segment is omittable** (#829): `import Geometry` resolves among visible modules declared exactly `Geometry`, never a dotted module by its suffix; the project's own module wins silently over a package's (occlusion, §5.4 one level up); a name two packages provide is refused naming each full spelling (§5.5 one level up); `Hex` is the standard library's package | §2.3; Packages §3 |
+| **Only the package segment is omittable** (#829): `import Geometry` resolves among visible modules declared exactly `Geometry`, never a dotted module by its suffix; the resolving package's own module wins silently over a package's (occlusion, §5.4 one level up); a dotted spelling matched under both readings — declared name, and package plus declared name — is refused naming both full spellings; a name two packages provide is refused naming each full spelling (§5.5 one level up); `Hex` is the standard library's package | §2.3; Packages §3 |
 | **Rejected alternative §9.2 reversed** (#829), with the record of why: both substantive grounds assumed a header beside a path, and the design has no path | §9.2 |
 | **Bare seeding is by channel; the bare set is closed at sixteen names** (#742): no prelude function bare but `ignore`; union constructors qualified-only but the open unions `Bool`/`Option`/`Result`; exception constructors bare as a category (the `…Error` suffix is the qualifier); constraint members qualified-only but `show`; `Ordering` homed at `Ordering.hex` so `Ordering.Less` is spellable; one refusal shape naming dot and qualified routes, never an import; selection test = idiomatic bare ∧ not a user word; additions are rulings, never listing entries | §5.5, §10 |
 | Structural types have no home module; their instances are compiler-derived only | §2; Constraints §9.3 |

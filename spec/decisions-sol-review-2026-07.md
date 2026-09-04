@@ -55,7 +55,7 @@ Sol's scenario — "`show(point)` works in this project but not in this isolated
 
 So for the common case — you can write the type's name — the invisible-dependency scenario is **structurally impossible**. The residual gap is real but specific: a module can manipulate values of a type it never names (`sort(getConfigs())` — inference carries `Config` through without an import). There, the instance's home module may sit outside the module's *own* import list, reachable only through the wider program graph — and removing a distant import can indeed break this file. The other residual case is Sol's literally: an isolated file compiled outside the program graph (single-file check, test harness, playground).
 
-The corollary worth stating: **the effect-import-for-instances pattern (Modules §3.4, example (i)) is nearly vestigial in v1.** It becomes load-bearing only when re-exports or a package story widen the gap between "names in scope" and "modules in graph." Modules §13 example (i) gains a note to this effect so nobody reads it as a daily idiom.
+The corollary worth stating: **the effect-import-for-instances pattern (Modules §3.3 and §13 example (i)) is nearly vestigial in v1.** It becomes load-bearing only when re-exports or a package story widen the gap between "names in scope" and "modules in graph." Modules §13 example (i) gains a note to this effect so nobody reads it as a daily idiom.
 
 ### B.2 The obligation (new Modules §7.6)
 
