@@ -182,6 +182,33 @@ function uppercaseStartName(name: Parsed.ModuleName): boolean {
   return name.segments.every(({ startClass }) => startClass === "upper");
 }
 
+/**
+ * The **alias** a refused head's rewrite carries: the spelling that stood in the
+ * alias seat, reduced to what an alias may be (Modules §3.1) — its last dotted
+ * segment, upper-cased at its start — or `undefined` where nothing stood there
+ * and where that yields no lawful alias (`import Render.用户 from "./geometry"`).
+ *
+ * A stale head's alias seat can hold a spelling no alias may be, because the
+ * heads this serves are the half-migrated ones: `import Render.Geometry from
+ * "./geometry"` is a module name written into v1's alias slot. Handing the
+ * written text back — `import Geometry as Render.Geometry` — printed a line the
+ * language refuses at once, which is the one thing Declarations Preamble §1.1's
+ * Rewrite Rule forbids a rewrite to do. The segments before the last are the
+ * *name*'s and never bind (§2.3), so the last segment is the whole of what the
+ * author asked to bind; `#importRewrite` then drops the clause where it is the
+ * derived name's own last segment, and `import Geometry` is what is offered.
+ *
+ * The **recovery binds this same alias**, never the written one: a lowercase
+ * `geometry` bound as a module alias is a binding the alias rule forbids and
+ * nothing downstream would report.
+ */
+function rewriteAlias(written: Parsed.ModuleName | undefined): string | undefined {
+  const last = written?.segments.at(-1)?.text;
+  if (last === undefined) return undefined;
+  const capitalised = last.charAt(0).toUpperCase() + last.slice(1);
+  return MODULE_NAME_SEGMENT.test(capitalised) ? capitalised : undefined;
+}
+
 /** One module header or closer, with where in the item list it stood. */
 interface ModuleMarker {
   readonly kind: "header" | "closer";
@@ -557,12 +584,15 @@ class Parser {
         // §2.2's family, not §2.1's: this file *does* declare its module, and
         // the fault is the item standing above the header — so the report says
         // so, and names no name derived from the path, which is a spelling the
-        // language never reads (§2.1, §9.2). The items are folded into the
-        // module the header opens, so one misplaced line unbinds nothing.
+        // language never reads (§2.1, §9.2). The sentence is §10's own row,
+        // as `8e5c7fc` (#835) settled it: the repair moves the **header**, the
+        // direction §2.2 states ("its fixit the header moved above the item").
+        // The items are folded into the module the header opens, so one
+        // misplaced line unbinds nothing.
         this.#diagnostics.add({
           severity: "error",
-          message: `code outside a module: \`module ${firstHeader.name.text}\` opens the ` +
-            "file's first module below; move this item under that header",
+          message: "code outside a module: a module begins with its header; move " +
+            `\`module ${firstHeader.name.text}\` above this item`,
           primary: leading[0]!.span,
         });
       }
@@ -1485,17 +1515,22 @@ class Parser {
     // "./x"` wrote no alias — and reading the word as one would spend the
     // token the specifier clause needs and draw a second report for a head
     // §13(n) pins with one.
-    const aliasToken = this.#atName() && !(this.#atContextual("from") && this.#peek(1).kind === "String")
-      ? (this.#advance() as Lexed.NameToken)
+    //
+    // The whole **dotted** spelling is read where one stands there, for the
+    // reason the head's own name is (`#parseModuleNameReference`): stopping at
+    // the dot leaves `.Geometry` to the item grammar, and `import * as
+    // Render.Geometry from "./x"` drew four reports where §13(n) pins one.
+    const written = this.#atName() && !(this.#atContextual("from") && this.#peek(1).kind === "String")
+      ? this.#parseModuleNameReference()
       : undefined;
     this.#expectContextual("from", "expected `from` before the module path");
     const specifier = this.#parseImportSpecifier();
     const span = spanFrom(start.span, specifier.span);
     const name = derivedModuleName(specifier.value);
-    // The written alias is kept only where it could stand as one: uppercase,
-    // and different from the derived name (§3.1 — "kept where it differs from
-    // that name, dropped where it does not").
-    const alias = aliasToken?.kind === "UpperName" ? aliasToken.text : undefined;
+    // The written alias reduced to one an alias may be, and kept only where it
+    // differs from the derived name (§3.1 — "kept where it differs from that
+    // name, dropped where it does not"): `rewriteAlias`.
+    const alias = rewriteAlias(written);
     this.#diagnostics.add({
       severity: "error",
       message: `Hexagon imports name modules: write \`${this.#importRewrite(name, alias)}\``,
@@ -1512,7 +1547,7 @@ class Parser {
       alias: {
         text: alias ?? name,
         startClass: "upper",
-        span: aliasToken?.span ?? span,
+        span: written?.span ?? span,
       },
       span,
     };
@@ -1530,7 +1565,12 @@ class Parser {
     const specifier = this.#parseImportSpecifier();
     const span = spanFrom(start.span, specifier.span);
     const name = derivedModuleName(specifier.value);
-    const rewrite = this.#importRewrite(name, written.text);
+    // The written spelling reduced to an alias (`rewriteAlias`), so the message
+    // and the recovery say one thing and the line offered is a line: a
+    // half-migrated `import Render.Geometry from "./geometry"` is offered
+    // `import Geometry`, never `import Geometry as Render.Geometry`.
+    const alias = rewriteAlias(written);
+    const rewrite = this.#importRewrite(name, alias);
     this.#diagnostics.add({
       severity: "error",
       message: `Hexagon imports name modules: write \`${rewrite}\``,
@@ -1543,7 +1583,7 @@ class Parser {
     return {
       kind: "Import",
       module: derivedModuleNameReference(name, span),
-      alias: written.segments.at(-1)!,
+      alias: { text: alias ?? name, startClass: "upper", span: written.span },
       span,
     };
   }

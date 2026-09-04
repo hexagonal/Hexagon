@@ -524,16 +524,22 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
     return repaired.slice(HEAD_PREFIX.length).trimEnd();
   }
 
-  test("all four, in one file", () => {
+  test("all five, in one file", () => {
+    // §3.1 and §13(n) name **five** refused heads, and the path form is the one
+    // every `.hex` file on disk used until #829 — it led the list and had no
+    // test that could fail (#836 review B2): deleting `#refusePathForm`'s
+    // report left the whole compiler suite green.
     expect(messages([
       GEOMETRY,
       ["/main.hex",
-        "module Main\n\n" + 'import module Geo from "./geometry"\n' +
+        "module Main\n\n" + 'import Geo from "./geometry"\n' +
+        'import module Geo1 from "./geometry"\n' +
         'import * as Geo2 from "./geometry"\n' +
         'import { area } from "./geometry"\n' +
         'import Geometry as geometry\n'],
     ])).toEqual([
       'Hexagon imports name modules: write `import Geometry as Geo`',
+      'Hexagon imports name modules: write `import Geometry as Geo1`',
       'Hexagon imports name modules: write `import Geometry as Geo2`',
       'Hexagon imports name modules: write `import Geometry` ' +
         "and reach `area` as `Geometry.area`",
@@ -541,6 +547,62 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
       // rather than written back (§3.1's redundant-alias rule).
       'a module alias is uppercase-start; write `import Geometry`',
     ]);
+  });
+
+  /**
+   * The path form's rewrite is a **line** (Declarations Preamble §1.1), which
+   * is the whole demand the Rewrite Rule makes (#836 review B3).
+   *
+   * The alias seat of a half-migrated head — module name written, path not yet
+   * dropped — holds spellings no alias may be. Handing the written text back
+   * printed `import Geometry as Render.Geometry`, which the language refuses at
+   * once, and `import Geometry as render.geometry`, which refuses twice; the
+   * recovery meanwhile bound `geometry` as a module alias, which the alias rule
+   * forbids and nothing reported. §3.1's rule reads over the *alias* the seat
+   * can hold: the last segment, upper-cased, dropped where it is the derived
+   * name's own.
+   */
+  test("the path form's rewrite is the line, whatever stood in the alias seat", () => {
+    for (
+      const [written, repaired] of [
+        ['import Geo from "./geometry"', "import Geometry as Geo"],
+        // The alias the default already spells, dropped rather than written back.
+        ['import Geometry from "./geometry"', "import Geometry"],
+        // The segments before the last are the *name*'s and never bind (§2.3),
+        // so the alias is `Geometry` — which is the default, and goes.
+        ['import Render.Geometry from "./geometry"', "import Geometry"],
+        ['import render.geometry from "./geometry"', "import Geometry"],
+        // A lowercase alias is upper-cased, as at `import Geometry as geo`.
+        ['import geo from "./geometry"', "import Geometry as Geo"],
+        // The stale heads share the seat and the rule.
+        ['import * as Render.Geometry from "./geometry"', "import Geometry"],
+        ['import module render.geometry from "./geometry"', "import Geometry"],
+      ] as const
+    ) {
+      // `soleFixApplied` is the standard: one report, one fix, and the file it
+      // produces draws nothing at all.
+      expect(soleFixApplied(written)).toBe(repaired);
+    }
+  });
+
+  test("a written alias no alias could be is dropped, not printed back", () => {
+    // Upper-casing `用户` is a no-op, so there is no alias to keep — and the
+    // module name is the derived one either way.
+    expect(parseHead('import Render.用户 from "./geometry"').map(({ message }) => message))
+      .toEqual(["Hexagon imports name modules: write `import Geometry`"]);
+  });
+
+  test("the recovered import binds the alias the rewrite spells, never the written one", () => {
+    // §5.2: the refused line still recovers an import, so uses below it resolve
+    // — under `Geometry`, the alias the offered line binds. A recovery binding
+    // the written `geometry` would put a lowercase module alias in scope, which
+    // §3.1 forbids and no seat reports.
+    expect(messages([
+      GEOMETRY,
+      ["/main.hex",
+        "module Main\n\n" + 'import render.geometry from "./geometry"\n' +
+        "export let n: Float = Geometry.area(2.0)\n"],
+    ])).toEqual(["Hexagon imports name modules: write `import Geometry`"]);
   });
 
   test("the derived alias upper-cases each separator-delimited segment", () => {
