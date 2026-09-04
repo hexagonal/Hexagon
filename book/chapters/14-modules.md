@@ -31,7 +31,8 @@ the module's name exists. That is why every file declares a module: a file witho
 header is refused, and the compiler offers to insert one derived from the filename —
 `search-params.hex` gets `module SearchParams` — so the migration of an old file is
 one accepted fixit. The name is uppercase-start, like every module alias, and it may
-be dotted: `module Render.Geometry` is one module whose name has two segments, a way of grouping modules that the Packages chapter returns to.
+be dotted: `module Render.Geometry` is one module whose name has two segments, a way
+of grouping modules that the Packages chapter returns to.
 
 `module` is not a reserved word. It introduces a module only at the head of a
 top-level item, followed by a name; anywhere else it is an ordinary identifier, and so
