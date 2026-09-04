@@ -60,7 +60,7 @@ Related forms and likely lookup terms should point to one another.
 | package | Chapter 28, opening and “A package is a manifest and the modules beneath it” | `hexagon.json`; see **full name**, **project** |
 | full name | Chapter 28, “A package is a manifest and the modules beneath it” | `Acme.Geometry`; qualified imports; emitted layout; the `$hex` brand |
 | project | Chapter 28, “The project is a package with no name” | Root package; publication |
-| namespace, package | Chapter 28, opening and “A package is a manifest and the modules beneath it” | “Bare when unique, qualified when contested”: occlusion by the resolving package’s own module; the contest refusal |
+| namespace, package | See **package** | “Bare when unique, qualified when contested”: occlusion by the resolving package’s own module; the contest refusal |
 | mutable variable | Chapter 16, opening definition | `var`, `:=`, and lambda boundary |
 | n-ary | Chapter 3, “Arity is part of a function” | See **arity** |
 | nominal type | Chapter 9, “A declaration gives a record identity” | See also **record** and **type identity** |

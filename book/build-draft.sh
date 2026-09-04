@@ -133,6 +133,10 @@ part_for_chapter() {
   echo '25. [TypeScript Output](#chapter-25)'
   echo '26. [JavaScript Input](#chapter-26)'
   echo '27. [Constraints in JavaScript](#chapter-27)'
+  echo
+  echo '## Part VII — Programs'
+  echo
+  echo '28. [Packages](#chapter-28)'
 
   for index in "${!chapters[@]}"; do
     number=$((index + 1))

@@ -109,7 +109,8 @@ underneath you.
 
 A dotted spelling has two possible readings, and the rule that keeps them apart is
 small. A dotted spelling like `Acme.Geometry` is read as a package's module wherever
-`Acme` is a package your module can see, and as a module's own dotted name otherwise —
+`Acme` is a package your module can see other than your own, and as a module's own
+dotted name otherwise —
 and the compiler refuses any module whose dotted name begins with the name of a package
 in the program, so a spelling never has two readings at once. A dotted `module
 Acme.Tools` in a project that depends on `Acme` is refused at its header; the fix is a
@@ -160,7 +161,7 @@ from a project module at the root to the prelude is therefore `"./Hex/Option.js"
 from a module one level down, `"../Hex/Option.js"`. Two program-scoped files sit at the
 root as well, each emitted only when the program owes it: `hex.d.ts`, the type
 declarations a generated `.d.ts` refers to, and `hex.js`, which a module reaches for
-when one of its own names collides with a JavaScript global.
+when one of its own names collides with a JavaScript global the runtime uses.
 
 Two packages' same-named modules never collide on disk, and the output is a closed
 tree of relative imports: it runs from wherever it is copied, and imports nothing from

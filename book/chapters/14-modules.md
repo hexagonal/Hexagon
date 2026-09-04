@@ -152,8 +152,8 @@ explains.
 
 ## A bare name is a declaration
 
-When a qualified spelling is more than a file wants to write, the file declares the
-bare name itself. A module-level `let` binds a function or a value and keeps its
+When a qualified spelling is more than a module wants to write, the module declares
+the bare name itself. A module-level `let` binds a function or a value and keeps its
 polymorphism; a `type` alias names a type:
 
 ```hexagon
@@ -495,7 +495,7 @@ language does not impose a second entry-point mechanism on top of ordinary modul
 evaluation.
 
 Pure Hexagon modules also contain no mutable module state. `var` is function-local, so
-an export exposes values and functions rather than a cell that another file can
+an export exposes values and functions rather than a cell that another module can
 change. Foreign JavaScript may of course hide state behind an imported function; that
 is an interoperation concern, not module-level Hexagon mutation.
 
