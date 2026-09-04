@@ -3,14 +3,16 @@
 As a program grows, its declarations need homes and its public surface needs edges.
 In Hexagon, the rule is deliberately small:
 
-> A file is a module, and a module is a file.
+> A module is a named declaration. It says its own name, and another module reaches
+> it by that name.
 
-A `.hex` file needs no `module` header. Its path identifies it, and another file
-chooses how to name what it imports.
-
-Suppose `geometry.hex` contains:
+A module begins with a header line naming it. Nothing below the header indents on its
+account; the body sits at the file's own margin, exactly as it would without one.
+Suppose a file contains:
 
 ```hexagon
+module Geometry
+
 export record Point = {x: Float, y: Float}
 
 export let distanceFromOrigin(point: Point): Float =
@@ -19,9 +21,54 @@ export let distanceFromOrigin(point: Point): Float =
 let origin = Point({x = 0.0, y = 0.0})
 ```
 
-`Point` and `distanceFromOrigin` are public. `origin` is private to this file. Privacy
+`Point` and `distanceFromOrigin` are public. `origin` is private to this module. Privacy
 is the default; there is no separate export list elsewhere that can drift away from
 the declarations.
+
+The file's name and the directory it sits in mean nothing to the language. The
+compiler discovers the files of a project, and `module Geometry` is the only place
+the module's name exists. That is why every file declares a module: a file without a
+header is refused, and the compiler offers to insert one derived from the filename —
+`search-params.hex` gets `module SearchParams` — so the migration of an old file is
+one accepted fixit. The name is uppercase-start, like every name that stands left of a
+dot, and it may be dotted: `module Render.Geometry` is one module whose name has two
+segments, a way of grouping modules that the Packages chapter returns to.
+
+`module` is not a reserved word. It introduces a module only at the head of a
+top-level item, followed by a name; anywhere else it is an ordinary identifier, and so
+is `end`, which the next section uses.
+
+## Several modules can share a file
+
+A file may hold more than one module. Each has its own header, and every module but
+the last is closed by `end module` and its name before the next header begins:
+
+```hexagon
+module Geometry
+
+export record Point = {x: Float, y: Float}
+
+end module Geometry
+
+module Shapes
+
+import Geometry
+
+export let unit(): Geometry.Point = Geometry.Point({x = 0.0, y = 0.0})
+
+end module Shapes
+```
+
+The closer is what separates one module from the next, so it is required exactly
+where there is something to separate. A file holding one module may omit it; the
+module runs to the end of the file. A second header met while the module before it
+is still open is an error, and the fixit inserts the missing closer above it.
+
+Sharing a file gives the two modules nothing. `Shapes` imports `Geometry` above
+although both sit in one file, and would be refused without the line. Grouping is a
+matter of where text lives; scope is a matter of what a module imports. Moving a
+module between files therefore changes nothing about what compiles, which is the
+point of naming modules rather than paths.
 
 ## Exports publish declarations by name
 
@@ -51,39 +98,51 @@ binding.
 
 ## Imports bind modules
 
-An import brings one module into scope under a name you choose. That is the whole of
-it: there is no form that imports a single function, type, or constructor by name.
+An import names a module and brings it into scope. That is the whole of it: there is
+no form that imports a single function, type, or constructor by name.
 
 ```hexagon
-import Geo from "./geometry"
+import Geometry
 
-let point = Geo.Point({x = 3.0, y = 4.0})
-let distance = Geo.distanceFromOrigin(point)
+let point = Geometry.Point({x = 3.0, y = 4.0})
+let distance = Geometry.distanceFromOrigin(point)
 ```
 
-Module paths are relative string literals with the extension omitted. The alias begins
-with an uppercase letter, and every export is reached through it: terms, types,
-constructors, and constraints alike. Qualification works in term, type, and pattern
-positions:
+There is no path and no string. `Geometry` is the name the module declared in its
+header, and it is what the import writes. The alias is that name unless you choose
+another with `as`:
 
 ```hexagon
+import Geometry as Geo
+
 let length(point: Geo.Point): Float = Geo.distanceFromOrigin(point)
 ```
 
-A reader of the consuming file can see where every name comes from without opening
-another file. That is the property the rule buys, and it is why the line reads like a
-JavaScript default import but is not one. JavaScript's `import Geo from "./geometry"`
-asks for a default export; Hexagon has none, and the same spelling binds the whole
-module. The uppercase alias is the tell.
+Every export is reached through the alias: terms, types, constructors, and
+constraints alike. Qualification works in term, type, and pattern positions. A reader
+of the consuming module can see where every name comes from without opening another
+file, and that is the property the rule buys.
+
+The alias begins with an uppercase letter, which every module name already does. A
+dotted module name binds its last segment by default — `import Render.Geometry`
+binds `Geometry` — and `as` chooses a different spelling where two imports would
+otherwise land on one.
 
 Module aliases are namespaces, not values:
 
 ```hexagon
-let saved = Geo // error: modules are not values
+let saved = Geometry // error: modules are not values
 ```
 
 They cannot be passed to a function, returned, or stored in a record. Functions and
 records already provide those forms of program data.
+
+A JavaScript author's first instinct, `import Geo from "./geometry"`, is refused with
+its rewrite, `import Geometry as Geo`. Hexagon imports name modules; a path names a
+file, and a file is a container, not a module. The foreign side keeps its paths and
+package names: `extern from "tiny-json"` reads a JavaScript module, which is a
+declaration of foreign names and not an import, as the JavaScript Input chapter
+explains.
 
 ## A bare name is a declaration
 
@@ -92,7 +151,7 @@ bare name itself. A module-level `let` binds a function or a value and keeps its
 polymorphism; a `type` alias names a type:
 
 ```hexagon
-import Geo from "./geometry"
+import Geometry as Geo
 
 let distance = Geo.distanceFromOrigin
 type Point = Geo.Point
@@ -110,7 +169,7 @@ constructors of the scrutinee's type may be written bare in a pattern, whatever 
 declared them:
 
 ```hexagon
-import Direction from "./direction"
+import Direction
 
 let turn(d: Direction): Direction =
     match d
@@ -121,9 +180,9 @@ let turn(d: Direction): Direction =
 ```
 
 The pattern side reads the constructor off the type the compiler already knows the
-scrutinee to have, so `North` in an arm means `Direction.North` unless this file
+scrutinee to have, so `North` in an arm means `Direction.North` unless this module
 declares a `North` of its own. The expression side has no such anchor, which is why the
-arm bodies spell the constructor qualified. A constructor you declared in this file
+arm bodies spell the constructor qualified. A constructor you declared in this module
 wins the bare spelling in both places; the door only opens where the name would
 otherwise be unknown.
 
@@ -133,30 +192,32 @@ There is no import that loads a module for its effects alone. A pure Hexagon mod
 holds no state, so it cannot register anything at load time; the idiom for a setup
 effect is an exported function the importer calls, `Telemetry.init()`, where the reader
 can see when it runs. A module that exists to be run is a root module, covered below,
-not something another file imports. Instances need no loading step either: naming a
+not something another module imports. Instances need no loading step either: naming a
 type brings its home module, and with it the instances declared there, into the
 program.
 
 ## Companion modules give operations a home
 
-The **home module** of a nominal type is the file that declares it. The
+The **home module** of a nominal type is the module that declares it. The
 standard-library spelling `Vector.append` is not a special namespace mechanism. It is
 the ordinary module pattern applied consistently: exported functions in a type's home
 module operate on that type.
 
-A user-defined type can follow the same pattern. In `point.hex`:
+A user-defined type can follow the same pattern. Name the module after the type:
 
 ```hexagon
+module Point
+
 export record Point = {x: Float, y: Float}
 
 export let translate(point: Point, dx: Float, dy: Float): Point =
     {point with x = point.x + dx, y = point.y + dy}
 ```
 
-A consumer gives the module the type's own name:
+A consumer then imports it under that name, which is the default:
 
 ```hexagon
-import Point from "./point"
+import Point
 
 let start: Point = Point({x = 1.0, y = 2.0})
 let moved = Point.translate(start, 3.0, 4.0)
@@ -168,7 +229,7 @@ selects the constructor, for the same reason, in an expression and in a pattern.
 are the companion fallbacks: where the alias's own spelling names nothing in the type
 or term namespace, a same-spelled export of the aliased module answers. A module whose
 type is not spelled like its alias takes the qualified spelling, or a `type` alias of
-your own. Many modules choose a plural alias instead; the companion spelling is
+your own. Many modules choose a plural name instead; the companion spelling is
 available without a special module system.
 
 Dot calls build on this exact organization. If `translate` is exported and subject
@@ -191,7 +252,7 @@ export let fromInt(value: Int): UserId = UserId({value})
 export let value(userId: UserId): Int = userId.value
 ```
 
-Outside this file, callers can name `UserId` and use the exported functions. They
+Outside this module, callers can name `UserId` and use the exported functions. They
 cannot call the private `UserId` constructor, read `.value`, destructure the record, or
 update it by spreading fields.
 
@@ -346,16 +407,19 @@ polymorphic type system used for private bindings.
 
 ## Names remain predictable
 
-Two imports that bind the same alias are an error, and the importer chooses the
-aliases, so the fix is always local:
+Two imports that bind the same alias are an error, and the importer can always
+choose another spelling with `as`, so the fix is always local:
 
 ```hexagon
-import MapView from "./map-view"
-import ChartView from "./chart-view"
+import Render.View as MapView
+import Chart.View as ChartView
 
 let renderMap = MapView.render
 let renderChart = ChartView.render
 ```
+
+Both modules are named `View` in their last segment, so without `as` the second line
+would try to bind `View` twice.
 
 Nothing an import does can change the meaning of a name you declared, because an
 import declares nothing but its alias.
@@ -364,7 +428,10 @@ The prelude sits in an outer scope layer, and it puts very little into it bare: 
 constructors `True`, `False`, `Some`, `None`, `Ok`, `Err`, the exceptions, `ignore`, and
 `show`. Type and constraint names such as `Option` and `Show` are always in scope; every
 other prelude term is reached by the dot or by its module name — `Seq.map`, `Int.compare`,
-`Debug.log` — so the words you want for your own program stay yours. A module-level
+`Debug.log` — so the words you want for your own program stay yours. The prelude's
+modules belong to the standard library's package, `Hex`, and a project that declares a
+`module Vector` of its own simply wins the bare name; the library's stays reachable as
+`Hex.Vector`. The Packages chapter explains that arrangement. A module-level
 declaration may deliberately use one of the bare names and becomes the unqualified meaning
 throughout that module; the prelude operation remains available through its qualified
 home. Function-local bindings remain stricter and cannot silently replace an existing
@@ -379,7 +446,7 @@ inside a function.
 Hexagon rejects every import cycle, including cycles used only for types:
 
 ```text
-./a → ./b → ./a
+import cycle: A → B → A
 ```
 
 Mutually recursive declarations belong in one module. The acyclic rule gives programs
@@ -393,7 +460,9 @@ source order.
 Top-level expressions are allowed when they produce `Unit`:
 
 ```hexagon
-import Console from "./console"
+module Main
+
+import Console
 
 Console.print("application loaded")
 ```
@@ -404,16 +473,18 @@ be bound or explicitly ignored.
 ## A root module runs without a special `main`
 
 Hexagon assigns no special meaning to a function named `main`. A compiler host selects
-a root module; evaluating the resulting ESM graph loads its imports and performs its
-top-level effects.
+a root module by its name; evaluating the resulting ESM graph loads its imports and
+performs its top-level effects.
 
 ```hexagon
-import Server from "./server"
+module Main
+
+import Server
 
 Server.start(configuration)
 ```
 
-That file can be selected as an application root or imported by another module. The
+That module can be selected as an application root or imported by another module. The
 language does not impose a second entry-point mechanism on top of ordinary module
 evaluation.
 
@@ -424,23 +495,29 @@ is an interoperation concern, not module-level Hexagon mutation.
 
 ## Modules emit as modules
 
-One Hexagon file emits as one ESM file. The source:
+One Hexagon module emits as one ESM file, named by the module. The source:
 
 ```hexagon
-import Point from "./point"
+module Origin
+
+import Point
 
 export let origin: Point = Point({x = 0.0, y = 0.0})
 let label = "origin"
 ```
 
-has a direct JavaScript shape:
+emits `Origin.js`, with a direct JavaScript shape:
 
 ```js
-import * as Point from "./point.js";
+import * as Point from "./Point.js";
 
 export const origin = {x: 0.0, y: 0.0};
 const label = "origin";
 ```
+
+A file holding two modules emits two files, and the source file's own name appears
+nowhere in the output. A dotted module name becomes a directory: `Render.Geometry`
+emits `Render/Geometry.js`.
 
 Private declarations remain ordinary private ESM bindings. The module import lowers to
 JavaScript's own namespace import, `import * as Point`; a name the file reaches through
@@ -453,10 +530,11 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 
 ## Summary
 
-- one `.hex` file is one module, identified by its path and requiring no header;
+- a module declares its name in a `module` header; a file holds one module or several,
+  closed by `end module` where a second follows, and its path means nothing;
 - declarations are private unless prefixed with `export`;
-- an import binds one module under an alias the importer chooses, and nothing else;
-  a module is imported for its names, never loaded for its effects;
+- `import Geometry` binds one module by its name, under that name or an `as` alias,
+  and nothing else; a module is imported for its names, never loaded for its effects;
 - a bare name is a declaration of your own, a companion fallback, or a constructor in
   a `match` arm;
 - module aliases are namespaces, not first-class values;
@@ -470,4 +548,4 @@ The next chapter uses that fact to explain the convenient dot-call spelling.
 - imports are acyclic and initialize dependencies before dependants;
 - a selected root runs through ordinary top-level module evaluation, without `main`;
   and
-- Hexagon modules emit directly as ESM modules.
+- Hexagon modules emit directly as ESM modules, each file named by its module.

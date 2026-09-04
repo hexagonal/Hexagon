@@ -54,8 +54,13 @@ Related forms and likely lookup terms should point to one another.
 | let-polymorphism | Chapter 6, “A `let`-bound function can be reused at several types” | See also **value restriction** |
 | method-style call | See **dot call** | — |
 | monomorphic | Chapter 6, “A parameter has one type within one call” | Chapter 6, value restriction and recursive calls |
-| module | Chapter 14, opening definition | Imports, exports, loading, and root execution |
-| module alias | Chapter 14, “Imports can be direct or qualified” | Companion-module idiom; modules are not values |
+| module | Chapter 14, opening definition | Imports, exports, loading, and root execution; Chapter 28, full names |
+| module header | Chapter 14, opening definition | `module Name`; `end module Name`; several modules in one file |
+| module alias | Chapter 14, “Imports bind modules” | `as`; companion-module idiom; modules are not values |
+| package | Chapter 28, opening and “A package is a manifest and the modules beneath it” | `hexagon.json`; see **full name**, **project** |
+| full name | Chapter 28, “A package is a manifest and the modules beneath it” | `Acme.Geometry`; qualified imports; emitted layout; the `$hex` brand |
+| project | Chapter 28, “The project is a package with no name” | Root package; publication |
+| namespace, package | Chapter 28, “Bare when unique, qualified when contested” | Occlusion by the resolving package’s own module; the contest refusal |
 | mutable variable | Chapter 16, opening definition | `var`, `:=`, and lambda boundary |
 | n-ary | Chapter 3, “Arity is part of a function” | See **arity** |
 | nominal type | Chapter 9, “A declaration gives a record identity” | See also **record** and **type identity** |

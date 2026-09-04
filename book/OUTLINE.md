@@ -90,8 +90,10 @@ the common pattern language used to take those values apart.
 15. **Dot Calls**
 
 This part explains generic capabilities, generated lawful behavior, the module and
-privacy model, companion homes, and the convenient dot spelling for subject-first
-functions.
+privacy model (modules named by header, imported by name), companion homes, and the
+convenient dot spelling for subject-first functions. Packages — how modules are shared
+between projects — wait for Part VII, after the reader has seen where output goes and
+how JavaScript packages enter.
 
 ## Part IV — State and Flow
 
@@ -121,8 +123,17 @@ constraint feature used to connect a collection with its iteration item type.
 26. **JavaScript Input**
 27. **Constraints in JavaScript**
 
-The final part gathers the runtime story, public typed surface, trusted foreign-input
+This part gathers the runtime story, public typed surface, trusted foreign-input
 model, and the special JavaScript API generated for constrained polymorphic exports.
+
+## Part VII — Programs
+
+28. **Packages**
+
+The last part steps back from one program's modules to the packages a program is
+assembled from: the manifest, package names as namespaces, what a module can see,
+resolution by name with occlusion and refusal, source distribution through npm,
+whole-program compilation across packages, and the emitted layout.
 
 ## Closing material
 

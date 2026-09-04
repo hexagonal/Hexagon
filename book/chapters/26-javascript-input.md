@@ -119,8 +119,8 @@ extern import "telemetry/register"
 ```
 
 It introduces no name and runs the foreign module's top-level effects. Foreign module
-specifiers may be package names because they follow JavaScript resolution rather than
-the relative `.hex` module rules.
+specifiers are paths or package names because they follow JavaScript resolution; a
+Hexagon import names a module and carries no specifier at all.
 
 ## `Nullable` is the foreign nullish door
 

@@ -44,3 +44,7 @@
 25. [TypeScript Output](chapters/25-typescript-output.md)
 26. [JavaScript Input](chapters/26-javascript-input.md)
 27. [Constraints in JavaScript](chapters/27-constraints-in-javascript.md)
+
+## Part VII — Programs
+
+28. [Packages](chapters/28-packages.md)

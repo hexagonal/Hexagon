@@ -35,6 +35,7 @@ chapters=(
   "25-typescript-output.md"
   "26-javascript-input.md"
   "27-constraints-in-javascript.md"
+  "28-packages.md"
 )
 
 chapter_titles=(
@@ -65,6 +66,7 @@ chapter_titles=(
   "TypeScript Output"
   "JavaScript Input"
   "Constraints in JavaScript"
+  "Packages"
 )
 
 part_for_chapter() {
@@ -75,6 +77,7 @@ part_for_chapter() {
     16) echo "Part IV — State and Flow" ;;
     22) echo "Part V — Collections and Implied Types" ;;
     24) echo "Part VI — JavaScript and TypeScript" ;;
+    28) echo "Part VII — Programs" ;;
   esac
 }
 

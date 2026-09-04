@@ -14,11 +14,12 @@ open specification work does not make the book outline provisional.
 
 ## Language foundations
 
-1. **Modules** — Source files are modules. Imports are
+1. **Modules** — A module declares its name in a `module` header; a file holds one
+   or several, closed by `end module` where a second follows. Imports are
    acyclic, top-level effects run in dependency order, and the selected root module
-   runs without a special `main` function. Modules have one import form: an import
-   binds a module under an uppercase alias the importer chooses, and a module is
-   imported for its names, never loaded for its effects. Public and opaque exports
+   runs without a special `main` function. Modules have one import form: `import Name`
+   binds a module by the name it declared, under that name or an `as` alias, and a
+   module is imported for its names, never loaded for its effects. Public and opaque exports
    complete the surface. Opacity is taught here for both
    records and unions, after privacy and home modules are established, together with
    the `+a` / `-a` variance claim a parameterized opaque type uses to say what it
@@ -184,6 +185,14 @@ open specification work does not make the book outline provisional.
     public dictionaries exist, a generic dictionary-taking JavaScript function. This
     preserves
     zero-cost ordinary calls while keeping the TypeScript surface honest.
+
+28. **Packages** — A package is a directory with a `hexagon.json` naming it; its
+   name is the namespace supplying every module's full name (`Acme.Geometry`), the
+   standard library is the package `Hex`, and a module sees its own package, `Hex`,
+   and its direct dependencies. Bare names resolve when unique, the resolving
+   package's own module wins silently, and a contest between packages is refused
+   naming every full spelling. Packages ship source through npm and the program is
+   compiled whole; output lays every other package under its own directory.
 
 ## Cross-cutting promises
 
