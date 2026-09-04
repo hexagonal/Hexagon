@@ -2,6 +2,11 @@ import { expect, test } from "vitest";
 
 import * as Source from "./support/source.js";
 import { compileProject, unresolvedModuleMessage } from "./project.js";
+import {
+  fullModuleName,
+  moduleLayoutPath,
+  type ProgramModule,
+} from "./packages.js";
 
 test("compiles a relative module import, alongside a bystander import", () => {
   // #762: there is one import form now — a module alias — so this no longer
@@ -450,6 +455,15 @@ test("reports a type error found only by the checker", () => {
 });
 
 
+/** A module of the program, addressed as `moduleIndexOf` addresses one. */
+function programModule(
+  packageName: string | undefined,
+  declaredName: string,
+): ProgramModule {
+  const fullName = fullModuleName(packageName, declaredName);
+  return { packageName, declaredName, fullName, path: moduleLayoutPath(fullName) };
+}
+
 /**
  * Modules §10's two unreachable rows (#836 review B2). The package set this
  * slice assembles is `{project, Hex}`, which no contest and no
@@ -460,8 +474,8 @@ test("a contested name quotes each package and offers each full spelling", () =>
   expect(unresolvedModuleMessage("Geometry", {
     kind: "Contested",
     providers: [
-      { packageName: "Acme", declaredName: "Geometry", fullName: "Acme.Geometry" },
-      { packageName: "Hex", declaredName: "Geometry", fullName: "Hex.Geometry" },
+      programModule("Acme", "Geometry"),
+      programModule("Hex", "Geometry"),
     ],
   })).toBe(
     "`Geometry` is provided by `Acme` and `Hex`; write `import Acme.Geometry` " +
@@ -473,8 +487,8 @@ test("an unnamed project is prose in the contest, the one participant with no na
   expect(unresolvedModuleMessage("Geometry", {
     kind: "Contested",
     providers: [
-      { packageName: undefined, declaredName: "Geometry", fullName: "Geometry" },
-      { packageName: "Hex", declaredName: "Geometry", fullName: "Hex.Geometry" },
+      programModule(undefined, "Geometry"),
+      programModule("Hex", "Geometry"),
     ],
   })).toBe(
     "`Geometry` is provided by this project and `Hex`; write `import Geometry` " +

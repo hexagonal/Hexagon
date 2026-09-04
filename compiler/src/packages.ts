@@ -39,6 +39,20 @@ export interface ProgramModule {
   readonly declaredName: string;
   /** The package's name, a dot, and the declared name (Packages §2.3). */
   readonly fullName: string;
+  /**
+   * The module's **layout address** (Packages §6) — `moduleLayoutPath` of the
+   * full name under the resolving project's name, carried rather than
+   * recomputed.
+   *
+   * One module has one address, and it is computed once, where the module is
+   * seated. Two call sites each laying the name out again is how the project
+   * segment came to be elided at the seat and kept at the import edge: a named
+   * project's unit sat at `/Geometry.hex` while every edge pointed at
+   * `/Acme/Geometry.hex`, so no import in a named project resolved and the
+   * emitted specifier was `".js"`. Reading the address off the module the
+   * resolution answered with is what makes that disagreement unspellable.
+   */
+  readonly path: string;
 }
 
 /**

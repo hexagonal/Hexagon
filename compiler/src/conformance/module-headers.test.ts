@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { compileFiles } from "../support/test-project.js";
+import { compileFiles, runProject } from "../support/test-project.js";
 import type * as Diagnostics from "../support/diagnostics.js";
 
 /**
@@ -85,9 +85,12 @@ describe("§13 (o) — every file declares its module", () => {
   test("items above a header are code outside a module, and the header is named", () => {
     // §2.2's family, not §2.1's: the file *does* declare its module, so no name
     // derived from a path is offered — a spelling the language never reads.
+    // §10's row verbatim, as `8e5c7fc` (#835) settled it: the repair moves the
+    // **header**, which is §2.2's own direction ("every module begins with its
+    // header … its fixit the header moved above the item").
     expect(messages([["/f.hex", "let stray: Int = 1\nmodule Geometry\n" + POINT]])).toEqual([
-      "code outside a module: `module Geometry` opens the file's first module below; " +
-      "move this item under that header",
+      "code outside a module: a module begins with its header; " +
+      "move `module Geometry` above this item",
     ]);
   });
 
@@ -346,6 +349,25 @@ describe("§2.2 — two modules of one name in one package", () => {
     ]);
   });
 
+  /**
+   * One address holds **one** unit, and it is the one the rule accepted (#836
+   * review B5a). The index registers the *first* declaration of a name and
+   * refuses the second; the compile was keyed by a map built off the unit list,
+   * where the **last** unit at an address won. So the module the rule accepted
+   * was the one nobody could reach: an importer writing `Geo.x` against the
+   * accepted `/a.hex` was told `` module `Geo` does not export `x` ``, naming
+   * an export that is there.
+   */
+  test("the accepted duplicate is the one compiled, and the importer reaches it", () => {
+    expect(messages([
+      ["/a.hex", "module Geo\n\nexport let x: Int = 1\n"],
+      ["/b.hex", "module Geo\n\nexport let y: Int = 2\n"],
+      ["/main.hex", "module Main\n\nimport Geo\nexport let n: Int = Geo.x\n"],
+    ])).toEqual([
+      "module `Geo` is declared twice: `/a.hex` (line 1) and `/b.hex` (line 1)",
+    ]);
+  });
+
   test("the comparison folds case, on the emitted filesystem's account (§11.1)", () => {
     expect(messages([
       ["/a.hex", `module Geometry\n${POINT}`],
@@ -368,6 +390,31 @@ describe("§2.2 — a dotted module's first segment never names a package", () =
       "`Hex.Util` begins with the name of the package `Hex`; a dotted module's first " +
       "segment cannot name a package in the program; rename the module",
     ]);
+  });
+
+  /**
+   * The refused name lays out at an **injected** module's address, and must not
+   * take it (#836 review B5b). `module Hex.Option` seats at `/Hex/Option.hex`,
+   * where `stdlib/Option.hex` already sits; pushed after the injected units, it
+   * won the compile's maps and the whole standard library collapsed behind it —
+   * two hundred reports naming files the author has never opened, and one they
+   * could act on buried among them. The user's file also took `isPrelude`, and
+   * with it the `privileged` intrinsic door, by a route `gatherModules`' own
+   * two-halves adoption test was written to close.
+   */
+  test("a refused `Hex.*` name never displaces the prelude module at its address", () => {
+    const project = compileFiles([
+      ["/mine.hex", "module Hex.Option\n\nexport let mine: Int = 1\n"],
+      ["/main.hex", "module Main\n\nexport let x: Option(Int) = Some(1)\n"],
+    ]);
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([
+      "`Hex.Option` begins with the name of the package `Hex`; a dotted module's " +
+      "first segment cannot name a package in the program; rename the module",
+    ]);
+    // The seat is the prelude's, and the prelude is intact: `Option` is still a
+    // generic type and `Some` still a constructor.
+    const seated = project.modules.filter(({ path }) => path === "/Hex/Option.hex");
+    expect(seated.map(({ name }) => name)).toEqual(["Hex.Option"]);
   });
 
   test("a listed dependency's name is refused at the header", () => {
@@ -489,6 +536,40 @@ describe("Packages §6 — the layout a module emits under", () => {
       "/Main.hex",
       "/Render/Geometry.hex",
     ]);
+  });
+
+  /**
+   * The elision is one rule, so it has to be **one computation**: the address a
+   * unit is seated at and the address an import edge points at are the same
+   * address or the program does not link (#836 review B1).
+   *
+   * Nothing above catches it, because `MAIN` and `NESTED` do not import each
+   * other. With the edge laying the full name out a second time — without the
+   * project's name — a named project's every cross-module import reported
+   * `` unknown name `Geometry` `` and emitted `from ".js"`, which is not a
+   * module at all; unnamed projects were unaffected, so every suite stayed
+   * green. `language-server`'s workspace passes `packageName` straight through
+   * from `hexagon.json`, so this was the first thing a real named project met.
+   */
+  test("a named project's modules import each other, and the specifier is the layout's", async () => {
+    const files = [
+      ["/g.hex", "module Geometry\n\nexport let area: Int = 3\n"],
+      ["/r.hex", "module Render.Geometry\n\nexport let depth: Int = 4\n"],
+      ["/main.hex",
+        "module Main\n\n" + "import Geometry\nimport Render.Geometry as Deep\n" +
+        "export let x: Int = Geometry.area + Deep.depth\n"],
+    ] as const;
+    for (const options of [{}, { packageName: "Acme" }]) {
+      const project = compileFiles(files, options);
+      expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+      const main = project.modules.find(({ name }) => name.endsWith("Main"))!;
+      expect(main.javascript.text).toContain('import * as Geometry from "./Geometry.js";');
+      expect(main.javascript.text).toContain('import * as Deep from "./Render/Geometry.js";');
+    }
+    // And it runs: a linked graph is the only proof the specifiers are real.
+    // The root is named by its **full** name, which is what a named project's
+    // module identity is (Packages §2.3).
+    expect((await runProject(files, { packageName: "Acme", entry: "Acme.Main" }))["x"]).toBe(7);
   });
 
   test("the full name keeps the segment the layout drops", () => {

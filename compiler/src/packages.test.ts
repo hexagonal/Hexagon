@@ -30,7 +30,11 @@ import {
 const HEX: ProgramPackage = { name: "Hex", dependencies: [] };
 
 function module_(packageName: string | undefined, declaredName: string): ProgramModule {
-  return { packageName, declaredName, fullName: fullModuleName(packageName, declaredName) };
+  const fullName = fullModuleName(packageName, declaredName);
+  // The address the module was seated at (§6), carried on the module rather
+  // than laid out again by each reader — `compileProject` reads it back off the
+  // resolution to key the import edge.
+  return { packageName, declaredName, fullName, path: moduleLayoutPath(fullName) };
 }
 
 function indexOf(...modules: readonly ProgramModule[]): ModuleIndex {

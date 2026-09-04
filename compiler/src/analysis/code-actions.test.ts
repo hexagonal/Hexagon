@@ -565,7 +565,11 @@ describe("code actions: infer return type", () => {
     // And what it averts: the projection is `Int`, so `: a` is blamed as soon
     // as the parameter is written — and the user has no generic completion to
     // reach for, because a binder may not carry a projection in this slice.
-    const written = "module Main\n\n" + source.replace("export fun peek(x) = get(x)", "export fun peek(x: Box): a = get(x)");
+    // `source` already carries the header; prefixing a second one made the file
+    // two modules of one name at one layout address, and only one of a pair can
+    // be compiled (Packages §6) — so the report below was reached by whichever
+    // of them won that address, which is no property of this rule at all.
+    const written = source.replace("export fun peek(x) = get(x)", "export fun peek(x: Box): a = get(x)");
     const { session: after } = sessionOf({ "/main.hex": written });
     expect(after.diagnostics("/main.hex").map(({ message }) => message))
       .toContain(

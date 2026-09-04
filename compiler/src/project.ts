@@ -239,10 +239,13 @@ export function compileProject(
   const runtimeBasename = runtimeDeclarationsBasename(units);
 
   const sourcePaths = new Set(sourceFiles.map(({ path }) => path));
-  const byPath = new Map(units.map((unit) => [unit.path, unit]));
+  // The index reads every unit — its two rules are about the *set*, and a unit
+  // that loses its address still has to draw the duplicate report that says so.
   const index = moduleIndexOf(units, diagnostics, projectPackage);
-  const parsed = new Map(units.map((unit) => [unit.path, unit.parsed]));
-  const sources = new Map(units.map((unit) => [unit.path, unit.source]));
+  const seated = seatOneUnitPerAddress(units);
+  const byPath = new Map(seated.map((unit) => [unit.path, unit]));
+  const parsed = new Map(seated.map((unit) => [unit.path, unit.parsed]));
+  const sources = new Map(seated.map((unit) => [unit.path, unit.source]));
 
   /**
    * The edges each module's imports name, keyed by the **written spelling** —
@@ -251,7 +254,7 @@ export function compileProject(
    * set is known, and binds no alias (§5.2).
    */
   const importEdges = new Map<string, Map<string, string>>();
-  for (const unit of units) {
+  for (const unit of seated) {
     const edges = new Map<string, string>();
     importEdges.set(unit.path, edges);
     for (const item of unit.parsed.items) {
@@ -271,7 +274,7 @@ export function compileProject(
       if (edges.has(item.module.text)) continue;
       const resolution = resolveModuleName(item.module.text, packageOf(unit, projectPackage), index);
       if (resolution.kind === "Resolved") {
-        edges.set(item.module.text, moduleLayoutPath(resolution.module.fullName));
+        edges.set(item.module.text, resolution.module.path);
         continue;
       }
       // A **derived** name is the parser's recovery of a refused head (Modules
@@ -317,7 +320,7 @@ export function compileProject(
     visited.add(path);
     ordered.push(path);
   };
-  for (const unit of units) visit(unit.path);
+  for (const unit of seated) visit(unit.path);
   // Prelude modules compile before their consumers, and their identities live in a
   // reserved high range so consumer ids stay stable whether or not a prelude is present.
   // The runtime modules sit among them on both counts, for the same reasons: a
@@ -863,6 +866,42 @@ function runtimeDeclarationsBasename(units: readonly Unit[]): string {
   }
 }
 
+/**
+ * The units that hold their layout address — **one address, one unit** (Packages
+ * §6), the first claimant seated and every later one dropped.
+ *
+ * The address is the compiler's whole identity for a module: `byPath`, the
+ * parsed and source maps, the import edges and the emitted specifier are all
+ * keyed by it. Building those maps straight off the unit list made the *last*
+ * unit at an address win while `moduleIndexOf` registered the **first**, and the
+ * two disagreements that follows from are not cosmetic:
+ *
+ * - Two modules of one name in one package (Modules §2.2) are refused at the
+ *   second header, and the one the rule *accepted* was then the one nobody
+ *   could reach: an importer writing `Geo.x` against the accepted `/a.hex` was
+ *   told "module `Geo` does not export `x`", because `/b.hex` was what compiled.
+ * - A refused `module Hex.Option` in a project file lays out at `/Hex/Option.hex`
+ *   — the injected prelude module's seat — and, pushed after the injected units,
+ *   took it: the whole standard library collapsed behind one report the author
+ *   could act on, and the user's file inherited `isPrelude`, and with it the
+ *   `privileged` intrinsic door, by a route `gatherModules`' two-halves adoption
+ *   test was written to close.
+ *
+ * Seating the first is what `moduleIndexOf` already decided, so the `continue`
+ * there now means what it says. A dropped unit is not silent: its **parse**
+ * reports are surfaced with every other unclaimed unit's, and the rule that
+ * refused it — the duplicate name, the first segment — was drawn from the whole
+ * unit list before anything was dropped.
+ */
+function seatOneUnitPerAddress(units: readonly Unit[]): readonly Unit[] {
+  const claimed = new Set<string>();
+  return units.filter(({ path }) => {
+    if (claimed.has(path)) return false;
+    claimed.add(path);
+    return true;
+  });
+}
+
 /** The package a unit's imports resolve against (Packages §3.1). */
 function packageOf(unit: Unit, project: ProgramPackage): ProgramPackage {
   return unit.packageName === project.name
@@ -1032,6 +1071,11 @@ function moduleIndexOf(
       packageName: unit.packageName,
       declaredName: unit.declaredName,
       fullName: unit.fullName,
+      // The address the unit was seated at, never laid out a second time
+      // (Packages §6): the project's segment is elided at the seat, and an
+      // edge that laid the full name out again would point at a file the
+      // compile has not got.
+      path: unit.path,
     });
   }
   return { byFullName, packages: [project] };
