@@ -1947,19 +1947,34 @@ describe("parse", () => {
         span.end.offset,
         replacement,
       ])).toEqual([[HEADER.length, HEADER.length + text.length - 1, "import Geometry as Geo"]]);
+      // The rewrite is the repair: applied, the line parses clean.
+      const repaired = afterFix(text);
+      expect(repaired.text).toBe(`${HEADER}import Geometry as Geo\n`);
+      expect(repaired.module.diagnostics).toEqual([]);
       // The item still binds the alias the head named: a migration costs one
       // diagnostic per line, never a cascade of unknown names below it.
       expect(module.items).toMatchObject([{ kind: "Import", alias: { text: "Geo" } }]);
     });
 
     /**
-     * The degenerate spelling. `module` after the word `module` is a
-     * non-uppercase-start name standing in the alias seat, and it draws the
-     * seat's own refusal rather than a rule written for the word — except that
-     * the head's own fault leads, so what is pinned is that the stale head is
-     * what the reader is told about.
+     * The degenerate spelling: the stale head with no alias at all. `module` is
+     * recognised unconditionally, so the head's own fault leads and the rewrite
+     * is derived from the specifier alone — there is no alias to keep.
      */
-    test("`import module` with no alias dies in the alias seat", () => {
+    test("`import module` with no alias is refused by the head's own rule", () => {
+      expect(messages('import module from "./x"\n')).toEqual([
+        "Hexagon imports name modules: write `import X`",
+      ]);
+      const repaired = afterFix('import module from "./x"\n');
+      expect(repaired.text).toBe(`${HEADER}import X\n`);
+      expect(repaired.module.diagnostics).toEqual([]);
+    });
+
+    /**
+     * `module` standing in the *alias* seat is an ordinary non-uppercase-start
+     * name there, and draws the alias seat's own refusal.
+     */
+    test("`module` in the alias seat draws the alias rule", () => {
       expect(messages('import X as module\n')).toEqual([
         'a module alias is uppercase-start; write `import X as Module`',
       ]);
@@ -1971,13 +1986,33 @@ describe("parse", () => {
      * written alias itself.
      */
     test("a non-uppercase-start alias is refused with the derived spelling", () => {
-      const module = parseSource('import Geometry as geometry\n');
+      const module = parseSource('import Geometry as geo\n');
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        'a module alias is uppercase-start; write `import Geometry as Geometry`',
+        'a module alias is uppercase-start; write `import Geometry as Geo`',
       ]);
       const [fix] = module.diagnostics[0]?.fixes ?? [];
-      expect(fix?.message).toBe("write `Geometry`");
-      expect(fix?.edits.map(({ replacement }) => replacement)).toEqual(["Geometry"]);
+      expect(fix?.message).toBe("write `Geo`");
+      expect(fix?.edits.map(({ replacement }) => replacement)).toEqual(["Geo"]);
+      const repaired = afterFix('import Geometry as geo\n');
+      expect(repaired.text).toBe(`${HEADER}import Geometry as Geo\n`);
+      expect(repaired.module.diagnostics).toEqual([]);
+    });
+
+    /**
+     * The upper-cased alias *is* the default one, so the clause it stands in is
+     * redundant and the repair drops it whole — message and applied edit saying
+     * the same thing, which is `moduleImportLine`'s rule everywhere else.
+     */
+    test("an alias that upper-cases to the default one is dropped, not rewritten", () => {
+      const module = parseSource('import Render.Geometry as geometry\n');
+      expect(module.diagnostics.map(({ message }) => message)).toEqual([
+        'a module alias is uppercase-start; write `import Render.Geometry`',
+      ]);
+      const [fix] = module.diagnostics[0]?.fixes ?? [];
+      expect(fix?.message).toBe("drop the alias");
+      const repaired = afterFix('import Render.Geometry as geometry\n');
+      expect(repaired.text).toBe(`${HEADER}import Render.Geometry\n`);
+      expect(repaired.module.diagnostics).toEqual([]);
     });
 
     /**
@@ -2091,6 +2126,31 @@ const HEADER = "module Test\n\n";
 function parseSource(text: string): Parsed.Module {
   const source = new Source.File(Source.fileId(0), "test.hex", HEADER + text);
   return parse(applyLayout(lex(source)));
+}
+
+/**
+ * The document one diagnostic's first applied fix produces, and that document
+ * parsed again.
+ *
+ * The round trip is what makes "the rewrite is the repair" testable rather
+ * than merely readable (Declarations Preamble §1.1): a fix whose text is a
+ * gesture at a repair still passes a message assertion, and fails here.
+ */
+function afterFix(
+  text: string,
+  index = 0,
+): { readonly text: string; readonly module: Parsed.Module } {
+  const document = HEADER + text;
+  const edits = parseSource(text).diagnostics[index]?.fixes?.[0]?.edits ?? [];
+  const repaired = [...edits]
+    .sort((left, right) => right.span.start.offset - left.span.start.offset)
+    .reduce(
+      (applied, { span, replacement }) =>
+        applied.slice(0, span.start.offset) + replacement + applied.slice(span.end.offset),
+      document,
+    );
+  const source = new Source.File(Source.fileId(0), "test.hex", repaired);
+  return { text: repaired, module: parse(applyLayout(lex(source))) };
 }
 
 function expression(module: Parsed.Module): Parsed.Expr {

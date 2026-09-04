@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import type * as Diagnostics from "../support/diagnostics.js";
 import { compileFiles, runProject } from "../support/test-project.js";
 
 /**
@@ -273,7 +274,11 @@ describe("§13 (f) — the one import collision, and the two that are not", () =
       ["/main.hex",
         "module Main\n\n" + 'import Circle as Shape\n' +
         'import Rect as Shape\n'],
-    ])).toEqual(["module alias `Shape` is already bound"]);
+    ])).toEqual([
+      // §3.1: "`as` is its fixit", and §13(f) writes the repair into the
+      // sentence — the alias a slot, since no rule can choose it.
+      "module alias `Shape` is already bound; write `import Rect as <Alias>`",
+    ]);
   });
 
   test("two aliases onto one module under different spellings are legal", () => {
@@ -476,6 +481,49 @@ describe("§13 (m) — a constructor not spelled like its alias", () => {
 });
 
 describe("§13 (n) — the refused heads, each with its rewrite", () => {
+  /** The header every one-line head below is read under. */
+  const HEAD_PREFIX = "module Main\n\n";
+
+  /** A dotted module, so the dotted rewrites reach a module that exists. */
+  const RENDER_GEOMETRY = [
+    "/render-geometry.hex",
+    "module Render.Geometry\n\n" + "export fun area(r: Float): Float = r\n",
+  ] as const;
+
+  /** Every diagnostic one import head draws, in order. */
+  function parseHead(head: string): readonly Diagnostics.Diagnostic[] {
+    return compileFiles([GEOMETRY, RENDER_GEOMETRY, ["/main.hex", `${HEAD_PREFIX}${head}\n`]])
+      .diagnostics.filter(({ primary }) => primary.start.offset >= HEAD_PREFIX.length);
+  }
+
+  /**
+   * The head one refused line becomes when its sole applied fix is taken —
+   * what makes "the rewrite is the repair" testable rather than merely
+   * readable (Declarations Preamble §1.1).
+   */
+  function soleFixApplied(head: string): string {
+    const document = `${HEAD_PREFIX}${head}\n`;
+    const [diagnostic, ...rest] = parseHead(head);
+    expect(rest).toEqual([]);
+    const [fix, ...others] = diagnostic?.fixes ?? [];
+    expect(others).toEqual([]);
+    const repaired = [...fix?.edits ?? []]
+      .sort((left, right) => right.span.start.offset - left.span.start.offset)
+      .reduce(
+        (applied, { span, replacement }) =>
+          applied.slice(0, span.start.offset) + replacement + applied.slice(span.end.offset),
+        document,
+      );
+    // The repaired line, and the proof that it *is* repaired: read again, it
+    // draws nothing of its own.
+    expect(
+      compileFiles([GEOMETRY, RENDER_GEOMETRY, ["/main.hex", repaired]]).diagnostics.map(
+        ({ message }) => message,
+      ),
+    ).toEqual([]);
+    return repaired.slice(HEAD_PREFIX.length).trimEnd();
+  }
+
   test("all four, in one file", () => {
     expect(messages([
       GEOMETRY,
@@ -489,7 +537,9 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
       'Hexagon imports name modules: write `import Geometry as Geo2`',
       'Hexagon imports name modules: write `import Geometry` ' +
         "and reach `area` as `Geometry.area`",
-      'a module alias is uppercase-start; write `import Geometry as Geometry`',
+      // The upper-cased alias is the default one, so the clause is dropped
+      // rather than written back (§3.1's redundant-alias rule).
+      'a module alias is uppercase-start; write `import Geometry`',
     ]);
   });
 
@@ -511,6 +561,81 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
       'Hexagon imports name modules: write `import <Name>` ' +
         "and reach `get` as `<Name>.get`",
     ]);
+  });
+
+  /**
+   * §13(n)'s miscased heads (#838). Every shape the rewrite has to answer, in
+   * one file so the *set* of reports is pinned and not just each sentence: one
+   * report per line, the alias's own rule never firing beside the name's.
+   */
+  test("the miscased heads, each with its rewrite", () => {
+    expect(messages([
+      GEOMETRY,
+      RENDER_GEOMETRY,
+      ["/main.hex",
+        "module Main\n\n" + "import geometry\n" +
+        "import render.geometry\n" +
+        "import Render.geometry\n" +
+        "import geometry as Geo\n" +
+        "import geometry as geo\n" +
+        "import 用户 as Geo\n"],
+    ])).toEqual([
+      "a module name is uppercase-start; write `import Geometry`",
+      "a module name is uppercase-start; write `import Render.Geometry`",
+      "a module name is uppercase-start; write `import Render.Geometry`",
+      "a module name is uppercase-start; write `import Geometry as Geo`",
+      // Both seats corrected by one report, not two that each leave the other
+      // fault standing (§3.1).
+      "a module name is uppercase-start; write `import Geometry as Geo`",
+      // Upper-casing a caseless script is a no-op, so the slot — and the
+      // written alias is kept after it.
+      "a module name is uppercase-start; write `import <Name> as Geo`",
+    ]);
+  });
+
+  test("the miscased head's rewrite is the applied edit, both seats at once", () => {
+    for (
+      const [written, repaired] of [
+        ["import geometry", "import Geometry"],
+        ["import render.geometry", "import Render.Geometry"],
+        ["import Render.geometry", "import Render.Geometry"],
+        ["import geometry as Geo", "import Geometry as Geo"],
+        ["import geometry as geo", "import Geometry as Geo"],
+        // The upper-cased alias is the default one, so the clause goes whole.
+        ["import geometry as geometry", "import Geometry"],
+      ] as const
+    ) {
+      expect(soleFixApplied(written)).toBe(repaired);
+    }
+  });
+
+  test("a refused miscased head binds no alias, and one below it collides with nothing", () => {
+    // §5.2's neutral value: a refused head is not an import, so uses below it
+    // draw their own unbound-alias reports and a later `import Geometry` is
+    // the first binding of that spelling, not the second.
+    expect(messages([
+      GEOMETRY,
+      ["/main.hex",
+        "module Main\n\n" + "import geometry\n" +
+        "export let n: Float = Geometry.area(2.0)\n"],
+    ])).toEqual([
+      "a module name is uppercase-start; write `import Geometry`",
+      "unknown name `Geometry`",
+    ]);
+    expect(messages([
+      GEOMETRY,
+      ["/main.hex",
+        "module Main\n\n" + "import geometry\n" + "import Geometry\n" +
+        "export let n: Float = Geometry.area(2.0)\n"],
+    ])).toEqual(["a module name is uppercase-start; write `import Geometry`"]);
+  });
+
+  test("a head whose upper-casing is a no-op carries no applied edit", () => {
+    const [diagnostic] = parseHead("import 用户 as Geo");
+    expect(diagnostic?.message).toBe(
+      "a module name is uppercase-start; write `import <Name> as Geo`",
+    );
+    expect(diagnostic?.fixes ?? []).toEqual([]);
   });
 });
 

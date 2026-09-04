@@ -22,7 +22,7 @@ import {
   nearestIntrinsicKey,
 } from "../../intrinsics.js";
 import { relativeSpecifier } from "../../support/paths.js";
-import { moduleImportLine } from "../../packages.js";
+import { displayModuleName, moduleImportLine } from "../../packages.js";
 import type * as Source from "../../support/source.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
@@ -676,14 +676,13 @@ export interface ResolveOptions {
    * string every exception declared here carries as `$hex`, and the literal its
    * `.d.ts` face publishes.
    *
-   * A module's identity in Hexagon is its path (Modules §2), so the spelling is
-   * the project-root-relative path with forward slashes, the `.hex` extension
-   * dropped and no leading slash — `client/errors.hex` is `"client/errors"` —
-   * except for an injected module, which brands its **canonical injected name**
-   * (`"Seq"`, `"Vector"`, `"Map"`) wherever in the project its file happens to
-   * sit. Only `compileProject` knows the project root and the injection set, so
-   * only it can spell this; like `path` and `privileged`, it is settled by the
-   * caller and never by the module's text.
+   * A module's identity in Hexagon is its **declared name** (Modules §1, #829),
+   * so the spelling is the module's full name (Packages §2.3): `Client.Errors`
+   * for a project module of that name, `Acme.Parser` under a manifest `name`,
+   * `Hex.Seq` for a standard-library module — wherever in the project its file
+   * happens to sit, since no path reaches this. Only `compileProject` knows the
+   * package a module belongs to, so only it can spell this; like `path` and
+   * `privileged`, it is settled by the caller and never by the module's text.
    *
    * Absent for a pass-level harness that compiles a module with no project
    * around it, which brands `""` — one module, no second identity to be
@@ -1499,7 +1498,7 @@ class Resolver {
     for (const preludeImport of options.prelude ?? []) {
       this.#preludeFileIds.add(Number(preludeImport.interface.module.fileId));
       this.#preludeNameBySpecifier.set(preludeImport.specifier, preludeImport.name);
-      this.#seedPrelude(preludeImport.interface, preludeImport.specifier);
+      this.#seedPrelude(preludeImport.interface, preludeImport.specifier, preludeImport.name);
     }
   }
 
@@ -1927,7 +1926,7 @@ class Resolver {
    * keyed by identity and ordered — the members arrive in normative prelude
    * order, and each member's slice is unions, then records, then extern types.
    */
-  #seedPrelude(prelude: ModuleInterface, specifier: string): void {
+  #seedPrelude(prelude: ModuleInterface, specifier: string, fullName: string): void {
     this.#preludeInterfaceBySpecifier.set(specifier, prelude);
     const seedTypeName = (name: string): void => {
       this.#preludeTypeNames.add(name);
@@ -1943,7 +1942,12 @@ class Resolver {
     // its own basename gives every prelude name the qualified home §6.4 requires,
     // the same way an explicit import alias would. An explicit alias of
     // the same name is a module-level binding and wins, per §5.4.
-    const moduleName = specifier.slice(specifier.lastIndexOf("/") + 1).replace(/\.js$/u, "");
+    // The alias is the **name's** last segment (Modules §3.1) — read off the
+    // full name the caller carries, never off the specifier: a specifier is a
+    // path, and reading a module's name out of one is the drift #829 removed
+    // (§2.1, §9.2). `Hex.Option` binds `Option`, as an explicit
+    // `import Hex.Option` would.
+    const moduleName = displayModuleName(fullName).split(".").at(-1) ?? "";
     if (moduleName !== "") this.#preludeModuleAliases.set(moduleName, prelude);
     // **Modules §5.5's channel rules, as three lookups (#742).** Nothing in the
     // term namespace is seeded bare by default; the sets below are what a name
@@ -2381,7 +2385,13 @@ class Resolver {
       if (this.#moduleAliases.has(item.alias.text)) {
         this.#diagnostics.add({
           severity: "error",
-          message: `module alias \`${item.alias.text}\` is already bound`,
+          // §3.1: "`as` is its fixit", and §13(f) writes the repair. The alias
+          // is a slot rather than a chosen name — nothing here knows what the
+          // reader would call this module — so the sentence names the form and
+          // carries no applied edit, the same restraint every `<Name>` slot
+          // shows (§3.1's derivation).
+          message: `module alias \`${item.alias.text}\` is already bound; ` +
+            `write \`import ${item.module.text} as <Alias>\``,
           primary: item.alias.span,
         });
       } else {

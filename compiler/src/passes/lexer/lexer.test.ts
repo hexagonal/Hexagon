@@ -410,9 +410,12 @@ describe("lex", () => {
       "Eof",
     ]);
     expect(string.parts[2]).toMatchObject({ kind: "Text", value: " b 😀" });
-    // Only the header's own two newlines are recorded — the string's internal
+    // Only the header's own newlines are recorded — the string's internal
     // `\r\n` and `\n` stay invisible to layout, exactly as before the header.
-    expect(result.newlines).toHaveLength(2);
+    // Compared against the header lexed alone rather than counted: a count of
+    // two is also what recording the string's newline and losing one of the
+    // header's would give, and that is the failure this assertion is for.
+    expect(result.newlines).toEqual(lexSource("").newlines);
     expect(result.diagnostics).toEqual([]);
   });
 
