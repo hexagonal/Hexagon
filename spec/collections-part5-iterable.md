@@ -193,6 +193,8 @@ The whole tax is one small instance. Anything more (combinators, instances like 
 
 ```
 -- bag.hex — a multiset: an opaque record over Map(a, Int) counts
+module Bag
+
 opaque record Bag(a) = {counts: Map(a, Int)}
 
 export fun fromSeq<a: Hash>(items: Seq(a)): Bag(a) = ...
@@ -209,6 +211,8 @@ honor Iterable<Bag(a)> =
 
 ```
 -- consumer.hex
+module Consumer
+
 import Bag
 
 let bag = Bag.fromSeq(Vector.toSeq([1, 2, 2, 3]))
@@ -451,7 +455,7 @@ honor Iterable<Vector(a)> =                 -- in user code
 --        the prelude already provides Iterable<Vector(a)>
 
 -- (h) User-vs-user duplicate (same module)
-honor Iterable<Bag(a)> = ...                -- second declaration in bag.hex
+honor Iterable<Bag(a)> = ...                -- second declaration in module Bag
 -- ERROR at the second declaration: duplicate instance of Iterable<Bag>
 
 -- (i) Once-evaluation of the source

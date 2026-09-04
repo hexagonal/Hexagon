@@ -135,7 +135,7 @@ export type Seq<a> = Iterable<a>;
 A face may mention a nominal type owned by another Hexagon module: `Seq.hex`'s `next` returns `Option([a, Seq(a)])`, and `Option` is `Option.hex`'s. TypeScript resolves nothing by project-wide scope, so an unimported name is unbound (TS2304) — or, worse, bound by the consumer's configuration: under the default `lib` set a bare `Option` lands on `lib.dom.d.ts`'s legacy `Option` constructor, and which declaration the name means is then decided by the consumer's `lib` and `types` settings rather than by this compiler. A generated `.d.ts` therefore **names every nominal its faces mention under a spelling that file itself binds**:
 
 ```ts
-import type { Option } from "./Option.js";  // #829: importer (Seq) and target (Option) are both Hex modules, same directory — unchanged; a project module writes "./Hex/Option.js" (Packages §6)
+import type { Option } from "./Option.js";  // #829: importer (Seq) and target (Option) are both Hex modules, same directory — unchanged; a project module at the output root writes "./Hex/Option.js" (Packages §6)
 export declare const next: <a>(source: Iterable<a>) => Option<[a, Iterable<a>]>;
 ```
 
