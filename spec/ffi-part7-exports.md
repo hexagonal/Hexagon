@@ -536,7 +536,7 @@ export declare const empty: Iterable<a>;   // TS2304: Cannot find name 'a'.
 
 One row, and the whole of `Seq`'s published face was invalid TypeScript. Every other polymorphic export in the module is function-typed, and a function type carries its own `<a>` seat, which is why nothing had caught it: `empty` was the prelude's only polymorphic non-function export.
 
-**The rule.** Where this part generates a declaration whose type is **not a function type**, the scheme's quantified variables are **instantiated, not bound**:
+**The rule.** Where this part generates a declaration whose type is **not a function type**, the scheme's quantified variables are **instantiated, not bound** (one exception, §2.2: an exported pattern's object, whose members are the functions and bind the head's variables each — Pattern Declarations §6):
 
 - a quantified **type variable** stands at `never`;
 - a quantified **row tail** stands at the empty row — it contributes no fields, and the intersection is dropped rather than written `& never`, which would collapse the whole record to `never`.
