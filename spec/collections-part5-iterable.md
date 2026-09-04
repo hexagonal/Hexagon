@@ -473,7 +473,7 @@ for c in "abc"
     acc := acc ++ c                           -- acc = "abc"
 
 -- (l) No Iterable machinery in .d.ts
--- bag.hex's emitted bag.d.ts contains no Iterable, no Item, no Iterable-instance
+-- module Bag's emitted Bag.d.ts contains no Iterable, no Item, no Iterable-instance
 -- object — nothing iteration-shaped. (The .d.ts representation of the Hash
 -- constraint on fromSeq/add/count is the FFI spec's business and is asserted
 -- neither way here.)

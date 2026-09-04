@@ -166,7 +166,7 @@ Modules §11 owns emission; packages add the layout. The program's output root h
 | A dotted module whose first segment names a package the declaring package sees | Modules §2.2's report at the header: "`Acme.Geometry` begins with the name of the package `Acme`; a dotted module's first segment cannot name a package in the program" (§6) |
 | A dependency's dotted module whose first segment names another package in the program (`Bolt` declares `module Acme.Tools`; the program holds `Acme`) | at the whole-program check: "module `Acme.Tools` of package `Bolt` begins with the name of the package `Acme`, also in this program; drop the dependency that brings `Acme` or the one that brings `Bolt`, or combine them once `Acme` is renamed or `Bolt` renames its module" (Modules §2.2) |
 | A dependency's dotted module whose first segment names the project's own `name` (`Bolt` declares `module MyApp.Tools` under a project named `MyApp`) | "module `MyApp.Tools` of package `Bolt` begins with the name of this project, `MyApp`; rename the project or drop its manifest `name`, drop the dependency that brings `Bolt`, or combine them once `Bolt` renames its module" (Modules §2.2) |
-| Any whole-program variant naming a package that is not a direct entry of the project, or that several entries reach | the package carries its bringers after the phrase naming it — "of package `Bolt` (brought in by `Carbide`)" — and the repairs are worded over the project's own entries, collapsing to one where one entry brings both (Modules §2.2) |
+| Any whole-program variant naming a package that is not a direct entry of the project, or that several entries reach | the package carries its bringers after the phrase naming it — "of package `Bolt` (brought in by `Carbide`)", "the package `Acme`, also in this program (a direct dependency, and brought in by `Carbide`)", several joined with "and" — and the repairs are worded over the project's own entries, collapsing to one where one entry brings both (Modules §2.2) |
 | The project's dotted module whose first segment names a package it reaches only through a dependency | "module `Acme.Parser` of the project begins with the name of the package `Acme`, also in this program (brought in by `Bolt`); rename the module, or drop the dependency that brings `Acme`" (Modules §2.2) |
 | Installed package advertised as compiled Hexagon, no source (stage one) | "`Acme` ships no Hexagon source; a Hexagon package is installed as source until compiled distribution exists" (§4.1, §5.2) |
 
@@ -253,7 +253,7 @@ import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry;
 -- project: module Main; module Render.Geometry; Acme: module Geometry
 -- emits: Main.js, Render/Geometry.js, Acme/Geometry.js, hex.d.ts (when owed) at the root;
 --   Main.js imports "./Acme/Geometry.js" — nothing from node_modules on Hexagon's account;
---   Render/Geometry.js imports "../Hex/Option.js" and, where owed, "../hex.js" (path-adjusted, FFI Part 1 §8.3)
+--   Render/Geometry.js imports "../Hex/Option.js" and, where owed, "../hex.js" (path-adjusted: FFI Part 1 §8.3 for the .d.ts, Part 7 §1.2 for the .js)
 
 -- (h) One reading of a dotted spelling; the program-wide first-segment rule (§3.3; Modules §2.2)
 -- project depends on Bolt; Bolt (listing no Acme) declares module Acme.Tools

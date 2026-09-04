@@ -40,7 +40,7 @@ These are **not** one universal dictionary type; each describes the operation re
 The public dictionary shape is the constraint's **completed member set, including inherited defaulted operations**. `Eq.Dictionary<a>` contains both `equals` and `notEquals` even when the originating `honor Eq<T>` supplied only `equals` — the dictionary is the constraint's full API, not the instance author's keystroke record:
 
 ```ts
-// eq.d.ts
+// Hex/Eq.d.ts  (#829: the standard library emits under Hex/, Packages §6; these comments name the emitted files)
 declare const eqDictionaryBrand: unique symbol;
 
 export interface Dictionary<a> {
@@ -51,7 +51,7 @@ export interface Dictionary<a> {
 ```
 
 ```ts
-// num.d.ts
+// Hex/Num.d.ts
 declare const numDictionaryBrand: unique symbol;
 
 export interface Dictionary<a> {
@@ -100,13 +100,13 @@ The rule is a derivation of ownership reality rather than a preference: only the
 Fundamental evidence lives under the constraint namespace for discoverability:
 
 ```ts
-// num.d.ts
+// Hex/Num.d.ts
 export declare const nat: Dictionary<number>;
 export declare const int: Dictionary<number>;
 export declare const float: Dictionary<number>;
 export declare const bigInt: Dictionary<bigint>;
 
-// signed.d.ts
+// Hex/Signed.d.ts
 export declare const int: Dictionary<number>;
 export declare const float: Dictionary<number>;
 export declare const bigInt: Dictionary<bigint>;
@@ -119,7 +119,7 @@ giving `Num.nat`, `Num.int`, `Signed.int`, `Signed.float`, `Signed.bigInt`, `Eq.
 Public non-fundamental evidence lives in the public type's companion module under the lowercase constraint name:
 
 ```ts
-// Hex/Rat.d.ts  (#829: the standard library emits under Hex/, Packages §6)
+// Hex/Rat.d.ts
 import type * as Num from "@hexagon/runtime/num";
 import type * as Signed from "@hexagon/runtime/signed";
 
@@ -147,17 +147,17 @@ A public handle forces its instance dictionary to be **materialized as a module-
 An instance whose evidence depends on other evidence is a real **factory function**; the public name is still the home rule's (§3.1):
 
 ```ts
-// vector.d.ts
+// Hex/Vector.d.ts
 export declare function show<a>(
   element: Show.Dictionary<a>,
 ): Show.Dictionary<Hex.Vector<a>>;
 
-// option.d.ts
+// Hex/Option.d.ts
 export declare function eq<a>(
   element: Eq.Dictionary<a>,
 ): Eq.Dictionary<Option<a>>;
 
-// map.d.ts
+// Hex/Map.d.ts
 export declare function show<k, v>(
   key: Show.Dictionary<k>,
   value: Show.Dictionary<v>,
@@ -251,7 +251,7 @@ Unspecified is not unstable. An implementation still places the whole suffix det
 Base-constraint evidence is **nested in the extending constraint’s dictionary as slots** (Constraints §6.2 — the slot is the base declaration’s own name, verbatim; #718):
 
 ```ts
-// ord.d.ts
+// Hex/Ord.d.ts
 import type * as Eq from "@hexagon/runtime/eq";
 
 export interface Dictionary<a> {
