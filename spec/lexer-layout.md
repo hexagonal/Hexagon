@@ -65,7 +65,7 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | `else` or `catch` with no same-line body | Clause body / arm block |
 | `constraint ... =` or `honor ... =` | Member block |
 | A `fun` head ending its logical item — the keyword alone, or with its binder list (`fun<a: Eq>`), no member on the line (Functions §7.3) | `fun` member block |
-| A `pattern` head ending its logical item — the name, with or without a binder list and a component list (`pattern rat(top: BigInt, bottom: BigInt): Rat`, `pattern parts`; Pattern Declarations §2.1). The alias form `pattern rgb = Color.rgb` opens nothing: a deeper-indented following line is a continuation of the item, as everywhere, and the alias rule reads the one name it finds there (Pattern Declarations §3.4) | `pattern` member block |
+| A `pattern` head ending its logical item — the name, alone or with its binder list, component list, and result type (`pattern rat(top: BigInt, bottom: BigInt): Rat`, `pattern parts`; Pattern Declarations §2.1). The alias form `pattern rgb = Color.rgb` opens nothing: a deeper-indented following line is a continuation of the item, as everywhere, and the alias rule reads the one name it finds there (Pattern Declarations §3.4) | `pattern` member block |
 | `extern from "specifier"` head (FFI Part 4 §2.2 — one item per line under ordinary layout; the row was owed from that part and is added with the kind taxonomy) | Member block |
 | Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header — a `fun` block's member lines included) | Binding body block |
 
