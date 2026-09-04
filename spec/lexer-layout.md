@@ -223,7 +223,7 @@ Analogous to the numeric `_` rule (digit on both sides — Primitive Types §8):
 
 - **No leading `;`, no trailing `;`, no `;;`**, no empty statements. Trailing `;` gets the targeted message in §5, not a generic parse error. (Hexagon's `;` is a *separator*, not a *terminator*; the spec picks separator and says so loudly once.)
 - **`;` is illegal inside brackets** — record literals, tuple literals, argument lists, type-parameter lists all use `,`. A `;` there → "did you mean `,`?". This keeps the token's meaning unique: `;` is exclusively block-level sequencing. Layout diagnoses the structurally delimited `()`/`[]`/`{}` cases. Because `<` and `>` are also comparison tokens, the parser diagnoses the type-parameter case with the same required message once it knows that context.
-- **The top level of a module is a block**; `;` works there under the same rules. No special case.
+- **The top level of a module is a block**; `;` works there under the same rules. No special case. A file's column-0 items are split into modules by the `module Name` header and the `end module Name` closer (Modules §2.1–§2.2), and that split is the parser's: the layout algorithm sees one column-0 sequence and knows nothing of headers.
 
 ### 3.3 Emission
 

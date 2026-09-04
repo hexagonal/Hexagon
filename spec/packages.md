@@ -60,12 +60,12 @@ The root package — the one the host compiles — is the **project**. Its manif
 For a module in package `P`, the **visible modules** are:
 
 1. the modules of `P` itself;
-2. the prelude (§2.4);
+2. the modules of `Hex` (§2.4) — of which the prelude is additionally in scope without an import;
 3. the modules of every package `P`'s manifest lists under `dependencies` (§2.1).
 
 Nothing else. A dependency's own dependencies are invisible to `P`'s imports even though their modules may be in the program — `Acme` importing `Bolt`'s modules does not let the project write `import Bolt.Util` unless the project lists `Bolt` too. The set is **per package**: each package's imports resolve against its own visible set, so `Acme`'s `import Util` means `Acme`'s dependency's `Util` (or `Acme`'s own), never the project's, whatever the project names `Util`. A module is in the program exactly when some import reaches it from a root (Modules §8.3), and once in it, its instances are global (Modules §7.1) — visibility governs what an import may *name*, not what the program *contains*.
 
-### 3.2 The project's own module wins
+### 3.2 The resolving package's own module wins
 
 Where the package resolving an import — the project, or a dependency resolving its own — declares a module of the written name, the import resolves to it, **silently**, and a same-named module of any visible package stays reachable by its full name. The rule is Modules §5.4's occlusion one level up, and for the same reason: adding a module to the standard library or to a dependency **cannot break a program that already declares one**. The cost is Modules §5.4's too — a reader who sees `import Geometry` in a project that has its own `Geometry` module learns nothing of `Hex.Geometry`'s existence from that line, and needs no such knowledge, since the line means the same whether or not the package module exists.
 
@@ -140,7 +140,7 @@ The seed for this stage's specification is the non-normative planning note `spec
 
 ## 6. Emission under packages
 
-Modules §11 owns emission; packages add the layout. The program's output root holds the **project's** modules by their declared names, dotted segments as directories (`Geometry.js`, `Render/Geometry.js`), and each dependency's modules under a directory named by the package (`Acme/Geometry.js`, `Acme/Render/Geometry.js`) — the full name (§2.3) as a path, with the project's package segment elided because a project may have none (§2.5). A dependency's source directory is never written into. Program-scoped artifacts — `hex.d.ts`, `hex.js` (FFI Part 1 §8.3, Part 7 §1.2) — sit at the root, their filename probe reading the emitted filenames as Part 1 §8.3 states. Two packages' same-named modules therefore never collide on disk, and the emitted import specifiers — computed from the two modules' full names (Modules §11.2) — are relative paths within the root, so the output runs from any location and imports nothing from `node_modules` on Hexagon's account; a package's JavaScript dependencies keep their bare specifiers (FFI Part 4 §2.3) and resolve as npm resolves them.
+Modules §11 owns emission; packages add the layout. The program's output root holds the **project's** modules by their declared names, dotted segments as directories (`Geometry.js`, `Render/Geometry.js`), and each dependency's modules under a directory named by the package (`Acme/Geometry.js`, `Acme/Render/Geometry.js`) — the full name (§2.3) as a path, with the project's package segment elided because a project may have none (§2.5). A dependency's source directory is never written into. Program-scoped artifacts — `hex.d.ts`, `hex.js` (FFI Part 1 §8.3, Part 7 §1.2) — sit at the root, their filename probe reading the emitted filenames as Part 1 §8.3 states. Two packages' same-named modules therefore never collide on disk — and a project module could collide with a dependency's directory only by beginning with that package's name, which Modules §2.2 refuses at the header (`module Acme.Geometry` under a dependency `Acme`) — and the emitted import specifiers — computed from the two modules' full names (Modules §11.2) — are relative paths within the root, so the output runs from any location and imports nothing from `node_modules` on Hexagon's account; a package's JavaScript dependencies keep their bare specifiers (FFI Part 4 §2.3) and resolve as npm resolves them.
 
 ---
 
@@ -157,6 +157,7 @@ Modules §11 owns emission; packages add the layout. The program's output root h
 | A manifest declares `"name": "Hex"` | "`Hex` is the standard library's package name" (§2.1, §2.4) |
 | A manifest `name` that is not one uppercase-start identifier (`"acme"`, `"Acme.Tools"`) | "a package name is one uppercase-start identifier: write `\"Acme\"`" — a dotted spelling names the module-name form as the place for dots (§2.1) |
 | Two modules of one name in one package | Modules §2.2's report at the second header |
+| A module whose first segment names a visible package | Modules §2.2's report at the header: "`Acme.Geometry` begins with the name of the package `Acme`; a module's first segment cannot name a visible package" (§6) |
 | Installed package advertised as compiled Hexagon, no source (stage one) | "`Acme` ships no Hexagon source; a Hexagon package is installed as source until compiled distribution exists" (§4.1, §5.2) |
 
 ---
@@ -243,6 +244,6 @@ import MyApp.Geometry                        -- ERROR: no module MyApp.Geometry;
 | One installed copy per package name per program, refused otherwise — conservative, revisable at stage two | §4.3 |
 | JavaScript-only packages are the FFI's; never listed as Hexagon dependencies | §4.4 |
 | Stage one: whole-program compilation from source across packages; coherence, orphan rule, discoverability, specialization unchanged; costs stated | §5.1 |
-| Stage two recorded, not designed: generated interface reproducing whole-program selection, identity-keyed; source/interface equivalence as the gate; the unconditional generic edition as the forced ABI change; Sol's note as seed | §5.2 |
+| Stage two recorded, not designed: generated interface reproducing whole-program selection, identity-keyed; source/interface equivalence as the gate; the unconditional generic edition as the forced ABI change; the planning note under `spec/notes/` as seed | §5.2 |
 | Emission: project modules at the root by declared name, dependencies under their package's directory; relative specifiers only; program-scoped artifacts at the root | §6 |
 | Eight alternatives rejected with reasons | §8 |

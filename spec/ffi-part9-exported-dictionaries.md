@@ -2,7 +2,7 @@
 
 **Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-exported-dictionaries.md` (§§3–10 of which Part 8 defers to by name). The note's two delegated completions were confirmed in §13: handles and factories live in the instance declaration's home module under the lowercased other-party name, and evidence suffixes retain maximal constraints per variable before ordering. Preserves Part 7's corrected wrapper rule: a constrained generic edition exports the matching internal trailing-evidence function directly; a stable wrapper exists only when public ABI plumbing requires one (§9).
 **Scope:** `Constraint.Dictionary<a>` declaration shapes and nominal TypeScript branding; constraint-owned fundamental handles (`Signed.int`); type-owned non-fundamental handles (`Rat.signed`); parameterized dictionary factories (`Vector.show(Show.string)`); the public-evidence closure and ownership/nameability rules; trailing evidence ordering; base constraint nesting and duplicate elimination; the relationship to Part 8's Algorithm G trigger; emission, identity, collisions, validation policy, and cross-package dictionary ABI.
-**Not in scope:** the specialization set, Algorithm S/G/N mechanics, and the fundamental type set (Part 8, `ffi-zero-cost-fundamental-exports.md` — Decided; **this part does not repeat the specialization algorithm**); constraint semantics, instance coherence, and the orphan rule (Constraints §2–§6 — consumed); general export correspondence and `.d.ts` structure (Part 7); package-resolution mechanics (Modules §12.1, future package spec).
+**Not in scope:** the specialization set, Algorithm S/G/N mechanics, and the fundamental type set (Part 8, `ffi-zero-cost-fundamental-exports.md` — Decided; **this part does not repeat the specialization algorithm**); constraint semantics, instance coherence, and the orphan rule (Constraints §2–§6 — consumed); general export correspondence and `.d.ts` structure (Part 7); package-resolution mechanics (`packages.md`).
 **Companions:** Constraints §5–§6 (instance globality; dictionaries; base constraint slots; evaluation-freeness; the §6.4 `.d.ts` flag this part discharges for the generic-edition case); Part 7 §1/§2/§7 (correspondence, lowercase binders, direct-vs-wrapper); Part 8 §4–§6/§9 (trigger, public capability, names, ABI events); Modules §7/§11.5 (home module; dictionary emission); Functions §5.4 (subject-first).
 
 ---
@@ -319,7 +319,7 @@ Public dictionaries from separately compiled Hexagon packages interoperate **onl
 - factory argument order (§4);
 - runtime package major compatibility.
 
-**Adding, removing, or renaming a constraint member — including adding a defaulted member — is a public dictionary-ABI event**, as is changing base constraint structure, factory argument order, or evidence ordering (Part 8 §9.5 points here). Package metadata/interface files must eventually record the dictionary ABI/runtime version; the mechanics stay with the package-system design (Modules §12.1), which inherits this requirement.
+**Adding, removing, or renaming a constraint member — including adding a defaulted member — is a public dictionary-ABI event**, as is changing base constraint structure, factory argument order, or evidence ordering (Part 8 §9.5 points here). Package metadata/interface files must eventually record the dictionary ABI/runtime version; the mechanics belong to the second distribution stage (Packages §5.2), which inherits this requirement; the first stage ships source and crosses no compiled boundary.
 
 ---
 
@@ -348,7 +348,7 @@ Public dictionaries from separately compiled Hexagon packages interoperate **onl
 
 ### 13.3 Runtime constraint-module layout (deferred, not blocking)
 
-`@hexagon/runtime/signed`-style subpath specifiers are used as representative throughout; the normative content is the qualified access pattern (`Signed.Dictionary`, `Signed.int`) and one-module-per-constraint organization. Exact specifier layout belongs to runtime packaging (with Modules §12.1's package questions). Flagged so promotion doesn't accidentally freeze a path spelling.
+`@hexagon/runtime/signed`-style subpath specifiers are used as representative throughout; the normative content is the qualified access pattern (`Signed.Dictionary`, `Signed.int`) and one-module-per-constraint organization. Exact specifier layout belongs to runtime packaging (with the Packages spec's second distribution stage, Packages §5.2). Flagged so promotion doesn't accidentally freeze a path spelling.
 
 ---
 

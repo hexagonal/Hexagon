@@ -3,7 +3,7 @@
 **Status:** Decided (July 2026), revised in place after external review (Sol) before landing. Normative promotion of `spec/notes/ffi-proto-spec-questions.md` §5 — the core syntax, default-export binding, and effect-import packages — excluding the receiver-member and class material, which is Part 5's. The draft's four promotion questions were resolved in §12: unused binding imports may be elided; `extern let` asserts stability; exported extern types receive a generated opaque brand; generic extern declarations are deferred from v1.
 **Scope:** The `extern from` block; named and aliased bindings and the foreign-name-first `as` order; the `fun`/`let` callable/value distinction and its targeted diagnostics; type-only `type` declarations; `default` bindings for JavaScript default exports; visibility and re-export of extern bindings; `extern import` and foreign module effects; fixed visible arity and honest nullish parameter slots; declaration-site validation.
 **Not in scope:** `method`, `get`, `set`, `extern class`, and companion construction (Part 5); `extern enum` (already normative in `ffi-foreign-enums.md`); calling convention, callbacks, and arity at the call boundary (Part 6); the Hexagon-to-JavaScript export surface and exact `.d.ts` declaration mechanics (Part 7); globals, CommonJS binding forms, overloads, rest/variadic externs, and generic extern declarations (**deferred**, §11).
-**Companions:** Part 1 §1/§4/§5.3 (trusted boundary, master type table, nested-adapter restriction); Part 2 (`Nullable` surface used by §9); Modules §2–§3, §8.1 (import forms, bare-specifier ban, acyclicity); Lexer Layout (block layout); Exceptions §6 (`JsError`).
+**Companions:** Part 1 §1/§4/§5.3 (trusted boundary, master type table, nested-adapter restriction); Part 2 (`Nullable` surface used by §9); Modules §2–§3, §8.1 (the module import, which carries no specifier; acyclicity); Lexer Layout (block layout); Exceptions §6 (`JsError`).
 
 ---
 
@@ -268,7 +268,7 @@ import { parse } from "tiny-json";
 export { parse };
 ```
 
-(Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §6: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import TinyJson` — the extern block never forces its consumers to know it is an extern block.
+(Or via an internal alias, as in §6; the emitter chooses.) The intended shape for a curated binding is the familiar one from Modules §5.3: a binding module declares the externs, keeps the raw or awkward ones private, exports the good surface, and consumers `import TinyJson` — the extern block never forces its consumers to know it is an extern block.
 
 Exported extern bindings are ordinary Hexagon exports thereafter: reached through a module alias like any export (Modules §3.1). The `.d.ts` details of the re-exported face are Part 7's.
 
