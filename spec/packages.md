@@ -37,7 +37,7 @@ A package is the directory holding a `hexagon.json`, and the file names it:
 
 ### 2.2 A package's modules
 
-Every `.hex` file beneath the manifest's directory belongs to the package, `node_modules` and the host's output directory excluded. Each declares its module or modules (Modules §2.1–§2.2), and module names are unique within the package, compared case-insensitively (Modules §2.2). The tooling discovers the files; nothing in the language names one.
+Every `.hex` file beneath the manifest's directory belongs to the package — `node_modules`, the host's output directory, and any directory holding a `hexagon.json` of its own excluded: a nested manifest is a package of its own (§2.1), the ordinary shape of a workspace, and its files belong to it alone, so no file ever has two full names. Each declares its module or modules (Modules §2.1–§2.2), and module names are unique within the package, compared case-insensitively (Modules §2.2). The tooling discovers the files; nothing in the language names one.
 
 ### 2.3 Full names
 

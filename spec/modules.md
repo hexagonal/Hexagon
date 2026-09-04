@@ -34,7 +34,7 @@ export fun area(r: Float): Float = ...
 
 - **The header is a line, not a block opener.** The module's body follows at the file's own margin; nothing indents on the header's account, and the layout rules (Lexer & Layout) are untouched. The module top level is a block exempt from the final-expression rule (Statements §3.1); its items are the module-level declarations (Declarations Preamble §7.1), `let`/`fun` bindings, and `Unit`-typed effect expressions (§8.2).
 - **The name is the module's identity.** `Geometry` above is what every importer writes (§3), what every diagnostic names, and what the orphan rule's "home module" means (§7.2). It is uppercase-start, as module aliases are (§3.1), and it may be **dotted** — `module Render.Geometry` — each segment uppercase-start; the dotted name is one name, and its segments are not modules (§2.3).
-- **Every file declares a module.** A file with no header is refused with an applied fixit inserting one: the name derived from the file's basename — each `-`, `_`, or `.`-separated segment upper-cased at its start and joined (`geometry.hex` → `module Geometry`, `search-params.hex` → `module SearchParams`); where the derivation yields no uppercase-start identifier, the fixit offers the slot, `module <Name>`. The derivation serves the fixit only: the compiler never reads the name off the path, so nothing can drift (§9.2).
+- **Every file declares a module.** A file with no header is refused with an applied fixit inserting one: the name derived from the file's basename, its `.hex` extension dropped — each `-`, `_`, or `.`-separated segment upper-cased at its start and joined (`geometry.hex` → `module Geometry`, `search-params.hex` → `module SearchParams`); where the derivation yields no uppercase-start identifier, the fixit offers the slot, `module <Name>`. The derivation serves the fixit only: the compiler never reads the name off the path, so nothing can drift (§9.2).
 - **`module` and `end` are contextual head words**, not keywords (Lexer §4.2): `module` followed by an uppercase-start name at the head of a top-level item is the header, and `end module` there is the closer (§2.2). Hexagon has no juxtaposition, so neither spelling is a term at that seat; elsewhere both remain ordinary names — `let module = 3` binds, and `SliceError(start, end)` keeps its parameter.
 
 ### 2.2 Several modules in one file
@@ -324,7 +324,7 @@ opaque record Point = {x: Float, y: Float}
 export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
 export fun getX(p: Point): Float = p.x
 
--- consumer
+-- consumer.hex
 module Consumer
 
 import Point
