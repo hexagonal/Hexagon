@@ -166,7 +166,7 @@ describe("emitJavaScript", () => {
     await expect(runProject(files)).rejects.toThrowError(
       expect.objectContaining({
         name: "IndexError",
-        $hex: "Vector",
+        $hex: "Hex.Vector",
         index: -3,
         size: 2,
       }),

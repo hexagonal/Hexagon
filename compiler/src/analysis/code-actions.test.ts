@@ -1229,7 +1229,9 @@ describe("code actions: the module-import repair family (#577)", () => {
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const actions = actionsOn(session, "/main.hex", main, "Shape.area");
     const action = actions.find(({ title }) => title === "import `Shape`")!;
-    expect(applied(main, action).startsWith('import Shape\n'))
+    // So the line takes the fallback placement — the top of the *module*, which
+    // since #829 is the line below the header rather than offset zero.
+    expect(applied(main, action).startsWith("module Main\n\nimport Shape\n"))
       .toBe(true);
   });
 

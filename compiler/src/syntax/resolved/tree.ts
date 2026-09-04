@@ -410,6 +410,22 @@ export interface Module {
    * missing path as "no file to name" rather than as an error.
    */
   readonly path?: string;
+  /**
+   * The `module Name` header's span (Modules §2.1) — where this module begins,
+   * and the one point in the file that is above every declaration and every doc
+   * comment while still being *inside* the module.
+   *
+   * Carried for the edits that have to place a line there: a compiler-authored
+   * `import` with no import above it to follow goes below this and nowhere else
+   * (§5.1's "placed so the file stays well-formed"), since offset zero is now
+   * above the header and would leave the file ill-formed.
+   *
+   * Absent where the source **declared** none: the parser derives a name for a
+   * headerless file and refuses it (§2.1), and that file has no module for an
+   * edit to stay inside — its own refusal is the repair, and a placement asked
+   * for here falls back to the top of the file, which is what it always was.
+   */
+  readonly header?: Source.Span;
   readonly items: readonly Item[];
   readonly symbols: readonly Symbol[];
   /**
@@ -704,6 +720,18 @@ export interface InternalNameInputs {
 export interface ImportItem {
   readonly kind: "Import";
   readonly specifier: string;
+  /**
+   * The imported module's **full name** — `Geometry`, `Render.Geometry`,
+   * `Hex.Option` (Packages §2.3).
+   *
+   * The name, beside the specifier, because the two answer different questions
+   * and neither recovers the other since #829: `specifier` is the *emitted* JS
+   * path this edge writes (Modules §11.2), and a diagnostic names a module and
+   * never a path (Modules §1). Empty only where the edge names nothing — an
+   * import whose written name was refused, which binds no alias (§5.2) and
+   * whose item no report reads.
+   */
+  readonly moduleName: string;
   readonly form: ImportForm;
   /** Coherent instance evidence made global by loading this module. */
   readonly instances: readonly InstanceImport[];

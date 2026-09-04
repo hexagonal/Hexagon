@@ -583,6 +583,8 @@ function openedWith(
 export interface PreludeImport {
   readonly interface: ModuleInterface;
   readonly specifier: string;
+  /** The prelude module's full name — `Hex.Option` (Packages §2.3). */
+  readonly name: string;
 }
 
 /**
@@ -1294,6 +1296,13 @@ class Resolver {
   readonly #preludeSpecifierBySymbol = new Map<Resolved.SymbolId, string>();
   readonly #preludeInterfaceBySpecifier = new Map<string, ModuleInterface>();
   /**
+   * Each visible prelude module's **full name**, by the specifier this module
+   * imports it under — what the synthesized import stamps as its `moduleName`,
+   * so that every `Resolved.ImportItem` names a module and no reader of one has
+   * to read a specifier back into a name.
+   */
+  readonly #preludeNameBySpecifier = new Map<string, string>();
+  /**
    * File ids of the prelude modules visible here — how an *explicit* import is
    * recognized as naming one (#263). By module identity rather than by
    * specifier: the same module is `./Option` from the root and `../Option` from
@@ -1489,6 +1498,7 @@ class Resolver {
     }
     for (const preludeImport of options.prelude ?? []) {
       this.#preludeFileIds.add(Number(preludeImport.interface.module.fileId));
+      this.#preludeNameBySpecifier.set(preludeImport.specifier, preludeImport.name);
       this.#seedPrelude(preludeImport.interface, preludeImport.specifier);
     }
   }
@@ -2233,6 +2243,7 @@ class Resolver {
     return {
       kind: "Module",
       fileId: module.fileId,
+      ...(module.name.declared ? { header: module.name.span } : {}),
       items,
       symbols: [...this.#importedSymbols.values(), ...this.#symbols.values()],
       scopes: this.#openScopes.map((open) => ({
@@ -2816,6 +2827,7 @@ class Resolver {
         return {
           kind: "Import",
           specifier: home?.specifier ?? "",
+          moduleName: home?.name ?? "",
           synthesized: false,
           form: {
             kind: "Namespace",
@@ -5574,6 +5586,7 @@ class Resolver {
     return [...namesBySpecifier].map(([specifier, names]) => ({
       kind: "Import" as const,
       specifier,
+      moduleName: this.#preludeNameBySpecifier.get(specifier) ?? "",
       form: { kind: "Named" as const, names },
       // Deliberately empty (#153). This import exists because a *term* was
       // referenced, and instance availability must not depend on that: the

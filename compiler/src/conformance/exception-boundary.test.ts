@@ -112,9 +112,9 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
       "module Reader\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let boom: Int = values[9]\n"]] as const;
 
-    expect(javascriptOf(files, "/deep/reader.hex")).toContain('__error.$hex = "Vector"');
+    expect(javascriptOf(files, "/deep/reader.hex")).toContain('__error.$hex = "Hex.Vector"');
     await expect(runProject(files, { entry: "/deep/reader.hex" })).rejects.toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: "Vector" }),
+      expect.objectContaining({ name: "IndexError", $hex: "Hex.Vector" }),
     );
   });
 

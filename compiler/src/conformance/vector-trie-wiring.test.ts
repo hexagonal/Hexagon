@@ -761,7 +761,7 @@ describe("§5 indexed access over the trie", () => {
     }
     expect(thrown).toMatchObject({
       name: "IndexError",
-      $hex: "Vector",
+      $hex: "Hex.Vector",
       index,
       size,
       message: `index ${index} out of bounds for size ${size}`,
@@ -971,7 +971,7 @@ describe("§9 strings did not follow the vector", () => {
     } catch (error) {
       thrown = error;
     }
-    expect(thrown).toMatchObject({ name: "IndexError", $hex: "Vector", index: 9, size: 5 });
+    expect(thrown).toMatchObject({ name: "IndexError", $hex: "Hex.Vector", index: 9, size: 5 });
   });
 });
 

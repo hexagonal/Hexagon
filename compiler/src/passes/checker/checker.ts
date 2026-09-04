@@ -2196,7 +2196,7 @@ class Checker {
    */
   readonly #aliasConstraints = new Map<
     string,
-    { readonly specifier: string; readonly exported: readonly string[] }
+    { readonly moduleName: string; readonly exported: readonly string[] }
   >();
   /**
    * Every constraint name this module can spell, mapped to the identity of the
@@ -2581,7 +2581,7 @@ class Checker {
             .filter(({ local }) => local.startsWith(prefix))
             .map(({ local }) => local.slice(prefix.length));
           if (exported.length > 0) {
-            this.#aliasConstraints.set(alias, { specifier: item.specifier, exported });
+            this.#aliasConstraints.set(alias, { moduleName: item.moduleName, exported });
           }
         }
         for (const { local, declaration } of item.constraints) {
@@ -12824,7 +12824,7 @@ class Checker {
     return {
       message: `${refusal}; \`${constraint}\` is a module alias — write \`${constraint}.${only}\` ` +
         `for the constraint it exports, or realias as ` +
-        `\`import ${only} from ${JSON.stringify(alias.specifier)}\``,
+        `\`${moduleImportLine(alias.moduleName, only)}\``,
     };
   }
 

@@ -464,6 +464,7 @@ export function compileProject(
       return [{
         interface: moduleInterface(preludeCompiled.resolved),
         specifier: relativeSpecifier(path, preludePath),
+        name: byPath.get(preludePath)!.fullName,
       }];
     });
     const unit = byPath.get(path)!;
@@ -863,6 +864,15 @@ function packageOf(unit: Unit, project: ProgramPackage): ProgramPackage {
  * half alone would either hijack a user's `module Option` on a file called
  * anything, or hand `Hex.Option`'s seat to a file called `Option.hex` that
  * declares something else.
+ *
+ * **Only `.hex` sources are modules** (Packages §2.2). A host hands the compiler
+ * every file it has, and a `.js` beside them is a foreign target an
+ * `extern from "./world.js"` names, not a Hexagon module: parsing it would ask
+ * it for a `module` header it can never carry. It stays in the file list, where
+ * the extern seats read it, and never becomes a unit. A package whose sources
+ * hold no `.hex` file therefore has no modules at all, and injects nothing —
+ * the same answer an empty project has always given, asked of the module set
+ * rather than of the file list.
  */
 function gatherModules(
   sourceFiles: readonly Source.File[],
@@ -888,12 +898,13 @@ function gatherModules(
       seat: index,
     };
   };
-  const supplied = sourceFiles.flatMap((source) =>
+  const moduleFiles = sourceFiles.filter(({ path }) => path.endsWith(".hex"));
+  // A project with no modules injects nothing: its (empty) module list needs no
+  // prelude, and the compile stays what a compilation of nothing was.
+  if (moduleFiles.length === 0) return [];
+  const supplied = moduleFiles.flatMap((source) =>
     parseFile(applyLayout(lex(source)), source.path).map((parsed) => ({ source, parsed }))
   );
-  // An empty project injects nothing: its (empty) module list needs no prelude,
-  // and the compile stays what a compilation of nothing was.
-  if (sourceFiles.length === 0) return [];
   const adopted = new Set<Parsed.Module>();
   const units: Unit[] = [];
   for (const [index, member] of injectedModules.entries()) {

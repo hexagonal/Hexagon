@@ -157,7 +157,7 @@ describe("§16 (c) the accessor pair", () => {
     // The totality claim: an absent key is an answer, not a fault.
     expect(main["missing"]).toBe("none");
     expect(() => (main["boom"] as (ignored: number) => unknown)(0))
-      .toThrowError(expect.objectContaining({ name: "KeyError", $hex: "Map" }));
+      .toThrowError(expect.objectContaining({ name: "KeyError", $hex: "Hex.Map" }));
   });
 });
 
@@ -575,7 +575,7 @@ describe("the companion's surface", () => {
    * two exceptions never showed it because both carry payloads.
    *
    * When it is fixed this assertion fails, and that failure is the point — flip
-   * it to `objectContaining({ name: "KeyError", $hex: "Map" })`, which is what
+   * it to `objectContaining({ name: "KeyError", $hex: "Hex.Map" })`, which is what
    * the bracket's own throw already produces (the §16 (c) case above).
    */
   test("`KeyError` is nameable with no import (throw shape pinned; imported nullary defect)", async () => {
