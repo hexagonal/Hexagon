@@ -773,7 +773,14 @@ export class AnalysisSession {
     // #829: a module import names a module and carries no path, so the line is
     // complete as written — the workspace tier's remaining job is *which*
     // module, not where its file sits.
-    const importLine = moduleImportLine(exporters[0]!.name);
+    //
+    // The alias is the **refused spelling**, and carrying it is what makes the
+    // edit a repair rather than a gesture at one (#577): the caret is on a bare
+    // `Scale`, and only `import Metric as Scale` makes that bare name resolve —
+    // through §5.1 rule 2's companion fallback, whose door is the alias.
+    // `moduleImportLine` drops the clause where the module's declared name is
+    // already the spelling, so the companion idiom's line stays `import Scale`.
+    const importLine = moduleImportLine(exporters[0]!.name, repair.name);
     const offset = importInsertionOffset(
       analysis.resolvedOf(path),
       text,
@@ -1039,7 +1046,20 @@ export class AnalysisSession {
           // declaration sits in may be one the host synthesized — the standard
           // library's own source arrives that way — and a sentence naming it
           // would send the reader to a path nothing in their project has.
-          const declaring = analysis.moduleNameOf(occurrence.span.fileId) ?? owner;
+          //
+          // And the **declaring** module, never merely a mentioning one: the
+          // occurrence stopped at here is whichever came first, and a mention
+          // is as likely as the definition — `Ordering.hex`'s `derives (Eq,
+          // Show)` mentions `compare`, and naming `Ordering` would send the
+          // reader to a module that does not declare it (§1, §10).
+          //
+          // By its **full name** (Packages §2.3), which is the one place a
+          // report spells `Hex.` rather than dropping it (§7.6): this sentence
+          // says the module is not the project's, and the package segment is
+          // exactly what says whose it is.
+          const declaring = analysis.fullModuleNameOf(
+            this.#definitionOf(analysis, targets) ?? occurrence.span.fileId,
+          ) ?? owner;
           return {
             refused: `\`${name}\` is declared in module \`${declaring}\`, ` +
               "which this project does not own",
@@ -1055,7 +1075,9 @@ export class AnalysisSession {
     // declared in Hexagon, so every mention of one is a reference and there is
     // nothing to rewrite. Renaming them would silently detach every instance.
     if (!declared) {
-      return { refused: `\`${name}\` is built into the compiler, so it has no declaration to rename` };
+      return {
+        refused: `\`${name}\` is built into the compiler, so it has no declaration to rename`,
+      };
     }
     const derived = this.#derivedMentions(analysis, normalized, targets);
     return {
@@ -1065,6 +1087,33 @@ export class AnalysisSession {
       mentions,
       ...(derived.length === 0 ? {} : { derived }),
     };
+  }
+
+  /**
+   * The file the **definition** of these targets sits in — what a report
+   * naming the declaring module reads (Modules §1, §10).
+   *
+   * The occurrence index holds definitions and references alike, and a module
+   * that merely mentions a name is never the one that declares it; asking for
+   * the definition is the whole difference between naming `Hex.Ord` and naming
+   * whichever prelude module happens to `derives` from it first.
+   *
+   * The **spelling** is not filtered, unlike the mention walk's: an alias is
+   * one identity under two spellings, and the declaration an alias aliases is
+   * spelled differently by definition — filtering would lose exactly the
+   * declaring module the caller asked for. Its caller has already established
+   * that a definition exists, so the `undefined` arm is the defensive one.
+   */
+  #definitionOf(
+    analysis: Analysis,
+    targets: readonly Target[],
+  ): Source.FileId | undefined {
+    for (const target of targets) {
+      for (const occurrence of analysis.byTarget(target)) {
+        if (occurrence.role === "definition") return occurrence.span.fileId;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -1421,6 +1470,20 @@ class Analysis {
   moduleNameOf(fileId: Source.FileId): string | undefined {
     const full = this.#moduleNamesByFileId.get(Number(fileId));
     return full === undefined ? undefined : displayModuleName(full);
+  }
+
+  /**
+   * The module a file declares, by its **full name** (Packages §2.3) — the
+   * spelling a report naming a module *the project does not own* uses (Modules
+   * §10's rename row).
+   *
+   * The bare spelling above is what a reader who can reach the module knows it
+   * by; this one is for the report that says they cannot. `Hex.Ord` names the
+   * package and the module in one, which is what a reader asking why their
+   * rename was refused needs, and what a bare `Ord` would leave them to guess.
+   */
+  fullModuleNameOf(fileId: Source.FileId): string | undefined {
+    return this.#moduleNamesByFileId.get(Number(fileId));
   }
 
   /**

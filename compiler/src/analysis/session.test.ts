@@ -1064,13 +1064,27 @@ describe("AnalysisSession.rename", () => {
       .toContain("two different kinds of name");
   });
 
-  test("refuses a name the project does not own", () => {
+  test("refuses a name the project does not own, naming the declaring module in full", () => {
     const source = "module Main\n\n" + "let maybe: Option(Int) = None\n";
     const { session } = sessionOf({ "/main.hex": source });
     // `None` is the prelude's, injected rather than read; the workspace has no
     // file to edit and rewriting the use alone would break it.
+    //
+    // The module by its **full name** (Packages §2.3): this sentence says the
+    // module is not the project's, and the package segment is what says whose
+    // it is (Modules §10's rename row, #838).
     expect(refusal(session.rename("/main.hex", at(source, "None"), "Nothing")))
-      .toContain("this project does not own");
+      .toBe("`None` is declared in module `Hex.Option`, which this project does not own");
+  });
+
+  test("a name with no declaration anywhere takes the built-in refusal, not a mentioner's", () => {
+    // The two refusals are not alternatives: a checker-known constraint has no
+    // declaring module to name, so naming whichever module mentioned it first
+    // is the fault §10's row forbids.
+    const source = "module Main\n\n" + "export let word: String = show(1)\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(refusal(session.rename("/main.hex", at(source, "show"), "display")))
+      .toBe("`show` is built into the compiler, so it has no declaration to rename");
   });
 
   test("rewrites a dot call, which only the checker knows the meaning of", () => {

@@ -123,7 +123,10 @@ describe("discarding position erases (§3.3, mandatory)", () => {
     expect(javascript).not.toContain("void");
     expect(callsIgnore(javascript)).toBe(false);
     // The whole point of erasing: no import survives for a call that is gone.
-    expect(javascript).not.toContain("./Prelude.js");
+    // The prelude's modules emit under `Hex/` since #829, so the needle has to
+    // be the specifier the emitter would actually write — `"./Prelude.js"`
+    // could not appear whatever the compiler did.
+    expect(javascript).not.toContain("Hex/Prelude.js");
   });
 
   test("the operand runs exactly once, and the block goes on", async () => {

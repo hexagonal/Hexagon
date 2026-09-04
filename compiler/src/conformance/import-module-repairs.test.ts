@@ -34,9 +34,20 @@ function messages(files: readonly (readonly [string, string])[]): readonly strin
   return compileFiles(files).diagnostics.map(({ message }) => message);
 }
 
-/** Rule 1's sentence, as §5.1 and §10 both write it. */
+/**
+ * Rule 1's sentence where the checker has **not** reached the type's home —
+ * the module's own declaration, which no import repairs (§5.1, §10).
+ */
 const TYPE_NOT_A_MODULE = "`Shape` is a type, not a module; import its home " +
   "module to qualify through it";
+
+/**
+ * The same seat where the home **is** reached: "*the type's home named*"
+ * (§10's row, as #829 respelled it). The alias clause goes where the module's
+ * own name is already the spelling, the rule every line a tier writes keeps.
+ */
+const SHAPE_HOME_NAMED = "`Shape` is a type, not a module; `import Shape` " +
+  "and qualify through it";
 
 /** A union and an ordinary function over it: the type-only import's fixture. */
 const SHAPE = [
@@ -63,7 +74,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
         "module Main\n\n" + 'import Shape as S\n' +
         "type Shape = S.Shape\n" +
         "export fun go(s: Shape): Float = Shape.area(s)\n"],
-    ])).toEqual([TYPE_NOT_A_MODULE]);
+    ])).toEqual([SHAPE_HOME_NAMED]);
   });
 
   test("the module's own type reads the same — the seat is the namespace, not the import", () => {
@@ -82,7 +93,9 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
         "type Meters = Lib.Meters\n" +
         "export let n: Float = Meters.zero\n"],
     ])).toEqual([
-      "`Meters` is a type, not a module; import its home module to qualify through it",
+      // The home is the qualifier the alias's expansion was written through,
+      // realiased so the bare spelling resolves (§5.1 rule 2's door).
+      "`Meters` is a type, not a module; `import Lib as Meters` and qualify through it",
     ]);
   });
 
@@ -96,7 +109,7 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
         "module Main\n\n" + 'import Shape as S\n' +
         "type Shape = S.Shape\n" +
         "export fun go(s: Shape): Float = Shape.area(s) + Shape.area(s)\n"],
-    ])).toEqual([TYPE_NOT_A_MODULE, TYPE_NOT_A_MODULE]);
+    ])).toEqual([SHAPE_HOME_NAMED, SHAPE_HOME_NAMED]);
   });
 
   test("nothing of the spelling anywhere keeps the bare unknown name", () => {

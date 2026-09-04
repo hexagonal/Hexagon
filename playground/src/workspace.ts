@@ -36,18 +36,29 @@ export const entryPath = "/main.hex";
  * and counted into `prefixLength` like the import prefix beside it. The
  * entry's name is `Main`, after the path it has always been compiled at.
  *
- * **Indented to the body's own first line**, which is not cosmetic: the layout
+ * **Indented to the body's own first item**, which is not cosmetic: the layout
  * pass takes a file's baseline from its first item (Lexer & Layout §5), and a
  * block whose body the user indented under the `module` line — the ordinary way
  * to write one — would otherwise have every item read as a continuation of a
  * header standing at column zero. Matching the body puts the header *at* the
  * baseline the body already establishes, so the file lays out exactly as the
  * block's text did before it had a header at all.
+ *
+ * The **first item**, and not the first non-blank line, because a comment is
+ * not an item: layout never takes a baseline from one, and a comment written
+ * less indented than the body it introduces would put the header off the
+ * block's own baseline — the exact fault this indentation exists to prevent.
+ * The lexer is what knows the difference, so the first token it produces is
+ * what is measured, comments and blank lines alike passed over.
+ *
+ * The indent is rebuilt as **spaces**, whatever the body used: a tab copied
+ * into the minted line draws Lexer & Layout's tab refusal against text no user
+ * wrote, and the header only has to reach the same column.
  */
 function headerFor(name: string, body: string): string {
-  const firstContent = body.split("\n").find((line) => line.trim() !== "") ?? "";
-  const indent = /^[ \t]*/u.exec(firstContent)![0];
-  return `${indent}module ${name}\n\n`;
+  const { tokens } = lex(new Source.File(Source.fileId(0), entryPath, body));
+  const first = tokens.find(({ span }) => span.end.offset > span.start.offset);
+  return `${" ".repeat(first?.span.start.column ?? 0)}module ${name}\n\n`;
 }
 
 /** One file as the compiler will see it. */

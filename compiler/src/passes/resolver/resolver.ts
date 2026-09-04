@@ -1245,6 +1245,16 @@ class Resolver {
   readonly #recordArities = new Map<string, number>();
   readonly #externTypeNames = new Map<string, Resolved.ExternTypeId>();
   readonly #typeAliases = new Map<string, Parsed.TypeAliasItem | Resolved.TypeAliasItem>();
+  /**
+   * The **written** alias declarations of this module, kept beside
+   * `#typeAliases` because that map is overwritten with the resolved item as
+   * each alias is resolved (§4.2's expansion), and a resolved annotation names
+   * declarations rather than the module alias the author reached them through.
+   *
+   * That qualifier is the one thing `#typeHomeModule` needs, so it is kept
+   * where nothing overwrites it.
+   */
+  readonly #writtenTypeAliases = new Map<string, Parsed.TypeAliasItem>();
   readonly #unionDeclarations = new WeakMap<Parsed.UnionItem, Resolved.UnionId>();
   readonly #recordDeclarations = new WeakMap<Parsed.RecordItem, Resolved.RecordId>();
   readonly #externTypeDeclarations = new WeakMap<Parsed.ExternTypeDeclaration, Resolved.ExternTypeId>();
@@ -2336,6 +2346,7 @@ class Resolver {
       claimed.set(itemName.text, itemName.span);
       if (item.kind === "TypeAlias") {
         this.#typeAliases.set(item.name.text, item);
+        this.#writtenTypeAliases.set(item.name.text, item);
       } else if (item.kind === "Union") {
         const id = Resolved.unionId(this.#nextUnion++);
         this.#unionDeclarations.set(item, id);
@@ -4530,14 +4541,47 @@ class Resolver {
     ) {
       return false;
     }
+    // Modules §5.1/§10, as #829 respelled them: "*the type's home named*". The
+    // checker knows the home wherever the type reached this module through a
+    // module alias, which is the shape the row is written for; where the type
+    // is the module's own declaration there is no import to name, and the
+    // general sentence stands.
+    const home = this.#typeHomeModule(name);
     this.#diagnostics.add({
       severity: "error",
-      message: `\`${name}\` is a type, not a module; import its home module ` +
-        "to qualify through it",
+      message: home === undefined
+        ? `\`${name}\` is a type, not a module; import its home module ` +
+          "to qualify through it"
+        : `\`${name}\` is a type, not a module; \`${moduleImportLine(home, name)}\` ` +
+          "and qualify through it",
       primary: receiver.span,
       importModuleRepair: { name, namespace: "type" },
     });
     return true;
+  }
+
+  /**
+   * The **home module** of a type reached bare here, by full name, or
+   * `undefined` where this module declares it itself.
+   *
+   * The one shape that carries a home across the border since #829: a type
+   * alias whose expansion is qualified through a module alias — `type Meters =
+   * P.Meters` — where the qualifier names an import this module wrote, and the
+   * import that would let `Meters.zero` resolve is that same module realiased.
+   * Everything else a bare type spelling can be is this module's own
+   * declaration, or the prelude's under a module alias that already resolves.
+   *
+   * Read off the **written** annotation, which is where a qualifier survives:
+   * a resolved annotation names declarations, not the alias the author reached
+   * them through, and that alias is exactly what the repair has to spell.
+   */
+  #typeHomeModule(name: string): string | undefined {
+    const annotation = this.#writtenTypeAliases.get(name)?.annotation;
+    const qualifier =
+      annotation?.kind === "NamedType" || annotation?.kind === "AppliedType"
+        ? annotation.qualifier?.text
+        : undefined;
+    return qualifier === undefined ? undefined : this.#moduleAliasModules.get(qualifier)?.name;
   }
 
   #resolveName(expression: Parsed.NameExpr, scope: Scope): Resolved.Expr {

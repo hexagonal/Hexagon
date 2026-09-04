@@ -284,8 +284,10 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     expect(text).toContain('import { __Show_Int_show } from "./Hex/Int.js";');
     expect(text).toContain('import { __Show_String_show } from "./Hex/String.js";');
     expect(text).toContain('const rendered = __Show_Int_show(41) + __Show_String_show("!");');
-    // The forwarder and the dictionary are both gone from the call.
-    expect(text).not.toContain("./Show.js");
+    // The forwarder and the dictionary are both gone from the call. The needle
+    // is the specifier #829 emits — `"./Show.js"` names no file in the layout,
+    // so it could not appear whatever the compiler did.
+    expect(text).not.toContain("Hex/Show.js");
     expect(text).not.toContain("__Show_Int }");
 
     const main = await runMain("module Main\n\n" + source);

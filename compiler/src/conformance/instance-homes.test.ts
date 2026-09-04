@@ -340,7 +340,10 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       ].join("\n")],
     ]);
 
-    expect(message).not.toContain("./main.hex");
+    // No diagnostic names a path since #829 — a module is named, never a file
+    // (Modules §1) — so the needle is the *module*, which is what naming
+    // `/main.hex` as a seat would now spell.
+    expect(message).not.toContain("module `Main`");
     expect(message).not.toContain("could only be declared");
   });
 

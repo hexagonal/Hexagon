@@ -98,9 +98,13 @@ describe("layOutWorkspace", () => {
       "Debug.log(\"${Rat.twice(3)}\")\n";
     const main = layOutWorkspace(source).files.find(({ path }) => path === entryPath);
 
-    // Nothing about `./stdlib/Rat` is what collides — the bound name is. A
-    // buffer aliasing anything at all as `Rat` has claimed it.
-    expect(main?.source).not.toContain("./stdlib/Rat");
+    // Nothing about the equipment's *file* is what collides — the bound name
+    // is. A buffer aliasing anything at all as `Rat` has claimed it.
+    //
+    // The needle is the line the equipment would prepend, `import Rat`, since
+    // #829 made that line path-free: a `"./stdlib/Rat"` specifier is a
+    // spelling nothing emits any more, so testing for it could not fail.
+    expect(main?.source).not.toContain("import Rat\n");
   });
 
   test("keeps the line for a buffer whose own import is the named half", () => {

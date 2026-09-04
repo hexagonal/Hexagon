@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 import * as Source from "./support/source.js";
-import { compileProject } from "./project.js";
+import { compileProject, unresolvedModuleMessage } from "./project.js";
 
 test("compiles a relative module import, alongside a bystander import", () => {
   // #762: there is one import form now — a module alias — so this no longer
@@ -449,3 +449,62 @@ test("reports a type error found only by the checker", () => {
   expect(project.diagnostics.length).toBeGreaterThan(0);
 });
 
+
+/**
+ * Modules §10's two unreachable rows (#836 review B2). The package set this
+ * slice assembles is `{project, Hex}`, which no contest and no
+ * not-a-dependency report can arise in; both messages carry spec wording, so
+ * the wording is executed here rather than shipped unrun.
+ */
+test("a contested name quotes each package and offers each full spelling", () => {
+  expect(unresolvedModuleMessage("Geometry", {
+    kind: "Contested",
+    providers: [
+      { packageName: "Acme", declaredName: "Geometry", fullName: "Acme.Geometry" },
+      { packageName: "Hex", declaredName: "Geometry", fullName: "Hex.Geometry" },
+    ],
+  })).toBe(
+    "`Geometry` is provided by `Acme` and `Hex`; write `import Acme.Geometry` " +
+      "or `import Hex.Geometry`",
+  );
+});
+
+test("an unnamed project is prose in the contest, the one participant with no name", () => {
+  expect(unresolvedModuleMessage("Geometry", {
+    kind: "Contested",
+    providers: [
+      { packageName: undefined, declaredName: "Geometry", fullName: "Geometry" },
+      { packageName: "Hex", declaredName: "Geometry", fullName: "Hex.Geometry" },
+    ],
+  })).toBe(
+    "`Geometry` is provided by this project and `Hex`; write `import Geometry` " +
+      "or `import Hex.Geometry`",
+  );
+});
+
+test("a first segment naming an unlisted package names the manifest edit", () => {
+  expect(unresolvedModuleMessage("Acme.Tools", { kind: "NotADependency", packageName: "Acme" }))
+    .toBe(
+      "`Acme` is not a dependency of this package; add `\"Acme\"` to `dependencies` " +
+        "in `hexagon.json`",
+    );
+});
+
+test("a self-qualified spelling names the declared name to write instead", () => {
+  expect(unresolvedModuleMessage("MyApp.Geometry", {
+    kind: "SelfQualified",
+    declaredName: "Geometry",
+  })).toBe(
+    "no module `MyApp.Geometry`; a package's own modules are imported by their " +
+      "declared names: `import Geometry`",
+  );
+});
+
+test("an unknown name joins several near misses with `or`", () => {
+  expect(unresolvedModuleMessage("Geometry", {
+    kind: "Unknown",
+    nearMisses: ["Render.Geometry", "Physics.Geometry"],
+  })).toBe(
+    "no module `Geometry`; did you mean `Render.Geometry` or `Physics.Geometry`?",
+  );
+});

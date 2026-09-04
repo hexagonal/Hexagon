@@ -893,7 +893,10 @@ function gatherModules(
       packageName,
       declaredName: parsed.name.text,
       fullName,
-      path: moduleLayoutPath(fullName),
+      // Packages §6: the project's own modules lie at the output root under
+      // their declared names, its package segment elided — the layout's one
+      // asymmetry, and the reason a project that gains a `name` moves no file.
+      path: moduleLayoutPath(fullName, project.name),
       injected,
       seat: index,
     };
@@ -976,7 +979,9 @@ function moduleIndexOf(
     }
     // Modules §2.2: two modules of one name in one package, compared
     // case-insensitively on the emitted filesystem's account (§11.1).
-    const key = `${unit.packageName ?? ""} ${unit.declaredName.toLowerCase()}`;
+    // The separator is written as an escape, never as a literal NUL byte: a
+    // source file carrying one is binary to every text tool a reader has.
+    const key = `${unit.packageName ?? ""}\u0000${unit.declaredName.toLowerCase()}`;
     const first = declared.get(key);
     if (first !== undefined) {
       diagnostics.add({
@@ -1000,14 +1005,29 @@ function moduleIndexOf(
   return { byFullName, packages: [project] };
 }
 
-/** Modules §10's rows for a written name that resolved to nothing. */
-function unresolvedModuleMessage(
+/**
+ * Modules §10's rows for a written name that resolved to nothing.
+ *
+ * Exported for its tests alone. Two of its arms — `Contested` and
+ * `NotADependency` — cannot be reached from `compileProject` while the package
+ * set is `{project, Hex}`: a contest needs two packages providing one declared
+ * name, and §3.2's occlusion answers before any two the project can assemble,
+ * while a not-a-dependency report needs an installed set to check a name
+ * against. They ship with byte-exact §10 wording, so the wording is executed
+ * here until a real dependency package makes both reachable end to end.
+ */
+export function unresolvedModuleMessage(
   written: string,
   resolution: Exclude<ModuleResolution, { kind: "Resolved" }>,
 ): string {
   switch (resolution.kind) {
     case "Contested": {
-      const packages = resolution.providers.map(({ packageName }) => packageName ?? "this project");
+      // A package name is code, quoted as every other name a report prints is
+      // (Packages §3.3's own row: "`Acme` and `Hex`"); "this project" is prose,
+      // the one participant with no name to print (Packages §2.5).
+      const packages = resolution.providers.map(({ packageName }) =>
+        packageName === undefined ? "this project" : `\`${packageName}\``
+      );
       const spellings = resolution.providers.map(({ fullName }) => `\`import ${fullName}\``);
       return `\`${written}\` is provided by ${joinWithAnd(packages)}; write ${
         joinWithOr(spellings)
@@ -1117,9 +1137,19 @@ function runtimesFor(
  *
  * No Hexagon `import` carries a specifier since #829 — a module is named, not
  * pathed (Modules §3) — so this now serves the two places a specifier still
- * exists: the emitted module graph, whose specifiers are computed from the
- * modules' names (§11.2), and the `extern from` head, whose relative spelling
- * names a file beside the source.
+ * exists, and they read against **different trees**.
+ *
+ * The emitted module graph's specifiers are computed from the modules' names
+ * (§11.2), so they are read against the *layout*: `resolveSpecifier(unit.path,
+ * …)`. A **foreign** specifier is never computed and never re-based (FFI Part
+ * 4 §2.1, #839): it is JavaScript's own, emitted verbatim, and resolves at
+ * load from the emitted file's own place — `extern from "./world.js"` in
+ * `module Deep.Nested` names `Deep/world.js`, a file Hexagon neither writes
+ * nor places. The compiler reads one of these exactly once, for the refusal
+ * that catches a specifier naming a Hexagon source, and takes that reading
+ * against the *source* tree from the importing file's own directory
+ * (`resolveSpecifier(unit.source.path, …)`) — which is the tree the author
+ * wrote it in. Nothing else reads it.
  */
 export function resolveSpecifier(importer: string, specifier: string): string {
   const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));

@@ -65,9 +65,19 @@ export function fullModuleName(
  * to another — computes exactly the specifier §11.2 demands, with no second
  * rule beside it. Nothing reads a **source** path to answer a question about a
  * module; a source file's own name and place appear nowhere in the output.
+ *
+ * `projectName` is the **resolving project's** name, where it declared one, and
+ * its package segment is elided from the layout — "*with the project's package
+ * segment elided because a project may have none*" (§6). The full name (§2.3)
+ * is untouched by that: `Acme.Main` is still the module's identity and still
+ * its brand, and only the address it emits under drops the segment, so a
+ * project that gains a `name` moves no file and changes no specifier.
  */
-export function moduleLayoutPath(fullName: string): string {
-  return `/${fullName.replaceAll(".", "/")}.hex`;
+export function moduleLayoutPath(fullName: string, projectName?: string): string {
+  const laid = projectName !== undefined && fullName.startsWith(`${projectName}.`)
+    ? fullName.slice(projectName.length + 1)
+    : fullName;
+  return `/${laid.replaceAll(".", "/")}.hex`;
 }
 
 /** The full name a layout path spells, `moduleLayoutPath` read backwards. */
@@ -239,25 +249,46 @@ export function firstSegmentPackage(
   return packageNames.has(segments[0]!) ? segments[0]! : undefined;
 }
 
+/** Packages §2.1: one uppercase-start identifier, and no dots. */
+const PACKAGE_NAME = /^[A-Z][A-Za-z0-9_]*$/u;
+
+/**
+ * Packages §2.1's shape refusal, with §7's dotted clause where the spelling is
+ * dotted: dots are the *module* name's, and a reader who wrote `"Acme.Tools"`
+ * meant a namespace, so the sentence names the form that has one rather than
+ * leaving them to read the shape rule twice.
+ */
+function packageNameShapeRefusal(name: string): string {
+  return "a package name is one uppercase-start identifier: write `\"Acme\"`" +
+    (name.includes(".") ? " — a module's name is where dots belong" : "");
+}
+
 /**
  * Packages §2.1's manifest `name` rule: one uppercase-start identifier, not
  * dotted, and never `Hex`. Answers the refusal, or `undefined` where lawful.
  */
 export function packageNameRefusal(name: string): string | undefined {
   if (name === STANDARD_LIBRARY) return "`Hex` is the standard library's package name";
-  if (!/^[A-Z][A-Za-z0-9_]*$/u.test(name)) {
-    return "a package name is one uppercase-start identifier: write `\"Acme\"`";
-  }
+  if (!PACKAGE_NAME.test(name)) return packageNameShapeRefusal(name);
   return undefined;
 }
 
-/** Packages §2.4: `Hex` is every package's dependency and is never listed. */
+/**
+ * Packages §2.4: `Hex` is every package's dependency and is never listed; §4.4:
+ * an npm package with no manifest is a JavaScript package, bound with `extern`.
+ *
+ * The two refusals are told apart by the *shape* of the entry, not by one test
+ * standing in for both: an uppercase-start spelling is a package name written
+ * wrong (§2.1) — `"Acme.Tools"` is the module-name form in a package-name seat
+ * — and sending its author to `extern from "Acme.Tools"` would name a
+ * JavaScript module that cannot exist. Only a spelling no package name could
+ * ever take is read as npm's.
+ */
 export function dependencyRefusal(name: string): string | undefined {
   if (name === STANDARD_LIBRARY) return "`Hex` is every package's dependency; remove the entry";
-  if (!/^[A-Z][A-Za-z0-9_]*$/u.test(name)) {
-    return `\`${name}\` is not a Hexagon package: bind it with \`extern from "${name}"\``;
-  }
-  return undefined;
+  if (PACKAGE_NAME.test(name)) return undefined;
+  if (/^[A-Z]/u.test(name)) return packageNameShapeRefusal(name);
+  return `\`${name}\` is not a Hexagon package: bind it with \`extern from "${name}"\``;
 }
 
 /** Where a module's text is, for the reports that must send a reader to it. */

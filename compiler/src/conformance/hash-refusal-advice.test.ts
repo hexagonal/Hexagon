@@ -173,7 +173,10 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
    * reason this gate is softer than #644's — pinned negatively, because the
    * failure mode is a path appearing where it says nothing.
    */
-  test("the reporting file is never named", () => {
+  test("the reporting module is never named", () => {
+    // No diagnostic names a *path* since #829 — a module is named, never a
+    // file (Modules §1) — so the needle is the module the advice would name if
+    // it named its own; `main.hex` could not appear whatever the compiler did.
     expect(projectDiagnostics([
       "module Main",
       "",
@@ -181,7 +184,7 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
       "honor Hash<UserId> =",
       "    hash(u) = u.n * 31",
       "",
-    ].join("\n"))[0]).not.toContain("main.hex");
+    ].join("\n"))[0]).not.toContain("`Main`");
   });
 
   /**

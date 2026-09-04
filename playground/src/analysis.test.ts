@@ -483,8 +483,11 @@ describe("rename", () => {
     // Not the Playground's `OUTSIDE_DOCUMENT`: this one is the compiler's, and
     // it is the reason the user is shown. Swallowing it and answering nothing
     // leaves the editor silent exactly where there is something to say.
+    // The declaring module by its **full name** (Packages §2.3, #838): the
+    // sentence says the module is not the project's, and the package segment
+    // is what says whose it is.
     expect(analysis.prepareRename(source, at(source, "Show"))).toEqual({
-      refused: "`Show` is declared in module `Ordering`, which this project does not own",
+      refused: "`Show` is declared in module `Hex.Ordering`, which this project does not own",
     });
   });
 

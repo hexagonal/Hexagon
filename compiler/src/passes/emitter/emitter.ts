@@ -39,7 +39,8 @@ import { fullModuleName, STANDARD_LIBRARY } from "../../packages.js";
 /**
  * The `$hex` brands the runtime helpers stamp, and the one the virtual `JsError`
  * is recognized by — a standard-library module's **full name** (Packages §2.3),
- * which is what `moduleBrandIdentity` stamps on the declarations themselves.
+ * which is what `compileProject` hands the resolver as a module's `identity`
+ * and every declaration of that module carries.
  *
  * Spelled through `fullModuleName` rather than written out, so the package
  * segment has one seat rather than ten: a helper inlined into a user's module

@@ -1125,6 +1125,9 @@ describe("code actions: the module-import repair family (#577)", () => {
   /** A union and a function over it: the type seat's exporter. */
   const SHAPE = "module Shape\n\n" + "export union Shape = Circle(Float) | Square(Float)\n" +
     "export fun area(s: Shape): Float = 1.0\n";
+  /** The same constraint in a module whose **name is not the spelling**. */
+  const METRIC = "module Metric\n\n" +
+    "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n";
 
   test("the type seat's insert lands beside the imports already there", () => {
     // The filing's own shape, respelt for #762: the type is named bare by a
@@ -1155,6 +1158,23 @@ describe("code actions: the module-import repair family (#577)", () => {
       "export fun go(s: Shape): Float = Shape.area(s)\n";
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
+    session.setFile("/main.hex", applied(main, action));
+    expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
+  });
+
+  test("the repair carries the refused spelling as the alias where they differ", () => {
+    // The property above, asked where the module's declared name is *not* the
+    // spelling the caret is on — which is the only shape in which the alias
+    // does any work, and therefore the only shape in which dropping it can be
+    // caught. §5.1 rule 2's companion fallback is the door the bare `Scale`
+    // resolves through, and the alias is what opens it.
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf({ "/metric.hex": METRIC, "/main.hex": main });
+    const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
+    expect(applied(main, action)).toBe(
+      "module Main\n\n" + "import Metric as Scale\n" +
+        "export fun go<a: Scale>(x: a): a = x\n",
+    );
     session.setFile("/main.hex", applied(main, action));
     expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
   });
@@ -1342,10 +1362,12 @@ describe("code actions: the module-import repair family (#577)", () => {
       actionsOn(session, "/main.hex", REACHES_PRELUDE, "JsConversionError.rank"),
     );
     expect(action.disabled).toBeUndefined();
-    // #829: the fix names the module and carries no alias — bare `import Mine`.
+    // #829: the fix names the *module*, and carries the refused spelling as the
+    // alias — the module is `Mine`, the caret is on `JsConversionError`, and
+    // only the alias makes that spelling resolve (§5.1 rule 2).
     expect(applied(REACHES_PRELUDE, action)).toBe(
       "module Main\n\n" +
-        "import Mine\n" +
+        "import Mine as JsConversionError\n" +
         "export let c: JsConversionError =\n" +
         "    JsValue.JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n" +
         "export let n: Int = JsConversionError.rank(1)\n",
@@ -1364,13 +1386,13 @@ describe("code actions: the module-import repair family (#577)", () => {
       "/main.hex": main,
     });
     const action = sole(actionsOn(session, "/main.hex", main, "Meters.zero"));
-    // #829: the fix names the module and carries no alias — bare `import
-    // Prelude`, even though the second alias joining the block above binds
-    // under `Prelude`, not the `Meters` spelling the caret used.
+    // #829: the fix names the module, under the spelling the caret used — the
+    // second alias joining the block binds `Meters`, which is the name that was
+    // refused, and not `Prelude`, which would leave it refused.
     expect(applied(main, action)).toBe(
       "module Main\n\n" +
         'import Prelude as P\n' +
-        'import Prelude\n' +
+        'import Prelude as Meters\n' +
         "type Meters = P.Meters\n" +
         "export let n: Float = Meters.zero\n",
     );

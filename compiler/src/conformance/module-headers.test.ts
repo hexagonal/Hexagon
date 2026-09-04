@@ -219,6 +219,20 @@ describe("§13 (o) — the miscased header (#838)", () => {
     ]);
   });
 
+  test("a header both miscased and second draws both reports, edits that compose", () => {
+    const text = `module Geometry\n${POINT}module shapes\nexport let n: Int = 1\n`;
+    const [casing, second, ...rest] = reports([["/f.hex", text]]);
+    expect([casing?.message, second?.message]).toEqual([
+      "a module name is uppercase-start; write `module Shapes`",
+      "a file holding several modules closes each with `end module Geometry`",
+    ]);
+    expect(rest).toEqual([]);
+    // Neither edit stands in the other's way: applying both — the later span
+    // first, as a host applying two edits to one document does — reaches a
+    // file that compiles.
+    expect(messages([["/f.hex", applied(applied(text, casing), second)]])).toEqual([]);
+  });
+
   test("the module the file recovers under is the one an importer names", () => {
     expect(messages([
       ["/g.hex", `module geometry\n${POINT}`],

@@ -264,6 +264,38 @@ describe("compileSource", () => {
     });
   });
 
+  /**
+   * The minted header takes the block's **first item's** indent, not its first
+   * non-blank line's (#836 review N2). A comment is not an item — layout takes
+   * no baseline from one — so a comment less indented than the body it
+   * introduces used to put the header off the block's own baseline and turn
+   * every item below it into a continuation line.
+   */
+  test("a comment above an indented body does not move the minted header", () => {
+    const source =
+      "module Geo\n" +
+      "(* a note *)\n" +
+      "    export let a: Int = 1\n" +
+      "end module Geo\n" +
+      "Debug.log(\"${Geo.a}\")\n";
+
+    expect(compileSource(7, source)).toMatchObject({ kind: "compile-success", diagnostics: [] });
+  });
+
+  test("a tab-indented body mints a header of spaces, drawing no tab refusal", () => {
+    const source =
+      "module Geo\n" +
+      "\texport let a: Int = 1\n" +
+      "end module Geo\n" +
+      "Debug.log(\"${Geo.a}\")\n";
+    const response = compileSource(7, source);
+
+    // The body's own tab is still the lexer's to refuse; what must not happen
+    // is a *second* refusal against text the minted header introduced.
+    if (response.kind !== "compile-failure") return;
+    expect(response.diagnostics.filter(({ message }) => message.includes("tabs"))).toHaveLength(1);
+  });
+
   test("previews private bindings through JavaScript and TypeScript emission", () => {
     const response = compileSource(7, helloWorld.source);
 
