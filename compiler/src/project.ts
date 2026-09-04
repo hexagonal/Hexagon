@@ -274,6 +274,11 @@ export function compileProject(
         edges.set(item.module.text, moduleLayoutPath(resolution.module.fullName));
         continue;
       }
+      // A **derived** name is the parser's recovery of a refused head (Modules
+      // §3.1): the line already carries its rewrite, and the module the
+      // specifier's basename names may well not exist. Reporting it unresolved
+      // would answer a question the author never asked.
+      if (!item.module.declared) continue;
       diagnostics.add({
         severity: "error",
         message: unresolvedModuleMessage(item.module.text, resolution),
