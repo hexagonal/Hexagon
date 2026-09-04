@@ -318,6 +318,7 @@ Hexagon now has **four namespaces**: terms, types, constraints (Constraints §2.
 The intended pattern for opaque types: the home module exports the opaque type plus functions under its own roof, and consumers import it under the type's name.
 
 ```
+-- point.hex
 module Point
 
 opaque record Point = {x: Float, y: Float}
