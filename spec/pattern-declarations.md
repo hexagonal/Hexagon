@@ -32,20 +32,20 @@ export pattern rgb(r: Int, g: Int, b: Int): Color
     view(c) = channels(c)                     -- match-only: no build
 ```
 
-A **`pattern` head** — the contextual head word (Lexer §4.2), the pattern's non-uppercase-start name, an optional binder list (Functions §4.2), and, **together or not at all**, a binder list (Functions §4.2), a **component list**, and a **result type** — the whole head, or the bare name: a head that writes a binder list or a component list without the result type, or a result type without the component list (`pattern zero: Rat`, refused at the arity rule the moment it parses), is refused at the head naming the slot it lacks, since §2.2 has two modes and no third — ends its logical item and opens a **member block** (Lexer & Layout §2.1's row; Functions §7.3's shape): a declaration sequence with no value. The head word has one other form, the alias `pattern name = Alias.p` (§3.4), which opens no block. A block's members are:
+A **`pattern` head** — the contextual head word (Lexer §4.2), the pattern's non-uppercase-start name and, **together or not at all**, a binder list (Functions §4.2), a **component list**, and a **result type** — the whole head, or the bare name: a head that writes a binder list or a component list without the result type, or a result type without the component list, is refused at the head — "a pattern head is whole or absent: write the result type, or drop the component list", the slot it lacks named — since §2.2 has two modes and no third (`pattern zero: Rat` is the one partial head the arity rule takes first) — ends its logical item and opens a **member block** (Lexer & Layout §2.1's row; Functions §7.3's shape): a declaration sequence with no value. The head word has one other form, the alias `pattern name = Alias.p` (§3.4), which opens no block. A block's members are:
 
 | Member | Required | Type, at a head `p(c1: T1, …, cn: Tn): S` |
 |---|---|---|
 | `view` | yes | `S -> (T1, …, Tn)` for *n* ≥ 2; `S -> T1` for *n* = 1 |
-| `build` | no | `(T1, …, Tn) -> S` |
+| `build` | no | `(T1, …, Tn) -> S` for *n* ≥ 2; `T1 -> S` for *n* = 1 |
 
 - **The component names are the face's, and bind nothing.** `top` and `bottom` in the head name the components — in diagnostics, in the doc comment, in the `.d.ts` face (§6), and in the opaque refusal that names the pattern (§3.3) — and are not in scope in the members, whose parameters are their own: `view(x)` binds `x`, a header-syntax `build(a, b)` binds `a` and `b`, and `Rat`'s head may name its components `top` and `bottom` beside the module's functions `top` and `bottom` with nothing shadowed. A `fun` header's parameters bind in its body; a pattern head's components are a signature, not a binder list.
 - **The component list is the pattern's arity**, *n* ≥ 1. A list of one component is legal — `pattern id(n: Int): UserId` — and is the ordinary shape for an opaque newtype; the parenthesised list is an argument list, never a tuple (Functions §5), so no 1-tuple question arises. A head with no components, `pattern zero: Rat`, is refused: a total view with nothing to bind matches every value and distinguishes none — "a pattern has at least one component; a test with no components is a guard".
-- **A member is written in one of two forms.** *Header syntax* — `view(x) = body`, Functions §7.1's form, one per block item, no `fun` word — or the **delegation line** `build = create`: the member name, `=`, and the **name of a function**, bare or qualified through a module alias (`build = Rat.create`), which the member then *is*. Either member takes either form — `view = channels` delegates the view as `build = create` delegates the build, and a delegated `view`'s face names its parameter `value`, the head naming no subject. The right side of a delegation line is a name and nothing else — no lambda, no call, no expression: the member *is* the named function, and the declaration evaluates nothing to say so. The name is a **term read at the declaration's own line** (below), so the function it names is declared above, and the emitted reference (§6) is safe by the enforced source order that keeps every term reference safe (Functions §7.2's first leg) — no capture analysis, no ordering rule of the pattern's own. Constraints §4.1's lambda-only rule for `honor` members is not loosened by this, and neither is Functions §7.3's ban on `name = lambda` member lines: both refuse a lambda on the right, and the delegation line carries a name; the delegation line is the pattern block's own form, and `name = widened` (Constraints §4.7) is not admitted here. An `=` followed by anything but a name is a parse error naming both forms.
+- **A member is written in one of two forms.** *Header syntax* — `view(x) = body`, Functions §7.1's form, one per block item, no `fun` word — or the **delegation line** `build = create`: the member name, `=`, and the **name of a function**, bare or qualified through a module alias (`build = Rat.create`), which the member then *is*. Either member takes either form — `view = channels` delegates the view as `build = create` delegates the build, and a delegated `view`'s face names its parameter `value`, the head naming no subject. The right side of a delegation line is a name and nothing else — no lambda, no call, no expression: the member *is* the named function, and the declaration evaluates nothing to say so. The name is a **term read at the declaration's own line** (below), so the function it names is declared above, and the emitted reference (§6) is safe by the enforced source order that keeps every term reference safe (Functions §7.2's first leg) — no capture analysis, no ordering rule of the pattern's own. Constraints §4.1's lambda-only rule for `honor` members is not loosened by this — an `honor` member's right side is still a lambda and never a name — and neither is Functions §7.3's ban on `name = lambda` member lines — a `fun` block's member line is still a header and never a lambda; the delegation line is the pattern block's own form, a name and never a lambda; the delegation line is the pattern block's own form, and `name = widened` (Constraints §4.7) is not admitted here. An `=` followed by anything but a name is a parse error naming both forms.
 - **`view` and `build` are the member names**, not keywords: the block admits exactly these two spellings; `view` missing is an error at the head ("a pattern declares `view`"); a member of any other name, or a second `view`, is an error at that line. Elsewhere both are ordinary names.
 - **`view` is pure.** Its arrow is the pure constant `->`: the head writes no arrow, and none is admitted, because a pattern's matching direction is a demand for purity (Effects §4.3) — the one seat where a pattern runs user code (§5) runs only code that cannot be observed running. A `view` whose body solves to `->?` or `->!` is refused at the member with §4.3's clause for this seat, whose "the pattern head's" names the declaration — the unheaded pattern included. `build` is unconstrained: its arrow is whatever its body or delegate has, and an expression use of the pattern is an ordinary call that wears the mark that arrow demands (Effects §3). Throwing is not an effect: `Rat.create` throws on a zero bottom, and `build = create` is pure.
 - **Module level only, and read top-down at its own line.** `pattern` joins the Declarations Preamble §7.1 inventory: inside a function body or block it draws that family's error, "declarations live at module level". Its head's *types* are order-insensitive as every type reference is (§7.2). Everything else about it is a **term**, read top-down like `widens` (§7.1) and the member definitions it stands among: a member body reads the terms above it (a later function is Functions §7.2's declared-later error, as in any `let`-bound body), a delegation line's name must be declared above the pattern, and the pattern's own name enters the pattern namespace (§3.3) from its line onward — a use above it, in a `match` arm or an expression, is the declared-later error under Modules §5.4's reservation, never a different reading. The pattern emits at its source position (§6), which is what makes that law the whole of its ordering.
-- **The head's binders are the block's, and carry no constraints.** `pattern top<a>(x: a): Stack(a)` declares `a` rigid over both members (Functions §7.3); members take no binder lists of their own, and an exported pattern writes every binder its members need (Modules §4.1.1). A **constraint list is refused** on a pattern head — `pattern sorted<a: Ord>(…)` draws "a pattern's binders carry no constraints" — and an unheaded pattern whose members infer a residual constraint is refused the same way, the head named as the seat where the constraint would have to be written. The reason is priced, not presumed: a pattern emits as an object (§6), not a function, and Constraints §6.1's trailing evidence suffix — the language's only evidence representation — has no seat in it; a dictionary-taking factory is the design that would give it one (§9), and it is not taken here. A view that needs evidence is written as a function the consumer calls.
+- **The head's binders are the block's, and carry no constraints.** `pattern top<a>(x: a): Stack(a)` declares `a` rigid over both members (Functions §7.3); members take no binder lists of their own, and an exported pattern writes every binder its members need (Modules §4.1.1). A **constraint list is refused** on a pattern head — `pattern sorted<a: Ord>(…)` draws "a pattern's binders carry no constraints" — and a pattern whose members leave a constraint residual — an unheaded one inferring it, or a headed one whose members constrain the head's binders — is refused the same way, the head named as the seat where the constraint would have to be written. The reason is priced, not presumed: a pattern emits as an object (§6), not a function, and Constraints §6.1's trailing evidence suffix — the language's only evidence representation — has no seat in it; a dictionary-taking factory is the design that would give it one (§9), and it is not taken here. A view that needs evidence is written as a function the consumer calls.
 - **The doc comment attaches at the head** (Doc Comments §4.2): the head is the pattern's exported surface, the name a reader will paste, and the one doc that reaches the book. The members may carry docs too, as an `honor` block's member implementations may (Doc Comments §4.2) — optional, never canonical, and emitted as JSDoc on the object's properties (§6) for the JavaScript reader who meets `view` and `build` there. The head's doc is where a bidirectional pattern's throws manifest is written (Doc Comments §6.1) — `Rat.rat`'s doc says `Throws \`DivideByZeroError\` when the bottom is zero.`, since `build` throws as `create` does — and it is where the law `build(view(v)) == v` is stated (§5).
 
 ### 2.2 Typing and inference
@@ -59,7 +59,7 @@ A **`pattern` head** — the contextual head word (Lexer §4.2), the pattern's n
 
 `pattern` takes the head's ordinary visibility slot (Modules §4): `export pattern` crosses the module boundary, a bare `pattern` is private. `opaque` is a type's word and is refused before `pattern` with Modules §4.2's parse error. What `export` exports is the pattern — both directions, where both exist (Modules §4.1's table). Two rules of the exported face follow from the corpus and are restated so that nothing is presumed inferred across a boundary:
 
-- **An exported pattern writes its head** — Modules §4.1.1's complete exported signature: every component's type, the subject, every binder and constraint. The head is the pattern's face in the `.d.ts` (§6), the target of its doc comment, and the reader's contract; it is also what makes a change to the components a change the diff shows.
+- **An exported pattern writes its head** — Modules §4.1.1's complete exported signature: every component's type, the subject, and every binder its members need. The head is the pattern's face in the `.d.ts` (§6), the target of its doc comment, and the reader's contract; it is also what makes a change to the components a change the diff shows.
 - **The private-in-public rule reads the head** (Modules §4.3): an exported pattern whose subject or component types mention a private nominal of this module is refused at the offending seat, as an exported function's signature is.
 
 ---
@@ -100,11 +100,11 @@ let half = (1, 2)rat
 let user = (7)id
 ```
 
-`(e1, …, en)name` is an **ordinary call to `build`**: the parenthesised list is its argument list — arguments evaluated left to right, each once, no tuple built, `(e)name` one argument and `((a, b))name` one argument that is a tuple — the call typed and marked as any call is (Effects §3), the result the subject type. `(6, 10)rat == (3, 5)rat` holds because `build` canonicalises, and nothing about the form is involved in that. A pattern with no `build` is **match-only**, and its expression use is refused at the name: "`rgb` is a match-only pattern: its declaration has no `build`" — with the declaration named, since the repair is there. The name resolves in the pattern namespace exactly as in a pattern (§3.3), with one difference: **in an expression there is no door.** No expected type stands at `let half = (1, 2)rat` to name a drawer, and a form whose meaning depended on the type of its own arguments would be the search the language refuses; the namespace is the whole of expression-side resolution, and a name it lacks is the unknown-name error, "no `rat` here; `import Rat`", the import named only where exactly one module this module may import (Packages §3.1's visible set) exports the spelling (§3.3's bound). The form is a primary: `(1, 2)rat.top` is a dot call on the built `Rat` (Method Syntax), as `.` follows any primary, and `-(1, 2)rat` negates one — there is no qualified suffix for a dot to spell (§8).
+`(e1, …, en)name` is an **ordinary call to `build`**: the parenthesised list is its argument list — arguments evaluated left to right, each once, no tuple built, `(e)name` one argument and `((a, b))name` one argument that is a tuple — the call typed and marked as any call is (Effects §3), the result the subject type. `(6, 10)rat == (3, 5)rat` holds because `build` canonicalises, and nothing about the form is involved in that. A pattern with no `build` is **match-only**, and its expression use is refused at the name: "`rgb` is a match-only pattern: its declaration has no `build`" — with the declaration named, since the repair is there. The name resolves in the pattern namespace exactly as in a pattern (§3.3), with one difference: **in an expression there is no door.** No expected type stands at `let half = (1, 2)rat` to name a drawer, and a form whose meaning depended on the type of its own arguments would be the search the language refuses; the namespace is the whole of expression-side resolution, and a name it lacks is the unknown-name error, "no `rat` here; `import Rat`", the import named only where exactly one module this module may import (Packages §3.1's visible set) exports the spelling (§3.3's bound). The form is a primary: `(1, 2)rat.toFloat()` is a dot call on the built `Rat` (Method Syntax), `(1, 2)rat.top` is field access on it — a bare dot is field access, always (Method Syntax §1), and abroad an opaque `Rat`'s field draws Modules §4.2's refusal — as `.` follows any primary, and `-(1, 2)rat` negates one — there is no qualified suffix for a dot to spell (§8).
 
 ### 3.3 The pattern namespace
 
-A pattern's name lives in the **pattern namespace** — a namespace of its own, beside the type, constraint, term, and module-alias namespaces of Modules §5.1 — and in no other. `let rat` and `pattern rat` in one module collide with nothing; a term `rat` in scope never blocks the suffix; and `Rat.rat` in term position is the ordinary refusal that the name is not there — "module `Rat` exports no term `rat`; `rat` is a pattern, written `(a, b)rat`" — with nothing to say about values, because a pattern is not one and was never in the namespace where values live. A pattern is no member either: it has no receiver, and `r.rat` is Method Syntax's ordinary unknown-member refusal.
+A pattern's name lives in the **pattern namespace** — a namespace of its own, beside the type, constraint, term, and module-alias namespaces of Modules §5.1 — and in no other. `let rat` and `pattern rat` in one module collide with nothing; a term `rat` in scope never blocks the suffix; and `Rat.rat` in term position is the ordinary refusal that the name is not there — "module `Rat` exports no term `rat`; `rat` is a pattern, written `(a, b)rat`" — with nothing to say about values, because a pattern is not one and was never in the namespace where values live. A pattern is no member either: it has no receiver, so `r.rat(…)` is Method Syntax's ordinary unknown-member refusal and the bare `r.rat` is field access's missing-field family (Products §3.2), or the opaque sentence abroad.
 
 **What the namespace holds.** A module's pattern namespace is filled from two sources, and the suffix seat reads it — in a pattern and in an expression alike — before anything else:
 
@@ -189,6 +189,7 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 |---|---|
 | `pattern` inside a function body or block | "declarations live at module level" (Declarations Preamble §7.1) |
 | Head with no components; `()name` at a use | "a pattern has at least one component; a test with no components is a guard" (§2.1, §3.1) |
+| Partial head — a component list without a result type, binders alone, a result type alone | "a pattern head is whole or absent: write the result type, or drop the component list", the missing slot named (§2.1) |
 | Block without `view` | "a pattern declares `view`" at the head (§2.1) |
 | Member of another name, or a duplicate `view`/`build` | error at the member line (§2.1) |
 | Delegation line whose right side is not a name (`build = (a, b) => …`, `view = f(x)`) | parse error naming both forms on the offending member: "a pattern member is `build(a, b) = …` or `build = name`" (§2.1) |
@@ -200,7 +201,7 @@ Pattern Matching §7's usefulness matrix treats a total view as a **one-construc
 | Exported pattern without a head | "an exported pattern writes its head: `pattern rat(top: BigInt, bottom: BigInt): Rat`" — Modules §4.1.1's #834 paragraph, the head as its fixit (§2.3) |
 | `opaque pattern` | Modules §4.2's parse error (§2.3) |
 | A pattern's name in term position (`Rat.rat`, `let x = Rat.rat`) | "module `Rat` exports no term `rat`; `rat` is a pattern, written `(a, b)rat`" (§3.3) |
-| Dot on a pattern's name | Method Syntax's unknown-member refusal (§3.3) |
+| Dot on a pattern's name | `r.rat(…)`: Method Syntax's unknown-member refusal; bare `r.rat`: the missing-field family (Products §3.2), or the opaque sentence abroad (§3.3) |
 | Arity mismatch at a use | the constructor family's message: "`rat` has 2 components; write `(_, _)rat`" (§3.1) |
 | Expression use of a match-only pattern | "`rgb` is a match-only pattern: its declaration has no `build`", the declaration named (§3.2) |
 | Exported pattern beside an exported term of one name | "this module already exports `rat`; an exported pattern and an exported term cannot share a name" at the second (§6) |
@@ -324,6 +325,7 @@ fun channels(c: Color): Int =
         Color({channels}) => channels        --   match it with (r, g, b)rgb or (h, s, l)hsl
 
 -- (d) The door is closed where the type is undetermined; contests; the alias
+-- module Lone (sees Color, and no other module exporting rgb):
 let g = ((r, _, _)rgb) => r                  -- ERROR: no rgb here: its type is not
                                              --   determined at this pattern — import Color,
                                              --   or bind the function with its own annotated let
@@ -369,34 +371,35 @@ pattern noisy
         Debug.log!("viewed")                 --   is pure — the demand is the pattern head's, and
         u.n                                  --   this function's face is ->! (Effects §4.3)
 
--- (f) The declaration's own errors (module Rat, with import Color; Color.mix(a: Int, b: Int): Color)
+-- (f) The declaration's own errors (module Frac: opaque record Frac = {top: BigInt, bottom: BigInt};
+--     export let create/top/bottom as Rat's; record Box = {n: Int}; let box(a: BigInt, b: BigInt): Box = …)
 pattern zero: Rat                            -- ERROR: a pattern has at least one component;
     view(x) = ()                             --   a test with no components is a guard
-pattern lonely(top: BigInt, bottom: BigInt): Rat   -- ERROR: a pattern declares view
+pattern lonely(top: BigInt, bottom: BigInt): Frac   -- ERROR: a pattern declares view
     build = create
 pattern twisted                              -- unheaded: the members fix each other
     view(x) = (top(x), bottom(x))
-    build = Color.mix                        -- ERROR: build returns Color; view takes Rat —
+    build = box                              -- ERROR: build returns Box; view takes Frac —
                                              --   a pattern's two directions share one subject
-pattern shaped(top: BigInt, bottom: BigInt): Rat
+pattern shaped(top: BigInt, bottom: BigInt): Frac
     view(x) = (top(x), bottom(x))
-    build = Color.mix                        -- ERROR: build returns Color; the head says Rat
+    build = box                              -- ERROR: build returns Box; the head says Frac
                                              --   (the member-shape error: the head fixes it)
-export let rat(t: BigInt, b: BigInt): Rat = create(t, b)
-export pattern rat(top: BigInt, bottom: BigInt): Rat   -- ERROR: this module already exports rat;
+export let rat(t: BigInt, b: BigInt): Frac = create(t, b)
+export pattern rat(top: BigInt, bottom: BigInt): Frac   -- ERROR: this module already exports rat;
     view(x) = (top(x), bottom(x))            --   an exported pattern and an exported term
                                              --   cannot share a name
 export pattern parts                         -- ERROR: an exported pattern writes its head:
-    view(x) = (top(x), bottom(x))            --   pattern parts(top: BigInt, bottom: BigInt): Rat
+    view(x) = (top(x), bottom(x))            --   pattern parts(c1: BigInt, c2: BigInt): Frac
 fun k() =
     pattern local                            -- ERROR: declarations live at module level
         view(x) = x
 pattern sorted<a: Ord>(lo: a, hi: a): Range(a) -- ERROR: a pattern's binders carry no constraints
     view(r) = (Range.lo(r), Range.hi(r))
-pattern early(top: BigInt, bottom: BigInt): Rat
+pattern early(top: BigInt, bottom: BigInt): Frac
     view(x) = (top(x), bottom(x))
     build = later                            -- ERROR: later is declared later in this block;
-let later(t: BigInt, b: BigInt): Rat = create(t, b)   --   declarations are read top-down
+let later(t: BigInt, b: BigInt): Frac = create(t, b)   --   declarations are read top-down
 let (n, d, e)rat = create(1, 2)              -- ERROR: rat has 2 components; write (_, _)rat
 
 -- (g) The .d.ts face
