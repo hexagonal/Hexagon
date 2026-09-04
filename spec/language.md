@@ -13,7 +13,7 @@ Hexagon is an **ML dialect that targets JavaScript**, in the posture of F# with 
 3. **Name resolution and modules** — `modules.md` §5; dot-call resolution belongs to `method-syntax.md`
 4. **Types and data** — `primitive-types.md`, `products.md`, `unions.md`, `rat.md`
 5. **Constraints** — `constraints.md`, `integral-constraint.md`, `collections-part2-hash-and-type-members.md`
-6. **Control flow and calls** — `operators-logic-precedence.md`, `pattern-matching.md`, `exceptions.md`, `loops-ranges-iteration.md`, `division-remainder.md`, `method-syntax.md`
+6. **Control flow and calls** — `operators-logic-precedence.md`, `pattern-matching.md`, `pattern-declarations.md`, `exceptions.md`, `loops-ranges-iteration.md`, `division-remainder.md`, `method-syntax.md`
 7. **Collections** — `collections-part1-decisions.md` through `collections-part5-iterable.md`; Loops owns base iteration semantics, while Collections Part 5 owns the finalized and user-opened `Iterable` instance table
 8. **Runtime representation and emission** — representation/emission sections in the owning feature specs, routed below
 9. **FFI** — enter through `ffi.md`, never by loading every part
@@ -27,7 +27,7 @@ Hexagon is an **ML dialect that targets JavaScript**, in the posture of F# with 
 | Names and modules | namespaces, imports/exports, visibility, module graph, ordinary qualification | `modules.md` |
 | Types and data | primitives, tuples, records, rows, nominal data, unions, exact rationals | `primitive-types.md`; `products.md`; `unions.md`; `rat.md` |
 | Constraints | declarations, instances, coherence, dictionaries, type members | `constraints.md`; `integral-constraint.md`; `collections-part2-hash-and-type-members.md` |
-| Control and calls | operators, patterns, exceptions, loops, division, companion dot calls | `operators-logic-precedence.md`; `pattern-matching.md`; `exceptions.md`; `loops-ranges-iteration.md`; `division-remainder.md`; `method-syntax.md` |
+| Control and calls | operators, patterns, declared patterns, exceptions, loops, division, companion dot calls | `operators-logic-precedence.md`; `pattern-matching.md`; `pattern-declarations.md`; `exceptions.md`; `loops-ranges-iteration.md`; `division-remainder.md`; `method-syntax.md` |
 | Collections | shared doctrine and the `Vector`, `Map`, `Set`, and `Iterable` components | `collections-part1-decisions.md` through `collections-part5-iterable.md` |
 | Representation and emission | runtime shapes and emitted JavaScript for each feature | `functions.md`; `products.md`; `unions.md`; `exceptions.md`; `modules.md`; Loops and Collections owners; `ffi.md` for boundary-visible forms |
 | FFI | boundary terminology, ownership routing, faces, and conformance | `ffi.md` |

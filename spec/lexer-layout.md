@@ -65,6 +65,7 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 | `else` or `catch` with no same-line body | Clause body / arm block |
 | `constraint ... =` or `honor ... =` | Member block |
 | A `fun` head ending its logical item — the keyword alone, or with its binder list (`fun<a: Eq>`), no member on the line (Functions §7.3) | `fun` member block |
+| A `pattern` head ending its logical item — the name, with or without a binder list and a component list (`pattern rat(top: BigInt, bottom: BigInt): Rat`, `pattern parts`; Pattern Declarations §2.1). The alias form `pattern rat = Rat.rat` is a one-line item and opens nothing: its right side is a name, and a wrapped right side is refused by the alias rule (Pattern Declarations §3.4), not opened by the binding row below | `pattern` member block |
 | `extern from "specifier"` head (FFI Part 4 §2.2 — one item per line under ordinary layout; the row was owed from that part and is added with the kind taxonomy) | Member block |
 | Term binding ending in `=` (`let x =`, `var x =`, `let f(...) =`, `fun f(...) =`, or a member header — a `fun` block's member lines included) | Binding body block |
 
@@ -72,7 +73,7 @@ refuses it before a `fun` block head (Functions §7.3; layout stays agnostic).
 decides which: **expression blocks** — bodies and binding blocks, item
 sequences whose final expression is the block's value (Statements §3) —
 **arm blocks** — a `match`'s or `catch`'s arms — and **member blocks** —
-the `constraint`, `honor`, `extern from`, and `fun` heads' bodies, plus the
+the `constraint`, `honor`, `extern from`, `fun`, and `pattern` heads' bodies, plus the
 module's own implicit block: sequences that declare rather than compute — no
 value, no final-expression law (Statements §3.1; the module top level also
 runs `Unit`-typed items, Modules §8.2). A member block is not an expression —

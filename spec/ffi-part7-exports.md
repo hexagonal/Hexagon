@@ -114,7 +114,7 @@ export type Option<a> = {tag: "Some"; value: a} | {tag: "None"};
 
 TypeScript is case-agnostic about binder names, so nothing is lost; what is gained is that a generated declaration visibly carries its Hexagon origin and matches the hover/diagnostic types a mixed-codebase developer sees on the Hexagon side. Declared-source binder order is preserved (it is ABI-relevant under Parts 8–9's suffix rules).
 
-*(Amended 2026-08-02, §14.1.)* This rule presumes a declaration with somewhere to write the binders. A `declare const` whose type is not a function type has no such seat, and its quantified variables are **instantiated** rather than bound — §14.1.
+*(Amended 2026-08-02, §14.1.)* This rule presumes a declaration with somewhere to write the binders. A `declare const` whose type is not a function type has no such seat, and its quantified variables are **instantiated** rather than bound — §14.1. One declaration has seats *inside* its object type: an exported polymorphic **pattern** (Pattern Declarations §6) faces as an object whose members are its two functions, and its head binders are bound at each member — `{ view<a>(x: Stack<a>): a; build<a>(x: a): Stack<a> }` — lowercase as here, never instantiated at `never`.
 
 ### 2.3 Type faces
 
@@ -490,6 +490,7 @@ This part introduces **one hard error of its own** — #478's `isHexError` colli
 | Representation-direct values/functions export directly with stable ESM identity; exported `Unit` functions genuinely return `undefined`; no defensive validation anywhere | §1, §7 |
 | One module → one ESM module + one `.d.ts`; single type-only `import type * as Hex from "@hexagon/runtime"` where runtime types appear | §2.1 |
 | All Hexagon-originated `.d.ts` generic binders are lowercase source-style (`a`, `k`, `v`); declared binder order preserved (ABI-relevant per Parts 8–9) | §2.2 |
+| An exported pattern faces as its `{view, build?}` object; a polymorphic pattern's binders are bound at each member, not instantiated (Pattern Declarations §6) | §2.2, §14.1 |
 | Records: type + constructor export; constructor may be the identity function; direct JS construction legal but the exported constructor is the supported shape | §3 |
 | Unions: type + every constructor; payload constructors as functions, nullary constructors as shared constants; constructor return types are the union type; export forces materialization | §4, §12.2 |
 | Generic nullary constants face as the `never` instantiation (confirmed at review) | §4, §12.1 |
