@@ -98,8 +98,8 @@ normalizes nor case-folds names; canonically equivalent NFC and decomposed spell
 distinct identifiers. Tooling may offer normalization or confusable warnings, but such
 warnings never alter name identity and are not compiler diagnostics in v1.
 
-Uppercase-start names serve type, union-case, constraint, implied-type, exception,
-and module-alias roles. Non-uppercase-start names serve term and binder roles.
+Uppercase-start names serve the type, union-case, constraint, implied-type, exception,
+module-name, and module-alias roles; non-uppercase-start names, term and binder roles.
 Caseless scripts therefore work naturally as terms (`用户`). Where an uppercase role
 is wanted, one distinct mnemonic prefix per role is the cultural convention:
 
@@ -110,7 +110,7 @@ is wanted, one distinct mnemonic prefix per role is the cultural convention:
 | `C` | constraint | `C显示` |
 | `I` | implied type | `I元素` |
 | `E` | exception | `E无效年龄` |
-| `M` | module alias | `M数据库` |
+| `M` | module name and alias | `M数据库` |
 
 These are ordinary Latin prefixes, not reserved syntax. Record constructors retain
 their type's `T` name because the type and constructor deliberately share one
@@ -251,8 +251,8 @@ listed positions:
 | `conduit` | the declared-conduit claim on an extern `fun` declaration, in `pure`'s own slot (FFI Part 4 §4.5, #409) |
 | `union` | the union-declaration introducer at declaration head — module top level, optionally after `export` or `opaque` (one visibility head, Modules §4, #590), always followed by the declared type's name (#373: Collections Part 4 §6.2 mandates `Set.union`, and a reserved word is unspellable in every binder position; the `with`/`when` precedent) |
 | `widens` | the widens-declaration introducer at declaration head — module top level, never after `export`, always followed by a qualified member path (Constraints §4.7; #546). Same disambiguation as `union`: no juxtaposition exists, so `widens` followed by a name is no term |
-| `module` | the module header at the head of a top-level item, always followed by the module's uppercase-start name, dotted or not (`module Geometry`, `module Render.Geometry` — Modules §2.1, #829); the `union`/`widens` disambiguation: no juxtaposition exists, so `module` followed by a name is no term, and elsewhere `module` is an ordinary name (`let module = 3` binds) |
-| `end` | the module closer `end module Name` at the head of a top-level item — the two words together, the second the contextual header word above (Modules §2.2, #829); `end` alone is an ordinary name everywhere, and stays one: `SliceError(start: Int, end: Int)` in `stdlib/Vector.hex` is live use |
+| `module` | the module header at the head of a top-level item, always followed by the module's uppercase-start name, dotted or not (`module Geometry`, `module Render.Geometry` — Modules §2.1, #829); the `union`/`widens` disambiguation: no juxtaposition exists, so `module` followed by a name is no term, and elsewhere `module` is an ordinary name (`let module = 3` binds). Recognition includes the refused seats: the same head followed by a name with a segment that is not uppercase-start (`module geometry`), Modules §2.1's casing refusal, and the header inside a block, Modules §2.2's redirect — the `opaque` row's pattern, seats no expression could occupy |
+| `end` | the module closer `end module Name` at the head of a top-level item — the two words together, the second the contextual header word above (Modules §2.2, #829); recognition includes a closing name with a segment that is not uppercase-start (`end module geometry`), whose report is Modules §2.2's closer-naming rule, never Modules §2.1's casing refusal, and the closer inside a block, Modules §2.2's redirect; `end` alone is an ordinary name everywhere, and stays one: `SliceError(start: Int, end: Int)` in `stdlib/Vector.hex` is live use |
 | `pattern` | the pattern-declaration introducer at declaration head — module top level, optionally after `export`, always followed by the pattern's non-uppercase-start name and then `(`, `<`, `:`, `=`, or the end of the item (Pattern Declarations §2.1, §3.4; #834). The `union`/`widens`/`module` disambiguation: no juxtaposition exists, so `pattern` followed by a name is no term; elsewhere `pattern` is an ordinary name (`let pattern = 3` binds). `view` and `build` are the block's member names, not keywords. The use form is the parser's, not the lexer's: a non-uppercase-start name written **against** the closing parenthesis of a parenthesised primary — no whitespace — is the suffix seat (Pattern Declarations §3.1); with whitespace the name is whatever it is elsewhere (`(0, 0) when g` is a guard, `(r) as s` an as-pattern), and a call's argument list is no seat |
 | `widened` | the complete RHS of a member line in an `honor` block — `pow = widened` (Constraints §4.7; #546). The position is otherwise always an error (member RHSs must be lambdas), so recognition is total; elsewhere `widened` is an ordinary name |
 
