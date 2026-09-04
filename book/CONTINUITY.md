@@ -302,7 +302,8 @@ late pedagogy pass, not a commitment to the current order.
 
 - A package is a directory holding `hexagon.json` (`name`, `dependencies`); every
   `.hex` file beneath it belongs to it, a nested manifest excluded as a package of its
-  own; the package name is one uppercase-start identifier and supplies the first segment
+  own; module names are unique within a package, compared case-insensitively
+  (`Json`/`JSON` collide), the repair a dotted name on one; the package name is one uppercase-start identifier and supplies the first segment
   of every module's **full name** (`Acme.Geometry`); the standard library is the
   package `Hex` (`Hex.Option`), never listed and never a user package's name.
 - The **project** is the package being built; its manifest may have no `name`; a
@@ -519,8 +520,9 @@ late pedagogy pass, not a commitment to the current order.
   `let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9` — the doctrine's own specimen
   (spec/friendly-numerics.md §1) — in both the book and the Playground (#529). `Rat`
   is outside the prelude by design, so a project reaching for it writes
-  `import Rat`; the Playground injected that line as equipment before #829, which is
-  why the example carries no import (#831 retires the equipment).
+  `import Rat`. The Playground injects a `Rat` import as equipment, which is why the
+  example carries no import; #831 (open) retires that equipment, after which a buffer
+  writes `import Rat` like any other module.
 - Primitive boundary table (seven rows, #158): `Nat`/`Int`/`Float` → `number`,
   `Bool` → `boolean` (by the Unions representation pin), `String` → `string`,
   `BigInt` → `bigint`, and `Unit` → `undefined` (`void` in TS return position; the
@@ -811,7 +813,7 @@ late pedagogy pass, not a commitment to the current order.
 
 - Core formulation: **a module is a named declaration**. Every file begins with
   `module Name`; a file may hold several modules, each but the last closed by
-  `end module Name`; the body is not indented; modules sharing a file see nothing of
+  `end module Name`, the last optionally so; the body is not indented; modules sharing a file see nothing of
   each other without an import; the file's path means nothing to the language.
 - Declarations are private by default. Hexagon has named exports only and no default
   export or re-export syntax in the current language.

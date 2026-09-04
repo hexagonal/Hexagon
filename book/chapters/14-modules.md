@@ -30,8 +30,7 @@ compiler discovers the files of a project, and `module Geometry` is the only pla
 the module's name exists. That is why every file declares a module: a file without a
 header is refused, and the compiler offers to insert one derived from the filename —
 `search-params.hex` gets `module SearchParams` — so the migration of an old file is
-one accepted fixit. The name is uppercase-start, like every module alias, and it may
-be dotted: `module Render.Geometry` is one module whose name has two segments, a way
+one accepted fixit. The name is uppercase-start, and it may be dotted: `module Render.Geometry` is one module whose name has two segments, a way
 of grouping modules that the Packages chapter returns to.
 
 `module` is not a reserved word. It introduces a module only at the head of a
@@ -64,8 +63,9 @@ where there is something to separate. A file holding one module may omit it; the
 module runs to the end of the file. The last module in a file may be closed too, as
 the example does, or simply run to the end. A second header met while the module
 before it is still open is an error, and the fixit inserts the missing closer above
-it. Within one package no two modules may declare the same name, wherever their files
-sit; the fix is a dotted name on one of them.
+it. Within one package — one project, until the Packages chapter widens it — no two
+modules may declare the same name, wherever their files sit; the fix is a dotted name
+on one of them.
 
 Sharing a file gives the two modules nothing. `Shapes` imports `Geometry` above —
 `import Geometry`, the form the next sections cover, is what makes `Geometry`'s
@@ -528,7 +528,7 @@ Private declarations remain ordinary private ESM bindings. The module import low
 JavaScript's own namespace import, `import * as Point`; a name the file reaches through
 the alias is spelled on that local, and a record construction erases into its object
 literal before any name is needed. Where the emitter prefers it, named imports carry
-the same meaning; either shape means the same program.
+the same meaning.
 
 Companion modules now give every exported subject-first operation an unambiguous home.
 The next chapter uses that fact to explain the convenient dot-call spelling.

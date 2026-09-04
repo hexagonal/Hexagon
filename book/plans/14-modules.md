@@ -11,7 +11,8 @@ effects, root execution, and the global visibility of instances.
 ## Reader outcome
 
 The reader can divide a program into named modules, import one by its name or under
-an alias, publish a deliberate API, hide a nominal representation, and predict module loading
+an alias, publish a deliberate API, hide a nominal representation, and predict module
+loading
 and execution without looking for a special `main` function.
 
 ## Teaching order

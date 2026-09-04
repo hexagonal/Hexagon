@@ -1,9 +1,9 @@
 # Packages
 
-The Modules chapter left one question open on purpose. A module is reached by the name
-it declares, and a program has many modules, so what stops two of them from claiming
-one name — and what happens when the second one belongs to somebody else's library?
-This chapter answers both, and in doing so describes how Hexagon code is shared: what a
+The Modules chapter could say only that two modules in one package may not share a
+name. It left the rest open on purpose: a module is reached by the name it declares,
+so what happens when a module of that name belongs to somebody else's library? This
+chapter answers that, and in doing so describes how Hexagon code is shared: what a
 package is, how a program says which packages it uses, and what the compiler does with
 the result.
 
@@ -34,10 +34,10 @@ segment of every one of its modules' **full names**: `module Geometry` in `Acme`
 `Acme.Geometry`, and `module Render.Geometry` there is `Acme.Render.Geometry`. The full
 name is what a qualified import writes, what an emitted file is laid out by, and what
 an exception's `$hex` brand carries. A package never spells its own name inside its own
-source; renaming a package in its manifest changes no line of any module — though it
-does change what the emitted `$hex` brand says, `"Parser"` becoming `"Acme.Parser"`,
-which is why a project takes its `name` before any JavaScript consumer depends on a
-brand.
+source; naming a package — or renaming it — changes no line of any module, though it
+does change the emitted `$hex` brand: an unnamed project's `module Parser` brands
+`"Parser"`, and a manifest `"name": "Acme"` makes that `"Acme.Parser"`. That is why a
+project takes its `name` before any JavaScript consumer depends on a brand.
 
 The standard library is a package too. Its name is `Hex`, it needs no entry under
 `dependencies`, and every program depends on it. The prelude — `Option`, `Vector`, and
@@ -103,12 +103,12 @@ import is an error that names both spellings:
 
 Nothing is ranked — not the order packages were listed, not the order they were
 installed. Neither provider owns the bare spelling, so the use site says which one it
-means. This is the rule the prelude already uses when two of its modules export one
-function name: the qualified spelling is never far away, and it never silently changes
-meaning underneath you.
+means. This is the rule the prelude reserves for two of its modules exporting one bare
+name: the qualified spelling is never far away, and it never silently changes meaning
+underneath you.
 
-The rule that keeps these two readings apart is small. A dotted spelling like
-`Acme.Geometry` is read as a package's module wherever `Acme` is a package your module
+A dotted spelling has two possible readings, and the rule that keeps them apart is
+small. A dotted spelling like `Acme.Geometry` is read as a package's module wherever `Acme` is a package your module
 can see, and as a module's own dotted name otherwise — and the compiler refuses any
 module whose dotted name begins with the name of a package in the program, so a spelling
 never has two readings at once. A dotted `module Acme.Tools` in a project that depends
@@ -125,8 +125,8 @@ lockfile are npm's; Hexagon designs none of them. The npm name of the package �
 name. What npm names is a distribution; what Hexagon names is a namespace. The
 compiler learns which installed packages are Hexagon packages by reading their
 manifests, and resolves each package's `dependencies` in turn, outward from the
-project, into a set that must be acyclic — a `dependencies` cycle is refused and named,
-exactly as an import cycle is — the packages *in the program*. A program holds one copy
+project, into an acyclic set: the packages *in the program*. A `dependencies` cycle is
+refused and named, as an import cycle is. A program holds one copy
 of each package name, the project counted, and refuses to build if npm's layout has
 installed two.
 
@@ -157,9 +157,10 @@ declared names, dotted segments as directories — `Geometry.js`, `Render/Geomet
 and every other package's modules sit under a directory named by the package:
 `Acme/Geometry.js`, and for the standard library, `Hex/Option.js`. The emitted import
 from a project module at the root to the prelude is therefore `"./Hex/Option.js"`, and
-from a module one level down, `"../Hex/Option.js"`. Two program-wide files the compiler
-emits for the JavaScript boundary when a program needs them, `hex.d.ts` and `hex.js`,
-sit at the root as well.
+from a module one level down, `"../Hex/Option.js"`. Two program-scoped files sit at the
+root as well, each emitted only when the program owes it: `hex.d.ts`, the type
+declarations a generated `.d.ts` refers to, and `hex.js`, which a module reaches for
+when one of its own names collides with a JavaScript global.
 
 Two packages' same-named modules never collide on disk, and the output is a closed
 tree of relative imports: it runs from wherever it is copied, and imports nothing from
