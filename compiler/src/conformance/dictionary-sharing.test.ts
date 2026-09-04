@@ -145,7 +145,7 @@ describe("§3.1 — ground applications hoist to module level", () => {
 
   test("the sharing is semantics-preserving, at both depths", async () => {
     const main = await runMain(
-      RENDER_PRELUDE +
+      "module Main\n\n" + RENDER_PRELUDE +
         "let a: Box(Int) = Box({value = 42})\n" +
         "let b: Box(Int) = Box({value = 7})\n" +
         "let c: Box(Box(Int)) = Box({value = Box({value = 5})})\n" +
@@ -223,7 +223,7 @@ describe("§3.2 — self-evidence is the instance record under construction", ()
 
   test("an N-node traversal still runs", async () => {
     const main = await runMain(
-      TREE +
+      "module Main\n\n" + TREE +
         "let tree: Tree(Int) = Node(Node(Leaf, 1, Leaf), 2, Node(Leaf, 3, Node(Leaf, 4, Leaf)))\n" +
         "export let text: String = describe(tree)\n",
     );
@@ -863,7 +863,7 @@ describe("§3.4 — ground structural dictionaries hoist by their shape", () => 
    */
   test("a prelude module hoists its own binding for the shape it demands", async () => {
     const files = [["/main.hex", "module Main\n\n" + "let perModule = 0\nDebug.log(())\n"]] as const;
-    const debug = emittedFrom(files, "/Debug.hex");
+    const debug = emittedFrom(files, "/Hex/Debug.hex");
 
     expect(occurrences(debug, "const __Show_Unit =")).toBe(1);
     expect(debug).toContain(

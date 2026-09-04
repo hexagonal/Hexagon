@@ -222,7 +222,7 @@ describe("the forwarding forms (§4.3)", () => {
 
     const oneSided = (body: string): readonly string[] =>
       projectDiagnostics(
-        other +
+        "module Main\n\n" + other +
           "let flag: Bool = True\n" +
           `let sign: (Int) -> String =\n${body}` +
           "export let a: String = sign(3)\n",
@@ -358,9 +358,9 @@ describe("the decline paths (§4.3)", () => {
       guardOnly("    ") +
       ", xs)\n";
 
-    expect(projectDiagnostics(generic + call)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + generic + call)).toEqual([]);
     // The same shape at concrete parameter types supplies as it always did.
-    expect(projectDiagnostics(concrete + call)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + concrete + call)).toEqual([]);
   });
 
   test("a bare unannotated binding still refuses, with the rider", () => {
@@ -414,6 +414,7 @@ describe("the ordering pin (§4.3)", () => {
     // meets. The named-function spelling of the same call is the control — it
     // defers nothing, checks nothing early, and has always reported once.
     const call = (callbacks: string): string =>
+      "module Main\n\n" +
       "let g(a1: a, m1: (Int) -> String, m2: (Int) -> String, a2: a): String = \"x\"\n" +
       "let n: Int = 1\n" +
       "let sign: (Int) -> String = match\n" +

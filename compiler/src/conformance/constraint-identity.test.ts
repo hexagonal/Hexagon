@@ -226,7 +226,7 @@ describe("a requirement crossing a module boundary keeps its declaration", () =>
       // §5.1.1's disambiguate-by-home wording, because this module names a
       // `Describe` of its own and "not nameable here" would read as false.
       "type `Bool` has no `Describe` instance; the `Describe` required here is " +
-        "`./alpha.hex`'s, not the one this module names; the honor can only be " +
+        "module `Alpha`'s, not the one this module names; the honor can only be " +
         "written there",
     ]);
   });

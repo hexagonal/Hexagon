@@ -130,6 +130,7 @@ describe("discarding position erases (§3.3, mandatory)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'export let prepare(): Int =\n' +
           '    ignore(audit("erased-once"))\n' +
           '    1\n']],
@@ -157,6 +158,7 @@ describe("discarding position erases (§3.3, mandatory)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'export let piped(): Int =\n' +
           '    audit("piped-once") |> ignore\n' +
           '    1\n']],
@@ -235,6 +237,7 @@ describe("value position yields `Unit`, never the operand (§3.3)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'export let bound(): Unit =\n' +
           '    let u: Unit = ignore(audit("bound"))\n' +
           '    u\n']],
@@ -250,6 +253,7 @@ describe("value position yields `Unit`, never the operand (§3.3)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'let step(): Unit =\n' +
           '    Debug.log("step")\n' +
           '    ignore(audit("tail"))\n' +
@@ -277,6 +281,7 @@ describe("value position yields `Unit`, never the operand (§3.3)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'let passThrough(u: Unit): Unit = u\n' +
           'export let nested(): Unit = passThrough(ignore(audit("nested")))\n']],
         { transform: distinct("nested") },
@@ -327,6 +332,7 @@ describe("the qualified home `Prelude.ignore` (Modules §6.4)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'export let qualified(): Int =\n' +
           '    Prelude.ignore(audit("qualified-run"))\n' +
           '    5\n']],
@@ -360,6 +366,7 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit +
           'export let ignore(value: Int): Unit =\n' +
           '    Debug.log("user ignore ran")\n' +
@@ -379,6 +386,7 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit +
           'export let ignore(value: Int): Unit =\n' +
           '    Debug.log("user ignore ran")\n' +
@@ -400,6 +408,7 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
             "module Mine\n\n" + 'export let ignore(value: Int): Unit =\n' +
             '    Debug.log("imported ignore ran")\n'],
           ["/main.hex",
+            "module Main\n\n" +
             audit +
             'import Mine\n' +
             'export let go(): Int =\n' +

@@ -504,7 +504,7 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
     const compiled = compileFiles([["/main.hex",
       "module Main\n\n" + "export let k(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
     expect(compiled.diagnostics).toEqual([]);
-    const companion = compiled.modules.find(({ source }) => source.path === "/JsValue.hex")!;
+    const companion = compiled.modules.find(({ name }) => name === "Hex.JsValue")!;
     const text = companion.javascript.text;
     // The ladder answers with the module's hoisted constants (#771 B1), whose
     // names take Lexer §3.2's reservation and, where that collides with a

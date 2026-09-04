@@ -64,7 +64,7 @@ describe("§13 (a) — privacy is the default, and the named list is refused", (
       GEOMETRY,
       ["/main.hex", "module Main\n\n" + 'import { area } from "./geometry"\n'],
     ])).toEqual([
-      'Hexagon imports bind modules: write `import Geometry` ' +
+      'Hexagon imports name modules: write `import Geometry` ' +
         "and reach `area` as `Geometry.area`",
     ]);
   });
@@ -139,7 +139,7 @@ describe("Modules §5.1 rule 3 — the term-position fallback, in both its shape
       TAG,
       ["/main.hex", "module Main\n\n" + 'import Tag\nexport let t: Tag = Tag(7)\n'],
     ], "/main.hex");
-    expect(javascript).toContain('import * as Tag from "./tag.js";');
+    expect(javascript).toContain('import * as Tag from "./Tag.js";');
     expect(javascript).toContain('const t = { tag: "Tag", n: 7 };');
     expect(javascript).not.toContain("Tag(7)");
   });
@@ -360,7 +360,7 @@ describe("emission: the module form's ESM shape (§11.2–§11.3)", () => {
         "module Main\n\n" + 'import Geometry as Geo\n' +
         "export let n: Float = Geo.area(2.0)\n"],
     ], "/main.hex");
-    expect(javascript).toContain('import * as Geo from "./geometry.js";');
+    expect(javascript).toContain('import * as Geo from "./Geometry.js";');
     expect(javascript).toContain("const n = Geo.area(2.0);");
   });
 
@@ -372,7 +372,7 @@ describe("emission: the module form's ESM shape (§11.2–§11.3)", () => {
       GEOMETRY,
       ["/main.hex", "module Main\n\n" + 'import Geometry as Geo\nexport let n: Int = 1\n'],
     ], "/main.hex");
-    expect(javascript).toContain('import * as Geo from "./geometry.js";');
+    expect(javascript).toContain('import * as Geo from "./Geometry.js";');
   });
 
   test("no bare import is synthesized for a module the source did not import", () => {
@@ -485,11 +485,11 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
         'import { area } from "./geometry"\n' +
         'import Geometry as geometry\n'],
     ])).toEqual([
-      'Hexagon imports bind modules: write `import Geometry as Geo`',
-      'Hexagon imports bind modules: write `import Geometry as Geo2`',
-      'Hexagon imports bind modules: write `import Geometry` ' +
+      'Hexagon imports name modules: write `import Geometry as Geo`',
+      'Hexagon imports name modules: write `import Geometry as Geo2`',
+      'Hexagon imports name modules: write `import Geometry` ' +
         "and reach `area` as `Geometry.area`",
-      'a module alias is uppercase-start; write `import Geometry`',
+      'a module alias is uppercase-start; write `import Geometry as Geometry`',
     ]);
   });
 
@@ -498,18 +498,18 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
       ["/search-params.hex", "module SearchParams\n\n" + "export fun get(n: Int): Int = n\n"],
       ["/main.hex", "module Main\n\n" + 'import { get } from "./search-params"\n'],
     ])).toEqual([
-      'Hexagon imports bind modules: write `import SearchParams` ' +
+      'Hexagon imports name modules: write `import SearchParams` ' +
         "and reach `get` as `SearchParams.get`",
     ]);
   });
 
   test("a basename that yields no uppercase-start identifier names the slot", () => {
     expect(messages([
-      ["/2d-utils.hex", "export fun get(n: Int): Int = n\n"],
+      ["/2d-utils.hex", "module Utils\n\n" + "export fun get(n: Int): Int = n\n"],
       ["/main.hex", "module Main\n\n" + 'import { get } from "./2d-utils"\n'],
     ])).toEqual([
-      'Hexagon imports bind modules: write `import <Alias> from "./2d-utils"` ' +
-        "and reach `get` as `<Alias>.get`",
+      'Hexagon imports name modules: write `import <Name>` ' +
+        "and reach `get` as `<Name>.get`",
     ]);
   });
 });
@@ -591,7 +591,7 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
         "module Main\n\n" + 'import Point\n' +
         "export let p: Point = Point({x = 1.0})\n"],
     ])).toEqual([
-      "`Point` is opaque outside `./point`; use its exported functions",
+      "`Point` is opaque outside module `Point`; use its exported functions",
     ]);
     expect(messages([
       OPAQUE,
@@ -606,7 +606,11 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
     ]);
   });
 
-  test("the expression row names the specifier this module wrote", () => {
+  test("the expression row names the module, never the file's path (§7.2, #829)", () => {
+    // The home module is "the module whose text contains the declaration"
+    // (§7.2), not the file it happens to sit in: this file's path is
+    // `/lib/point.hex`, and the declared module is the undotted `Point` —
+    // the diagnostic names the latter, and the former appears nowhere.
     expect(messages([
       ["/lib/point.hex",
         "module Point\n\n" + "opaque record Point = {x: Float}\n" +
@@ -615,7 +619,7 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
         "module Main\n\n" + 'import Point\n' +
         "export let p: Point = Point({x = 1.0})\n"],
     ])).toEqual([
-      "`Point` is opaque outside `./lib/point`; use its exported functions",
+      "`Point` is opaque outside module `Point`; use its exported functions",
     ]);
   });
 
@@ -628,7 +632,7 @@ describe("the opaque family's pattern refusal, both nominal kinds", () => {
         "module Main\n\n" + 'import Tag\n' +
         "export let t: Tag = Tag(7)\n"],
     ])).toEqual([
-      "`Tag` is opaque outside `./tag`; use its exported functions",
+      "`Tag` is opaque outside module `Tag`; use its exported functions",
     ]);
   });
 
@@ -774,18 +778,18 @@ describe("Modules §3's reading law at the fallback's own seat", () => {
 describe("the derived alias reads every separator §3.1 names", () => {
   const refusal = (specifier: string): string =>
     messages([
-      [`${specifier.slice(1)}.hex`, "export fun get(n: Int): Int = n\n"],
+      [`${specifier.slice(1)}.hex`, "module Placeholder\n\n" + "export fun get(n: Int): Int = n\n"],
       ["/main.hex", "module Main\n\n" + `import { get } from "${specifier}"\n`],
     ])[0] ?? "";
 
   test("`-`, `_` and `.` all split, and each segment is upper-cased at its start", () => {
-    expect(refusal("./search-params")).toContain("`import SearchParams from");
-    expect(refusal("./search_params")).toContain("`import SearchParams from");
-    expect(refusal("./search.params")).toContain("`import SearchParams from");
+    expect(refusal("./search-params")).toContain("`import SearchParams`");
+    expect(refusal("./search_params")).toContain("`import SearchParams`");
+    expect(refusal("./search.params")).toContain("`import SearchParams`");
   });
 
   test("a basename with no separator is upper-cased whole", () => {
-    expect(refusal("./geometry")).toContain("`import Geometry from");
+    expect(refusal("./geometry")).toContain("`import Geometry`");
   });
 });
 
@@ -1043,7 +1047,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "        _ => 0\n"],
     ])).toEqual([
       "`North` here is `Compass.North`; this arm matches a `Holder` — " +
-        "write `Direction.North` — `North` is declared in `./direction`, and " +
+        "write `Direction.North` — `North` is declared in module `Direction`, and " +
         "this module binds another `North`; `import Direction` " +
         "and spell it `Direction.North`",
     ]);
@@ -1081,7 +1085,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "        _ => 0\n"],
     ])).toEqual([
       "`North` here is `Compass.North`; this arm matches a `Holder` — " +
-        "write `Direction.North(n)` — `North` is declared in `./direction`, and " +
+        "write `Direction.North(n)` — `North` is declared in module `Direction`, and " +
         "this module binds another `North`; `import Direction` " +
         "and spell it `Direction.North`",
     ]);
@@ -1107,7 +1111,7 @@ describe("Pattern Matching §15 (o2) — scope first, module-wide", () => {
         "        Box({n}) => n\n"],
     ])).toEqual([
       "`Box` here is this module's `Box`; this pattern matches a `Lib.Box` — " +
-        "write `Lib.Box({n})` — `Box` is declared in `./lib`, and this module " +
+        "write `Lib.Box({n})` — `Box` is declared in module `Lib`, and this module " +
         "binds another `Box`; `import Lib` and spell it `Lib.Box`",
     ]);
   });
@@ -1456,7 +1460,7 @@ describe("FFI Part 7 §2.4 — a bare face reached by rule 3 mints at rung 5", (
     expect(project.diagnostics).toEqual([]);
     const declaration = project.modules
       .find(({ source }) => source.path === "/main.hex")!.declarations!.text;
-    expect(declaration).toContain('import type { Point } from "./point.js";');
+    expect(declaration).toContain('import type { Point } from "./Point.js";');
     expect(declaration).toContain("export declare function mid(p: Point): Point;");
   });
 });

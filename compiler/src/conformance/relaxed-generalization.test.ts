@@ -113,7 +113,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
     // depends on. `?k` occurs contravariantly and is pinned by its first use;
     // `?v` occurs covariantly, is unconstrained, and generalizes — soundly,
     // because the once-loaded table can contain no elements (§4.2 leg 1).
-    const source = "record Table(k, v) = { rows: Vector((k, v)) }\n" +
+    const source = "module Main\n\n" + "record Table(k, v) = { rows: Vector((k, v)) }\n" +
       "fun load<k, v>(): Table(k, v) = Table({ rows = [] })\n" +
       "exception Missing\n" +
       "fun find<k, v>(table: Table(k, v), key: k): v = throw(Missing)\n" +
@@ -303,9 +303,10 @@ describe("§6 declared variance on `opaque`", () => {
     expect(diagnostic.labels?.length).toBe(1);
     const label = diagnostic.labels![0]!;
     const text = "opaque record Sink(+a) = { accept: a -> Unit }\n";
-    expect(text.slice(label.span.start.offset, label.span.end.offset)).toBe("a");
+    const header = "module Main\n\n";
+    expect((header + text).slice(label.span.start.offset, label.span.end.offset)).toBe("a");
     // The label points at the offending occurrence, not at the declaration head.
-    expect(label.span.start.offset).toBeGreaterThan(text.indexOf("accept"));
+    expect(label.span.start.offset).toBeGreaterThan(header.length + text.indexOf("accept"));
   });
 
   test("§6.3 an over-claimed contravariance reports too", () => {
@@ -330,8 +331,9 @@ describe("§6 declared variance on `opaque`", () => {
     ]);
     // ...and the label follows the message, rather than pointing somewhere else.
     const label = compiled.diagnostics[0]!.labels![0]!;
-    expect(label.span.start.offset).toBeLessThan(text.indexOf("second"));
-    expect(label.span.start.offset).toBeGreaterThan(text.indexOf("first"));
+    const header = "module Main\n\n";
+    expect(label.span.start.offset).toBeLessThan(header.length + text.indexOf("second"));
+    expect(label.span.start.offset).toBeGreaterThan(header.length + text.indexOf("first"));
   });
 
   test("§6.3 a union's constructor slot is a witness too", () => {
@@ -404,11 +406,11 @@ describe("§6 declared variance on `opaque`", () => {
     "export let s: Box(String) = b\n";
 
   test("§6.1 a covariant claim on an opaque union is believed", () => {
-    expect(projectDiagnostics(UNION_BOX("+") + USE_BOX)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + UNION_BOX("+") + USE_BOX)).toEqual([]);
   });
 
   test("§6.2 the same union bare declines — the claim is what did the work", () => {
-    expect(projectDiagnostics(UNION_BOX("") + USE_BOX)).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + UNION_BOX("") + USE_BOX)).toEqual([
       "type mismatch: expected String, found Int",
     ]);
   });
@@ -419,11 +421,17 @@ describe("§6 declared variance on `opaque`", () => {
       "export let n: B.Box(Int) = b\n" +
       "export let s: B.Box(String) = b\n";
     expect(
-      compileFiles([["/box.hex", UNION_BOX("+")], ["/main.hex", "module Main\n\n" + client]])
+      compileFiles([
+        ["/box.hex", "module Box\n\n" + UNION_BOX("+")],
+        ["/main.hex", "module Main\n\n" + client],
+      ])
         .diagnostics.map(({ message }) => message),
     ).toEqual([]);
     expect(
-      compileFiles([["/box.hex", UNION_BOX("")], ["/main.hex", "module Main\n\n" + client]])
+      compileFiles([
+        ["/box.hex", "module Box\n\n" + UNION_BOX("")],
+        ["/main.hex", "module Main\n\n" + client],
+      ])
         .diagnostics.map(({ message }) => message),
     ).toEqual(["type mismatch: expected String, found Int"]);
   });
@@ -630,7 +638,7 @@ describe("§13.2 nothing else may generalize a `var`'s type", () => {
   // and turns exactly one of these programs silent — which is the bug §13.2
   // exists to forbid: a polymorphic view of a binding that can still be
   // assigned at one type.
-  const EMPTY = "exception Empty\n";
+  const EMPTY = "module Main\n\n" + "exception Empty\n";
 
   test("the `Vector`/`Set`/`Array`/`Node` arm: an element variable", () => {
     expect(

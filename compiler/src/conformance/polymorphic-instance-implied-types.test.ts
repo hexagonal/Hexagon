@@ -43,11 +43,11 @@ const bag = "record Bag(a) = {items: Vector(a)}\n" +
 
 describe("the binding's variable is the header's (§5.3)", () => {
   test("the polymorphic instance checks", () => {
-    expect(projectDiagnostics(iterable + bag)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + iterable + bag)).toEqual([]);
   });
 
   test("a member annotation may name the header's binders", () => {
-    expect(projectDiagnostics(iterable +
+    expect(projectDiagnostics("module Main\n\n" + iterable +
       "record Bag(a) = {items: Vector(a)}\n" +
       "\n" +
       "honor<a> Iterable<Bag(a)> =\n" +
@@ -56,7 +56,7 @@ describe("the binding's variable is the header's (§5.3)", () => {
   });
 
   test("a variable outside the header's binders is refused, not minted", () => {
-    expect(projectDiagnostics(iterable +
+    expect(projectDiagnostics("module Main\n\n" + iterable +
       "record Bag(a) = {items: Vector(a)}\n" +
       "\n" +
       "honor<a> Iterable<Bag(a)> =\n" +
@@ -70,7 +70,7 @@ describe("the binding's variable is the header's (§5.3)", () => {
 
 describe("the projection instantiates at the use (requirement discharge)", () => {
   test("`for` iterates a Bag(Int) through evidence dispatch", async () => {
-    const main = await runMain(iterable + bag +
+    const main = await runMain("module Main\n\n" + iterable + bag +
       "export fun run(ignored: Int): Int =\n" +
       "    var sum = 0\n" +
       "    for number in Bag({items = [2, 3, 3]})\n" +
@@ -82,7 +82,7 @@ describe("the projection instantiates at the use (requirement discharge)", () =>
   test("the projection at Bag(String) is String, so summing it is refused", () => {
     // The load-bearing negative: this diagnostic exists only if `Item`
     // actually instantiated to `String` at the use.
-    const messages = projectDiagnostics(iterable + bag +
+    const messages = projectDiagnostics("module Main\n\n" + iterable + bag +
       "fun total(bag: Bag(String)): Int =\n" +
       "    var sum = 0\n" +
       "    for number in bag\n" +
@@ -93,7 +93,7 @@ describe("the projection instantiates at the use (requirement discharge)", () =>
 });
 
 describe("the instance crosses the module boundary (seeding path)", () => {
-  const library = ["/bags.hex", iterable.replace("constraint", "export constraint") +
+  const library = ["/bags.hex", "module Bags\n\n" + iterable.replace("constraint", "export constraint") +
     "export record Bag(a) = {items: Vector(a)}\n" +
     "\n" +
     "honor<a> Iterable<Bag(a)> =\n" +

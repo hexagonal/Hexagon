@@ -47,7 +47,14 @@ function danglingImports(compiled: ReturnType<typeof project>): readonly string[
     for (const match of module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)) {
       const specifier = match[1];
       if (specifier === undefined) continue;
-      const target = `${specifier.replace(/\.js$/u, "")}.hex`.replace(/^\.\//u, "/");
+      // A prelude member emits under `Hex/` (Modules §11.1, Packages §6) even
+      // though these stand-ins live at the project root on disk (`injectPrelude`
+      // substitutes them in by basename) — strip the leading `../`s and the
+      // `Hex/` directory the emitter adds so the specifier maps back to the
+      // fixture's own flat source path.
+      const relative = specifier.replace(/^(?:\.\.\/)+/u, "").replace(/^\.\//u, "");
+      const withoutHexDirectory = relative.replace(/^Hex\//u, "");
+      const target = `/${withoutHexDirectory.replace(/\.js$/u, "")}.hex`;
       if (!emitted.has(target)) dangling.push(`${module.source.path} -> ${specifier}`);
     }
   }
@@ -207,7 +214,7 @@ describe("emission follows the new dependency edge", () => {
   });
 
   test("defect 8's reproduction: the dependency written as an explicit import", () => {
-    // On `main` this compiled clean, emitted ["/Result.hex", "module Result\n\n" + "/main.hex"], and
+    // On `main` this compiled clean, emitted ["/Result.hex", "/main.hex"], and
     // wrote `import ... from "./Hex/Option.js"` into Result.js — unloadable output
     // reported as success, with no Phase 3 machinery involved.
     const compiled = project([ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT]);

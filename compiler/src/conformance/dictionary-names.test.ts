@@ -87,7 +87,7 @@ describe("an uncontested spelling is bare on both sides", () => {
     const b = emitted(files, "/b.hex");
     // No `as`: the import binds the exported spelling itself.
     expect(lines(b, "import { __Show_Crate")).toEqual([
-      'import { __Show_Crate } from "./a.js";',
+      'import { __Show_Crate } from "./A.js";',
     ]);
     expect(b).toContain("__Show_Crate.show(");
 
@@ -121,7 +121,7 @@ describe("an uncontested spelling is bare on both sides", () => {
         "export fun same(n: Int): Bool = A.tally(n) == A.tally(n)\n"],
     ] as const;
 
-    for (const path of ["/a.hex", "module A\n\n" + "/b.hex"]) {
+    for (const path of ["/a.hex", "/b.hex"]) {
       expect(emitted(files, path)).toBe(emitted(files, path));
     }
   });
@@ -154,7 +154,7 @@ describe("a re-export chain stops compounding", () => {
         'export fun render(tag: Int): String = "${B.viaB(tag)}"\n'],
     ] as const;
 
-    for (const path of ["/b.hex", "module B\n\n" + "/c.hex"]) {
+    for (const path of ["/b.hex", "/c.hex"]) {
       expect(new Set(showNames(emitted(files, path)))).toEqual(
         new Set(["__Show_Relayed"]),
       );
@@ -163,7 +163,7 @@ describe("a re-export chain stops compounding", () => {
       "export { __Show_Relayed };",
     ]);
     expect(lines(emitted(files, "/c.hex"), "import { __Show_Relayed")).toEqual([
-      'import { __Show_Relayed } from "./b.js";',
+      'import { __Show_Relayed } from "./B.js";',
     ]);
 
     const main = await runProject([
@@ -213,7 +213,7 @@ describe("a contested spelling suffixes every contestant", () => {
       "const __Show_Ledger_1 = { show: __Show_Ledger_show };",
     ]);
     expect(lines(b, "import { __Show_Ledger")).toEqual([
-      'import { __Show_Ledger as __Show_Ledger_2 } from "./a.js";',
+      'import { __Show_Ledger as __Show_Ledger_2 } from "./A.js";',
     ]);
     expect(b).not.toMatch(/(?<![_\w])__Show_Ledger(?![_\w])\s*[=.]/u);
 
@@ -240,7 +240,7 @@ describe("a contested spelling suffixes every contestant", () => {
     // the bare `__Show_Ledger`, which is `b.hex`'s own instance. The collision
     // was `b.hex`'s business and stayed there.
     expect(lines(c, "import { __Show_Ledger")).toEqual([
-      'import { __Show_Ledger_2, __Show_Ledger } from "./b.js";',
+      'import { __Show_Ledger_2, __Show_Ledger } from "./B.js";',
     ]);
     expect(c).toContain("__Show_Ledger.show(");
 
@@ -295,7 +295,7 @@ describe("a contested spelling suffixes every contestant", () => {
       "const __Show_Note_1 = { show: __Show_Note_1_show };",
     ]);
     expect(lines(b, "import { __Show_Note")).toEqual([
-      'import { __Show_Note as __Show_Note_3 } from "./a.js";',
+      'import { __Show_Note as __Show_Note_3 } from "./A.js";',
     ]);
   });
 });

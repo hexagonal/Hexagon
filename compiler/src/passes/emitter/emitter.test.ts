@@ -109,7 +109,7 @@ describe("emitJavaScript", () => {
       project.modules.find((module) => module.source.path === path)!.javascript.text;
 
     expect(text("/main.hex")).not.toContain("const __persistentCollections");
-    expect(text("/Vector.hex")).not.toContain("const __persistentCollections");
+    expect(text("/Hex/Vector.hex")).not.toContain("const __persistentCollections");
     // No `toSeq` in the import list since #353: `Vector.toSeq` is the provided
     // row's member, not an export of the companion, and a provided row is
     // rendered inline rather than imported (Collections Part 5 §4).
@@ -131,15 +131,15 @@ describe("emitJavaScript", () => {
     // `fromSeq` lowers to the outbound driver in the module whose door declares
     // it; the inbound adapter is there too, because the unexported `elements`
     // row still crosses the same boundary.
-    expect(text("/Vector.hex")).toContain("function __seqFromIterable");
-    expect(text("/Vector.hex")).toContain("function __seqToIterable");
-    expect(text("/Vector.hex")).toContain(
+    expect(text("/Hex/Vector.hex")).toContain("function __seqFromIterable");
+    expect(text("/Hex/Vector.hex")).toContain("function __seqToIterable");
+    expect(text("/Hex/Vector.hex")).toContain(
       "const fromSeq = __values => __vectorOf(__seqToIterable(__values));",
     );
     // The trie is the third module in the graph, and only `Vector.hex` and the
     // literal-holding consumer import it.
-    expect(text("/Vector.hex")).toContain('} from "./Hex/VectorTrie.js";');
-    expect(text("/VectorTrie.hex")).toContain("export { empty, size, get, set,");
+    expect(text("/Hex/Vector.hex")).toContain('} from "./VectorTrie.js";');
+    expect(text("/Hex/VectorTrie.hex")).toContain("export { empty, size, get, set,");
 
     // The tuple crosses as a JS array; each `Vector` inside it is a trie, read
     // back through the representation contract's `[Symbol.iterator]`.
@@ -450,7 +450,7 @@ describe("emitJavaScript", () => {
     // Every operation is an imported prelude function, and the module imports
     // each one it names: emitting a call to a name that was never imported is
     // the silent failure this whole suite exists to catch.
-    const imported = output.text.match(/^import \{([^}]*)\} from "\.\/Seq\.js";$/mu)?.[1] ?? "";
+    const imported = output.text.match(/^import \{([^}]*)\} from "\.\/Hex\/Seq\.js";$/mu)?.[1] ?? "";
     for (const operation of ["iterate", "filter", "map", "take"]) {
       expect(imported.split(/[,\s]+/u)).toContain(operation);
     }
@@ -751,7 +751,7 @@ describe("emitJavaScript", () => {
     expect(module.diagnostics).toEqual([]);
     const javascript = emitJavaScript(module).text;
     expect(javascript).toContain(
-      'return Object.assign(new Error(__message), { $hex: "main", name: __name }, __fields);',
+      'return Object.assign(new Error(__message), { $hex: "Main", name: __name }, __fields);',
     );
     expect(javascript).toContain(
       'const ParseError = (line, message) => __exception("ParseError", message, { line, message });',
@@ -760,11 +760,11 @@ describe("emitJavaScript", () => {
       'const Note = message => __exception("Note", message, { message });',
     );
     expect(javascript).toContain(
-      '$hex === "main" && __error.name === "ParseError"',
+      '$hex === "Main" && __error.name === "ParseError"',
     );
     expect(javascript).toContain("throw Missing();");
     expect(emitDeclarations(module).text).toContain(
-      'export type ParseError = Error & { readonly $hex: "main"; readonly name: "ParseError"; readonly line: number; readonly message: string };',
+      'export type ParseError = Error & { readonly $hex: "Main"; readonly name: "ParseError"; readonly line: number; readonly message: string };',
     );
     expect(emitDeclarations(module).text).toContain(
       "export declare function Missing(): Missing;",
@@ -788,7 +788,7 @@ describe("emitJavaScript", () => {
       ),
     );
 
-    expect(output.text).toContain('$hex === "main"');
+    expect(output.text).toContain('$hex === "Main"');
     expect(output.text).toContain('.reason.tag === "Code"');
     expect(output.text).toMatch(/if \(code > 0\)/u);
     const execute = Function(
@@ -1448,7 +1448,7 @@ describe("emitJavaScript", () => {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).toMatchObject({ name: "DivideByZeroError", $hex: "Integral" });
+    expect(thrown).toMatchObject({ name: "DivideByZeroError", $hex: "Hex.Integral" });
     expect((thrown as Error).message).toBe("Int.mod: divisor is zero");
   });
 
@@ -1549,7 +1549,7 @@ describe("emitJavaScript", () => {
       thrown = error;
     }
     expect(thrown).toBeInstanceOf(Error);
-    expect(thrown).toMatchObject({ name: "NegativeExponentError", $hex: "Pow" });
+    expect(thrown).toMatchObject({ name: "NegativeExponentError", $hex: "Hex.Pow" });
     expect((thrown as Error).message).toBe("an integer exponent cannot be negative");
   });
 
@@ -1578,7 +1578,7 @@ describe("emitJavaScript", () => {
     expect(thrown).toMatchObject({
       name: "NegativeExponentError",
       message: "an integer exponent cannot be negative",
-      $hex: "Pow",
+      $hex: "Hex.Pow",
     });
   });
 
@@ -2187,7 +2187,7 @@ describe("emitJavaScript", () => {
         expect(first.text === "" || first.text.endsWith("\n")).toBe(true);
         for (const diagnostic of first.diagnostics) {
           expect(diagnostic.primary.start.offset).toBeGreaterThanOrEqual(0);
-          expect(diagnostic.primary.end.offset).toBeLessThanOrEqual(text.length);
+          expect(diagnostic.primary.end.offset).toBeLessThanOrEqual("module Main\n\n".length + text.length);
         }
       }),
       { numRuns: 250 },

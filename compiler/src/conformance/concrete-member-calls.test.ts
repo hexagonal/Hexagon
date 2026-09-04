@@ -54,18 +54,37 @@ function emittedFrom(
   return module.javascript.text;
 }
 
+/**
+ * Resolves a relative specifier against the **importing module's own address**
+ * — its full name laid out as a path (Modules §11.1) — since that, not the
+ * source file's path, is what every emitted specifier is computed from
+ * (Modules §11.2, #829).
+ */
+function resolveModulePath(importerPath: string, specifier: string): string | undefined {
+  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
+  const directory = importerPath.slice(0, Math.max(0, importerPath.lastIndexOf("/")));
+  const parts: string[] = [];
+  for (const part of `${directory}/${specifier}`.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  const path = `/${parts.join("/")}`;
+  return path.endsWith(".js") ? `${path.slice(0, -3)}.hex` : path;
+}
+
 /** Every emitted relative import whose target module was not emitted (defect 8). */
 function danglingImports(
   files: readonly (readonly [string, string])[],
 ): readonly string[] {
   const project = compileFiles(files);
-  const paths = new Set(project.modules.map(({ source }) => source.path));
+  const paths = new Set(project.modules.map(({ path }) => path));
   return project.modules.flatMap((module) =>
     [...module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)].flatMap((match) => {
       const specifier = match[1];
       if (specifier === undefined) return [];
-      const target = `${specifier.replace(/\.js$/u, "")}.hex`.replace(/^\.\//u, "/");
-      return paths.has(target) ? [] : [`${module.source.path} -> ${specifier}`];
+      const target = resolveModulePath(module.path, specifier);
+      return target !== undefined && paths.has(target) ? [] : [`${module.path} -> ${specifier}`];
     })
   );
 }
@@ -288,7 +307,7 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     // member's own name and the routed call reads as the source wrote it
     // (Dictionary Sharing §8's seat-binding rule).
     expect(text).toContain(
-      'import { __Show_Rat_show as show, __Signed_Rat_fromInt as fromInt } from "./Hex/Rat.js";',
+      'import { __Show_Rat_show as show, __Signed_Rat_fromInt as fromInt } from "./Rat.js";',
     );
     expect(text).toContain("const third = show(fromInt(3));");
 
@@ -318,7 +337,7 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     const text = emittedFrom(files, "/main.hex");
 
     expect(text).toContain(
-      'import { __Eq_Box_notEquals as notEquals } from "./box.js";',
+      'import { __Eq_Box_notEquals as notEquals } from "./Box.js";',
     );
     expect(text).toContain("const differs = notEquals(");
 
@@ -331,7 +350,7 @@ describe("§6.1 — arm 1: a ground declared instance is a direct call to its se
     // and `mod`, and the chain terminates because it ends at the door.
     const text = emittedFrom(
       [["/main.hex", "module Main\n\n" + "export let d: Int = Int.div(-7, 2)\n"]],
-      "/Int.hex",
+      "/Hex/Int.hex",
     );
 
     expect(text).toContain(
@@ -543,8 +562,8 @@ describe("§8 — the seats travel to the declaring module, not the transit one"
     // The dictionary transits through `purse.hex`; the seat does not exist
     // there and is imported from the module that declared the instance.
     const text = emittedFrom(files, "/main.hex");
-    expect(text).toContain('import { __Show_Coin2 } from "./purse.js";');
-    expect(text).toContain('import { __Show_Coin2_show as show } from "./mint.js";');
+    expect(text).toContain('import { __Show_Coin2 } from "./Purse.js";');
+    expect(text).toContain('import { __Show_Coin2_show as show } from "./Mint.js";');
     expect(text).toContain("const one = show(Purse.struck(3));");
   });
 

@@ -266,6 +266,17 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     // The realias repair (#531) and the several-constraints form: an alias *is*
     // standing at the spelling, so the family signpost never gets its turn, and
     // these two sentences are the ones this change must not have moved.
+    //
+    // SUSPECTED COMPILER DEFECT (#829 residue): `Checker#unknownConstraint`
+    // (checker.ts, near line 12826) still builds its "realias as" clause by
+    // hand — `` `import ${only} from ${JSON.stringify(alias.specifier)}` `` —
+    // rather than through `moduleImportLine` (packages.ts), which every other
+    // realias seat (e.g. resolver.ts:5489, checker.ts:8311/8469) now uses.
+    // `alias.specifier` is also no longer a source-writable path: it now holds
+    // the *emitted* JS specifier for the import edge (Modules §11.2), not a
+    // module name. The assertion below is left as the spec-correct text
+    // (`` `import Render` ``, no `from`, Modules §10) and will keep failing
+    // until that call site is updated.
     expect(messages([
       ["/render.hex", "module Render\n\n" + "export constraint Render<a> =\n    render(value: a): String\n"],
       ["/main.hex",
@@ -332,7 +343,7 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
         "honor Pow<Box> =\n    pow(value, exponent) = value\n"],
     ])).toEqual([
       "type `Box` has no `Num` instance; it could only be declared in " +
-        "`./main.hex` (declares `Box`) or the module declaring `Num`",
+        "module `Main` (declares `Box`) or the module declaring `Num`",
     ]);
   });
 });
@@ -350,11 +361,11 @@ describe("the specifier the workspace tier writes (`specifierFor`)", () => {
   test("the round trip through `resolveSpecifier` is the identity", () => {
     for (
       const [importer, target] of [
-        ["/main.hex", "module Main\n\n" + "/scale.hex"],
-        ["/src/main.hex", "module Main\n\n" + "/lib/scale.hex"],
-        ["/src/main.hex", "module Main\n\n" + "/src/deep/nested/scale.hex"],
-        ["/a/b/c/main.hex", "module Main\n\n" + "/scale.hex"],
-        ["/src/main.hex", "module Main\n\n" + "/src/scale.hex"],
+        ["/main.hex", "/scale.hex"],
+        ["/src/main.hex", "/lib/scale.hex"],
+        ["/src/main.hex", "/src/deep/nested/scale.hex"],
+        ["/a/b/c/main.hex", "/scale.hex"],
+        ["/src/main.hex", "/src/scale.hex"],
       ] as const
     ) {
       expect(resolveSpecifier(importer, specifierFor(importer, target))).toBe(target);

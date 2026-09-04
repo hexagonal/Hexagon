@@ -109,10 +109,11 @@ describe("resolve", () => {
     // The rewrite replaces exactly the callee, leaving the argument where the
     // writer put it.
     const edit = module.diagnostics[0]!.fixes![0]!.edits[0]!;
+    const full = HEADER + source;
     expect(
-      source.slice(0, edit.span.start.offset) + edit.replacement +
-        source.slice(edit.span.end.offset),
-    ).toBe('Debug.log("hello")');
+      full.slice(0, edit.span.start.offset) + edit.replacement +
+        full.slice(edit.span.end.offset),
+    ).toBe(HEADER + 'Debug.log("hello")');
   });
 
   test("offers no rewrite where no single argument makes one honest", () => {
@@ -229,7 +230,7 @@ describe("resolve", () => {
     // Statements §5.1's pending clause: the specimen and each pending form.
     const specimen = resolveSource("let y =\n    let y = 5\n    y");
     expect(specimen.diagnostics.map(({ message }) => message)).toEqual([
-      "`y` is already being defined by the enclosing `let` (line 1); " +
+      "`y` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
 
@@ -237,7 +238,7 @@ describe("resolve", () => {
       "let f() =\n    var y =\n        let y = 5\n        y\n    y",
     );
     expect(varOuter.diagnostics.map(({ message }) => message)).toEqual([
-      "`y` is already being defined by the enclosing `var` (line 2); " +
+      "`y` is already being defined by the enclosing `var` (line 4); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
 
@@ -245,14 +246,14 @@ describe("resolve", () => {
       "let f() =\n    let y =\n        var y = 5\n        y\n    y",
     );
     expect(varInner.diagnostics.map(({ message }) => message)).toEqual([
-      "`y` is already being defined by the enclosing `let` (line 2); " +
+      "`y` is already being defined by the enclosing `let` (line 4); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
 
     // A destructuring LHS reserves every name it binds...
     const patternOuter = resolveSource("let (a, b) =\n    let a = 5\n    (a, 6)");
     expect(patternOuter.diagnostics.map(({ message }) => message)).toEqual([
-      "`a` is already being defined by the enclosing `let` (line 1); " +
+      "`a` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
 
@@ -261,14 +262,14 @@ describe("resolve", () => {
       "let y =\n    let (y, z) = (1, 2)\n    z",
     );
     expect(patternInner.diagnostics.map(({ message }) => message)).toEqual([
-      "`y` is already being defined by the enclosing `let` (line 1); " +
+      "`y` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
 
     // `fun` is a sequential binder; a pending name refuses it like any other.
     const funInner = resolveSource("let y =\n    fun y(n) = n\n    y(5)");
     expect(funInner.diagnostics.map(({ message }) => message)).toEqual([
-      "`y` is already being defined by the enclosing `let` (line 1); " +
+      "`y` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
 
@@ -277,7 +278,7 @@ describe("resolve", () => {
       "let y = (x =>\n    let y = 5\n    x + y)(1)",
     );
     expect(insideLambda.diagnostics.map(({ message }) => message)).toEqual([
-      "`y` is already being defined by the enclosing `let` (line 1); " +
+      "`y` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
 
@@ -292,7 +293,7 @@ describe("resolve", () => {
     );
     expect(memberBody.diagnostics.map(({ message }) => message)).toEqual([
       "`equals` is already being defined by the enclosing member definition " +
-        "(line 3); Hexagon does not allow rebinding — choose a different name.",
+        "(line 5); Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
 
@@ -325,7 +326,7 @@ describe("resolve", () => {
         "    g() + x",
     );
     expect(nested.diagnostics.map(({ message }) => message)).toEqual([
-      "`x` is already bound (line 2); Hexagon does not allow rebinding — " +
+      "`x` is already bound (line 4); Hexagon does not allow rebinding — " +
         "choose a different name.",
     ]);
 
@@ -333,7 +334,7 @@ describe("resolve", () => {
       "let f(x: Int) =\n    fun x() = 2\n    3",
     );
     expect(parameter.diagnostics.map(({ message }) => message)).toEqual([
-      "`x` is already bound (line 1); Hexagon does not allow rebinding — " +
+      "`x` is already bound (line 3); Hexagon does not allow rebinding — " +
         "choose a different name.",
     ]);
 
@@ -346,7 +347,7 @@ describe("resolve", () => {
         "    g()",
     );
     expect(varOuter.diagnostics.map(({ message }) => message)).toEqual([
-      "`x` is already bound (line 2); Hexagon does not allow rebinding — " +
+      "`x` is already bound (line 4); Hexagon does not allow rebinding — " +
         "choose a different name.",
     ]);
   });
@@ -578,7 +579,7 @@ describe("resolve", () => {
     );
 
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "`x` is already bound (line 1); Hexagon does not allow rebinding — choose a different name.",
+      "`x` is already bound (line 3); Hexagon does not allow rebinding — choose a different name.",
     ]);
     expect(module.items[0]).toMatchObject({
       kind: "Let",
@@ -692,7 +693,7 @@ describe("resolve", () => {
     );
 
     expect(module.diagnostics.map(({ message }) => message)).toContain(
-      "the `Eq<Odd>` instance binds `notEquals`, which is already bound (line 2); " +
+      "the `Eq<Odd>` instance binds `notEquals`, which is already bound (line 4); " +
         "Hexagon does not allow rebinding — choose a different name.",
     );
   });
@@ -706,7 +707,7 @@ describe("resolve", () => {
           expect(Number(symbol.id)).toBeGreaterThanOrEqual(0);
           expect(module.symbols[Number(symbol.id)]).toBe(symbol);
         }
-        visitItems(module.items, module.symbols, text.length);
+        visitItems(module.items, module.symbols, HEADER.length + text.length);
       }),
       { numRuns: 250 },
     );
@@ -825,8 +826,10 @@ describe("unknown type names", () => {
   });
 });
 
+const HEADER = "module Test\n\n";
+
 function resolveSource(text: string): Resolved.Module {
-  const source = new Source.File(Source.fileId(0), "test.hex", "module Test\n\n" + text);
+  const source = new Source.File(Source.fileId(0), "test.hex", HEADER + text);
   return resolve(parse(applyLayout(lex(source))));
 }
 

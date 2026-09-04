@@ -57,14 +57,14 @@ const sh = "constraint Sh<a> =\n" +
 
 describe("the head introduces its own binders", () => {
   test("a binder-less parameterized instance checks", () => {
-    expect(projectDiagnostics(iterable + bag)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + iterable + bag)).toEqual([]);
   });
 
   test("`for` over a Bag(String) discharges through the binder-less instance", async () => {
     // End to end: evidence selection, the `Item` projection instantiating to
     // `String`, and the emitted dictionary. `++` is `Concat<String>`, so a
     // projection that failed to instantiate could not type this body.
-    const main = await runMain(iterable + bag +
+    const main = await runMain("module Main\n\n" + iterable + bag +
       "export fun run(ignored: Int): String =\n" +
       "    var out = \"\"\n" +
       "    for word in Bag({items = [\"a\", \"b\", \"c\"]})\n" +
@@ -85,7 +85,7 @@ describe("the head introduces its own binders", () => {
   });
 
   test("a bare prefix stays legal, though it is no longer canonical", () => {
-    expect(projectDiagnostics(iterable +
+    expect(projectDiagnostics("module Main\n\n" + iterable +
       "record Bag(a) = {items: Vector(a)}\n" +
       "\n" +
       "honor<a> Iterable<Bag(a)> =\n" +
@@ -116,7 +116,7 @@ describe("the head-lawfulness law runs without a prefix (the regressions)", () =
     // Compiles clean on `main`: one variable in two argument positions, so a
     // single `Pair` instance answered for every `Pair(t, t)` and for nothing
     // else, with no law consulted.
-    expect(projectDiagnostics(pair + sh +
+    expect(projectDiagnostics("module Main\n\n" + pair + sh +
       "honor Sh<Pair(a, a)> =\n" +
       '    sh(x) = "b"\n')).toEqual([HEAD_LAW]);
   });
@@ -133,7 +133,7 @@ describe("the head-lawfulness law runs without a prefix (the regressions)", () =
   test("a prefixed head is still held to the same shape", () => {
     // The law's older half, unchanged: dropping the count-against-the-prefix
     // clause must not drop the shape clause with it.
-    expect(projectDiagnostics(pair + sh +
+    expect(projectDiagnostics("module Main\n\n" + pair + sh +
       "honor<a> Sh<Pair(a, a)> =\n" +
       '    sh(x) = "b"\n')).toEqual([HEAD_LAW]);
   });
@@ -146,11 +146,11 @@ describe("the prefix exists to constrain, so a partial prefix is legal", () => {
 
   test("`honor<a: Show> Sh<Pair(a, b)>` checks", () => {
     // Refused before #390 by the count clause (one declared, two in the head).
-    expect(projectDiagnostics(sh + constrained)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + sh + constrained)).toEqual([]);
   });
 
   test("the constrained binder's evidence reaches the member at a concrete use", async () => {
-    const main = await runMain(sh + constrained +
+    const main = await runMain("module Main\n\n" + sh + constrained +
       "export fun run(ignored: Int): String =\n" +
       "    sh(Pair({left = \"L\", right = 1}))\n");
     expect((main["run"] as (ignored: number) => string)(0)).toBe("L");
@@ -161,7 +161,7 @@ describe("the prefix exists to constrain, so a partial prefix is legal", () => {
     // anything of it is refused with the header rewrite — the same fixit the
     // declared binders get, which is the whole claim that they are one kind of
     // thing.
-    expect(projectDiagnostics(sh + pair +
+    expect(projectDiagnostics("module Main\n\n" + sh + pair +
       "honor<a: Show> Sh<Pair(a, b)> =\n" +
       "    sh(x) = Show.show(x.right)\n")).toEqual([
       "`b` is declared without constraints, but the body requires `Show`; " +
@@ -172,7 +172,7 @@ describe("the prefix exists to constrain, so a partial prefix is legal", () => {
   test("a declared binder absent from the head is refused", () => {
     // Before #390 this drew the shape message, which described a head that is
     // not what is wrong here.
-    expect(projectDiagnostics(sh + pair +
+    expect(projectDiagnostics("module Main\n\n" + sh + pair +
       "honor<c: Show> Sh<Pair(a, b)> =\n" +
       '    sh(x) = "b"\n')).toEqual([
       "instance binder `c` does not appear in the head; a binder exists to " +
@@ -184,7 +184,7 @@ describe("the prefix exists to constrain, so a partial prefix is legal", () => {
 
 describe("an implied type binding sees the head's binders and nothing more", () => {
   test("`type Item = a` names the head's own `a`", () => {
-    expect(projectDiagnostics(iterable + bag)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + iterable + bag)).toEqual([]);
   });
 
   test("a name the binding itself would mint is still refused (§5.3)", () => {
@@ -207,7 +207,8 @@ describe("the binder-less instance crosses the module boundary", () => {
   // (#762), so there is no question of `Iterable` colliding with the
   // name-only pre-registration — and the instance travels with its subject
   // regardless, which is exactly the seeding path under test.
-  const library = ["/bags.hex", iterable.replace("constraint", "export constraint") +
+  const library = ["/bags.hex", "module Bags\n\n" +
+    iterable.replace("constraint", "export constraint") +
     "export record Bag(a) = {items: Vector(a)}\n" +
     "\n" +
     "honor Iterable<Bag(a)> =\n" +

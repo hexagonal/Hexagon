@@ -330,7 +330,7 @@ describe("`Ordering` end to end", () => {
     const project = compileFiles([["/main.hex",
       "module Main\n\n" + "export let side(a: Int, b: Int): Ordering = Ord.compare(b, a)\n"]]);
     expect(project.diagnostics).toEqual([]);
-    const ordering = project.modules.find(({ source }) => source.path === "/Ordering.hex")!;
+    const ordering = project.modules.find(({ name }) => name === "Hex.Ordering")!;
 
     expect(ordering.javascript.text).toContain(
       'const Less = { tag: "Less" };\n' +
@@ -466,7 +466,7 @@ describe("a manufactured value is one hoisted constant per module", () => {
       "module Main\n\n" + "export let classify(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
     expect(project.diagnostics).toEqual([]);
     const text = project.modules
-      .find(({ source }) => source.path === "/JsValue.hex")!.javascript.text;
+      .find(({ name }) => name === "Hex.JsValue")!.javascript.text;
 
     expect(text).toContain('const __Null = { tag: "Null" };');
     expect(text).toContain('const __Number_1 = { tag: "Number" };');
@@ -503,7 +503,7 @@ describe("`JsKind`", () => {
       "module Main\n\n" + "export let classify(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
     expect(project.diagnostics).toEqual([]);
     const text = project.modules
-      .find(({ source }) => source.path === "/JsValue.hex")!.javascript.text;
+      .find(({ name }) => name === "Hex.JsValue")!.javascript.text;
 
     expect(text).toContain('const __Null = { tag: "Null" };');
     expect(text).toContain("if (__value === null) return __Null;");

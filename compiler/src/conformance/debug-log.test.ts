@@ -79,15 +79,15 @@ describe("the probe writes", () => {
    * here, and the lowering's own one-parameter arrow, pinned off the emitted
    * text below.
    *
-   * **The entry is `/Debug.hex`, and it has to be** — this reads the module's
+   * **The entry is `Hex.Debug`, and it has to be** — this reads the module's
    * own export table. `/main.hex` still names `log`, because reachability is
-   * what puts `/Debug.hex` in the emitted graph.
+   * what puts `Hex.Debug` in the emitted graph.
    */
   test("the door row is unexported; nothing importable is the lowering", async () => {
     const lines = await written(async () => {
       const debug = await runProject(
         [["/main.hex", "module Main\n\n" + "export let probe(message: String): Unit = Debug.log(message)\n"]],
-        { entry: "/Debug.hex", transform: distinct("door row unexported") },
+        { entry: "Hex.Debug", transform: distinct("door row unexported") },
       );
       // Neither the row's local name nor a bare `log` alias of it is published.
       expect(debug["writeLine"]).toBeUndefined();
@@ -117,7 +117,7 @@ describe("the probe writes", () => {
    */
   test("the declaration faces the fundamental specializations, none generic", () => {
     const project = compileMain("module Main\n\n" + "export let ok(message: String): Unit = Debug.log(message)\n");
-    const module = project.modules.find(({ source }) => source.path === "/Debug.hex");
+    const module = project.modules.find(({ name }) => name === "Hex.Debug");
     const declarations = module!.declarations.text;
     expect(declarations).toContain("export declare function logString(value: string): void;");
     expect(declarations).toContain("export declare function logInt(value: number): void;");
@@ -136,7 +136,7 @@ describe("the probe writes", () => {
    */
   test("the generic edition carries the evidence suffix; `String` renders through nothing", () => {
     const project = compileMain("module Main\n\n" + "export let ok(message: String): Unit = Debug.log(message)\n");
-    const module = project.modules.find(({ source }) => source.path === "/Debug.hex");
+    const module = project.modules.find(({ name }) => name === "Hex.Debug");
     const javascript = module!.javascript.text;
     expect(javascript).toMatch(
       /const log = \(value, (__Show_a)\) => \{\n\s+return writeLine\(\1\.show\(value\)\);/,
@@ -185,7 +185,7 @@ describe("§6.2's caveat: the sink is captured at initialization", () => {
    */
   test("the emitted module names the global once, at the top level", () => {
     const project = compileMain("module Main\n\n" + "export let ok(message: String): Unit = Debug.log(message)\n");
-    const module = project.modules.find(({ source }) => source.path === "/Debug.hex");
+    const module = project.modules.find(({ name }) => name === "Hex.Debug");
     const javascript = module!.javascript.text;
     const code = javascript.split("\n").filter((line) => {
       const trimmed = line.trimStart();

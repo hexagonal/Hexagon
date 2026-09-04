@@ -61,6 +61,8 @@ describe("the four spellings are one implementation", () => {
    */
   test("`show` agrees qualified, after a dot, interpolated, and under a bound", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       'export let qualified: String = String.show("raw")',
       'export let dotted: String = "raw".show()',
       'export let interpolated: String = "${"raw"}"',
@@ -82,6 +84,8 @@ describe("the four spellings are one implementation", () => {
    */
   test("`concat` agrees qualified, after a dot, under a bound, and as `++`", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       'export let qualified: String = String.concat("north", "wind")',
       'let opening: String = "north"',
       'export let dotted: String = opening.concat("wind")',
@@ -111,6 +115,8 @@ describe("Primitive Types §5's codepoint order, executed", () => {
    */
   test("an astral character orders after the whole basic plane", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       'let lastOfPlane: String = "\\u{FFFF}"',
       'let firstAstral: String = "\\u{10000}"',
       "export let byCodepoint: Bool = lastOfPlane < firstAstral",
@@ -127,6 +133,8 @@ describe("Primitive Types §5's codepoint order, executed", () => {
   /** The ordinary cases, which must not have been traded away for that one. */
   test("prefixes, case, and equal text order as they always did", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       'export let alphabetical: Bool = "apple" < "banana"',
       'export let prefixFirst: Bool = "app" < "apple"',
       'export let upperFirst: Bool = "Zebra" < "apple"',
@@ -145,6 +153,8 @@ describe("Primitive Types §5's codepoint order, executed", () => {
   /** `Eq<String>` is the host's `===`, and `Hash<String>` agrees with it. */
   test("equal text is equal and hashes equally", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       'let built: String = "ab" ++ "c"',
       'export let same: Bool = built == "abc"',
       'export let hashesAgree: Bool = Hash.hash(built) == Hash.hash("abc")',
@@ -170,6 +180,8 @@ describe("`Show<String>` is the identity, and takes no key for it", () => {
    */
   test("`show` returns its argument, quotes and newlines untouched", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       'export let plain: String = show("hello")',
       'export let quoted: String = show("she said \\"go\\"")',
       'export let empty: String = show("")',
@@ -323,6 +335,8 @@ describe("Constraints §6.1's inlining survives the move", () => {
    */
   test("indexing and slicing keep their own helpers", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       'let word: String = "hexagon"',
       // One-based, and by code point: Primitive Types' own indexing, over the
       // `stringIndex`/`stringSlice` helpers, which the companion never touched.

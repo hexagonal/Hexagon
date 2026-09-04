@@ -26,7 +26,7 @@ describe("the pending clause under a full compile", () => {
         "    let y = 5\n" +
         "    y\n",
     )).toEqual([
-      "`y` is already being defined by the enclosing `let` (line 1); " +
+      "`y` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
@@ -45,14 +45,14 @@ describe("the pending clause under a full compile", () => {
         "        equals\n",
     )).toEqual([
       "`equals` is already being defined by the enclosing member definition " +
-        "(line 3); Hexagon does not allow rebinding — choose a different name.",
+        "(line 5); Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
 
   test("a module-level binding occluding a prelude name reserves it while pending", () => {
     // `export let show` occludes the prelude's `show` (Modules §5.4), so the
     // spelling's nearest meaning inside the RHS is the definition in progress:
-    // the pending diagnostic — line 1 of this file — wins over rule 1's, whose
+    // the pending diagnostic — line 3 of this file — wins over rule 1's, whose
     // "previous binding" would be a line in stdlib/Show.hex, and the
     // define-anyway recovery keeps the trailing `show` from resolving to the
     // prelude function and manufacturing a phantom type error. Exactly one
@@ -62,7 +62,7 @@ describe("the pending clause under a full compile", () => {
         "    let show = 1\n" +
         "    show\n",
     )).toEqual([
-      "`show` is already being defined by the enclosing `let` (line 1); " +
+      "`show` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
 
@@ -73,7 +73,7 @@ describe("the pending clause under a full compile", () => {
         "    fun show(n: Int): Int = n\n" +
         "    show(1)\n",
     )).toEqual([
-      "`show` is already being defined by the enclosing `let` (line 1); " +
+      "`show` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
@@ -90,7 +90,7 @@ describe("the pending clause under a full compile", () => {
         "        equals\n",
     )).toEqual([
       "`equals` is already being defined by the enclosing member definition " +
-        "(line 3); Hexagon does not allow rebinding — choose a different name.",
+        "(line 5); Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
 
@@ -103,7 +103,7 @@ describe("the pending clause under a full compile", () => {
         "    let (show, z) = (1, 2)\n" +
         "    show + z\n",
     )).toEqual([
-      "`show` is already being defined by the enclosing `let` (line 1); " +
+      "`show` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
@@ -118,9 +118,9 @@ describe("the pending clause under a full compile", () => {
         "        y\n" +
         "    y\n",
     )).toEqual([
-      "`y` is already being defined by the enclosing `let` (line 1); " +
+      "`y` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
-      "`y` is already being defined by the enclosing `let` (line 2); " +
+      "`y` is already being defined by the enclosing `let` (line 4); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
@@ -136,7 +136,7 @@ describe("the pending clause under a full compile", () => {
         "    let map = 1\n" +
         "    map\n",
     )).toEqual([
-      "`map` is already being defined by the enclosing `let` (line 1); " +
+      "`map` is already being defined by the enclosing `let` (line 3); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
@@ -155,7 +155,7 @@ describe("the pending clause under a full compile", () => {
         "        describe\n",
     )).toEqual([
       "`describe` is already being defined by the enclosing member definition " +
-        "(line 5); Hexagon does not allow rebinding — choose a different name.",
+        "(line 7); Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
 
@@ -175,7 +175,7 @@ describe("the pending clause under a full compile", () => {
         "        let first = \"y\"\n" +
         "        \"z\"\n",
     )).toEqual([
-      "`first` is already bound (line 2); Hexagon does not allow rebinding " +
+      "`first` is already bound (line 4); Hexagon does not allow rebinding " +
         "— choose a different name.",
     ]);
   });
@@ -206,7 +206,7 @@ describe("the pending clause under a full compile", () => {
         "            equals)(left.n)\n" +
         "        pick == pick\n",
     )).toEqual([
-      "`equals` is already bound (line 4); Hexagon does not allow rebinding " +
+      "`equals` is already bound (line 6); Hexagon does not allow rebinding " +
         "— choose a different name.",
     ]);
   });

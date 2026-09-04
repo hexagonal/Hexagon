@@ -42,15 +42,15 @@ test("compiles a relative module import, alongside a bystander import", () => {
   // edge this pins is the one the emitted text now has, and dropping a module
   // from a program that never needed its dictionary is the point of the change.
   expect(project.modules.map(({ source }) => source.path)).toEqual([
-    "/app/Debug.hex",
-    "module Debug\n\n" + "/app/geometry.hex",
+    "/Hex/Debug.hex",
+    "/app/geometry.hex",
     "/app/telemetry.hex",
     "/app/main.hex",
   ]);
   const main = project.modules.at(-1)!;
   expect(main.typed.diagnostics).toEqual([]);
   expect(main.javascript.text).toContain(
-    'import * as Geo from "./geometry.js";',
+    'import * as Geo from "./Geometry.js";',
   );
   expect(main.javascript.text).toContain("const answer = Geo.coordinate(point);");
   expect(main.declarations.text).toContain("export declare const answer: number;");
@@ -79,10 +79,10 @@ test("re-exports extern bindings and opaque types through Hexagon modules", () =
   expect(bindings.typed.diagnostics).toEqual([]);
   expect(main.typed.diagnostics).toEqual([]);
   expect(bindings.javascript.text).toContain('import { parse } from "tiny-json";');
-  expect(main.javascript.text).toContain('import * as Json from "./tiny-json.js";');
+  expect(main.javascript.text).toContain('import * as Json from "./TinyJson.js";');
   expect(bindings.declarations.text).toContain("export type JsonValue =");
   expect(main.declarations.text).toContain(
-    'import type * as Json from "./tiny-json.js";',
+    'import type * as Json from "./TinyJson.js";',
   );
   expect(main.declarations.text).toContain(
     "export declare const document: Json.JsonValue;",
@@ -214,7 +214,7 @@ test("reports import cycles before project checking", () => {
   ]);
 
   expect(project.diagnostics.map(({ message }) => message)).toContain(
-    "import cycle: /a.hex -> /b.hex -> /a.hex",
+    "import cycle: A -> B -> A",
   );
 });
 
@@ -264,27 +264,33 @@ test("links constrained Hexagon exports through private ESM plumbing", () => {
   // for it — a namespace alias never reaches an edition as `Math.plusInt`, so
   // the private plumbing line the namespace form always emits is what carries it.
   expect(namespace.javascript.text).toContain(
-    'import * as Math from "./math.js";',
+    'import * as Math from "./Math.js";',
   );
   expect(namespace.javascript.text).toContain(
-    'import { __plus, plusInt } from "./math.js";',
+    'import { __plus, plusInt } from "./Math.js";',
   );
   expect(namespace.javascript.text).toMatch(/logString\(String\(plusInt\(20, 22\)\)\)/u);
   expect(math.javascript.diagnostics).toEqual([]);
   expect(namespace.javascript.diagnostics).toEqual([]);
 });
 
+// #829: a module's identity is its declared name, not its file's path, and
+// the path-free import carries no `from` clause — so a caseless-script module
+// now declares itself with the cultural `M` prefix (Lexer §3.1) in its own
+// header, and the importer reaches it by that declared name alone. The
+// source file's own path stays whatever it always was; only the emitted
+// specifier is laid out from the declared name (Modules §11, Packages §6).
 test("compiles Unicode module paths and cultural M namespace aliases", () => {
   const project = compileProject([
     new Source.File(
       Source.fileId(0),
       "/गणित.hex",
-      "export fun जोड़(left: Int, right: Int): Int = left + right",
+      "module Mगणित\n\n" + "export fun जोड़(left: Int, right: Int): Int = left + right",
     ),
     new Source.File(
       Source.fileId(1),
       "/main.hex",
-      "module Main\n\n" + 'import Mगणित from "./गणित"\n' +
+      "module Main\n\n" + 'import Mगणित\n' +
         "export let उत्तर: Int = Mगणित.जोड़(20, 22)",
     ),
   ]);
@@ -292,7 +298,7 @@ test("compiles Unicode module paths and cultural M namespace aliases", () => {
   expect(project.diagnostics).toEqual([]);
   const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
   expect(main.typed.diagnostics).toEqual([]);
-  expect(main.javascript.text).toContain('import * as Mगणित from "./गणित.js";');
+  expect(main.javascript.text).toContain('import * as Mगणित from "./Mगणित.js";');
   expect(main.javascript.text).toContain("const उत्तर = Mगणित.जोड़(20, 22);");
 });
 
@@ -358,7 +364,7 @@ test("the implicit prelude supplies Ordering to Ord instances", () => {
     'import { Less, Greater, Equal } from "./Hex/Ordering.js";',
   );
   // The prelude module is emitted because a module imports from it.
-  expect(project.modules.map(({ source }) => source.path)).toContain("/Ordering.hex");
+  expect(project.modules.map(({ source }) => source.path)).toContain("/Hex/Ordering.hex");
 });
 
 test("a project that never touches the prelude does not emit it", () => {
@@ -409,8 +415,8 @@ test("the implicit prelude supplies Option without an import", () => {
   expect(app.javascript.text).toContain('{ tag: "Some", value: __vectorIndex(xs, 0) }');
   // Each prelude module is emitted only when used: Option is, Ordering's home is not.
   const paths = project.modules.map(({ source }) => source.path);
-  expect(paths).toContain("/Option.hex");
-  expect(paths).not.toContain("/Prelude.hex");
+  expect(paths).toContain("/Hex/Option.hex");
+  expect(paths).not.toContain("/Hex/Prelude.hex");
 });
 
 test("reports each module's own diagnostics on the project", () => {
@@ -442,3 +448,4 @@ test("reports a type error found only by the checker", () => {
 
   expect(project.diagnostics.length).toBeGreaterThan(0);
 });
+

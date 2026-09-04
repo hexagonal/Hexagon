@@ -71,6 +71,25 @@ function emitted(
 }
 
 /**
+ * Resolves a relative specifier against the **importing module's own address**
+ * — its full name laid out as a path (Modules §11.1) — since that, not the
+ * source file's path, is what every emitted specifier is computed from
+ * (Modules §11.2, #829).
+ */
+function resolveModulePath(importerPath: string, specifier: string): string | undefined {
+  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
+  const directory = importerPath.slice(0, Math.max(0, importerPath.lastIndexOf("/")));
+  const parts: string[] = [];
+  for (const part of `${directory}/${specifier}`.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  const path = `/${parts.join("/")}`;
+  return path.endsWith(".js") ? `${path.slice(0, -3)}.hex` : path;
+}
+
+/**
  * Relative imports in the emitted JavaScript naming a module the project did not
  * emit — defect 8's general form. Empty is the only acceptable value.
  */
@@ -78,14 +97,14 @@ function danglingImports(
   files: readonly (readonly [string, string])[],
 ): readonly string[] {
   const project = compileFiles(files);
-  const paths = new Set(project.modules.map(({ source }) => source.path));
+  const paths = new Set(project.modules.map(({ path }) => path));
   const dangling: string[] = [];
   for (const module of project.modules) {
     for (const match of module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)) {
       const specifier = match[1];
       if (specifier === undefined) continue;
-      const target = `${specifier.replace(/\.js$/u, "")}.hex`.replace(/^\.\//u, "/");
-      if (!paths.has(target)) dangling.push(`${module.source.path} -> ${specifier}`);
+      const target = resolveModulePath(module.path, specifier);
+      if (target === undefined || !paths.has(target)) dangling.push(`${module.path} -> ${specifier}`);
     }
   }
   return dangling;
@@ -125,7 +144,7 @@ describe("a type-only prelude mention has its instances", () => {
       // `l`/`g` distinguish this module's emitted text from every sibling test's.
       // Two tests whose emitted JavaScript is byte-identical share one module
       // instance through the data-URL import cache.
-      "export fun l(a: Ordering, b: Ordering): Bool = a == b\n",
+      "module Main\n\n" + "export fun l(a: Ordering, b: Ordering): Bool = a == b\n",
     ]]);
     // An `Ordering` is the tagged object of Unions §6.1 (#771), so a JS caller
     // hands one of those in.
@@ -229,7 +248,7 @@ describe("transit shapes keep working and shrink", () => {
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
       'import { __Eq_Int } from "./Hex/Int.js";',
-      'import * as A from "./a.js";',
+      'import * as A from "./A.js";',
     ]);
     // The point of the fix: no evidence re-export anywhere on the path.
     expect(exportLines(b)).toEqual(["export { g };"]);
@@ -265,7 +284,7 @@ describe("transit shapes keep working and shrink", () => {
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
       'import { __Eq_Int } from "./Hex/Int.js";',
-      'import * as A from "./a.js";',
+      'import * as A from "./A.js";',
     ]);
     expect(exportLines(emitted(files, "/a.hex"))).toEqual(["export { mk };"]);
   });
@@ -287,7 +306,7 @@ describe("transit shapes keep working and shrink", () => {
       // The component instance `Eq<Option(Int)>` selects (#278), an import
       // since #344 because `Int`'s instances are `stdlib/Int.hex`'s source.
       'import { __Eq_Int } from "./Hex/Int.js";',
-      'import * as B from "./b.js";',
+      'import * as B from "./B.js";',
     ]);
     expect(exportLines(emitted(files, "/b.hex"))).toEqual(["export { h };"]);
   });

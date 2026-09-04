@@ -65,9 +65,9 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
 
     // Forward slashes, no leading slash, `.hex` dropped — Modules §2's "a
     // module's identity is its path", rendered.
-    expect(javascriptOf(files, "/errors.hex")).toContain('{ $hex: "errors", name: __name }');
+    expect(javascriptOf(files, "/errors.hex")).toContain('{ $hex: "Errors", name: __name }');
     expect(javascriptOf(files, "/client/failures.hex"))
-      .toContain('{ $hex: "client/failures", name: __name }');
+      .toContain('{ $hex: "Failures", name: __name }');
   });
 
   test("the identity is relative to the project root, not absolute", () => {
@@ -85,7 +85,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     ] as const;
 
     expect(javascriptOf(files, "/src/client/failures.hex"))
-      .toContain('{ $hex: "client/failures", name: __name }');
+      .toContain('{ $hex: "Failures", name: __name }');
   });
 
   test("an injected prelude module brands its canonical injected name", () => {
@@ -101,7 +101,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
         "        Vector.IndexError(index, size) => index + size\n"],
     ] as const;
 
-    expect(javascriptOf(files, "/src/main.hex")).toContain('$hex === "Vector"');
+    expect(javascriptOf(files, "/src/main.hex")).toContain('$hex === "Hex.Vector"');
   });
 
   test("a helper that raises a prelude exception brands the declaring module", async () => {
@@ -131,7 +131,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     ] as const;
 
     expect(declarationsOf(files, "/client/failures.hex")).toContain(
-      'export type Splat = Error & { readonly $hex: "client/failures"; ' +
+      'export type Splat = Error & { readonly $hex: "Failures"; ' +
         'readonly name: "Splat"; readonly code: number };',
     );
   });
@@ -154,13 +154,13 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     const face = 'readonly $hex: "Client.Failures"';
     expect(
       declarationsOf(
-        [["/deep/down/anywhere.hex", "module Anywhere\n\n" + declaring], ["/main.hex", "module Main\n\n" + use]] as const,
+        [["/deep/down/anywhere.hex", declaring], ["/main.hex", use]] as const,
         "/deep/down/anywhere.hex",
       ),
     ).toContain(face);
     expect(
       declarationsOf(
-        [["/x.hex", "module X\n\n" + declaring], ["/main.hex", "module Main\n\n" + use]] as const,
+        [["/x.hex", declaring], ["/main.hex", use]] as const,
         "/x.hex",
       ),
     ).toContain(face);
@@ -186,7 +186,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     expect(declarations).not.toContain("e: Error & {");
     // And the two seats that keep the intersection are untouched by that.
     expect(declarations).toContain(
-      'export type Boom = Error & { readonly $hex: "main"; readonly name: "Boom"; ' +
+      'export type Boom = Error & { readonly $hex: "Main"; readonly name: "Boom"; ' +
         "readonly code: number };",
     );
     expect(declarations).toContain(
@@ -215,11 +215,11 @@ describe("boundary guards (#478, §7.6)", () => {
     const javascript = javascriptOf(guarded, "/errors.hex");
 
     expect(javascript).toContain(
-      'ParseError.is = (__error) => __error != null && __error.$hex === "errors"' +
+      'ParseError.is = (__error) => __error != null && __error.$hex === "Errors"' +
         ' && __error.name === "ParseError";',
     );
     expect(javascript).toContain(
-      'NotFound.is = (__error) => __error != null && __error.$hex === "errors"' +
+      'NotFound.is = (__error) => __error != null && __error.$hex === "Errors"' +
         ' && __error.name === "NotFound";',
     );
   });
@@ -700,7 +700,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // each carries the tag.
     const project = compileFiles([["/main.hex", "module Main\n\n" + "export let x: Int = Vector.at([1], 1)\n"]]);
     expect(project.diagnostics).toEqual([]);
-    const vector = project.modules.find(({ source }) => source.path === "/Vector.hex")!;
+    const vector = project.modules.find(({ source }) => source.path === "/Hex/Vector.hex")!;
 
     expect(vector.declarations.text).toContain(
       "@throws {IndexError} when no such element exists — zero never addresses one",

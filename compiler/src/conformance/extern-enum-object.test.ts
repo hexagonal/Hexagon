@@ -99,13 +99,20 @@ async function run(
   if (runtimeGlobals !== undefined) {
     moduleUrls.set(runtimeGlobals.path.replace(/\.js$/u, ".hex"), url(runtimeGlobals.text));
   }
+  // Keyed and linked by the module's **address** — its full name laid out as a
+  // path (Packages §6) — since that, not the source file's own path, is what
+  // every emitted specifier is computed from (Modules §11.2, #829).
   for (const module of project.modules) {
     moduleUrls.set(
-      module.source.path,
-      url(link(module.javascript.text, module.source.path, moduleUrls, foreignUrls)),
+      module.path,
+      url(link(module.javascript.text, module.path, moduleUrls, foreignUrls)),
     );
   }
-  return (await import(/* @vite-ignore */ moduleUrls.get(entry)!)) as Record<string, unknown>;
+  const root = project.modules.find(({ name, path, source }) =>
+    name === entry || path === entry || source.path === entry
+  );
+  if (root === undefined) throw new Error(`no module \`${entry}\` in the compiled project`);
+  return (await import(/* @vite-ignore */ moduleUrls.get(root.path)!)) as Record<string, unknown>;
 }
 
 /** The emitted JavaScript of a one-module program that must compile clean. */
@@ -597,9 +604,9 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
     expect(main.javascript.text).toContain(
-      'import { Down as __Down, Up as __Up } from "./bindings.js";',
+      'import { Down as __Down, Up as __Up } from "./Bindings.js";',
     );
-    expect(main.javascript.enumMemberImports).toEqual(["./bindings"]);
+    expect(main.javascript.enumMemberImports).toEqual(["./Bindings"]);
     // A module that only *names* the type owes nothing.
     const bindings = project.modules.find(({ source }) => source.path === "/bindings.hex")!;
     expect(bindings.javascript.enumMemberImports).toEqual([]);
@@ -876,11 +883,11 @@ describe("the surfaces (§7, §9 test 10)", () => {
         "    export enum Size = Big | Small\n",
     );
     const option = "export type Option<a> = { tag: \"Some\"; value: a } | { tag: \"None\" };\n";
-    expect(await typeScriptErrors({ "main.d.ts": face, "Option.d.ts": option })).toEqual([]);
+    expect(await typeScriptErrors({ "main.d.ts": face, "Hex/Option.d.ts": option })).toEqual([]);
     expect(
       await typeScriptErrors({
         "main.d.ts": face,
-        "Option.d.ts": option,
+        "Hex/Option.d.ts": option,
         "consumer.ts": 'import { Up, toJsDirection, fromJsDirection } from "./main.js";\n' +
           "export const raw: unknown = toJsDirection(Up);\n" +
           "export const back = fromJsDirection(raw);\n",
@@ -888,7 +895,7 @@ describe("the surfaces (§7, §9 test 10)", () => {
     ).toEqual([]);
     const errors = await typeScriptErrors({
       "main.d.ts": face,
-      "Option.d.ts": option,
+      "Hex/Option.d.ts": option,
       "consumer.ts": 'import { Big, toJsDirection } from "./main.js";\n' +
         "toJsDirection(Big);\n" +
         'toJsDirection("ARROW_UP");\n',
@@ -1017,11 +1024,12 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
     // The label is what names the first origin once the message has stopped
     // naming it, so it is pinned rather than left to the message's shape: it
     // points at the first member, inside the block, and gives its constructor.
-    const [diagnostic] = compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics;
+    const prefixed = "module Main\n\n" + source;
+    const [diagnostic] = compileFiles([["/main.hex", prefixed]]).diagnostics;
     expect(diagnostic?.labels?.map(({ message }) => message))
       .toEqual(["first read here, as `Up`"]);
     const label = diagnostic!.labels![0]!.span;
-    expect(source.slice(label.start.offset, label.end.offset)).toBe("Up");
+    expect(prefixed.slice(label.start.offset, label.end.offset)).toBe("Up");
     expect(label.start.offset).toBeLessThan(diagnostic!.primary.start.offset);
   });
 
@@ -1111,7 +1119,7 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
         "\n" +
         "let fromJsDirection(v: Int): Int = v\n",
     )).toEqual([
-      "`fromJsDirection` is already bound (line 2); `extern enum Direction` generates " +
+      "`fromJsDirection` is already bound (line 4); `extern enum Direction` generates " +
       "it (Foreign Enums §5.2) — rename the enum type, or the other declaration.",
     ]);
   });

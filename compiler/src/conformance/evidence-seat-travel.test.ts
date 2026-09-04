@@ -91,6 +91,8 @@ const LIB_B = fancyLib("fancyB", "useB", "B");
  */
 function mid(conjunction: string): string {
   return [
+    'module Mid',
+    '',
     'import Liba as LibA',
     'import Libb as LibB',
     "",

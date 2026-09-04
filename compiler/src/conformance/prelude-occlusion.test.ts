@@ -247,7 +247,7 @@ describe("the module's own layers stay under the full ban", () => {
       "    let show = \"inner\"\n" +
       "    show\n",
     )).toContain(
-      "`show` is already bound (line 1); Hexagon does not allow rebinding — " +
+      "`show` is already bound (line 3); Hexagon does not allow rebinding — " +
         "choose a different name.",
     );
   });
@@ -269,7 +269,7 @@ describe("the module's own layers stay under the full ban", () => {
       "    let nan = 2.0\n" +
       "    nan\n",
     )).toEqual([
-      "`nan` is already bound (line 2); Hexagon does not allow rebinding — " +
+      "`nan` is already bound (line 4); Hexagon does not allow rebinding — " +
         "choose a different name.",
     ]);
   });
@@ -577,7 +577,7 @@ describe("a declaration's constructor names occlude too (#466)", () => {
     expect(projectDiagnostics("module Main\n\n" + "union A = Dup | X\n" +
       "union B = Dup | Y\n",
     )).toEqual([
-      "`Dup` is already bound (line 1); Hexagon does not allow rebinding — " +
+      "`Dup` is already bound (line 3); Hexagon does not allow rebinding — " +
         "choose a different name.",
     ]);
   });
@@ -604,6 +604,7 @@ describe("in prelude source, the prelude layer is the §5.5 visible prefix", () 
   test("a prelude module's function-local binder shadows an earlier member's export", () => {
     expect(diagnostics(
       "export let use: Int = 1\n",
+      "module Result\n\n" +
       "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
       "export let labelled(n: Int): String =\n" +
       "    let show = \"prefix shadow\"\n" +
@@ -614,6 +615,7 @@ describe("in prelude source, the prelude layer is the §5.5 visible prefix", () 
   test("and reserves it there for the whole block, exactly as in user code", () => {
     expect(diagnostics(
       "export let use: Int = 1\n",
+      "module Result\n\n" +
       "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
       "export let labelled(n: Int): String =\n" +
       "    let early = show(n)\n" +

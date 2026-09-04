@@ -39,7 +39,7 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
  */
 
 /** A module that throws a declared exception, or does not, on demand. */
-const preamble = "exception Boom(line: Int, message: String)\n" +
+const preamble = "module Main\n\n" + "exception Boom(line: Int, message: String)\n" +
   "exception Late(message: String)\n" +
   "let source(fail: Bool): Option(Int) =\n" +
   "    if fail then throw(Boom(3, \"scrutinee\")) else Some(7)\n";
@@ -680,7 +680,7 @@ describe("emission (§7.4's narrowed `try`)", () => {
         "  try {",
         "    __scrutinee = source(fail);",
         "  } catch (__error) {",
-        "    if (__error != null && __error.$hex === \"main\" && __error.name === \"Boom\") {",
+        "    if (__error != null && __error.$hex === \"Main\" && __error.name === \"Boom\") {",
         "      const line = __error.line;",
         "      return line;",
         "    }",

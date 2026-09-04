@@ -38,11 +38,17 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * as a measurement rather than as a claim about a compiler version.
  */
 
+/** The module name a bare basename derives to (Modules §2.1's fixit; only plain, single-word basenames appear in this file's fixtures). */
+function derivedModuleName(path: string): string {
+  const base = path.replace(/^.*\//u, "").replace(/\.hex$/u, "");
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
 /** One compiled project, with its diagnostics asserted empty. */
 function project(files: Readonly<Record<string, string>>): CompiledProject {
   const compiled = compileProject(
     Object.entries(files).map(([path, text], index) =>
-      new Source.File(Source.fileId(index), path, text)
+      new Source.File(Source.fileId(index), path, `module ${derivedModuleName(path)}\n\n` + text)
     ),
   );
   expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
@@ -62,7 +68,12 @@ function declarationSet(compiled: CompiledProject): Record<string, string> {
   const runtime = compiled.runtimeDeclarations;
   if (runtime !== undefined) files[runtime.path.replace(/^\//u, "")] = runtime.text;
   for (const module of compiled.modules) {
-    files[module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
+    // Keyed by the module's emitted **address** (Packages §6), not its source
+    // path: since #829 that is what every cross-module specifier in
+    // `declarations.text` names, and a lowercase source path beside a
+    // capitalized address is the same file to a case-insensitive filesystem
+    // but two different keys to `typeScriptErrors`' virtual one.
+    files[module.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
       module.declarations.text;
   }
   return files;
@@ -131,7 +142,7 @@ describe("class 1 — a non-generic capture, which failed the consumer's compile
     expect(
       await typeScriptErrors({
         ...declarationSet(project(PROGRAM)),
-        "consumer.ts": 'import { Iterable, twice } from "./main.js";\n' +
+        "consumer.ts": 'import { Iterable, twice } from "./Main.js";\n' +
           // Inbound: the published `Seq` parameter takes any foreign iterable,
           // which is the whole of §8.2's promise and the half the capture broke.
           "export const n: number = twice([1, 2, 3]);\n" +
@@ -184,7 +195,7 @@ describe("class 2 — a same-arity capture, which compiled while meaning the wro
     expect(
       await typeScriptErrors({
         ...declarationSet(project(PROGRAM)),
-        "consumer.ts": 'import { Wrap, twice, type Iterable } from "./main.js";\n' +
+        "consumer.ts": 'import { Wrap, twice, type Iterable } from "./Main.js";\n' +
           "export const n: number = twice([1, 2, 3]);\n" +
           // The user's union, annotated through the imported type — the exact
           // pair the capture made indistinguishable.
@@ -211,7 +222,7 @@ describe("class 3 — an `export record Error` beside an exported exception", ()
       "export type Error = { code: number };\n" +
         "export declare const Error: (record: { code: number }) => Error;\n" +
         "export type Boom = globalThis.Error" +
-        ' & { readonly $hex: "main"; readonly name: "Boom"; readonly value: number };\n' +
+        ' & { readonly $hex: "Main"; readonly name: "Boom"; readonly value: number };\n' +
         "export declare function Boom(value: number): Boom;\n" +
         "export declare namespace Boom {\n" +
         "  function is(__error: unknown): __error is Boom;\n" +
@@ -242,7 +253,7 @@ describe("class 3 — an `export record Error` beside an exported exception", ()
     expect(
       await typeScriptErrors({
         ...declarationSet(project(PROGRAM)),
-        "consumer.ts": 'import { Boom, Error as HexError, isHexError } from "./main.js";\n' +
+        "consumer.ts": 'import { Boom, Error as HexError, isHexError } from "./Main.js";\n' +
           "export const m: string = Boom(3).message;\n" +
           "export const s: string | undefined = Boom(3).stack;\n" +
           "export const v: number = Boom(3).value;\n" +
@@ -270,7 +281,7 @@ describe("class 4 — the exception itself named `Error`, which compiled nowhere
     expect(text).not.toMatch(/(?<!globalThis\.)\bError &/u);
     expect(text).toBe(
       "export type Error = globalThis.Error" +
-        ' & { readonly $hex: "main"; readonly name: "Error"; readonly value: number };\n' +
+        ' & { readonly $hex: "Main"; readonly name: "Error"; readonly value: number };\n' +
         "export declare function Error(value: number): Error;\n" +
         "export declare namespace Error {\n" +
         "  function is(__error: unknown): __error is Error;\n" +
@@ -297,7 +308,7 @@ describe("class 4 — the exception itself named `Error`, which compiled nowhere
     expect(
       await typeScriptErrors({
         ...declarationSet(project(PROGRAM)),
-        "consumer.ts": 'import { Error as Boom, isHexError } from "./main.js";\n' +
+        "consumer.ts": 'import { Error as Boom, isHexError } from "./Main.js";\n' +
           "export const m: string = Boom(3).message;\n" +
           "export const v: number = Boom(3).value;\n" +
           "export const one = (e: unknown): number => Boom.is(e) ? e.value : 0;\n" +
@@ -331,7 +342,7 @@ describe("the universe decides — per file, per spelling", () => {
       "export declare const twice: (s: globalThis.Iterable<number>) => number;",
     );
     expect(declarations(compiled)).toBe(
-      'import type * as Lib from "./lib.js";\n' +
+      'import type * as Lib from "./Lib.js";\n' +
         "export type Iterable = Lib.Iterable;\n" +
         "export declare const f: (p: Lib.Iterable) => number;\n" +
         "export declare const twice: (s: globalThis.Iterable<number>) => number;\n",
@@ -339,10 +350,10 @@ describe("the universe decides — per file, per spelling", () => {
     expect(
       await typeScriptErrors({
         ...declarationSet(compiled),
-        "consumer.ts": 'import { f } from "./main.js";\n' +
-          'import { Iterable } from "./lib.js";\n' +
+        "consumer.ts": 'import { f } from "./Main.js";\n' +
+          'import { Iterable } from "./Lib.js";\n' +
           "export const n: number = f(Iterable({ x: 1 }));\n" +
-          'import { twice } from "./main.js";\n' +
+          'import { twice } from "./Main.js";\n' +
           "export const m: number = twice([1, 2]);\n",
       }),
     ).toEqual([]);
@@ -398,7 +409,7 @@ describe("the universe decides — per file, per spelling", () => {
 
     expect(text).not.toContain("Iterable_1");
     expect(text).toBe(
-      'import type * as Iterable from "./lib.js";\n' +
+      'import type * as Iterable from "./Lib.js";\n' +
         "export declare const f: (p: Iterable.Point) => number;\n" +
         "export declare const twice: (s: globalThis.Iterable<number>) => number;\n",
     );
@@ -447,7 +458,7 @@ describe("compiler-chosen spellings never contest the vocabulary (§1.1 half 1)"
 
     expect(text).not.toContain("globalThis");
     expect(text).toBe(
-      'import type { Iterable as Iterable_1 } from "./lib.js";\n' +
+      'import type { Iterable as Iterable_1 } from "./Lib.js";\n' +
         "export declare const f: (h: Iterable_1) => number;\n" +
         "export declare const twice: (s: Iterable<number>) => number;\n",
     );
@@ -495,8 +506,8 @@ describe("the negatives — nothing else moves", () => {
     // this program emitted before §1.1 existed.
     expect(text).not.toContain("globalThis");
     expect(text).toBe(
-      'import type { Point } from "./lib.js";\n' +
-        'export type Boom = Error & { readonly $hex: "main"; readonly name: "Boom"; readonly value: number };\n' +
+      'import type { Point } from "./Lib.js";\n' +
+        'export type Boom = Error & { readonly $hex: "Main"; readonly name: "Boom"; readonly value: number };\n' +
         "export declare function Boom(value: number): Boom;\n" +
         "export declare namespace Boom {\n" +
         "  function is(__error: unknown): __error is Boom;\n" +
@@ -553,12 +564,12 @@ describe("the negatives — nothing else moves", () => {
       'import { __Error } from "./hex.js";\n' +
         "\n" +
         "function __exception(__name, __message, __fields) {\n" +
-        '  return Object.assign(new __Error(__message), { $hex: "main", name: __name }, __fields);\n' +
+        '  return Object.assign(new __Error(__message), { $hex: "Main", name: __name }, __fields);\n' +
         "}\n" +
         "\n" +
         "const Error = __record => __record;\n" +
         'const Boom = value => __exception("Boom", "", { value });\n' +
-        'Boom.is = (__error) => __error != null && __error.$hex === "main"' +
+        'Boom.is = (__error) => __error != null && __error.$hex === "Main"' +
         ' && __error.name === "Boom";\n' +
         "export const isHexError = (__error) => __error != null" +
         ' && typeof __error.$hex === "string";\n' +

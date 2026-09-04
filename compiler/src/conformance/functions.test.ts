@@ -81,6 +81,7 @@ describe("Functions specification conformance", () => {
     // the emitted evidence plumbing is where a typecheck-only test would miss a
     // regression.
     const m = await run(
+      "module Main\n\n" +
       "fun double<a: Num>(x: a): a = x + x\n" +
         "fun useInt(): Int = double(21)\n" +
         "fun useFloat(): Float = double(1.5)\n" +

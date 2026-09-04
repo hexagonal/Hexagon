@@ -32,7 +32,7 @@ const BOOL_RECORD = "export record R = {b: Bool}\n";
 describe("finite shapes are checked exactly (§7.1)", () => {
   test("a nominal record's field space decomposes", () => {
     expect(projectDiagnostics(
-      BOOL_RECORD +
+      "module Main\n\n" + BOOL_RECORD +
       "export fun pick(r: R): Int =\n" +
       "    match r\n" +
       "        R({b = True}) => 1\n" +
@@ -124,7 +124,7 @@ describe("finite shapes are checked exactly (§7.1)", () => {
 
   test("the decomposition nests: a record inside a union inside a union", () => {
     expect(projectDiagnostics(
-      BOOL_RECORD +
+      "module Main\n\n" + BOOL_RECORD +
       "export union V = V(R)\n" +
       "export fun pick(v: V): Int =\n" +
       "    match v\n" +
@@ -761,7 +761,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
 
   test("a non-exhaustive match reports the missing case (§7.1, §7.3)", () => {
     expect(projectDiagnostics(
-      FLAG + PICK +
+      "module Main\n\n" + FLAG + PICK +
       "    rank(flag: Flag): Int =\n" +
       "        match flag\n" +
       "            On => 1\n",
@@ -770,13 +770,13 @@ describe("a constraint's default body is checked like any other body (#599)", ()
 
   test("an arm from the wrong union is refused as it is at the top level", () => {
     const inDefault = projectDiagnostics(
-      FLAG + "union Other = Thing\n" + PICK +
+      "module Main\n\n" + FLAG + "union Other = Thing\n" + PICK +
       "    rank(flag: Flag): Int =\n" +
       "        match flag\n" +
       "            Thing => 1\n",
     );
     const atTopLevel = projectDiagnostics(
-      FLAG + "union Other = Thing\n" +
+      "module Main\n\n" + FLAG + "union Other = Thing\n" +
       "fun rank(flag: Flag): Int =\n" +
       "    match flag\n" +
       "        Thing => 1\n",
@@ -794,7 +794,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
     // *as* the signature made `On` complete on its own, so the wildcard that
     // covers `Off` read as dead.
     expect(projectDiagnostics(
-      FLAG + PICK +
+      "module Main\n\n" + FLAG + PICK +
       "    rank(flag: Flag): Int =\n" +
       "        match flag\n" +
       "            On => 1\n" +
@@ -804,7 +804,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
 
   test("a repeated constructor is a dead arm (§7.2)", () => {
     expect(projectDiagnostics(
-      FLAG + PICK +
+      "module Main\n\n" + FLAG + PICK +
       "    rank(flag: Flag): Int =\n" +
       "        match flag\n" +
       "            On => 1\n" +
@@ -823,7 +823,7 @@ describe("a constraint's default body is checked like any other body (#599)", ()
     // The top-down law is unchanged, and is exactly why the seat can be this
     // late: the names a default body may reach are the ones already seeded.
     expect(projectDiagnostics(
-      PICK +
+      "module Main\n\n" + PICK +
       "    rank(): Int = helper(1)\n" +
       "fun helper(n: Int): Int = n\n",
     )).toEqual([
@@ -845,14 +845,14 @@ describe("a constraint's default body is checked like any other body (#599)", ()
 
   test("the prelude's unions are visible too", () => {
     expect(projectDiagnostics(
-      PICK +
+      "module Main\n\n" + PICK +
       "    rank(flag: Bool): Int =\n" +
       "        match flag\n" +
       "            True => 1\n",
     )).toEqual(["match is missing cases: `False`"]);
 
     expect(projectDiagnostics(
-      PICK +
+      "module Main\n\n" + PICK +
       "    rank(held: Option(Int)): Int =\n" +
       "        match held\n" +
       "            Some(n) => n\n",

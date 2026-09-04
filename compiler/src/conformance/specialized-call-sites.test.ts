@@ -53,6 +53,25 @@ function emitted(
 }
 
 /**
+ * Resolves a relative specifier against the **importing module's own address**
+ * — its full name laid out as a path (Modules §11.1) — since that, not the
+ * source file's path, is what every emitted specifier is computed from
+ * (Modules §11.2, #829).
+ */
+function resolveModulePath(importerPath: string, specifier: string): string | undefined {
+  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
+  const directory = importerPath.slice(0, Math.max(0, importerPath.lastIndexOf("/")));
+  const parts: string[] = [];
+  for (const part of `${directory}/${specifier}`.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  const path = `/${parts.join("/")}`;
+  return path.endsWith(".js") ? `${path.slice(0, -3)}.hex` : path;
+}
+
+/**
  * Relative imports in the emitted JavaScript naming a module the project did not
  * emit — defect 8's general form. Empty is the only acceptable value.
  */
@@ -60,13 +79,13 @@ function danglingImports(
   files: readonly (readonly [string, string])[],
 ): readonly string[] {
   const project = compileFiles(files);
-  const paths = new Set(project.modules.map(({ source }) => source.path));
+  const paths = new Set(project.modules.map(({ path }) => path));
   return project.modules.flatMap((module) =>
     [...module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)].flatMap((match) => {
       const specifier = match[1];
       if (specifier === undefined) return [];
-      const target = `${specifier.replace(/\.js$/u, "")}.hex`.replace(/^\.\//u, "/");
-      return paths.has(target) ? [] : [`${module.source.path} -> ${specifier}`];
+      const target = resolveModulePath(module.path, specifier);
+      return target !== undefined && paths.has(target) ? [] : [`${module.path} -> ${specifier}`];
     })
   );
 }
@@ -205,11 +224,11 @@ describe("a concrete call across a source-written import", () => {
     // the generic name and the edition beside it, and no *third* line repeats
     // either. `__plus` rides bare, unaliased, because nothing in the source
     // binds the local name `plus` any more — only `Math` is bound.
-    expect(javascript).toContain('import * as Math from "./math.js";');
-    expect(javascript).toContain('import { __plus, plusInt } from "./math.js";');
+    expect(javascript).toContain('import * as Math from "./Math.js";');
+    expect(javascript).toContain('import { __plus, plusInt } from "./Math.js";');
     expect(javascript).toContain("const answer = plusInt(20, 22);");
     expect(javascript).not.toContain("__Num_Int");
-    expect(importLines(javascript).filter((line) => line.includes('"./math.js"')))
+    expect(importLines(javascript).filter((line) => line.includes('"./Math.js"')))
       .toHaveLength(2);
   });
 
@@ -231,10 +250,10 @@ describe("a concrete call across a source-written import", () => {
     ]);
 
     expect(javascript.indexOf("const before = 1;")).toBeLessThan(
-      javascript.indexOf('import * as Math from "./math.js";'),
+      javascript.indexOf('import * as Math from "./Math.js";'),
     );
-    expect(javascript.indexOf('import * as Math from "./math.js";')).toBeLessThan(
-      javascript.indexOf('import { __plus, plusInt } from "./math.js";'),
+    expect(javascript.indexOf('import * as Math from "./Math.js";')).toBeLessThan(
+      javascript.indexOf('import { __plus, plusInt } from "./Math.js";'),
     );
   });
 
@@ -248,9 +267,9 @@ describe("a concrete call across a source-written import", () => {
       ],
     ]);
 
-    expect(javascript).toContain('import * as Pair from "./pair.js";');
+    expect(javascript).toContain('import * as Pair from "./Pair.js";');
     expect(javascript).toContain(
-      'import { __pair, pairIntString } from "./pair.js";',
+      'import { __pair, pairIntString } from "./Pair.js";',
     );
     expect(javascript).toContain('const answer = pairIntString(1, "x");');
   });
@@ -435,9 +454,9 @@ describe("the two fundamentals that name no primitive", () => {
       ],
     ]);
 
-    expect(javascript).toContain('import * as Pair from "./pair.js";');
+    expect(javascript).toContain('import * as Pair from "./Pair.js";');
     expect(javascript).toContain(
-      'import { __pair, pairIntBool } from "./pair.js";',
+      'import { __pair, pairIntBool } from "./Pair.js";',
     );
     expect(javascript).toContain("const answer = pairIntBool(1, true);");
   });
@@ -570,7 +589,7 @@ describe("a declared constraint's `Bool` edition", () => {
       "/main.hex",
       // Annotated, because a literal cannot default under a constraint the
       // defaulting rule does not hold (Numeric Literals §4).
-      `${DESCRIBE}let one: Int = 1\nexport let atInt: String = tell(one)\n`,
+      "module Main\n\n" + `${DESCRIBE}let one: Int = 1\nexport let atInt: String = tell(one)\n`,
     ]]);
 
     // Routed before this rider and routed after, through the primitive tag
@@ -589,9 +608,9 @@ describe("a declared constraint's `Bool` edition", () => {
     ] as const;
     const javascript = emitted(files);
 
-    expect(importLines(javascript)).toContain('import * as Describe from "./describe.js";');
+    expect(importLines(javascript)).toContain('import * as Describe from "./Describe.js";');
     expect(importLines(javascript)).toContain(
-      'import { __tell, tellBool } from "./describe.js";',
+      'import { __tell, tellBool } from "./Describe.js";',
     );
     expect(javascript).toContain("const atBool = tellBool(true);");
     expect(danglingImports(files)).toEqual([]);

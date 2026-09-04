@@ -334,7 +334,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
           "        ()\n",
       ],
     ])).toContain(
-      "`Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in `./bag.hex`, " +
+      "`Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in module `Bag`, " +
         "which declares `Bag`. The only other legal home is the prelude module declaring " +
         "`Iterable`. Alternatively, convert with `Bag.toSeq`-style functions, or take a " +
         "`Seq(a)` parameter.",
@@ -342,14 +342,14 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
   });
 
   /**
-   * The route is computed at the message, from the reporting module's own
-   * position — which is why the declaration carries a project-root path rather
-   * than one relative to whoever imported it. A same-directory default would
-   * pass the case above and fail both of these.
+   * The declaring module is named by identity (Modules §2.1), never by a path
+   * relative to whoever imported it — #829 retired the path-relative sentence
+   * this test used to pin. What survives at this seat is that the name is
+   * stable regardless of where the iterating module sits in the project.
    */
-  test("the declaring file is named relative to the module doing the iterating", () => {
-    const iterate = (specifier: string): string =>
-      `import Bag from "${specifier}"\n` +
+  test("the declaring module is named by identity, wherever the iterating module sits", () => {
+    const iterate =
+      "import Bag\n" +
       "let bag: Bag(Int) = Bag.Empty\n" +
       "export fun run(): Unit =\n" +
       "    for item in bag\n" +
@@ -357,27 +357,27 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
 
     expect(messagesOf([
       ["/app/lib/bag.hex", "module Bag\n\n" + BAG],
-      ["/app/main.hex", iterate("./lib/bag")],
-    ]).join("\n")).toContain("in `./lib/bag.hex`, which declares `Bag`");
+      ["/app/main.hex", "module Main\n\n" + iterate],
+    ]).join("\n")).toContain("in module `Bag`, which declares `Bag`");
 
     expect(messagesOf([
       ["/app/lib/bag.hex", "module Bag\n\n" + BAG],
-      ["/app/src/main.hex", iterate("../lib/bag")],
-    ]).join("\n")).toContain("in `../lib/bag.hex`, which declares `Bag`");
+      ["/app/src/main.hex", "module Main\n\n" + iterate],
+    ]).join("\n")).toContain("in module `Bag`, which declares `Bag`");
   });
 
-  /** The self-module case is not special-cased; it falls out as `./` plus the basename. */
-  test("a nominal declared where it is iterated names that same file", () => {
+  /** The self-module case is not special-cased; it falls out as the reporting module's own name. */
+  test("a nominal declared where it is iterated names that same module", () => {
     expect(messagesOf([
       ["/app/bag.hex",
-        BAG +
+        "module Bag\n\n" + BAG +
           "let bag: Bag(Int) = Empty\n" +
           "export fun run(): Unit =\n" +
           "    for item in bag\n" +
           "        ()\n",
       ],
     ]).join("\n")).toContain(
-      "Define `honor Iterable<Bag(a)>` in `./bag.hex`, which declares `Bag`",
+      "Define `honor Iterable<Bag(a)>` in module `Bag`, which declares `Bag`",
     );
   });
 
@@ -402,7 +402,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
     ]).join("\n");
     expect(messages).toContain(
       "`Pair(Int, String)` is not iterable. Define `honor Iterable<Pair(left, right)>` in " +
-        "`./pair.hex`, which declares `Pair`.",
+        "module `Pair`, which declares `Pair`.",
     );
     expect(messages).not.toContain("honor<");
   });
@@ -419,7 +419,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
           "        ()\n",
       ],
     ]).join("\n")).toContain(
-      "`Widget` is not iterable. Define `honor Iterable<Widget>` in `./widget.hex`, " +
+      "`Widget` is not iterable. Define `honor Iterable<Widget>` in module `Widget`, " +
         "which declares `Widget`.",
     );
   });
@@ -432,7 +432,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
    * worth having, since the file is exactly the one the user cannot see from
    * the import list.
    */
-  test("a nominal reached only through an imported function's type still names its file", () => {
+  test("a nominal reached only through an imported function's type still names its module", () => {
     expect(messagesOf([
       ["/app/lib/bag.hex", "module Bag\n\n" + BAG],
       ["/app/middle.hex",
@@ -446,7 +446,7 @@ describe("the `for p in e` failure taxonomy (Part 5 §3.2/§3.3)", () => {
           "        ()\n",
       ],
     ]).join("\n")).toContain(
-      "`Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in `../lib/bag.hex`, " +
+      "`Bag(Int)` is not iterable. Define `honor Iterable<Bag(a)>` in module `Bag`, " +
         "which declares `Bag`.",
     );
   });
@@ -699,7 +699,7 @@ describe("`String.fromSeq`, the full §5.3 contract", () => {
     ]]);
     expect(project.diagnostics).toEqual([]);
     const javascript = project.modules
-      .find(({ source }) => source.path === "/String.hex")!.javascript.text;
+      .find(({ source }) => source.path === "/Hex/String.hex")!.javascript.text;
     expect(javascript).toContain('.join("")');
   });
 

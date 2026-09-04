@@ -51,7 +51,7 @@ const RAT = (() => {
 function withRat(source: string): readonly (readonly [string, string])[] {
   return [
     ["/main.hex", "module Main\n\n" + `import Rat\n${source}`],
-    ["/Rat.hex", "module Rat\n\n" + RAT],
+    ["/Rat.hex", RAT],
   ];
 }
 
@@ -407,7 +407,7 @@ describe("the guard: finite, and nonzero when the input is (rat.md §6/§8)", ()
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
       name: "FloatRangeError",
       message: "Rat.toFloat: value does not fit in Float",
-      $hex: "Float",
+      $hex: "Hex.Float",
     });
   });
 
@@ -534,7 +534,7 @@ describe("the exception's identity", () => {
       "export let boom(): Float = Rat.toFloat(Rat.create(1, 2 ** 1400))\n",
     );
     const main = await runProject(files);
-    const float = await runProject(files, { entry: "/Float.hex" });
+    const float = await runProject(files, { entry: "Hex.Float" });
 
     const error = threw(main["boom"] as () => unknown);
     const range = float["FloatRangeError"] as { is: (value: unknown) => boolean };
@@ -556,8 +556,8 @@ describe("the exception's identity", () => {
       "export let boom(): Float = Rat.toFloat(Rat.create(1, 2 ** 1500))\n",
     );
     const main = await runProject(files);
-    const pow = await runProject(files, { entry: "/Pow.hex" });
-    const integral = await runProject(files, { entry: "/Integral.hex" });
+    const pow = await runProject(files, { entry: "Hex.Pow" });
+    const integral = await runProject(files, { entry: "Hex.Integral" });
 
     const error = threw(main["boom"] as () => unknown);
     const negative = pow["NegativeExponentError"] as { is: (value: unknown) => boolean };

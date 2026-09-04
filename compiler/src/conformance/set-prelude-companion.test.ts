@@ -119,7 +119,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
-        "in `./main.hex`",
+        "in module `Main`",
     );
   });
 
@@ -303,7 +303,7 @@ describe("§16 (j) / §5.4 representative retention", () => {
    */
   test("an `equals`-equal newcomer does not replace the stored element", async () => {
     const main = await runMain(
-      NEGATIVES +
+      "module Main\n\n" + NEGATIVES +
         "let negative: Set(Float) = Set.singleton(-0.0)\n" +
         "let positive: Set(Float) = Set.singleton(0.0)\n" +
         "export let equated: Bool = -0.0 == 0.0\n" +
@@ -330,7 +330,7 @@ describe("§16 (j) / §5.4 representative retention", () => {
    */
   test("union and intersect keep the left's representative, unplaced", async () => {
     const main = await runMain(
-      NEGATIVES +
+      "module Main\n\n" + NEGATIVES +
         "let negative: Set(Float) = Set.singleton(-0.0)\n" +
         "let positive: Set(Float) = Set.singleton(0.0)\n" +
         "export let unionNegativeLeft: (Int, Int) =\n" +
@@ -364,7 +364,7 @@ describe("§16 (j) / §5.4 representative retention", () => {
    */
   test("the mirrored branch keeps the left's representative, placed", async () => {
     const main = await runMain(
-      NEGATIVES +
+      "module Main\n\n" + NEGATIVES +
         "let negative: Set(Float) = Set.singleton(-0.0)\n" +
         "let placed: Set(Float) = Set.fromVector([0.0, 1.0])\n" +
         // size(left) 1 < size(right) 2, so `union` folds left into right and
@@ -394,7 +394,7 @@ describe("§16 (j) / §5.4 representative retention", () => {
    */
   test("±0 Floats are one placed element, and the first arrival is kept", async () => {
     const main = await runMain(
-      NEGATIVES +
+      "module Main\n\n" + NEGATIVES +
         "let z: Set(Float) = Set.fromVector([-0.0, 0.0])\n" +
         "export let counted: Int = Set.size(z)\n" +
         "export let negativeCount: Int = signs(z)\n",
@@ -682,7 +682,7 @@ describe("the companion's surface", () => {
       "module Main\n\n" + "export let n: Int = Set.size(Set.singleton(1))\n",
     ]]);
     expect(project.diagnostics).toEqual([]);
-    const set = project.modules.find(({ source }) => source.path === "/Set.hex");
+    const set = project.modules.find(({ source }) => source.path === "/Hex/Set.hex");
     expect(set).toBeDefined();
     const exported = set!.typed.items.flatMap((item) =>
       (item.kind === "Let" || item.kind === "Fun") && item.exported
@@ -736,7 +736,7 @@ describe("the companion's surface", () => {
       "module Main\n\n" + "export let n: Int = Set.size(Set.singleton(1))\n",
     ]]);
     expect(project.diagnostics).toEqual([]);
-    const set = project.modules.find(({ source }) => source.path === "/Set.hex");
+    const set = project.modules.find(({ source }) => source.path === "/Hex/Set.hex");
     const face = set!.declarations.text;
     const unconstrained = ["singleton", "size", "empty", "isEmpty"];
     for (const name of unconstrained) {
@@ -783,7 +783,7 @@ describe("the companion's surface", () => {
       "/main.hex",
       "module Main\n\n" + "export let n: Int = Set.size(Set.singleton(1))\n",
     ]]);
-    const set = project.modules.find(({ source }) => source.path === "/Set.hex");
+    const set = project.modules.find(({ source }) => source.path === "/Hex/Set.hex");
     expect(set!.typed.items.some((item) => item.kind === "Exception")).toBe(false);
   });
 });

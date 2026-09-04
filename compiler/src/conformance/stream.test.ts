@@ -203,6 +203,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
     // signature offers an inlet, so a call whose colour is still undetermined
     // is a conduit rather than pure-pinned.
     const body = (mark: string): string =>
+      "module Main\n\n" +
       "export let wire(source: Stream(Int), step: Int ->? Int): Stream(Int) =\n" +
       `    Stream.map${mark}(source, step)\n`;
     expect(projectDiagnostics(body(""))).toEqual([
@@ -214,6 +215,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
 
   it("demands `!` at every consumer, and takes nothing else", () => {
     const call = (name: string, mark: string, rest: string, result: string): string =>
+      "module Main\n\n" +
       `export let go(source: Stream(Int)): ${result} =\n    ${name}${mark}(source${rest})\n`;
     for (const [name, rest, result] of [
       ["Stream.collect", ", 1", "Vector(Int)"],
@@ -264,7 +266,7 @@ describe("§2.5 the field's arrow is the impure constant", () => {
    */
   function withStream(mutated: string): readonly string[] {
     return compileFiles([
-      ["/Stream.hex", "module Stream\n\n" + mutated],
+      ["/Stream.hex", mutated],
       ["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"],
     ]).diagnostics.map(({ message }) => message);
   }

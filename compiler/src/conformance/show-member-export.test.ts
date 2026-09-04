@@ -21,6 +21,8 @@ describe("the control: diagnostics are project-level, so prove the probe can fai
 describe("bare `show` is in scope everywhere (the book's rule becomes the language's)", () => {
   test("the book's `display` compiles and runs", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let display<a: Show>(value: a): String = show(value)",
       "",
       "export let shown: String = display(42)",
@@ -44,6 +46,8 @@ describe("bare `show` is in scope everywhere (the book's rule becomes the langua
 
   test("higher-order position: mapping `show` over a Vector's elements", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let values: Vector(Int) = [1, 2, 3]",
       "",
       "export let joined: String =",
@@ -56,6 +60,8 @@ describe("bare `show` is in scope everywhere (the book's rule becomes the langua
 
   test("non-numeric instances are unchanged: String and Bool", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let text: String = show(\"abc\")",
       "export let truth: String = show(True)",
       "",
@@ -77,6 +83,8 @@ describe("qualified access: `Show.show` is ordinary module-qualified access to a
 describe("the member is one value, instantiated per use (no monomorphic access system)", () => {
   test("an unapplied `show` binds at a concrete type", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let renderInt: Int -> String = show",
       "",
       "export let r: String = renderInt(6)",

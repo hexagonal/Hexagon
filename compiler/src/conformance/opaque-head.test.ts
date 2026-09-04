@@ -173,15 +173,16 @@ describe("`export opaque` is refused with the required rewrite (§4.2, §10)", (
     // Asserted by *applying* it: an edit count proves nothing about an edit,
     // and the claim being made is that the repair produces the spelling the
     // message asked for and touches nothing else on the line.
-    const source = "export opaque record Point = {x: Float, y: Float}\n";
-    const [diagnostic] = compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics;
+    const header = "module Main\n\n";
+    const source = header + "export opaque record Point = {x: Float, y: Float}\n";
+    const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
     expect(diagnostic?.fixes).toMatchObject([{ message: "write `opaque`" }]);
     const edits = diagnostic?.fixes?.[0]?.edits ?? [];
     expect(edits).toHaveLength(1);
     const { span, replacement } = edits[0]!;
     expect(
       source.slice(0, span.start.offset) + replacement + source.slice(span.end.offset),
-    ).toBe("opaque record Point = {x: Float, y: Float}\n");
+    ).toBe(header + "opaque record Point = {x: Float, y: Float}\n");
   });
 });
 

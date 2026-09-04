@@ -84,11 +84,11 @@ describe("importing a constraint brings its module, and members reach through it
     // trailing suffix as it always did.
     expect(emitted(files, "/labels.hex")).toContain("export { label as __label };");
     const main = emitted(files, "/main.hex");
-    expect(main).toContain('import { __label } from "./labels.js";');
+    expect(main).toContain('import { __label } from "./Labels.js";');
     expect(main).toContain("return __label(x, __Label_a);");
     // The two concrete calls reach their instances' seats instead — the local
     // one by name, the imported one through the declaring module (§6.1).
-    expect(main).toContain('import { __Label_Int_label } from "./labels.js";');
+    expect(main).toContain('import { __Label_Int_label } from "./Labels.js";');
     expect(main).toContain("__Label_Room_label({ number: 12 })");
     expect(main).toContain("__Label_Int_label(four)");
   });
@@ -333,11 +333,11 @@ describe("base-constraint entailment through an imported constraint", () => {
     ])).toEqual([
       // §7.6's **ordinary** clause, not its sealed one: `Loud` is exported, so
       // `main` is one `import Units` away from writing the honor
-      // as `honor Units.Loud<Siren>`, and its own file is the home the report
-      // leads with. (`./units.hex` could not hold it — naming `Siren` there
-      // would need an import of `./main.hex`, which §7.3 forbids on this graph.)
-      "type `Siren` has no `Loud` instance; it could only be declared in `./main.hex` " +
-        "(declares `Siren`) or `./units.hex` (declares `Loud`)",
+      // as `honor Units.Loud<Siren>`, and its own module is the home the report
+      // leads with. (`Units` could not hold it — naming `Siren` there
+      // would need an import of `Main`, which §7.3 forbids on this graph.)
+      "type `Siren` has no `Loud` instance; it could only be declared in module `Main` " +
+        "(declares `Siren`) or module `Units` (declares `Loud`)",
     ]);
   });
 });
@@ -436,7 +436,7 @@ describe("a base chain whose middle link the importer cannot name", () => {
       ].join("\n")],
     ])).toEqual([
       "type `Ounce` has no `Small` instance; `Small` is not nameable here, so the honor " +
-        "can only be written in `./scales.hex`, which declares it",
+        "can only be written in module `Scales`, which declares it",
     ]);
   });
 });
@@ -570,7 +570,7 @@ describe("defaults hoist once, at home (Constraints §6.5)", () => {
     const away = emitted(files, "/main.hex");
 
     expect(away).toMatch(
-      /import \{[^}]*__default_stamped[^}]*\} from "\.\/stamps\.js";/u,
+      /import \{[^}]*__default_stamped[^}]*\} from "\.\/Stamps\.js";/u,
     );
     // Deferred, never eager: the dictionary const is not initialized while its
     // own literal is under construction (§6.3). The wrapper is the inherited
@@ -972,7 +972,7 @@ describe("internal names that contest one spelling (#430)", () => {
     // JavaScript binding no longer has to keep the bare source name alive —
     // it imports under a name of the emitter's own choosing, and that name
     // is still the one the home module gave the resolved suffix.
-    expect(away).toContain('import { __default_log_1 as __default_log } from "./ledger.js";');
+    expect(away).toContain('import { __default_log_1 as __default_log } from "./Ledger.js";');
   });
 
   test("and the emitted program loads and runs", async () => {
@@ -1025,7 +1025,7 @@ describe("internal names that contest one spelling (#430)", () => {
     // choosing rather than keeping the bare source spelling alive.
     const away = emitted(twins, "/gates.hex");
     expect(away).toContain(
-      'import { __default_log_2 as __default_log, __default_log_1 } from "./tolls.js";',
+      'import { __default_log_2 as __default_log, __default_log_1 } from "./Tolls.js";',
     );
 
     const exports = await runProject(twins, { entry: "/gates.hex" });
@@ -1077,9 +1077,9 @@ describe("internal names that contest one spelling (#430)", () => {
     // there. The polymorphic pair still needs the forwarders, and it is their
     // import that carries the resolved suffix.
     expect(away).toContain(
-      'import { __Stamp_Slip_default_log as default_log, __Stamp_Slip_log as log } from "./marks.js";',
+      'import { __Stamp_Slip_default_log as default_log, __Stamp_Slip_log as log } from "./Marks.js";',
     );
-    expect(away).toContain('import { __log, __default_log_1 as __default_log } from "./marks.js";');
+    expect(away).toContain('import { __log, __default_log_1 as __default_log } from "./Marks.js";');
 
     const exports = await runProject(marks, { entry: "/desks.hex" });
     expect((exports.angled as () => string)()).toBe("<blue>");
@@ -1130,10 +1130,10 @@ describe("internal names that contest one spelling (#430)", () => {
     // directly; `squared` and `bracedAny` are the ones that still need
     // forwarders, and their imports carry the resolved suffixes.
     expect(away).toContain(
-      'import { __Note_Card_default_log_1 as default_log_1, __Note_Card_log as log } from "./tags.js";',
+      'import { __Note_Card_default_log_1 as default_log_1, __Note_Card_log as log } from "./Tags.js";',
     );
-    expect(away).toContain('import { __default_log_1 } from "./tags.js";');
-    expect(away).toContain('import { __default_log_2 as __default_log } from "./tags.js";');
+    expect(away).toContain('import { __default_log_1 } from "./Tags.js";');
+    expect(away).toContain('import { __default_log_2 as __default_log } from "./Tags.js";');
 
     const exports = await runProject(tags, { entry: "/racks.hex" });
     expect((exports.squared as () => string)()).toBe("[red]");
@@ -1227,8 +1227,8 @@ describe("internal names that contest one spelling (#430)", () => {
     ] as const;
     const organ = emitted(rivals, "/organ.hex");
 
-    expect(organ).toContain('import { __pitch } from "./loudly.js";');
-    expect(organ).toContain('import { __pitch as __pitch_1 } from "./softly.js";');
+    expect(organ).toContain('import { __pitch } from "./Loudly.js";');
+    expect(organ).toContain('import { __pitch as __pitch_1 } from "./Softly.js";');
     // The two concrete calls no longer need either forwarder: each names the
     // instance's own seat, and the seats are already distinct because the
     // dictionary family keys on the constraint (#444).

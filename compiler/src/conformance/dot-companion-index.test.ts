@@ -271,7 +271,7 @@ describe("the adjacent non-defect stays refused (#585)", () => {
  * `/main.hex` below imports `/depot.hex` and nothing else. `Barrel` arrives as
  * the *result type* of `stock`, its home module unnamed anywhere in the call
  * site's text — so its operations cannot come from anything this file imported,
- * and its `import { fill } from "./barrel.js"` is a dependency emission adds
+ * and its `import { fill } from "./Barrel.js"` is a dependency emission adds
  * (§8.2) rather than one the source wrote.
  */
 const TRANSITIVE = [
@@ -298,8 +298,8 @@ describe("a type whose home module the call site never imported at all (#585)", 
     // file whose source names `./depot` and nothing else.
     const main = compileFiles(TRANSITIVE).modules
       .find(({ source }) => source.path === "/main.hex")!;
-    expect(main.javascript.text).toContain('from "./barrel.js"');
-    expect(main.javascript.companionOperationImports).toEqual(["./barrel"]);
+    expect(main.javascript.text).toContain('from "./Barrel.js"');
+    expect(main.javascript.companionOperationImports).toEqual(["./Barrel"]);
   });
 
   test("— and it runs", async () => {
@@ -342,7 +342,7 @@ describe("a constrained companion operation reached the same way (#585)", () => 
     // than guessing a plain `labelled`, which is #585's own claim; which of the
     // two the call resolves to is #440's, not this issue's.
     const main = compileFiles(BAG).modules.find(({ source }) => source.path === "/main.hex")!;
-    expect(main.javascript.text).toContain('import { __labelled, labelledInt } from "./bag.js";');
+    expect(main.javascript.text).toContain('import { __labelled, labelledInt } from "./Bag.js";');
     expect((await runProject(BAG))["out"]).toBe("2/7");
   });
 });

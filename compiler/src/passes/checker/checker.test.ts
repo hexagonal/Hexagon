@@ -187,12 +187,13 @@ describe("check", () => {
     expect(exposure?.labels?.map(({ message }) => message)).toEqual([
       "`Secret` is declared private here",
     ]);
+    const full = "module Main\n\n" + source;
     const label = exposure!.labels![0]!.span;
-    expect(source.slice(label.start.offset, label.end.offset)).toBe(
+    expect(full.slice(label.start.offset, label.end.offset)).toBe(
       "record Secret = {value: Int}",
     );
     // The primary stays at the binding, whose signature is one seat already.
-    expect(source.slice(exposure!.primary.start.offset, exposure!.primary.end.offset))
+    expect(full.slice(exposure!.primary.start.offset, exposure!.primary.end.offset))
       .toBe("reveal");
   });
 
@@ -738,7 +739,7 @@ describe("check", () => {
     );
 
     expect(module.diagnostics.map(({ message }) => message)).toEqual([
-      "`existing` is already bound (line 1); Hexagon does not allow rebinding — choose a different name.",
+      "`existing` is already bound (line 3); Hexagon does not allow rebinding — choose a different name.",
       "`duplicate` is bound twice in this pattern",
     ]);
   });
@@ -1515,8 +1516,8 @@ describe("check", () => {
     // is another module's source; §6 asks for the location of the literal or
     // expression whose type is stuck.
     expect(ambiguous.diagnostics[0]?.primary).toMatchObject({
-      start: { line: 4, column: 8 },
-      end: { line: 4, column: 12 },
+      start: { line: 6, column: 8 },
+      end: { line: 6, column: 12 },
     });
 
     // The annotation §6 names is the repair, and it compiles.
@@ -1537,8 +1538,8 @@ describe("check", () => {
         "constraint; add a type annotation to pin the type",
     ]);
     expect(literal.diagnostics[0]?.primary).toMatchObject({
-      start: { line: 4, column: 17 },
-      end: { line: 4, column: 18 },
+      start: { line: 6, column: 17 },
+      end: { line: 6, column: 18 },
     });
 
     // Literals that unify share one blocked variable, and their duplicate
@@ -1556,8 +1557,8 @@ describe("check", () => {
         "defaultable constraint; add a type annotation to pin the type",
     ]);
     expect(shared.diagnostics[0]?.primary).toMatchObject({
-      start: { line: 4, column: 19 },
-      end: { line: 4, column: 20 },
+      start: { line: 6, column: 19 },
+      end: { line: 6, column: 20 },
     });
 
     // A declared type variable never defaulted, so nothing about it is
@@ -1736,7 +1737,7 @@ describe("check", () => {
 
         for (const diagnostic of module.diagnostics) {
           expect(diagnostic.primary.start.offset).toBeGreaterThanOrEqual(0);
-          expect(diagnostic.primary.end.offset).toBeLessThanOrEqual(text.length);
+          expect(diagnostic.primary.end.offset).toBeLessThanOrEqual("module Main\n\n".length + text.length);
         }
         for (const symbol of module.symbols) visitType(symbol.scheme.type);
       }),

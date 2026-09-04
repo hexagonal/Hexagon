@@ -70,7 +70,7 @@ describe("self-recursion carries the identity suffix", () => {
     const exports = await runProject(
       [[
         "/main.hex",
-        BOX + COUNTDOWN +
+        "module Main\n\n" + BOX + COUNTDOWN +
           "export let answer: Int = countdown(Box({v = 1}), Box({v = 1}), 3)\n",
       ]],
       { transform: distinct("recursion knot: countdown") },
@@ -101,7 +101,7 @@ describe("self-recursion carries the identity suffix", () => {
     const exports = await runProject(
       [[
         "/main.hex",
-        BOX +
+        "module Main\n\n" + BOX +
           "fun walk<b: Show, a: Eq>(x: a, y: b, n: Int): String =\n" +
           '    if n <= 0 then show(y) else if x == x then walk(x, y, n - 1) else ""\n' +
           "export let answer: String = walk(Box({v = 1}), Box({v = 2}), 2)\n",
@@ -155,7 +155,7 @@ describe("mutual recursion carries it across the cross-calls", () => {
     const exports = await runProject(
       [[
         "/main.hex",
-        BOX + PING_PONG +
+        "module Main\n\n" + BOX + PING_PONG +
           "export let answer: Int = ping(Box({v = 1}), Box({v = 1}), 3)\n",
       ]],
       { transform: distinct("recursion knot: ping pong") },
@@ -191,7 +191,7 @@ describe("a recursive occurrence in value position", () => {
     const exports = await runProject(
       [[
         "/main.hex",
-        BOX + SELF + "export let answer: String = repeat(Box({v = 1}), 2)\n",
+        "module Main\n\n" + BOX + SELF + "export let answer: String = repeat(Box({v = 1}), 2)\n",
       ]],
       { transform: distinct("recursion knot: value position") },
     );
@@ -237,7 +237,7 @@ describe("the asymmetric knot", () => {
     const exports = await runProject(
       [[
         "/main.hex",
-        ASYMMETRIC +
+        "module Main\n\n" + ASYMMETRIC +
           "    inner(n: Int): Int = if n <= 0 then 1 else outer(0, n - 1)\n" +
           "export let answer: Int = outer(1, 3)\n",
       ]],
@@ -324,7 +324,7 @@ describe("the declared-heads refusal", () => {
    */
   test("two heads the knot links get the SCC hint, and nothing else", () => {
     expect(
-      projectDiagnostics(TWO_HEADS + "export let answer: Bool = isEven(1, 3)\n"),
+      projectDiagnostics("module Main\n\n" + TWO_HEADS + "export let answer: Bool = isEven(1, 3)\n"),
     ).toEqual([
       "`a` declared on `isEven` and `a` declared on `isOdd` are distinct declared type " +
         "variables, but members of a recursive knot are checked together at not-yet-general " +
@@ -613,7 +613,7 @@ describe("the declared-heads refusal", () => {
     const exports = await runProject(
       [[
         "/main.hex",
-        BOX +
+        "module Main\n\n" + BOX +
           "fun<a: Show>\n" +
           "    alpha(x: a, n: Int): String =\n" +
           "        if n <= 0 then show(x) else beta(x, n - 1)\n" +

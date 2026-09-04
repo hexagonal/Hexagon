@@ -185,17 +185,17 @@ describe("the `.d.ts` face is `unknown`, never `any` (§2)", () => {
     const faceOf = (path: string): string =>
       compiled.modules.find(({ source }) => source.path === path)!.declarations.text;
 
-    const value = faceOf("/JsValue.hex");
+    const value = faceOf("/Hex/JsValue.hex");
     expect(value).toContain(
       "export type JsConversionError = { reason: JsConversionReason; path: Hex.Vector<JsPathSegment> };",
     );
 
-    const reason = faceOf("/JsConversionReason.hex");
+    const reason = faceOf("/Hex/JsConversionReason.hex");
     expect(reason).toContain('{ tag: "Shape" }');
     expect(reason).toContain('{ tag: "Range" }');
     expect(reason).toContain('{ tag: "Cycle"; firstSeen: Hex.Vector<JsPathSegment> }');
 
-    const segment = faceOf("/JsPathSegment.hex");
+    const segment = faceOf("/Hex/JsPathSegment.hex");
     expect(segment).toContain('{ tag: "Field"; name: string }');
     expect(segment).toContain('{ tag: "Index"; index: number }');
 

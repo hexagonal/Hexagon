@@ -40,7 +40,7 @@ function sessionOf(files: Record<string, string>): AnalysisSession {
 
 describe("semantic tokens", () => {
   test("classifies each kind of name by what the resolver made of it", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       "union Shade =",
       "    | Pale",
       "    | Deep",
@@ -84,7 +84,7 @@ describe("semantic tokens", () => {
    * one declaration its members' annotations name.
    */
   test("a `fun` block's members are ordinary function declarations", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       "record Box = {item: Int}",
       "",
       "honor Eq<Box> =",
@@ -120,8 +120,9 @@ describe("semantic tokens", () => {
     // The name is its type and its constructor at once, and the index publishes
     // both. The protocol's encoding admits one token per range, and two tokens
     // at one range would shift every token after them in the file.
-    const source = ["record Box = {item: Int}", "", "let boxed: Box = Box({item = 1})", ""]
-      .join("\n");
+    const source = "module Main\n\n" +
+      ["record Box = {item: Int}", "", "let boxed: Box = Box({item = 1})", ""]
+        .join("\n");
     const session = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
     const tokens = session.semanticTokens("/main.hex");
@@ -138,7 +139,7 @@ describe("semantic tokens", () => {
   });
 
   test("a constraint and its members are told apart from ordinary values", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       "constraint Same<a> =",
       "    same(left: a, right: a): Bool",
       "",
@@ -194,7 +195,7 @@ describe("semantic tokens", () => {
     // is a `let`; `let indirect = tint` is a `let` with no parameter list at
     // all. Both are functions, and a reader scanning for calls needs them to
     // look like it. The checker's type is what knows.
-    const source = [
+    const source = "module Main\n\n" + [
       "fun tint(value: Int): Int = value",
       "let brighten(value: Int): Int = value",
       "let indirect = tint",
@@ -214,7 +215,7 @@ describe("semantic tokens", () => {
     // `SymbolKind` flattens both declaration forms to `extern`, so neither can
     // be read off the symbol's binder form. They fall out of the same question
     // asked of the checker.
-    const source = [
+    const source = "module Main\n\n" + [
       'extern from "./shim.js"',
       "    fun compute(value: Int): Int",
       "    let version: String",
@@ -234,13 +235,13 @@ describe("semantic tokens", () => {
     // The fact table is built for the whole project rather than per module: a
     // foreign function declared in one file and used in another has to colour
     // the same in both, and a per-module table would only know its own.
-    const helper = [
+    const helper = "module Helper\n\n" + [
       'extern from "./shim.js"',
       "    export fun compute(value: Int): Int",
       "    export let version: String",
       "",
     ].join("\n");
-    const main = [
+    const main = "module Main\n\n" + [
       'import Helper',
       "",
       "let answer: Int = Helper.compute!(1)",

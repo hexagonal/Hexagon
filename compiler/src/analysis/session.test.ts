@@ -39,7 +39,7 @@ function sessionOf(files: Record<string, string>): {
   return { session, texts };
 }
 
-const HELPER = [
+const HELPER = "module Helper\n\n" + [
   "export union Colour =",
   "    | Red",
   "    | Green",
@@ -48,7 +48,7 @@ const HELPER = [
   "",
 ].join("\n");
 
-const MAIN = [
+const MAIN = "module Main\n\n" + [
   'import Helper',
   "",
   "let start: Helper.Colour = Helper.Red",
@@ -60,10 +60,10 @@ describe("AnalysisSession", () => {
   test("reports diagnostics per file, and an entry for the clean ones", () => {
     const { session } = sessionOf({
       "/main.hex": "let broken: Int = \n",
-      "/other.hex": "let fine: Int = 1\n",
+      "/other.hex": "module Other\n\nlet fine: Int = 1\n",
     });
     const all = session.allDiagnostics();
-    expect([...all.keys()].sort()).toEqual(["/main.hex", "module Main\n\n" + "/other.hex"]);
+    expect([...all.keys()].sort()).toEqual(["/main.hex", "/other.hex"]);
     expect(all.get("/main.hex")!.length).toBeGreaterThan(0);
     // An editor clears stale squiggles by being told a file has none, so the
     // clean file has to appear with an empty list rather than be absent.
@@ -73,8 +73,8 @@ describe("AnalysisSession", () => {
 
   test("a diagnostic lands in the file its span names", () => {
     const { session } = sessionOf({
-      "/main.hex": 'import Helper\nlet n: Int = Helper.missing\n',
-      "/helper.hex": "export let present: Int = 1\n",
+      "/main.hex": "module Main\n\n" + 'import Helper\nlet n: Int = Helper.missing\n',
+      "/helper.hex": "module Helper\n\n" + "export let present: Int = 1\n",
     });
     expect(session.diagnostics("/helper.hex")).toEqual([]);
     expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
@@ -151,7 +151,7 @@ describe("AnalysisSession", () => {
    * a union rather than as a kind of its own.
    */
   test("a literal `extern enum` answers as the union it is", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       'export extern enum Direction = "up" as Up | "down" as Down',
       "let start: Direction = Up",
       "",
@@ -187,7 +187,7 @@ describe("AnalysisSession", () => {
    * or hovers: only the local type and the local constructors do.
    */
   test("an object-reading `extern enum` answers as the union it is", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       'extern from "keyboard"',
       "    export enum Key as Direction = ARROW_UP as Up | ARROW_DOWN as Down",
       "let start: Direction = Up",
@@ -226,7 +226,7 @@ describe("AnalysisSession", () => {
    * literal one, so the type's rename carries them here too.
    */
   test("renaming an object-reading enum's type carries its conversions", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       'extern from "keyboard"',
       "    export enum Key as Direction = ARROW_UP as Up",
       "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
@@ -263,7 +263,7 @@ describe("AnalysisSession", () => {
    * references with three definitions stacked on one span.
    */
   test("the declaration's own name answers about the type alone", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       'export extern enum Direction = "up" as Up | "down" as Down',
       "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
       "let out(d: Direction): JsValue = toJsDirection(d)",
@@ -295,7 +295,7 @@ describe("AnalysisSession", () => {
    * claim is the type's.
    */
   test("a generated conversion hovers with its signature and declares nothing", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       'export extern enum Direction = "up" as Up | "down" as Down',
       "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
       "",
@@ -316,7 +316,7 @@ describe("AnalysisSession", () => {
    * of "the binding author must rename the local enum type".
    */
   test("renaming a literal enum's type carries its generated conversions", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       'export extern enum Direction = "up" as Up | "down" as Down',
       "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
       "let out(d: Direction): JsValue = toJsDirection(d)",
@@ -362,7 +362,7 @@ describe("AnalysisSession", () => {
    * about the edit it had made to the shared span, which is nonsense to read.
    */
   test("renaming a generated conversion redirects to its type", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       'export extern enum Direction = "up" as Up | "down" as Down',
       "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
       "",
@@ -392,7 +392,7 @@ describe("AnalysisSession", () => {
    * explicit `let` three lines down is the one that collides with it.
    */
   test("a rename whose derived name is already bound is refused in §5.2's words", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       'export extern enum Direction = "up" as Up | "down" as Down',
       "let read(v: JsValue): Option(Direction) = fromJsDirection(v)",
       "let fromJsWay(n: Int): Int = n",
@@ -403,7 +403,7 @@ describe("AnalysisSession", () => {
     expect(session.rename("/main.hex", at(source, "Direction"), "Way")).toEqual({
       refused:
         "renaming `Direction` to `Way` would break `/main.hex`: " +
-        "`fromJsWay` is already bound (line 1); `extern enum Way` generates it " +
+        "`fromJsWay` is already bound (line 3); `extern enum Way` generates it " +
         "(Foreign Enums §5.2) — rename the enum type, or the other declaration.",
     });
   });
@@ -415,8 +415,8 @@ describe("AnalysisSession", () => {
    * module's does.
    */
   test("a generated conversion is redirected abroad too", () => {
-    const bindings = 'export extern enum Direction = "up" as Up | "down" as Down\n';
-    const main = [
+    const bindings = "module Bindings\n\n" + 'export extern enum Direction = "up" as Up | "down" as Down\n';
+    const main = "module Main\n\n" + [
       'import Bindings',
       "let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)",
       "",
@@ -445,7 +445,7 @@ describe("AnalysisSession", () => {
   });
 
   test("the caret just past a name still lands on it", () => {
-    const source = "let value: Int = 1\n";
+    const source = "module Main\n\n" + "let value: Int = 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     const justPast = at(source, "value") + "value".length;
     expect(session.hover("/main.hex", justPast)?.name).toBe("value");
@@ -466,7 +466,7 @@ describe("AnalysisSession", () => {
 
     session.setFile(
       "/main.hex",
-      'import Helper\n\nlet start: Helper.Colour = Purple\n',
+      "module Main\n\n" + 'import Helper\n\nlet start: Helper.Colour = Purple\n',
     );
     expect(session.version).toBeGreaterThan(before);
     expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
@@ -485,8 +485,10 @@ describe("AnalysisSession", () => {
     expect(session.diagnostics("/main.hex")).toEqual([]);
     session.removeFile("/helper.hex");
     expect(session.paths).toEqual(["/main.hex"]);
+    // #829: a module is named, not pathed — the unknown-module report names the
+    // module, never a file path (Modules §10).
     expect(session.diagnostics("/main.hex").map(({ message }) => message)).toContain(
-      "cannot resolve module `./helper` from `/main.hex`",
+      "no module `Helper`",
     );
     expect(session.diagnostics("/helper.hex")).toEqual([]);
   });
@@ -504,7 +506,7 @@ describe("AnalysisSession", () => {
   });
 
   test("a record's declaration answers for both of its meanings", () => {
-    const source = ["record Box(a) = {", "    item: a,", "}", "", "let one = Box({item = 1})", ""]
+    const source = "module Main\n\n" + ["record Box(a) = {", "    item: a,", "}", "", "let one = Box({item = 1})", ""]
       .join("\n");
     const { session, texts } = sessionOf({ "/main.hex": source });
     const declaration = session.definitions("/main.hex", at(source, "Box"));
@@ -519,7 +521,7 @@ describe("AnalysisSession", () => {
   });
 
   test("a constraint's declaration, honour and bound are one identity", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       "constraint Show2<a> =",
       "    show2(value: a): String",
       "",
@@ -548,7 +550,7 @@ describe("AnalysisSession", () => {
   });
 
   test("a built-in constraint has uses but no declaration to jump to", () => {
-    const source = ["union Colour derives (Eq, Show) =", "    | Red", "    | Green", ""].join("\n");
+    const source = "module Main\n\n" + ["union Colour derives (Eq, Show) =", "    | Red", "    | Green", ""].join("\n");
     const { session, texts } = sessionOf({ "/main.hex": source });
     expect(session.allDiagnostics().get("/main.hex")).toEqual([]);
     // `Eq`, `Ord`, `Show` and `Hash` are known to the checker rather than
@@ -562,7 +564,7 @@ describe("AnalysisSession", () => {
   test("two modules exporting one type name stay apart", () => {
     const shade = ["export union Shade =", "    | Pale", "    | Deep", ""].join("\n");
     const other = ["export union Shade =", "    | Faint", "    | Vivid", ""].join("\n");
-    const main = [
+    const main = "module Main\n\n" + [
       'import A as Shade',
       'import B as Other',
       "",
@@ -571,8 +573,8 @@ describe("AnalysisSession", () => {
       "",
     ].join("\n");
     const { session, texts } = sessionOf({
-      "/a.hex": shade,
-      "/b.hex": other,
+      "/a.hex": "module A\n\n" + shade,
+      "/b.hex": "module B\n\n" + other,
       "/main.hex": main,
     });
     expect(session.allDiagnostics().get("/main.hex")).toEqual([]);
@@ -596,7 +598,7 @@ describe("AnalysisSession", () => {
     // A host learns what kind of project it has by reading a file *in* the
     // project, so the configuration arrives after the session does — and can
     // then change while it is open.
-    const source = "let size(node: Node(Int)): Int = 0\n";
+    const source = "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n";
     const session = new AnalysisSession();
     session.setFile("/trie.hex", source);
     expect(session.diagnostics("/trie.hex").map(({ message }) => message)).toContain(
@@ -617,15 +619,15 @@ describe("AnalysisSession", () => {
   });
 
   test("reconfiguring with the same options keeps the analysis", () => {
-    const session = new AnalysisSession({ runtimePaths: ["/a.hex", "module A\n\n" + "/b.hex"] });
+    const session = new AnalysisSession({ runtimePaths: ["/a.hex", "/b.hex"] });
     session.setFile("/main.hex", "let value: Int = 1\n");
     const settled = session.version;
-    session.configure({ runtimePaths: ["/a.hex", "module A\n\n" + "/b.hex"] });
+    session.configure({ runtimePaths: ["/a.hex", "/b.hex"] });
     expect(session.version).toBe(settled);
     // Order is not meaningful — `compileProject` reads the list as a set — so a
     // host that rebuilds it in a different order must not discard analysis it is
     // about to ask questions of.
-    session.configure({ runtimePaths: ["/b.hex", "module B\n\n" + "/a.hex"] });
+    session.configure({ runtimePaths: ["/b.hex", "/a.hex"] });
     expect(session.version).toBe(settled);
   });
 
@@ -644,7 +646,7 @@ describe("AnalysisSession", () => {
  * artifact, which is the whole reason the attachment exists for them.
  */
 describe("AnalysisSession.hover documentation", () => {
-  const DOCUMENTED = [
+  const DOCUMENTED = "module Helper\n\n" + [
     "(** A colour, as the light leaves it. *)",
     "export union Colour =",
     "    (** The warm one. *)",
@@ -658,7 +660,7 @@ describe("AnalysisSession.hover documentation", () => {
     "",
   ].join("\n");
 
-  const USES = [
+  const USES = "module Main\n\n" + [
     'import Helper',
     "",
     "let start: Helper.Colour = Helper.Red",
@@ -698,7 +700,7 @@ describe("AnalysisSession.hover documentation", () => {
   test("an empty doc block is documentation nobody shows", () => {
     // §3.2: an empty block attaches and contributes empty content, which
     // tooling treats as absent — not as an empty hover section.
-    const source = "(** *)\nlet value: Int = 1\n";
+    const source = "module Main\n\n" + "(** *)\nlet value: Int = 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
     expect(session.hover("/main.hex", at(source, "value"))?.documentation).toBeUndefined();
@@ -710,7 +712,7 @@ describe("AnalysisSession.hover documentation", () => {
     // away, and a member implementation's name is a bare string in the resolved
     // tree. Hover answers each with the documentation alone, which for these
     // three is the only thing anything can say about them.
-    const source = [
+    const source = "module Main\n\n" + [
       "constraint Sized<a> =",
       "    (** How big it is. *)",
       "    size(value: a): Int",
@@ -755,7 +757,7 @@ describe("AnalysisSession.hover documentation", () => {
   test("an undocumented position with no identity is still nothing", () => {
     // The fallback reaches documented names only. Without that it would be a
     // second, weaker hover for everything the index has no answer for.
-    const source = ["export record Box = {", "    width: Int,", "}", ""].join("\n");
+    const source = "module Main\n\n" + ["export record Box = {", "    width: Int,", "}", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.hover("/main.hex", at(source, "width"))).toBeUndefined();
   });
@@ -764,7 +766,7 @@ describe("AnalysisSession.hover documentation", () => {
     // The same §3.2 rule as above, at the position that has nothing *but* the
     // documentation: empty content must leave the field as silent as an
     // undocumented one, not answer with an empty hover.
-    const source = ["export record Box = {", "    (** *)", "    width: Int,", "}", ""].join("\n");
+    const source = "module Main\n\n" + ["export record Box = {", "    (** *)", "    width: Int,", "}", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
     expect(session.hover("/main.hex", at(source, "width"))).toBeUndefined();
@@ -775,7 +777,7 @@ describe("AnalysisSession.hover documentation", () => {
     // nothing about arity. The binders are ordinary symbols — the resolver
     // declares one each — so each is reachable by name; what only the
     // attachment knows is which names one block covers.
-    const source = [
+    const source = "module Main\n\n" + [
       "(** Both halves. *)",
       "let (first, second) = (1, 2)",
       "",
@@ -798,7 +800,7 @@ describe("AnalysisSession.hover documentation", () => {
     // §5 does not fire — the block is followed by a declaration — and there is
     // no name to file the content under, so it reaches no reader. Pinned so the
     // silence stays a decision rather than becoming a surprise.
-    const source = ["(** Nothing to point at. *)", "let (_, _) = (1, 2)", ""].join("\n");
+    const source = "module Main\n\n" + ["(** Nothing to point at. *)", "let (_, _) = (1, 2)", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
     expect(session.hover("/main.hex", at(source, "let"))).toBeUndefined();
@@ -811,7 +813,7 @@ describe("AnalysisSession.hover documentation", () => {
     // also what the lookup order is for: the same span is a *reference* to the
     // constraint, whose own documentation is the other answer, and the block the
     // cursor is inside wins.
-    const source = [
+    const source = "module Main\n\n" + [
       "(** Things with a size. *)",
       "constraint Sized<a> =",
       "    size(value: a): Int",
@@ -838,7 +840,7 @@ describe("AnalysisSession.hover documentation", () => {
     // (neither `collectOccurrences` nor the type-occurrence walk visits an
     // implied type's *name*; the honor binding's annotation is all either sees),
     // so `covering` is the whole of what hover can say about them.
-    const source = [
+    const source = "module Main\n\n" + [
       "export constraint Keyed<c> =",
       "    (** The type of one key, chosen by each instance. *)",
       "    type Key",
@@ -870,13 +872,13 @@ describe("AnalysisSession.hover documentation", () => {
     // modules declaring `Shown` share one target and `byTarget` returns both
     // declarations. Answering with whichever is documented would put one
     // module's prose on another module's undocumented declaration.
-    const documented = [
+    const documented = "module Alpha\n\n" + [
       "(** ALPHA doc. *)",
       "constraint Shown<a> =",
       "    render(value: a): Int",
       "",
     ].join("\n");
-    const bare = [
+    const bare = "module Beta\n\n" + [
       "constraint Shown<a> =",
       "    render(value: a): Int",
       "",
@@ -937,7 +939,7 @@ describe("AnalysisSession.rename", () => {
   });
 
   test("a record's name moves as its type and its constructor together", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       "record Box(a) = {",
       "    item: a,",
       "}",
@@ -953,14 +955,14 @@ describe("AnalysisSession.rename", () => {
   });
 
   test("a namespace-qualified use is rewritten past its qualifier", () => {
-    const helper = "export let two: Int = 2\n";
-    const main = ['import Helper as H', "", "let four: Int = H.two + H.two", ""]
+    const helper = "module Helper\n\n" + "export let two: Int = 2\n";
+    const main = "module Main\n\n" + ['import Helper as H', "", "let four: Int = H.two + H.two", ""]
       .join("\n");
     const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
     const plan = session.rename("/helper.hex", at(helper, "two"), "pair");
     // `H` names the module and does not move; only the member does.
     expect(applied(texts, plan)).toEqual({
-      "/helper.hex": "export let pair: Int = 2\n",
+      "/helper.hex": "module Helper\n\n" + "export let pair: Int = 2\n",
       "/main.hex": main.replaceAll("H.two", "H.pair"),
     });
   });
@@ -971,8 +973,8 @@ describe("AnalysisSession.rename", () => {
     // rename. Since #762 there is no route by which the two can differ, and
     // what the rename must still get right is the *qualified* pattern's halves:
     // the constructor moves, the module alias does not.
-    const shapes = "export union Shape =\n    | Circle\n    | Square\n";
-    const main = [
+    const shapes = "module Shapes\n\n" + "export union Shape =\n    | Circle\n    | Square\n";
+    const main = "module Main\n\n" + [
       'import Shapes',
       "",
       "let name(s: Shapes.Shape): Int =",
@@ -998,7 +1000,7 @@ describe("AnalysisSession.rename", () => {
   });
 
   test("refuses a spelling that is not one identifier, and says which", () => {
-    const source = "let value: Int = 1\n";
+    const source = "module Main\n\n" + "let value: Int = 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     const start = at(source, "value");
     // Every one of these is decided by the lexer rather than by a pattern kept
@@ -1017,7 +1019,7 @@ describe("AnalysisSession.rename", () => {
   });
 
   test("refuses to change a name's capitalization class", () => {
-    const source = ["union Shade =", "    | Pale", "", "let tone: Shade = Pale", ""].join("\n");
+    const source = "module Main\n\n" + ["union Shade =", "    | Pale", "", "let tone: Shade = Pale", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(refusal(session.rename("/main.hex", at(source, "tone"), "Tone")))
       .toContain("two different kinds of name");
@@ -1030,7 +1032,7 @@ describe("AnalysisSession.rename", () => {
   });
 
   test("refuses a name the project does not own", () => {
-    const source = "let maybe: Option(Int) = None\n";
+    const source = "module Main\n\n" + "let maybe: Option(Int) = None\n";
     const { session } = sessionOf({ "/main.hex": source });
     // `None` is the prelude's, injected rather than read; the workspace has no
     // file to edit and rewriting the use alone would break it.
@@ -1048,7 +1050,7 @@ describe("AnalysisSession.rename", () => {
     // Both declarations are exported because Method Syntax §4.2 admits only
     // exported functions to a companion's operation set, home module included;
     // they were private while dispatch ran off a flat name table (#267).
-    const source = [
+    const source = "module Main\n\n" + [
       "export union Shade =",
       "    | Pale",
       "",
@@ -1077,10 +1079,10 @@ describe("AnalysisSession.rename", () => {
     // with no cause. The whole-project sweep that caught the old case stays —
     // capture still moves names that mention neither spelling — and its other
     // clients are the refusal tests below.
-    const a = ["export union Shade =", "    | Pale", "", "export fun tag(s: Shade): Int = 1", ""]
+    const a = "module A\n\n" + ["export union Shade =", "    | Pale", "", "export fun tag(s: Shade): Int = 1", ""]
       .join("\n");
-    const b = ['import A', "", "export fun mark(s: A.Shade): Int = 2", ""].join("\n");
-    const main = [
+    const b = "module B\n\n" + ['import A', "", "export fun mark(s: A.Shade): Int = 2", ""].join("\n");
+    const main = "module Main\n\n" + [
       'import A',
       'import B',
       "",
@@ -1107,14 +1109,14 @@ describe("AnalysisSession.rename", () => {
     // wrote. Published under that name, the occurrence lands over the last
     // character of the field and every consumer reads a name that disagrees with
     // its own span.
-    const helper = [
+    const helper = "module Helper\n\n" + [
       "export union Shade =",
       "    | Pale",
       "",
       "export fun brighten(s: Shade): Int = 1",
       "",
     ].join("\n");
-    const main = [
+    const main = "module Main\n\n" + [
       'import Helper as H',
       "let b = H.brighten",
       "",
@@ -1146,14 +1148,14 @@ describe("AnalysisSession.rename", () => {
   test("renaming the alias leaves the dot call alone", () => {
     // The mirror. `b` and `Pale.brighten()` name one thing under two spellings,
     // and only the one under the cursor moves.
-    const helper = [
+    const helper = "module Helper\n\n" + [
       "export union Shade =",
       "    | Pale",
       "",
       "export fun brighten(s: Shade): Int = 1",
       "",
     ].join("\n");
-    const main = [
+    const main = "module Main\n\n" + [
       'import Helper as H',
       "let b = H.brighten",
       "",
@@ -1172,21 +1174,23 @@ describe("AnalysisSession.rename", () => {
     // The message is unchanged by the rename, but each side used to blank only
     // its own spelling, so an untouched `unknown name \`bar\`` read as new the
     // moment `bar` became the name being renamed to.
-    const helper = "export fun foo(v: Int): Int = v\n";
-    const other = "let q: Int = bar\n";
+    const helper = "module Helper\n\n" + "export fun foo(v: Int): Int = v\n";
+    const other = "module Other\n\n" + "let q: Int = bar\n";
     const { session, texts } = sessionOf({ "/helper.hex": helper, "/other.hex": other });
     expect(session.diagnostics("/other.hex").map(({ message }) => message)).toEqual([
       "unknown name `bar`",
     ]);
     const plan = session.rename("/helper.hex", at(helper, "foo"), "bar");
-    expect(applied(texts, plan)).toEqual({ "/helper.hex": "export fun bar(v: Int): Int = v\n" });
+    expect(applied(texts, plan)).toEqual({
+      "/helper.hex": "module Helper\n\n" + "export fun bar(v: Int): Int = v\n",
+    });
   });
 
   test("refuses when a name that resolved to nothing would start resolving", () => {
     // The other direction of the denotation comparison: a site that means
     // nothing today and would mean the renamed declaration afterwards. No
     // diagnostic *appears* — one disappears — so only this test sees it.
-    const source = ["let colour: Int = 1", "let use: Int = tone", ""].join("\n");
+    const source = "module Main\n\n" + ["let colour: Int = 1", "let use: Int = tone", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
       "unknown name `tone`",
@@ -1198,7 +1202,7 @@ describe("AnalysisSession.rename", () => {
   test("a pre-existing error that mentions the name is not a reason to refuse", () => {
     // The error re-renders under the new spelling and looks new. Renaming while
     // a file holds an unrelated error mentioning that name is ordinary.
-    const source = [
+    const source = "module Main\n\n" + [
       "union Shade =",
       "    | Pale",
       "",
@@ -1218,8 +1222,8 @@ describe("AnalysisSession.rename", () => {
     // `let deux = H.two` becomes `let deux = H.deux` — legal, and the same
     // program. The local binding already denoted this declaration, so nothing
     // merged with anything.
-    const helper = "export let two: Int = 2\n";
-    const main = [
+    const helper = "module Helper\n\n" + "export let two: Int = 2\n";
+    const main = "module Main\n\n" + [
       'import Helper as H',
       "let deux: Int = H.two",
       "",
@@ -1229,13 +1233,13 @@ describe("AnalysisSession.rename", () => {
     const { session, texts } = sessionOf({ "/helper.hex": helper, "/main.hex": main });
     const plan = session.rename("/helper.hex", at(helper, "two"), "deux");
     expect(applied(texts, plan)).toEqual({
-      "/helper.hex": "export let deux: Int = 2\n",
+      "/helper.hex": "module Helper\n\n" + "export let deux: Int = 2\n",
       "/main.hex": main.replace("H.two", "H.deux"),
     });
   });
 
   test("renames a constraint the project declared, everywhere it is named", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       "constraint Same<a> =",
       "    same(left: a, right: a): Bool",
       "",
@@ -1255,14 +1259,14 @@ describe("AnalysisSession.rename", () => {
   });
 
   test("refuses a constraint the checker owns rather than Hexagon", () => {
-    const source = ["union Shade derives (Eq) =", "    | Pale", ""].join("\n");
+    const source = "module Main\n\n" + ["union Shade derives (Eq) =", "    | Pale", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(refusal(session.rename("/main.hex", at(source, "Eq"), "Same")))
       .toContain("built into the compiler");
   });
 
   test("refuses a rename the compiler would reject, in the compiler's own words", () => {
-    const source = ["let tone: Int = 1", "let colour: Int = 2", ""].join("\n");
+    const source = "module Main\n\n" + ["let tone: Int = 1", "let colour: Int = 2", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const reason = refusal(session.rename("/main.hex", at(source, "colour"), "tone"));
     expect(reason).toContain("would break `/main.hex`");
@@ -1275,7 +1279,7 @@ describe("AnalysisSession.rename", () => {
     // rule 2), so after the rename `tone + tone` type-checks perfectly and the
     // second `tone` has quietly stopped meaning the module-level one. Nothing
     // in the diagnostics changes; only the occurrence sets do.
-    const source = [
+    const source = "module Main\n\n" + [
       "let tone: Int = 1",
       "let f(x: Int): Int = match x",
       "    colour => colour + tone",
@@ -1285,14 +1289,14 @@ describe("AnalysisSession.rename", () => {
     expect(session.diagnostics("/main.hex")).toEqual([]);
     const reason = refusal(session.rename("/main.hex", at(source, "colour"), "tone"));
     expect(reason).toContain("would change what the code means");
-    expect(reason).toContain("line 3");
+    expect(reason).toContain("line 5");
   });
 
   test("allows a shadowing rename that changes nothing", () => {
     // The mirror of the case above: the arm binder still shadows a module-level
     // `tone`, but nothing inside the arm refers to the outer one, so the rename
     // is meaning-preserving and must not be refused out of caution.
-    const source = [
+    const source = "module Main\n\n" + [
       "let tone: Int = 1",
       "let f(x: Int): Int = match x",
       "    colour => colour + 1",
@@ -1309,7 +1313,7 @@ describe("AnalysisSession.rename", () => {
     // are the same sentence with one number of difference — and that number is
     // all that is left to tell a collision the rename caused from the one that
     // was already there. Positions are not decoration here.
-    const source = [
+    const source = "module Main\n\n" + [
       "let p: Int = 0",
       "let q: Int = 1",
       "let q: Int = 2",
@@ -1318,18 +1322,18 @@ describe("AnalysisSession.rename", () => {
     ].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(refusal(session.rename("/main.hex", at(source, "q", 2), "p")))
-      .toContain("`p` is already bound (line 1)");
+      .toContain("`p` is already bound (line 3)");
   });
 
   test("renaming to the same name is a plan with nothing in it", () => {
-    const source = "let value: Int = 1\n";
+    const source = "module Main\n\n" + "let value: Int = 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     const plan = session.rename("/main.hex", at(source, "value"), "value");
     expect(plan).toEqual({ newName: "value", edits: [] });
   });
 
   test("prepareRename answers with the identifier, and says nothing where there is none", () => {
-    const source = "let value: Int = 1\n";
+    const source = "module Main\n\n" + "let value: Int = 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     const subject = session.prepareRename("/main.hex", at(source, "value"));
     expect(subject).toEqual({
@@ -1344,14 +1348,14 @@ describe("AnalysisSession.rename", () => {
   });
 
   test("prepareRename refuses what rename would refuse, before the user types", () => {
-    const source = "let maybe: Option(Int) = None\n";
+    const source = "module Main\n\n" + "let maybe: Option(Int) = None\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(refusal(session.prepareRename("/main.hex", at(source, "None"))))
       .toContain("this project does not own");
   });
 
   test("leaves the session's own analysis untouched", () => {
-    const source = ["let tone: Int = 1", "let colour: Int = 2", ""].join("\n");
+    const source = "module Main\n\n" + ["let tone: Int = 1", "let colour: Int = 2", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const settled = session.version;
     session.rename("/main.hex", at(source, "colour"), "tone");
@@ -1366,7 +1370,7 @@ describe("AnalysisSession.rename", () => {
 
 describe("hover: a parameterized opaque type's variance (#205)", () => {
   test("shows the declared claim and what the representation supports", () => {
-    const source = "opaque record Box(+a) = { get: () -> a }\n";
+    const source = "module Main\n\n" + "opaque record Box(+a) = { get: () -> a }\n";
     const { session } = sessionOf({ "/main.hex": source });
     const hover = session.hover("/main.hex", at(source, "+a"));
     expect(hover?.name).toBe("a");
@@ -1377,7 +1381,7 @@ describe("hover: a parameterized opaque type's variance (#205)", () => {
   test("a bare parameter says so, and says what it costs", () => {
     // The empty claim is a claim, and the two lines together are the whole
     // teaching surface: this is what you wrote, this is what you could write.
-    const source = "opaque record Box(a) = { get: () -> a }\n";
+    const source = "module Main\n\n" + "opaque record Box(a) = { get: () -> a }\n";
     const { session } = sessionOf({ "/main.hex": source });
     const hover = session.hover("/main.hex", at(source, "a) = {"));
     expect(hover?.documentation).toContain("no claim (bare, so invariant outside this module)");
@@ -1385,7 +1389,7 @@ describe("hover: a parameterized opaque type's variance (#205)", () => {
   });
 
   test("a parameter the representation never mentions reads as unused", () => {
-    const source = "opaque record Tag(a) = { name: String }\n";
+    const source = "module Main\n\n" + "opaque record Tag(a) = { name: String }\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.hover("/main.hex", at(source, "a) = {"))?.documentation)
       .toContain("unused");
@@ -1394,7 +1398,7 @@ describe("hover: a parameterized opaque type's variance (#205)", () => {
   test("a transparent declaration's parameter is not a variance site", () => {
     // Variance is inferred there and nothing is declared, so there are no two
     // facts to hold apart.
-    const source = "record Box(a) = { get: () -> a }\n";
+    const source = "module Main\n\n" + "record Box(a) = { get: () -> a }\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.hover("/main.hex", at(source, "a) = {"))?.documentation)
       .toBeUndefined();
@@ -1409,7 +1413,7 @@ describe("hoverSpans (#254)", () => {
    * nothing else), a union declaration name, and a constraint named in an
    * `honor` head.
    */
-  const SOURCE = [
+  const SOURCE = "module Main\n\n" + [
     "constraint Shown<a> =",
     "    show(value: a): String",
     "",

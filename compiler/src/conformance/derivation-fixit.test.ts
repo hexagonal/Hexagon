@@ -47,7 +47,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ].join("\n")],
     ])).toEqual([
       "type `Colour` has no `Show` instance; it could only be declared in " +
-        "`./main.hex` (declares `Colour`) or the module declaring `Show`" +
+        "module `Main` (declares `Colour`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Colour`",
     ]);
   });
@@ -64,7 +64,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ].join("\n")],
     ])).toEqual([
       "type `Point` has no `Ord` instance; it could only be declared in " +
-        "`./main.hex` (declares `Point`) or the module declaring `Ord`" +
+        "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `Ord` to the `derives` list of `Point`",
     ]);
   });
@@ -83,7 +83,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ].join("\n")],
     ])).toEqual([
       "type `Point` has no `Ord` instance; it could only be declared in " +
-        "`./main.hex` (declares `Point`) or the module declaring `Ord`" +
+        "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `derives (Eq, Ord)` to the declaration of `Point`",
     ]);
   });
@@ -100,7 +100,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ].join("\n")],
     ])).toEqual([
       "type `Point` has no `Ord` instance; it could only be declared in " +
-        "`./main.hex` (declares `Point`) or the module declaring `Ord`" +
+        "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `(Eq, Ord)` to the `derives` list of `Point`",
     ]);
   });
@@ -123,7 +123,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ].join("\n")],
     ])).toEqual([
       "type `Point` has no `Ord` instance; it could only be declared in " +
-        "`./main.hex` (declares `Point`) or the module declaring `Ord`" +
+        "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `derives Ord` to the declaration of `Point`",
     ]);
   });
@@ -144,10 +144,10 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
 
     expect(message).toBe(
       "type `Widget` has no `Show` instance; it could only be declared in " +
-        "`./widget.hex` (declares `Widget`) or the module declaring `Show`" +
+        "module `Widget` (declares `Widget`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Widget`",
     );
-    expect(message?.split("./widget.hex").length).toBe(2);
+    expect(message?.split("module `Widget`").length).toBe(2);
   });
 });
 
@@ -158,7 +158,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
-        "in `./main.hex`",
+        "in module `Main`",
     );
   });
 
@@ -168,7 +168,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
-        "in `./main.hex`",
+        "in module `Main`",
     );
   });
 
@@ -178,7 +178,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `(Eq, Hash)` to `Point`'s `derives` list " +
-        "in `./main.hex`",
+        "in module `Main`",
     );
   });
 
@@ -196,7 +196,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives Hash` on the declaration of `Point` " +
-        "in `./main.hex`",
+        "in module `Main`",
     );
   });
 
@@ -225,7 +225,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     ])).toEqual([
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
-        "in `./point.hex`",
+        "in module `Point`",
     ]);
   });
 
@@ -285,7 +285,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
     ])).toEqual([
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
-        "in `./point.hex`",
+        "in module `Point`",
     ]);
   });
 
@@ -317,7 +317,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
   test("two hops do not launder the flag", () => {
     // `./middle.hex` carries the instance through without declaring it, and a
     // transit module re-exports the dictionary, not the declaration. The
-    // provenance is `./point.hex`'s word at both hops, and so is the path.
+    // provenance is module `Point`'s word at both hops, and so is the seat.
     expect(messagesOf([
       ["/point.hex", "module Point\n\n" + "export record Point derives (Eq, Show) = {n: Int}\n"],
       ["/middle.hex", "module Middle\n\n" + [
@@ -335,7 +335,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
     ])).toEqual([
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
-        "in `./point.hex`",
+        "in module `Point`",
     ]);
   });
 });
@@ -353,7 +353,7 @@ describe("the gate: what draws no fixit at all", () => {
       ].join("\n")],
     ])).toEqual([
       "type `Box` has no `Num` instance; it could only be declared in " +
-        "`./main.hex` (declares `Box`) or the module declaring `Num`",
+        "module `Main` (declares `Box`) or the module declaring `Num`",
     ]);
   });
 
@@ -384,7 +384,7 @@ describe("the gate: what draws no fixit at all", () => {
       ].join("\n")],
     ])).toEqual([
       "type `Panel` has no `Render` instance; it could only be declared in " +
-        "`./main.hex` (declares `Panel`) or `./render.hex` (declares `Render`)",
+        "module `Main` (declares `Panel`) or module `Render` (declares `Render`)",
     ]);
   });
 
@@ -458,7 +458,7 @@ describe("the gate: what draws no fixit at all", () => {
       ].join("\n")],
     ])).toEqual([
       "type `Odd` has no `Show` instance; it could only be declared in " +
-        "`./main.hex` (declares `Odd`) or the module declaring `Show`" +
+        "module `Main` (declares `Odd`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Odd`",
     ]);
   });

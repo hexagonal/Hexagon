@@ -51,15 +51,19 @@ async function run(files: readonly (readonly [string, string])[]): Promise<Recor
   );
   expect(project.diagnostics).toEqual([]);
   const moduleUrls = new Map<string, string>();
+  // Keyed and linked by the module's **address** — its full name laid out as a
+  // path (Packages §6) — since that, not the source file's own path, is what
+  // every emitted specifier is computed from (Modules §11.2, #829).
   for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls);
+    const linked = link(module.javascript.text, module.path, moduleUrls);
     moduleUrls.set(
-      module.source.path,
+      module.path,
       `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
     );
   }
   // By path, never `modules[0]`: the prelude members share the project.
-  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
+  const main = project.modules.find((module) => module.source.path === "/main.hex")!;
+  return (await import(/* @vite-ignore */ moduleUrls.get(main.path)!)) as Record<string, unknown>;
 }
 
 /**
@@ -91,9 +95,19 @@ function diagnostics(source: string): readonly string[] {
     .diagnostics.map((diagnostic) => diagnostic.message);
 }
 
+/**
+ * Compiles the entry beside a second module at `path`, whose header is derived
+ * from its basename the way the headerless-file fixit derives one (Modules
+ * §2.1): `mine.hex` declares `module Mine`.
+ */
 function withModule(path: string, text: string, entry: string): readonly string[] {
+  const basename = path.slice(path.lastIndexOf("/") + 1).replace(/\.hex$/u, "");
+  const name = basename
+    .split(/[-_.]/u)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join("");
   return compileProject([
-    new Source.File(Source.fileId(1), path, text),
+    new Source.File(Source.fileId(1), path, `module ${name}\n\n${text}`),
     new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + entry),
   ]).diagnostics.map((diagnostic) => diagnostic.message);
 }
@@ -345,7 +359,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     expect(project.diagnostics).toEqual([]);
     const main = project.modules.find((module) => module.source.path === "/main.hex")!;
     expect(main.javascript.text).not.toContain("Vector.js");
-    expect(synthesizedImportNames(main)).toEqual(["./Set:empty", "./Set:isEmpty"]);
+    expect(synthesizedImportNames(main)).toEqual(["./Hex/Set:empty", "./Hex/Set:isEmpty"]);
     // The machinery the guard used to hold back is unchanged, and this is where
     // it is read. This is a function-valued *field* call, not companion dispatch —
     // it is the shape that cannot be decided without the checker, which is
@@ -370,7 +384,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // other member's import had bound. `Array.hex` joined the exporters at #511
     // and rides the same rule, which is the point of asserting the whole list.
     expect(synthesizedImportNames(fieldMain))
-      .toEqual(["./Seq:length", "./Vector:length", "./Array:length"]);
+      .toEqual(["./Hex/Seq:length", "./Hex/Vector:length", "./Hex/Array:length"]);
     expect(fieldMain.javascript.text).not.toContain("Seq.js");
     expect(fieldMain.javascript.text).not.toContain("Vector.js");
   });

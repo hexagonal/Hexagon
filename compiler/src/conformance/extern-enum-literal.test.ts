@@ -332,7 +332,7 @@ describe("abroad (§2.3, §9 test 13)", () => {
     ]);
     expect(project.diagnostics).toEqual([]);
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
-    expect(main.javascript.text).toContain('import * as Bindings from "./bindings.js";');
+    expect(main.javascript.text).toContain('import * as Bindings from "./Bindings.js";');
     expect(main.javascript.text).toContain("const go = () => Bindings.Up;");
   });
 });
@@ -380,7 +380,7 @@ describe("the generated conversions (§5.2)", () => {
   /** A nullish member is found by `fromJsT` like any other. */
   test("`fromJsT` finds a nullish member", async () => {
     const exports = await runMain(
-      TRI + "export let read(v: JsValue): String =\n" +
+      "module Main\n\n" + TRI + "export let read(v: JsValue): String =\n" +
         "    match fromJsTri(v)\n" +
         "        Some(t) => show(t)\n" +
         "        None => \"none\"\n",
@@ -413,14 +413,14 @@ describe("the generated conversions (§5.2)", () => {
     expect(projectDiagnostics("module Main\n\n" + "extern enum Direction = \"up\" as Up\n" +
         "export let fromJsDirection(v: JsValue): Int = 1\n",
     )).toEqual([
-      "`fromJsDirection` is already bound (line 1); `extern enum Direction` " +
+      "`fromJsDirection` is already bound (line 3); `extern enum Direction` " +
       "generates it (Foreign Enums §5.2) — rename the enum type, or the other " +
       "declaration.",
     ]);
     expect(projectDiagnostics("module Main\n\n" + "export let toJsDirection(v: Int): Int = v\n" +
         "extern enum Direction = \"up\" as Up\n",
     )).toEqual([
-      "`toJsDirection` is already bound (line 1); `extern enum Direction` " +
+      "`toJsDirection` is already bound (line 3); `extern enum Direction` " +
       "generates it (Foreign Enums §5.2) — rename the enum type, or the other " +
       "declaration.",
     ]);
@@ -429,7 +429,7 @@ describe("the generated conversions (§5.2)", () => {
     expect(projectDiagnostics("module Main\n\n" + "extern enum Direction = \"up\" as Up\n" +
         "extern enum Direction = \"down\" as Down\n",
     )).toContain(
-      "`fromJsDirection` is already bound (line 1); `extern enum Direction` " +
+      "`fromJsDirection` is already bound (line 3); `extern enum Direction` " +
       "generates it (Foreign Enums §5.2) — rename the enum type, or the other " +
       "declaration.",
     );
@@ -475,7 +475,7 @@ describe("nullish members (§2.4, §9 test 14)", () => {
    */
   test("an enum naming both nullish values absorbs `Nullable`", () => {
     expect(projectDiagnostics(
-      TRI + "export let through(x: Nullable(Tri)): Tri = x\n" +
+      "module Main\n\n" + TRI + "export let through(x: Nullable(Tri)): Tri = x\n" +
         "export let back(x: Tri): Nullable(Tri) = x\n" +
         "export let twice(x: Nullable(Nullable(Tri))): Tri = x\n",
     )).toEqual([]);
@@ -489,7 +489,7 @@ describe("nullish members (§2.4, §9 test 14)", () => {
    */
   test("the collapse survives substitution, in either argument order", () => {
     expect(projectDiagnostics(
-      TRI + "let witnessFirst(witness: a, value: Nullable(a)): Nullable(a) = value\n" +
+      "module Main\n\n" + TRI + "let witnessFirst(witness: a, value: Nullable(a)): Nullable(a) = value\n" +
         "let valueFirst(value: Nullable(a), witness: a): Nullable(a) = value\n" +
         "export let before(t: Tri): Tri = witnessFirst(t, t)\n" +
         "export let after(t: Tri): Tri = valueFirst(t, t)\n",
@@ -498,7 +498,7 @@ describe("nullish members (§2.4, §9 test 14)", () => {
     // There is one solution, because the designated set is closed and every
     // member of it is ground, so the unifier commits it.
     expect(projectDiagnostics(
-      TRI + "let alone(value: Nullable(a)): Nullable(a) = value\n" +
+      "module Main\n\n" + TRI + "let alone(value: Nullable(a)): Nullable(a) = value\n" +
         "export let solved(t: Tri): Tri = alone(t)\n",
     )).toEqual([]);
   });
@@ -510,7 +510,7 @@ describe("nullish members (§2.4, §9 test 14)", () => {
    */
   test("an arriving nullish value is the member it names", async () => {
     const exports = await runMain(
-      TRI + "export let ask(t: Nullable(Tri)): String = show(t)\n",
+      "module Main\n\n" + TRI + "export let ask(t: Nullable(Tri)): String = show(t)\n",
     );
     const ask = exports["ask"] as (t: unknown) => string;
     expect(ask(true)).toBe("Yes");
@@ -652,7 +652,7 @@ describe("derivation (§6)", () => {
   /** §6: "`Show` uses the local constructor name… not a foreign string value." */
   test("`Show` gives the local constructor name", async () => {
     const exports = await runMain(
-      TRI + "export let names(): String =\n" +
+      "module Main\n\n" + TRI + "export let names(): String =\n" +
         "    show(Yes) ++ show(No) ++ show(Unknown) ++ show(Missing)\n",
     );
     expect((exports["names"] as () => string)()).toBe("YesNoUnknownMissing");
@@ -661,7 +661,7 @@ describe("derivation (§6)", () => {
   /** §6: "`Eq` compares constructors", which for these values is `===`. */
   test("`Eq` compares members", async () => {
     const exports = await runMain(
-      TRI + "export let same(): Bool = Yes == Yes\n" +
+      "module Main\n\n" + TRI + "export let same(): Bool = Yes == Yes\n" +
         "export let different(): Bool = Unknown == Missing\n" +
         "export let alsoDifferent(): Bool = Yes == No\n",
     );

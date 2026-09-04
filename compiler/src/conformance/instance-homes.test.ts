@@ -49,13 +49,13 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
       ].join("\n")],
     ])).toEqual([
       "type `Token` has no `Badge` instance; it could only be declared in " +
-        "`./token.hex` (declares `Token`) or `./badge.hex` (declares `Badge`)",
+        "module `Token` (declares `Token`) or module `Badge` (declares `Badge`)",
     ]);
   });
 
   test("one home when they coincide — the file is named once, for both", () => {
     // §7.6's parenthesis: "the two legal homes (or the one home when they
-    // coincide)". Naming `./kit.hex` twice would read as two places to look.
+    // coincide)". Naming module `Kit` twice would read as two places to look.
     expect(messagesOf([
       ["/kit.hex", "module Kit\n\n" + [
         "export constraint Badge<a> =",
@@ -72,14 +72,14 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
       ].join("\n")],
     ])).toEqual([
       "type `Token` has no `Badge` instance; it could only be declared in " +
-        "`./kit.hex`, which declares both `Token` and `Badge`",
+        "module `Kit`, which declares both `Token` and `Badge`",
     ]);
   });
 
   test("a prelude constraint is stated as fact; the subject's home is offered", () => {
     // The asymmetry §7.6 spells out, and the one the §3.3 loop-head report
-    // already kept: `./widget.hex` is a file the reader can open and write the
-    // honor in, and `Show`'s home is not. Naming it with a path would offer a
+    // already kept: module `Widget` is a module the reader can open and write the
+    // honor in, and `Show`'s home is not. Naming it would offer a
     // repair in the prelude.
     //
     // `Show` is derivable, and `Widget` has a `derives` seat, so §7.6's
@@ -100,7 +100,7 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
       ].join("\n")],
     ])).toEqual([
       "type `Widget` has no `Show` instance; it could only be declared in " +
-        "`./widget.hex` (declares `Widget`) or the module declaring `Show`" +
+        "module `Widget` (declares `Widget`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Widget`",
     ]);
   });
@@ -123,7 +123,7 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
       ].join("\n")],
     ])).toEqual([
       "type `Int` has no `Badge` instance; it could only be declared in " +
-        "`./badge.hex` (declares `Badge`) or `Int`'s prelude companion module",
+        "module `Badge` (declares `Badge`) or `Int`'s prelude companion module",
     ]);
   });
 });
@@ -167,7 +167,7 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
    *
    * The distinction is not academic: taking the sealed branch here would deny
    * the home that works and direct the reader at one that cannot work, because
-   * `./units.hex` can only name `Siren` by importing `./main.hex`, which §7.3's
+   * module `Units` can only name `Siren` by importing module `Main`, which §7.3's
    * acyclic-import rule forbids on this graph. §7.6 files this shape under its
    * discoverability *residue* (bullet (a)), never under the sealed branch.
    */
@@ -193,8 +193,8 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Siren` has no `Loud` instance; it could only be declared in `./main.hex` " +
-        "(declares `Siren`) or `./units.hex` (declares `Loud`)",
+      "type `Siren` has no `Loud` instance; it could only be declared in module `Main` " +
+        "(declares `Siren`) or module `Units` (declares `Loud`)",
     ]);
   });
 
@@ -216,8 +216,8 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Token` has no `Gate` instance; it could only be declared in `./token.hex` " +
-        "(declares `Token`) or `./gatekeeper.hex` (declares `Gate`)",
+      "type `Token` has no `Gate` instance; it could only be declared in module `Token` " +
+        "(declares `Token`) or module `Gatekeeper` (declares `Gate`)",
     ]);
   });
 });
@@ -252,7 +252,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       ].join("\n")],
     ])).toEqual([
       "type `Ounce` has no `Small` instance; `Small` is not nameable here, so the " +
-        "honor can only be written in `./scales.hex`, which declares it",
+        "honor can only be written in module `Scales`, which declares it",
     ]);
   });
 
@@ -286,7 +286,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       ].join("\n")],
     ])).toEqual([
       "type `Badge` has no `Gate` instance; `Gate` is not nameable here, so the " +
-        "honor can only be written in `./gatekeeper.hex`, which declares it",
+        "honor can only be written in module `Gatekeeper`, which declares it",
     ]);
   });
 
@@ -312,7 +312,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       ].join("\n")],
     ])).toEqual([
       "type `Panel` has no `Sealed` instance; `Sealed` is not nameable here, so the " +
-        "honor can only be written in `./seal.hex`, which declares it",
+        "honor can only be written in module `Seal`, which declares it",
     ]);
   });
 
@@ -346,7 +346,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
 
   /**
    * Sealed × **coincide** — the sealed analogue of "one home when they coincide",
-   * and the one sealed shape whose repair needs no new import at all: `./gate.hex`
+   * and the one sealed shape whose repair needs no new import at all: module `Gate`
    * declares the constraint *and* the subject, so the honor can be written there
    * as it stands. The clause names that one module, which is what it always does
    * on this branch; the point of the pin is that the coinciding case is a record.
@@ -370,7 +370,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       ].join("\n")],
     ])).toEqual([
       "type `Ticket` has no `Gate` instance; `Gate` is not nameable here, so the honor " +
-        "can only be written in `./gate.hex`, which declares it",
+        "can only be written in module `Gate`, which declares it",
     ]);
   });
 
@@ -391,7 +391,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     ].join("\n");
     const sealed = (subject: string) =>
       `type \`${subject}\` has no \`Gate\` instance; \`Gate\` is not nameable here, ` +
-      "so the honor can only be written in `./gate.hex`, which declares it";
+      "so the honor can only be written in module `Gate`, which declares it";
 
     expect(messagesOf([
       ["/gate.hex", "module Gate\n\n" + gate],
@@ -417,7 +417,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
   });
 
   /**
-   * §5.1.1's disambiguate-by-home remedy. The branch is right here — `./alpha.hex`'s
+   * §5.1.1's disambiguate-by-home remedy. The branch is right here — module `Alpha`'s
    * `Describe` is genuinely private — but "`Describe` is not nameable here" reads
    * as plainly false to a reader who has just written `constraint Describe` in
    * this very file. What they cannot name is the *declaration*; a constraint is
@@ -451,7 +451,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
 
     expect(messages).toEqual([
       "type `Panel` has no `Describe` instance; the `Describe` required here is " +
-        "`./alpha.hex`'s, not the one this module names; the honor can only be " +
+        "module `Alpha`'s, not the one this module names; the honor can only be " +
         "written there",
     ]);
     // The claim the plain wording would have made, and which is false here.
@@ -463,7 +463,7 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
   /**
    * The sealed branch is scoped by §7.6's subject clause exactly as the ordinary
    * one is. Constraints §5.4/§9.3 refuse a structural instance head outright, so
-   * `honor Gate<(Int, Int)>` is legal in *no* file — naming `./gate.hex` would be
+   * `honor Gate<(Int, Int)>` is legal in *no* module — naming module `Gate` would be
    * an impossible fixit, which is the one thing §7.6 rules out by name.
    */
   test("a sealed constraint at a tuple subject still keeps the bare head", () => {
@@ -485,7 +485,7 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
   });
 
   test("a sealed constraint at a primitive subject keeps its clause — a primitive has a home", () => {
-    // The boundary the fix must not overshoot: `honor Gate<Int>` in `./gate.hex`
+    // The boundary the fix must not overshoot: `honor Gate<Int>` in module `Gate`
     // is lawful (Constraints §5.3 gives `Int` a home, and the constraint's own
     // module is always a legal seat), so this one is genuinely directed.
     expect(messagesOf([
@@ -504,7 +504,7 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
       ].join("\n")],
     ])).toEqual([
       "type `Int` has no `Gate` instance; `Gate` is not nameable here, so the honor " +
-        "can only be written in `./gate.hex`, which declares it",
+        "can only be written in module `Gate`, which declares it",
     ]);
   });
 });

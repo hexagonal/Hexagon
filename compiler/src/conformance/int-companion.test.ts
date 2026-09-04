@@ -70,6 +70,8 @@ describe("the four spellings are one implementation", () => {
    */
   test("`div` agrees qualified, after a dot, and under a bound", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let qualified: Int = Int.div(-7, 2)",
       "export let dotted: Int = (-7).div(2)",
       "export let bound<a: Integral>(left: a, right: a): a = Integral.div(left, right)",
@@ -92,6 +94,8 @@ describe("Division & Remainder §2's table, executed at `Int`", () => {
    */
   test("Euclidean and truncated agree only where §2 says they do", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let quotients: Vector(Int) = [",
       "    Int.div(7, 2), Int.div(-7, 2), Int.div(7, -2), Int.div(-7, -2)]",
       "export let remainders: Vector(Int) = [",
@@ -112,6 +116,8 @@ describe("Division & Remainder §2's table, executed at `Int`", () => {
   /** §2's identity, which is what makes the Euclidean pair a *pair*. */
   test("`div(l, r) * r + mod(l, r) == l` at every sign", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let holds(left: Int, right: Int): Bool =",
       "    Int.div(left, right) * right + Int.mod(left, right) == left",
       "export let identities: Vector(Bool) = [",
@@ -132,6 +138,8 @@ describe("the guards moved into source and kept their names", () => {
    */
   test("each member throws `DivideByZeroError` naming itself", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let byDiv(): Int = Int.div(1, 0)",
       "export let byMod(): Int = Int.mod(2, 0)",
       "export let byQuot(): Int = Int.quot(3, 0)",
@@ -167,17 +175,21 @@ describe("the guards moved into source and kept their names", () => {
    */
   test("the throw carries the Hexagon exception brand", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let branded(): Int = Int.quot(5, 0)",
       "",
     ].join("\n"));
 
     expect(threw(exports["branded"] as () => unknown))
-      .toMatchObject({ name: "DivideByZeroError", $hex: "Integral" });
+      .toMatchObject({ name: "DivideByZeroError", $hex: "Hex.Integral" });
   });
 
   /** A generic body reaching the member gets the guard with it. */
   test("the guard travels through a dictionary, not only through the qualified call", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let halve<a: Integral>(value: a, by: a): a = Integral.div(value, by)",
       "export let fine: Int = halve(84, 2)",
       "export let boom(): Int = halve(84, 0)",
@@ -193,6 +205,8 @@ describe("the guards moved into source and kept their names", () => {
 describe("Integral §4's `gcd` laws", () => {
   test("`gcd` is non-negative, sign-insensitive, and absorbs zero", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let divisors: Vector(Int) = [",
       "    Int.gcd(0, 0), Int.gcd(-12, 0), Int.gcd(0, -12), Int.gcd(12, 18),",
       "    Int.gcd(-12, 18), Int.gcd(12, -18), Int.gcd(-12, -18), Int.gcd(17, 5)]",
@@ -209,6 +223,8 @@ describe("Integral §4's `gcd` laws", () => {
    */
   test("`gcd(0, 0)` returns rather than throwing", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let safe(): Int = Int.gcd(0, 0)",
       "export let alsoSafe(): Int = Int.gcd(0, 7)",
       "",
@@ -229,6 +245,8 @@ describe("Primitive Types §2.1's checked family", () => {
    */
   test("the pre-checks agree with exact `BigInt` arithmetic", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let limit: Int = 9_007_199_254_740_991",
       "let exactlyFits(left: Int, right: Int): Bool =",
       "    let product = BigInt.fromInt(left) * BigInt.fromInt(right)",
@@ -272,6 +290,8 @@ describe("Primitive Types §2.1's checked family", () => {
    */
   test("the answers themselves, at and either side of the edge", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let limit: Int = 9_007_199_254_740_991",
       "let orZero(result: Option(Int)): Int =",
       "    match result",
@@ -312,6 +332,8 @@ describe("Primitive Types §2.1's checked family", () => {
    */
   test("`checkedSub` reaches both ends of the symmetric range", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let limit: Int = 9_007_199_254_740_991",
       "let orZero(result: Option(Int)): Int =",
       "    match result",
@@ -340,6 +362,8 @@ describe("Primitive Types §2.1's checked family", () => {
   /** The type is what §2.1 declares, and a caller may destructure it. */
   test("the checked family answers `Option(Int)`, used as one", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let described: String =",
       "    match Int.checkedAdd(20, 22)",
       "        Some(total) => \"total ${total}\"",
@@ -360,6 +384,8 @@ describe("`pow` and its guard", () => {
    */
   test("a negative exponent throws `NegativeExponentError`", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let eight: Int = 2 ** 3",
       "export let boom(): Int = 2 ** -3",
       "export let alsoBoom(): Int = 5 ** -1",
@@ -370,7 +396,7 @@ describe("`pow` and its guard", () => {
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
       name: "NegativeExponentError",
       message: "an integer exponent cannot be negative",
-      $hex: "Pow",
+      $hex: "Hex.Pow",
     });
     expect(threw(exports["alsoBoom"] as () => unknown))
       .toMatchObject({ name: "NegativeExponentError" });
@@ -475,6 +501,8 @@ describe("Constraints §6.1's inlining survives the move", () => {
   /** And computes what it always did. */
   test("the same operators still compute their answers", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let sum: Int = 19 + 23",
       "export let ordered: Bool = 100 <= 100",
       'export let rendered: String = "n=${-7}"',
@@ -507,6 +535,8 @@ describe("the keyless self-identity", () => {
    */
   test("`fromInt` at `Int` is the identity, and `fromNat` at `Nat` too", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let itself: Int = Int.fromInt(-13)",
       "export let alsoItself: Nat = Nat.fromNat(13)",
       "export let widened: BigInt = BigInt.fromInt(-13)",
@@ -548,6 +578,8 @@ describe("Numeric Literals §4's defaulting follows the instances home", () => {
    */
   test("an unannotated literal is still an `Int`, and bare `gcd` still resolves", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let x = 1",
       "export let doubled: Int = x + x",
       "export let common: Int = Integral.gcd(4, 6)",
@@ -628,6 +660,8 @@ describe("Collections Part 2 §2.5's `Hash` row, now hand-written source", () =>
    */
   test("a record deriving over `Int` fields hashes lawfully", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export record Point derives (Eq, Hash) = {x: Int, y: Int}",
       "let here = Point({x = 3, y = 4})",
       "let alsoHere = Point({x = 3, y = 4})",
@@ -703,6 +737,8 @@ describe("`runtime/VectorTrie.hex`'s index arithmetic, re-routed", () => {
    */
   test("a vector deep enough to descend still reads back what it wrote", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let build(count: Int): Vector(Int) =",
       // `built` rather than `values`: `stdlib/Map.hex` exports a bare `values`
       // since #370, and a `let`/`var` may not rebind a prelude name.

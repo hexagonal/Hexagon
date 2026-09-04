@@ -42,7 +42,7 @@ function declarationSet(
 ): Record<string, string> {
   const files: Record<string, string> = {};
   for (const module of compiled.modules) {
-    const name = module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts");
+    const name = module.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts");
     files[name] = module.declarations.text;
   }
   return files;
@@ -60,7 +60,7 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
     const compiled = project([["/main.hex", "module Main\n\n" + "export let e: Seq(Int) = Seq.empty\n"]]);
     const files = declarationSet(compiled);
 
-    expect(files["Seq.d.ts"]).toContain('import type { Option } from "./Hex/Option.js";');
+    expect(files["Hex/Seq.d.ts"]).toContain('import type { Option } from "./Option.js";');
     expect(await typeScriptErrors(files)).toEqual([]);
   });
 
@@ -80,7 +80,7 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
     expect(text).toContain('import type { Option } from "./Hex/Option.js";');
     // Inventory order — the normative prelude order — not first-use order,
     // which the source above deliberately reverses.
-    expect(text.indexOf("./Ordering.js")).toBeLessThan(text.indexOf("./Option.js"));
+    expect(text.indexOf("./Hex/Ordering.js")).toBeLessThan(text.indexOf("./Hex/Option.js"));
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
@@ -95,7 +95,7 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
       ["/main.hex", "module Main\n\n" + "export let pick(p: Pair, h: Handle): Handle = h\n"],
       [
         "/Prelude.hex",
-        "module Prelude\n\n" + `${PRELUDE_SOURCES["Prelude.hex"]!}\n` +
+        `${PRELUDE_SOURCES["Prelude.hex"]!}\n` +
           "opaque record Pair = {left: Int, right: Int}\n" +
           'extern from "./shapes.js"\n    export type Handle\n',
       ],
@@ -118,7 +118,7 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
     // `.d.ts` would import from a file that was never written.
     const compiled = project([["/main.hex", "module Main\n\n" + "export let f(o: Option(Int)): Option(Int) = o\n"]]);
 
-    expect(compiled.modules.map(({ source }) => source.path)).toContain("/Option.hex");
+    expect(compiled.modules.map(({ source }) => source.path)).toContain("/Hex/Option.hex");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
@@ -164,8 +164,8 @@ describe("a source-written import owns every name it binds", () => {
     // since a rule-3-resolved bare term that is actually called crashes at
     // runtime today — a confirmed emission bug, irrelevant here since this test
     // only inspects text — but qualifying keeps the specimen unambiguous.
-    expect(app.declarations.text).toContain('import type { Point } from "./lib.js";');
-    expect(app.javascript.text).toContain('import * as Point from "./lib.js";');
+    expect(app.declarations.text).toContain('import type { Point } from "./Lib.js";');
+    expect(app.javascript.text).toContain('import * as Point from "./Lib.js";');
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
@@ -229,7 +229,7 @@ describe("placement", () => {
     expect(text).toBe(
       'import type * as Hex from "./hex.js";\n' +
         'import type { Option } from "./Hex/Option.js";\n' +
-        'import type { Color } from "./lib.js";\n' +
+        'import type { Color } from "./Lib.js";\n' +
         "export declare const f: (c: Color, v: Hex.Vector<number>) => Option<number>;\n",
     );
     expect(await typeScriptErrors({
@@ -300,7 +300,7 @@ describe("the generated local is probed, and only it moves", () => {
     // what puts its line in the file. Without the `Option.Row` seat below the
     // line is not written and the alias contests nothing — the case beneath.
     expect(text).toContain('import type { Option as Option_1 } from "./Hex/Option.js";');
-    expect(text).toContain('import type * as Option from "./lib.js";');
+    expect(text).toContain('import type * as Option from "./Lib.js";');
     expect(text).toContain("export declare const o: Option_1<number>;");
     expect(text).toContain("export declare const r: (x: Option.Row) => number;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);

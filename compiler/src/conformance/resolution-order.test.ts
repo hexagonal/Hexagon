@@ -64,7 +64,7 @@ function runtimeDiagnostics(
   source: string,
   options: { readonly runtime?: boolean } = {},
 ): readonly string[] {
-  const file = new Src.File(Src.fileId(0), "/runtime.hex", source);
+  const file = new Src.File(Src.fileId(0), "/runtime.hex", "module Runtime\n\n" + source);
   // The checker carries resolver diagnostics forward, so this is the union of both.
   return check(resolve(parse(applyLayout(lex(file))), options)).diagnostics.map((d) => d.message);
 }

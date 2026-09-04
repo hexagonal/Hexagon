@@ -107,7 +107,7 @@ describe("§16 (a) construction, generalization, and the absent `Hash`", () => {
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
-        "in `./main.hex`",
+        "in module `Main`",
     );
   });
 
@@ -479,7 +479,7 @@ describe("the companion's surface", () => {
       "module Main\n\n" + "export let n: Int = Map.size(Map.singleton(1, 2))\n",
     ]]);
     expect(project.diagnostics).toEqual([]);
-    const map = project.modules.find(({ source }) => source.path === "/Map.hex");
+    const map = project.modules.find(({ source }) => source.path === "/Hex/Map.hex");
     expect(map).toBeDefined();
     const exported = map!.typed.items.flatMap((item) =>
       (item.kind === "Let" || item.kind === "Fun") && item.exported
@@ -535,7 +535,7 @@ describe("the companion's surface", () => {
       "module Main\n\n" + "export let n: Int = Map.size(Map.singleton(1, 2))\n",
     ]]);
     expect(project.diagnostics).toEqual([]);
-    const map = project.modules.find(({ source }) => source.path === "/Map.hex");
+    const map = project.modules.find(({ source }) => source.path === "/Hex/Map.hex");
     const face = map!.declarations.text;
     const unconstrained = [
       "singleton",

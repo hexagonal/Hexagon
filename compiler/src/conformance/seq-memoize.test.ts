@@ -110,6 +110,7 @@ function ticker(label: string): string {
 }
 
 const TICKER_HEADER =
+  "module Main\n\n" +
   'extern from "ticker"\n' +
   "    pure fun tick(value: Int): Int\n" +
   "    fun ticks(): Int\n" +

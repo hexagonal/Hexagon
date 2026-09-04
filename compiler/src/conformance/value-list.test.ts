@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
+import { derivedModuleName } from "../passes/parser/parser.js";
 import { runMain } from "../support/test-project.js";
 import type * as Typed from "../syntax/typed/index.js";
 
@@ -16,10 +17,15 @@ import type * as Typed from "../syntax/typed/index.js";
  * live in `relaxed-generalization.test.ts`.
  */
 
+/** Mints the module header a headerless test source is missing (residue class 1). */
+function withHeader(path: string, text: string): string {
+  return /^module\s/u.test(text) ? text : `module ${derivedModuleName(path)}\n\n${text}`;
+}
+
 function project(files: Readonly<Record<string, string>>) {
   return compileProject(
     Object.entries(files).map(([path, text], index) =>
-      new Source.File(Source.fileId(index), path, text)
+      new Source.File(Source.fileId(index), path, withHeader(path, text))
     ),
   );
 }
@@ -411,7 +417,7 @@ describe("Step 1: the completed syntactic-value list", () => {
 
   test("(x-i) ...and the read-through alias actually runs", async () => {
     const exports = await runMain(
-      TAG + "let (g) = describe\n" + 'export let s: String = g("x")\n',
+      "module Main\n\n" + TAG + "let (g) = describe\n" + 'export let s: String = g("x")\n',
     );
     expect(exports.s).toBe("string");
   });
@@ -475,7 +481,7 @@ describe("Step 1: the completed syntactic-value list", () => {
 
   test("(x-i) ...and the `or` read-through runs", async () => {
     const exports = await runMain(
-      TAG + "let (g | g) = describe\n" + 'export let s: String = g("x")\n',
+      "module Main\n\n" + TAG + "let (g | g) = describe\n" + 'export let s: String = g("x")\n',
     );
     expect(exports.s).toBe("string");
   });

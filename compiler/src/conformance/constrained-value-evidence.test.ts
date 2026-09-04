@@ -75,14 +75,19 @@ async function run(
   expect(project.diagnostics).toEqual([]);
   const moduleUrls = new Map<string, string>();
   for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls);
+    // Keyed and linked by the module's **address** — its full name laid out as
+    // a path (Packages §6) — because that is what the emitted specifiers name
+    // since #829; a source file's own name and place appear nowhere in the
+    // emitted graph.
+    const linked = link(module.javascript.text, module.path, moduleUrls);
     moduleUrls.set(
-      module.source.path,
+      module.path,
       `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
     );
   }
-  // By path, never `modules[0]`: the prelude members share the project.
-  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
+  // By module name, never `modules[0]`: the prelude members share the project.
+  const root = project.modules.find(({ name }) => name === "Main");
+  return (await import(/* @vite-ignore */ moduleUrls.get(root!.path)!)) as Record<string, unknown>;
 }
 
 function main(source: string): Promise<Record<string, unknown>> {

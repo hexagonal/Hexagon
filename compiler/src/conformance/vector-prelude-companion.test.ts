@@ -162,7 +162,7 @@ describe("the module", () => {
 
   test("it compiles with no diagnostics of its own", () => {
     const compiled = compileFiles([["/main.hex", "module Main\n\n" + "export let n: Int = Vector.length([1])\n"]]);
-    const vector = compiled.modules.find(({ source }) => source.path === "/Vector.hex")!;
+    const vector = compiled.modules.find(({ source }) => source.path === "/Hex/Vector.hex")!;
     expect(vector.typed.diagnostics).toEqual([]);
     expect(vector.javascript.diagnostics).toEqual([]);
   });
@@ -181,7 +181,7 @@ describe("the module", () => {
    * is the literal builder over a different source.
    */
   test("each declaration binds its lowering", () => {
-    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let n: Int = Vector.length([1])\n"]], "/Vector.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let n: Int = Vector.length([1])\n"]], "/Hex/Vector.hex");
     expect(javascript).toContain("const length = __trieSize;");
     expect(javascript).toContain("const append = __trieAppend;");
     expect(javascript).toContain("const prepend = __triePrepend;");
@@ -199,7 +199,7 @@ describe("the module", () => {
     expect(javascript).not.toContain("export { toSeq };");
     // The trie arrives as one import line, and `length`'s lowering being an
     // imported name rather than a body is the whole of what makes it O(1).
-    expect(javascript).toContain('} from "./Hex/VectorTrie.js";');
+    expect(javascript).toContain('} from "./VectorTrie.js";');
     // `fromSeq` takes a top-level `Seq(a)` *parameter*, so its export site takes
     // FFI Part 7 §7 occasion 1's wrapper exactly as an exported `.hex` function
     // of that signature would (`spec/intrinsics.md` §8.3's edit note).
@@ -246,7 +246,7 @@ describe("consumers see nothing new (§8.2)", () => {
 
     const refuse = main["refuse"] as (index: number) => number;
     expect(() => refuse(9)).toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: "Vector", index: 9, size: 0 }),
+      expect.objectContaining({ name: "IndexError", $hex: "Hex.Vector", index: 9, size: 0 }),
     );
   });
 
@@ -263,14 +263,14 @@ describe("consumers see nothing new (§8.2)", () => {
       "module Main\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let bad: Int = Vector.at(values, 99)\n",
     ]])).rejects.toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: "Vector", index: 99, size: 2 }),
+      expect.objectContaining({ name: "IndexError", $hex: "Hex.Vector", index: 99, size: 2 }),
     );
     await expect(runProject([[
       "/main.hex",
       "module Main\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let bad: Int = values[7]\n",
     ]])).rejects.toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: "Vector", index: 7, size: 2 }),
+      expect.objectContaining({ name: "IndexError", $hex: "Hex.Vector", index: 7, size: 2 }),
     );
   });
 
@@ -342,7 +342,7 @@ describe("membership drags nothing in", () => {
     // `Pow.hex`'s and `Integral.hex`'s exceptions and `Option.hex`'s answer for
     // the checked family. `Vector.hex` is what must stay out, and does.
     expect(emittedPaths(files)).toEqual([
-      "/Pow.hex", "module Pow\n\n" + "/Integral.hex", "/Option.hex", "/Int.hex", "/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/VectorTrie.hex", "/main.hex",
     ]);
   });
 
@@ -362,7 +362,7 @@ describe("membership drags nothing in", () => {
     const files = [["/main.hex", "module Main\n\n" + "export let n: Int = Vector.length([1, 2])\n"]] as const;
 
     expect(emitted(files, "/main.hex")).toContain('import { length } from "./Hex/Vector.js";');
-    expect(emittedPaths(files)).toContain("/Vector.hex");
+    expect(emittedPaths(files)).toContain("/Hex/Vector.hex");
   });
 });
 
@@ -497,7 +497,7 @@ describe("two prelude members exporting one bare name", () => {
       ["/main.hex", "module Main\n\n" + "export let consumer: Vector(Int) = empty\n"],
       [
         "/Result.hex",
-        "module Result\n\n" + `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
         "export let member: Seq(Int) = empty\n",
       ],
     ]);
@@ -515,7 +515,7 @@ describe("two prelude members exporting one bare name", () => {
       ["/main.hex", "module Main\n\n" + "export let consumer: Vector(Int) = Vector.empty\n"],
       [
         "/Result.hex",
-        "module Result\n\n" + `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
         "export let member: Seq(Int) = Seq.empty\n",
       ],
     ]);
@@ -537,7 +537,7 @@ describe("two prelude members exporting one bare name", () => {
       ["/main.hex", "module Main\n\n" + "export let e: Vector(Int) = empty\n"],
       [
         "/Result.hex",
-        "module Result\n\n" + `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
         "export let empty: Int = 0\n",
       ],
     ]);

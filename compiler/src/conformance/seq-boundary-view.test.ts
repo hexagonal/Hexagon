@@ -130,7 +130,11 @@ async function run(
     moduleUrls.set(specifier, url(source));
   }
   for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls)
+    // Keyed and linked by the module's **address** — its full name laid out as
+    // a path (Packages §6) — because that is what the emitted specifiers name
+    // since #829; a source file's own name and place appear nowhere in the
+    // emitted graph (test-project.ts's `runProject` states the same fact).
+    const linked = link(module.javascript.text, module.path, moduleUrls)
       .replace(
         /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
         (statement, prefix: string, _quote: string, specifier: string) => {
@@ -138,9 +142,9 @@ async function run(
           return target === undefined ? statement : `${prefix}${JSON.stringify(target)};`;
         },
       );
-    moduleUrls.set(module.source.path, url(linked));
+    moduleUrls.set(module.path, url(linked));
   }
-  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
+  return (await import(/* @vite-ignore */ moduleUrls.get("/Main.hex")!)) as Record<string, unknown>;
 }
 
 function main(source: string): Promise<Record<string, unknown>> {

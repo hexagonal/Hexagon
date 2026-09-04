@@ -261,7 +261,7 @@ describe("`JsKind derives (Eq, Show)` (Part 11 §3)", () => {
       "module Main\n\n" + "export let k(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
     expect(compiled.diagnostics).toEqual([]);
     const kindModule = compiled.modules
-      .find(({ source }) => source.path === "/JsKind.hex")!;
+      .find(({ source }) => source.path === "/Hex/JsKind.hex")!;
     expect(kindModule.declarations.text).toContain(
       'export type JsKind = { tag: "Undefined" } | { tag: "Null" } | { tag: "Bool" }' +
         ' | { tag: "Number" } | { tag: "BigInt" } | { tag: "String" } | { tag: "Symbol" }' +

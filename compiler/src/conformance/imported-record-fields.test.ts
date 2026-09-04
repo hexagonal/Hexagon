@@ -46,7 +46,7 @@ describe("a plain exported record carries its fields across the import", () => {
         // Rule 3's companion fallback (Modules §3.2, #762): the alias's own
         // spelling `Magnet` equals the exported record's, so the annotation
         // reaches it bare with no separate import for the type.
-        'import Geo as Magnet\n' +
+        "module Main\n\n" + 'import Geo as Magnet\n' +
           "export fun poleCount(m: Magnet): Int = m.poles\n",
       ],
     ]);
@@ -70,7 +70,7 @@ describe("a plain exported record carries its fields across the import", () => {
 
     expect(messages).toEqual([]);
     const javascript = emitted(compiled, "/main.hex").javascript.text;
-    expect(javascript).toContain('import * as Magnet from "./geo.js";');
+    expect(javascript).toContain('import * as Magnet from "./Geo.js";');
     expect(javascript).toContain("const north = { poles: 2 };");
     expect(javascript).toContain("return m.poles;");
     expect(javascript).toContain("return { ...m, poles: 3 };");
@@ -90,7 +90,7 @@ describe("a plain exported record carries its fields across the import", () => {
 
     expect(messages).toEqual([]);
     const javascript = emitted(compiled, "/main.hex").javascript.text;
-    expect(javascript).toContain('import * as Geo from "./geo.js";');
+    expect(javascript).toContain('import * as Geo from "./Geo.js";');
     expect(javascript).toContain("return m.poles;");
     expect(javascript).toContain("return { ...m, poles: 3 };");
   });
@@ -158,7 +158,7 @@ describe("opacity is unchanged — the control on §4.2", () => {
     const { messages } = project([
       [
         "/vault.hex",
-        VAULT + "export fun reveal(t: Token): Int = t.value\n" +
+        "module Vault\n\n" + VAULT + "export fun reveal(t: Token): Int = t.value\n" +
           "export fun bump(t: Token): Token = {t with value = 1}\n",
       ],
     ]);

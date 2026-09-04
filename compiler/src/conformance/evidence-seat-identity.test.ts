@@ -257,8 +257,8 @@ describe("an instance head's own binders", () => {
   ].join("\n");
 
   const files = [
-    ["/lib1.hex", tagLib("one", "useOne", "one")],
-    ["/lib2.hex", tagLib("two", "useTwo", "two")],
+    ["/lib1.hex", "module Lib1\n\n" + tagLib("one", "useOne", "one")],
+    ["/lib2.hex", "module Lib2\n\n" + tagLib("two", "useTwo", "two")],
     ["/main.hex", "module Main\n\n" + HONOR],
   ] as const;
 

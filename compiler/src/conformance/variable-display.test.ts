@@ -41,7 +41,7 @@ describe("the law: a survivor reaching a report is named", () => {
     )).toEqual([
       "type `Box(a)` has no `Hash` instance; `Hash` instances must be derived, " +
       "so the only repair is `derives (Eq, Hash)` on the declaration of `Box` " +
-      "in `./main.hex`",
+      "in module `Main`",
     ]);
   });
 
@@ -95,7 +95,7 @@ describe("fresh names dedupe against every name already visible", () => {
     )).toEqual([
       "type `Pair(a, b)` has no `Hash` instance; `Hash` instances must be " +
       "derived, so the only repair is `derives (Eq, Hash)` on the declaration " +
-      "of `Pair` in `./main.hex`",
+      "of `Pair` in module `Main`",
     ]);
   });
 

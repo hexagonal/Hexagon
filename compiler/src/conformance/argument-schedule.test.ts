@@ -36,7 +36,8 @@ import { describe, expect, test } from "vitest";
 import { compileMain, projectDiagnostics } from "../support/test-project.js";
 
 /** §4.3's fixtures, plus the discriminating `useNat`. */
-const fixtures = "let one: Int = 1\n" +
+const fixtures = "module Main\n\n" +
+  "let one: Int = 1\n" +
   "let half: Float = 0.5\n" +
   "let useFloat(value: Float): Float = value\n" +
   "let useNat(value: Nat): Nat = value\n" +
@@ -374,7 +375,7 @@ describe("the schedule reorders no runtime effect", () => {
     const source = fixtures +
       "let apply(value: Int, cb: (Int) -> Int): Int = cb(value)\n" +
       "export let out: Int = apply(1, x => x)\n";
-    const project = compileMain("module Main\n\n" + source);
+    const project = compileMain(source);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const javascript = project.modules
       .find(({ source: file }) => file.path === "/main.hex")!.javascript.text;

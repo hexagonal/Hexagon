@@ -31,7 +31,7 @@ describe("an arm reached through the door matches the declared tag", () => {
   test("constructed abroad qualified, matched at home bare", async () => {
     const exports = await runProject([
       ["/shapes.hex",
-        SHAPES +
+        "module Shapes\n\n" + SHAPES +
         "export fun name(s: Shape): String =\n" +
         "    match s\n" +
         "        Circle(r) => \"round\"\n" +
@@ -50,7 +50,7 @@ describe("an arm reached through the door matches the declared tag", () => {
     // spelling, and the scrutinee's type supplies both constructors (§2.2).
     const exports = await runProject([
       ["/shapes.hex",
-        SHAPES +
+        "module Shapes\n\n" + SHAPES +
         "export let unitCircle: Shape = Circle(1.0)\n" +
         "export let unitSquare: Shape = Square(1.0)\n"],
       ["/main.hex",
@@ -98,7 +98,7 @@ describe("an arm reached through the door matches the declared tag", () => {
         "        Square(x) => x\n"],
     ]).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
-    expect(javascript).toContain('import * as Shapes from "./shapes.js";');
+    expect(javascript).toContain('import * as Shapes from "./Shapes.js";');
     expect(javascript).toContain(
       "  switch (__match.tag) {\n" +
       "    case \"Circle\":\n",

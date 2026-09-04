@@ -234,8 +234,8 @@ describe("two same-spelled bases both stay reachable", () => {
   ].join("\n");
 
   const GRAPH: readonly (readonly [string, string])[] = [
-    ["/lib1.hex", tagLib("one", "first")],
-    ["/lib2.hex", tagLib("two", "second")],
+    ["/lib1.hex", "module Lib1\n\n" + tagLib("one", "first")],
+    ["/lib2.hex", "module Lib2\n\n" + tagLib("two", "second")],
     ["/mid.hex", "module Mid\n\n" + MID],
     ["/main.hex", "module Main\n\n" + MAIN],
   ];
@@ -313,9 +313,9 @@ describe("two same-spelled bases both stay reachable", () => {
       "",
     ].join("\n");
     const graph: readonly (readonly [string, string])[] = [
-      ["/lib1.hex", lib("Tag", "one")],
-      ["/lib2.hex", lib("Tag", "two")],
-      ["/lib3.hex", lib("Tag_1", "three")],
+      ["/lib1.hex", "module Lib1\n\n" + lib("Tag", "one")],
+      ["/lib2.hex", "module Lib2\n\n" + lib("Tag", "two")],
+      ["/lib3.hex", "module Lib3\n\n" + lib("Tag_1", "three")],
       ["/mid.hex", "module Mid\n\n" + mid],
       ["/main.hex", "module Main\n\n" + main],
     ];
@@ -376,7 +376,7 @@ describe("a base list names each declaration once", () => {
     ].join("\n");
     expect(diagnostics(weighGraph(mid))).toEqual([
       "`Weigh` and `L.Weigh` both name the constraint declared `Weigh` in " +
-        "`./lib.hex`; remove one",
+        "module `Lib`; remove one",
     ]);
   });
 
@@ -400,7 +400,7 @@ describe("a base list names each declaration once", () => {
     ].join("\n");
     expect(diagnostics(weighGraph(mid))).toEqual([
       "`W.Weigh` and `L.Weigh` both name the constraint declared `Weigh` in " +
-        "`./lib.hex`; remove one",
+        "module `Lib`; remove one",
     ]);
   });
 
@@ -447,7 +447,7 @@ describe("a base list names each declaration once", () => {
     expect(diagnostics([["/lib.hex", "module Lib\n\n" + WEIGH_LIB], ["/mid.hex", "module Mid\n\n" + mid]])).toEqual([
       "unknown base constraint `Bogus`",
       "`W.Weigh` and `L.Weigh` both name the constraint declared `Weigh` in " +
-        "`./lib.hex`; remove one",
+        "module `Lib`; remove one",
     ]);
   });
 
@@ -469,7 +469,7 @@ describe("a base list names each declaration once", () => {
     ].join("\n");
     expect(diagnostics([
       ["/lib1.hex", "module Lib1\n\n" + tagLib],
-      ["/lib2.hex", tagLib.replace("tag(", "tag2(")],
+      ["/lib2.hex", "module Lib2\n\n" + tagLib.replace("tag(", "tag2(")],
       ["/mid.hex", "module Mid\n\n" + mid],
     ])).toEqual([]);
   });

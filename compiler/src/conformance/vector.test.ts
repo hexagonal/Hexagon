@@ -59,18 +59,22 @@ async function run(
   ];
   const project = compileProject(files);
   expect(project.diagnostics).toEqual([]);
-  const main = project.modules.find(({ source: file }) => file.path === "/main.hex")!;
+  const main = project.modules.find(({ name }) => name === "Main")!;
   expect(main.typed.diagnostics).toEqual([]);
   expect(main.javascript.diagnostics).toEqual([]);
   const moduleUrls = new Map<string, string>();
   for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls);
+    // Keyed and linked by the module's **address** — its full name laid out as
+    // a path (Packages §6) — because that is what the emitted specifiers name
+    // since #829; a source file's own name and place appear nowhere in the
+    // emitted graph.
+    const linked = link(module.javascript.text, module.path, moduleUrls);
     moduleUrls.set(
-      module.source.path,
+      module.path,
       `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
     );
   }
-  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
+  return (await import(/* @vite-ignore */ moduleUrls.get(main.path)!)) as Record<string, unknown>;
 }
 
 // Fixture builders. `appendBuild`/`prependBuild` both produce [1, 2, ..., n], via the
@@ -276,7 +280,7 @@ const COMPANION_MAIN =
 
 describe("Vector companion conformance (stdlib/Vector.hex)", () => {
   test("§7 Option-returning and end-dropping companions", async () => {
-    const m = await run(COMPANION_MAIN, [["/Vector.hex", "module Vector\n\n" + vectorSource]]);
+    const m = await run(COMPANION_MAIN, [["/Vector.hex", vectorSource]]);
     expect(m.firstFull).toBe(1);
     expect(m.firstEmpty).toBe(-1);
     expect(m.lastFull).toBe(3);

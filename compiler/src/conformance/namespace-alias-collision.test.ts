@@ -73,7 +73,7 @@ describe("the alias yields the plain name to the declaration", () => {
 
   test("the import line moves and nothing else does", () => {
     expect(javascript([POINT, COLLIDING])).toBe(
-      'import * as Point_1 from "./point.js";\n' +
+      'import * as Point_1 from "./Point.js";\n' +
         "const Point = __record => __record;\n" +
         "function mine(p) {\n" +
         "  return p.n;\n" +
@@ -93,7 +93,7 @@ describe("the rename is collision-only", () => {
       "module Main\n\n" + 'import Point\n' +
         "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n",
     ]])).toBe(
-      'import * as Point from "./point.js";\n' +
+      'import * as Point from "./Point.js";\n' +
         "const far = Point.getX(Point.make(1.0, 2.0));\n" +
         "export { far };\n",
     );
@@ -108,8 +108,8 @@ describe("the rename is collision-only", () => {
         "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n" +
         "export let four: Int = Other.twice(2)\n",
     ]]);
-    expect(emitted).toContain('import * as Point_1 from "./point.js";');
-    expect(emitted).toContain('import * as Other from "./other.js";');
+    expect(emitted).toContain('import * as Point_1 from "./Point.js";');
+    expect(emitted).toContain('import * as Other from "./Other.js";');
     expect(emitted).toContain("const four = Other.twice(2);");
   });
 });
@@ -148,8 +148,8 @@ describe("a contestant that binds nothing in JavaScript is no contestant", () =>
       // nothing shapes none of the page's vertical rhythm (#770), so the gap is
       // measured from the imports to the binding and capped at one blank line
       // — where before the alias's own source span held it at zero.
-      'import * as Lib from "./lib.js";\n' +
-        'import * as Types from "./types.js";\n' +
+      'import * as Lib from "./Lib.js";\n' +
+        'import * as Types from "./Types.js";\n' +
         "\n" +
         "const four = Lib.twice(2);\n" +
         "export { four };\n",
@@ -166,7 +166,7 @@ describe("a contestant that binds nothing in JavaScript is no contestant", () =>
         "export record Lib = {n: Int}\n" +
         "export let boxed: Int = (Lib({n = 3})).n\n" +
         "export let four: Int = Lib.twice(2)\n",
-    ]])).toContain('import * as Lib_1 from "./lib.js";');
+    ]])).toContain('import * as Lib_1 from "./Lib.js";');
   });
 
   test("the type alias cancels itself, never a union constructor's claim", async () => {
@@ -199,7 +199,7 @@ describe("a contestant that binds nothing in JavaScript is no contestant", () =>
     expect(main.four).toBe(4);
     expect(main.five).toBe(5);
     const emitted = javascript(files);
-    expect(emitted).toContain('import * as Lib_1 from "./lib.js";');
+    expect(emitted).toContain('import * as Lib_1 from "./Lib.js";');
     expect(emitted).toContain("const four = Lib_1.twice(2);");
   });
 
@@ -235,8 +235,8 @@ describe("the suffix probes past what the module already binds", () => {
     expect(main.far).toBe(1.0);
     expect(main.four).toBe(4);
     const emitted = javascript(files);
-    expect(emitted).toContain('import * as Point_2 from "./point.js";');
-    expect(emitted).toContain('import * as Point_1 from "./point1.js";');
+    expect(emitted).toContain('import * as Point_2 from "./Point.js";');
+    expect(emitted).toContain('import * as Point_1 from "./Point1.js";');
     expect(emitted).toContain("const far = Point_2.getX(Point_2.make(1.0, 2.0));");
   });
 
@@ -248,7 +248,7 @@ describe("the suffix probes past what the module already binds", () => {
         "export record Point_1 = {k: Int}\n" +
         "export let far: Float = Point.getX(Point.make(1.0, 2.0))\n",
     ]] as const;
-    expect(javascript(files)).toContain('import * as Point_2 from "./point.js";');
+    expect(javascript(files)).toContain('import * as Point_2 from "./Point.js";');
     const main = await runProject(files);
     expect(main.far).toBe(1.0);
   });
@@ -280,7 +280,7 @@ describe("an exception declaration contests the spelling too", () => {
     // The declaration keeps the bare spelling and the alias takes `_1` — the
     // §11.2 rule the rest of this file pins, reached through `exception`.
     const emitted = javascript(files);
-    expect(emitted).toContain('import * as Boom_1 from "./boom.js";');
+    expect(emitted).toContain('import * as Boom_1 from "./Boom.js";');
     expect(emitted).toContain("Boom_1.twice(2)");
 
     // Executed, not only read: #569 was a load failure, and a text pin alone
@@ -313,7 +313,7 @@ describe("every qualified use the alias serves follows it", () => {
     expect(javascript(files)).toContain(
       'const round = radius({ tag: "Circle", r: 2.0 });',
     );
-    expect(javascript(files)).toContain('import * as Shape_1 from "./shape.js";');
+    expect(javascript(files)).toContain('import * as Shape_1 from "./Shape.js";');
     const main = await runProject(files);
     expect(main.round).toBe(2.0);
     expect(main.boxed).toBe(3);

@@ -369,6 +369,7 @@ describe("non-prelude instance evidence still transits", () => {
         "honor Show<Box> =\n" +
         '    show(b) = "box"\n'],
       ["/b.hex",
+        "module B\n\n" +
         // The alias's own spelling equals the exported record's, so `Box` is
         // reached bare through rule 3's companion fallback (Modules §3.2,
         // #762) — nothing binds it, so there is nothing new for the
@@ -381,8 +382,8 @@ describe("non-prelude instance evidence still transits", () => {
     ] as const;
     const b = emitted(files, "/b.hex");
     expect(importLines(b)).toEqual([
-      'import * as Box from "./a.js";',
-      'import { __Show_Box } from "./a.js";',
+      'import * as Box from "./A.js";',
+      'import { __Show_Box } from "./A.js";',
     ]);
     expect(exportLines(b)).toEqual([
       "export { __Show_Box };",
@@ -393,7 +394,7 @@ describe("non-prelude instance evidence still transits", () => {
     // where the per-file alias prefix used to wrap `b.hex`'s already-prefixed
     // local in a second prefix (#425).
     expect(importLines(emitted(files, "/c.hex"))).toContain(
-      'import { __Show_Box } from "./b.js";',
+      'import { __Show_Box } from "./B.js";',
     );
 
     const main = await runProject([

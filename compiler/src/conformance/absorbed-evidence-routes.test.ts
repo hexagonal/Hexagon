@@ -317,7 +317,7 @@ describe("the binder set an export is told to write", () => {
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: Lib.Heft>` — `Heft` is declared in `./lib`; " +
+      "write `<a: Lib.Heft>` — `Heft` is declared in module `Lib`; " +
       "`import Lib` and spell it `Lib.Heft`",
     ]);
     // Spellable bare, through a second alias of `/lib.hex` spelled `Heft` —
@@ -342,7 +342,7 @@ describe("the binder set an export is told to write", () => {
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: Lib.Heft>` — `Heft` is declared in `./lib`, and this module binds " +
+      "write `<a: Lib.Heft>` — `Heft` is declared in module `Lib`, and this module binds " +
       "another `Heft`; `import Lib` and spell it `Lib.Heft`",
     ]);
   });

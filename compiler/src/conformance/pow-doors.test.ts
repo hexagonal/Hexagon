@@ -146,7 +146,7 @@ describe("`BigInt.pow` — the exact power past `Int`'s range (Operators §6.3.1
       expect(threw(exports[name] as () => unknown)).toMatchObject({
         name: "NegativeExponentError",
         message: "an integer exponent cannot be negative",
-        $hex: "Pow",
+        $hex: "Hex.Pow",
       });
     }
   });
@@ -316,8 +316,8 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
  * widen — `Show` and `Eq` have none, so nothing there could generalise — and
  * its `Int` exponent reaches `Float` through §5.1's exact conversion.
  *
- * The module below puts the door on **line 8** and the `Pow<Box>` block on line
- * 10, which are the lines the refusals name.
+ * The module below puts the door on **line 10** and the `Pow<Box>` block on
+ * line 12, which are the lines the refusals name.
  */
 describe("the `widens` declaration at a user nominal (Constraints §4.7)", () => {
   const box = [
@@ -336,6 +336,8 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
   /** The module, with `head` standing where the `widens` declaration goes. */
   function module(head: string, ...extra: readonly string[]): string {
     return [
+      "module Main",
+      "",
       box,
       head,
       "",
@@ -385,12 +387,18 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
     // derived member. At a *shared-domain* argument (an `Int` exponent, which
     // both faces accept) the two answers are identical by construction, so only
     // the emitted route can say which one answered.
-    const javascript = emitted(module(
+    // `module()` writes its own header (it is also handed to `verdict` and
+    // `projectDiagnostics`, which take a raw source), so this goes through
+    // `compileMain` directly rather than `emitted`, which would double it.
+    const project = compileMain(module(
       DOOR,
       "let two: Int = 2",
       "export let shared: Float = pow(Box({value = 3.0}), two).value",
       "",
     ));
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const javascript = project.modules.find(({ source }) => source.path === "/main.hex")!
+      .javascript.text;
 
     expect(javascript).toContain("const shared = pow({ value: 3.0 }, two).value;");
     // The instance's member seat exists; no bare use calls it.
@@ -450,6 +458,8 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
         "parameters, this declaration 1",
     ]);
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "widens Show.show(value: Box, extra: Int): String = \"box\"",
@@ -471,7 +481,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
         "Box({value = Float.pow(value.value, exponent)})",
       "",
     )).toEqual([
-      "the `Pow<Box>` instance binds `pow`, which is already bound (line 8); a " +
+      "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); a " +
         "member's wider face is declared, not exported — write `widens " +
         "Pow.pow(…)` and account for the member with `pow = widened`.",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
@@ -484,7 +494,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
       "export let pow(value: Box, exponent: Int): Box = value",
       "",
     )).toEqual([
-      "the `Pow<Box>` instance binds `pow`, which is already bound (line 8); " +
+      "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); " +
         "Hexagon does not allow rebinding — choose a different name.",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",
@@ -496,7 +506,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
       "let pow(value: Box, exponent: Float): Box = value",
       "",
     )).toEqual([
-      "the `Pow<Box>` instance binds `pow`, which is already bound (line 8); " +
+      "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); " +
         "Hexagon does not allow rebinding — choose a different name.",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",
@@ -520,6 +530,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
 
   test("a `widened` line with no matching declaration is refused, naming it", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       box,
       "honor Pow<Box> =",
       "    pow = widened",
@@ -558,13 +570,15 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       ].join("\n")],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "this instance does not account for `scale`, which this module's `widens` " +
-        "declaration supplies (line 6) — write `scale = widened` in the block",
+        "declaration supplies (line 8) — write `scale = widened` in the block",
       "instance is missing required member `scale`",
     ]);
   });
 
   test("a member written beside a `widens` of it is refused as a rival", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       box,
       DOOR,
       "",
@@ -572,7 +586,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "    pow(value, exponent) = value",
       "",
     ].join("\n"))).toEqual([
-      "`pow` is supplied by this module's `widens` declaration (line 8); a " +
+      "`pow` is supplied by this module's `widens` declaration (line 10); a " +
         "member written beside it would be a second implementation — account " +
         "for it with `pow = widened`",
     ]);
@@ -586,6 +600,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // neither declaration can take; one operation has one written body, and one
     // of the two has to go.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       box,
       DOOR,
       "",
@@ -595,7 +611,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "    pow = widened",
       "",
     ].join("\n"))).toEqual([
-      "`pow` is already bound (line 8); one operation has one written body, " +
+      "`pow` is already bound (line 10); one operation has one written body, " +
         "and a `widens` declaration's name is derived from the member it names " +
         "— there is no other name for either to take, so one of the two " +
         "declarations must go.",
@@ -607,6 +623,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // declaration loses — and the repair points at the binding, which is the
     // only one of the two with a spelling its author chose.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       box,
       "let pow: Int = 2",
       "",
@@ -616,14 +634,16 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "    pow = widened",
       "",
     ].join("\n"))).toContain(
-      "`pow` is already bound (line 8); a `widens` declaration's name is " +
+      "`pow` is already bound (line 10); a `widens` declaration's name is " +
         "derived from the member it names and cannot be chosen — rename the " +
-        "binding on line 8, or drop this declaration.",
+        "binding on line 10, or drop this declaration.",
     );
   });
 
   test("a head naming a member this module does not honor is refused at the head", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "widens Show.show(value: Box, extra: Int): String = \"box\"",
@@ -635,6 +655,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
 
   test("a head naming no member at all is refused at the head", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "widens Float.nan(value: Box, extra: Int): Box = value",
@@ -652,6 +674,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // leads instead, and what follows it is true rather than a knock-on: this
     // module really does not contain a `widens Pow.pow`.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "honor Num<Box> =",
@@ -678,6 +702,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // Refused rather than silently attached — the author wrote documentation
     // that nothing would ever show.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       box,
       DOOR,
       "",
@@ -726,6 +752,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // The reach doctrine self-enforcing: qualification is module aliases only,
     // so where no alias is in scope the head has no spelling (§4.6, §2.2).
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "widens Nowhere.pow(value: Box, exponent: Float): Box = value",
@@ -822,7 +850,7 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
       ].join("\n")],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "this instance does not account for `scaleBy`, which this module's " +
-        "`widens` declaration supplies (line 6) — write `scaleBy = widened` in " +
+        "`widens` declaration supplies (line 8) — write `scaleBy = widened` in " +
         "the block",
     ]);
   });
@@ -874,6 +902,8 @@ describe("several same-spelled members: widen all of them or none (§4.7)", () =
 
   function boxModule(...tail: readonly string[]): string {
     return [
+      "module Box",
+      "",
       "// box",
       "import Mul",
       "",
@@ -945,6 +975,8 @@ describe("several same-spelled members: widen all of them or none (§4.7)", () =
 describe("where a `widens` declaration may stand (Declarations Preamble §7.1)", () => {
   test("inside a function body it joins the declarations-live-at-module-level family", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export let f(): Int =",
       "    widens Pow.pow(value: Int, exponent: Int): Int = value",
       "    1",
@@ -954,6 +986,8 @@ describe("where a `widens` declaration may stand (Declarations Preamble §7.1)",
 
   test("`export widens` is refused in the form's own words", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "export widens Pow.pow(value: Box, exponent: Float): Box = value",
@@ -996,6 +1030,8 @@ describe("the mandatory fixit at the exponent seat (Operators §6.3, #545)", () 
     // The two stdlib doors are instances of the lookup, not its content: the
     // fixit reads the registry of `widens` declarations at the value's type.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "honor Num<Box> =",

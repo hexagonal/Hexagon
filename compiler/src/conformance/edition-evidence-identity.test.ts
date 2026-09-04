@@ -442,7 +442,7 @@ describe("the lookup walks all three channels, keyed on identity", () => {
   ])("an import's instances: %s", (_label, lines) => {
     const module = core([
       ["/describe.hex", "module Describe\n\n" + describeModule],
-      ["/main.hex", lines.join("\n")],
+      ["/main.hex", "module Main\n\n" + lines.join("\n")],
     ]);
     const { constraint } = constrainedItem(module, "tell");
 

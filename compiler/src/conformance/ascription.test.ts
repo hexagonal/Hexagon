@@ -261,8 +261,8 @@ describe("§5 the diagnostics this spec re-mechanizes and retires", () => {
   test("the hint arises one token later — on the term, not the colon", () => {
     // §5's mechanism sentence: the element colon is grammar now, and `1` is a
     // term where a type must stand. Carets the `1`, not the `:`.
-    const source = "let p = (x: 1, y: 2)\nexport let out: Int = 1\n";
-    const diagnostic = compileMain("module Main\n\n" + source).diagnostics.find(({ message }) =>
+    const source = "module Main\n\n" + "let p = (x: 1, y: 2)\nexport let out: Int = 1\n";
+    const diagnostic = compileMain(source).diagnostics.find(({ message }) =>
       message.startsWith("tuples are positional")
     )!;
     expect(source.slice(diagnostic.primary.start.offset, diagnostic.primary.end.offset)).toBe("1");

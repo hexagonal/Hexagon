@@ -168,7 +168,7 @@ describe("the same literal abroad, and through rule 3", () => {
         "export let mk: (Int) -> Tag.Tag = Tag\n"],
     ] as const;
     const javascript = emitted(files);
-    expect(javascript).toContain('import * as Tag from "./tag.js";');
+    expect(javascript).toContain('import * as Tag from "./Tag.js";');
     expect(javascript).toContain('const t = { tag: "Tag", n: 7 };');
     expect(javascript).toContain("const mk = Tag.Tag;");
     expect(javascript).not.toContain("Tag(7)");

@@ -115,7 +115,7 @@ const BOTH_MEMBERS =
 describe("conjuncts on one variable follow the alphabet, not the spelling", () => {
   test("#447's own program runs", async () => {
     const exports = await runProject(
-      [["/main.hex", TWICE + "export let answer: String = twice(2)\n"]],
+      [["/main.hex", "module Main\n\n" + TWICE + "export let answer: String = twice(2)\n"]],
       { transform: distinct("evidence suffix order: the issue's twice") },
     );
 
@@ -131,7 +131,7 @@ describe("conjuncts on one variable follow the alphabet, not the spelling", () =
   test("#447's own program emits the suffix alphabetically at both ends", () => {
     const javascript = emitted([[
       "/main.hex",
-      TWICE + "export let answer: String = twice(2)\n",
+      "module Main\n\n" + TWICE + "export let answer: String = twice(2)\n",
     ]]);
 
     expect(javascript).toContain(
@@ -212,7 +212,7 @@ describe("variables follow the declared ordinal, not the type's occurrence order
    */
   test("a head spelled against its type's occurrence order runs", async () => {
     const exports = await runProject(
-      [["/main.hex", MIX + "export let out: String = mix(2, True)\n"]],
+      [["/main.hex", "module Main\n\n" + MIX + "export let out: String = mix(2, True)\n"]],
       { transform: distinct("evidence suffix order: mix declared b then a") },
     );
 
@@ -222,7 +222,7 @@ describe("variables follow the declared ordinal, not the type's occurrence order
   /** The control: the same function with the head in the canonical order. */
   test("the canonically spelled head runs, and always did", async () => {
     const exports = await runProject(
-      [["/main.hex", MIX_CANONICAL + "export let out: String = mix(2, True)\n"]],
+      [["/main.hex", "module Main\n\n" + MIX_CANONICAL + "export let out: String = mix(2, True)\n"]],
       { transform: distinct("evidence suffix order: mix declared a then b") },
     );
 
@@ -237,11 +237,11 @@ describe("variables follow the declared ordinal, not the type's occurrence order
   test("the two spellings emit mirrored argument lists against mirrored parameters", () => {
     const declared = emitted([[
       "/main.hex",
-      MIX + "export let out: String = mix(2, True)\n",
+      "module Main\n\n" + MIX + "export let out: String = mix(2, True)\n",
     ]]);
     const canonical = emitted([[
       "/main.hex",
-      MIX_CANONICAL + "export let out: String = mix(2, True)\n",
+      "module Main\n\n" + MIX_CANONICAL + "export let out: String = mix(2, True)\n",
     ]]);
 
     expect(declared).toContain("const mix = (x, y, __Show_b, __Show_a) =>");
@@ -323,11 +323,11 @@ describe("the display is canonical and does not track the suffix across variable
   });
 
   test("they do not all emit one suffix", () => {
-    expect(emitted([["/main.hex", CANONICAL + TAIL]]))
+    expect(emitted([["/main.hex", "module Main\n\n" + CANONICAL + TAIL]]))
       .toContain("const f = (x, y, __Show_a, __Show_b) =>");
-    expect(emitted([["/main.hex", HEAD_SWAPPED + TAIL]]))
+    expect(emitted([["/main.hex", "module Main\n\n" + HEAD_SWAPPED + TAIL]]))
       .toContain("const f = (x, y, __Show_b, __Show_a) =>");
-    expect(emitted([["/main.hex", TYPE_SWAPPED + TAIL]]))
+    expect(emitted([["/main.hex", "module Main\n\n" + TYPE_SWAPPED + TAIL]]))
       .toContain("const f = (x, y, __Show_b, __Show_a) =>");
   });
 
@@ -338,7 +338,7 @@ describe("the display is canonical and does not track the suffix across variable
       ["head swapped", HEAD_SWAPPED],
     ] as const) {
       const exports = await runProject(
-        [["/main.hex", source + TAIL]],
+        [["/main.hex", "module Main\n\n" + source + TAIL]],
         { transform: distinct(`display vs suffix: ${label}`) },
       );
 
@@ -346,7 +346,7 @@ describe("the display is canonical and does not track the suffix across variable
     }
 
     const swapped = await runProject(
-      [["/main.hex", TYPE_SWAPPED + "export let out: String = f(True, 2)\n"]],
+      [["/main.hex", "module Main\n\n" + TYPE_SWAPPED + "export let out: String = f(True, 2)\n"]],
       { transform: distinct("display vs suffix: type swapped") },
     );
 
@@ -372,7 +372,7 @@ describe("a first-use constrained variable takes no specified position", () => {
 
   test("the half-declared function answers", async () => {
     const exports = await runProject(
-      [["/main.hex", HALF + "export let out: String = mix(2, True)\n"]],
+      [["/main.hex", "module Main\n\n" + HALF + "export let out: String = mix(2, True)\n"]],
       { transform: distinct("evidence suffix order: mix declares b only") },
     );
 
@@ -381,7 +381,7 @@ describe("a first-use constrained variable takes no specified position", () => {
 
   test("both arguments reach the member they belong to", async () => {
     const exports = await runProject(
-      [["/main.hex", HALF + "export let out: String = mix(True, 2)\n"]],
+      [["/main.hex", "module Main\n\n" + HALF + "export let out: String = mix(True, 2)\n"]],
       { transform: distinct("evidence suffix order: mix declares b only, swapped") },
     );
 
@@ -412,7 +412,8 @@ describe("the ordinal survives every copy of the scheme", () => {
     const exports = await runProject(
       [[
         "/main.hex",
-        TWICE + "let alias = twice\n" + "export let answer: String = alias(2)\n",
+        "module Main\n\n" + TWICE + "let alias = twice\n" +
+          "export let answer: String = alias(2)\n",
       ]],
       { transform: distinct("evidence suffix order: alias axis 1") },
     );
@@ -430,7 +431,8 @@ describe("the ordinal survives every copy of the scheme", () => {
     const exports = await runProject(
       [[
         "/main.hex",
-        MIX + "let alias = mix\n" + "export let answer: String = alias(2, True)\n",
+        "module Main\n\n" + MIX + "let alias = mix\n" +
+          "export let answer: String = alias(2, True)\n",
       ]],
       { transform: distinct("evidence suffix order: alias axis 2") },
     );
@@ -441,7 +443,8 @@ describe("the ordinal survives every copy of the scheme", () => {
   test("the alias's argument list mirrors the aliased parameter list", () => {
     const javascript = emitted([[
       "/main.hex",
-      MIX + "let alias = mix\n" + "export let answer: String = alias(2, True)\n",
+      "module Main\n\n" + MIX + "let alias = mix\n" +
+        "export let answer: String = alias(2, True)\n",
     ]]);
 
     expect(javascript).toContain("const mix = (x, y, __Show_b, __Show_a) =>");
@@ -460,7 +463,7 @@ describe("the ordinal survives every copy of the scheme", () => {
   test("a forwarder is right at both hops, not merely cancelling", () => {
     const javascript = emitted([[
       "/main.hex",
-      TWICE +
+      "module Main\n\n" + TWICE +
         "let outer<z: (Show, Num)>(v: z): String = twice(v)\n" +
         "export let answer: String = outer(2)\n",
     ]]);

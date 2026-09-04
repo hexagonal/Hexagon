@@ -24,13 +24,14 @@ describe("collectTypeOccurrences", () => {
       "    Debug.log(\"${item}\")\n";
     // Through `compileProject`, because `Seq(a)` is a prelude declaration now
     // (Loops §6.6) and the passes called directly cannot see the prelude.
-    const project = compileProject([new Source.File(Source.fileId(0), "/hover.hex", "module Hover\n\n" + text)]);
+    const HEADER = "module Hover\n\n";
+    const project = compileProject([new Source.File(Source.fileId(0), "/hover.hex", HEADER + text)]);
     const module = project.modules.find(({ source }) => source.path === "/hover.hex")!.typed;
 
     expect(project.diagnostics).toEqual([]);
     const occurrences = collectTypeOccurrences(module);
     const at = (spelling: string, offset: number) =>
-      occurrences.find(({ name, span }) => name === spelling && span.start.offset === offset);
+      occurrences.find(({ name, span }) => name === spelling && span.start.offset === HEADER.length + offset);
 
     expect(at("identity", text.indexOf("identity"))?.displayedType).toBe("a -> a");
     expect(at("identity", text.lastIndexOf("identity"))?.displayedType).toBe("a -> a");

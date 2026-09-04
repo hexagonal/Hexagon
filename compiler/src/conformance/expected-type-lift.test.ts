@@ -58,11 +58,11 @@ const fixtures = "let n: Nat = 7\n" +
   "let negOne: Int = -1\n";
 
 function verdict(source: string): readonly string[] {
-  return projectDiagnostics(fixtures + source);
+  return projectDiagnostics("module Main\n\n" + fixtures + source);
 }
 
 function withRat(source: string): readonly (readonly [string, string])[] {
-  return [["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`], ["/Rat.hex", "module Rat\n\n" + RAT]];
+  return [["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`], ["/Rat.hex", RAT]];
 }
 
 function ratVerdict(source: string): readonly string[] {
@@ -79,7 +79,7 @@ function ratEmitted(source: string): string {
 
 /** `/main.hex`'s emitted JavaScript, with the project asserted clean. */
 function emitted(source: string): string {
-  const project = compileFiles([["/main.hex", fixtures + source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + fixtures + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!
     .javascript.text;
@@ -260,7 +260,7 @@ describe("the `Pow` home selection — the base seat alone (#541)", () => {
     expect(verdict(nominal)).toEqual([]);
     // 6 ** 4 at `Int`, then injected: the value a lift could not have produced,
     // since `Boxed` has no power of its own to run.
-    const exports = await runProject([["/main.hex", fixtures + nominal]]);
+    const exports = await runProject([["/main.hex", "module Main\n\n" + fixtures + nominal]]);
     expect(exports["declined"]).toBe(1296);
     // The elaboration shape: `Signed<Boxed>.fromInt` wrapping the finished
     // `Int` power, not an operation at `Boxed`.

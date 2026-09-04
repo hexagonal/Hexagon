@@ -80,7 +80,7 @@ describe("the four spellings are one implementation", () => {
    * the one a re-homing could most easily leave pointing at the retired row.
    */
   test("`show` agrees qualified, after a dot, interpolated, and under a bound", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let qualified: String = Float.show(1.5)",
       "export let dotted: String = (1.5).show()",
       'export let interpolated: String = "${1.5}"',
@@ -101,7 +101,7 @@ describe("the four spellings are one implementation", () => {
    * describe below), and there is no operator to be a fourth.
    */
   test("`mod` agrees qualified and after a dot, on a receiver and on a literal", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let qualified: Float = Float.mod(-7.5, 3.0)",
       "let angle: Float = -7.5",
       "export let dotted: Float = angle.mod(3.0)",
@@ -123,7 +123,7 @@ describe("Primitive Types §5's equality and order, executed", () => {
    * which is what lets a `Float` key a hash table at all.
    */
   test("`NaN` equals itself and `-0.0` equals `0.0`, operator and slot alike", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let nan: Float = 0.0 / 0.0",
       "let alsoNan: Float = (1.0 / 0.0) - (1.0 / 0.0)",
       "let same<a: Eq>(left: a, right: a): Bool = Eq.equals(left, right)",
@@ -150,7 +150,7 @@ describe("Primitive Types §5's equality and order, executed", () => {
    * it is exactly the property a host comparison would not have.
    */
   test("`NaN` sorts after `+Infinity` and the zeroes compare equal", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let notANumber: Float = 0.0 / 0.0",
       "let positiveInfinity: Float = 1.0 / 0.0",
       "let negativeInfinity: Float = -1.0 / 0.0",
@@ -179,7 +179,7 @@ describe("Division & Remainder §5's family, executed", () => {
    * sign pair is here.
    */
   test("Euclidean and truncated agree only where §2's table says they do", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let euclidean: Vector(Float) = [",
       "    Float.mod(7.0, 3.0), Float.mod(-7.0, 3.0),",
       "    Float.mod(7.0, -3.0), Float.mod(-7.0, -3.0)]",
@@ -200,7 +200,7 @@ describe("Division & Remainder §5's family, executed", () => {
    * so the usual `x != x` test answers `False` here and would prove nothing.
    */
   test("a zero divisor answers `NaN` at both, and nothing throws", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let modByZero: String = show(Float.mod(1.0, 0.0))",
       "export let remByZero: String = show(Float.rem(1.0, 0.0))",
       "export let zeroByZero: String = show(Float.mod(0.0, 0.0))",
@@ -226,7 +226,7 @@ describe("Division & Remainder §5's family, executed", () => {
    * Pinned so that a future "tightening" of `mod` has to argue with this test.
    */
   test("the adjustment may round up to `abs(right)`, and that is the contract", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let tiny: Float = -1.0e-300",
       "export let atTheBoundary: Float = Float.mod(tiny, 3.0)",
       "export let withinTheBound: Bool = Float.mod(tiny, 3.0) <= 3.0",
@@ -246,7 +246,7 @@ describe("Collections Part 2 §2.3's `Hash` row, executed", () => {
    * hashes alike — which it must, because `Eq<Float>` says they are equal.
    */
   test("two independently produced `NaN`s hash equally", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let nan: Float = 0.0 / 0.0",
       "let alsoNan: Float = (1.0 / 0.0) * 0.0",
       "export let equal: Bool = nan == alsoNan",
@@ -267,7 +267,7 @@ describe("Collections Part 2 §2.3's `Hash` row, executed", () => {
    * is the law holding where a user can see it.
    */
   test("`-0.0` and `0.0` hash equally — the SameValueZero law", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let zeroesEqual: Bool = 0.0 == -0.0",
       "export let hashesAgree: Bool = Hash.hash(0.0) == Hash.hash(-0.0)",
       "let both: Set(Float) = Set.add(Set.add(Set.empty, 0.0), -0.0)",
@@ -290,7 +290,7 @@ describe("Primitive Types §7's `show`, warts included", () => {
    * language without noticing.
    */
   test("`4.0` shows as `4`, `-0.0` as `0`, and the non-finite floats by name", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let whole: String = show(4.0)",
       "export let negativeZero: String = show(-0.0)",
       "export let large: String = show(1.0e21)",
@@ -557,7 +557,7 @@ describe("`mod` and `rem` gained a second exporter", () => {
 
   /** Every unambiguous route still works, at `Int` as much as at `Float`. */
   test("the qualified and dot spellings survive at both types", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let floatQualified: Float = Float.mod(-11.0, 4.0)",
       "export let intQualified: Int = Integral.mod(-11, 4)",
       "export let companionQualified: Int = Int.rem(-11, 4)",
@@ -603,7 +603,7 @@ describe("Numeric Literals §4's defaulting is unchanged by the new seats", () =
    * else, and `Float.hex` sitting after `Int.hex` changes no part of it.
    */
   test("an unannotated literal is still an `Int`, beside the new companions", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let x = 1",
       "export let doubled: Int = x + x",
       "export let stillInt: String = show(x + 41)",
@@ -655,8 +655,9 @@ describe("the companion's own emitted shape", () => {
       "const FloatRangeError = message => " +
         "__exception(\"FloatRangeError\", message, { message });",
     );
-    // The brand is the declaring module's path identity, so `Float.hex`'s own.
-    expect(text).toContain("__error.$hex === \"Float\"");
+    // The brand is the declaring module's full name (Packages §2.3), so the
+    // prelude's own `Hex.Float`.
+    expect(text).toContain("__error.$hex === \"Hex.Float\"");
   });
 });
 

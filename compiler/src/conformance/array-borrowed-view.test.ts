@@ -143,10 +143,19 @@ describe("`xs[i]` is 1-based, asserting, and native underneath (§6.3)", () => {
    * `index` as passed and `size` at the fault.
    */
   test("the throw carries `IndexError`'s identity and payload", async () => {
+    // SUSPECTED COMPILER DEFECT (#829 residue): the brand is the module's
+    // *full* name (Packages §2.3) — `Hex.Vector` for the prelude's `Vector` —
+    // and the catch arm below already tests against it (confirmed by reading
+    // the emitted JavaScript: `__error.$hex === "Hex.Vector"`). But the
+    // `__arrayIndex` runtime helper's hardcoded literal (emitter.ts, the
+    // `IndexError`/`SliceError` throw text near lines 11935/11959/11969/
+    // 12166/12177/12197/12205) still stamps the bare `"Vector"`, so the raw
+    // throw and the catch arm's check disagree. This assertion states the
+    // spec-correct brand and will fail until those literals are updated.
     await expect(async () => read([10, 20, 30], 99)).rejects
-      .toMatchObject({ name: "IndexError", $hex: "Vector", index: 99, size: 3 });
+      .toMatchObject({ name: "IndexError", $hex: "Hex.Vector", index: 99, size: 3 });
     await expect(async () => read([10, 20, 30], 0)).rejects
-      .toMatchObject({ name: "IndexError", $hex: "Vector", index: 0, size: 3 });
+      .toMatchObject({ name: "IndexError", $hex: "Hex.Vector", index: 0, size: 3 });
   });
 
   /**
@@ -156,6 +165,11 @@ describe("`xs[i]` is 1-based, asserting, and native underneath (§6.3)", () => {
    * above would not have proved it.
    */
   test("an `IndexError(index, size)` arm catches it and binds both slots", () => {
+    // SUSPECTED COMPILER DEFECT (#829 residue), same root cause as the raw-throw
+    // test above: the catch arm's generated guard tests `$hex === "Hex.Vector"`
+    // (the module's full name), but `__arrayIndex`'s hardcoded throw still
+    // stamps the bare `"Vector"`, so the guard never matches and the raw
+    // `IndexError` escapes uncaught instead of being handled here.
     const guarded = exports_["guarded"] as (xs: readonly number[], i: number) => number;
     expect(guarded([10, 20, 30], 9)).toBe(9 * 1000 + 3);
     expect(guarded([10, 20, 30], 0)).toBe(0 * 1000 + 3);

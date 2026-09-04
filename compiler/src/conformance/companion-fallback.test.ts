@@ -348,6 +348,13 @@ describe("constraint position: the same reading, one namespace over", () => {
         "module Main\n\n" + 'import Render as R\n' +
         "export fun label<a: R>(x: a): String = R.render(x)\n"],
     ])).toContain(
+      // #829 residue: the checker's `#unknownConstraint` (checker.ts) still
+      // builds this repair with the pre-#829 `import X from "specifier"` head
+      // instead of `packages.ts`'s `moduleImportLine` (the resolver's sibling
+      // message, `#aliasIsNotATypeMessage`, already uses it). This pin states
+      // the spec-correct text (Modules §10's row, Packages §3.4) and is left
+      // red rather than pinned to the compiler's stale output — see the final
+      // report's suspected-compiler-defect list.
       "unknown constraint `R`; `R` is a module alias — write `R.Render` for the constraint " +
         'it exports, or realias as `import Render`',
     );

@@ -79,12 +79,12 @@ const fixtures = "let i: Int = 6\n" +
   "fun same(value: Int): Int = value\n";
 
 function verdict(source: string): readonly string[] {
-  return projectDiagnostics(fixtures + source);
+  return projectDiagnostics("module Main\n\n" + fixtures + source);
 }
 
 /** `/main.hex`'s emitted JavaScript, with the project asserted clean. */
 function emitted(source: string): string {
-  const project = compileFiles([["/main.hex", fixtures + source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + fixtures + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!
     .javascript.text;
@@ -100,7 +100,7 @@ function probeLine(source: string): string {
 function withRat(source: string): readonly (readonly [string, string])[] {
   return [
     ["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`],
-    ["/Rat.hex", "module Rat\n\n" + RAT],
+    ["/Rat.hex", RAT],
   ];
 }
 
@@ -296,7 +296,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
    * makes the type's spelling at the use site `Foo.Foo`.
    */
   const fooModule = foo.slice(0, foo.indexOf("let i: Int"));
-  const fooMain = 'import Foo\n' +
+  const fooMain = "module Main\n\n" + 'import Foo\n' +
     "let p: Foo.Foo = Foo.mk()\n" +
     "let q: Foo.Foo = Foo.mk()\n" +
     "let s2: Foo.Foo = Foo.mk()\n";
@@ -988,7 +988,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // missing — refused either way, and neither refusal is row 16.
     expect(refusals(`${foo}let probe = (1 + 2).gcd(s2)\n`)).toEqual([
       "type `Foo` has no `Integral` instance; it could only be declared in " +
-      "`./main.hex` (declares `Foo`) or the module declaring `Integral`",
+      "module `Main` (declares `Foo`) or the module declaring `Integral`",
     ]);
     expect(line(`${foo}let probe: BigInt = (1 + 2).gcd(3)\n`))
       .toBe("const probe = __Integral_BigInt_gcd(1n + 2n, 3n);");
@@ -1326,8 +1326,8 @@ describe("§9 row 14: the exponent seat's fixit, in every spelling", () => {
   test("the span is the argument, never the whole call", () => {
     // #783's second finding. A report against the whole dot call points the
     // reader at the receiver, which is not the seat that refused.
-    const source = `${fixtures}let probe = i.pow(2n)\n`;
-    const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
+    const source = "module Main\n\n" + `${fixtures}let probe = i.pow(2n)\n`;
+    const project = compileFiles([["/main.hex", source]]);
     const reported = project.diagnostics[0]!;
     expect(source.slice(
       reported.primary.start.offset,

@@ -193,18 +193,18 @@ describe("the program table is what makes a prelude module's plan the consumer's
     // before them see no companion at all. Every one of these would plan a
     // smaller edition set for its own exports than a consumer recomputes.
     expect(shortfalls.map(({ path }) => path)).toEqual([
-      "/Pow.hex",
-      "module Pow\n\n" + "/Hash.hex",
-      "/Integral.hex",
-      "/Option.hex",
-      "/Int.hex",
-      "/Nat.hex",
-      "/Float.hex",
-      "/BigInt.hex",
-      "/Seq.hex",
+      "/Hex/Pow.hex",
+      "/Hex/Hash.hex",
+      "/Hex/Integral.hex",
+      "/Hex/Option.hex",
+      "/Hex/Int.hex",
+      "/Hex/Nat.hex",
+      "/Hex/Float.hex",
+      "/Hex/BigInt.hex",
+      "/Hex/Seq.hex",
     ]);
-    expect(shortfalls.find(({ path }) => path === "/Int.hex")?.missing).toBe(28);
-    expect(shortfalls.find(({ path }) => path === "/Nat.hex")?.missing).toBe(21);
+    expect(shortfalls.find(({ path }) => path === "/Hex/Int.hex")?.missing).toBe(28);
+    expect(shortfalls.find(({ path }) => path === "/Hex/Nat.hex")?.missing).toBe(21);
   });
 
   test("emission plans from the table it is handed, not from the module", () => {
@@ -306,7 +306,7 @@ describe("the program table is what makes a prelude module's plan the consumer's
     // the seats the obligation is about or the row asserts nothing about them.
     // `Show.hex` is prelude seat 1 and the hardest case there is.
     const emitted = compiled.modules.map(({ source }) => source.path);
-    for (const seat of ["/Show.hex", "module Show\n\n" + "/Eq.hex", "/Ord.hex", "/Hash.hex", "/Signed.hex"]) {
+    for (const seat of ["/Hex/Show.hex", "/Hex/Eq.hex", "/Hex/Ord.hex", "/Hex/Hash.hex", "/Hex/Signed.hex"]) {
       expect(emitted).toContain(seat);
     }
   });
@@ -507,10 +507,10 @@ describe("a declared constraint's candidates are its own instances", () => {
     // beside it is #762's "emission is unchanged in shape" clause.
     const javascript = compiled.modules
       .find(({ source }) => source.path === "/main.hex")!.javascript.text;
-    expect(javascript).toContain('import * as Tell from "./tell.js";');
-    expect(javascript).toContain('import { __tell, tellInt } from "./tell.js";');
+    expect(javascript).toContain('import * as Tell from "./Tell.js";');
+    expect(javascript).toContain('import { __tell, tellInt } from "./Tell.js";');
     expect(javascript).toContain("const told = tellInt(one);");
-    expect(javascript).not.toContain("./describe.js");
+    expect(javascript).not.toContain("./Describe.js");
   });
 });
 
@@ -518,7 +518,7 @@ describe("the collections API gains its JavaScript entry points", () => {
   test("`Set` and `Map` publish editions where they published none", () => {
     const compiled = project([["/main.hex", "module Main\n\n" + COLLECTIONS]]);
     const editionsOf = (basename: string): number => {
-      const module = compiled.modules.find(({ source }) => source.path === `/${basename}.hex`)!;
+      const module = compiled.modules.find(({ source }) => source.path === `/Hex/${basename}.hex`)!;
       return planFundamentalSpecializations(module.core, compiled.fundamentalInstances)
         .specializations.length;
     };

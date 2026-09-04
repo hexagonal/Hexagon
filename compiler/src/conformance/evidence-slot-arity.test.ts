@@ -52,6 +52,7 @@ const SHOW_PAIR =
   "export let pair<a: Show, b: Show>(x: a, y: b): String = show(x) ++ show(y)\n";
 
 const LOCAL_PAIR =
+  "module Main\n\n" +
   "let pair<a: Show, b: Show>(x: a, y: b): String = show(x) ++ show(y)\n";
 
 /** A type outside Part 8's fundamental set, so no edition can hide the call. */

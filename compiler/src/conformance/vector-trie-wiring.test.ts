@@ -91,7 +91,7 @@ describe("the runtime module's two-sided contract", () => {
   );
 
   test("the emitted runtime module exports exactly the inventory", () => {
-    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/VectorTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/VectorTrie.hex");
     expect(javascript).toContain(`export { ${VECTOR_RUNTIME_OPERATIONS.join(", ")} };`);
   });
 
@@ -112,7 +112,7 @@ describe("the runtime module's two-sided contract", () => {
    * one, and `Vector.js` above all must not appear.
    */
   test("the emitted runtime module imports only modules seated before it", () => {
-    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/VectorTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/VectorTrie.hex");
     const specifiers = [...javascript.matchAll(/^\s*import\b[^;\n]*?from\s+"([^"]+)";/gmu)]
       .map((match) => match[1]!);
 
@@ -165,7 +165,7 @@ describe("the import surface", () => {
     // `Option.hex`'s answer for the checked family. `Vector.hex` is still
     // absent, which is what this case is about.
     expect(emittedPaths(files)).toEqual([
-      "/Pow.hex", "module Pow\n\n" + "/Integral.hex", "/Option.hex", "/Int.hex", "/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/VectorTrie.hex", "/main.hex",
     ]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(
@@ -478,7 +478,7 @@ describe("§4/§7 complexity", () => {
    * O(n log32 n) on every loop a program writes.
    */
   test("the emitted iterator descends per node rather than per element", () => {
-    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/VectorTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/VectorTrie.hex");
     expect(javascript).toContain("function* __vectorIterate() {");
     expect(javascript).toContain("nodeRun(this, __index)");
     expect(javascript).toContain("__index += __run;");
@@ -531,9 +531,9 @@ describe("§4/§7 complexity", () => {
     return (await runProject(
       [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]],
       {
-        entry: "/VectorTrie.hex",
+        entry: "/Hex/VectorTrie.hex",
         transform: (path, javascript) => {
-          if (path !== "/VectorTrie.hex") return javascript;
+          if (path !== "/Hex/VectorTrie.hex") return javascript;
           // Exactly one definition, so the rename below cannot leave a call
           // site reaching an uncounted implementation.
           expect(javascript.split(definition)).toHaveLength(2);
@@ -681,7 +681,7 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
   test("the trie every vector is built on is covariant in its element", () => {
     const shipped = varianceIn(
       [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]],
-      "/VectorTrie.hex",
+      "/Hex/VectorTrie.hex",
     );
     expect(shipped.diagnostics).toEqual([]);
     // §6.3's derivation, as the checker computes it: `a` reaches `TrieVector`
@@ -699,7 +699,7 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
   test("the claim table's `Vector` row is what the representation computes", () => {
     const shipped = varianceIn(
       [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]],
-      "/VectorTrie.hex",
+      "/Hex/VectorTrie.hex",
     );
     expect(COMPILER_CLAIMS.get("Vector")).toEqual(["co"]);
     expect(shipped.trieVector.map(({ computed }) => computed))

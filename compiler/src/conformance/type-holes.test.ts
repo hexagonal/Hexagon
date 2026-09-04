@@ -304,8 +304,8 @@ describe("§8.6 the total-contract fence (§5.4)", () => {
       // What changed is the count. The copies always carried the written span —
       // `withTypeSpan` exempts holes from substitution's re-pointing — so the
       // one error left is the one that was always right.
-      const source = `${PAIR}export let h(q: Pair(_)): Int = 1\n`;
-      const { diagnostics } = compileMain("module Main\n\n" + source);
+      const source = "module Main\n\n" + `${PAIR}export let h(q: Pair(_)): Int = 1\n`;
+      const { diagnostics } = compileMain(source);
       expect(diagnostics).toHaveLength(1);
       const { start, end } = diagnostics[0]!.primary;
       expect(source.split("\n")[start.line]!.slice(start.column, end.column)).toBe("_");

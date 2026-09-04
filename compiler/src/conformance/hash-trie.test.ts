@@ -1165,15 +1165,17 @@ describe("the emitted module's import surface", () => {
       ...emitted!.javascript.text.matchAll(/^\s*import\b[^;\n]*?from\s+"([^"]+)";/gmu),
     ].map((match) => match[1]!);
 
-    expect(specifiers).not.toContain("./Vector.js");
-    expect(specifiers).not.toContain("./VectorTrie.js");
+    expect(specifiers).not.toContain("./Hex/Vector.js");
+    expect(specifiers).not.toContain("./Hex/VectorTrie.js");
+    // The prelude emits under `Hex/` (Modules §11.1; Packages §6), and the
+    // probe sits at the output root, so a prelude specifier reads `./Hex/…`.
     const seatedBefore = PRELUDE_MODULES
-      .map(({ basename }) => `./${basename.replace(/\.hex$/u, ".js")}`)
+      .map(({ basename }) => `./Hex/${basename.replace(/\.hex$/u, ".js")}`)
       .slice(0, PRELUDE_MODULES.findIndex(({ basename }) => basename === "Vector.hex"));
     for (const specifier of specifiers) expect(seatedBefore).toContain(specifier);
     // And it really does import — an empty list would pass the loop vacuously.
     expect(specifiers.length).toBeGreaterThan(0);
-    expect(specifiers).toContain("./Seq.js");
+    expect(specifiers).toContain("./Hex/Seq.js");
   });
 });
 

@@ -10,7 +10,10 @@ import { runMain } from "../support/test-project.js";
 
 // Through the whole project, prelude included: since #147 a probe module with no
 // prelude cannot type a condition, which is what most of these cases are about.
-const run = runMain;
+// The header is minted here, once, rather than at each call site (Modules
+// §2.1, #829): `runMain` itself mints none, so a probe source that omits one
+// meets the same headerless refusal a user's file would.
+const run = (source: string): ReturnType<typeof runMain> => runMain(`module Main\n\n${source}`);
 
 // Proves this file's harness can observe a failure: a harness that silently
 // swallowed diagnostics would report every case below as green regardless of

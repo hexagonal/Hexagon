@@ -25,6 +25,8 @@ import { compileMain, runMain } from "../support/test-project.js";
 describe("a recursive member executes (pin 1)", () => {
   test("`Show<Tree>` recursing into `Vector(Tree)` kids", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export record Tree = {value: Int, kids: Vector(Tree)}",
       "",
       "honor Show<Tree> =",
@@ -52,6 +54,8 @@ describe("mutually recursive instances execute (pin 2)", () => {
    */
   test("`Show<Ping>` and `Show<Pong>` reference each other", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export record Ping = {label: Int, next: Option(Pong)}",
       "export record Pong = {label: Int, back: Option(Ping)}",
       "",
@@ -83,6 +87,8 @@ describe("a recursive parameterized instance executes (pin 3)", () => {
    */
   test("hand-written `honor<a: Show> Show<Rose(a)>`", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export union Rose(a) = Leaf | Branch(item: a, kids: Vector(Rose(a)))",
       "",
       "honor<a: Show> Show<Rose(a)> =",
@@ -107,6 +113,8 @@ describe("a recursive parameterized instance executes (pin 3)", () => {
    */
   test("derived `Show` on a recursive parameterized union", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export union DTree(a) derives Show = DLeaf | DBranch(item: a, kids: Vector(DTree(a)))",
       "",
       "export let shown: String = show(DBranch(1, [DLeaf]))",
@@ -133,6 +141,8 @@ describe("a member's own name in its own body (Constraints §4.6)", () => {
    */
   test("bare `show` inside `Show<Wrap>`'s body is refused with the rewrite", () => {
     const project = compileMain([
+      "module Main",
+      "",
       "export record Wrap = {inner: Int}",
       "",
       "honor Show<Wrap> =",
@@ -150,6 +160,8 @@ describe("a member's own name in its own body (Constraints §4.6)", () => {
   /** The sanctioned rewrite, executed — a refusal whose fixit does not run is half a ruling. */
   test("the ruled dot-call rewrite compiles and runs", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export record Wrap = {inner: Int}",
       "",
       "honor Show<Wrap> =",
@@ -170,6 +182,8 @@ describe("a member's own name in its own body (Constraints §4.6)", () => {
    */
   test("a declaration default naming its own member is not refused", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "constraint Countdown<a> =",
       "    step(value: a): a",
       "    down(value: a, times: Int): a =",

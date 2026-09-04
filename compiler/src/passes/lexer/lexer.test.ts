@@ -14,6 +14,8 @@ describe("lex", () => {
     );
 
     expect(kinds(result.tokens)).toEqual([
+      "NonUpperName",
+      "UpperName",
       "Let",
       "NonUpperName",
       "Equal",
@@ -34,7 +36,7 @@ describe("lex", () => {
       "Eof",
     ]);
     expect(result.diagnostics).toEqual([]);
-    expect(result.newlines).toHaveLength(1);
+    expect(result.newlines).toHaveLength(3);
   });
 
   /**
@@ -49,6 +51,8 @@ describe("lex", () => {
     expect(kinds(declaration.tokens)).toEqual([
       "NonUpperName",
       "UpperName",
+      "NonUpperName",
+      "UpperName",
       "Equal",
       "UpperName",
       "Bar",
@@ -60,6 +64,8 @@ describe("lex", () => {
     // A binder and a member reference, which a hard keyword made unspellable.
     const term = lexSource("let union = Set.union");
     expect(kinds(term.tokens)).toEqual([
+      "NonUpperName",
+      "UpperName",
       "Let",
       "NonUpperName",
       "Equal",
@@ -71,7 +77,9 @@ describe("lex", () => {
     expect(term.diagnostics).toEqual([]);
 
     // The control: the words beside it in the table are untouched.
-    expect(kinds(lexSource("record type").tokens)).toEqual(["Record", "Type", "Eof"]);
+    expect(kinds(lexSource("record type").tokens)).toEqual([
+      "NonUpperName", "UpperName", "Record", "Type", "Eof",
+    ]);
   });
 
   /**
@@ -93,13 +101,15 @@ describe("lex", () => {
     ]) {
       const result = lexSource(`let ${name} = 1`);
       expect(kinds(result.tokens)).toEqual([
+        "NonUpperName",
+        "UpperName",
         "Let",
         "NonUpperName",
         "Equal",
         "Integer",
         "Eof",
       ]);
-      expect(nameTexts(result.tokens)).toEqual([name]);
+      expect(nameTexts(result.tokens)).toEqual(["module", "Test", name]);
       expect(result.diagnostics).toEqual([]);
     }
 
@@ -114,8 +124,8 @@ describe("lex", () => {
       "__lookupSetter__",
     ]) {
       const result = lexSource(name);
-      expect(kinds(result.tokens)).toEqual(["NonUpperName", "Eof"]);
-      expect(nameTexts(result.tokens)).toEqual([name]);
+      expect(kinds(result.tokens)).toEqual(["NonUpperName", "UpperName", "NonUpperName", "Eof"]);
+      expect(nameTexts(result.tokens)).toEqual(["module", "Test", name]);
       expect(result.diagnostics).toEqual([]);
     }
   });
@@ -127,15 +137,15 @@ describe("lex", () => {
 
     expect(result.diagnostics).toEqual([]);
     expect(nameTexts(result.tokens)).toEqual([
-      "用户", "$税率", "_折扣", "T用户", "名字", "String", "é",
+      "module", "Test", "用户", "$税率", "_折扣", "T用户", "名字", "String", "é",
     ]);
-    expect(result.tokens.filter(({ kind }) => kind === "UpperName")).toHaveLength(2);
+    expect(result.tokens.filter(({ kind }) => kind === "UpperName")).toHaveLength(3);
   });
 
   test("reserves the bare wildcard, and rejects emoji and literal bidi controls", () => {
     const result = lexSource("_ __temp 😀 x\u202Ey");
 
-    expect(result.tokens[0]?.kind).toBe("Wildcard");
+    expect(result.tokens[2]?.kind).toBe("Wildcard");
     // §3.2's reserved `__` prefix is **not** a lexer refusal (#425): the token
     // is emitted and the parser selects the message by position, because the
     // foreign side of an FFI `as` alias is exempt from the reservation and only
@@ -152,6 +162,8 @@ describe("lex", () => {
     const result = lexSource("0 1_000 42n 1.5 1e9 1..10 3.show");
 
     expect(kinds(result.tokens)).toEqual([
+      "NonUpperName",
+      "UpperName",
       "Integer",
       "Integer",
       "BigInt",
@@ -165,9 +177,9 @@ describe("lex", () => {
       "NonUpperName",
       "Eof",
     ]);
-    expect(result.tokens[1]).toMatchObject({ decimal: "1000" });
-    expect(result.tokens[2]).toMatchObject({ decimal: "42" });
-    expect(result.tokens[3]).toMatchObject({ spelling: "1.5", value: 1.5 });
+    expect(result.tokens[3]).toMatchObject({ decimal: "1000" });
+    expect(result.tokens[4]).toMatchObject({ decimal: "42" });
+    expect(result.tokens[5]).toMatchObject({ spelling: "1.5", value: 1.5 });
     expect(result.diagnostics).toEqual([]);
   });
 
@@ -185,7 +197,7 @@ describe("lex", () => {
       "integer literal exceeds Int range; add `n` for a BigInt, or use an explicit conversion",
       "Float literal is too large; use `Float.infinity`",
     ]);
-    expect(kinds(result.tokens)).toEqual(["Eof"]);
+    expect(kinds(result.tokens)).toEqual(["NonUpperName", "UpperName", "Eof"]);
   });
 
   test("uses maximal munch over the complete punctuation inventory", () => {
@@ -194,6 +206,8 @@ describe("lex", () => {
     );
 
     expect(kinds(result.tokens)).toEqual([
+      "NonUpperName",
+      "UpperName",
       "LeftParen",
       "RightParen",
       "LeftBracket",
@@ -236,6 +250,8 @@ describe("lex", () => {
     );
 
     expect(kinds(result.tokens)).toEqual([
+      "NonUpperName",
+      "UpperName",
       "Let",
       "NonUpperName",
       "Equal",
@@ -246,7 +262,7 @@ describe("lex", () => {
       "Integer",
       "Eof",
     ]);
-    expect(result.newlines).toHaveLength(2);
+    expect(result.newlines).toHaveLength(4);
     expect(result.comments.map(({ kind, text }) => [kind, text])).toEqual([
       ["Block", "(* outer\n (* inner *) still outer *)"],
       ["Line", "// note"],
@@ -263,21 +279,25 @@ describe("lex", () => {
     expect(empty.diagnostics).toEqual([]);
 
     const inline = lexSource("let y = (* inline *) 2");
-    expect(kinds(inline.tokens)).toEqual(["Let", "NonUpperName", "Equal", "Integer", "Eof"]);
+    expect(kinds(inline.tokens)).toEqual([
+      "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "Integer", "Eof",
+    ]);
     expect(inline.diagnostics).toEqual([]);
 
     // `(*` opens and the `)` is comment text, so the file ends inside the comment.
     expect(lexSource("(*)").diagnostics.map(({ message }) => message)).toEqual([
-      "unterminated block comment; opened at line 1, column 1",
+      "unterminated block comment; opened at line 3, column 1",
     ]);
 
     expect(lexSource("(* a (* b").diagnostics.map(({ message }) => message)).toEqual([
-      "unterminated block comment; opened at line 1, column 6 (nested 2 levels deep; each `(*` needs its own `*)`)",
+      "unterminated block comment; opened at line 3, column 6 (nested 2 levels deep; each `(*` needs its own `*)`)",
     ]);
 
     // Strings are not lexed inside comments: the comment ends at the `*)` in the quotes.
     const quoted = lexSource('(* "unclosed string with *) let z = 1');
-    expect(kinds(quoted.tokens)).toEqual(["Let", "NonUpperName", "Equal", "Integer", "Eof"]);
+    expect(kinds(quoted.tokens)).toEqual([
+      "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "Integer", "Eof",
+    ]);
     expect(quoted.diagnostics).toEqual([]);
 
     // ...and comments are not lexed inside strings.
@@ -288,6 +308,8 @@ describe("lex", () => {
     // `**` munches positionally, so `**)` never reaches the comment machinery.
     const power = lexSource("let b = a **) 2");
     expect(kinds(power.tokens)).toEqual([
+      "NonUpperName",
+      "UpperName",
       "Let",
       "NonUpperName",
       "Equal",
@@ -307,6 +329,8 @@ describe("lex", () => {
     // `--` is not a comment spelling: `x --1` is `x - (-1)`.
     expect(kinds(lexSource("x --1").tokens)).toEqual([
       "NonUpperName",
+      "UpperName",
+      "NonUpperName",
       "Minus",
       "Minus",
       "Integer",
@@ -321,7 +345,9 @@ describe("lex", () => {
     ]);
     // Recovery resumes after JavaScript's own closer, so the pasted comment costs
     // one diagnostic and the code after it still lexes.
-    expect(kinds(opener.tokens)).toEqual(["Let", "NonUpperName", "Equal", "Integer", "Eof"]);
+    expect(kinds(opener.tokens)).toEqual([
+      "NonUpperName", "UpperName", "Let", "NonUpperName", "Equal", "Integer", "Eof",
+    ]);
     expect(opener.comments).toEqual([]);
     expect(opener.diagnostics[0]?.fixes?.[0]?.edits.map(({ replacement }) => replacement)).toEqual([
       "(*",
@@ -357,7 +383,7 @@ describe("lex", () => {
       "JavaScript block comment syntax — Hexagon block comments are `(* ... *)`",
       "indentation uses spaces; tabs are not allowed here",
     ]);
-    expect(spanning.newlines).toHaveLength(2);
+    expect(spanning.newlines).toHaveLength(4);
 
     const closer = lexSource("*/");
     expect(closer.diagnostics.map(({ message }) => message)).toEqual([
@@ -368,7 +394,7 @@ describe("lex", () => {
 
   test("keeps interpolations nested inside one string token", () => {
     const result = lexSource('"a\r\n${\n  user.name} b \\u{1F600}"');
-    const string = result.tokens[0] as Lexed.StringToken;
+    const string = result.tokens[2] as Lexed.StringToken;
 
     expect(string.kind).toBe("String");
     expect(string.parts).toHaveLength(3);
@@ -384,7 +410,9 @@ describe("lex", () => {
       "Eof",
     ]);
     expect(string.parts[2]).toMatchObject({ kind: "Text", value: " b 😀" });
-    expect(result.newlines).toEqual([]);
+    // Only the header's own two newlines are recorded — the string's internal
+    // `\r\n` and `\n` stay invisible to layout, exactly as before the header.
+    expect(result.newlines).toHaveLength(2);
     expect(result.diagnostics).toEqual([]);
   });
 
@@ -395,7 +423,7 @@ describe("lex", () => {
       "`#{` is reserved for future use; write `\\#{` for a literal `#{`",
       "unknown string escape",
       "unmatched `*)` — no open block comment",
-      "unterminated block comment; opened at line 1, column 14",
+      "unterminated block comment; opened at line 3, column 14",
     ]);
   });
 
@@ -409,12 +437,12 @@ describe("lex", () => {
         for (const token of result.tokens) {
           expect(token.span.start.offset).toBeGreaterThanOrEqual(previousEnd);
           expect(token.span.end.offset).toBeGreaterThanOrEqual(token.span.start.offset);
-          expect(token.span.end.offset).toBeLessThanOrEqual(text.length);
+          expect(token.span.end.offset).toBeLessThanOrEqual(HEADER.length + text.length);
           previousEnd = token.span.end.offset;
         }
         for (const diagnostic of result.diagnostics) {
           expect(diagnostic.primary.start.offset).toBeGreaterThanOrEqual(0);
-          expect(diagnostic.primary.end.offset).toBeLessThanOrEqual(text.length);
+          expect(diagnostic.primary.end.offset).toBeLessThanOrEqual(HEADER.length + text.length);
         }
       }),
       { numRuns: 250 },
@@ -481,7 +509,7 @@ describe("documentation trivia", () => {
     const result = lexSource("(** never closed\n");
 
     expect(result.diagnostics.map(({ message }) => message)).toEqual([
-      "unterminated block comment; opened at line 1, column 1",
+      "unterminated block comment; opened at line 3, column 1",
     ]);
     expect(result.comments.map(({ documentation }) => documentation)).toEqual([true]);
   });
@@ -501,8 +529,10 @@ describe("documentation trivia", () => {
   });
 });
 
+const HEADER = "module Test\n\n";
+
 function lexSource(text: string) {
-  return lex(new Source.File(Source.fileId(0), "test.hex", "module Test\n\n" + text));
+  return lex(new Source.File(Source.fileId(0), "test.hex", HEADER + text));
 }
 
 function kinds(tokens: readonly Lexed.Token[]): readonly Lexed.Token["kind"][] {

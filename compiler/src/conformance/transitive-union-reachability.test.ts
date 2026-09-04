@@ -189,7 +189,7 @@ describe("the coverage column answers from the reached declaration", () => {
     expect(files[0][1].slice(label.start.offset, label.end.offset)).toBe("Flag");
     // In `/a.hex`, not in the importer — the fix goes on the declaration.
     expect(label.fileId).toBe(escape!.primary.fileId);
-    expect(label.start.line).toBe(0);
+    expect(label.start.line).toBe(2);
   });
 });
 

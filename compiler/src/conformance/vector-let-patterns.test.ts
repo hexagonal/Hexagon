@@ -323,7 +323,7 @@ describe("the binders are sequential (Statements §5.4)", () => {
         "let [...all] = xs\n" +
         "export let n: Int = 2\n",
     )).toEqual([
-      "`all` is already bound (line 1); Hexagon does not allow rebinding — choose a different name.",
+      "`all` is already bound (line 3); Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
 

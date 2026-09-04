@@ -47,6 +47,9 @@ function render(
  */
 const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$_\u200C\u200D]*$/u;
 
+/** Every `index()` call below wraps its `/main.hex` source with this header. */
+const HEADER = "module Main\n\n";
+
 describe("collectOccurrences", () => {
   test("a span never covers more than the identifier", () => {
     const source = [
@@ -64,12 +67,12 @@ describe("collectOccurrences", () => {
     const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     for (const occurrence of own) {
-      const text = source.slice(occurrence.span.start.offset, occurrence.span.end.offset);
+      const text = (HEADER + source).slice(occurrence.span.start.offset, occurrence.span.end.offset);
       expect(text, `${occurrence.role} ${targetKey(occurrence.target)}`).toMatch(IDENTIFIER);
     }
     // `Box(Colour)` is a single annotation span; the index has to see the head
     // name and the argument as two separate occurrences.
-    expect(render(own, source, (o) => o.role === "reference")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.role === "reference")).toEqual([
       'reference record "Box"',
       'reference union "Colour"',
       'reference union "Colour"',
@@ -89,7 +92,7 @@ describe("collectOccurrences", () => {
     const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     const boxes = own.filter((occurrence) => occurrence.name === "Box");
-    expect(render(boxes, source)).toEqual([
+    expect(render(boxes, HEADER + source)).toEqual([
       'definition record "Box"',
       'definition value "Box"',
       'reference value "Box"',
@@ -124,7 +127,7 @@ describe("collectOccurrences", () => {
     // The declaring module publishes the definition and the importer publishes
     // only its own uses, so the two lists compose into the full reference set
     // without either module reporting a span it does not own.
-    expect(render(mainOwn, main, (o) => targetKey(o.target) === colour)).toEqual([
+    expect(render(mainOwn, HEADER + main, (o) => targetKey(o.target) === colour)).toEqual([
       'reference union "Colour"',
       'reference union "Colour"',
     ]);
@@ -134,7 +137,7 @@ describe("collectOccurrences", () => {
     // pattern and the qualified expression are both references here, and the
     // definition stays in the declaring module.
     const red = mainOwn.filter((occurrence) => occurrence.name === "Red");
-    expect(render(red, main)).toEqual([
+    expect(render(red, HEADER + main)).toEqual([
       'reference value "Red"',
       'reference value "Red"',
     ]);
@@ -161,14 +164,14 @@ describe("collectOccurrences", () => {
     ].join("\n");
     const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
-    expect(render(own, source, (o) => o.target.kind === "constraint")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.target.kind === "constraint")).toEqual([
       'definition constraint "Show2"',
       'reference constraint "Show2"',
       'reference constraint "Show2"',
     ]);
     // The constraint members are ordinary value symbols, so a constraint's
     // declaration and its members are separate identities at separate spans.
-    expect(render(own, source, (o) => o.name === "show2")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.name === "show2")).toEqual([
       'definition value "show2"',
       'reference value "show2"',
     ]);
@@ -181,10 +184,10 @@ describe("collectOccurrences", () => {
     // The resolver turns each `derives` entry into a synthesized `honor` whose
     // every span is the union declaration's. Publishing that would make `Colour`
     // a reference to itself, so the union must appear exactly once.
-    expect(render(own, source, (o) => o.name === "Colour")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.name === "Colour")).toEqual([
       'definition union "Colour"',
     ]);
-    expect(render(own, source, (o) => o.target.kind === "constraint")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.target.kind === "constraint")).toEqual([
       'reference constraint "Eq"',
       'reference constraint "Show"',
     ]);
@@ -199,7 +202,7 @@ describe("collectOccurrences", () => {
     ].join("\n");
     const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
-    expect(render(own, source, (o) => o.target.kind === "extern-type")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.target.kind === "extern-type")).toEqual([
       'definition extern-type "Widget"',
       'reference extern-type "Widget"',
       'reference extern-type "Widget"',
@@ -222,8 +225,8 @@ describe("collectOccurrences", () => {
     const wholeFile = own.filter(
       (occurrence) => occurrence.span.end.offset - occurrence.span.start.offset > 16,
     );
-    expect(render(wholeFile, source)).toEqual([]);
-    expect(render(own, source, (o) => o.name === "Some")).toEqual(['reference value "Some"']);
+    expect(render(wholeFile, HEADER + source)).toEqual([]);
+    expect(render(own, HEADER + source, (o) => o.name === "Some")).toEqual(['reference value "Some"']);
   });
 
   test("a non-ASCII name is one identifier, not its ASCII prefix", () => {
@@ -241,12 +244,12 @@ describe("collectOccurrences", () => {
     ].join("\n");
     const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
-    expect(render(own, source, (o) => o.name === "TRésultat")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.name === "TRésultat")).toEqual([
       'definition record "TRésultat"',
       'definition value "TRésultat"',
       'reference record "TRésultat"',
     ]);
-    expect(render(own, source, (o) => o.name === "unwrapδ")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.name === "unwrapδ")).toEqual([
       'definition value "unwrapδ"',
     ]);
   });
@@ -261,8 +264,8 @@ describe("collectOccurrences", () => {
     // resolver expands it into one entry per reachable member, each carrying the
     // whole import statement as its span; publishing those would put a member on
     // top of the `import` keyword and the specifier string.
-    expect(render(own, main, (o) => o.span.start.line === 0)).toEqual([]);
-    expect(render(own, main, (o) => o.span.start.line === 2)).toEqual([
+    expect(render(own, HEADER + main, (o) => o.span.start.line === 2)).toEqual([]);
+    expect(render(own, HEADER + main, (o) => o.span.start.line === 4)).toEqual([
       'definition value "four"',
       'reference value "two"',
       'reference value "two"',
@@ -280,8 +283,8 @@ describe("collectOccurrences", () => {
     expect(project.diagnostics).toEqual([]);
     const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
     const own = collectOccurrences(module);
-    expect(render(own, main, (o) => o.span.start.line === 0)).toEqual([]);
-    expect(render(own, main, (o) => o.span.start.line === 2)).toEqual([
+    expect(render(own, HEADER + main, (o) => o.span.start.line === 2)).toEqual([]);
+    expect(render(own, HEADER + main, (o) => o.span.start.line === 4)).toEqual([
       'definition value "q"',
       'definition value "y"',
       'reference union "Shade"',
@@ -338,3 +341,4 @@ describe("collectOccurrences", () => {
     expect(total).toBeGreaterThan(100);
   });
 });
+

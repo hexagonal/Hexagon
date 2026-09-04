@@ -366,9 +366,9 @@ describe("emission asks the representation for nothing (#587)", () => {
     const main = compileFiles(FIXTURE).modules
       .find(({ source }) => source.path === "/main.hex")!;
 
-    expect(main.javascript.text).not.toContain("./crate.js");
+    expect(main.javascript.text).not.toContain("./Crate.js");
     expect(main.javascript.companionOperationImports).toEqual([]);
-    expect(main.javascript.text).toContain('import * as Mid from "./mid.js";');
+    expect(main.javascript.text).toContain('import * as Mid from "./Mid.js";');
     expect(main.javascript.text).toContain("Mid.make(1.5).n");
   });
 });

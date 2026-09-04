@@ -42,11 +42,31 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * gating an export is the lawful sealing idiom.
  */
 
+/**
+ * The module name a bare basename derives (Modules §2.1): every fixture here
+ * writes its body only, so `project` mints the header the derivation would —
+ * `/src/main.hex` -> `Main`, `/src/lib.hex` -> `Lib`, `/src/mid.hex` -> `Mid`.
+ * A body that already carries its own header (the shipped `stdlib`/`runtime`
+ * sources read elsewhere in this file) is left alone.
+ */
+function derivedModuleName(path: string): string {
+  const basename = path.slice(path.lastIndexOf("/") + 1).replace(/\.hex$/u, "");
+  return basename
+    .split(/[-_.]/u)
+    .filter((segment) => segment.length > 0)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join("");
+}
+
 /** One compiled project, keyed by path. */
 function project(files: Readonly<Record<string, string>>): CompiledProject {
   return compileProject(
     Object.entries(files).map(([path, text], index) =>
-      new Source.File(Source.fileId(index), path, text)
+      new Source.File(
+        Source.fileId(index),
+        path,
+        text.startsWith("module ") ? text : `module ${derivedModuleName(path)}\n\n${text}`,
+      )
     ),
   );
 }
@@ -68,9 +88,15 @@ function lone(source: string): Diagnostic {
   return drawn[0]!;
 }
 
-/** The source text a span covers — how a seat assertion says *where*. */
-function at(source: string, span: Source.Span): string {
-  return source.slice(span.start.offset, span.end.offset);
+/**
+ * The source text a span covers — how a seat assertion says *where*. `source`
+ * is the fixture's body as written (headerless); the span is over `project`'s
+ * minted module, `header` characters ahead, so the same header is replayed
+ * here before slicing. Defaults to `/src/main.hex`'s derived header — pass the
+ * module's own (e.g. `"module Lib\n\n"`) for a span drawn over another file.
+ */
+function at(source: string, span: Source.Span, header = "module Main\n\n"): string {
+  return (header + source).slice(span.start.offset, span.end.offset);
 }
 
 /** One module of a compiled project, by path. */
@@ -91,15 +117,23 @@ function preview(source: string): string {
     .text;
 }
 
-/** Every emitted module's declarations, plus `hex.d.ts` where one was emitted. */
+/**
+ * Every emitted module's declarations, plus `hex.d.ts` where one was emitted —
+ * keyed by each module's **layout** path (Packages §6), not its source path:
+ * emission (and so every relative import an emitted `.d.ts` writes) addresses a
+ * module by its declared name, laid out at the output root, never by where its
+ * source file happened to sit (Modules §11) — `module.source.path` would key
+ * `/src/lib.hex` as `src/lib.d.ts` while `Main.d.ts` imports `./Lib.js`, a
+ * same-directory case-only mismatch `tsc` refuses outright.
+ */
 function declarationSet(compiled: CompiledProject): Record<string, string> {
   const files: Record<string, string> = {};
   for (const module of compiled.modules) {
-    files[module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
+    files[module.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
       module.declarations.text;
   }
   if (compiled.runtimeDeclarations !== undefined) {
-    files["src/hex.d.ts"] = compiled.runtimeDeclarations.text;
+    files["hex.d.ts"] = compiled.runtimeDeclarations.text;
   }
   return files;
 }
@@ -269,7 +303,7 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     ]);
     // In `lib`, where the one-keyword fix goes — never across the file boundary
     // (§4.2.1).
-    expect(at(lib, home!.labels![0]!.span)).toBe("type Hidden");
+    expect(at(lib, home!.labels![0]!.span, "module Lib\n\n")).toBe("type Hidden");
   });
 
   test("the binding route: the consumer's own exported face draws nothing", () => {
@@ -326,8 +360,8 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
       "exported constraint `Probe` exposes private type `Hidden`; " +
         "export the type, perhaps opaquely, or keep the constraint private",
     ]);
-    expect(at(lib, alone[0]!.primary)).toBe("probe(x: a): Hidden");
-    expect(at(lib, alone[0]!.labels![0]!.span)).toBe("type Hidden");
+    expect(at(lib, alone[0]!.primary, "module Lib\n\n")).toBe("probe(x: a): Hidden");
+    expect(at(lib, alone[0]!.labels![0]!.span, "module Lib\n\n")).toBe("type Hidden");
     // The consumer adds nothing about `Hidden`: locality holds here as at every
     // other face, and the unnameability backstop stands behind it — `main`
     // cannot spell the type, so no complete exported signature of its own could
@@ -373,7 +407,7 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(moduleOf(compiled, "/src/main.hex").declarations.text).toContain(
-      'import type { Shown } from "./lib.js";',
+      'import type { Shown } from "./Lib.js";',
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -393,7 +427,7 @@ describe("the rule is local: a type declared elsewhere is refused at home (#629)
     });
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(moduleOf(compiled, "/src/main.hex").declarations.text).toBe(
-      'import type { Shown } from "./lib.js";\n' +
+      'import type { Shown } from "./Lib.js";\n' +
         "export type Wrap = { h: Shown };\n" +
         "export declare const Wrap: (record: { h: Shown }) => Wrap;\n",
     );
@@ -452,7 +486,7 @@ describe("each carrier names every offending type once", () => {
     const source = HIDDEN + "export record Outer = {a: Hidden, b: Hidden, c: Hidden}\n";
     const drawn = lone(source);
     // The first offending seat in declaration order — fields in written order.
-    expect(drawn.primary.start.offset).toBe(source.indexOf("Hidden", HIDDEN.length));
+    expect(drawn.primary.start.offset).toBe("module Main\n\n".length + source.indexOf("Hidden", HIDDEN.length));
   });
 
   test("a carrier leaking two private types draws two, each at its own first seat", () => {
@@ -476,7 +510,7 @@ describe("each carrier names every offending type once", () => {
   test("a union dedupes across constructors, at the first slot in written order", () => {
     const source = HIDDEN + "export union U = C(h: Hidden) | E(also: Hidden)\n";
     const drawn = lone(source);
-    expect(drawn.primary.start.offset).toBe(source.indexOf("Hidden", HIDDEN.length));
+    expect(drawn.primary.start.offset).toBe("module Main\n\n".length + source.indexOf("Hidden", HIDDEN.length));
   });
 
   test("an exception dedupes across its own slots", () => {
@@ -860,8 +894,8 @@ describe("the shipped `.d.ts` carries no private type, in any form", () => {
     });
     // `Tree` in each, plus `Root` and `Frames` in `HashTrie` — four rows across
     // two files, none of them ever referenced by an exported face.
-    expect(moduleOf(compiled, "/src/HashTrie.hex").declarations.text).toBe("export {};\n");
-    expect(moduleOf(compiled, "/src/VectorTrie.hex").declarations.text).toBe("export {};\n");
+    expect(moduleOf(compiled, "/Hex/HashTrie.hex").declarations.text).toBe("export {};\n");
+    expect(moduleOf(compiled, "/Hex/VectorTrie.hex").declarations.text).toBe("export {};\n");
   });
 
   test("the **preview** still renders the private union, unprefixed", () => {

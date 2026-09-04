@@ -947,10 +947,10 @@ describe("parse", () => {
         const module = parseSource(text);
 
         expect(module.span.start.offset).toBeGreaterThanOrEqual(0);
-        expect(module.span.end.offset).toBeLessThanOrEqual(text.length);
+        expect(module.span.end.offset).toBeLessThanOrEqual(HEADER.length + text.length);
         for (const diagnostic of module.diagnostics) {
           expect(diagnostic.primary.start.offset).toBeGreaterThanOrEqual(0);
-          expect(diagnostic.primary.end.offset).toBeLessThanOrEqual(text.length);
+          expect(diagnostic.primary.end.offset).toBeLessThanOrEqual(HEADER.length + text.length);
         }
       }),
       { numRuns: 250 },
@@ -1089,8 +1089,8 @@ describe("parse", () => {
       ]);
       // The fixit covers `=>!` entire — both tokens — not the fat arrow alone.
       expect(diagnostic?.fixes?.[0]?.edits[0]?.span).toMatchObject({
-        start: { offset: 15 },
-        end: { offset: 18 },
+        start: { offset: HEADER.length + 15 },
+        end: { offset: HEADER.length + 18 },
       });
     });
 
@@ -1626,7 +1626,7 @@ describe("parse", () => {
       expect(hint?.message).toBe(
         "tuples are positional; for named fields use a record: `{x = 1, y = 2}`",
       );
-      expect(hint?.primary.start.offset).toBe("(x: ".length);
+      expect(hint?.primary.start.offset).toBe(HEADER.length + "(x: ".length);
     });
 
     test("a non-name element ascribed to a term gets the ordinary type error", () => {
@@ -1883,7 +1883,7 @@ describe("parse", () => {
       expect(module.diagnostics).toEqual([]);
       expect(module.items).toMatchObject([{
         kind: "Import",
-        specifier: "./geometry",
+        module: { text: "Geometry" },
         alias: { text: "Geo", startClass: "upper" },
       }]);
     });
@@ -1894,10 +1894,14 @@ describe("parse", () => {
      * change is which tokens the head is made of, not how the parser walks
      * them. The Playground's alias scan (#537) reads the same token stream and
      * depends on exactly this.
+     *
+     * Rewritten under #829: the path-free head is the only legal one now, so
+     * the property is pinned on `import Geometry as Geo` rather than the
+     * retired `from "./geometry"` clause.
      */
     test("the head is tokens, not a line", () => {
-      expect(messages('import (* why *) Geo from "./geometry"\n')).toEqual([]);
-      expect(messages('import\n    Geo from "./geometry"\n')).toEqual([]);
+      expect(messages('import (* why *) Geometry as Geo\n')).toEqual([]);
+      expect(messages('import\n    Geometry as Geo\n')).toEqual([]);
     });
 
     test("`module` binds, names a field, and names a parameter", () => {
@@ -1910,40 +1914,39 @@ describe("parse", () => {
     });
 
     /**
-     * §2's refusal is untouched: the redirect below is the import head and
-     * reaches no declaration seat, so a header line is read as the two ordinary
-     * items it lexes as, exactly as before, and no import diagnostic is spoken
-     * over it.
+     * §2.2's refusal is untouched: `module Geometry` here is read as a second
+     * module header while `Test` (this file's own, from the `parseSource`
+     * helper) is still open — not as any import-head redirect. Under #829 a
+     * bare `module Name` line is the header spelling itself, so the seat that
+     * catches it is the header's own duplicate-module rule, never the import
+     * grammar.
      */
     test("`module Geometry` at a declaration seat is no import head", () => {
       expect(messages("module Geometry\n")).toEqual([
-        "expected a newline or `;` between block items",
+        "a file holding several modules closes each with `end module Test`",
       ]);
     });
 
     /**
-     * The #565 head, refused with the rewrite that drops the word (§3.1). The
-     * message carries the alias the author wrote and the path they wrote, and
-     * the fix-it deletes the word alone — the rest of the line is never
-     * retyped.
+     * The #565 head, refused with the rewrite (§3.1). Under #829 the path
+     * clause is retired along with the word, so the fix-it now replaces the
+     * whole stale line rather than deleting `module ` alone — the rewrite
+     * derives the module name from the dropped specifier's basename exactly
+     * as the path-form redirect does.
      */
     test("the `import module` head is refused with the word dropped", () => {
       const module = parseSource('import module Geo from "./geometry"\n');
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        'Hexagon imports bind modules: write `import Geometry as Geo`',
+        'Hexagon imports name modules: write `import Geometry as Geo`',
       ]);
       const [fix] = module.diagnostics[0]?.fixes ?? [];
-      expect(fix?.message).toBe("write `import`");
-      // Through the whitespace, so the applied edit is the sentence the message
-      // printed and nothing else.
+      expect(fix?.message).toBe("write `import Geometry as Geo`");
+      const text = 'import module Geo from "./geometry"\n';
       expect(fix?.edits.map(({ span, replacement }) => [
         span.start.offset,
         span.end.offset,
         replacement,
-      ])).toEqual([[7, 14, ""]]);
-      const text = 'import module Geo from "./geometry"\n';
-      expect(text.slice(0, 7) + text.slice(14)).toBe('import Geometry as Geo\n');
-      expect(parseSource(text.slice(0, 7) + text.slice(14)).diagnostics).toEqual([]);
+      ])).toEqual([[HEADER.length, HEADER.length + text.length - 1, "import Geometry as Geo"]]);
       // The item still binds the alias the head named: a migration costs one
       // diagnostic per line, never a cascade of unknown names below it.
       expect(module.items).toMatchObject([{ kind: "Import", alias: { text: "Geo" } }]);
@@ -1958,56 +1961,58 @@ describe("parse", () => {
      */
     test("`import module` with no alias dies in the alias seat", () => {
       expect(messages('import X as module\n')).toEqual([
-        'Hexagon imports bind modules: write `import X`',
+        'a module alias is uppercase-start; write `import X as Module`',
       ]);
     });
 
     /**
      * JavaScript's default-import muscle memory with a lowercase alias. The
-     * seat settles it by start class alone, and the rewrite is the specifier's
-     * own basename — which is what the author was naming the module after.
+     * seat settles it by start class alone, and the rewrite capitalises the
+     * written alias itself.
      */
     test("a non-uppercase-start alias is refused with the derived spelling", () => {
       const module = parseSource('import Geometry as geometry\n');
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        'a module alias is uppercase-start; write `import Geometry`',
+        'a module alias is uppercase-start; write `import Geometry as Geometry`',
       ]);
       const [fix] = module.diagnostics[0]?.fixes ?? [];
       expect(fix?.message).toBe("write `Geometry`");
       expect(fix?.edits.map(({ replacement }) => replacement)).toEqual(["Geometry"]);
     });
 
-    test("`import from` draws the alias seat's refusal, alone", () => {
+    /**
+     * With the path clause retired (#829), `from` sits directly in the module
+     * *name* seat, not the alias seat: `import from "./x"` reads as
+     * `import <name>` with a lowercase-start name, so the module-name refusal
+     * fires alone and the trailing string is swallowed into the one
+     * `ErrorItem`.
+     */
+    test("`import from` draws the module-name seat's refusal, alone", () => {
       expect(messages('import from "./x"\n')).toEqual([
-        'a module alias is uppercase-start; write `import X`',
+        'a module name is uppercase-start; write `import From`',
       ]);
     });
 
     /**
      * The Rewrite Rule applied to JavaScript's own namespace head (§3.1, §10).
-     * The head keeps the alias it wrote and carries no item clause — the
-     * program names no item — and the fix-it deletes `* as`, whitespace
-     * between the two tokens included.
+     * Under #829 the path clause is retired along with the glob, so the
+     * fix-it now replaces the whole stale line — the alias it wrote is kept,
+     * the module name derived from the dropped specifier's basename.
      */
     test("JavaScript's `import * as` head is refused with its rewrite", () => {
       const module = parseSource('import * as Geo from "./geometry"\n');
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        'Hexagon imports bind modules: write `import Geometry as Geo`',
+        'Hexagon imports name modules: write `import Geometry as Geo`',
       ]);
       const [fix] = module.diagnostics[0]?.fixes ?? [];
-      expect(fix?.message).toBe("write `import`");
+      expect(fix?.message).toBe("write `import Geometry as Geo`");
+      const text = 'import * as Geo from "./geometry"\n';
       expect(fix?.edits.map(({ span, replacement }) => [
         module.diagnostics[0]!.primary.fileId === span.fileId,
         span.start.offset,
         span.end.offset,
         replacement,
-      ])).toEqual([[true, 7, 12, ""]]);
-      // Applying the edit yields the head the message names, byte for byte —
-      // the alias and the path are never retyped, and the whitespace the head
-      // spent goes with the head.
-      const text = 'import * as Geo from "./geometry"\n';
-      expect(text.slice(0, 7) + text.slice(12)).toBe('import Geometry as Geo\n');
-      expect(parseSource(text.slice(0, 7) + text.slice(12)).diagnostics).toEqual([]);
+      ])).toEqual([[true, HEADER.length, HEADER.length + text.length - 1, "import Geometry as Geo"]]);
       expect(module.items).toMatchObject([{ kind: "Import", alias: { text: "Geo" } }]);
     });
 
@@ -2019,10 +2024,10 @@ describe("parse", () => {
     test("a `*` head with no `as` reports against the star", () => {
       const module = parseSource('import * Geo from "./geometry"\n');
       expect(module.diagnostics.map(({ message }) => message)).toEqual([
-        'Hexagon imports bind modules: write `import Geometry as Geo`',
+        'Hexagon imports name modules: write `import Geometry as Geo`',
       ]);
-      expect(module.diagnostics[0]?.primary.start.offset).toBe(7);
-      expect(module.diagnostics[0]?.primary.end.offset).toBe(8);
+      expect(module.diagnostics[0]?.primary.start.offset).toBe(HEADER.length + 7);
+      expect(module.diagnostics[0]?.primary.end.offset).toBe(HEADER.length + 8);
     });
 
     /**
@@ -2034,18 +2039,18 @@ describe("parse", () => {
      */
     test("JavaScript's named list is refused with the item's qualified spelling", () => {
       expect(messages('import { area } from "./geometry"\n')).toEqual([
-        'Hexagon imports bind modules: write `import Geometry` ' +
+        'Hexagon imports name modules: write `import Geometry` ' +
           "and reach `area` as `Geometry.area`",
       ]);
       expect(itemKinds('import { area } from "./geometry"\n')).toEqual(["ErrorItem"]);
       expect(messages('import { get, set } from "./search-params"\n')).toEqual([
-        'Hexagon imports bind modules: write `import SearchParams` ' +
+        'Hexagon imports name modules: write `import SearchParams` ' +
           "and reach `get` as `SearchParams.get`",
       ]);
       // A renamed item is still one item: the rewrite names what the module
       // exports, since that is what the qualified spelling reaches.
       expect(messages('import { area as a } from "./geometry"\n')).toEqual([
-        'Hexagon imports bind modules: write `import Geometry` ' +
+        'Hexagon imports name modules: write `import Geometry` ' +
           "and reach `area` as `Geometry.area`",
       ]);
     });
@@ -2053,11 +2058,13 @@ describe("parse", () => {
     /**
      * Where the derivation yields no uppercase-start identifier the message
      * names the slot instead of a spelling the language would refuse twice.
+     * Under #829 the slot is `<Name>` — there is no alias-plus-path clause
+     * left to spell — and the rewrite carries no `from` clause either.
      */
     test("an underivable basename names the slot", () => {
       expect(messages('import { area } from "./2d-utils"\n')).toEqual([
-        'Hexagon imports bind modules: write `import <Alias> from "./2d-utils"` ' +
-          "and reach `area` as `<Alias>.area`",
+        'Hexagon imports name modules: write `import <Name>` ' +
+          "and reach `area` as `<Name>.area`",
       ]);
     });
 
@@ -2079,8 +2086,10 @@ describe("parse", () => {
   });
 });
 
+const HEADER = "module Test\n\n";
+
 function parseSource(text: string): Parsed.Module {
-  const source = new Source.File(Source.fileId(0), "test.hex", "module Test\n\n" + text);
+  const source = new Source.File(Source.fileId(0), "test.hex", HEADER + text);
   return parse(applyLayout(lex(source)));
 }
 

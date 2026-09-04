@@ -35,7 +35,7 @@ function project(files: Readonly<Record<string, string>>): CompiledProject {
 
 /** The one module of a single-file program at `/src/main.hex`. */
 function module(source: string): CompiledProject["modules"][number] {
-  const found = project({ "/src/main.hex": source }).modules
+  const found = project({ "/src/main.hex": "module Main\n\n" + source }).modules
     .find(({ source: file }) => file.path === "/src/main.hex");
   if (found === undefined) throw new Error("no /src/main.hex in the compiled project");
   return found;

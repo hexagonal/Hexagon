@@ -59,6 +59,7 @@ describe("the constructor pattern destructures a nominal record in its home modu
     // sub-pattern is a bare binder, so `r` *is* the structural record — and is
     // accepted where that row is written, which is the whole claim.
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "fun width(r: {n: Float, tag: String}): Float = r.n\n" +
       "export fun get(c: Crate): Float =\n" +
@@ -67,6 +68,7 @@ describe("the constructor pattern destructures a nominal record in its home modu
     )).toEqual([]);
 
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun get(c: Crate): Float =\n" +
       "    let Crate(r) = c\n" +
@@ -78,6 +80,7 @@ describe("the constructor pattern destructures a nominal record in its home modu
 
   test("the useful spelling: `let Crate({n})`, punned, against the declaration's row", async () => {
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun label(c: Crate): String =\n" +
       "    let Crate({n, tag}) = c\n" +
@@ -128,6 +131,7 @@ describe("the constructor pattern destructures a nominal record in its home modu
 describe("a `match` on a nominal-record scrutinee", () => {
   test("one arm with an irrefutable sub-pattern is exhaustive, and runs", async () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -135,6 +139,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
     )).toEqual([]);
 
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -148,6 +153,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
     // §7.1's finite-shape clause at one constructor; §7.3's degenerate
     // rendering, which for a sole constructor is its name.
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -157,6 +163,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
 
   test("a refutable arm followed by a covering one is exhaustive, and both run", async () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun name(c: Crate): String =\n" +
       "    match c\n" +
@@ -165,6 +172,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
     )).toEqual([]);
 
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun name(c: Crate): String =\n" +
       "    match c\n" +
@@ -178,6 +186,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
 
   test("an arm shadowed by an earlier covering arm is unreachable (§7.2)", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -188,12 +197,14 @@ describe("a `match` on a nominal-record scrutinee", () => {
 
   test("a catch-all still covers, and still shadows", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
       "        _ => 0.0\n",
     )).toEqual([]);
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -207,6 +218,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
     // "prefer the shallowest witness that is genuinely missing" answers `_`
     // rather than naming the sole constructor: every value is uncovered.
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -216,6 +228,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
 
   test("the pattern nests inside a union arm", async () => {
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Option(Crate)): Float =\n" +
       "    match c\n" +
@@ -235,6 +248,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
     // here — where a sole constructor is exactly what §5.1 says it is, and the
     // two spellings of a newtype answer alike.
     const nested = (arm: string, declaration: string) => projectDiagnostics(
+      "module Main\n\n" +
       declaration +
       "export fun size(o: Option(Wrapped)): Int =\n" +
       "    match o\n" +
@@ -249,6 +263,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
 
   test("`as` binds the whole nominal value beside the destructured fields", async () => {
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun twice(c: Crate): Float =\n" +
       "    match c\n" +
@@ -262,12 +277,14 @@ describe("a `match` on a nominal-record scrutinee", () => {
 describe("every binding position takes it, gated only by irrefutability (§6)", () => {
   test("a lambda parameter destructures, and runs", async () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "let size: (Crate) -> Float = Crate({n}) => n\n" +
       "export let v: Float = size(Crate({n = 1.0, tag = \"a\"}))\n",
     )).toEqual([]);
 
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "let size: (Crate) -> Float = Crate({n}) => n\n" +
       "export let v: Float = size(Crate({n = 9.0, tag = \"a\"}))\n",
@@ -277,6 +294,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
 
   test("a `for..in` loop variable destructures, and runs", async () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
@@ -286,6 +304,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
     )).toEqual([]);
 
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
@@ -302,6 +321,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
     // constructor is always sole constructor" — so a refusal here can only come
     // from the inside of the pattern, and does.
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    let Crate({tag = \"a\"}) = c\n" +
@@ -310,6 +330,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
       "this pattern can fail: `Crate(_)`; use `match`",
     ]);
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "let size: (Crate) -> Float = Crate({tag = \"a\"}) => 1.0\n" +
       "export let v: Float = size(Crate({n = 1.0, tag = \"a\"}))\n",
@@ -318,6 +339,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
         "for a match function, write `match` with arms",
     ]);
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
@@ -334,6 +356,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
     // record constructor is not an exception constructor. The message is the
     // existing one for a non-exception constructor in that seat.
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(): Float =\n" +
       "    try\n" +
@@ -347,6 +370,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
 describe("the bare record pattern is redirected, not mismatched (§2.4)", () => {
   test("in a `let`, the redirect names the constructor and the written fields", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    let {n} = c\n" +
@@ -356,6 +380,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
 
   test("in a `match` arm, the same redirect", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -460,6 +485,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
 describe("arity is one, positional (§2.2)", () => {
   test("two sub-patterns draw the unions' own arity sentence", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -469,6 +495,7 @@ describe("arity is one, positional (§2.2)", () => {
 
   test("the bare payload constructor draws it too, and covers nothing", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -590,6 +617,7 @@ describe("outside the home module the name carries it, and only the name", () =>
 describe("a `match` on a nominal-record scrutinee", () => {
   test("one arm with an irrefutable sub-pattern is exhaustive, and runs", async () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -597,6 +625,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
     )).toEqual([]);
 
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -610,6 +639,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
     // §7.1's finite-shape clause at one constructor; §7.3's degenerate
     // rendering, which for a sole constructor is its name.
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -619,6 +649,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
 
   test("a refutable arm followed by a covering one is exhaustive, and both run", async () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun name(c: Crate): String =\n" +
       "    match c\n" +
@@ -627,6 +658,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
     )).toEqual([]);
 
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun name(c: Crate): String =\n" +
       "    match c\n" +
@@ -640,6 +672,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
 
   test("an arm shadowed by an earlier covering arm is unreachable (§7.2)", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -650,12 +683,14 @@ describe("a `match` on a nominal-record scrutinee", () => {
 
   test("a catch-all still covers, and still shadows", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
       "        _ => 0.0\n",
     )).toEqual([]);
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -669,6 +704,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
     // "prefer the shallowest witness that is genuinely missing" answers `_`
     // rather than naming the sole constructor: every value is uncovered.
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -678,6 +714,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
 
   test("the pattern nests inside a union arm", async () => {
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Option(Crate)): Float =\n" +
       "    match c\n" +
@@ -697,6 +734,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
     // here — where a sole constructor is exactly what §5.1 says it is, and the
     // two spellings of a newtype answer alike.
     const nested = (arm: string, declaration: string) => projectDiagnostics(
+      "module Main\n\n" +
       declaration +
       "export fun size(o: Option(Wrapped)): Int =\n" +
       "    match o\n" +
@@ -711,6 +749,7 @@ describe("a `match` on a nominal-record scrutinee", () => {
 
   test("`as` binds the whole nominal value beside the destructured fields", async () => {
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun twice(c: Crate): Float =\n" +
       "    match c\n" +
@@ -724,12 +763,14 @@ describe("a `match` on a nominal-record scrutinee", () => {
 describe("every binding position takes it, gated only by irrefutability (§6)", () => {
   test("a lambda parameter destructures, and runs", async () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "let size: (Crate) -> Float = Crate({n}) => n\n" +
       "export let v: Float = size(Crate({n = 1.0, tag = \"a\"}))\n",
     )).toEqual([]);
 
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "let size: (Crate) -> Float = Crate({n}) => n\n" +
       "export let v: Float = size(Crate({n = 9.0, tag = \"a\"}))\n",
@@ -739,6 +780,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
 
   test("a `for..in` loop variable destructures, and runs", async () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
@@ -748,6 +790,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
     )).toEqual([]);
 
     const exports = await runMain(
+      "module Main\n\n" +
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
@@ -764,6 +807,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
     // constructor is always sole constructor" — so a refusal here can only come
     // from the inside of the pattern, and does.
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    let Crate({tag = \"a\"}) = c\n" +
@@ -772,6 +816,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
       "this pattern can fail: `Crate(_)`; use `match`",
     ]);
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "let size: (Crate) -> Float = Crate({tag = \"a\"}) => 1.0\n" +
       "export let v: Float = size(Crate({n = 1.0, tag = \"a\"}))\n",
@@ -780,6 +825,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
         "for a match function, write `match` with arms",
     ]);
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun total(cs: Vector(Crate)): Float =\n" +
       "    var sum = 0.0\n" +
@@ -796,6 +842,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
     // record constructor is not an exception constructor. The message is the
     // existing one for a non-exception constructor in that seat.
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(): Float =\n" +
       "    try\n" +
@@ -809,6 +856,7 @@ describe("every binding position takes it, gated only by irrefutability (§6)", 
 describe("the bare record pattern is redirected, not mismatched (§2.4)", () => {
   test("in a `let`, the redirect names the constructor and the written fields", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    let {n} = c\n" +
@@ -818,6 +866,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
 
   test("in a `match` arm, the same redirect", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -922,6 +971,7 @@ describe("the bare record pattern is redirected, not mismatched (§2.4)", () => 
 describe("arity is one, positional (§2.2)", () => {
   test("two sub-patterns draw the unions' own arity sentence", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +
@@ -931,6 +981,7 @@ describe("arity is one, positional (§2.2)", () => {
 
   test("the bare payload constructor draws it too, and covers nothing", () => {
     expect(projectDiagnostics(
+      "module Main\n\n" +
       CRATE +
       "export fun size(c: Crate): Float =\n" +
       "    match c\n" +

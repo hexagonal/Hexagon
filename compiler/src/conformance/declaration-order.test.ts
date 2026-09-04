@@ -32,7 +32,7 @@ const MOVE_IMPORT = (name: string): string =>
   `\`${name}\` is declared later in this block; declarations are read ` +
   "top-down — move the import above this use";
 
-const BOX = "export record Box = {value: Int}\n";
+const BOX = "module Main\n\n" + "export record Box = {value: Int}\n";
 const TWICE_LET = "export let twice(b: Box): Int = b.value * 2\n";
 const TWICE_FUN = "export fun twice(b: Box): Int = b.value * 2\n";
 
@@ -690,11 +690,11 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       for (const alias of ["Int", "Debug"]) {
         const above = diagnostics([seated(alias), ["/main.hex",
           "module Main\n\n" + `export let n: Int = ${alias}.toSeq(1)\n` +
-          `import ${alias} from "./${alias}"\n`]]);
+          `import ${alias}\n`]]);
 
         expect(above).toEqual([NOT_EXPORTED(alias, "toSeq")]);
         expect(diagnostics([seated(alias), ["/main.hex",
-          "module Main\n\n" + `import ${alias} from "./${alias}"\n` +
+          "module Main\n\n" + `import ${alias}\n` +
           `export let n: Int = ${alias}.toSeq(1)\n`]])).toEqual(above);
       }
 
@@ -702,7 +702,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // row to seat there fails here rather than in somebody's error message.
       for (const alias of PROVIDED_ROW_ALIASES) {
         const use = `export let n: Int = ${alias}.toSeq(subject).length()\n`;
-        const item = `import ${alias} from "./${alias}"\n`;
+        const item = `import ${alias}\n`;
 
         expect(diagnostics([seated(alias), ["/main.hex", use + item]]))
           .toContain(MOVE_IMPORT(`${alias}.toSeq`));
@@ -742,8 +742,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
         "import Nowhere as Nope\n",
       ]])).toEqual([
         "unknown name `Nope`",
-        "cannot resolve module `./nowhere` from `/main.hex`",
-        "cannot resolve module `./nowhere`",
+        "no module `Nowhere`",
       ]);
       expect(diagnostics([["/main.hex",
         "module Main\n\n" + "export fun pick(s: Int): Int =\n" +
@@ -779,7 +778,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // module that imports it, wherever the line sits in it.
       expect(project.modules.map(({ source }) => source.path)).toEqual([
         "/geometry.hex",
-        "module Geometry\n\n" + "/main.hex",
+        "/main.hex",
       ]);
     });
 
@@ -794,7 +793,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       ]] as const;
 
       expect(compileFiles(files).modules.at(-1)!.javascript.text).toContain(
-        'import * as Geometry from "./geometry.js";',
+        'import * as Geometry from "./Geometry.js";',
       );
       expect((await runProject(files)).high).toBe(9);
     });

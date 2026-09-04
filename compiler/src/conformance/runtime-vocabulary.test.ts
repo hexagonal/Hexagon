@@ -102,7 +102,7 @@ describe("class 1 — `record Error` and `record Object` beside a raise", () => 
     expect(text).toContain('import { __Error, __Object } from "./hex.js";');
     expect(text).toContain(
       "  return __Object.assign(new __Error(__message), " +
-        '{ $hex: "main", name: __name }, __fields);',
+        '{ $hex: "Main", name: __name }, __fields);',
     );
     // Part 1 §10 stands absolute at both seats: the user's constructors keep
     // their spellings and their export names.
@@ -127,7 +127,7 @@ describe("class 1 — `record Error` and `record Object` beside a raise", () => 
     // where the helper reads `Error`, so the helper's `new` finds an arrow.
     const exports = await runJavaScript(
       "function __exception(__name, __message, __fields) {\n" +
-        '  return Object.assign(new Error(__message), { $hex: "main", name: __name }, __fields);\n' +
+        '  return Object.assign(new Error(__message), { $hex: "Main", name: __name }, __fields);\n' +
         "}\n" +
         "const Error = __record => __record;\n" +
         'export const raise = () => { throw __exception("Boom", "", { value: 3 }); };\n',
@@ -368,7 +368,7 @@ describe("the trigger's cross-module leg", () => {
 
     expect(text).toContain('import { __Error } from "./hex.js";');
     expect(text).toContain("new __Error(__message)");
-    expect(text).toContain('import * as Error from "./lib.js";');
+    expect(text).toContain('import * as Error from "./Lib.js";');
     expect(text).not.toContain("Error_1");
 
     const exports = await runProject(FILES);
@@ -411,7 +411,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     ] as const;
 
     expect(javascript(FILES)).toBe(
-      'import * as Box from "./lib.js";\n' +
+      'import * as Box from "./Lib.js";\n' +
         "const use = b => Box.undefined(b);\n" +
         "const unit = () => undefined;\n" +
         "export { use };\n" +
@@ -455,7 +455,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
   test("a constraint member named `undefined`, called polymorphically", async () => {
     const text = javascript(CONSTRAINT("undefined"));
 
-    expect(text).toContain('import { __undefined } from "./lib.js";');
+    expect(text).toContain('import { __undefined } from "./Lib.js";');
     // The importer binds no vocabulary spelling of its own, so its Unit is bare.
     expect(text).toContain("const unit = () => undefined;");
 
@@ -482,7 +482,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
   test("a constraint member named `eval`, on both sides of the import", async () => {
     const text = javascript(CONSTRAINT("eval"));
 
-    expect(text).toContain('import { __eval } from "./lib.js";');
+    expect(text).toContain('import { __eval } from "./Lib.js";');
     // The declaring module's own forwarder took the rename at its export seat,
     // which the emitter already did; the import above is the reading leg.
     expect(javascript(CONSTRAINT("eval"), "/lib.hex")).toContain(
@@ -556,9 +556,9 @@ describe("the minted-local negative — the trigger reads source bindings only",
 
     expect(text).not.toContain("hex.js");
     expect(text).toBe(
-      'import { __Boxy_Box_console } from "./lib.js";\n' +
-        'import * as Lib from "./lib.js";\n' +
-        'import { __Boxy_Box } from "./lib.js";\n' +
+      'import { __Boxy_Box_console } from "./Lib.js";\n' +
+        'import * as Lib from "./Lib.js";\n' +
+        'import { __Boxy_Box } from "./Lib.js";\n' +
         "const use = b => __Boxy_Box_console(b);\n" +
         "const unit = () => undefined;\n" +
         "export { __Boxy_Box };\n" +
@@ -604,7 +604,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     for (const member of ["undefined", "eval"]) {
       const text = javascript(namespaced(member));
 
-      expect(text).toContain(`import { __Boxy_Box_${member} } from "./lib.js";`);
+      expect(text).toContain(`import { __Boxy_Box_${member} } from "./Lib.js";`);
       expect(text).not.toContain(`as ${member} }`);
       expect(text).toContain(`const use = b => __Boxy_Box_${member}(b);`);
       // The importer binds neither spelling, so its own Unit is untouched.
@@ -615,7 +615,7 @@ describe("the minted-local negative — the trigger reads source bindings only",
     // the member's name is not a hazard — without it the assertions above would
     // hold in a compiler that never handed out a source spelling at all.
     expect(javascript(namespaced("measure"))).toContain(
-      'import { __Boxy_Box_measure as measure } from "./lib.js";',
+      'import { __Boxy_Box_measure as measure } from "./Lib.js";',
     );
 
     const exports = await runProject(namespaced("undefined"));
@@ -715,7 +715,9 @@ let compiledCorpus: CompiledProject | undefined;
 
 function corpus(): CompiledProject {
   return compiledCorpus ??= compileFiles(
-    UNCONTESTED_CORPUS.map((source, index) => [`/corpus${index}.hex`, source] as const),
+    UNCONTESTED_CORPUS.map((source, index) =>
+      [`/corpus${index}.hex`, `module Corpus${index}\n\n${source}`] as const
+    ),
   );
 }
 
@@ -879,7 +881,7 @@ describe("the negatives — an uncontested module emits the text it always did",
     expect(javascript([["/main.hex", "module Main\n\n" + "exception Boom(value: Int)\n" +
       "export let raise(): Int = throw(Boom(3))\n"]])).toBe(
       "function __exception(__name, __message, __fields) {\n" +
-        '  return Object.assign(new Error(__message), { $hex: "main", name: __name }, __fields);\n' +
+        '  return Object.assign(new Error(__message), { $hex: "Main", name: __name }, __fields);\n' +
         "}\n" +
         "\n" +
         'const Boom = value => __exception("Boom", "", { value });\n' +
@@ -989,13 +991,15 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
     // One stem, one module identity: the code home follows whatever filename
     // the type home's probe settled, and the probe's input is the source
     // basenames, so the stem is defined for a program owing `hex.js` alone.
+    // Program-scoped artefacts sit at the output root (Modules §11.1, as
+    // amended by #829) regardless of the source files' own directories.
     const collided = compileFiles([
       ["/src/hex.hex", "module Hex\n\n" + "export let z: Int = 0\n"],
       ["/src/main.hex", "module Main\n\n" + "export record Error = {code: Int}\n" +
         "exception Boom(value: Int)\n" +
         "export let raise(): Int = throw(Boom(3))\n"],
     ]);
-    expect(collided.runtimeGlobals?.path).toBe("/src/hex1.js");
+    expect(collided.runtimeGlobals?.path).toBe("/hex1.js");
     expect(javascript(
       [["/src/hex.hex", "module Hex\n\n" + "export let z: Int = 0\n"], ["/src/main.hex",
         "module Main\n\n" + "export record Error = {code: Int}\n" +
@@ -1011,13 +1015,15 @@ describe("the runtime module takes Part 1 §8.3's reserved seat", () => {
     expect(collided.runtimeDeclarations).toBeUndefined();
   });
 
+  // Emission is laid out by declared name now (Modules §11, #829), not by the
+  // source file's own directory: a module below the output root is one whose
+  // *name* is dotted, and that is what the relative specifier now answers to.
   test("a module below the root spells the specifier relative to itself", () => {
     expect(javascript([
-      ["/src/a/main.hex", "module Main\n\n" + "export record Error = {code: Int}\n" +
+      ["/main.hex", "module Src.A.Main\n\n" + "export record Error = {code: Int}\n" +
         "exception Boom(value: Int)\n" +
         "export let raise(): Int = throw(Boom(3))\n"],
-      ["/src/b/other.hex", "module Other\n\n" + "export let z: Int = 0\n"],
-    ], "/src/a/main.hex")).toContain('import { __Error } from "../hex.js";');
+    ], "/main.hex")).toContain('import { __Error } from "../../hex.js";');
   });
 
   test("executed: a contested program loads through it", async () => {

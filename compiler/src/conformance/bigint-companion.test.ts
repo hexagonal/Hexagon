@@ -70,6 +70,8 @@ describe("the four spellings are one implementation", () => {
    */
   test("`div` agrees qualified, after a dot, and under a bound", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let qualified: BigInt = BigInt.div(-7n, 2n)",
       "export let dotted: BigInt = (-7n).div(2n)",
       "export let bound<a: Integral>(left: a, right: a): a = Integral.div(left, right)",
@@ -84,6 +86,8 @@ describe("the four spellings are one implementation", () => {
 
   test("`show` agrees qualified, after a dot, under a bound, and interpolated", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let qualified: String = BigInt.show(42n)",
       "export let dotted: String = 42n.show()",
       "export let bound<a: Show>(value: a): String = show(value)",
@@ -101,6 +105,8 @@ describe("the four spellings are one implementation", () => {
 
   test("`add` agrees qualified, after a dot, under a bound, and as `+`", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let qualified: BigInt = BigInt.add(20n, 22n)",
       "export let dotted: BigInt = 20n.add(22n)",
       // `Num.add` rather than bare `add`: `stdlib/Set.hex` exports `add` too
@@ -121,6 +127,8 @@ describe("the four spellings are one implementation", () => {
 
   test("`compare` agrees qualified, after a dot, under a bound, and as `<`", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let qualified: Ordering = BigInt.compare(1n, 2n)",
       "export let dotted: Ordering = 1n.compare(2n)",
       "export let bound<a: Ord>(left: a, right: a): Ordering = Ord.compare(left, right)",
@@ -149,6 +157,8 @@ describe("the Euclidean laws hold at BigInt (Division & Remainder §2)", () => {
    */
   test("the §2 table, both pairs, all four sign combinations", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let euclidean: Vector((BigInt, BigInt)) = [",
       "    (BigInt.div(7n, 3n), BigInt.mod(7n, 3n)),",
       "    (BigInt.div(-7n, 3n), BigInt.mod(-7n, 3n)),",
@@ -186,6 +196,8 @@ describe("the Euclidean laws hold at BigInt (Division & Remainder §2)", () => {
    */
   test("both division identities hold past the Int range", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let left: BigInt = -9007199254740993000000000007n",
       "let right: BigInt = 1000000000000000003n",
       "export let euclideanIdentity: Bool =",
@@ -207,6 +219,8 @@ describe("the Euclidean laws hold at BigInt (Division & Remainder §2)", () => {
   /** Integral §4's four `gcd` laws, and §5's three for `lcm`. */
   test("`gcd` is sign-insensitive, non-negative, and total at zero", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let gcds: Vector(BigInt) = [",
       "    BigInt.gcd(12n, 18n), BigInt.gcd(-4n, 6n), BigInt.gcd(-4n, -6n),",
       "    BigInt.gcd(7n, 0n), BigInt.gcd(-7n, 0n), BigInt.gcd(0n, -7n), BigInt.gcd(0n, 0n),",
@@ -220,6 +234,8 @@ describe("the Euclidean laws hold at BigInt (Division & Remainder §2)", () => {
 
   test("`lcm` is zero at a zero operand, non-negative, and divide-first exact", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let lcms: Vector(BigInt) = [",
       "    BigInt.lcm(4n, 6n), BigInt.lcm(0n, 5n), BigInt.lcm(5n, 0n),",
       "    BigInt.lcm(-4n, 6n), BigInt.lcm(4n, -6n), BigInt.lcm(-4n, -6n),",
@@ -246,6 +262,8 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
    */
   test("`div`, `mod`, `quot`, and `rem` each throw a named DivideByZeroError", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let byDiv(): BigInt = BigInt.div(1n, 0n)",
       "export let byMod(): BigInt = BigInt.mod(1n, 0n)",
       "export let byQuot(): BigInt = BigInt.quot(1n, 0n)",
@@ -261,7 +279,7 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
     ] as const) {
       const error = threw(exports[name] as () => unknown);
       expect(error).toBeInstanceOf(Error);
-      expect(error).toMatchObject({ name: "DivideByZeroError", $hex: "Integral", message });
+      expect(error).toMatchObject({ name: "DivideByZeroError", $hex: "Hex.Integral", message });
     }
   });
 
@@ -272,6 +290,8 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
    */
   test("`gcd` and `lcm` never reach a zero divisor", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let safeGcd(): BigInt = BigInt.gcd(0n, 0n)",
       "export let safeLcm(): BigInt = BigInt.lcm(0n, 0n)",
       "",
@@ -284,6 +304,8 @@ describe("the zero-divisor guards moved with their bodies (§7)", () => {
   /** The catch site the migration must not break: by name, in JavaScript. */
   test("a JavaScript catch site still reads the name brand", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let boom(): BigInt = BigInt.mod(9n, 0n)",
       "",
     ].join("\n"));
@@ -302,6 +324,8 @@ describe("negative exponents (Pow, delta 4)", () => {
    */
   test("`**` at BigInt throws NegativeExponentError with the same message", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let fine: BigInt = 2n ** 10",
       "export let zero: BigInt = 7n ** 0",
       "export let boom(): BigInt = 2n ** -1",
@@ -320,6 +344,8 @@ describe("negative exponents (Pow, delta 4)", () => {
 
   test("`pow` under a written bound reaches the same guard", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let raise<a: Pow>(base: a, exponent: Int): a = Pow.pow(base, exponent)",
       "export let big: BigInt = raise(3n, 4)",
       "export let boom(): BigInt = raise(3n, -4)",
@@ -340,6 +366,8 @@ describe("the conversions (Primitive Types §6)", () => {
    */
   test("`fromInt` and `fromNat` are the Signed and Num members, qualified", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let signed: BigInt = BigInt.fromInt(-3)",
       "export let natural: BigInt = BigInt.fromNat(3)",
       "let established: Int = -1234567",
@@ -358,6 +386,8 @@ describe("the conversions (Primitive Types §6)", () => {
 
   test("`toInt` answers Some inside the exact range and None outside it", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let atTop: Option(Int) = BigInt.toInt(9007199254740991n)",
       "export let atBottom: Option(Int) = BigInt.toInt(-9007199254740991n)",
       "export let pastTop: Option(Int) = BigInt.toInt(9007199254740992n)",
@@ -385,6 +415,8 @@ describe("the conversions (Primitive Types §6)", () => {
    */
   test("`toFloat` rounds in range and says nothing about it", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let exact: Float = BigInt.toFloat(5n)",
       "export let negative: Float = BigInt.toFloat(-5n)",
       // Past 2^53 the nearest Float is not the integer asked for. The doc says
@@ -408,6 +440,8 @@ describe("the conversions (Primitive Types §6)", () => {
     // sends it to `2^1024`, which is not a double at all, so the correctly
     // rounded answer is an infinity and the door refuses.
     const exports = await runMain([
+      "module Main",
+      "",
       "// the boundary pair\n" +
       "export let largest: Float = BigInt.toFloat(2n ** 1024 - 2n ** 971)",
       "export let boom(): Float = BigInt.toFloat(2n ** 1024 - 2n ** 970)",
@@ -419,7 +453,7 @@ describe("the conversions (Primitive Types §6)", () => {
     expect(threw(exports["boom"] as () => unknown)).toMatchObject({
       name: "FloatRangeError",
       message: "BigInt.toFloat: value does not fit in Float",
-      $hex: "Float",
+      $hex: "Hex.Float",
     });
     // The same error and the same message from the other side: the message
     // names the operation, not which end of the range failed.
@@ -447,6 +481,8 @@ describe("the conversions (Primitive Types §6)", () => {
 describe("`Eq` and `Hash` at BigInt", () => {
   test("equality and its inherited default agree", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let same: Bool = 1000000000000000000001n == 1000000000000000000001n",
       "export let different: Bool = 1000000000000000000001n != 1000000000000000000002n",
       "export let byMember: Bool = BigInt.equals(3n, 3n)",
@@ -495,6 +531,8 @@ describe("`Eq` and `Hash` at BigInt", () => {
 
   test("hashing agrees with equality and is usable as a Map key", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let sameHash: Bool = Hash.hash(123456789012345678901n) == Hash.hash(123456789012345678901n)",
       "export let direct: Int = BigInt.hash(7n)",
       "export let dotted: Int = 7n.hash()",
@@ -643,6 +681,8 @@ describe("the companion is an ordinary module (Modules §5.3, §5.4)", () => {
    */
   test("bare `div` in a consumer is still the polymorphic member", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let atBig: BigInt = Integral.div(-9n, 4n)",
       "export let atInt: Int = Integral.div(-9, 4)",
       "",
@@ -659,6 +699,8 @@ describe("the companion is an ordinary module (Modules §5.3, §5.4)", () => {
    */
   test("a consumer may still bind `div` at module level", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let div(left: BigInt, right: BigInt): BigInt = left + right",
       "export let mine: BigInt = div(9n, 4n)",
       "export let theirs: BigInt = BigInt.div(9n, 4n)",
@@ -692,6 +734,8 @@ describe("the companion is an ordinary module (Modules §5.3, §5.4)", () => {
    */
   test("a BigInt receiver reaches the companion's plain exports", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let multiple: BigInt = 4n.lcm(6n)",
       "export let narrowed: Option(Int) = 4n.toInt()",
       "export let floating: Float = 4n.toFloat()",
@@ -729,6 +773,8 @@ describe("Rat, the live consumer, is unmoved", () => {
 
   test("normalization, sign canonicalization, and the zero-bottom fault", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       RAT,
       "let half: Rat = create(3n, 6n)",
       "let negative: Rat = create(1n, -2n)",

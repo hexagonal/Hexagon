@@ -33,7 +33,7 @@ import { projectDiagnostics } from "../support/test-project.js";
 const HEAD_LAW =
   "a parameterized instance head must be a nominal constructor applied once to each distinct instance parameter";
 
-const SH = "export record Box(a) = { value: a }\n" +
+const SH = "module Main\n\n" + "export record Box(a) = { value: a }\n" +
   "constraint Sh<a> =\n" +
   "    sh(x: a): String\n" +
   "honor Sh<Box(Int)> =\n" +

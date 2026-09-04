@@ -34,6 +34,8 @@ import { compileFiles, projectDiagnostics, runProject } from "../support/test-pr
 /** The declaring module: a user constraint with one widenable seat. */
 function scaleModule(tag: string): string {
   return [
+    "module Scale",
+    "",
     `// scale ${tag}`,
     "export constraint Scale<a> =",
     "    scale(value: a, factor: Int): a",
@@ -51,7 +53,7 @@ function scaleModule(tag: string): string {
  * reaching the `Float` seat through Numeric Literals §5.1's exact conversion,
  * inserted by the seat rather than written anywhere.
  *
- * The declaration sits on **line 7** of every module this builds, which is the
+ * The declaration sits on **line 9** of every module this builds, which is the
  * line the refusals below name.
  */
 function matrixModule(
@@ -60,6 +62,8 @@ function matrixModule(
   ...extra: readonly string[]
 ): string {
   return [
+    "module Matrix",
+    "",
     `// matrix ${tag}`,
     "import Scale",
     "",
@@ -308,7 +312,7 @@ describe("what the law refuses at the same reach (Constraints §4.7)", () => {
       ].join("\n")],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "the `Scale.Scale<Matrix>` instance binds `scale`, which is already bound " +
-        "(line 6); a member's wider face is declared, not exported — write " +
+        "(line 8); a member's wider face is declared, not exported — write " +
         "`widens Scale.scale(…)` and account for the member with " +
         "`scale = widened`.",
     ]);
@@ -348,7 +352,7 @@ describe("where the law is never consulted (Modules §5.3)", () => {
     ].join("\n")]]).diagnostics.map(({ message }) => message);
 
     expect(diagnostics).toEqual([
-      "`scale` is already bound (line 3); Hexagon does not allow rebinding — " +
+      "`scale` is already bound (line 5); Hexagon does not allow rebinding — " +
         "choose a different name.",
     ]);
   });
@@ -372,7 +376,7 @@ describe("where the law is never consulted (Modules §5.3)", () => {
     ]).diagnostics.map(({ message }) => message);
 
     expect(diagnostics).toEqual([
-      "`scaledTwice` is already bound (line 4); Hexagon does not allow " +
+      "`scaledTwice` is already bound (line 6); Hexagon does not allow " +
         "rebinding — choose a different name.",
     ]);
   });

@@ -279,7 +279,7 @@ describe("tier 3: the bare name with the route stated", () => {
 
   test("the clause names the module import, and it compiles verbatim", () => {
     // The union arrives by an imported signature, so this module names no
-    // alias for `./flags` at all — and it binds another `Off`, so the door
+    // alias for module `Flags` at all — and it binds another `Off`, so the door
     // does not open on the spelling.
     const files = (extra: string) => [
       FLAGS,
@@ -296,7 +296,7 @@ describe("tier 3: the bare name with the route stated", () => {
     ] as const;
 
     expect(diagnostics(files("") as never)).toEqual([
-      "match is missing cases: `Off` — `Off` is declared in `./flags`, and this " +
+      "match is missing cases: `Off` — `Off` is declared in module `Flags`, and this " +
       "module binds another `Off`; `import Flags` and " +
       "spell it `Flags.Off`",
     ]);
@@ -331,7 +331,7 @@ describe("tier 3: the bare name with the route stated", () => {
         "        On => 1\n",
       ],
     ])).toEqual([
-      "match is missing cases: `Off` — `Off` is declared in `./flags`, and this " +
+      "match is missing cases: `Off` — `Off` is declared in module `Flags`, and this " +
       "module binds another `Off`; `import Flags as Flags_1` and " +
       "spell it `Flags_1.Off`",
     ]);
@@ -422,7 +422,7 @@ describe("aggregation: one clause per declaring module", () => {
       ],
     ])).toEqual([
       "match is missing cases: `Off`, `Dim` — `Off` and `Dim` are declared in " +
-      "`./flags`, and this module binds another `Off` and another `Dim`; " +
+      "module `Flags`, and this module binds another `Off` and another `Dim`; " +
       "`import Flags` and spell them `Flags.Off` and `Flags.Dim`",
     ]);
   });
@@ -442,7 +442,7 @@ describe("aggregation: one clause per declaring module", () => {
       ],
     ])).toEqual([
       "match is missing cases: `Off`, `Dim`, `Cool` — `Dim` and `Cool` are " +
-      "declared in `./flags`, and this module binds another `Dim` and another " +
+      "declared in module `Flags`, and this module binds another `Dim` and another " +
       "`Cool`; `import Flags` and spell them `Flags.Dim` and " +
       "`Flags.Cool`",
     ]);
@@ -468,9 +468,9 @@ describe("aggregation: one clause per declaring module", () => {
         "        (_, B1) => 2\n",
       ],
     ])).toEqual([
-      "match is missing cases: `(A2, B2)` — `A2` is declared in `./a`, and this " +
+      "match is missing cases: `(A2, B2)` — `A2` is declared in module `A`, and this " +
       "module binds another `A2`; `import A` and spell it `A.A2` — " +
-      "`B2` is declared in `./b`, and this module binds another `B2`; " +
+      "`B2` is declared in module `B`, and this module binds another `B2`; " +
       "`import B` and spell it `B.B2`",
     ]);
   });
@@ -493,10 +493,10 @@ describe("aggregation: one clause per declaring module", () => {
       ],
     ])).toEqual([
       "match is missing cases: `(Off, G2)`, `(Dim, G2)`, `(Warm, G2)` …and 1 " +
-      "more — `Off`, `Dim` and `Warm` are declared in `./flags`, and this " +
+      "more — `Off`, `Dim` and `Warm` are declared in module `Flags`, and this " +
       "module binds another `Off`, another `Dim` and another `Warm`; " +
       "`import Flags` and spell them `Flags.Off`, `Flags.Dim` " +
-      "and `Flags.Warm` — `G2` is declared in `./other`, and this module binds " +
+      "and `Flags.Warm` — `G2` is declared in module `Other`, and this module binds " +
       "another `G2`; `import Other` and spell it `Other.G2`",
     ]);
   });
@@ -515,7 +515,7 @@ describe("aggregation: one clause per declaring module", () => {
       ],
     ])).toEqual([
       "match is missing cases: `Off`, `Dim`, `Warm` …and 1 more — `Off`, `Dim` " +
-      "and `Warm` are declared in `./flags`, and this module binds another " +
+      "and `Warm` are declared in module `Flags`, and this module binds another " +
       "`Off`, another `Dim` and another `Warm`; `import Flags` " +
       "and spell them `Flags.Off`, `Flags.Dim` and `Flags.Warm`",
     ]);
@@ -537,7 +537,7 @@ describe("the clause rides with the witness, not with one message", () => {
       ],
     ])).toEqual([
       "this pattern can fail: `Off`; use `match` — `Off` is declared in " +
-      "`./flags`, and this module binds another `Off`; " +
+      "module `Flags`, and this module binds another `Off`; " +
       "`import Flags` and spell it `Flags.Off`",
     ]);
   });
@@ -557,7 +557,7 @@ describe("the clause rides with the witness, not with one message", () => {
       ],
     ])).toEqual([
       "this pattern can fail: `Off`; use `match` — `Off` is declared in " +
-      "`./flags`, and this module binds another `Off`; " +
+      "module `Flags`, and this module binds another `Off`; " +
       "`import Flags` and spell it `Flags.Off` — " +
       "for a match function, write `match` with arms",
     ]);
@@ -673,7 +673,7 @@ describe("the error-program obligation: a broken pattern must not widen the voca
     // The coverage half of the same change, and the one program where it moves
     // a *route clause* off the output: at base this printed `match is missing
     // cases: `Off`` — under this PR's tiers, with the clause routing `Off` to
-    // `./flags` — beside the arity error. The broken arm now reads as `_`, so
+    // module `Flags` — beside the arity error. The broken arm now reads as `_`, so
     // `Flag` is covered under every repair and the deeper fault leads alone.
     // That is the block's named trade: coverage recomputes the moment the arity
     // is fixed.

@@ -64,6 +64,8 @@ describe("the control: diagnostics are project-level, so prove the probe can fai
 describe("the four spellings are one implementation", () => {
   test("`rem` agrees qualified, after a dot, and under a bound", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let qualified: Nat = Nat.rem(17, 5)",
       "let seventeen: Nat = 17",
       "let five: Nat = 5",
@@ -95,6 +97,8 @@ describe("Division & Remainder §2 at a type with no negatives", () => {
    */
   test("`div` is `quot` and `mod` is `rem`, everywhere they are defined", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let agree(left: Nat, right: Nat): Bool =",
       "    Nat.div(left, right) == Nat.quot(left, right)",
       "    and Nat.mod(left, right) == Nat.rem(left, right)",
@@ -116,6 +120,8 @@ describe("Division & Remainder §2 at a type with no negatives", () => {
   /** §2's identity holds here too, trivially but checkably. */
   test("`div(l, r) * r + mod(l, r) == l`", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let holds(left: Nat, right: Nat): Bool =",
       "    Nat.div(left, right) * right + Nat.mod(left, right) == left",
       "export let identities: Vector(Bool) = [holds(9, 4), holds(0, 3), holds(8, 8)]",
@@ -137,6 +143,8 @@ describe("the guards name `Nat`, which they never did before", () => {
    */
   test("each member throws `DivideByZeroError` naming `Nat` and itself", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let byDiv(): Nat = Nat.div(1, 0)",
       "export let byMod(): Nat = Nat.mod(2, 0)",
       "export let byQuot(): Nat = Nat.quot(3, 0)",
@@ -147,7 +155,7 @@ describe("the guards name `Nat`, which they never did before", () => {
     const messages = ["Div", "Mod", "Quot", "Rem"].map((member) => {
       const error = threw(exports[`by${member}`] as () => unknown) as Error;
       expect(error.name).toBe("DivideByZeroError");
-      expect((error as Error & { $hex?: string }).$hex).toBe("Integral");
+      expect((error as Error & { $hex?: string }).$hex).toBe("Hex.Integral");
       return error.message;
     });
 
@@ -162,6 +170,8 @@ describe("the guards name `Nat`, which they never did before", () => {
   /** And `Int`'s messages still say `Int`, so the two are not one message again. */
   test("the same operations at `Int` still name `Int`", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let natSide(): Nat = Nat.mod(7, 0)",
       "export let intSide(): Int = Int.mod(7, 0)",
       "",
@@ -177,6 +187,8 @@ describe("the guards name `Nat`, which they never did before", () => {
 describe("`gcd` needs no absolute value here", () => {
   test("`gcd` absorbs zero and finds the divisor", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let divisors: Vector(Nat) = [",
       "    Nat.gcd(0, 0), Nat.gcd(12, 0), Nat.gcd(0, 12),",
       "    Nat.gcd(12, 18), Nat.gcd(17, 5), Nat.gcd(48, 18)]",
@@ -220,6 +232,8 @@ describe("`Pow<Nat>` carries the guard the `Int` exponent made reachable (#541)"
     // one it has: `Nat`'s algebra runs out exactly where `Int`'s does, and says
     // so with the message the whole integer family shares.
     const exports = await runMain([
+      "module Main",
+      "",
       "let one: Nat = 1",
       "let negative: Int = -1",
       "export let boom(): Nat = one ** negative",
@@ -278,6 +292,8 @@ describe("`Nat` honors no `Signed`", () => {
   /** But `Num`, `Ord`, `Eq`, `Show`, `Hash`, `Pow`, and `Integral` all answer. */
   test("everything `Nat` does honor still works", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let a: Nat = 30",
       "let b: Nat = 12",
       "export let sum: Nat = a + b",
@@ -311,6 +327,8 @@ describe("Primitive Types §1's checked boundary conversion", () => {
    */
   test("`fromInt` answers `Some` for the non-negative and `None` below zero", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let described(value: Int): String =",
       "    match Nat.fromInt(value)",
       "        Some(count) => \"count ${count}\"",
@@ -327,6 +345,8 @@ describe("Primitive Types §1's checked boundary conversion", () => {
   /** The result is genuinely an `Option(Nat)`, and its payload a genuine `Nat`. */
   test("the answer's payload is a `Nat` a `Nat`-typed binding accepts", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let orZero(result: Option(Nat)): Nat =",
       "    match result",
       "        Some(count) => count",
@@ -427,6 +447,8 @@ describe("the wired `Nat` row is gone, not dormant", () => {
    */
   test("a record deriving over a `Nat` field hashes lawfully", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export record Page derives (Eq, Hash) = {number: Nat, size: Nat}",
       "let first = Page({number = 1, size = 50})",
       "let alsoFirst = Page({number = 1, size = 50})",

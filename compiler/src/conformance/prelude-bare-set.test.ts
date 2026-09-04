@@ -400,7 +400,7 @@ describe("the function channel: none, and `ignore`", () => {
   test("a second prelude constraint spelling `hash` does not restore the dot form", () => {
     const second: readonly [string, string] = [
       "/Result.hex",
-      "module Result\n\n" + `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+      `${PRELUDE_SOURCES["Result.hex"]!}\n` +
       "export constraint Digest<a> =\n" +
       "    hash(value: a): Int\n",
     ];
@@ -750,7 +750,7 @@ describe("the member channel: `show` only", () => {
       ["/main.hex", "module Main\n\n" + "export let s: String = show(1)\n"],
       [
         "/Result.hex",
-        "module Result\n\n" + `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
         "export constraint Loud<a> =\n" +
         "    show(value: a): String\n",
       ],

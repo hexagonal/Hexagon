@@ -352,7 +352,7 @@ describe("a component whose order is not its representation's order", () => {
 
   test("a field of that type sorts by the cross-product, not by the fields", async () => {
     const module = await runMain(
-      ratio +
+      "module Main\n\n" + ratio +
         "export record Reading derives (Eq, Ord) = {rate: Ratio}\n" +
         "let third = Ratio({top = 1, bottom = 3})\n" +
         "let half = Ratio({top = 1, bottom = 2})\n" +
@@ -369,7 +369,7 @@ describe("a component whose order is not its representation's order", () => {
 
   test("a vector of that type sorts by the cross-product too", async () => {
     const module = await runMain(
-      ratio.replace(/Ratio/gu, "Fraction") +
+      "module Main\n\n" + ratio.replace(/Ratio/gu, "Fraction") +
         "let third = Fraction({top = 1, bottom = 3})\n" +
         "let half = Fraction({top = 1, bottom = 2})\n" +
         "export let direct: Bool = third < half\n" +

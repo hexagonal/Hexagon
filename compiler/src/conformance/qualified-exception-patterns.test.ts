@@ -186,7 +186,7 @@ describe("a module alias qualifies an imported exception", () => {
     ]).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
     expect(javascript).toContain('.name === "Boom"');
-    expect(javascript).toContain('$hex === "lib"');
+    expect(javascript).toContain('$hex === "Lib"');
     expect(javascript).not.toContain("Lib.Boom");
   });
 });
@@ -288,7 +288,7 @@ describe("the hatch #466 needed: an occluding module reaches both", () => {
     expect(compileFiles(files).diagnostics).toEqual([]);
     const f = (await runProject(files))["f"] as () => number;
     expect(f).toThrowError(
-      expect.objectContaining({ name: "Boom", $hex: "a", code: 7 }),
+      expect.objectContaining({ name: "Boom", $hex: "A", code: 7 }),
     );
   });
 });

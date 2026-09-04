@@ -358,7 +358,7 @@ describe("a container walk demands of its contents what the identity says", () =
           "export let r: String = render(xs)\n",
       ),
     ).toEqual([
-      "type `P` has no `Show` instance; it could only be declared in `./main.hex` " +
+      "type `P` has no `Show` instance; it could only be declared in module `Main` " +
         "(declares `P`) or the module declaring `Show`; add `Show` to the `derives` list of `P`",
     ]);
   });
@@ -375,7 +375,7 @@ describe("a container walk demands of its contents what the identity says", () =
     expect(reports).toHaveLength(2);
     expect(new Set(reports)).toEqual(
       new Set([
-        "type `P` has no `Show` instance; it could only be declared in `./main.hex` " +
+        "type `P` has no `Show` instance; it could only be declared in module `Main` " +
           "(declares `P`) or the module declaring `Show`; add `Show` to the `derives` list of `P`",
       ]),
     );
@@ -396,7 +396,7 @@ describe("a container walk demands of its contents what the identity says", () =
       ),
     ).toEqual([
       "type `V` has no `Hash` instance; `Hash` instances must be derived, so the " +
-        "only repair is adding `Hash` to `V`'s `derives` list in `./main.hex`",
+        "only repair is adding `Hash` to `V`'s `derives` list in module `Main`",
     ]);
   });
 });

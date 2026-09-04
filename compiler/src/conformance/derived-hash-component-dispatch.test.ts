@@ -283,7 +283,7 @@ describe("the evidence chain through structural layers", () => {
         "/main.hex",
         // Neither `Outer` nor `Inner` is spelled in this module — only the
         // alias `O`, itself two removes from either declaration.
-        "import Outeralias as O\n" +
+        "module Main\n\n" + "import Outeralias as O\n" +
         "export record Cage derives (Eq, Hash) = {held: O}\n" +
         "export let zeroHash: Int = Hash.hash(Cage({held = O.zero()}))\n" +
         "export let oneHash: Int = Hash.hash(Cage({held = O.one()}))\n" +

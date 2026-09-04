@@ -53,7 +53,7 @@ function declarationSet(
 ): Record<string, string> {
   const files: Record<string, string> = {};
   for (const module of compiled.modules) {
-    const name = module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts");
+    const name = module.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts");
     files[name] = module.declarations.text;
   }
   if (compiled.runtimeDeclarations !== undefined) {
@@ -130,7 +130,7 @@ describe("row 1 — a namespace alias beside a same-spelled declaration (TS2440,
     // outright that the two files decide independently, so the alias moves in
     // one and vanishes from the other.
     expect(emitted(compiled, "/main.hex").javascript.text).toContain(
-      'import * as Point_1 from "./point.js";',
+      'import * as Point_1 from "./Point.js";',
     );
   });
 });
@@ -156,7 +156,7 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type * as Lib from "./lib.js";\n' +
+      'import type * as Lib from "./Lib.js";\n' +
         "export declare function mk(p: Lib.Point): Lib.Point;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -212,7 +212,7 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
     // spelled one identity two ways — `{ p: Point }` beside `{ p: Lib.Point }` —
     // and owed a minted line for the half that lost its qualifier.
     expect(declarations(compiled)).toBe(
-      'import type * as Lib from "./lib.js";\n' +
+      'import type * as Lib from "./Lib.js";\n' +
         "export declare const r: { p: Lib.Point };\n" +
         "export declare function f(v: { p: Lib.Point }): number;\n",
     );
@@ -272,7 +272,7 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
     // record. Reading the travelling qualifier would therefore not fail loudly;
     // it would publish `/other.hex`'s type where the source said `/lib.hex`'s,
     // with nothing to report it. `tsc` cannot see that, so the text must.
-    expect(text).toContain('import type { Point } from "./lib.js";');
+    expect(text).toContain('import type { Point } from "./Lib.js";');
     expect(text).toContain("export declare function here(p: Point): Point;");
     expect(text).toContain("export declare function mine(p: Lib.Point): Lib.Point;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -307,8 +307,8 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type { Point } from "./lib.js";\n' +
-        'import type { Lib } from "./lib2.js";\n' +
+      'import type { Point } from "./Lib.js";\n' +
+        'import type { Lib } from "./Lib2.js";\n' +
         "export declare function here(p: Point): Point;\n" +
         "export declare const w: Lib;\n" +
         "export declare const n: number;\n",
@@ -330,8 +330,8 @@ describe("row 3 — a qualified face, nothing contesting (TS2304, #268)", () => 
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type * as A from "./lib.js";\n' +
-        'import type * as B from "./lib.js";\n' +
+      'import type * as A from "./Lib.js";\n' +
+        'import type * as B from "./Lib.js";\n' +
         "export declare function first(p: A.Point): A.Point;\n" +
         "export declare function second(p: B.Point): B.Point;\n",
     );
@@ -356,7 +356,7 @@ describe("row 4 — a bare face in scope only by the companion fallback (TS2709,
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type { Shape } from "./shape.js";\n' +
+      'import type { Shape } from "./Shape.js";\n' +
         "export declare function width(s: Shape): number;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -382,7 +382,7 @@ describe("row 4 — a bare face in scope only by the companion fallback (TS2709,
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type { Shape } from "./shape.js";\n' +
+      'import type { Shape } from "./Shape.js";\n' +
         "export declare function width(s: Shape): number;\n",
     );
   });
@@ -424,8 +424,8 @@ describe("row 5 — two rung-5 mints of the same spelling (#617)", () => {
     // its true home. `a` is declared first, so `/aa.hex`'s `Row` claims the
     // bare spelling; `/bb.hex`'s moves to `Row_1`.
     expect(declarations(compiled)).toBe(
-      'import type { Row } from "./aa.js";\n' +
-        'import type { Row as Row_1 } from "./bb.js";\n' +
+      'import type { Row } from "./Aa.js";\n' +
+        'import type { Row as Row_1 } from "./Bb.js";\n' +
         "export declare const a: Row;\n" +
         "export declare const b: Row_1;\n",
     );
@@ -449,8 +449,8 @@ describe("row 5 — two rung-5 mints of the same spelling (#617)", () => {
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type { Color } from "./color.js";\n' +
-        'import type { Color as Color_1 } from "./handle.js";\n' +
+      'import type { Color } from "./Color.js";\n' +
+        'import type { Color as Color_1 } from "./Handle.js";\n' +
         "export declare function both(c: Color, h: Color_1): Color;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -476,7 +476,7 @@ describe("row 6 — a type alias's expansion (TS2304, #618)", () => {
     // declares. The `Wrapped` row goes with the same rule — no face mentions
     // it — which is one of the three text changes §14.3 names as expected.
     expect(declarations(compiled)).toBe(
-      'import type { Shape } from "./shape.js";\n' +
+      'import type { Shape } from "./Shape.js";\n' +
         "export declare const c: Shape;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -504,11 +504,11 @@ describe("row 6 — a type alias's expansion (TS2304, #618)", () => {
       ["/main.hex", "module Main\n\n" + 'import Mid as Wrapped\nexport let c: Wrapped = Wrapped.one()\n'],
     ]);
 
-    expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual(["./shape"]);
+    expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual(["./Shape"]);
     expect(compiled.modules.map(({ source }) => source.path)).toContain("/shape.hex");
     // Declaration-side only: no JavaScript import is added, which would be a
     // load-order dependency the source never wrote (the #263 doctrine).
-    expect(emitted(compiled, "/main.hex").javascript.text).not.toContain("./shape.js");
+    expect(emitted(compiled, "/main.hex").javascript.text).not.toContain("./Shape.js");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
@@ -532,9 +532,9 @@ describe("row 6 — a type alias's expansion (TS2304, #618)", () => {
     // Rung 5 has no inventory to follow and must not fall back on first
     // reference: the source above reverses the order deliberately.
     expect(declarations(compiled)).toBe(
-      'import type { Alpha } from "./a.js";\n' +
-        'import type { Beta } from "./a.js";\n' +
-        'import type { Gamma } from "./b.js";\n' +
+      'import type { Alpha } from "./A.js";\n' +
+        'import type { Beta } from "./A.js";\n' +
+        'import type { Gamma } from "./B.js";\n' +
         "export declare function use(g: Gamma, b: Beta, a: Alpha): number;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -559,7 +559,7 @@ describe("where the alias is contested, the alias yields", () => {
     // emitted-JavaScript counterpart takes, being a source name stepping aside
     // rather than a spelling the compiler minted.
     expect(declarations(compiled)).toBe(
-      'import type * as Point_1 from "./point.js";\n' +
+      'import type * as Point_1 from "./Point.js";\n' +
         "export type Point = { n: number };\n" +
         "export declare const Point: (record: { n: number }) => Point;\n" +
         "export declare function mine(p: Point): number;\n" +
@@ -585,8 +585,8 @@ describe("where the alias is contested, the alias yields", () => {
     // alias's line now being present to contest it. TypeScript binds both to the
     // same declaration, which is what the `tsc` run below establishes.
     expect(declarations(compiled)).toBe(
-      'import type { Point as Point_1 } from "./point.js";\n' +
-        'import type * as Point from "./point.js";\n' +
+      'import type { Point as Point_1 } from "./Point.js";\n' +
+        'import type * as Point from "./Point.js";\n' +
         "export declare function qualified(p: Point.Point): number;\n" +
         "export declare function bare(p: Point_1): number;\n",
     );
@@ -619,7 +619,7 @@ describe("the opaque brands are in every universe the file probes", () => {
     // settled first — it is derived from a declaration, so it is as much a
     // property of the module — and the minted local moves around it.
     expect(declarations(compiled)).toBe(
-      'import type { PointBrand as PointBrand_1 } from "./lib.js";\n' +
+      'import type { PointBrand as PointBrand_1 } from "./Lib.js";\n' +
         "declare const PointBrand: unique symbol;\n" +
         "export type Point = { readonly [PointBrand]: never };\n" +
         "export declare function mk(): Point;\n" +
@@ -645,7 +645,7 @@ describe("the opaque brands are in every universe the file probes", () => {
     // does not contain and moved the alias to `HandleBrand_1` for it — the same
     // over-claim the gated-alias rule prevents, one condition over.
     expect(declarations(compiled)).toBe(
-      'import type * as HandleBrand from "./lib.js";\n' +
+      'import type * as HandleBrand from "./Lib.js";\n' +
         "export declare function row(r: HandleBrand.Row): number;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -667,7 +667,7 @@ describe("the opaque brands are in every universe the file probes", () => {
     // internal to the file, and the brand is what an exported face is written
     // in terms of.
     expect(declarations(compiled)).toBe(
-      'import type * as PointBrand_1 from "./lib.js";\n' +
+      'import type * as PointBrand_1 from "./Lib.js";\n' +
         "declare const PointBrand: unique symbol;\n" +
         "export type Point = { readonly [PointBrand]: never };\n" +
         "export declare function mk(): Point;\n" +
@@ -726,8 +726,8 @@ describe("placement, and one probe for both minting rungs", () => {
     expect(declarations(compiled)).toBe(
       'import type * as Hex from "./hex.js";\n' +
         'import type { Option } from "./Hex/Option.js";\n' +
-        'import type { Point } from "./lib.js";\n' +
-        'import type { Color } from "./other.js";\n' +
+        'import type { Point } from "./Lib.js";\n' +
+        'import type { Color } from "./Other.js";\n' +
         "export declare function f(c: Color, w: Point, v: Hex.Vector<number>): Option<number>;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -753,7 +753,7 @@ describe("placement, and one probe for both minting rungs", () => {
     // moves. Two probes over two sets would put one declaration under two names.
     expect(declarations(compiled)).toBe(
       'import type { Option as Option_1 } from "./Hex/Option.js";\n' +
-        'import type { Option } from "./lib.js";\n' +
+        'import type { Option } from "./Lib.js";\n' +
         "export declare const a: Option;\n" +
         "export declare const b: Option_1<number>;\n",
     );
@@ -800,7 +800,7 @@ describe("what the sink is not asked", () => {
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type { S } from "./s.js";\n' +
+      'import type { S } from "./S.js";\n' +
         "export declare function pass(x: Iterable<number>, w: S): S;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -830,8 +830,8 @@ describe("what the sink is not asked", () => {
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type { Point } from "./lib.js";\n' +
-        'import type * as Lib from "./lib.js";\n' +
+      'import type { Point } from "./Lib.js";\n' +
+        'import type * as Lib from "./Lib.js";\n' +
         "export declare function mk(p: Lib.Point): Lib.Point;\n" +
         "export declare function bare(q: Point): number;\n",
     );
@@ -856,7 +856,7 @@ describe("what the sink is not asked", () => {
     // written dot would render `Shape_1` against a `Shape` the file does not
     // contain.
     expect(declarations(compiled)).toBe(
-      'import type { Shape } from "./shape.js";\n' +
+      'import type { Shape } from "./Shape.js";\n' +
         "export declare function width(s: Shape): number;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -877,7 +877,7 @@ describe("what the sink is not asked", () => {
     // The same rule one seat further in: a type written inside a body is not a
     // face, however it is spelled.
     expect(declarations(compiled)).toBe(
-      'import type { Shape } from "./shape.js";\n' +
+      'import type { Shape } from "./Shape.js";\n' +
         "export declare function width(s: Shape): number;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -926,7 +926,7 @@ describe("a module whose whole `.d.ts` was one dead line", () => {
     // with the type-side sink: the two files are decided independently. A
     // module import always emits as the namespace form (§2.1's plan for #762).
     expect(emitted(compiled, "/main.hex").javascript.text).toContain(
-      'import * as Point from "./lib.js";',
+      'import * as Point from "./Lib.js";',
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -969,7 +969,7 @@ describe("rung 5 mints only what its home module exports", () => {
     // is rung 5's regardless of how the occurrence was spelled, and that mint
     // is the one this test declines.
     expect(declarations(compiled)).toBe(
-      'import type * as Lib from "./lib.js";\n' +
+      'import type * as Lib from "./Lib.js";\n' +
         "export declare function peek(b: Lib.Box): Hidden;\n",
     );
     expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual([]);
@@ -1012,7 +1012,7 @@ describe("rung 5 declines a private nominal on every arm of the guard", () => {
     expect(declarations(compiled)).toBe(FACE);
     expect(emitted(compiled, "/main.hex").declarations.mintedTypeImports).toEqual([]);
     expect((await typeScriptErrors(declarationSet(compiled))).join("\n"))
-      .toContain("main.d.ts(1,25): error TS2304: Cannot find name 'Hidden'.");
+      .toContain("Main.d.ts(1,25): error TS2304: Cannot find name 'Hidden'.");
   });
 
   test("a private extern type", () => {
@@ -1070,7 +1070,7 @@ describe("the written signature is the face's spelling, at every published seat"
     // `B`'s line is not carried at all: nothing this file publishes is spelled
     // through it, the body being a seat the reader of the `.d.ts` cannot see.
     expect(declarations(compiled)).toBe(
-      'import type * as A from "./a.js";\n' + "export declare function f(): A.Row;\n",
+      'import type * as A from "./A.js";\n' + "export declare function f(): A.Row;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -1087,7 +1087,7 @@ describe("the written signature is the face's spelling, at every published seat"
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type * as A from "./a.js";\n' +
+      'import type * as A from "./A.js";\n' +
         "export declare const r: A.Row;\n" +
         "export declare const unused: number;\n",
     );
@@ -1111,7 +1111,7 @@ describe("the written signature is the face's spelling, at every published seat"
     // publishes bare `Row` and mints its import, and the alias's line is not
     // owed by anything.
     expect(declarations(compiled)).toBe(
-      'import type { Row } from "./row.js";\n' + "export declare function f(): Row;\n",
+      'import type { Row } from "./Row.js";\n' + "export declare function f(): Row;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -1127,7 +1127,7 @@ describe("the written signature is the face's spelling, at every published seat"
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type { Row } from "./row.js";\n' +
+      'import type { Row } from "./Row.js";\n' +
         "export declare const h: (arg0: Row) => Row;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -1138,7 +1138,7 @@ describe("the written signature is the face's spelling, at every published seat"
       "/host.hex",
       "module Host\n\n" + 'extern from "./host.js"\n    export type Handle\n    export fun make(): Handle\n',
     ];
-    const aliases = 'import Host as Handle\nimport Host as B\n';
+    const aliases = "module Main\n\n" + 'import Host as Handle\nimport Host as B\n';
 
     // The family's sixth row. An extern type is a nominal like the other two and
     // takes the same seat, so the rule has to hold on its arm as well: the
@@ -1154,7 +1154,7 @@ describe("the written signature is the face's spelling, at every published seat"
       ],
     ]);
     expect(declarations(returned)).toBe(
-      'import type { Handle } from "./host.js";\n' +
+      'import type { Handle } from "./Host.js";\n' +
         "/** Hexagon: `() ->! Handle.Handle` */\n" +
         "export declare function h(): Handle;\n",
     );
@@ -1167,7 +1167,7 @@ describe("the written signature is the face's spelling, at every published seat"
       ],
     ]);
     expect(declarations(bound)).toBe(
-      'import type { Handle } from "./host.js";\n' + "export declare const h: Handle;\n",
+      'import type { Handle } from "./Host.js";\n' + "export declare const h: Handle;\n",
     );
 
     // The `Hexagon:` doc line above says `Handle.Handle` and the TypeScript face
@@ -1189,7 +1189,7 @@ describe("the written signature is the face's spelling, at every published seat"
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type * as A from "./host.js";\n' +
+      'import type * as A from "./Host.js";\n' +
         "/** Hexagon: `() ->! A.Handle` */\n" +
         "export declare function h(): A.Handle;\n",
     );
@@ -1211,8 +1211,8 @@ describe("the written signature is the face's spelling, at every published seat"
     // keeps its annotations by construction, and a written qualified seat
     // publishes what it wrote.
     expect(declarations(compiled)).toBe(
-      'import type * as A from "./a.js";\n' +
-        'import type * as B from "./b.js";\n' +
+      'import type * as A from "./A.js";\n' +
+        'import type * as B from "./B.js";\n' +
         "export declare const h: (arg0: B.Row) => B.Row;\n" +
         "export declare function p(r: A.Row): number;\n",
     );
@@ -1239,7 +1239,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     ],
   ];
   const HEAD = 'import Lib as S\nimport Mid as W\n';
-  const TAIL = 'import type { S } from "./s.js";\n';
+  const TAIL = 'import type { S } from "./S.js";\n';
 
   test("a constrained export with no fundamental editions renders no face", async () => {
     const compiled = project([
@@ -1273,7 +1273,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
       ...MINT,
       [
         "/main.hex",
-        HEAD +
+        "module Main\n\n" + HEAD +
           "let helper<a: Show>(p: S.Point, value: a): String = show(value)\n" +
           "export let describe<a: Show>: (S.Point, a) -> String = helper\n" +
           "export let w: W = W.one()\n",
@@ -1295,7 +1295,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     ]);
     const text = declarations(compiled);
 
-    expect(text).toContain('import type * as S from "./lib.js";');
+    expect(text).toContain('import type * as S from "./Lib.js";');
     expect(text).toContain("export declare function describeInt(p: S.Point, value: number): string;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -1304,7 +1304,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     const compiled = project([
       LIB,
       ...MINT,
-      ["/main.hex", HEAD + "opaque record Box = {p: S.Point}\nexport let w: W = W.one()\n"],
+      ["/main.hex", "module Main\n\n" + HEAD + "opaque record Box = {p: S.Point}\nexport let w: W = W.one()\n"],
     ]);
 
     // §5's brand is the face; the representation is not published.
@@ -1321,7 +1321,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     const compiled = project([
       LIB,
       ...MINT,
-      ["/main.hex", HEAD + "opaque union Held = Wrap(p: S.Point)\nexport let w: W = W.one()\n"],
+      ["/main.hex", "module Main\n\n" + HEAD + "opaque union Held = Wrap(p: S.Point)\nexport let w: W = W.one()\n"],
     ]);
 
     expect(declarations(compiled)).toBe(
@@ -1361,7 +1361,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     ]);
     const text = declarations(compiled);
 
-    expect(text).toContain('import type * as Lib from "./lib.js";');
+    expect(text).toContain('import type * as Lib from "./Lib.js";');
     expect(text).toContain("export declare function Bad(p: Lib.Point): Bad;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -1377,7 +1377,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     ]);
     const text = declarations(compiled);
 
-    expect(text).toContain('import type * as Lib from "./lib.js";');
+    expect(text).toContain('import type * as Lib from "./Lib.js";');
     expect(text).toContain("export declare function take(p: Lib.Point): number;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
@@ -1389,7 +1389,7 @@ describe("the face walk counts every arm `emit` renders, and no other", () => {
     ]);
 
     expect(declarations(compiled)).toBe(
-      'import type * as Lib from "./lib.js";\n' + "export type Alias = Lib.Point;\n",
+      'import type * as Lib from "./Lib.js";\n' + "export type Alias = Lib.Point;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });

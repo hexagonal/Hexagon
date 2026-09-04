@@ -55,6 +55,8 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
    */
   test("§15's golden block: no `derives` list, no `Eq` — the whole clause, base-complete", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "record UserId = {n: Int}",
       "honor Hash<UserId> =",
       "    hash(u) = u.n * 31",
@@ -75,6 +77,8 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
    */
   test("no `derives` list, `Eq` derived through `= derive` — `Hash` alone", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "record UserId = {n: Int}",
       "honor Eq<UserId> = derive",
       "honor Hash<UserId> =",
@@ -89,6 +93,8 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
   /** §8's second dialect: a clause is already there, so the repair extends it. */
   test("a `derives` list carrying `Eq` — add `Hash` to it", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "record UserId derives (Eq) = {n: Int}",
       "honor Hash<UserId> =",
       "    hash(u) = u.n * 31",
@@ -105,6 +111,8 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
    */
   test("a `derives` list without `Eq` — add `(Eq, Hash)` to it", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "record UserId derives (Show) = {n: Int}",
       "honor Hash<UserId> =",
       "    hash(u) = u.n * 31",
@@ -118,6 +126,8 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
   /** A union carries a `derives` clause exactly as a nominal record does. */
   test("a union subject reads the same law", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "union Tag = Red | Green",
       "honor Hash<Tag> =",
       "    hash(t) = 31",
@@ -153,7 +163,7 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
     ])).toEqual([
       "orphan instance: this module declares neither `Hash` nor the instance subject",
       "`Hash` instances must be derived; use `derives (Eq, Hash)` on the " +
-        "declaration of `Weird` in `./types.hex`",
+        "declaration of `Weird` in module `Types`",
     ]);
   });
 
@@ -165,6 +175,8 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
    */
   test("the reporting file is never named", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "record UserId = {n: Int}",
       "honor Hash<UserId> =",
       "    hash(u) = u.n * 31",
@@ -183,6 +195,8 @@ describe("row 1: a project-source nominal whose `Eq` is absent or derived", () =
       Source.fileId(0),
       "test.hex",
       [
+        "module Main",
+        "",
         "record UserId = {n: Int}",
         "honor Hash<UserId> =",
         "    hash(u) = u.n * 31",
@@ -208,6 +222,8 @@ describe("row 2: a project-source nominal whose `Eq` is hand-written", () => {
    */
   test("the wrapper route stands in place of the fixit", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "record Weird = {s: String}",
       "honor Eq<Weird> =",
       "    equals(a, b) = a.s == b.s",
@@ -230,6 +246,8 @@ describe("row 3: a prelude nominal subject", () => {
    */
   test("the head plus the one true sentence, and no fixit", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "honor Hash<Ordering> =",
       "    hash(o) = 31",
       "",
@@ -250,6 +268,8 @@ describe("row 4: a subject with no `derives` seat", () => {
    */
   test("a structural subject", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "honor Hash<Vector(Int)> =",
       "    hash(v) = 31",
       "",
@@ -266,6 +286,8 @@ describe("row 4: a subject with no `derives` seat", () => {
    */
   test("an extern type", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "extern from \"widgets\"",
       "    export type Widget",
       "honor Hash<Widget> =",
@@ -291,6 +313,8 @@ describe("row 5: a subject that cannot be named, or cannot host an instance", ()
    */
   test("the unknown-name error is the whole answer", () => {
     const messages = projectDiagnostics([
+      "module Main",
+      "",
       "honor Hash<Nope> =",
       "    hash(n) = 31",
       "",
@@ -312,6 +336,8 @@ describe("row 5: a subject that cannot be named, or cannot host an instance", ()
    */
   test("a bare type-variable head takes §5.4's refusal and no advice", () => {
     const messages = projectDiagnostics([
+      "module Main",
+      "",
       "honor Hash<a> =",
       "    hash(x) = 31",
       "",
@@ -331,6 +357,8 @@ describe("row 5: a subject that cannot be named, or cannot host an instance", ()
    */
   test("the prefix spelling of the same head is silent too", () => {
     const messages = projectDiagnostics([
+      "module Main",
+      "",
       "honor<a> Hash<a> =",
       "    hash(x) = 31",
       "",
@@ -359,6 +387,8 @@ describe("#651: a refused member body is never materialized", () => {
    */
   test("an interpolation in a refused `Hash` body reports rather than crashes", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "record UserId = {n: Int}",
       "honor Hash<UserId> =",
       "    hash(u) = \"${u.n}\"",
@@ -379,6 +409,8 @@ describe("#651: a refused member body is never materialized", () => {
    */
   test("an unknown constraint's refused body crashes no more than `Hash`'s", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "record R = {n: Int}",
       "honor Nope<R> =",
       "    f(r) = \"${r.n}\"",

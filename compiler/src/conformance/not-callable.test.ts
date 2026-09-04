@@ -72,8 +72,8 @@ describe("the report itself", () => {
     // An error, not a warning: nothing downstream of a call that cannot happen
     // is worth emitting. The caret covers the whole call, as the sibling arity
     // report's does — the callee alone would point at a name that is fine.
-    const source = 'export let s: String = "text"\nexport let bad: Int = s(1)\n';
-    const reported = compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics;
+    const source = "module Main\n\n" + 'export let s: String = "text"\nexport let bad: Int = s(1)\n';
+    const reported = compileFiles([["/main.hex", source]]).diagnostics;
     expect(reported).toHaveLength(1);
     expect(reported[0]!.severity).toBe("error");
     expect(source.slice(reported[0]!.primary.start.offset, reported[0]!.primary.end.offset))
@@ -184,7 +184,7 @@ describe("every shape of concrete non-function reaches it", () => {
 
   test("an extern type", () => {
     expect(
-      diagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
+      diagnostics([["/world.js", "module WorldJs\n\n"], ["/main.hex", "module Main\n\n" + `extern from "./world.js"
     export type Handle
     export let handle: Handle
 
@@ -226,7 +226,7 @@ describe("the branches the split must leave alone", () => {
    */
   test("effectful mutual recursion inside an SCC stays clean", () => {
     expect(
-      diagnostics([["/world.js", ""], ["/main.hex", "module Main\n\n" + `${world}
+      diagnostics([["/world.js", "module WorldJs\n\n"], ["/main.hex", "module Main\n\n" + `${world}
 fun
     export ping(n: Int): Unit =
         save!("ping")
@@ -296,8 +296,8 @@ fun
   });
 
   test("the hint's fixit deletes exactly the argument list", () => {
-    const source = "export let bad: Option(Int) = None()\n";
-    const [diagnostic] = compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics;
+    const source = "module Main\n\n" + "export let bad: Option(Int) = None()\n";
+    const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
     expect(diagnostic?.fixes).toHaveLength(1);
     const fix = diagnostic!.fixes![0]!;
     expect(fix.message).toBe("delete the `()`");
@@ -375,11 +375,11 @@ fun
     // type bare, `Red` reaches the constructor bare — the same trick
     // `companion-fallback.test.ts` and `qualified-exception-patterns.test.ts`
     // use to keep one imported name's bare spelling under test.
-    const mainSource =
+    const mainSource = "module Main\n\n" +
       'import Lib as Colour\nimport Lib as Red\nexport let bad: Colour = Red()\n';
     const compiled = compileFiles([
       ["/lib.hex", "module Lib\n\n" + "export union Colour = Red | Mixed(Int)\n"],
-      ["/main.hex", "module Main\n\n" + mainSource],
+      ["/main.hex", mainSource],
     ]);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "`Red` is a value, not a function; write it without `()`",

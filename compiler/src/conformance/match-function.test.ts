@@ -33,7 +33,7 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
  * which is what a writer does today for every unannotatable lambda.
  */
 
-const maybe = "export union Maybe = Just(Int) | Nothing\n";
+const maybe = "module Main\n\n" + "export union Maybe = Just(Int) | Nothing\n";
 
 describe("a scrutinee-less `match` is a unary function literal", () => {
   test("it parses as a lambda whose body is a match on its own parameter", () => {
