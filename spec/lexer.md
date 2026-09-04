@@ -98,8 +98,9 @@ normalizes nor case-folds names; canonically equivalent NFC and decomposed spell
 distinct identifiers. Tooling may offer normalization or confusable warnings, but such
 warnings never alter name identity and are not compiler diagnostics in v1.
 
-Uppercase-start names serve type, union-case, constraint, implied-type, exception, module-name,
-and module-alias roles. Non-uppercase-start names serve term and binder roles.
+Uppercase-start names serve type, union-case, constraint, implied-type,
+exception, module-name, and module-alias roles. Non-uppercase-start names
+serve term and binder roles.
 Caseless scripts therefore work naturally as terms (`用户`). Where an uppercase role
 is wanted, one distinct mnemonic prefix per role is the cultural convention:
 
