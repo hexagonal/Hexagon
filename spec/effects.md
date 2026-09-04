@@ -223,7 +223,7 @@ An impure function meeting a `->` demand is an ordinary unification failure with
 
 > a `->` arrow promises purity, and this function performs effects — the demand is written `->`, the function's face `->?` or `->!`
 
-This is the whole enforcement of `memoize`-class contracts and of `Seq`'s §7 posture; nothing beyond unification is involved.
+This is the whole enforcement of `memoize`-class contracts and of `Seq`'s §7 posture; nothing beyond unification is involved. A declared pattern's `view` is one more seat of the demand: its head writes no arrow, and the pure constant is demanded of the member, because matching runs it (Pattern Declarations §2.1, §5).
 
 The failure has a reverse direction, and it needs its own sentence: a *pure* function refused where the impure constant is demanded — a `->!` data field (§2.5), an inlet-less face, any written `->!`. The report above speaks of a written `->` *demand* in every clause, and in the reverse direction the demand wrote no `->` — each clause misdescribes the program. The reverse report says what is actually true:
 

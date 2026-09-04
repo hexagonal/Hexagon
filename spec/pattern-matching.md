@@ -35,6 +35,9 @@ p as x                   -- as-pattern: match p, additionally bind the whole to 
 ()                       -- the empty-tuple (`Unit`) pattern: the arity-0 tuple form (#159)
 [p1, ..., pn]  [ps, ...rest]  -- vector patterns (Collections Part 3 §3 owns forms,
                               --   typing, exhaustiveness, irrefutability, emission)
+p(p1, ..., pn)           -- declared pattern: a non-uppercase-start head with parentheses,
+                         --   bare or Alias.p (Pattern Declarations owns declaration, typing,
+                         --   resolution, coverage, emission; registered here by reference)
 ```
 
 Grammar, loosest to tightest: `as` binds looser than `|`; both bind looser than the structural forms. So `Circle(r) | Square(r) as s` is `(Circle(r) | Square(r)) as s`. Parenthesize to override.
@@ -134,7 +137,7 @@ Circle(r) as s when r > 0.0 => draw(s)
 
 ### 2.8 What a pattern is not
 
-Patterns contain **no operators, no calls, no expressions**. `C(...)` in pattern position is constructor syntax resolved by the case rule, never a call. There is no evaluation inside a pattern; the only runtime work a pattern performs is tag tests, field/slot reads, and `Eq` tests for literals. Anything computational belongs in a guard.
+Patterns contain **no operators, no calls, no expressions**. `C(...)` in pattern position is constructor syntax resolved by the case rule, never a call. There is no evaluation inside a pattern; the only runtime work a pattern performs is tag tests, field/slot reads, and `Eq` tests for literals. Anything computational belongs in a guard. **One exception, and only one:** a declared pattern `p(...)` applies its `view` — a function the declaration requires to be pure, applied at most once per pattern per position (Pattern Declarations §2.1, §5) — which is why it is the exception this sentence can afford.
 
 ---
 
@@ -170,6 +173,7 @@ Pattern typing is checking-mode against the scrutinee type, structurally:
 - `p as x`: `p` checks against the scrutinee type; `x` binds at it.
 
 - Vector patterns: typing per Collections Part 3 §3.2 (checked against `Vector(t)`; rest binders at `Vector(t)`).
+- `p(p1, ..., pn)` (declared pattern): `p` resolves per Pattern Declarations §3.3 — in scope, else, for a bare head, in the expected type's home module's exported patterns; the scrutinee unifies with the pattern's subject at a fresh instantiation; sub-patterns check against the instantiated component types (Pattern Declarations §3.1).
 
 Binder class is positional (Statements §5): arm, lambda-parameter, and loop-pattern binders are head binders and shadow freely; `let`-pattern binders are sequential and may not reuse in-scope names or names whose definition is in progress (Statements §5.4, §5.1). All binders within one pattern are simultaneous (whence the duplicate rule), monomorphic, never generalized.
 
@@ -202,6 +206,7 @@ Consequences, spelled out:
 | `True \| False` | `Bool` | **irrefutable** | jointly cover the domain — the coverage definition, not a syntactic one, decides |
 | `Some(_) \| None` | `Option(a)` | irrefutable | ditto (binds nothing, so same-bindings is satisfied) |
 | vector patterns | `Vector(a)` | per Collections Part 3 §3 | length-based; that spec's verdicts are authoritative |
+| `p(q1, …, qn)` (declared pattern) | the pattern's subject | irrefutable iff every `qi` is | the view is total — the outer form is always "sole constructor" (Pattern Declarations §3.1) |
 
 ### 5.2 `Some(n)` vs `UserId(n)` — the story, in full
 
@@ -363,6 +368,7 @@ Both generalize from Unions §4.3. Both remain **hard errors**. Both remain **ex
 - Domains with finitely many shapes — unions (closed, nominal — which since #147 includes the prelude `Bool`), and tuples/records thereof — are checked exactly. `Unit`'s former standalone listing is **deleted** *(2026-07-30, #159)*: since it is the arity-0 tuple (Products §2.7), a `match` on `Unit` with a `()` arm is exhaustive with no `_` through the ordinary tuple clause, vacuously at zero components. **A `match` on `Bool` with `True` and `False` arms is exhaustive with no `_`** — this survives verbatim in force, respelled in form: it is now the ordinary closed-constructor union path, and the former "`Bool` via literals" carve-out (the first non-union exhaustive domain) is **deleted** *(corrected 2026-07-29, #147; the acceptance test is retained, respelled, now exercising the union path)*.
 - Infinite domains (`Int`, `String`, `Float`) are never covered by literals; exactness there means: **a catch-all (`_` or bare variable, possibly under `as`/or-composition per §5.1's coverage semantics) is required.**
 - **Guarded arms contribute nothing** — including `when True`. Coverage is computed as if guarded arms were absent.
+- **Declared patterns** (Pattern Declarations §4): a total view is a one-constructor shape. Specialising a column on a pattern `p` of arity *n* yields *n* component columns; rows headed by `p` contribute their components, wildcard rows *n* wildcards, and rows headed by any other form — another pattern over the type, or a constructor of it — are **dropped**: sound, since the checker cannot relate two views, and conservative, so a match mixing views needs a catch-all.
 - Record patterns: coverage is computed over the **mentioned fields only**. Sound because unmentioned fields are unconstrained in every arm — openness means they cannot distinguish arms. (If two arms mention different field sets, the matrix is built over the union of mentioned fields, absent mentions widening to `_`.)
 - Missing-case reporting must produce a **witness pattern**, rendered by §7.3: "match is missing cases: `(None, _)`", "match is missing cases: `{status = Queued}`". The Unions constructor-name listing is the degenerate rendering of this.
 
@@ -385,7 +391,7 @@ Witnesses print as patterns: constructor names applied to `_` for unconstrained 
 3. **Qualified, with the route stated**, where the module has no pastable spelling at all — the bare spelling is taken by a binding of this module's own (so §2.2's door, which reads scope first, does not open), and no in-scope alias reaches the constructor. The message says where it lives and names the one repair, the module import (Modules §3 — no per-name import exists, #762), the witness pasting qualified through the alias the edit binds — a spelling that pastes back once the named import is made, the clause's own precondition: ``match is missing cases: `Flags.Off` — `Off` is declared in module `Flags`, and this module binds another `Off`; `import Flags` and spell it `Flags.Off` ``. A repair to name always exists for a declared type that crossed a module boundary: visibility is never the obstacle — Modules §4.3 bars a private union, and its #629 extern arm a private foreign enum, from crossing an exported face — and the alias is the importer's to choose. The clause names the module **by its name** (Modules §2.3; a module import carries no path, #829): this is the one place the section promises an import line the reader pastes rather than looks up. One route clause per declaring module, covering the listed names that lack a pastable spelling — never the names a shallower tier already spelled; the "…and N more" tail names no constructors and so routes none. One corner routes through the prelude's full name: a prelude constructor bare-occluded while a same-spelled module alias shadows the prelude module's own ambient name — the clause states the shadowing and names the qualified import of the prelude module, `import Hex.Bool as HexBool` and spell it `HexBool.True` (Modules §3.1; Packages §2.4), the alias's rename being the other repair. The clause rides with the witness, not with one message: every diagnostic that renders a counterexample through this section — the §5.3 gate included — carries it under the same conditions; where a seat's message already carries its own trailing fixit (the lambda-parameter gate's §6.7 line), the route clause stands before that fixit.
 4. **No hidden-name tier exists, on purpose.** An opaque union's constructors are unnameable abroad — and no witness may print them. In a well-typed match the tier is empty by construction: a witness that names a constructor can be demanded only by arms that name constructors of the same union (literal and vector-length refutations demand no constructor name), and an opaque union's are unnameable outside its home, so a match over one abroad can only ever be missing `_` itself. On an error program the emptiness is an obligation instead: **a pattern that failed to type must not widen the witness's vocabulary** — at the `match` and `catch` seats and the three §5.3 gates alike, coverage reads the broken pattern as `_` while its row's well-typed columns stand as written. The broken pattern is granted maximal cover because the deeper fault leads: a report fires only for cases that stay missing under every repair of the broken pattern, and its witness is built from well-typed patterns alone, so no unnameable constructor can enter it — a match whose one arm is broken reports the type error and nothing else. The grant reaches exhaustiveness and irrefutability only; §7.2 takes the dual reading — an arm is dead only if it stays dead under every repair, so a broken pattern is never a shadower, while a genuine catch-all above still shadows a broken arm below it. No diagnostic under this section ever demands a name the reader cannot obtain — §3's opaque-destructure interception is the same law at the redirect seat: a diagnostic never signposts a spelling the reader cannot write.
 
-The tiers are judged per constructor occurrence — a nested witness may print an in-scope outer constructor bare while an inner one takes the qualified spelling or the route clause.
+The tiers are judged per constructor occurrence — a nested witness may print an in-scope outer constructor bare while an inner one takes the qualified spelling or the route clause. A declared pattern's head in a witness (`rat(_, 1)`) takes the same tiers, the door of tier 1 being Pattern Declarations §3.3's — every exported pattern of the scrutinee's home over its type (Pattern Declarations §4).
 
 ---
 
@@ -394,7 +400,7 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 - Scrutinee evaluated exactly once; sub-values are read, never copied or reconstructed.
 - Arms top to bottom; within an arm, or-pattern alternatives left to right; guard after pattern success, at most once (§3).
 - Binding is left to right, all binders simultaneous (no pattern binder is in scope inside its own pattern).
-- Patterns never invoke user code except the `Eq` test behind a literal (primitive `===` in every v1 case).
+- Patterns never invoke user code except the `Eq` test behind a literal (primitive `===` in every v1 case) — and a declared pattern's pure `view`, applied at most once per pattern per position before the arms are tested (Pattern Declarations §5).
 
 ---
 
@@ -470,6 +476,7 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 | Pun in type position (`{x}` as a type) | "record types need field types" (§9) |
 | Field pattern for a field the type lacks | missing-field family, naming known fields (§2.4) |
 | Constructor/pattern arity mismatches, nullary parens, bare payload constructor | unchanged Unions §4.2 family; the "nested patterns arrive later" error is **retired** |
+| A declared pattern's own seats — arity, match-only expression use, the bare head under a binding or an undetermined type, the opaque refusal naming the exported patterns | Pattern Declarations §7 |
 
 ---
 
@@ -502,6 +509,7 @@ The tiers are judged per constructor occurrence — a nested witness may print a
 | §1's emission bullet restated post-#147 (2026-07-29): readable emission is an emitter commitment, standing because it constrains no language semantics; TS-author phrasing retired | §1, §15(n) |
 | `()` reclassified (2026-07-30, #159): the dedicated `Unit` pattern dissolves into the arity-0 tuple pattern; `Unit` exhaustiveness via the tuple clause; the standalone finite-domain listing deleted; no diagnostic or verdict changes | §2, §2.3, §5.1, §7.1; Products §2.7 |
 | Expected-type propagation (#513, owned by Functions §4.3): supplying seats hand a lambda parameter its type before arm checking, so the match function works at every seat that writes its type; §6.1's abstract-type refusal stands, reduced to programs no seat determines, and gains the undetermined-parameter rider | §6.1, §6.7, §12 |
+| Declared patterns (#834): `p(p1, …, pn)` joins the grammar by reference; the one exception to the no-user-code rule is the pure `view`; irrefutable iff the components are; a one-constructor shape to the matrix, other forms in the column dropped; witnesses under the same spelling tiers | §2, §2.8, §4, §5.1, §7.1, §7.3, §8; Pattern Declarations |
 | The constructor flip has no bespoke diagnostic (#639): §5.3's gate line serves it, the witness being the arriving constructor, §7.3-rendered; the formerly prescribed "no longer covers" sentence is retired — it states history the compiler does not have, and would fire falsely on fresh code | §5.2, §12 |
 
 ---

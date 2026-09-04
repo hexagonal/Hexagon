@@ -57,6 +57,16 @@ Rat.bottom(value: Rat): BigInt
 
 The accessors expose the canonical values, never mutable storage.
 
+`Rat` also exports a **pattern** over them (Pattern Declarations):
+
+```hexagon
+export pattern rat(top: BigInt, bottom: BigInt): Rat
+    view(x) = (top(x), bottom(x))
+    build = create
+```
+
+`rat(n, d)` matches any `Rat` and binds its canonical top and bottom — `rat(0, _)` is zero, `rat(_, 1)` an integer — and `rat(6, 10)` builds one through `create`, so `rat(6, 10) == rat(3, 5)`. The pattern is a view of the canonical pair, not of construction history: `let rat(n, d) = rat(4, -5)` binds `-4n` and `5n`. `create` remains the canonical constructor name; the pattern is the shape.
+
 ## 4. Arithmetic
 
 The v1 companion supplies `add`, `subtract`, `multiply`, `divide`, `negate`, and
@@ -109,6 +119,7 @@ The minimum v1 companion inventory is:
 Rat.create
 Rat.top
 Rat.bottom
+Rat.rat        -- the pattern (§3)
 Rat.add
 Rat.subtract
 Rat.multiply
