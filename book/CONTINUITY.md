@@ -294,6 +294,34 @@ late pedagogy pass, not a commitment to the current order.
   language-level `main` or mutable module cells.
 - Prepares Dot Calls by establishing home modules, companion modules, exported
   subject-first operations, and qualified lookup.
+- Emission: one module emits one ESM file named by the module (`Origin.js`); a dotted
+  name becomes a directory (`Render/Geometry.js`); a source file's name appears nowhere
+  in the output.
+
+### Packages
+
+- A package is a directory holding `hexagon.json` (`name`, `dependencies`); every
+  `.hex` file beneath it belongs to it, a nested manifest excluded as a package of its
+  own; module names are unique within a package, compared case-insensitively
+  (`Json`/`JSON` collide), the repair a dotted name on one; the package name is one uppercase-start identifier and supplies the first segment
+  of every module's **full name** (`Acme.Geometry`); the standard library is the
+  package `Hex` (`Hex.Option`), never listed and never a user package's name.
+- The **project** is the package being built; its manifest may have no `name`; a
+  package never qualifies its own modules by its own name.
+- A module sees its own package, `Hex`, and its direct dependencies only; visibility is
+  per package.
+- Resolution: bare when exactly one visible module bears the name; the resolving
+  package's own module wins silently over a package's (occlusion, like the prelude); a
+  contest between packages is refused naming every full spelling, never ranked; a
+  dotted module name may not begin with a package in the program, so a dotted import
+  has one reading.
+- Distribution: packages ship source via npm; versions and lockfile are npm's; the
+  program is compiled whole across packages (coherence and the orphan rule unchanged);
+  one copy of each package per program; compiled distribution with a generated
+  interface is a recorded later stage; JavaScript packages enter through `extern from`.
+- Output: project modules at the root by declared name, every other package under
+  `<Package>/`, the prelude under `Hex/` (`"./Hex/Option.js"` from the root,
+  `"../Hex/Option.js"` a level down); `hex.d.ts`/`hex.js` at the root.
 
 ### Dot Calls
 
@@ -491,9 +519,10 @@ late pedagogy pass, not a commitment to the current order.
   recording the inferred type for the reader. The exact leg is the face spelling
   `let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9` — the doctrine's own specimen
   (spec/friendly-numerics.md §1) — in both the book and the Playground (#529). `Rat`
-  is outside the prelude by design, so a file project reaching for it writes
-  `import Rat from "…"`; the Playground injects that line as equipment, which is
-  why the example carries no import.
+  is outside the prelude by design, so a project reaching for it writes
+  `import Rat`. The Playground injects a `Rat` import as equipment, which is why the
+  example carries no import; #831 (open) retires that equipment, after which a buffer
+  writes `import Rat` like any other module.
 - Primitive boundary table (seven rows, #158): `Nat`/`Int`/`Float` → `number`,
   `Bool` → `boolean` (by the Unions representation pin), `String` → `string`,
   `BigInt` → `bigint`, and `Unit` → `undefined` (`void` in TS return position; the
@@ -782,16 +811,20 @@ late pedagogy pass, not a commitment to the current order.
 
 ### Modules
 
-- Core formulation: **a file is a module, and a module is a file**. There is no module
-  header.
+- Core formulation: **a module is a named declaration**. Every file begins with
+  `module Name`; a file may hold several modules, each but the last closed by
+  `end module Name`, the last optionally so; the body is not indented; modules sharing a file see nothing of
+  each other without an import; the file's path means nothing to the language.
 - Declarations are private by default. Hexagon has named exports only and no default
   export or re-export syntax in the current language.
-- One import form is established: `import Geo from "./geometry"` binds a module under
-  an uppercase alias and nothing smaller; there is no named, aliased, or effect import,
-  and a module is imported for its names, never loaded for its effects. A bare name is
-  a declaration (`let`, `type`), a companion fallback (type and same-named constructor
-  through the alias), or a constructor written bare in a `match` arm, resolved from the
-  scrutinee's type. Relative paths omit `.hex`.
+- One import form is established: `import Geometry` binds the module of that name
+  under that name, `import Geometry as Geo` under another; there is no path, no `from`,
+  no named, aliased, or effect import, and a module is imported for its names, never
+  loaded for its effects. A dotted name binds its last segment by default. A bare name
+  is a declaration (`let`, `type`), a companion fallback (type and same-named
+  constructor through the alias), or a constructor written bare in a `match` arm,
+  resolved from the scrutinee's type. The path form `import Geo from "./geometry"` is
+  refused with the rewrite `import Geometry as Geo`.
 - Module aliases are uppercase namespaces, never values. The same spelling may name a
   type/constructor and its companion module because positions select namespaces.
 - `opaque` is limited to nominal records and unions. It exports only the type,
@@ -927,8 +960,9 @@ late pedagogy pass, not a commitment to the current order.
   original foreign value.
 - `Result.attempt : (() ->? a) ->? Result(a, Exn)` bridges exceptional computation
   back to data; linked arrows — the call is exactly as effectful as its thunk.
-- Runtime values are branded JavaScript `Error` objects; the `$hex` brand names the
-  declaring module, so identity is the (module, name) pair; nullary exceptions
+- Runtime values are branded JavaScript `Error` objects; the `$hex` brand carries the
+  declaring module's full name (`"Parser"`, `"Client.Errors"`, `"Hex.Seq"`), so
+  identity is the (module, name) pair; nullary exceptions
   construct fresh values for useful stacks; exported faces are branded `Error`
   intersections.
 - JS consumers discriminate with the generated `is` guards and `isHexError`; the

@@ -344,16 +344,16 @@ A Hexagon exception is a genuine JavaScript `Error` object extended with plain f
 
 ```js
 Object.assign(new Error("unexpected token"), {
-  $hex: "parser",
+  $hex: "Parser",
   name: "ParseError",
   line: 12
 });
 ```
 
 The `$hex` brand distinguishes Hexagon exceptions from foreign errors, and it says *whose*
-they are: its value is the declaring module's identity — the project-root-relative path
-with the extension dropped, so `parser.hex` brands `"parser"` and `client/errors.hex`
-brands `"client/errors"`. `name` identifies the constructor. Identity is therefore the
+they are: its value is the declaring module's full name, so a project's `module Parser`
+brands `"Parser"`, its `module Client.Errors` brands `"Client.Errors"`, and the
+standard library's `Seq` brands `"Hex.Seq"`. `name` identifies the constructor. Identity is therefore the
 pair, which is why two modules that each declare `exception Boom` declare two different
 exceptions and a catch arm for one never catches the other. There are no generated
 exception classes or `instanceof` chains.
@@ -366,7 +366,7 @@ An exported exception has an equally direct TypeScript face:
 
 ```ts
 type ParseError = Error & {
-  readonly $hex: "parser";
+  readonly $hex: "Parser";
   readonly name: "ParseError";
   readonly line: number;
 };
