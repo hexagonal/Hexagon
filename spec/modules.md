@@ -683,10 +683,11 @@ let mk = Tag                                 -- referenced as a value: the funct
 -- emits Deep/Nested.js with: import { runner } from "./world.js";   -- verbatim: it names
 --   Deep/world.js beside the emitted file — a file Hexagon does not write (FFI Part 4 §2.1;
 --   the shape is representative, §2.3 there — the specifier is the pin)
--- /src/app.hex, module Main: extern from "./util.js", and /src/util.hex exists
+-- /src/app.hex, module Main: extern from "./util", and /src/util.hex exists
                                              -- ERROR: use import for Hexagon modules; extern from is
-                                             --   for foreign JavaScript — the one reading from the
-                                             --   source file's own directory (FFI Part 4 §2.1)
+                                             --   for foreign JavaScript — the one reading, from the
+                                             --   importing file's own directory (FFI Part 4 §2.1);
+                                             --   "./util.js" beside it is legal, a foreign file
 
 -- (l) Transparent representation reaches through an un-imported home (§4.2)
 -- module Crate: export record Crate = {n: Float}

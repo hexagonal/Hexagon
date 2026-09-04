@@ -298,5 +298,5 @@ module Acme.Parser                           -- ERROR at program check: module A
 | JavaScript-only packages are the FFI's; never listed as Hexagon dependencies | §4.4 |
 | Stage one: whole-program compilation from source across packages; coherence, orphan rule, discoverability, specialization unchanged; costs stated | §5.1 |
 | Stage two recorded, not designed: generated interface reproducing whole-program selection, identity-keyed; source/interface equivalence as the gate; the unconditional generic edition as the forced ABI change; the planning note under `spec/notes/` as seed | §5.2 |
-| Emission: project modules at the root by declared name, dependencies under their package's directory; Hexagon's own specifiers relative only; foreign specifiers, bare and relative, verbatim; program-scoped artifacts at the root | §6 |
+| Emission: project modules at the root by declared name, dependencies under their package's directory; Hexagon's own specifiers relative only; foreign specifiers, bare and relative, verbatim, and where the output's relocatability ends; program-scoped artifacts at the root | §6 |
 | Eight alternatives rejected with reasons | §8 |
