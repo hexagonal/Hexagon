@@ -132,6 +132,7 @@ Throws `X` when <condition>.
 TypeScript's own compiler behaves exactly this way (comments persist into `.js`, JSDoc into `.d.ts`), so the duplication is the ecosystem's normal, and the two artifacts serve different readers. The known seats:
 
 - **Terms** (`let`/`fun`, exported or not, including materialized constructors): the emitted binding in `.js`; the `export declare` in `.d.ts` when exported.
+- **Patterns** (Pattern Declarations §6): the emitted binding takes the head's doc; the object's `view` and `build` properties take the members', as record fields do.
 - **Record fields**: the property in the emitted structural object type — JSDoc on object-type properties is where TS tooling reads field docs.
 - **Union constructors**: the materialized constructor when export materializes one (FFI Part 7 §12.2). The arm of the emitted union *type* has no reliable JSDoc seat in TS tooling; constructor docs ride the constructors.
 - **`type` aliases, `record`/`union` type declarations, exceptions**: the emitted type declaration in `.d.ts`.
