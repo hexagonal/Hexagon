@@ -291,6 +291,90 @@ describe("readManifest", () => {
   });
 });
 
+/**
+ * Packages §2.1's two name seats, at the tier that reads them (#836 review N4).
+ * The compiler's own unit tests over `packageNameRefusal` and
+ * `dependencyRefusal` are `compiler/src/packages.test.ts`'s; what is here is
+ * that this reader *asks* them, and what it does with the answer.
+ */
+describe("readManifest: the package's name and its dependencies (Packages §2.1)", () => {
+  test("a lawful name and dependency list are carried through", async () => {
+    const path = await rootWith(
+      JSON.stringify({ name: "Acme", dependencies: ["Bolt", "Widgets"] }),
+    );
+    const result = await readManifest(path);
+    expect(result.manifest.name).toBe("Acme");
+    expect(result.manifest.dependencies).toEqual(["Bolt", "Widgets"]);
+    expect(result.problems).toEqual([]);
+  });
+
+  /**
+   * The property `readName`'s own comment calls load-bearing: the name is the
+   * first segment of every module's full name and of every exception brand
+   * (§2.3), so honouring one the spec refuses would carry the mistake into
+   * every diagnostic and every emitted artefact instead of into one report.
+   */
+  test("a refused name yields `undefined`, never the written string", async () => {
+    for (
+      const [written, message] of [
+        ["Hex", "`Hex` is the standard library's package name"],
+        ["acme", "a package name is one uppercase-start identifier: write `\"Acme\"`"],
+        [
+          "Acme.Tools",
+          "a package name is one uppercase-start identifier: write `\"Acme\"`" +
+          " — a module's name is where dots belong",
+        ],
+      ] as const
+    ) {
+      const path = await rootWith(JSON.stringify({ name: written }));
+      const result = await readManifest(path);
+      expect(result.manifest.name).toBeUndefined();
+      expect(result.problems.map(({ message: text }) => text)).toEqual([message]);
+      await rm(path, { recursive: true, force: true });
+    }
+    root = "";
+  });
+
+  test("a name that is not a string is refused by shape, before §2.1 is asked", async () => {
+    const path = await rootWith(JSON.stringify({ name: 3 }));
+    const result = await readManifest(path);
+    expect(result.manifest.name).toBeUndefined();
+    expect(result.problems.map(({ message }) => message)).toEqual([
+      `${MANIFEST_NAME} \`name\` must be a string`,
+    ]);
+  });
+
+  test("each refused dependency is reported and dropped, the lawful ones kept", async () => {
+    const path = await rootWith(
+      JSON.stringify({ dependencies: ["Hex", "tiny-json", "Acme.Tools", "Bolt"] }),
+    );
+    const result = await readManifest(path);
+    expect(result.manifest.dependencies).toEqual(["Bolt"]);
+    expect(result.problems.map(({ message }) => message)).toEqual([
+      "`Hex` is every package's dependency; remove the entry",
+      "`tiny-json` is not a Hexagon package: bind it with `extern from \"tiny-json\"`",
+      "a package name is one uppercase-start identifier: write `\"Acme\"`" +
+      " — a module's name is where dots belong",
+    ]);
+  });
+
+  test("a name listed twice is one dependency, reported as nothing", async () => {
+    const path = await rootWith(JSON.stringify({ dependencies: ["Bolt", "Bolt"] }));
+    const result = await readManifest(path);
+    expect(result.manifest.dependencies).toEqual(["Bolt"]);
+    expect(result.problems).toEqual([]);
+  });
+
+  test("`dependencies` that is not an array is refused by shape", async () => {
+    const path = await rootWith(JSON.stringify({ dependencies: "Bolt" }));
+    const result = await readManifest(path);
+    expect(result.manifest.dependencies).toEqual([]);
+    expect(result.problems.map(({ message }) => message)).toEqual([
+      `${MANIFEST_NAME} \`dependencies\` must be an array of package names`,
+    ]);
+  });
+});
+
 describe("isExcluded", () => {
   test("matches a file exactly and a directory by prefix", () => {
     const exclude = ["/p/examples", "/p/one.hex"];

@@ -347,21 +347,6 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     );
   });
 
-  test("the module header keeps the Playground injection's scope (#829)", async () => {
-    // The Playground's own `module X` notation and the language's header are one
-    // form now (Modules §2.1), and the inherited grammar has grown a rule of its
-    // own for it — but the injection is loaded under `L:` and still wins here,
-    // so the buffer's headers keep exactly the colour they have always had.
-    // Unifying the two is PR B's (#831); this pins which one answers until then.
-    expect(await tokenOf("module Geometry", "module")).toBe("keyword.control.hexagon");
-    expect(await tokenOf("module Geometry", "Geometry")).toBe(
-      "entity.name.namespace.hexagon",
-    );
-    expect(await tokenOf("end module Geometry", "end module")).toBe(
-      "keyword.control.hexagon",
-    );
-  });
-
   test("the §8.2 and §10 error rows are painted as errors", async () => {
     expect(await tokenOf("let a = x && y", "&&")).toBe("invalid.illegal.operator.hexagon");
     expect(await tokenOf("let a = x || y", "||")).toBe("invalid.illegal.operator.hexagon");
@@ -386,9 +371,11 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
   });
 });
 
-describe("the Playground-only module notation (injection)", () => {
-  // `module X` / `end module X` create a virtual file and are not `.hex` syntax, so
-  // they live in playground-module.tmLanguage.json rather than in the shared grammar.
+describe("the Playground's module notation, painted by the shared grammar (#829)", () => {
+  // `module X` / `end module X` create a virtual file *and* are `.hex` syntax
+  // now (Modules §2.1), so the injection that used to paint them is retired and
+  // the shared grammar's own header rules answer here. One grammar, and the two
+  // editors agree about the line by construction.
   const source = [
     "module Numbers",
     "export let answer: Int = 21",
@@ -397,8 +384,10 @@ describe("the Playground-only module notation (injection)", () => {
   ].join("\n");
 
   test("both headers are painted, name included", async () => {
-    expect(await tokenOf(source, "module")).toBe(control);
-    expect(await tokenOf(source, "end module")).toBe(control);
+    // `end` and `module` are two captures of one rule rather than one run: they
+    // take the same scope, and neither word means anything without the other.
+    expect(await tokenOf(source, "module")).toBe(storage);
+    expect(await allTokensFor(source, "end")).toEqual([storage]);
     expect(await allTokensFor(source, "Numbers")).toEqual([namespace, namespace, namespace]);
   });
 
@@ -420,27 +409,32 @@ describe("the Playground-only module notation (injection)", () => {
 
   test("the header owns `module` outright now the import head has let it go (#762)", async () => {
     // The Playground-shaped hazard #565's grammar rider guarded against is
-    // gone: the shared grammar no longer paints `module` at all, so the
-    // injection's header rule is the word's only claimant and cannot reach for
-    // an import's line — which begins with `import`, never at column zero with
-    // the word.
+    // gone: the import head carries no `module` word, so the header rule is the
+    // word's only claimant and cannot reach for an import's line — which begins
+    // with `import`, never at column zero with the word.
     const source = ['import Geometry as Geo', "module Numbers"].join("\n");
-    expect(await allTokensFor(source, "module")).toEqual([control]);
+    expect(await allTokensFor(source, "module")).toEqual([storage]);
     expect(await allTokensFor(source, "Numbers")).toEqual([namespace]);
   });
 
-  test("recognizes every header the host recognizes, valid name or not", async () => {
-    // workspace-source.ts takes any non-blank run as the name and opens the module
-    // even while reporting a diagnostic, so a header the host acts on must not be
-    // painted as ordinary code. The host's diagnostic is what flags the bad name.
-    for (const name of ["foo", "_X", "N.M", "Numbers extra"]) {
-      expect(`${name}: ${await tokenOf(`module ${name}`, "module")}`).toBe(
-        `${name}: ${control}`,
-      );
-      expect(`${name}: ${await tokenOf(`module ${name}`, name)}`).toBe(
-        `${name}: ${namespace}`,
+  test("a name the language refuses paints as ordinary code, not as a header", async () => {
+    // The retired injection took any non-blank run as the name, so `module foo`
+    // looked like a header the language accepts. It is not (§2.1's casing
+    // refusal, and the rest are not names at all): the grammar leaves the line
+    // alone and the host's own squiggle says why, which is the report §2.1
+    // owes it. The Playground still opens the virtual file — that is the host's
+    // recovery, not the language's blessing.
+    for (const name of ["foo", "_X"]) {
+      expect(`${name}: ${await tokenOf(`module ${name}`, "module")}`).not.toBe(
+        `${name}: ${storage}`,
       );
     }
+  });
+
+  test("a dotted name is one namespace name, as the language spells it", async () => {
+    // §2.3: the segments of a dotted module name are not modules, so the name
+    // is painted whole rather than as a qualifier and a type.
+    expect(await tokenOf("module Render.Geometry", "Render.Geometry")).toBe(namespace);
   });
 });
 

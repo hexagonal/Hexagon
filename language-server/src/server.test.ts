@@ -875,7 +875,7 @@ describe("the Hexagon language server", () => {
 
   test("a manifest edit reloads however the client spells its URI", async () => {
     const solo = await harness({
-      "main.hex": "let value: Int = 1\n",
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
       "hexagon.json": JSON.stringify({ exclude: ["generated"] }),
     });
     try {
@@ -885,7 +885,7 @@ describe("the Hexagon language server", () => {
           uri: mainUri,
           languageId: "hexagon",
           version: 1,
-          text: "let value: Int = 1\n",
+          text: "module Main\n\nlet value: Int = 1\n",
         },
       });
       await writeFile(join(solo.root, "generated.hex"), "module Generated\n\n" + "let oops: Int = \n");
@@ -911,7 +911,7 @@ describe("the Hexagon language server", () => {
 
   test("a manifest mistake outranks an entry that matches nothing", async () => {
     const solo = await harness({
-      "main.hex": "let value: Int = 1\n",
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
       "hexagon.json": ['{', '  "exclude": ["absent"],', '  "nope": []', '}'].join("\n"),
     });
     try {
@@ -964,7 +964,7 @@ describe("the Hexagon language server", () => {
 
   test("an open file that is excluded says so rather than going quiet", async () => {
     const solo = await harness({
-      "main.hex": "let value: Int = 1\n",
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
       "hexagon.json": JSON.stringify({ exclude: ["vendor"] }),
     });
     try {
@@ -990,7 +990,7 @@ describe("the Hexagon language server", () => {
 
   test("un-excluding restores an open buffer without waiting for a keystroke", async () => {
     const solo = await harness({
-      "main.hex": "let value: Int = 1\n",
+      "main.hex": "module Main\n\nlet value: Int = 1\n",
       "hexagon.json": JSON.stringify({ exclude: ["vendor"] }),
     });
     try {

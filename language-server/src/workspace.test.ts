@@ -176,6 +176,51 @@ describe("the workspace walk", () => {
     )).toEqual([]);
   });
 
+  /**
+   * The manifest's two package fields reaching the session (#836 review N4).
+   * Both are observable through the compile itself rather than through the
+   * option object: `name` is the first segment of every module's full name
+   * (Packages §2.3), and `dependencies` is what Modules §2.2's first-segment
+   * rule reads.
+   */
+  test("the manifest's `name` becomes the project's own package name", async () => {
+    const path = await makeRoot();
+    // A dotted module whose first segment is the project's own name: lawful
+    // where the project has no name, refused the moment it declares one
+    // (Modules §2.2, Packages §2.5).
+    await writeFile(join(path, "geo.hex"), "module Acme.Geometry\n\n" + "let value: Int = 1\n");
+
+    const unnamed = await scan(path);
+    expect([...unnamed.workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ name: "Acme" }));
+    const named = await scan(path);
+    expect(
+      [...named.workspace.session.allDiagnostics().values()].flat().map(({ message }) => message),
+    ).toEqual([
+      "`Acme.Geometry` begins with the name of the package `Acme`; a dotted module's " +
+      "first segment cannot name a package in the program",
+    ]);
+  });
+
+  test("the manifest's `dependencies` widens the first-segment rule", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, "tools.hex"), "module Bolt.Tools\n\n" + "let value: Int = 1\n");
+
+    const unlisted = await scan(path);
+    // `Bolt` names no package in the program, so the dotted name is ordinary.
+    expect([...unlisted.workspace.session.allDiagnostics().values()].flat()).toEqual([]);
+
+    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({ dependencies: ["Bolt"] }));
+    const listed = await scan(path);
+    expect(
+      [...listed.workspace.session.allDiagnostics().values()].flat().map(({ message }) => message),
+    ).toEqual([
+      "`Bolt.Tools` begins with the name of the package `Bolt`; a dotted module's " +
+      "first segment cannot name a package in the program",
+    ]);
+  });
+
   test("`exclude` keeps a directory out of the project entirely", async () => {
     const path = await makeRoot();
     await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");

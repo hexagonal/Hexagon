@@ -34,7 +34,6 @@ import {
 } from "vscode-textmate";
 
 import hexagonGrammarSource from "../../editors/vscode/syntaxes/hexagon.tmLanguage.json?raw";
-import playgroundModuleGrammarSource from "./playground-module.tmLanguage.json?raw";
 
 export const hexagonLanguage = "hexagon";
 export const hexagonScopeName = "source.hexagon";
@@ -43,12 +42,20 @@ export const javascriptLanguage = "javascript";
 export const typescriptLanguage = "typescript";
 export const javascriptScopeName = "source.js";
 export const typescriptScopeName = "source.ts";
-const playgroundModuleScopeName = "source.hexagon.playground";
 
 /**
  * The Hexagon grammar is imported from `editors/vscode` rather than copied, so there is
  * one file and no room for the two editors to disagree about what a token is. Vite
  * inlines it at build time; Playground ships no second copy.
+ *
+ * **One grammar, since #829.** The Playground's `module X` / `end module X`
+ * notation and the language's own header are one form now (Modules §2.1), so
+ * the injection that used to paint the notation is gone: the shared grammar
+ * paints the header as it paints every declaration head, and both editors agree
+ * about the line by construction rather than by two rules that nearly match. A
+ * `module foo` the Playground still opens a virtual file for paints as ordinary
+ * code — the host's own squiggle is what says the name is wrong, which is the
+ * report §2.1 owes it.
  *
  * The other two are VS Code's, taken from `tm-grammars` rather than vendored, and they
  * are an order of magnitude larger than Hexagon's. They load through a dynamic import,
@@ -57,7 +64,6 @@ const playgroundModuleScopeName = "source.hexagon.playground";
  */
 const grammarSources: Readonly<Record<string, () => Promise<string>>> = {
   [hexagonScopeName]: async () => hexagonGrammarSource,
-  [playgroundModuleScopeName]: async () => playgroundModuleGrammarSource,
   [javascriptScopeName]: async () =>
     (await import("tm-grammars/grammars/javascript.json?raw")).default,
   [typescriptScopeName]: async () =>
@@ -74,7 +80,7 @@ const grammarSources: Readonly<Record<string, () => Promise<string>>> = {
 const maxTokenizedLineLength = 20_000;
 
 /**
- * One registry over all four grammars, so the Oniguruma library is handed over once and
+ * One registry over all three grammars, so the Oniguruma library is handed over once and
  * a grammar is compiled once however many panes ask for it. Nothing is read until a
  * `load` call names a scope, which is what keeps the two large grammars off the entry
  * chunk.
@@ -89,8 +95,6 @@ export function createGrammarLoader(
       // `parseRawGrammar` picks JSON over PLIST from the path's extension.
       return source === undefined ? null : parseRawGrammar(await source(), `${scopeName}.json`);
     },
-    getInjections: (scopeName) =>
-      scopeName === hexagonScopeName ? [playgroundModuleScopeName] : undefined,
   });
   return async (scopeName) => {
     const grammar = await registry.loadGrammar(scopeName);

@@ -256,7 +256,7 @@ describe("semantic tokens", () => {
   });
 
   test("a file the session does not hold answers with no tokens", () => {
-    const session = sessionOf({ "/main.hex": "let value: Int = 1\n" });
+    const session = sessionOf({ "/main.hex": "module Main\n\nlet value: Int = 1\n" });
     expect(session.semanticTokens("/absent.hex")).toEqual([]);
   });
 
@@ -264,7 +264,17 @@ describe("semantic tokens", () => {
     // Semantic tokens layer over the TextMate grammar, so going silent on a
     // broken file would repaint it as the user types. Whatever still has an
     // identity keeps its colour.
-    const source = ["fun tint(value: Int): Int = value", "", "let broken: Int = ", ""].join("\n");
+    // The file declares its module, so the one thing broken about it is the
+    // unfinished binding — a headerless fixture would satisfy the assertion
+    // below with a diagnostic that has nothing to do with what it is testing.
+    const source = [
+      "module Main",
+      "",
+      "fun tint(value: Int): Int = value",
+      "",
+      "let broken: Int = ",
+      "",
+    ].join("\n");
     const session = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex").length).toBeGreaterThan(0);
     expect(render(source, session)).toContain("tint:function+declaration");

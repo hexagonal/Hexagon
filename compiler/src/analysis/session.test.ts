@@ -470,8 +470,9 @@ describe("AnalysisSession", () => {
   });
 
   test("a position with nothing at it answers nothing", () => {
-    const { session } = sessionOf({ "/main.hex": "let value: Int = 1\n" });
-    const inWhitespace = at("let value: Int = 1\n", " ");
+    const source = "module Main\n\n" + "let value: Int = 1\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const inWhitespace = at(source, "let value") + "let".length;
     expect(session.hover("/main.hex", inWhitespace)).toBeUndefined();
     expect(session.definitions("/main.hex", inWhitespace)).toEqual([]);
     expect(session.references("/main.hex", inWhitespace)).toEqual([]);
@@ -485,7 +486,7 @@ describe("AnalysisSession", () => {
   });
 
   test("an unknown file answers empty rather than throwing", () => {
-    const { session } = sessionOf({ "/main.hex": "let value: Int = 1\n" });
+    const { session } = sessionOf({ "/main.hex": "module Main\n\nlet value: Int = 1\n" });
     expect(session.diagnostics("/absent.hex")).toEqual([]);
     expect(session.hover("/absent.hex", 0)).toBeUndefined();
     expect(session.definitions("/absent.hex", 0)).toEqual([]);
@@ -527,11 +528,13 @@ describe("AnalysisSession", () => {
   });
 
   test("a path keeps one identity across removal and re-adding", () => {
-    const { session } = sessionOf({ "/main.hex": "let value: Int = 1\n" });
-    const first = session.definitions("/main.hex", at("let value: Int = 1\n", "value"))[0]!;
+    const one = "module Main\n\n" + "let value: Int = 1\n";
+    const two = "module Main\n\n" + "let value: Int = 2\n";
+    const { session } = sessionOf({ "/main.hex": one });
+    const first = session.definitions("/main.hex", at(one, "value"))[0]!;
     session.removeFile("/main.hex");
-    session.setFile("/main.hex", "let value: Int = 2\n");
-    const second = session.definitions("/main.hex", at("let value: Int = 2\n", "value"))[0]!;
+    session.setFile("/main.hex", two);
+    const second = session.definitions("/main.hex", at(two, "value"))[0]!;
     // Spans are compared by file id throughout the compiler, so a path that
     // changed identity when it was closed and reopened would make two spans in
     // one file look like spans in two. Answers going stale is `version`'s job.
@@ -724,8 +727,9 @@ describe("AnalysisSession.hover documentation", () => {
   });
 
   test("an undocumented declaration says nothing about documentation", () => {
-    const { session } = sessionOf({ "/main.hex": "let value: Int = 1\n" });
-    const hover = session.hover("/main.hex", 4);
+    const source = "module Main\n\n" + "let value: Int = 1\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    const hover = session.hover("/main.hex", at(source, "value"));
     expect(hover?.name).toBe("value");
     expect(hover?.documentation).toBeUndefined();
   });
