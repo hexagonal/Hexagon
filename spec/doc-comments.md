@@ -68,9 +68,9 @@ One rule, no special cases, and it decides every edge by itself: a doc comment b
 
 ### 4.2 Documentable positions
 
-- **Module-level declarations**: `let`, `var`, `fun`; the Declarations Preamble §7.1 inventory (`record`, `union`, `type`, `constraint`, `honor`, `exception`).
+- **Module-level declarations**: `let`, `var`, `fun`; the Declarations Preamble §7.1 inventory (`record`, `union`, `type`, `constraint`, `honor`, `exception`, `pattern` — the `pattern` head, and the alias form `pattern rat = Rat.rat`).
 - **`extern from` block items** — every item form the block admits (FFI Part 4 §2.2), because every one introduces a name: `fun` and `let` bindings, `default` bindings, `type` declarations, `enum` declarations, `class` declarations, and `method`/`get`/`set` items — the latter documentable **wherever they appear**, standalone in the block or grouped in an `extern class` (FFI Part 5 §5 governs both positions). An `extern enum`'s members are documentable like union constructors.
-- **Members**: a union constructor (the doc block precedes the constructor's alternative — its leading `|`, or the constructor name where no `|` precedes); a record field; a constraint member — the `type` members among them, which Collections Part 2 §5.1 places among the ordinary members; a member implementation inside an `honor` block — the implied-type bindings (`type Item = a`) among them, which are the type members' implementations (Part 2 §5.3); *(#700)* a `fun` block's member (Functions §7.3) — the doc block precedes the member line, attaching through its `export` marker exactly as through a declaration's.
+- **Members**: a union constructor (the doc block precedes the constructor's alternative — its leading `|`, or the constructor name where no `|` precedes); a record field; a constraint member — the `type` members among them, which Collections Part 2 §5.1 places among the ordinary members; a member implementation inside an `honor` block — the implied-type bindings (`type Item = a`) among them, which are the type members' implementations (Part 2 §5.3); *(#700)* a `fun` block's member (Functions §7.3) — the doc block precedes the member line, attaching through its `export` marker exactly as through a declaration's; a `pattern` block's `view` and `build` members (Pattern Declarations §2.1) — optional beside the head's own doc, which is the pattern's.
 - **Block-local binders**: `let`, `var`, `fun` inside function bodies and blocks. Local docs never reach the `.d.ts` (locals are not exports); they exist for tooling (§8).
 
 Not documentable:
@@ -132,6 +132,7 @@ Throws `X` when <condition>.
 TypeScript's own compiler behaves exactly this way (comments persist into `.js`, JSDoc into `.d.ts`), so the duplication is the ecosystem's normal, and the two artifacts serve different readers. The known seats:
 
 - **Terms** (`let`/`fun`, exported or not, including materialized constructors): the emitted binding in `.js`; the `export declare` in `.d.ts` when exported.
+- **Patterns** (Pattern Declarations §6): the emitted binding takes the head's doc in `.js`, and the `export const` in `.d.ts` when exported; the object's `view` and `build` properties take the members', as record fields do.
 - **Record fields**: the property in the emitted structural object type — JSDoc on object-type properties is where TS tooling reads field docs.
 - **Union constructors**: the materialized constructor when export materializes one (FFI Part 7 §12.2). The arm of the emitted union *type* has no reliable JSDoc seat in TS tooling; constructor docs ride the constructors.
 - **`type` aliases, `record`/`union` type declarations, exceptions**: the emitted type declaration in `.d.ts`.

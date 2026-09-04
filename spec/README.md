@@ -38,6 +38,7 @@ Every normative owner appears exactly once. The explicitly marked router and gui
 | Types | `constraints.md` | constraints, `honor` instances, coherence, dictionaries, defaults |
 | Control | `operators-logic-precedence.md` | operator inventory, precedence, pipe, `if/then/else`, bracket grammar |
 | Control | `pattern-matching.md` | patterns, exhaustiveness, binders |
+| Control | `pattern-declarations.md` | the `pattern` declaration: a pure `view`, an optional `build`, the expected-type door |
 | Control | `exceptions.md` | `exception`, `throw`, `try`/`catch`, `JsError`, branded representation |
 | Control | `loops-ranges-iteration.md` | `for`/`while`, `Range`, `Seq` semantics, `Iterable` machinery |
 | Control | `method-syntax.md` | dot calls, `CompanionOf`, DotCall goals, Deferred-Goals Doctrine (interim host) |
@@ -83,9 +84,9 @@ Load the set for the task; add files only when a cited section demands it. `ffi.
 
 | Task | Read |
 |---|---|
-| **Parser** | Base: `lexer.md`, `lexer-layout.md`, `comments.md`, `doc-comments.md` (attachment), `declarations-preamble.md`, `functions.md` §3–§5, `operators-logic-precedence.md`, `pattern-matching.md` (grammar), `statements-blocks-mutability.md`; add the ownership-map file for the feature syntax being changed (FFI syntax routes through `ffi.md`) |
-| **Resolver / checker** | `declarations-preamble.md`, `functions.md`, `statements-blocks-mutability.md`, `modules.md`, `intrinsics.md` (gate §5; self-declaration fallback §7), `products.md`, `unions.md`, `constraints.md`, `integral-constraint.md`, `method-syntax.md`, `pattern-matching.md`, `numeric-literals.md` (defaulting), `effects.md` (colours, marks, enforcement), closure docs (rules not yet hosted) |
-| **Emitter** | `functions.md` §9, `unions.md` §6, `products.md` (representation), `exceptions.md` §7, `modules.md` §11, `loops-ranges-iteration.md`, `collections-part3-vector.md` / `collections-part4-map-set.md` (emission notes), `doc-comments.md` §7 (JSDoc), `ffi.md` + owning parts per feature (especially Parts 7–9) |
+| **Parser** | Base: `lexer.md`, `lexer-layout.md`, `comments.md`, `doc-comments.md` (attachment), `declarations-preamble.md`, `functions.md` §3–§5, `operators-logic-precedence.md`, `pattern-matching.md` (grammar), `pattern-declarations.md` (the `pattern` head and member block), `statements-blocks-mutability.md`; add the ownership-map file for the feature syntax being changed (FFI syntax routes through `ffi.md`) |
+| **Resolver / checker** | `declarations-preamble.md`, `functions.md`, `statements-blocks-mutability.md`, `modules.md`, `intrinsics.md` (gate §5; self-declaration fallback §7), `products.md`, `unions.md`, `constraints.md`, `integral-constraint.md`, `method-syntax.md`, `pattern-matching.md`, `pattern-declarations.md` (resolution, the door, coverage), `numeric-literals.md` (defaulting), `effects.md` (colours, marks, enforcement), closure docs (rules not yet hosted) |
+| **Emitter** | `functions.md` §9, `unions.md` §6, `products.md` (representation), `exceptions.md` §7, `modules.md` §11, `loops-ranges-iteration.md`, `collections-part3-vector.md` / `collections-part4-map-set.md` (emission notes), `doc-comments.md` §7 (JSDoc), `pattern-declarations.md` §6 (the pattern object and its face), `ffi.md` + owning parts per feature (especially Parts 7–9) |
 | **Modules work** | `modules.md`, `packages.md`, `declarations-preamble.md`, `constraints.md` §5 (coherence/orphans), `ffi-part4-extern-bindings.md`, `intrinsics.md`, `ffi-part7-exports.md`; for stage-two distribution add `spec/notes/package-constraint-interfaces-sol-2026-09.md` (non-normative seed) and FFI Part 9 §11 |
 | **Collections work** | `collections-part1-decisions.md` through `collections-part5-iterable.md`, `loops-ranges-iteration.md`; for the JS boundary add `ffi-part10-js-map-set.md` |
 | **FFI work** | `ffi.md` first, then the owning part(s) via its §4 router; `exceptions.md` §6–§7 and `modules.md` §11 as cited |

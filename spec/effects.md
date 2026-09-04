@@ -223,7 +223,7 @@ An impure function meeting a `->` demand is an ordinary unification failure with
 
 > a `->` arrow promises purity, and this function performs effects — the demand is written `->`, the function's face `->?` or `->!`
 
-This is the whole enforcement of `memoize`-class contracts and of `Seq`'s §7 posture; nothing beyond unification is involved.
+This is the whole enforcement of `memoize`-class contracts and of `Seq`'s §7 posture; nothing beyond unification is involved. A declared pattern's `view` is one more seat of the demand, and it writes no `->` — the head carries no arrow — so it takes a clause of its own: "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `->?` or `->!`" (Pattern Declarations §2.1, §5).
 
 The failure has a reverse direction, and it needs its own sentence: a *pure* function refused where the impure constant is demanded — a `->!` data field (§2.5), an inlet-less face, any written `->!`. The report above speaks of a written `->` *demand* in every clause, and in the reverse direction the demand wrote no `->` — each clause misdescribes the program. The reverse report says what is actually true:
 
@@ -294,6 +294,7 @@ Messages are normative in shape; the mark table's six rows share one sentence fr
 
 | Situation | Error |
 |---|---|
+| A pattern's `view` solving to `->?` or `->!` | "a pattern's `view` is run by matching, so it is pure — the demand is the pattern head's, and this function's face is `->?` or `->!`" (§4.3; Pattern Declarations §2.1) |
 | Bare call, `!` required | "this call runs effects, so `save` wants `!`, not no mark" + fixit: mark the call `!` |
 | Bare call, `?` required | "this call is as effectful as the enclosing instantiation makes it, so `combine` wants `?`, not no mark" + fixit: mark the call `?` |
 | `!` written, `?` required | same frame: "…so `combine` wants `?`, not `!`" |
