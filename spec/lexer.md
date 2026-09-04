@@ -99,7 +99,8 @@ distinct identifiers. Tooling may offer normalization or confusable warnings, bu
 warnings never alter name identity and are not compiler diagnostics in v1.
 
 Uppercase-start names serve type, union-case, constraint, implied-type, exception,
-module-name, and module-alias roles. Non-uppercase-start names serve term and binder roles.
+module-name, and module-alias roles. Non-uppercase-start names serve term and binder
+roles.
 Caseless scripts therefore work naturally as terms (`用户`). Where an uppercase role
 is wanted, one distinct mnemonic prefix per role is the cultural convention:
 
@@ -110,7 +111,7 @@ is wanted, one distinct mnemonic prefix per role is the cultural convention:
 | `C` | constraint | `C显示` |
 | `I` | implied type | `I元素` |
 | `E` | exception | `E无效年龄` |
-| `M` | module alias | `M数据库` |
+| `M` | module name and alias | `M数据库` |
 
 These are ordinary Latin prefixes, not reserved syntax. Record constructors retain
 their type's `T` name because the type and constructor deliberately share one
