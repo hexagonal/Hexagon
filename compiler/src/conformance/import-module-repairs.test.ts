@@ -846,6 +846,44 @@ describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branc
       expect(edits[0]).toBeDefined();
       expect(edits[1]).toEqual(edits[0]);
     });
+
+    test("the home's own spelling is what the line names, and the alias clause carries it", () => {
+      // The shape the channel was built for, and the only one where
+      // `moduleImportLine`'s **alias** arm fires: the home is `Geometry` while
+      // the qualifier is `Shape`, so a bare `import Geometry` would leave
+      // `Shape.` unbound and the line has to realias. Every other case in this
+      // suite has `home === qualifier`, where the two arms print the same text
+      // and the arm under test is unobservable.
+      const geometry = [
+        "/geometry.hex",
+        "module Geometry\n\n" + "export union Shape = Circle(Float)\n" +
+          "export let unit: Float = 1.0\n" +
+          "export constraint Describe<a> =\n    describe(value: a): String\n",
+      ] as const;
+      const text = "module Main\n\n" + "import Geometry as G\n" + "type Shape = G.Shape\n" +
+        "export record Box = {n: Int}\n" +
+        "export fun go<a: Shape.Describe>(x: a): a = x\n" +
+        "export let named: Float = Shape.unit\n";
+      const { diagnostics } = compileFiles([geometry, ["/main.hex", text]]);
+      const sentence =
+        "`Shape` is a type, not a module; `import Geometry as Shape` and qualify through it";
+      // The constraint seat is the checker's and the term seat one line over is
+      // the resolver's, and the two agree to the byte — the sentence, the
+      // underlined range, and the edit's range *and* text. That agreement is
+      // the whole claim of the channel: it is the resolver's own reading of the
+      // type namespace, not a second derivation of it.
+      expect(diagnostics.map(({ message }) => message)).toEqual([sentence, sentence]);
+      const [constraintSeat, termSeat] = diagnostics;
+      expect(diagnostics.map(({ primary }) => text.slice(primary.start.offset, primary.end.offset)))
+        .toEqual(["Shape", "Shape"]);
+      const edits = constraintSeat!.fixes?.[0]?.edits;
+      expect(edits?.map(({ span, replacement }) => [span.start.offset, span.end.offset, replacement]))
+        .toEqual([[34, 34, "import Geometry as Shape\n"]]);
+      expect(termSeat!.fixes?.[0]?.edits).toEqual(edits);
+      // And the line repairs: `Shape.` becomes a module alias for `Geometry`,
+      // which is what the sentence told the reader to write.
+      expect(messages([geometry, ["/main.hex", applied(text, constraintSeat)]])).toEqual([]);
+    });
   });
 
   describe("row 532 — no type of the spelling, which is the row's own condition", () => {
@@ -861,13 +899,38 @@ describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branc
     }
   });
 
+  test("the third arm has an ordinary buffer: a prelude type with no companion", () => {
+    // The arm through `compileProject`, not at the pass. A bare `module Main`
+    // holds ten prelude type spellings, and `JsConversionError` is the one that
+    // binds **no module alias of its own spelling** — §5.5 seeds a companion
+    // for the other nine, `JsConversionReason` included, and not for it. So
+    // `JsConversionError.` passes rule 1's first test, finds a type, and
+    // reaches the arm with no qualifier to have read a home off: the arm's own
+    // condition, met by the prelude the language ships.
+    const text = "module Main\n\n" + "export record Box = {n: Int}\n" +
+      'honor JsConversionError.Describe<Box> =\n    describe(value) = "b"\n';
+    const report = ruleOne([["/main.hex", text]]);
+    expect(report.message).toBe(
+      "`JsConversionError` is a type, not a module; import its home module to qualify through it",
+    );
+    // No line, and so no edit — only an inventory can say which module exports
+    // the spelling, and that offer is the workspace tier's, which is what the
+    // marker is for.
+    expect(report.fixes).toBeUndefined();
+    expect(report.importModuleRepair).toEqual({ name: "JsConversionError", namespace: "type" });
+    expect(text.slice(report.primary.start.offset, report.primary.end.offset))
+      .toBe("JsConversionError");
+  });
+
   test("a type in scope with no home reached names no import and carries no edit", () => {
     // The branch's third arm, and the floor the whole fix rests on: **no arm
     // inserts an import of the qualifier's own spelling where a type of it is
-    // in scope**. Reached at the pass, by handing the checker the namespace a
-    // later resolution would hand it — the same route the contested arm above
-    // is pinned by, and for the same reason: the arm is a function of that
-    // answer and of nothing else.
+    // in scope**. The buffer above reaches the arm; this reaches it with a
+    // repair standing ready, which no buffer can arrange today — the prelude
+    // spellings that take the arm name no importable module of their own. So
+    // the namespace is handed to the checker directly, the same route the
+    // contested arm above is pinned by, and for the same reason: the arm is a
+    // function of that answer and of nothing else.
     //
     // Everything a repair needs is deliberately present — a module `Shape`
     // that `import Shape` would resolve to, and the module's own edit writer —

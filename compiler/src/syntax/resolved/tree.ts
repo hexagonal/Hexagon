@@ -222,9 +222,10 @@ export interface TypeQualifier {
  * cycle. A type whose home is **abroad** names that home and carries the import
  * as an applied edit.
  *
- * Both are recorded, and neither implies the other: a `type Meters = P.Meters`
- * is declared here and homed abroad, so it is not `own` for the first row's
- * purposes while still naming a module an import could reach.
+ * Both are recorded, and `own` does not decide the row on its own: a
+ * `type Meters = P.Meters` is declared here like any other item, so it *is*
+ * `own`, and it is `home` being defined — the module an import could reach —
+ * that sends it to the second row rather than the first.
  */
 export interface TypeSpelling {
   /** Whether this module declares the type itself — §10's own-type row. */
