@@ -242,3 +242,35 @@ describe("the runtime modules are members of `Hex`, privileged by name", () => {
     expect(paths).not.toContain("/Hex/VectorTrie.hex");
   });
 });
+
+/**
+ * The third drift guard, beside the prelude's (`prelude-mechanism.test.ts`) and
+ * the runtime's (`vector-trie-wiring.test.ts`).
+ *
+ * `compiler/src/stdlib-sources.ts` is generated from `stdlib/**` by `npm run
+ * generate:prelude`, and the compiler ships that copy. An edit to `stdlib/`
+ * without the regeneration leaves the compiler shipping stale text — which the
+ * two enumerated lists are already guarded against, and the derived one was not:
+ * `Rat` today, and "a `Hex` module the moment it lands" by construction, so the
+ * set this guards grows on its own.
+ */
+describe("drift guard: the embedded library matches stdlib/", () => {
+  const stdlibSources = import.meta.glob("../../../stdlib/*.hex", {
+    eager: true,
+    query: "?raw",
+    import: "default",
+  }) as Record<string, string>;
+
+  test("the list is not empty, so the guard below is not vacuous", () => {
+    expect(LIBRARY_MODULES.length).toBeGreaterThan(0);
+  });
+
+  test.each(LIBRARY_MODULES.map(({ name, source }) => [name, source] as const))(
+    "%s is byte-identical to its stdlib original",
+    (name, source) => {
+      const entry = Object.entries(stdlibSources)
+        .find(([path]) => path.endsWith(`/${name.replaceAll(".", "/")}.hex`));
+      expect(entry?.[1]).toBe(source);
+    },
+  );
+});
