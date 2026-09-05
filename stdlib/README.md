@@ -4,6 +4,20 @@ This directory holds Hexagon-written v1 standard-library modules as they become
 executable conformance clients of the compiler. They are ordinary source modules,
 not compiler intrinsics.
 
+Together they are the package **`Hex`** (Packages §2.4): every file here declares
+its module (`module Vector`, full name `Hex.Vector`), and the prelude modules are
+in scope everywhere without an import, Modules §5.5's closed set of sixteen being
+what they seed in the term namespace. `Rat` is the one module outside the
+prelude — the spec's "rest of `Hex`". Today the compiler embeds the prelude and
+the runtime tries only, and a project that wants `Rat` supplies the file itself.
+The directory is called `stdlib` and the package `Hex` on purpose: the compiler
+reads neither a directory nor a file name to learn a module's name (Modules §1),
+so a directory says what it holds and a package is what a program writes. A
+dotted module may sit in the folder its name suggests — `Render/Geometry.hex`
+for `module Render.Geometry` — for the reader's sake (Packages §2.2), not by any
+rule the language enforces; the only layout the language prescribes is the
+emitted one (Packages §6).
+
 - `Show.hex`, `Num.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex`, `Concat.hex`,
   `Eq.hex`, `Hash.hex`, `Ord.hex`, `Integral.hex`, and `Iterable.hex` are the
   **declaring modules** of the eleven constraints the compiler pre-registers. A
