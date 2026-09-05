@@ -399,34 +399,43 @@ Editor extensions launch this server. They do not contain separate compiler impl
 
 A workspace root may carry a manifest saying what the project is. Without one,
 the root is "every `.hex` file underneath, compiled together", which is a guess
-that goes wrong in two ways a server cannot recover from alone.
+that goes wrong in a way a server cannot recover from alone.
 
 ```json
 {
-  "runtimePaths": ["runtime/VectorTrie.hex"],
+  "name": "Acme",
+  "dependencies": ["Bolt"],
   "exclude": ["examples"]
 }
 ```
 
-**`runtimePaths`** — modules compiled with runtime privilege, the ones allowed to
-name `Node(a)`, the hidden fixed-32 trie node. The compiler has always modelled
-this (`ProjectOptions.runtimePaths`) but nothing could tell a *server* which
-files they were, so opening this repository used to greet a user with 38 errors
-reading ``unknown generic type `Node` `` — none of them real.
+**`name`** and **`dependencies`** are the *language's* fields (Packages §2.1):
+the package's own name, which is the first segment of every module's full name,
+and the packages its modules may import. This reader validates their shape and
+resolves nothing.
 
 **`exclude`** — path prefixes that are not part of the project: generated output,
 deliberately-broken examples, a vendored copy. Matching is by exact path or
 directory prefix rather than by glob; a glob language is a design decision with
-its own edge cases, and prefixes answer every case that motivated this.
-
-Both are resolved against the manifest's own directory, which is the only reading
+its own edge cases, and prefixes answer every case that motivated this. Entries
+are resolved against the manifest's own directory, which is the only reading
 that survives the project being checked out somewhere else.
 
-Neither could be inferred. Treating `runtime/` as privileged because of its name
-would be the same mistake as inferring meaning from a name anywhere else in this
-compiler — a project has to say so. Nothing else is in the file: no dependency
-resolution, no build configuration, no compiler flags. Those need designing
-rather than inventing, and nothing yet needs them.
+None of this could be inferred. Treating `examples/` as excluded because of its
+name would be the same mistake as inferring meaning from a name anywhere else in
+this compiler — a project has to say so. Nothing else is in the file: no build
+configuration, no compiler flags. Those need designing rather than inventing,
+and nothing yet needs them.
+
+A fourth field, **`runtimePaths`**, stood here until #829: the modules compiled
+with runtime privilege, the ones allowed to name `Node(a)`, the hidden fixed-32
+trie node — without which opening this repository greeted a user with 38 errors
+reading ``unknown generic type `Node` ``, none of them real. The standard
+library is now the package `Hex` in full and the two runtime modules are members
+of it (`stdlib/Runtime/VectorTrie.hex` declaring `module Runtime.VectorTrie`),
+so the privilege follows the name the header declares — under every spelling a
+file can be reached by, which is what the grant could never manage — and no host
+grants it. A manifest still carrying the key draws the unknown-key report.
 
 A missing manifest is the ordinary case and is silent. A *malformed* one is
 reported as a diagnostic against `hexagon.json` itself, including an unknown key
@@ -439,18 +448,15 @@ An entry that names nothing is reported too, as a warning rather than an error,
 and checked inside the root by exact spelling rather than by asking whether the
 path opens. macOS and Windows will happily open `Trie.hex` when the file is
 `trie.hex`, so the user's own editor gives no hint that the entry matches
-nothing here, where comparison is exact — a privileged module that is silently
-not privileged brings back the very errors it was written to remove. It is a
+nothing here, where comparison is exact — an exclusion that silently excludes
+nothing brings back every diagnostic it was written to remove. It is a
 warning because `exclude: ["dist"]` in a fresh clone is legitimately ahead of
 the build that creates it, and reporting that as an error would teach a user to
 ignore the mistakes that are real. An entry *outside* the root is judged by
 existence alone — there is no chain of directories below the root to walk down
 — so a mis-cased one there goes unreported on a filesystem that ignores case.
 
-The two fields are not symmetrical, and the asymmetry is reported rather than
-left to be discovered: `exclude` accepts a file or a directory, while
-`runtimePaths` accepts only files, because privilege is granted per module. A
-directory in `runtimePaths` is an error, not a silent no-match.
+`exclude` accepts a file or a directory alike.
 
 An excluded file that the user opens says so, as one informational diagnostic.
 Going quiet instead would read as a broken server — the grammar still colours the

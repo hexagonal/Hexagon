@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
 import { COMPILER_CLAIMS } from "../passes/checker/variance.js";
-import { PRELUDE_SOURCES } from "../prelude-sources.js";
+import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { compileFiles, projectDiagnostics, runMain } from "../support/test-project.js";
 import type * as Typed from "../syntax/typed/index.js";
 
@@ -566,7 +566,7 @@ describe("§5.3 the compiler-side claim table", () => {
     // that made the rule: it carried the ruling's transitional row until §11.4's
     // sweep wrote the sigil, and the row had to go in the same change.
     const sigilled = new Set<string>();
-    for (const source of Object.values(PRELUDE_SOURCES)) {
+    for (const source of Object.values(STDLIB_SOURCES)) {
       for (const match of source.matchAll(
         /\b(?:record|union)\s+([A-Z][A-Za-z0-9_]*)\s*\([^)]*[+-]/gu,
       )) {

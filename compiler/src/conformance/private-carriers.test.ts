@@ -810,25 +810,26 @@ describe("`opaque` is the recovery the message names (#626)", () => {
 
 describe("no shipped exported constraint draws the new refusal", () => {
   // The survival sweep the ruling asked for. `shipped-sources.test.ts` already
-  // compiles every `stdlib/` and `runtime/` file and demands zero diagnostics;
+  // compiles every `stdlib/` file and demands zero diagnostics;
   // this one is narrowed to the files that actually declare an exported
   // constraint and names *this* message, so a future stdlib edit that trips the
   // sixth face fails here with the reason attached rather than as one more line
   // in a general sweep. One case per file, as there — a per-file budget, and a
   // failure that points at the file.
-  const SHIPPED: Record<string, string> = {
-    ...import.meta.glob("../../../stdlib/*.hex", { eager: true, query: "?raw", import: "default" }),
-    ...import.meta.glob("../../../runtime/*.hex", { eager: true, query: "?raw", import: "default" }),
-  } as Record<string, string>;
+  const SHIPPED = import.meta.glob("../../../stdlib/**/*.hex", {
+    eager: true,
+    query: "?raw",
+    import: "default",
+  }) as Record<string, string>;
 
   const SUBJECTS = Object.entries(SHIPPED)
     .filter(([, source]) => /^export constraint /mu.test(source))
     .map(([globPath, source]) => {
       const basename = globPath.slice(globPath.lastIndexOf("/") + 1);
-      return [
-        `${globPath.includes("/runtime/") ? "runtime" : "stdlib"}/${basename}`,
-        { basename, source, privileged: globPath.includes("/runtime/") },
-      ] as const;
+      // The privileges a runtime module holds come from its declared name now
+      // (`runtime-modules.ts`), so supplying the file at its basename is the
+      // whole of the setup — the compiler adopts it into the role.
+      return [globPath.slice(globPath.indexOf("/stdlib/") + 1), { basename, source }] as const;
     })
     .sort(([left], [right]) => left.localeCompare(right));
 
@@ -842,10 +843,7 @@ describe("no shipped exported constraint draws the new refusal", () => {
   });
 
   test.each(SUBJECTS)("%s exposes no private type", (_label, subject) => {
-    const compiled = compileFiles(
-      [[`/${subject.basename}`, subject.source]],
-      subject.privileged ? { runtimePaths: [`/${subject.basename}`] } : {},
-    );
+    const compiled = compileFiles([[`/${subject.basename}`, subject.source]]);
     expect(compiled.diagnostics
       .map(({ message }) => message)
       .filter((message) => message.includes("exposes private type"))).toEqual([]);
@@ -894,8 +892,8 @@ describe("the shipped `.d.ts` carries no private type, in any form", () => {
     });
     // `Tree` in each, plus `Root` and `Frames` in `HashTrie` — four rows across
     // two files, none of them ever referenced by an exported face.
-    expect(moduleOf(compiled, "/Hex/HashTrie.hex").declarations.text).toBe("export {};\n");
-    expect(moduleOf(compiled, "/Hex/VectorTrie.hex").declarations.text).toBe("export {};\n");
+    expect(moduleOf(compiled, "/Hex/Runtime/HashTrie.hex").declarations.text).toBe("export {};\n");
+    expect(moduleOf(compiled, "/Hex/Runtime/VectorTrie.hex").declarations.text).toBe("export {};\n");
   });
 
   test("the **preview** still renders the private union, unprefixed", () => {

@@ -27,7 +27,7 @@ function elements(value: unknown): unknown[] {
  * rather than against a convenient subset of it.
  */
 const VECTOR_LITERAL_IMPORT =
-  'import { empty as __trieEmpty, append as __trieAppend } from "./Hex/VectorTrie.js";';
+  'import { empty as __trieEmpty, append as __trieAppend } from "./Hex/Runtime/VectorTrie.js";';
 
 /**
  * Conformance for what a module's synthesized and explicit prelude imports put

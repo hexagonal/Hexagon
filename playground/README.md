@@ -11,15 +11,13 @@ the Output tab and the execution worker's browser console.
 Supported desktop browsers load Monaco asynchronously for Hexagon editing and
 read-only generated-code models; the textarea remains live until Monaco succeeds.
 
-The Playground also supplies a deliberately small **hosted library** from the
-repository's canonical Hexagon sources (`src/hosted-library.ts`): `Option` and
-`Vector`, which the compiler seats as the prelude modules they are, and `Rat`,
-which a program reaches by writing `import Rat` like any other module. Playground
-programs use the real opaque type and its globally coherent instances, not an
-example-local reimplementation. Hosting makes a module *available* and does
-nothing else — since #831 no line is ever written into a buffer on its account.
-The complete boundary remains stdlib-listing and project-loader work; see
-**Modules and the root** below for the one place the approximation shows.
+**The Playground hosts nothing.** The standard library is the package `Hex` in
+full and the compiler embeds it (`spec/packages.md` §2.4), so a program reaches
+`Rat` by writing `import Rat` — or `import Hex.Rat` — exactly as it would in any
+other project, and the prelude's `Option` and `Vector` are in scope with no
+import at all. Playground programs use the real opaque types and their globally
+coherent instances, not an example-local reimplementation. A buffer declaring its
+own `module Rat` occludes `Hex.Rat` silently (§3.2) and is the program's own.
 
 ## Try it
 
@@ -87,13 +85,6 @@ succeeds, the JS pane shows the helper's emission, and **Run** prints nothing, w
 no diagnostic anywhere — the helper is a legitimate program that happens to do
 nothing. Naming the program `module Main` is the repair, and is why the rule reads
 the name first.
-
-**One approximation, stated.** The hosted `Rat` enters as a module of the compiled
-project rather than as `Hex.Rat`, because `ProjectOptions` gives a host no way to say
-a file belongs to another package. So `import Hex.Rat` names no module here, and a
-buffer declaring its own `module Rat` draws the duplicate-name refusal (§2.2) against
-a file it cannot see, where a true `Hex.Rat` would be occluded silently
-(`spec/packages.md` §3.2).
 
 The Theme selector offers **System**, **Dark**, and **Light**. System is the default
 and follows live operating-system colour-scheme changes. The selected preference is
@@ -316,7 +307,6 @@ playground/
     compiler-service.ts
     analysis.ts
     workspace.ts
-    hosted-library.ts
     language-services.ts
     monaco-mapping.ts
     diagnostics.ts
@@ -373,8 +363,8 @@ fresh execution worker with a two-second timeout.
   result. It is not a reason to build one now.
 - The editor buffer is not any compiled file, so every coordinate crossing the
   boundary goes through one map (`src/workspace.ts`). It refuses rather than
-  approximates: an edit landing in the synthesized import prefix, or in a hosted
-  library, is declined. `anchor` is the single documented exception, and it exists
+  approximates: an edit landing in an injected `Hex` module, which the user
+  cannot see, is declined. `anchor` is the single documented exception, and it exists
   because a diagnostic must always be shown somewhere.
 - Prose a user reads is written once and shared. `hoverMarkdown` lives in the
   compiler because both hosts render Markdown; only the wrapper is protocol. Two

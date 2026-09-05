@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
-import { PRELUDE_SOURCES } from "../prelude-sources.js";
+import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { codeOnly } from "../support/free-identifiers.js";
 import { compileFiles, projectDiagnostics } from "../support/test-project.js";
 import { typeScriptErrors } from "../support/typescript-check.js";
@@ -1056,8 +1056,8 @@ describe("the faces and the emitted text the new surfaces produce", () => {
    * the bare text.
    */
   test("`fromSeq` steps around a contested `Map`/`Set` in a supplied companion", () => {
-    const contested = (basename: string): string =>
-      `${PRELUDE_SOURCES[basename]!}\nexport union Contested = Map(Int) | Set(Int)\n`;
+    const contested = (name: string): string =>
+      `${STDLIB_SOURCES[name]!}\nexport union Contested = Map(Int) | Set(Int)\n`;
     // A prelude module is emitted only when something emitted imports it, so
     // `/main.hex` reaches both constructors: without a consumer there would be
     // no text to read, and the assertions below would pass on nothing.
@@ -1068,8 +1068,8 @@ describe("the faces and the emitted text the new surfaces produce", () => {
           '    JsMap.fromSeq(Vector.toSeq([("a", 1)]))\n' +
           "export fun s(): JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1]))\n",
       ],
-      ["/JsMap.hex", contested("JsMap.hex")],
-      ["/JsSet.hex", contested("JsSet.hex")],
+      ["/JsMap.hex", contested("JsMap")],
+      ["/JsSet.hex", contested("JsSet")],
     ]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const text = (path: string): string =>
@@ -1091,8 +1091,8 @@ describe("the faces and the emitted text the new surfaces produce", () => {
           '    JsMap.fromSeq(Vector.toSeq([("a", 1)]))\n' +
           "export fun s(): JsSet(Int) = JsSet.fromSeq(Vector.toSeq([1]))\n",
       ],
-      ["/JsMap.hex", PRELUDE_SOURCES["JsMap.hex"]!],
-      ["/JsSet.hex", PRELUDE_SOURCES["JsSet.hex"]!],
+      ["/JsMap.hex", STDLIB_SOURCES["JsMap"]!],
+      ["/JsSet.hex", STDLIB_SOURCES["JsSet"]!],
     ]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const text = (path: string): string =>
@@ -1120,7 +1120,7 @@ describe("the faces and the emitted text the new surfaces produce", () => {
           "export let read(m: JsMap(String, Int)): Option(Int) =\n" +
           '    JsMap.get(m, "a")\n',
       ],
-      ["/JsMap.hex", PRELUDE_SOURCES["JsMap.hex"]!],
+      ["/JsMap.hex", STDLIB_SOURCES["JsMap"]!],
     ]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const text = project.modules

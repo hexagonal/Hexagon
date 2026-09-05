@@ -32,24 +32,22 @@ describe("layOutWorkspace", () => {
     // The buffer's two modules are two modules of one file, which is what the
     // language says a file holding two headers holds. The splitter that used to
     // mint `/Helper.hex` is gone with the notation it was written for.
-    expect(files.map(({ path }) => path)).toEqual([
-      "/stdlib/Option.hex",
-      "/stdlib/Vector.hex",
-      "/stdlib/Rat.hex",
-      bufferPath,
-    ]);
+    expect(files.map(({ path }) => path)).toEqual([bufferPath]);
   });
 
-  test("hosts every library source, imported or not", () => {
-    // Hosting is availability, and since #831 it is only that: `Rat` is a file
-    // the compiler can resolve an ordinary `import Rat` against, and no line is
-    // ever written into the user's buffer on its account.
+  test("hosts nothing: the buffer is the whole project", () => {
+    // #829's Ruling B. The Playground used to hand the compiler three canonical
+    // `stdlib/` files so a program could reach `Option`, `Vector` and `Rat`;
+    // the standard library is the package `Hex` in full and the compiler embeds
+    // it, so `import Rat` and `import Hex.Rat` both resolve with nothing
+    // supplied here (Packages §2.4, §3.2).
     const { files } = layOutWorkspace("module Main\n\nDebug.log(\"hello\")\n");
 
-    const rat = files.find(({ path }) => path === "/stdlib/Rat.hex");
-    expect(rat?.source.startsWith("module Rat\n")).toBe(true);
-    expect(files.find(({ path }) => path === bufferPath)?.source)
-      .toBe("module Main\n\nDebug.log(\"hello\")\n");
+    expect(files).toHaveLength(1);
+    expect(files[0]).toEqual({
+      path: bufferPath,
+      source: "module Main\n\nDebug.log(\"hello\")\n",
+    });
   });
 });
 

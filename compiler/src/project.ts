@@ -49,7 +49,7 @@ import {
 } from "./passes/emitter/specializations.js";
 import type { ModuleImport, PreludeImport } from "./passes/resolver/resolver.js";
 import type { RuntimeLocations } from "./passes/emitter/emitter.js";
-import { PRELUDE_MODULES, PRIMITIVE_COMPANION_BASENAMES } from "./prelude.js";
+import { LIBRARY_MODULES, PRELUDE_MODULES, PRIMITIVE_COMPANION_MODULES } from "./prelude.js";
 import { RUNTIME_MODULES } from "./runtime-modules.js";
 
 export interface CompiledModule {
@@ -173,7 +173,7 @@ interface Unit {
   readonly fullName: string;
   /** The canonical layout path — this module's address (Packages §6). */
   readonly path: string;
-  readonly injected: "prelude" | "runtime" | undefined;
+  readonly injected: "prelude" | "runtime" | "library" | undefined;
   /** Seat in the injected order, for §5.5's visible-prefix slice. */
   readonly seat: number | undefined;
 }
@@ -197,7 +197,7 @@ export function compileProject(
   // One injected list, prelude and runtime members woven together, in the order
   // that makes each see the members before it and only those (Modules §5.5, and
   // `RuntimeModule.precedes` for what the runtime seats decide).
-  const injectedModules = weaveInjected(PRELUDE_MODULES, RUNTIME_MODULES);
+  const injectedModules = weaveInjected(PRELUDE_MODULES, RUNTIME_MODULES, LIBRARY_MODULES);
   const units = gatherModules(sourceFiles, projectPackage, injectedModules);
   const injectedUnits = units.filter(({ injected }) => injected !== undefined)
     .sort((left, right) => left.seat! - right.seat!);
@@ -207,19 +207,32 @@ export function compileProject(
   const runtimeModuleSet = new Set(
     injectedUnits.filter(({ injected }) => injected === "runtime").map(({ path }) => path),
   );
+  /**
+   * The rest of the package `Hex` (`LIBRARY_MODULES`) — compiled with the
+   * program, emitted only where the program reaches it (Packages §6).
+   *
+   * Held apart from `preludeSet` because the two facts it decides are opposite
+   * ones: a prelude member is in **bare scope** and a library module is not
+   * (Modules §5.5's set is closed), while both are alike in the one respect the
+   * emission filter reads — a `Hex` module the program never touched writes no
+   * file.
+   */
+  const libraryModuleSet = new Set(
+    injectedUnits.filter(({ injected }) => injected === "library").map(({ path }) => path),
+  );
   /** Each injected path's seat, for the "sees only what precedes it" slice. */
   const injectedSeats = new Map(injectedUnits.map(({ path, seat }) => [path, seat!]));
   /**
-   * Where each wired runtime module was seated, by basename. A wiring whose
+   * Where each wired runtime module was seated, by declared name. A wiring whose
    * module is absent from the project — which is only an empty project — has no
    * entry, and emission falls back to the same-directory default.
    */
-  const runtimeModulePathsByBasename = new Map(
-    RUNTIME_WIRINGS.flatMap(({ basename }) => {
+  const runtimeModulePathsByName = new Map(
+    RUNTIME_WIRINGS.flatMap(({ name }) => {
       const unit = injectedUnits.find(({ injected, declaredName }) =>
-        injected === "runtime" && `${declaredName}.hex` === basename
+        injected === "runtime" && declaredName === name
       );
-      return unit === undefined ? [] : [[basename, unit.path] as const];
+      return unit === undefined ? [] : [[name, unit.path] as const];
     }),
   );
   // The runtime declaration module's stem, settled before any module is emitted
@@ -413,9 +426,16 @@ export function compileProject(
   for (const path of ordered) {
     const isPrelude = preludeSet.has(path);
     const isRuntimeModule = runtimeModuleSet.has(path);
-    // Both injected sets take their identities from the reserved range, so a
-    // project's own ids are what a compilation with neither would have given it.
-    const isInjected = isPrelude || isRuntimeModule;
+    // All three injected sets take their identities from the reserved range, so
+    // a project's own ids are what a compilation with none of them would have
+    // given it. The **library** set is why this is stated as a rule rather than
+    // a pair: since #829 every `stdlib/` module is compiled with every program,
+    // so leaving one out of the reserved range would push a project's first
+    // binding from `0` to whatever the standard library happened to spend —
+    // observable in emitted JavaScript wherever a name is minted from an id
+    // (`__binding0`), and a fact about the library rather than about the
+    // program.
+    const isInjected = isPrelude || isRuntimeModule || libraryModuleSet.has(path);
     const source = sources.get(path)!;
     const parsedModule = parsed.get(path)!;
     // Keyed by the **written spelling** (Modules §2.3), carrying the specifier
@@ -503,14 +523,14 @@ export function compileProject(
       // The two privileges stay **separate flags**, not one merged notion:
       // `runtime` puts a name in scope and `privileged` opens a declaration
       // form, and a prelude member holds the second without the first.
-      privileged: isPrelude || runtimePaths.has(unit.source.path) || isRuntimeModule,
+      privileged: isPrelude || isRuntimeModule || runtimePaths.has(unit.source.path),
       // A primitive's home module is its fixed prelude companion (Constraints
       // §5.3), and nothing in the module's text can say so — a primitive has no
       // declaration. Like the privilege above, the fact follows the *path*.
-      ...(isPrelude && PRIMITIVE_COMPANION_BASENAMES.has(`${unit.declaredName}.hex`)
+      ...(isPrelude && PRIMITIVE_COMPANION_MODULES.has(unit.declaredName)
         ? {
-          companionPrimitive: PRIMITIVE_COMPANION_BASENAMES.get(
-            `${unit.declaredName}.hex`,
+          companionPrimitive: PRIMITIVE_COMPANION_MODULES.get(
+            unit.declaredName,
           )! as Resolved.PrimitiveName,
         }
         : {}),
@@ -518,7 +538,7 @@ export function compileProject(
       // by being one. A host may still grant it by path (`hexagon.json`), which
       // is how `runtime/VectorTrie.hex` compiles under its own repository path
       // rather than at the injection basename.
-      ...(runtimePaths.has(unit.source.path) || isRuntimeModule ? { runtime: true } : {}),
+      ...(isRuntimeModule || runtimePaths.has(unit.source.path) ? { runtime: true } : {}),
       ...(preludeImports.length === 0 ? {} : { prelude: preludeImports }),
     });
     if (isInjected) {
@@ -597,7 +617,7 @@ export function compileProject(
     // The source travels with the tree so the post-elaboration judgments can
     // quote what was written (Exceptions §5.4's cannot-throw message).
     const core = elaborate(typed, source);
-    const runtimes = runtimesFor(path, runtimeModulePathsByBasename);
+    const runtimes = runtimesFor(path, runtimeModulePathsByName);
     // Source-form, like every other specifier emission is handed: the runtime
     // module sits at the **output root** under §8.3's probed stem, and a module
     // a directory down — a dotted name's, or a package's — spells it `../hex`
@@ -705,8 +725,10 @@ export function compileProject(
     }
   }
 
-  // Emit a prelude module only when something emitted imports it, so a project
-  // that never touches its nominals is unchanged by the prelude's existence.
+  // Emit an injected `Hex` module only when something emitted imports it, so a
+  // project that never touches its nominals is unchanged by the standard
+  // library's existence — and a project that never writes `import Rat` writes no
+  // `Hex/Rat.js` (Packages §6).
   // Since §5.5 lets prelude modules import each other, this is reachability
   // rather than a single hop: a module imported *only* by another prelude module
   // must still be emitted, or the emitted JavaScript carries an import of a file
@@ -783,7 +805,9 @@ export function compileProject(
     ];
   };
   const emitted = new Set(
-    ordered.filter((path) => !preludeSet.has(path) && !runtimeModuleSet.has(path)),
+    ordered.filter((path) =>
+      !preludeSet.has(path) && !runtimeModuleSet.has(path) && !libraryModuleSet.has(path)
+    ),
   );
   const pending = [...emitted];
   for (let path = pending.pop(); path !== undefined; path = pending.pop()) {
@@ -988,26 +1012,44 @@ function gatherModules(
   const adopted = new Set<Parsed.Module>();
   const units: Unit[] = [];
   for (const [index, member] of injectedModules.entries()) {
-    const declared = member.basename.replace(/\.hex$/u, "");
-    const own = supplied.find(({ source, parsed }) =>
+    // The file the module would be filed under, were it filed: its declared
+    // name's last segment. `Runtime.VectorTrie` is `VectorTrie.hex`, which is
+    // where `stdlib/Runtime/` really keeps it and where a project developing
+    // the standard library keeps its own copy.
+    const basename = `${member.name.split(".").at(-1)!}.hex`;
+    // **Adoption is the prelude's and the runtime's, and not the library's.**
+    //
+    // A prelude member and a runtime module are compiled with privileges no
+    // module's text can ask for — bare scope at a normative seat, the `Node(a)`
+    // spelling, the intrinsic door — so a project developing the standard
+    // library has to be able to supply the file that *is* that member; there is
+    // no other way to compile `stdlib/Option.hex` in the role it holds.
+    //
+    // A library module has no such privilege: it is an ordinary module of an
+    // ordinary package. So a project's own `module Rat` is its own, and
+    // **occludes** `Hex.Rat` rather than replacing it — the resolving package's
+    // module wins for `import Rat`, `import Hex.Rat` still reaches the
+    // library's, and both are compiled (Packages §3.2, Modules §2.3). Adopting
+    // it instead would make a name a project has always been free to use
+    // silently take the standard library's seat, which is the opposite of what
+    // occlusion promises.
+    const own = member.kind === "library" ? undefined : supplied.find(({ source, parsed }) =>
       !adopted.has(parsed) &&
-      source.path.slice(source.path.lastIndexOf("/") + 1) === member.basename &&
-      parsed.name.text === declared
+      source.path.slice(source.path.lastIndexOf("/") + 1) === basename &&
+      parsed.name.text === member.name
     );
     if (own !== undefined) {
       adopted.add(own.parsed);
-      units.push(
-        seat(own.source, own.parsed, STANDARD_LIBRARY, member.runtime ? "runtime" : "prelude", index),
-      );
+      units.push(seat(own.source, own.parsed, STANDARD_LIBRARY, member.kind, index));
       continue;
     }
     const source = new Source.File(
       Source.fileId(nextFileId(sourceFiles, units)),
-      `/${STANDARD_LIBRARY}/${member.basename}`,
+      `/${STANDARD_LIBRARY}/${member.name.replaceAll(".", "/")}.hex`,
       member.source,
     );
     const parsed = parseFile(applyLayout(lex(source)), source.path)[0]!;
-    units.push(seat(source, parsed, STANDARD_LIBRARY, member.runtime ? "runtime" : "prelude", index));
+    units.push(seat(source, parsed, STANDARD_LIBRARY, member.kind, index));
   }
   for (const { source, parsed } of supplied) {
     if (adopted.has(parsed)) continue;
@@ -1163,43 +1205,55 @@ function nextId(ids: readonly number[], fallback: number): number {
   return ids.length === 0 ? fallback : Math.max(fallback, ...ids.map((id) => id + 1));
 }
 
-/** One member of the injected list, and which of the two kinds it is. */
+/** One member of the injected `Hex` list, and which of the three kinds it is. */
 interface InjectedModule {
-  readonly basename: string;
+  /** The module's declared name (Modules §1) — `Option`, `Runtime.VectorTrie`. */
+  readonly name: string;
   readonly source: string;
-  readonly runtime: boolean;
+  readonly kind: "prelude" | "runtime" | "library";
 }
 
 /**
- * The prelude and runtime module sets as one ordered list, each runtime member
- * taking the seat its `precedes` names.
+ * The package `Hex` as one ordered list: the prelude set with each runtime
+ * member at the seat its `precedes` names, and the rest of the standard library
+ * after both.
  *
  * A `precedes` naming no prelude member would silently put the module last,
  * which is the one placement its seat exists to forbid, so it lands at the end
  * only when that is what the list already says. There is no such member today
  * and the conformance test pins the resulting order.
+ *
+ * The library members take the **last** seats, and the seat is all they take:
+ * they put no name in bare scope (Modules §5.5's set is the prelude's), and
+ * their own visibility is the ordinary one — the whole prelude, plus whatever
+ * they import. Seating them after everything is what makes the second half true
+ * with no case of its own.
  */
 function weaveInjected(
-  prelude: readonly { readonly basename: string; readonly source: string }[],
+  prelude: readonly { readonly name: string; readonly source: string }[],
   runtime: readonly {
-    readonly basename: string;
+    readonly name: string;
     readonly source: string;
     readonly precedes: string;
   }[],
+  library: readonly { readonly name: string; readonly source: string }[],
 ): readonly InjectedModule[] {
   const woven: InjectedModule[] = [];
   for (const member of prelude) {
     for (const module of runtime) {
-      if (module.precedes === member.basename) {
-        woven.push({ basename: module.basename, source: module.source, runtime: true });
+      if (module.precedes === member.name) {
+        woven.push({ name: module.name, source: module.source, kind: "runtime" });
       }
     }
-    woven.push({ basename: member.basename, source: member.source, runtime: false });
+    woven.push({ name: member.name, source: member.source, kind: "prelude" });
   }
-  const seated = new Set(woven.map(({ basename }) => basename));
+  const seated = new Set(woven.map(({ name }) => name));
   for (const module of runtime) {
-    if (seated.has(module.basename)) continue;
-    woven.push({ basename: module.basename, source: module.source, runtime: true });
+    if (seated.has(module.name)) continue;
+    woven.push({ name: module.name, source: module.source, kind: "runtime" });
+  }
+  for (const member of library) {
+    woven.push({ name: member.name, source: member.source, kind: "library" });
   }
   return woven;
 }
@@ -1209,17 +1263,17 @@ function weaveInjected(
  * specifier that reaches each from here.
  *
  * A project with no path for a runtime module is one with no sources at all,
- * and its (empty) module list needs no runtime; the basename is simply left out
+ * and its (empty) module list needs no runtime; the name is simply left out
  * and the emitter's same-directory default stands in, so neither side has to
  * hold an extra case.
  */
 function runtimesFor(
   path: string,
-  pathsByBasename: ReadonlyMap<string, string>,
+  pathsByName: ReadonlyMap<string, string>,
 ): RuntimeLocations {
   return new Map(
-    [...pathsByBasename].map(([basename, runtimePath]) => [
-      basename,
+    [...pathsByName].map(([name, runtimePath]) => [
+      name,
       path === runtimePath
         ? "self" as const
         : { specifier: relativeSpecifier(path, runtimePath) },

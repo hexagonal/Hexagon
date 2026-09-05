@@ -21,20 +21,27 @@
  *   `VectorTrie.js`, exactly as a program that names no `Option` emits no
  *   `Option.js`: reachability is read back from what emission reported.
  *
- * What it shares with the prelude is the embedding: `compileProject` is
- * filesystem-free, so the text is generated into `runtime-sources.ts` (`npm run
- * generate:prelude`) and a conformance test asserts it never drifts from the
- * canonical file. A project supplying its own file at the injection basename
- * wins, which is what lets the shipped-sources sweep compile `runtime/*.hex` in
- * its real role.
+ * What it shares with the prelude is the embedding, and since #829 the filing
+ * too: a runtime module is an ordinary member of the package `Hex`, filed at
+ * `stdlib/Runtime/` and embedded with the rest of the standard library
+ * (`stdlib-sources.ts`, `npm run generate:prelude`), with a conformance test
+ * asserting it never drifts from the canonical file. **Both privileges are
+ * keyed by membership in this list**, never by a path: the folder under
+ * `stdlib/` is our filing convention and the language reads no path (Modules
+ * §9.2). A project supplying its own file that declares one of these names wins,
+ * which is what lets the shipped-sources sweep compile them in their real role.
  */
 
-import { RUNTIME_SOURCES } from "./runtime-sources.js";
+import { STDLIB_SOURCES } from "./stdlib-sources.js";
 
 export interface RuntimeModule {
-  /** Basename placed at the common root of a project's sources. */
-  readonly basename: string;
-  /** Embedded fallback source, used only when the project supplies no file at the path. */
+  /**
+   * The module's **declared name** (Modules §1) — `Runtime.VectorTrie`, whose
+   * full name is `Hex.Runtime.VectorTrie` and whose emitted file is
+   * `Hex/Runtime/VectorTrie.js` (Packages §2.3, §6).
+   */
+  readonly name: string;
+  /** Embedded fallback source, used only when the project supplies its own file. */
   readonly source: string;
   /**
    * The prelude member this module takes its seat before, in the one injected
@@ -42,7 +49,7 @@ export interface RuntimeModule {
    * they are the same thing seen from either end: what this module can see, and
    * what can see it.
    *
-   * `VectorTrie.hex` sits before `Vector.hex` because `Vector.hex`'s *emission*
+   * `Runtime.VectorTrie` sits before `Vector` because `Vector`'s *emission*
    * imports the trie. That edge exists only in the emitted JavaScript — no
    * `Import` item records it — so the module graph's own acyclicity check
    * cannot police it, and the seat is what keeps it honest: everything the trie
@@ -62,19 +69,19 @@ export interface RuntimeModule {
  * names. Each member sees the injected modules before it and only those, which
  * is `PRELUDE_MODULES`' law applied to one list rather than two.
  *
- * `VectorTrie.hex` is the persistent trie deque `Vector(a)` is (Collections
- * Part 3 §4). `HashTrie.hex` is the persistent hash array mapped trie `Map(k, v)`
+ * `Runtime.VectorTrie` is the persistent trie deque `Vector(a)` is (Collections
+ * Part 3 §4). `Runtime.HashTrie` is the persistent hash array mapped trie `Map(k, v)`
  * and `Set(a)` are (Part 4 §2.1); it needs `Option`, `Hash`, `Int` and `Seq`,
- * all seated well before `Vector.hex`, and must never reach `Vector` itself.
+ * all seated well before `Vector`, and must never reach `Vector` itself.
  */
 export const RUNTIME_MODULES: readonly RuntimeModule[] = [
-  { basename: "VectorTrie.hex", precedes: "Vector.hex" },
-  { basename: "HashTrie.hex", precedes: "Vector.hex" },
-].map(({ basename, precedes }) => ({
-  basename,
+  { name: "Runtime.VectorTrie", precedes: "Vector" },
+  { name: "Runtime.HashTrie", precedes: "Vector" },
+].map(({ name, precedes }) => ({
+  name,
   precedes,
-  source: RUNTIME_SOURCES[basename]!,
+  source: STDLIB_SOURCES[name]!,
 }));
 
 /** The runtime module `Vector(a)`'s emission is wired to. */
-export const VECTOR_TRIE_BASENAME = "VectorTrie.hex";
+export const VECTOR_TRIE_MODULE = "Runtime.VectorTrie";

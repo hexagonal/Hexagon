@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { PROVIDED_ROW_ALIASES } from "../passes/resolver/resolver.js";
-import { PRELUDE_SOURCES } from "../prelude-sources.js";
+import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 
 /**
@@ -671,7 +671,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // below the item, so above the item it is a later declaration like any
       // other. Without the surface consulted, this use resolves *silently*.
       expect(diagnostics([
-        ["/Vector.hex", PRELUDE_SOURCES["Vector.hex"]!],
+        ["/Vector.hex", STDLIB_SOURCES["Vector"]!],
         ["/main.hex",
           "module Main\n\n" + "export let n: Int = Vector.toSeq([1, 2]).length()\n" +
           "import Vector\n"],
@@ -685,7 +685,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
       // `Int.toSeq` is bound by no line and the item-shaped repair would be the
       // §3 lie again, one surface further in.
       const seated = (alias: string) =>
-        [`/${alias}.hex`, PRELUDE_SOURCES[`${alias}.hex`]!] as const;
+        [`/${alias}.hex`, STDLIB_SOURCES[alias]!] as const;
 
       for (const alias of ["Int", "Debug"]) {
         const above = diagnostics([seated(alias), ["/main.hex",

@@ -43,20 +43,42 @@ describe("readManifest", () => {
     const result = await readManifest(path);
     expect(result.present).toBe(false);
     expect(result.problems).toEqual([]);
-    expect(result.manifest).toEqual({ name: undefined, dependencies: [], runtimePaths: [], exclude: [] });
+    expect(result.manifest).toEqual({ name: undefined, dependencies: [], exclude: [] });
   });
 
   test("paths resolve against the manifest, not the process", async () => {
-    const path = await rootWith(
-      JSON.stringify({ runtimePaths: ["runtime/VectorTrie.hex"], exclude: ["examples"] }),
-    );
-    await make(path, "runtime/VectorTrie.hex", "examples");
+    const path = await rootWith(JSON.stringify({ exclude: ["examples", "build/gen"] }));
+    await make(path, "examples", "build/gen");
     const result = await readManifest(path);
     // Relative to the manifest is the only reading that survives the project
     // being checked out somewhere else, or the server being launched elsewhere.
-    expect(result.manifest.runtimePaths).toEqual([join(path, "runtime/VectorTrie.hex")]);
-    expect(result.manifest.exclude).toEqual([join(path, "examples")]);
+    expect(result.manifest.exclude)
+      .toEqual([join(path, "examples"), join(path, "build/gen")]);
     expect(result.problems).toEqual([]);
+  });
+
+  /**
+   * The field's retirement, at the seat that used to read it (#829).
+   *
+   * `runtimePaths` was how a project said which of its modules compile with
+   * runtime privilege, and the standard library's own two are now members of
+   * the package `Hex` — `stdlib/Runtime/VectorTrie.hex` declaring `module
+   * Runtime.VectorTrie` — so both privileges follow from the declared name and
+   * nothing is left for a manifest to grant. A manifest still carrying the key
+   * is a stale one, and it says so rather than being read.
+   */
+  test("`runtimePaths` is not a key this reader knows", async () => {
+    const path = await rootWith(
+      ['{', '  "runtimePaths": ["runtime/VectorTrie.hex"]', '}'].join("\n"),
+    );
+    await make(path, "runtime/VectorTrie.hex");
+    const result = await readManifest(path);
+    expect(result.problems).toHaveLength(1);
+    expect(result.problems[0]!.message)
+      .toBe("unknown hexagon.json key `runtimePaths`; expected `name`, `dependencies`, `exclude`");
+    expect(result.problems[0]!.severity).toBe("error");
+    expect(result.problems[0]!.line).toBe(1);
+    expect(result.manifest).toEqual({ name: undefined, dependencies: [], exclude: [] });
   });
 
   test("a byte-order mark is not a syntax error", async () => {
@@ -75,8 +97,8 @@ describe("readManifest", () => {
     );
     await make(path, "runtimePaths");
     const result = await readManifest(path);
-    // The string value on line 1 spells the key reported on line 2; a substring
-    // search would point at the wrong line.
+    // The string value on line 1 spells the key reported on line 2 — since #829
+    // an unknown one — and a substring search would point at the wrong line.
     expect(result.problems).toHaveLength(1);
     expect(result.problems[0]!.line).toBe(2);
   });
@@ -89,20 +111,20 @@ describe("readManifest", () => {
     expect(result.problems[0]!.message).toContain("not valid JSON");
     // Defaults still apply, so one broken manifest does not take the whole
     // workspace's language support down with it.
-    expect(result.manifest).toEqual({ name: undefined, dependencies: [], runtimePaths: [], exclude: [] });
+    expect(result.manifest).toEqual({ name: undefined, dependencies: [], exclude: [] });
   });
 
   test("a misspelled key is named, and points at its own line", async () => {
     const path = await rootWith(
-      ['{', '  "runtimePath": [],', '  "exclude": []', '}'].join("\n"),
+      ['{', '  "dependency": [],', '  "exclude": []', '}'].join("\n"),
     );
     const result = await readManifest(path);
     // Silence here is expensive: the user believes they configured something,
     // sees no effect, and has nothing to look at. The near-miss is the common
     // case, so the message names both the key and what was expected.
     expect(result.problems).toHaveLength(1);
-    expect(result.problems[0]!.message).toContain("`runtimePath`");
-    expect(result.problems[0]!.message).toContain("`runtimePaths`");
+    expect(result.problems[0]!.message).toContain("`dependency`");
+    expect(result.problems[0]!.message).toContain("`dependencies`");
     expect(result.problems[0]!.line).toBe(1);
   });
 
@@ -122,14 +144,14 @@ describe("readManifest", () => {
 
   test("wrong types are reported per field, and the rest still applies", async () => {
     const path = await rootWith(
-      ['{', '  "runtimePaths": "runtime/VectorTrie.hex",', '  "exclude": ["build"]', '}'].join("\n"),
+      ['{', '  "exclude": "build",', '  "dependencies": ["Acme"]', '}'].join("\n"),
     );
     await make(path, "build");
     const result = await readManifest(path);
     expect(result.problems).toHaveLength(1);
     expect(result.problems[0]!.message).toContain("must be an array");
-    expect(result.manifest.runtimePaths).toEqual([]);
-    expect(result.manifest.exclude).toEqual([join(path, "build")]);
+    expect(result.manifest.exclude).toEqual([]);
+    expect(result.manifest.dependencies).toEqual(["Acme"]);
   });
 
   test("an entry that is the workspace root is refused, not obeyed", async () => {
@@ -151,36 +173,23 @@ describe("readManifest", () => {
 
   test("an entry that matches no file is reported rather than ignored", async () => {
     const path = await rootWith(
-      ['{', '  "runtimePaths": ["runtime/Trie.hex"],', '  "exclude": ["Examples"]', '}'].join("\n"),
+      ['{', '  "name": "Acme",', '  "exclude": ["Examples", "Generated"]', '}'].join("\n"),
     );
     // The likeliest cause is a case the filesystem itself forgives: on macOS and
-    // Windows the user's editor opens `Trie.hex` when the file is `trie.hex`, so
-    // nothing anywhere else hints that this entry matches nothing — while the
-    // privilege it was meant to grant silently does not happen, and the errors
-    // it was written to remove come straight back.
-    await make(path, "runtime/trie.hex", "examples");
+    // Windows the user's editor opens `Examples/a.hex` when the directory is
+    // `examples`, so nothing anywhere else hints that this entry matches
+    // nothing — while the files it was meant to remove keep reporting.
+    await make(path, "examples/a.hex", "generated/b.hex");
     const result = await readManifest(path);
     expect(result.problems.map(({ line, severity }) => ({ line, severity }))).toEqual([
-      { line: 1, severity: "warning" },
+      { line: 2, severity: "warning" },
       { line: 2, severity: "warning" },
     ]);
     for (const problem of result.problems) expect(problem.message).toContain("matches no file");
     // Still applied: the entry is inert either way, and dropping it would mean
     // the manifest quietly said something different from what it says.
-    expect(result.manifest.runtimePaths).toEqual([join(path, "runtime/Trie.hex")]);
-  });
-
-  test("a directory in `runtimePaths` is refused, not silently matched", async () => {
-    const path = await rootWith(JSON.stringify({ runtimePaths: ["runtime"] }));
-    await make(path, "runtime/Trie.hex");
-    const result = await readManifest(path);
-    // `exclude` takes a directory, so writing one here is the natural mistake —
-    // and it matches no compiled file, leaving the errors the entry was written
-    // to remove exactly where they were, with nothing to explain why.
-    expect(result.problems).toHaveLength(1);
-    expect(result.problems[0]!.severity).toBe("error");
-    expect(result.problems[0]!.message).toContain("is a directory");
-    expect(result.manifest.runtimePaths).toEqual([]);
+    expect(result.manifest.exclude)
+      .toEqual([join(path, "Examples"), join(path, "Generated")]);
   });
 
   test("a separator the exclusion honours is not called a mismatch", async () => {
@@ -209,7 +218,7 @@ describe("readManifest", () => {
     await writeFile(join(base, "vendor", "Runtime.hex"), "", "utf8");
     await writeFile(
       join(path, MANIFEST_NAME),
-      JSON.stringify({ runtimePaths: ["../vendor/Runtime.hex"], exclude: ["../vendor"] }),
+      JSON.stringify({ exclude: ["../vendor/Runtime.hex", "../vendor"] }),
       "utf8",
     );
     // Normalizing the *relative* fragment resolves `..` by popping a component,

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import { compileFiles } from "../support/test-project.js";
-import { PRELUDE_MODULES } from "../prelude.js";
+import { LIBRARY_MODULES, PRELUDE_MODULES } from "../prelude.js";
+import { RUNTIME_MODULES } from "../runtime-modules.js";
 import * as Source from "../support/source.js";
 
 /**
@@ -14,11 +15,12 @@ import * as Source from "../support/source.js";
  * A `.hex` file no build step reads can drift arbitrarily from the language it
  * is written in and nothing reports it; during the `size` -> `length` rename the
  * file was edited throughout and every suite stayed green regardless of whether
- * the edit was correct. `runtime/VectorTrie.hex` was only incidentally covered,
- * by `vector-trie.test.ts` appending probes to its source.
+ * the edit was correct. `stdlib/Runtime/VectorTrie.hex` was only incidentally
+ * covered, by `vector-trie.test.ts` appending probes to its source.
  *
- * The sweep is a *glob*, not a list, so a new `stdlib/` or `runtime/` module is
- * covered the moment it lands rather than when someone remembers to add it here.
+ * The sweep is a *glob*, not a list, so a new `stdlib/` module is covered the
+ * moment it lands rather than when someone remembers to add it here — and since
+ * #829 that is every module of the package `Hex`, the runtime pair included.
  *
  * ## One project per file
  *
@@ -31,80 +33,59 @@ import * as Source from "../support/source.js";
  *
  * ## Prelude members need no special case
  *
- * Five of these files are also embedded in the compiler as prelude sources
- * (`PRELUDE_MODULES`), and a prelude module sees the members before it and never
- * itself — so compiling one as an *ordinary* project module would report
- * diagnostics that say nothing about the file. This test never has to know which
- * files those are, because `injectPrelude` prefers a project's own file over the
- * embedded fallback *by basename, wherever that file sits* (pinned by
+ * Every one of these files is embedded in the compiler as a `Hex` module, and a
+ * prelude module sees the members before it and never itself — so compiling one
+ * as an *ordinary* project module would report diagnostics that say nothing
+ * about the file. This test never has to know which role a file holds, because
+ * the compiler prefers a project's own file over the embedded fallback *by
+ * basename and declared name, wherever that file sits* (pinned by
  * `prelude-mechanism.test.ts`, "a project file at a prelude basename replaces
  * the embedded member"). Supplying `Bool.hex` therefore compiles it in its real
- * prelude role, and supplying `Vector.hex` compiles it as an ordinary module —
- * each in whatever role the compiler assigns its basename, with the right
- * visibility either way. That is why nothing here enumerates today's five
- * basenames, and why this keeps working unchanged when `stdlib/Vector.hex` joins
- * the prelude set: the file's role changes, the case does not.
+ * prelude role, `Rat.hex` as the ordinary `Hex` module it is, and
+ * `VectorTrie.hex` declaring `module Runtime.VectorTrie` in its privileged
+ * runtime role — each in whatever role the compiler assigns the name, with the
+ * right visibility and the right privileges either way.
  *
  * A prelude member reached by nothing is compiled and checked but not *emitted*
  * (`CompiledProject.modules` holds only what the project would write), so these
  * projects are measured by their diagnostics, never by their module list.
  *
- * ## Runtime privilege
+ * ## Runtime privilege comes from the name, not from a grant
  *
- * `runtime/*.hex` compiles clean only as a privileged runtime module — the
- * `Node(a)` spelling is gated on `resolve`'s `runtime` flag, and unprivileged
- * `VectorTrie.hex` reports 38 diagnostics. The project manifest `hexagon.json`
- * grants exactly that, by listing `runtime/VectorTrie.hex` under `runtimePaths`;
- * the sweep grants it to the whole `runtime/` directory, which is the rule the
- * manifest is written from.
+ * `stdlib/Runtime/*.hex` compiles clean only as a privileged runtime module —
+ * the `Node(a)` spelling is gated on `resolve`'s `runtime` flag, and an
+ * unprivileged `VectorTrie.hex` reports 38 diagnostics. Since #829 the sweep
+ * needs no grant to get it: the file declares `module Runtime.VectorTrie`, the
+ * compiler adopts it at that member's seat, and both privileges follow from
+ * membership in the `Hex` runtime list (`runtime-modules.ts`). This case is
+ * therefore also the pin that the adoption route really does carry them.
  */
 
-const STDLIB_SOURCES = import.meta.glob("../../../stdlib/*.hex", {
+const SHIPPED_SOURCES = import.meta.glob("../../../stdlib/**/*.hex", {
   eager: true,
   query: "?raw",
   import: "default",
-});
-
-const RUNTIME_SOURCES = import.meta.glob("../../../runtime/*.hex", {
-  eager: true,
-  query: "?raw",
-  import: "default",
-});
+}) as Record<string, string>;
 
 interface Subject {
   /** Repository-relative path — the test's name, and what a failure points at. */
   readonly label: string;
   /** Path inside the compiled project: the basename at the root, which is where
-   *  a prelude member's own file has to sit to replace the embedded copy. */
+   *  a `Hex` member's own file has to sit to replace the embedded copy. */
   readonly path: string;
   readonly source: string;
-  /** Compiled with `runtime` privilege (the `Node(a)` gate). */
-  readonly privileged: boolean;
 }
 
-function subjects(
-  sources: Record<string, string>,
-  directory: string,
-  privileged: boolean,
-): readonly Subject[] {
-  return Object.entries(sources)
-    .map(([globPath, source]) => {
-      const basename = globPath.slice(globPath.lastIndexOf("/") + 1);
-      return { label: `${directory}/${basename}`, path: `/${basename}`, source, privileged };
-    })
-    .sort((left, right) => left.label.localeCompare(right.label));
-}
-
-const SUBJECTS: readonly Subject[] = [
-  ...subjects(STDLIB_SOURCES, "stdlib", false),
-  ...subjects(RUNTIME_SOURCES, "runtime", true),
-];
+const SUBJECTS: readonly Subject[] = Object.entries(SHIPPED_SOURCES)
+  .map(([globPath, source]) => {
+    const basename = globPath.slice(globPath.lastIndexOf("/") + 1);
+    const label = globPath.slice(globPath.indexOf("/stdlib/") + 1);
+    return { label, path: `/${basename}`, source };
+  })
+  .sort((left, right) => left.label.localeCompare(right.label));
 
 function compile(subject: Subject, source: string): ReturnType<typeof compileFiles> {
-  return compileFiles(
-    [[subject.path, source]],
-    subject.privileged ? { runtimePaths: [subject.path] } : {},
-  );
+  return compileFiles([[subject.path, source]]);
 }
 
 /**
@@ -157,7 +138,11 @@ describe("every shipped .hex file compiles", () => {
     // `stdlib/` original fails here.
     const labels = SUBJECTS.map(({ label }) => label);
     expect(labels).toContain("stdlib/Vector.hex");
-    expect(labels).toContain("runtime/VectorTrie.hex");
-    for (const { basename } of PRELUDE_MODULES) expect(labels).toContain(`stdlib/${basename}`);
+    expect(labels).toContain("stdlib/Runtime/VectorTrie.hex");
+    // Every embedded `Hex` module has a canonical original under `stdlib/`, so
+    // a member joining any of the three lists without one fails here.
+    for (const { name } of [...PRELUDE_MODULES, ...RUNTIME_MODULES, ...LIBRARY_MODULES]) {
+      expect(labels).toContain(`stdlib/${name.replaceAll(".", "/")}.hex`);
+    }
   });
 });

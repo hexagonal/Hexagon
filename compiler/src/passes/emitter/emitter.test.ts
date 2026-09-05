@@ -138,8 +138,8 @@ describe("emitJavaScript", () => {
     );
     // The trie is the third module in the graph, and only `Vector.hex` and the
     // literal-holding consumer import it.
-    expect(text("/Hex/Vector.hex")).toContain('} from "./VectorTrie.js";');
-    expect(text("/Hex/VectorTrie.hex")).toContain("export { empty, size, get, set,");
+    expect(text("/Hex/Vector.hex")).toContain('} from "./Runtime/VectorTrie.js";');
+    expect(text("/Hex/Runtime/VectorTrie.hex")).toContain("export { empty, size, get, set,");
 
     // The tuple crosses as a JS array; each `Vector` inside it is a trie, read
     // back through the representation contract's `[Symbol.iterator]`.

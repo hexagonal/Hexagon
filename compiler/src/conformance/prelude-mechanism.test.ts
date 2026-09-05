@@ -31,8 +31,26 @@ function project(files: readonly (readonly [string, string])[]) {
   );
 }
 
+/**
+ * The messages reported **against the fixture's own files**.
+ *
+ * Scoped, since #829, and the scope is what these tests were always measuring.
+ * The whole standard library is compiled with every program now, so a fixture
+ * that stands a stub in a prelude member's seat is a fixture the rest of `Hex`
+ * is also compiled against — and a stub that omits or redeclares a prelude type
+ * really does break `Hex.Rat`, whose `honor Ord<Rat>` names `Ordering`. That is
+ * a true consequence and it is pinned in its own test below ("a substituted
+ * prelude member is felt by the rest of `Hex`"); it says nothing about which
+ * prelude member sees which, which is what this block is about.
+ *
+ * By file id rather than by path: the fixture's files are numbered from zero in
+ * the order `project` creates them, and every injected module is seated above
+ * them.
+ */
 function diagnostics(files: readonly (readonly [string, string])[]): readonly string[] {
-  return project(files).diagnostics.map((diagnostic) => diagnostic.message);
+  return project(files).diagnostics
+    .filter(({ primary }) => Number(primary.fileId) < files.length)
+    .map((diagnostic) => diagnostic.message);
 }
 
 /**
@@ -127,6 +145,27 @@ describe("ordered intra-prelude visibility", () => {
       "unknown generic type `Option`",
       "unknown name `Some`",
     ]);
+  });
+
+  /**
+   * The other half of the scope above, stated rather than filtered away.
+   *
+   * A prelude member is not private to the prelude: since #829 every module of
+   * `Hex` is compiled against it, so substituting one is felt beyond it. The
+   * specimen is the same fixture the case above uses — a `Prelude.hex` whose
+   * own `Ordering` occludes `Ordering.hex`'s — and the report lands in
+   * `Hex.Rat`, which honors `Ord<Rat>` and so names the type by its bare
+   * spelling.
+   */
+  test("a substituted prelude member is felt by the rest of `Hex`", () => {
+    const compiled = project([
+      ["/Prelude.hex",
+        "module Prelude\n\n" + "export union Ordering = Less | Equal | Greater\n"],
+      ENTRY,
+    ]);
+    const abroad = compiled.diagnostics.filter(({ primary }) => Number(primary.fileId) >= 2);
+    expect(abroad.map(({ message }) => message))
+      .toEqual(["type mismatch: expected Ordering, found Ordering"]);
   });
 
   test("visibility is strictly backward, so a cycle cannot be written", () => {
@@ -243,18 +282,18 @@ describe("drift guard: the embedded prelude matches stdlib/", () => {
 
   test("every prelude member has a canonical stdlib original", () => {
     const missing = PRELUDE_MODULES
-      .map(({ basename }) => basename)
+      .map(({ name }) => `${name}.hex`)
       .filter((basename) =>
         !Object.keys(stdlibSources).some((path) => path.endsWith(`/${basename}`)),
       );
     expect(missing).toEqual([]);
   });
 
-  test.each(PRELUDE_MODULES.map(({ basename, source }) => [basename, source] as const))(
+  test.each(PRELUDE_MODULES.map(({ name, source }) => [name, source] as const))(
     "%s is byte-identical to its stdlib original",
-    (basename, source) => {
+    (name, source) => {
       const entry = Object.entries(stdlibSources)
-        .find(([path]) => path.endsWith(`/${basename}`));
+        .find(([path]) => path.endsWith(`/${name}.hex`));
       expect(entry?.[1]).toBe(source);
     },
   );

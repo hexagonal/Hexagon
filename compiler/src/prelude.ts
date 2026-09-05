@@ -12,12 +12,13 @@
  * asserts the embedded copies never drift from the originals.
  */
 
-import { PRELUDE_SOURCES } from "./prelude-sources.js";
+import { STDLIB_SOURCES } from "./stdlib-sources.js";
+import { RUNTIME_MODULES } from "./runtime-modules.js";
 
 export interface PreludeModule {
-  /** Basename placed at the common root of a project's sources. */
-  readonly basename: string;
-  /** Embedded fallback source, used only when the project supplies no file at the path. */
+  /** The module's **declared name** (Modules §1) — `Option`, `JsValue`. */
+  readonly name: string;
+  /** Embedded fallback source, used only when the project supplies its own file. */
   readonly source: string;
 }
 
@@ -227,62 +228,91 @@ export interface PreludeModule {
  * all, whatever its seat.
  */
 export const PRELUDE_MODULES: readonly PreludeModule[] = [
-  "Show.hex",
-  "Num.hex",
-  "Signed.hex",
-  "Frac.hex",
-  "Pow.hex",
-  "Concat.hex",
-  "Bool.hex",
-  "Eq.hex",
-  "Hash.hex",
-  "Ordering.hex",
-  "Prelude.hex",
-  "Ord.hex",
-  "Integral.hex",
-  "Option.hex",
-  "Int.hex",
-  "Nat.hex",
-  "Float.hex",
-  "BigInt.hex",
-  "Seq.hex",
-  "String.hex",
-  "Iterable.hex",
-  "Result.hex",
-  "Vector.hex",
-  "Map.hex",
-  "Set.hex",
-  "Stream.hex",
-  "Array.hex",
-  "JsMap.hex",
-  "JsSet.hex",
-  "JsKind.hex",
-  "JsPathSegment.hex",
-  "JsConversionReason.hex",
-  "JsValue.hex",
-  "JsError.hex",
-  "Debug.hex",
-].map((basename) => ({ basename, source: PRELUDE_SOURCES[basename]! }));
+  "Show",
+  "Num",
+  "Signed",
+  "Frac",
+  "Pow",
+  "Concat",
+  "Bool",
+  "Eq",
+  "Hash",
+  "Ordering",
+  "Prelude",
+  "Ord",
+  "Integral",
+  "Option",
+  "Int",
+  "Nat",
+  "Float",
+  "BigInt",
+  "Seq",
+  "String",
+  "Iterable",
+  "Result",
+  "Vector",
+  "Map",
+  "Set",
+  "Stream",
+  "Array",
+  "JsMap",
+  "JsSet",
+  "JsKind",
+  "JsPathSegment",
+  "JsConversionReason",
+  "JsValue",
+  "JsError",
+  "Debug",
+].map((name) => ({ name, source: STDLIB_SOURCES[name]! }));
+
+/**
+ * The rest of the package `Hex`: every embedded standard-library module that is
+ * neither a prelude member nor a runtime module (Packages §2.4).
+ *
+ * The standard library is `Hex` **in full**. A module here puts nothing in bare
+ * scope — #742's bare set is closed, and this list may not grow it — and is
+ * reached the way any other package's module is: `import Rat` where the project
+ * declares no `Rat` of its own, `import Hex.Rat` always, and occluded silently
+ * by a project's own `module Rat` (Packages §3.2, Modules §2.3). Its emitted
+ * file, `Hex/Rat.js`, is written only where the program reaches it (§6).
+ *
+ * Derived by subtraction rather than listed, so a new `stdlib/` file is a `Hex`
+ * module the moment it lands: the two lists that *are* enumerated are the ones
+ * whose membership means something the compiler acts on — bare scope and its
+ * normative order (`PRELUDE_MODULES`), and the two compilation privileges
+ * (`RUNTIME_MODULES`) — and everything else is an ordinary module.
+ *
+ * The seats come after every prelude member, which is the only constraint on
+ * them: a `Hex` module sees the whole prelude and no other module of this list,
+ * because nothing here is in anybody's scope without an import, and an import
+ * is an edge the module graph already orders.
+ */
+export const LIBRARY_MODULES: readonly PreludeModule[] = Object.keys(STDLIB_SOURCES)
+  .filter((name) =>
+    !PRELUDE_MODULES.some((member) => member.name === name) &&
+    !RUNTIME_MODULES.some((member) => member.name === name)
+  )
+  .map((name) => ({ name, source: STDLIB_SOURCES[name]! }));
 
 /**
  * The **fixed prelude companion** of each primitive (Method Syntax §4.1's table;
- * Constraints §5.3 — #344), by the basename its module is injected at.
+ * Constraints §5.3 — #344), by the declared name of the module injected for it.
  *
  * A primitive type's home module is its companion, which is what lets the orphan
  * rule read for primitives exactly as it always has for nominal types, and what
  * lets Modules §5.3's "a type it declares" read as "the primitive it companions".
  * A primitive has no declaration, so this fact cannot come from a module's text:
- * it comes from the injection path, the same shape the intrinsic door's privilege
- * takes (`spec/intrinsics.md` §5.2).
+ * it comes from which prelude member the module was injected as, the same shape
+ * the intrinsic door's privilege takes (`spec/intrinsics.md` §5.2).
  *
- * Every companion the language has is here (#344): `Float.hex` and `String.hex`
- * closed the migration, so no primitive's instances are compiler-wired and
- * Modules §5.3's transitional spellings have nothing left to serve.
+ * Every companion the language has is here (#344): `Float` and `String` closed
+ * the migration, so no primitive's instances are compiler-wired and Modules
+ * §5.3's transitional spellings have nothing left to serve.
  */
-export const PRIMITIVE_COMPANION_BASENAMES: ReadonlyMap<string, string> = new Map([
-  ["BigInt.hex", "BigInt"],
-  ["Int.hex", "Int"],
-  ["Nat.hex", "Nat"],
-  ["Float.hex", "Float"],
-  ["String.hex", "String"],
+export const PRIMITIVE_COMPANION_MODULES: ReadonlyMap<string, string> = new Map([
+  ["BigInt", "BigInt"],
+  ["Int", "Int"],
+  ["Nat", "Nat"],
+  ["Float", "Float"],
+  ["String", "String"],
 ]);

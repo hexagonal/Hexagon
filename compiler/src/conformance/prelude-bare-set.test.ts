@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { compileFiles, compileMain, projectDiagnostics, runMain }
   from "../support/test-project.js";
-import { PRELUDE_SOURCES } from "../prelude-sources.js";
+import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import {
   isPreRegisteredConstraint,
   NON_REDECLARABLE_CONSTRAINTS,
@@ -400,7 +400,7 @@ describe("the function channel: none, and `ignore`", () => {
   test("a second prelude constraint spelling `hash` does not restore the dot form", () => {
     const second: readonly [string, string] = [
       "/Result.hex",
-      `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+      `${STDLIB_SOURCES["Result"]!}\n` +
       "export constraint Digest<a> =\n" +
       "    hash(value: a): Int\n",
     ];
@@ -750,7 +750,7 @@ describe("the member channel: `show` only", () => {
       ["/main.hex", "module Main\n\n" + "export let s: String = show(1)\n"],
       [
         "/Result.hex",
-        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        `${STDLIB_SOURCES["Result"]!}\n` +
         "export constraint Loud<a> =\n" +
         "    show(value: a): String\n",
       ],

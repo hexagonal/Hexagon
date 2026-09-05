@@ -1,4 +1,4 @@
-module HashTrie
+module Runtime.HashTrie
 
 // The persistent hash array mapped trie that `Map(k, v)` and `Set(a)` are built
 // on (Collections Part 4 §2.1), written over the hidden fixed-32 `Node`

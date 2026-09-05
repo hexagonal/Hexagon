@@ -404,7 +404,7 @@ describe("definition and references", () => {
     expect(found).toHaveLength(3);
   });
 
-  test("has nowhere to go for a name declared in a hosted library", () => {
+  test("has nowhere to go for a name declared in an injected `Hex` module", () => {
     const analysis = new PlaygroundAnalysis();
     const source = MAIN + "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
 
@@ -566,7 +566,7 @@ describe("rename", () => {
     );
   });
 
-  test("refuses a name whose mentions reach a hosted library", () => {
+  test("refuses a name whose mentions reach an injected `Hex` module", () => {
     const analysis = new PlaygroundAnalysis();
     const source = MAIN + "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
 
@@ -633,15 +633,21 @@ describe("rename", () => {
     const caret = at(source, "length");
 
     // The identifier itself is in the buffer, so a prepare that asked only
-    // about the subject would open the rename box on a name whose mentions
-    // reach `/stdlib/Vector.hex` — and refuse the moment the user pressed
-    // Enter.
-    expect(analysis.prepareRename(source, caret)).toEqual({
-      refused: "this would edit code the Playground does not show",
-    });
-    expect(analysis.rename(source, caret, "size")).toEqual({
-      refused: "this would edit code the Playground does not show",
-    });
+    // about the subject would open the rename box on a name declared in
+    // `Hex.Vector` — and refuse the moment the user pressed Enter.
+    //
+    // The reason is the **compiler's** since #829's Ruling B, and it says more
+    // than the Playground's own could: the Playground used to supply
+    // `stdlib/Vector.hex` as a file of the project, so the refusal could only
+    // be "this would edit code the Playground does not show" — a fact about
+    // the host. `Hex.Vector` is a module of a package this project does not
+    // own, which is a fact about the program, and #838's refusal names the
+    // declaring module. Both seats give it, which is what this test is about.
+    const refused = {
+      refused: "`length` is declared in module `Hex.Vector`, which this project does not own",
+    };
+    expect(analysis.prepareRename(source, caret)).toEqual(refused);
+    expect(analysis.rename(source, caret, "size")).toEqual(refused);
   });
 });
 

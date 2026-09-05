@@ -167,9 +167,9 @@ function compileWorkspace(
       // Keyed by the module's **layout** path (Packages §6) and not by the file
       // the buffer supplied it under: since #829 the emitted specifiers are
       // computed from the two modules' full names, so `linkModule` resolves
-      // `"./Hex/Option.js"` and finds nothing under `/stdlib/Option.hex`. The
-      // hosted library copies are exactly where the two disagree, and they are
-      // the ones every program imports.
+      // `"./Hex/Option.js"` and finds nothing under `/Hex/Option.hex`'s source
+      // file. The injected `Hex` modules are where the two disagree, and they
+      // are the ones every program imports.
       ...outputs.map(({ module, javascript }) => ({
         path: module.path,
         javascript: javascript.text,
@@ -192,9 +192,9 @@ function compileWorkspace(
     typeScriptPreview: preview.text,
     // Type occurrences are for the editor's buffer, so they cover what the user
     // wrote — every module the buffer declares, and nothing else. Asked of the
-    // *file* rather than by classifying modules: the hosted library copies and
-    // the compiler's injected sources are alike in the only way that matters
-    // here, which is that no position in them is a position in the buffer.
+    // *file* rather than by classifying modules: every injected `Hex` module is
+    // alike in the only way that matters here, which is that no position in it
+    // is a position in the buffer.
     types: project.modules.flatMap(({ source, typed }) =>
       source.path === bufferPath ? collectBindingTypes(typed, mapOffset) : []
     ),

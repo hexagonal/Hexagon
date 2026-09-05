@@ -2,28 +2,28 @@
  * `hexagon.json` — how a project says what it is.
  *
  * Without one, a workspace root is just "every `.hex` file underneath, compiled
- * together", and that guess is wrong in two ways that a language server cannot
- * recover from on its own:
+ * together", and that guess is wrong in a way a language server cannot recover
+ * from on its own: **some files are not the project** — generated output,
+ * deliberately-broken examples, a vendored copy. Compiling them alongside real
+ * source produces diagnostics about files nobody is working on, and guessing
+ * from a path which those are would be the same mistake as inferring meaning
+ * from a name anywhere else. A project has to say so.
  *
- * - **Some modules are privileged.** `Node(a)`, the hidden fixed-32 trie node,
- *   resolves only inside a runtime module. The compiler has always modelled this
- *   (`ProjectOptions.runtimePaths`), but nothing could tell a *server* which
- *   files those are, so it reported every use of `Node` in the Hexagon
- *   repository's own `runtime/VectorTrie.hex` as an unknown type — 38 errors
- *   that are not errors.
- * - **Some files are not the project.** Generated output, deliberately-broken
- *   examples, a vendored copy. Compiling them alongside real source produces
- *   diagnostics about files nobody is working on.
- *
- * Guessing at either from a path — treating `runtime/` as privileged because of
- * its name — would be the same mistake as inferring meaning from a name
- * anywhere else. A project has to say so.
+ * It once answered a second question — *which modules are privileged*, the
+ * `runtimePaths` field, without which the server reported every use of `Node`
+ * in the Hexagon repository's own `runtime/VectorTrie.hex` as an unknown type.
+ * Since #829 the standard library is the package `Hex` in full and those two
+ * modules are members of it (`stdlib/Runtime/VectorTrie.hex` declaring `module
+ * Runtime.VectorTrie`), so both privileges follow from the name the header
+ * declares rather than from a grant a host writes down, and the field went with
+ * the question. Nothing here reads it, and a manifest that still carries one
+ * draws the unknown-key report like any other stale key.
  *
  * The file is deliberately small. It answers "what is this project" and nothing
  * else: no build configuration, no compiler flags. Those need designing rather
  * than inventing, and nothing yet needs them.
  *
- * Two of its four fields are the *language's* rather than the host's — `name`
+ * Two of its three fields are the *language's* rather than the host's — `name`
  * and `dependencies` (Packages §2.1) — and this reader validates them exactly
  * as far as one manifest can be read alone: `name` against §2.1's rule, each
  * `dependencies` entry against §2.4 and §4.4. It **resolves** nothing. Deciding
@@ -54,7 +54,7 @@ import { normalizePath } from "./positions.js";
 export const MANIFEST_NAME = "hexagon.json";
 
 /** The keys this reader knows, in the order §2.1 introduces them. */
-const KNOWN_KEYS = ["name", "dependencies", "runtimePaths", "exclude"] as const;
+const KNOWN_KEYS = ["name", "dependencies", "exclude"] as const;
 
 export interface Manifest {
   /**
@@ -78,16 +78,6 @@ export interface Manifest {
    * modules.
    */
   readonly dependencies: readonly string[];
-  /**
-   * Paths compiled as privileged runtime modules, absolute, resolved against the
-   * manifest's own directory.
-   *
-   * Files, one per module, and not directory prefixes — unlike `exclude`, which
-   * takes either. Privilege is granted to a module rather than to a location,
-   * and the compiler matches these by exact equality against the files it holds.
-   * A directory here is reported rather than quietly matching nothing.
-   */
-  readonly runtimePaths: readonly string[];
   /**
    * Path prefixes that are not part of this project, absolute. Matching is by
    * directory prefix or exact file, not by glob: a glob language is a design
@@ -121,7 +111,7 @@ export interface ManifestResult {
   readonly present: boolean;
 }
 
-const EMPTY: Manifest = { name: undefined, dependencies: [], runtimePaths: [], exclude: [] };
+const EMPTY: Manifest = { name: undefined, dependencies: [], exclude: [] };
 
 /**
  * Reads the manifest at a workspace root.
@@ -264,7 +254,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
     return names;
   };
 
-  const readPaths = async (key: "runtimePaths" | "exclude"): Promise<readonly string[]> => {
+  const readPaths = async (key: "exclude"): Promise<readonly string[]> => {
     const value = record[key];
     if (value === undefined) return [];
     if (!Array.isArray(value)) {
@@ -317,20 +307,6 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
           line: lineOf(key),
           severity: "warning",
         });
-      } else if (key === "runtimePaths" && await isDirectory(resolved)) {
-        // The two fields are not symmetrical, and naming a directory here is the
-        // natural mistake because `exclude` takes one. Privilege is granted to a
-        // module, and a directory is not one: the entry would match no compiled
-        // file, and the errors it was meant to remove would stay exactly as they
-        // were with nothing pointing at the reason.
-        problems.push({
-          message:
-            `${MANIFEST_NAME} \`runtimePaths\` entry ${JSON.stringify(entry)} is a directory; ` +
-            "privilege is granted per module, so each file has to be listed",
-          line: lineOf(key),
-          severity: "error",
-        });
-        continue;
       }
       paths.push(resolved);
     }
@@ -343,7 +319,6 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
     manifest: {
       name: readName(),
       dependencies: readDependencies(),
-      runtimePaths: await readPaths("runtimePaths"),
       exclude: await readPaths("exclude"),
     },
     problems,
@@ -405,15 +380,6 @@ async function exists(path: string): Promise<boolean> {
   try {
     await stat(path);
     return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Whether a path is a directory, following a link to ask what it points at. */
-async function isDirectory(path: string): Promise<boolean> {
-  try {
-    return (await stat(path)).isDirectory();
   } catch {
     return false;
   }

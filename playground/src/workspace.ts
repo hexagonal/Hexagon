@@ -11,20 +11,23 @@
  * is now the language's answer, reported by the compiler at the offset the user
  * is looking at.
  *
+ * **The Playground hosts nothing.** Since #829's Ruling B the standard library
+ * is the package `Hex` in full and the compiler embeds it, so `Rat` is reached
+ * by `import Rat` — or `import Hex.Rat` — with no file supplied by this host
+ * (Packages §2.4, §3.2). The buffer is the whole of the project.
+ *
  * What is left to map is therefore small. The buffer's own text needs no
  * translation at all: a compiler offset in it *is* an editor offset, because
- * nothing is prepended and nothing is masked. The hosted library sources
- * (`hosted-library.ts`) are the one file set the buffer has no room for, and
- * they map in neither direction — which is why go-to-definition on
- * `Vector.append` reports nothing rather than jumping somewhere off screen.
+ * nothing is prepended and nothing is masked. The injected `Hex` modules are
+ * real files to the compiler and no part of the buffer, so they map in neither
+ * direction — which is why go-to-definition on `Vector.append` reports nothing
+ * rather than jumping somewhere off screen.
  *
  * So the map answers with `undefined` rather than a nearby offset. A refusal is
  * a correct answer here — a rename with one edit silently moved to offset zero
  * corrupts the document, where a rename that declines to run does not. The one
  * exception is `anchor`, which exists for diagnostics and is documented there.
  */
-
-import { hostedLibrary } from "./hosted-library";
 
 /**
  * The path the buffer is handed to the compiler under.
@@ -63,8 +66,9 @@ export interface WorkspaceLayout {
 /**
  * Translates between editor-buffer offsets and virtual-file positions.
  *
- * Only the buffer's own file is in the table. A hosted library is a real file to
- * the compiler and no part of the buffer, so it maps in neither direction.
+ * Only the buffer's own file is in the table. An injected `Hex` module is a real
+ * file to the compiler and no part of the buffer, so it maps in neither
+ * direction.
  */
 export class WorkspaceMap {
   readonly #bufferLength: number;
@@ -118,9 +122,10 @@ export class WorkspaceMap {
    * The one place a refusal is the wrong answer. A compile that fails must show
    * the user why it failed, and a message dropped for having no buffer position
    * leaves the Errors tab claiming there is nothing wrong with source that will
-   * not compile. So a message from a hosted library is anchored at the nearest
-   * position the buffer has rather than discarded. Requests answer through
-   * `toBuffer`, which refuses instead.
+   * not compile. So a message against an injected `Hex` module — the duplicate
+   * refusal a buffer's own `module Rat` draws against `/Hex/Rat.hex` — is
+   * anchored at the nearest position the buffer has rather than discarded.
+   * Requests answer through `toBuffer`, which refuses instead.
    */
   anchor(path: string, offset: number): number {
     if (path !== bufferPath) return 0;
@@ -136,7 +141,7 @@ export class WorkspaceMap {
  */
 export function layOutWorkspace(source: string): WorkspaceLayout {
   return {
-    files: [...hostedLibrary, { path: bufferPath, source }],
+    files: [{ path: bufferPath, source }],
     map: new WorkspaceMap(source.length),
   };
 }

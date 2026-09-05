@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { compileFiles, runProject } from "../support/test-project.js";
 import { PRELUDE_MODULES } from "../prelude.js";
-import trieSource from "../../../runtime/HashTrie.hex?raw";
+import trieSource from "../../../stdlib/Runtime/HashTrie.hex?raw";
 
 /**
  * Conformance for the `.hex` hash array mapped trie backing `Map(k, v)` and
@@ -41,9 +41,20 @@ import trieSource from "../../../runtime/HashTrie.hex?raw";
  */
 const PROBE_PATH = "/HashProbe.hex";
 
+/**
+ * The shipped trie under the **probe's own module name**.
+ *
+ * `stdlib/Runtime/HashTrie.hex` declares `module Runtime.HashTrie` (#829), and
+ * a file carrying that header verbatim would be a project module of that name,
+ * emitting one directory down and reaching the prelude by `../Hex/…`. The probe
+ * is a module of the project, so it says so: the header is respelled and
+ * everything below reads the trie's own text unchanged.
+ */
+const probeSource = trieSource.replace(/^module Runtime\.HashTrie\b/u, "module HashProbe");
+
 async function runTrie(probes: string): Promise<Record<string, unknown>> {
   return runProject(
-    [[PROBE_PATH, `${trieSource}\n${probes}`]],
+    [[PROBE_PATH, `${probeSource}\n${probes}`]],
     { runtimePaths: [PROBE_PATH], entry: PROBE_PATH },
   );
 }
@@ -63,7 +74,7 @@ async function runTrieWithIdentity(
   identities: readonly string[],
 ): Promise<Record<string, unknown>> {
   return runProject(
-    [[PROBE_PATH, `${trieSource}\n${probes}`]],
+    [[PROBE_PATH, `${probeSource}\n${probes}`]],
     {
       runtimePaths: [PROBE_PATH],
       entry: PROBE_PATH,
@@ -1117,7 +1128,7 @@ describe("HashTrie placement mix (Effects §6.2 species (b))", () => {
    */
   test("the emitted module creates the seed once, outside the mixing function", () => {
     const project = compileFiles(
-      [[PROBE_PATH, `${trieSource}\nexport let mixed: Int = mix(1)\n`]],
+      [[PROBE_PATH, `${probeSource}\nexport let mixed: Int = mix(1)\n`]],
       { runtimePaths: [PROBE_PATH] },
     );
     expect(project.diagnostics).toEqual([]);
@@ -1152,7 +1163,7 @@ describe("the emitted module's import surface", () => {
     const project = compileFiles(
       [[
         PROBE_PATH,
-        `${trieSource}\n` +
+        `${probeSource}\n` +
         "let sample: HashTrie(Int, Int) = set(empty, 1, 2)\n" +
         "export let probe: Int = size(sample) + Seq.length(entries(sample))\n",
       ]],
@@ -1166,12 +1177,12 @@ describe("the emitted module's import surface", () => {
     ].map((match) => match[1]!);
 
     expect(specifiers).not.toContain("./Hex/Vector.js");
-    expect(specifiers).not.toContain("./Hex/VectorTrie.js");
+    expect(specifiers).not.toContain("./Hex/Runtime/VectorTrie.js");
     // The prelude emits under `Hex/` (Modules §11.1; Packages §6), and the
     // probe sits at the output root, so a prelude specifier reads `./Hex/…`.
     const seatedBefore = PRELUDE_MODULES
-      .map(({ basename }) => `./Hex/${basename.replace(/\.hex$/u, ".js")}`)
-      .slice(0, PRELUDE_MODULES.findIndex(({ basename }) => basename === "Vector.hex"));
+      .map(({ name }) => `./Hex/${name}.js`)
+      .slice(0, PRELUDE_MODULES.findIndex(({ name }) => name === "Vector"));
     for (const specifier of specifiers) expect(seatedBefore).toContain(specifier);
     // And it really does import — an empty list would pass the loop vacuously.
     expect(specifiers.length).toBeGreaterThan(0);

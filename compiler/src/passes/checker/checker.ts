@@ -30,7 +30,7 @@ import {
   STRUCTURAL_CONSTRAINTS,
 } from "../../constraints.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
-import { PRIMITIVE_COMPANION_BASENAMES } from "../../prelude.js";
+import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { relativeSpecifier } from "../../support/paths.js";
 import {
   displayModuleName,
@@ -1205,14 +1205,14 @@ function primitive(name: Typed.PrimitiveName): Constructor {
  * The primitives whose home module is a **fixed prelude companion** (Constraints
  * §5.3, #344 — `Int` → `Int.hex` and its four siblings).
  *
- * Read off `PRIMITIVE_COMPANION_BASENAMES` rather than re-listed, so the orphan
+ * Read off `PRIMITIVE_COMPANION_MODULES` rather than re-listed, so the orphan
  * rule's home for a primitive and the prelude's injection table cannot drift
  * apart. `Unit` and `Exn` are absent from both, and §5.3 says why for `Unit`: it
  * is the empty tuple, covered by the structural instances, with no home and none
  * needed.
  */
 const PRIMITIVE_COMPANION_HOMES: ReadonlySet<string> = new Set(
-  PRIMITIVE_COMPANION_BASENAMES.values(),
+  PRIMITIVE_COMPANION_MODULES.values(),
 );
 
 /**

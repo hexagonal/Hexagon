@@ -628,10 +628,10 @@ describe("the pre-registered base table agrees with the prelude it stands in for
    */
   function preludeBaseConstraints(): ReadonlyMap<string, readonly string[]> {
     const declared = new Map<string, readonly string[]>();
-    PRELUDE_MODULES.forEach(({ basename, source }, index) => {
-      const file = new Source.File(Source.fileId(index), `/${basename}`, source);
+    PRELUDE_MODULES.forEach(({ name, source }, index) => {
+      const file = new Source.File(Source.fileId(index), `/${name}.hex`, source);
       const module = parse(applyLayout(lex(file)));
-      expect(module.diagnostics.map(({ message }) => message), basename).toEqual([]);
+      expect(module.diagnostics.map(({ message }) => message), name).toEqual([]);
       for (const item of module.items) {
         if (item.kind !== "ConstraintDeclaration") continue;
         declared.set(

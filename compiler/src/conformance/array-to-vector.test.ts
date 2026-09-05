@@ -519,9 +519,9 @@ describe("what makes the Hexagon body possible (`stdlib-roadmap.md` §5.1)", () 
   });
 
   test("and the vector builder the body would need is in scope where it would live", () => {
-    const order = PRELUDE_MODULES.map(({ basename }) => basename);
-    expect(order.indexOf("Array.hex")).toBeGreaterThan(order.indexOf("Vector.hex"));
-    expect(order).toContain("Vector.hex");
+    const order = PRELUDE_MODULES.map(({ name }) => name);
+    expect(order.indexOf("Array")).toBeGreaterThan(order.indexOf("Vector"));
+    expect(order).toContain("Vector");
   });
 
   /**

@@ -218,40 +218,26 @@ describe("compileSource", () => {
     // `Debug.hex`'s own `logString` edition and hands it no dictionary.
     expect(response.javascript).toContain("logString(展示(用户,");
     expect(response.javascript).toContain("Mगणित.जोड़(20, 22)");
-    // This source imports no library module, so `/stdlib/Vector.hex` never
-    // reaches the output: a prelude module is emitted only where something
-    // imports it. `/stdlib/Rat.hex` stays, because Rat is no prelude member —
-    // it is a file of the compiled project, so it is compiled and emitted
-    // whether or not the buffer reaches it. `/Prelude.hex` is
-    // emitted because `Rat.hex` uses `Ordering`, and `/BigInt.hex` since #344
-    // because `Rat.hex` normalizes through `Integral<BigInt>`'s members — so
-    // the companion's dictionary and the constraint homes that declare what it
-    // throws (`/Integral.hex`, `/Pow.hex`) are emitted with it. `/Float.hex`
-    // and `/Int.hex` ahead of it joined at #526: `Rat.toFloat` names `Float`
-    // and throws `Float.hex`'s `FloatRangeError`, and `Float.hex`'s composed
-    // `fromNat` reaches `Int.fromNat`. Those two now precede `/BigInt.hex`,
-    // which #533 seated after `Float.hex` for a `FloatRangeError` of its own.
-    // `/Debug.hex`
-    // joins wherever a source writes a line, which since #407 is every sample.
-    // `/String.hex` rode in behind it while #419's widened `log<a: Show>` made
-    // the site carry `Show<String>`, and left again at #440: a line written at
-    // `String` reaches `logString` and needs no companion dictionary at all.
-    // Every path here is a module's **layout** path (Packages §6) — its full
-    // name laid out — and not the file the buffer or the host supplied it
-    // under: `Hex`'s modules sit under `Hex/`, and the project's own at the
-    // root by their declared names. The two hosted copies are where that shows
-    // most plainly: `/stdlib/Option.hex` is seated as `Hex.Option` and
-    // `/stdlib/Rat.hex`, which is no prelude member, as the project's `Rat`.
+    // **What a program pays for is what it reaches** (Packages §6). This source
+    // imports no library module, so none of `Hex` is emitted but `Debug.hex`,
+    // where the probe line lands (#407 puts one in every sample). `/Debug.hex`
+    // alone, and not `/String.hex` behind it: #419's widened `log<a: Show>`
+    // made the site carry `Show<String>` and #440 took it back, because a line
+    // written at `String` reaches `logString` and needs no companion dictionary.
+    //
+    // Eight of these paths left the list at #829's Ruling B, and their leaving
+    // is the ruling. `Rat` used to be a file of the **compiled project** — the
+    // Playground handed it over from `stdlib/` — and a project module is
+    // emitted whether or not anything reaches it, dragging `Ordering`,
+    // `BigInt`, `Integral`, `Pow`, `Float`, `Int` and `Option` behind it into
+    // the output of a program that never mentioned a rational number. `Rat` is
+    // `Hex.Rat` now, so it is emitted where it is imported and nowhere else.
+    //
+    // Every path is a module's **layout** path (Packages §6) — its full name
+    // laid out — and not the file it was supplied under: `Hex`'s modules sit
+    // under `Hex/`, and the project's own at the root by their declared names.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
-      "/Hex/Pow.hex",
-      "/Hex/Ordering.hex",
-      "/Hex/Integral.hex",
-      "/Hex/Option.hex",
-      "/Hex/Int.hex",
-      "/Hex/Float.hex",
-      "/Hex/BigInt.hex",
       "/Hex/Debug.hex",
-      "/Rat.hex",
       "/Mगणित.hex",
       "/Main.hex",
     ]);
@@ -587,7 +573,7 @@ describe("compileSource", () => {
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.diagnostics).toEqual([]);
-    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
+    expect(response.javascript).toContain('import * as Rat from "./Hex/Rat.js";');
     expect(response.javascript).toContain(
       "const fiveSixths = __Num_Rat.add(half, third);",
     );
@@ -599,10 +585,10 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("tenTwelfths, fiveSixths");
     expect(response.javascript).not.toContain("opaque record Rat");
     expect(response.executionModules.map(({ path }) => path)).toContain(
-      "/Rat.hex",
+      "/Hex/Rat.hex",
     );
     const ratModule = response.executionModules.find(({ path }) =>
-      path === "/Rat.hex"
+      path === "/Hex/Rat.hex"
     );
     expect(ratModule?.javascript).toContain('bottom === 0n');
     expect(ratModule?.javascript).toContain('reducedBottom < 0n');
@@ -611,7 +597,9 @@ describe("compileSource", () => {
     // observable — name, message, `$hex` — is pinned by the executed test
     // below, which is where it belongs.
     expect(ratModule?.javascript).toContain("DivideByZeroError(\"Rat.create: bottom is zero\")");
-    expect(ratModule?.javascript).toContain('from "./Hex/Integral.js"');
+    // One directory down now, because `Hex.Rat` is laid out under `Hex/` with
+    // the prelude modules it names (Packages §6).
+    expect(ratModule?.javascript).toContain('from "./Integral.js"');
     expect(ratModule?.javascript).toContain(
       "const __Frac_Rat = { Signed: __Signed_Rat, divide:",
     );
@@ -943,7 +931,7 @@ describe("compileSource", () => {
 
       expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
       if (response.kind !== "compile-success") continue;
-      expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
+      expect(response.javascript).toContain('import * as Rat from "./Hex/Rat.js";');
       expect(response.javascript).toContain("Rat.reciprocal(third)");
     }
   });
@@ -964,7 +952,7 @@ describe("compileSource", () => {
     // lets the module alias answer the bare `Rat` in the annotation, and the
     // lift is what makes the whole tree `Rat` arithmetic rather than an `Int`
     // division converted after the damage.
-    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
+    expect(response.javascript).toContain('import * as Rat from "./Hex/Rat.js";');
     expect(response.javascript).toContain("__Frac_Rat.divide(__Num_Rat.multiply(");
     expect(response.javascript).not.toContain("/ 9");
     expect(response.types).toContainEqual(expect.objectContaining({
@@ -1013,7 +1001,7 @@ describe("compileSource", () => {
     expect(response.javascript).not.toContain("./Rat.js");
   });
 
-  test("a buffer declaring its own `module Rat` collides with the hosted copy", () => {
+  test("a buffer declaring its own `module Rat` occludes `Hex.Rat`, silently", () => {
     const source = "module Rat\n" +
       "\n" +
       "export let create(value: Int): Int = value\n" +
@@ -1024,23 +1012,53 @@ describe("compileSource", () => {
       "\n" +
       "import Rat\n" +
       "\n" +
-      "let answer = Rat.create(42)\n";
+      "Debug.log(\"${Rat.create(42)}\")\n";
     const response = compileSource(15, source);
 
-    // **A wart, pinned as one.** The library copies are handed to the compiler
-    // as files of the project (`hosted-library.ts`), because `ProjectOptions`
-    // gives a host no way to say a file is the package `Hex`'s — so a buffer
-    // declaring `module Rat` declares a *second* `Rat` in one package, which
-    // Modules §2.2 refuses, naming a file the Playground never shows.
-    //
-    // What the language would say if the copy were `Hex.Rat`: nothing at all.
-    // The project's own module wins silently and `import Hex.Rat` still reaches
-    // the library's (Packages §3.2, and #831's own note on the spelling).
-    expect(response.kind).toBe("compile-failure");
-    if (response.kind !== "compile-failure") return;
-    expect(response.diagnostics.map(({ message }) => message)).toContainEqual(
-      expect.stringContaining("module `Rat` is declared twice"),
-    );
+    // Packages §3.2, and the wart #831 pinned here is gone: the standard
+    // library is the package `Hex`, so a buffer's own `module Rat` is a module
+    // of the *project* and collides with nothing. The resolving package's own
+    // module wins, silently — no report, and `create` takes one argument, which
+    // `Hex.Rat`'s takes two of.
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
+    expect(response.javascript).not.toContain("./Hex/Rat.js");
+  });
+
+  /**
+   * The full-name spelling, which the Playground could not answer before
+   * #829's Ruling B: the library was three files handed to the compiler as the
+   * project's own, so `Hex.Rat` named no module at all.
+   */
+  test("compiles `import Hex.Rat`, and `import Rat` reaches the same module", () => {
+    for (const head of ["import Hex.Rat\n", "import Rat\n"]) {
+      const response = compileSource(
+        22,
+        `${MAIN}${head}\nDebug.log("${"$"}{Rat.create(1, 3)}")\n`,
+      );
+      expect(response, head).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (response.kind !== "compile-success") continue;
+      // One module, one emitted file, whichever spelling reached it (§2.3).
+      expect(response.javascript, head)
+        .toContain('import * as Rat from "./Hex/Rat.js";');
+      expect(response.executionModules.map(({ path }) => path), head)
+        .toContain("/Hex/Rat.hex");
+    }
+  });
+
+  /**
+   * Ruling B's other half, measured rather than assumed: a `Hex` module the
+   * program never imports writes no file (Packages §6). The whole standard
+   * library is compiled with every program now, so this is the line between
+   * "embedded" and "emitted".
+   */
+  test("a program that imports no `Rat` emits no `Hex/Rat.js`", () => {
+    const response = compileSource(23, `${MAIN}Debug.log("hello")\n`);
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.executionModules.map(({ path }) => path)).not.toContain("/Hex/Rat.hex");
+    expect(response.javascript).not.toContain("Rat.js");
   });
 
   test("returns exact binding spans for editor hovers", () => {

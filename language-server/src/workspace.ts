@@ -72,10 +72,6 @@ export class Workspace {
   #exclude: Exclusions = NOTHING_EXCLUDED;
   /** Tail of the `setRoots` queue — see the comment there. */
   #queue: Promise<void> = Promise.resolve();
-  /** The privileged spellings currently configured — see `#applyRuntimePaths`. */
-  readonly #runtimePaths = new Set<string>();
-  /** What those entries resolve to, so a file arriving later can be recognized. */
-  readonly #runtimeRealPaths = new Set<string>();
 
   /**
    * Replaces the workspace with these roots: reads each one's `hexagon.json`,
@@ -116,8 +112,7 @@ export class Workspace {
       this.#manifests.set(root, result.manifest);
     }
     // Exclusions before the walk, so it skips what any root excludes rather
-    // than adding files the sweep then removes. Privileged modules after it —
-    // see `#applyRuntimePaths`, which needs to know what the walk called them.
+    // than adding files the sweep then removes.
     await this.#applyExclusions();
 
     let added = 0;
@@ -186,7 +181,7 @@ export class Workspace {
       // reason to drop one, and the host is told so rather than left guessing.
       if (!this.#openPaths.has(path) && !walked.has(path)) this.session.removeFile(path);
     }
-    await this.#applyRuntimePaths();
+    this.#configureSession();
     return { added, manifests };
   }
 
@@ -228,65 +223,18 @@ export class Workspace {
   }
 
   /**
-   * Hands every root's privileged modules to the session, after the walk.
-   *
-   * After, because the compiler matches `runtimePaths` by exact equality with
-   * the key a file is held under, and the walk is what chooses that key: a
-   * runtime module reached through a linked directory is keyed by the link's
-   * spelling, which no manifest mentions. Privilege would then be silently lost
-   * and `unknown generic type \`Node\`` — the whole reason this file exists —
-   * would come back, depending on nothing more than the order `readdir`
-   * happened to return.
-   *
-   * Roots are merged rather than replaced because a multi-root workspace has one
-   * session: the modules of all of them compile together, so a file privileged
-   * by its own project stays privileged.
-   */
-  async #applyRuntimePaths(): Promise<void> {
-    this.#runtimePaths.clear();
-    this.#runtimeRealPaths.clear();
-    for (const { runtimePaths } of this.#manifests.values()) {
-      for (const entry of runtimePaths) {
-        // The spelling as written, and then the ones identity supplies. The
-        // written name looks redundant and is not: `#grantIfRuntime` fires from
-        // `#pathOf`, which answers from a cache after the first time it sees a
-        // URI, so a grant is a once-per-URI event — while this method rebuilds
-        // the set from scratch on every manifest change. Without the written
-        // name, a module that was open when its privilege was granted loses it
-        // at the next save of `hexagon.json` and cannot get it back, because the
-        // walk skips open files and so records no spelling to restore it from.
-        this.#runtimePaths.add(comparablePath(entry));
-        const realPath = await realPathOf(entry);
-        this.#runtimeRealPaths.add(realPath);
-        // And the same name with only its *directory* resolved. A manifest may
-        // name a module that does not exist yet — the file arrives with a branch
-        // switch — and an absent path resolves to itself, keeping a prefix the
-        // file will not have once it is there. Its directory does exist, and the
-        // prefix is the whole of the difference.
-        this.#runtimeRealPaths.add(
-          join(await realPathOf(dirname(entry)), basename(entry)),
-        );
-        const walked = this.#pathsByRealPath.get(realPath);
-        if (walked !== undefined) this.#runtimePaths.add(walked);
-      }
-    }
-    this.#configureSession();
-  }
-
-  /**
    * Every compilation option the manifests decide, handed to the session at
    * once (Packages §2.1).
    *
    * At once, because `configure` replaces the whole option set: a call that
-   * passed only `runtimePaths` would drop the project's `name` and rebrand
+   * passed only `dependencies` would drop the project's `name` and rebrand
    * every module in it. There is one seat for that reason, and every caller
    * goes through it.
    *
    * **A multi-root workspace still compiles as one project**, which is what the
-   * merge below has to answer for. `runtimePaths` unions, as it always has —
-   * privilege is per module, so every root's modules keep theirs. `dependencies`
-   * unions for the same reason: the field says which packages an import may
-   * name, and a union names the ones any root's manifest allows. `name` cannot
+   * merge below has to answer for. `dependencies` unions: the field says which
+   * packages an import may name, and a union names the ones any root's manifest
+   * allows. `name` cannot
    * union — a project has one name or none — so the first root that declares
    * one supplies it, in the order the client sent the roots. A workspace whose
    * roots are two *named* packages is really a workspace of two packages, and
@@ -301,28 +249,9 @@ export class Workspace {
       for (const dependency of manifest.dependencies) dependencies.add(dependency);
     }
     this.session.configure({
-      runtimePaths: [...this.#runtimePaths],
       ...(packageName === undefined ? {} : { packageName }),
       ...(dependencies.size === 0 ? {} : { dependencies: [...dependencies] }),
     });
-  }
-
-  /**
-   * Grants privilege to a file the walk never saw, if the manifest names it.
-   *
-   * A runtime module created after the scan — by a branch switch, or by the
-   * user — arrives through the watcher or an open buffer, and is keyed by
-   * whatever name that route gave it. Under a linked directory that is the
-   * link's spelling, which no manifest mentions, so the module would silently
-   * lose the privilege and report `unknown generic type \`Node\`` until the next
-   * manifest change. Identity is the resolved path, which is the one thing both
-   * routes agree on.
-   */
-  #grantIfRuntime(path: string, realPath: string): void {
-    if (!this.#runtimeRealPaths.has(realPath)) return;
-    if (this.#runtimePaths.has(path)) return;
-    this.#runtimePaths.add(path);
-    this.#configureSession();
   }
 
   /**
@@ -447,7 +376,6 @@ export class Workspace {
     // what is excluded — so for exactly the files `#isExcluded` most needs to
     // resolve, this is the only place the resolution ever happens.
     this.#realPathOfPath.set(path, realPath);
-    this.#grantIfRuntime(path, realPath);
     return path;
   }
 }

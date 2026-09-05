@@ -12,10 +12,10 @@
  *
  * Two things this layer owes its caller. Every coordinate it returns is an
  * *editor buffer* offset, because the buffer is the only document the user has;
- * the hosted library files stop here. And every answer it cannot express in
- * buffer coordinates is refused rather than approximated — a rename whose edits
- * reach into a hosted library is declined with a reason, not performed on the
- * half of itself that fits.
+ * the injected standard-library files stop here. And every answer it cannot
+ * express in buffer coordinates is refused rather than approximated — a rename
+ * whose edits reach into a `Hex` module is declined with a reason, not performed
+ * on the half of itself that fits.
  *
  * The session outlives each request. It holds its analysis until a file changes,
  * so a hover after a code action on unchanged text costs a lookup rather than a
@@ -42,8 +42,8 @@ import {
 
 /**
  * Shown when a repair or a rename is real but reaches code the buffer does not
- * contain — a hosted library, which since #829 is the only source the Playground
- * compiles that the user cannot see.
+ * contain — a module of the package `Hex`, which the compiler injects and the
+ * Playground never shows (Packages §2.4).
  *
  * A sentence rather than a code, because every host that shows a refusal shows
  * it as prose.
@@ -83,8 +83,8 @@ export class PlaygroundAnalysis {
    * waiting on the same text, and the session behind them holds its analysis
    * until a file changes, so the hover that follows costs a lookup.
    *
-   * Asked of the buffer's own file alone. The hosted libraries are files of the
-   * program and no part of the document, so every span they hold would be
+   * Asked of the buffer's own file alone. The injected `Hex` modules are files
+   * of the program and no part of the document, so every span they hold would be
    * dropped by the map on the way back — walking them is work whose whole result
    * is discarded, and the gate is asked once per settled document.
    */
@@ -101,7 +101,7 @@ export class PlaygroundAnalysis {
     const layout = this.#sync(source);
     const at = layout.map.locate(offset);
     if (at === undefined) return [];
-    // A definition in a hosted library has nowhere to go: the Playground shows
+    // A definition in a `Hex` module has nowhere to go: the Playground shows
     // one document, and `Vector.hex` is not in it. Dropping it leaves the editor
     // saying there is no definition, which is the truth about what it can open.
     return inBufferOrder(
@@ -212,7 +212,7 @@ export class PlaygroundAnalysis {
   }
 
   /**
-   * The buffer and the hosted library, as the session's files.
+   * The buffer, as the session's one file.
    *
    * There is no gate here any more. The Playground used to refuse to analyse a
    * buffer whose `module` blocks did not close, because the split into files was
@@ -220,8 +220,10 @@ export class PlaygroundAnalysis {
    * half-written module is a parse error like any other, and the session answers
    * about the text as far as it reads, which is what every editor does.
    *
-   * And nothing is removed, because the **file set is constant**: the same four
-   * paths every time, the buffer's text the only thing that moves. A module the
+   * And nothing is removed, because the **file set is constant**: one path
+   * every time — the Playground hosts nothing since #829's Ruling B, the whole
+   * of `Hex` being the compiler's to inject — and the buffer's text the only
+   * thing that moves. A module the
    * user deletes is gone the moment the buffer no longer declares it, since it
    * was never a file of its own. The sweep this used to run — dropping session
    * files the layout no longer produced — went with the files it swept.

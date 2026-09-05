@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { PRELUDE_MODULES } from "../prelude.js";
-import { PRELUDE_SOURCES } from "../prelude-sources.js";
+import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 
 /**
@@ -62,66 +62,66 @@ describe("the module", () => {
    * the coverage: every project in this suite now compiles it.
    */
   test("`Debug.hex` is the last prelude member, `Stream.hex` the one before it", () => {
-    expect(PRELUDE_MODULES.map(({ basename }) => basename)).toEqual([
-      "Show.hex",
-      "Num.hex",
-      "Signed.hex",
-      "Frac.hex",
-      "Pow.hex",
-      "Concat.hex",
-      "Bool.hex",
-      "Eq.hex",
-      "Hash.hex",
+    expect(PRELUDE_MODULES.map(({ name }) => name)).toEqual([
+      "Show",
+      "Num",
+      "Signed",
+      "Frac",
+      "Pow",
+      "Concat",
+      "Bool",
+      "Eq",
+      "Hash",
       // #742 rehomed the `Ordering` union to a module of its own, so that its
       // now-qualified-only constructors have one to be spelled through
       // (`Ordering.Less`, Modules §3.3/§5.5). It takes `Prelude.hex`'s old
       // seat — after `Eq`/`Show`, which it derives, and before `Ord`, whose
       // `compare` answers `Ordering` — and `Prelude.hex` keeps `ignore` alone.
-      "Ordering.hex",
-      "Prelude.hex",
-      "Ord.hex",
-      "Integral.hex",
-      "Option.hex",
-      "Int.hex",
-      "Nat.hex",
-      "Float.hex",
+      "Ordering",
+      "Prelude",
+      "Ord",
+      "Integral",
+      "Option",
+      "Int",
+      "Nat",
+      "Float",
       // #533 moved `BigInt.hex` past `Float.hex`: `BigInt.toFloat`'s guard
       // throws `Float.hex`'s `FloatRangeError`, and a module seats after what
       // it uses. Nothing before it names a `BigInt`, so the move costs the
       // three companions above it nothing.
-      "BigInt.hex",
+      "BigInt",
       // #353 swapped `String.hex` past `Seq.hex`. Its instances need nothing
       // later than `Ord.hex` and its old seat here was a convenience, but
       // Collections Part 5 §5.3's `String.fromSeq : Seq(String) -> String`
       // cannot be written before `Seq.hex` seats. `Seq.hex` names no string, so
       // the swap takes nothing from it.
-      "Seq.hex",
-      "String.hex",
+      "Seq",
+      "String",
       // #353 also seats the eleventh and last constraint declaration, and the
       // only one that cannot sit with the other ten: `toSeq(xs: c): Seq(Item)`
       // names `Seq`, and honoring the reverse order is a genuine cycle — which
       // is why Collections Part 5 §4's rows have no source form.
-      "Iterable.hex",
-      "Result.hex",
-      "Vector.hex",
+      "Iterable",
+      "Result",
+      "Vector",
       // #370 displaced `Vector.hex` from the last seat: `Map.hex` needs `Hash`,
       // `Option`, `Seq` and `Vector` itself, and nothing after it names a `Map`.
-      "Map.hex",
+      "Map",
       // #373 displaced `Map.hex` in turn: `Set.hex` needs `Hash`, `Seq` and
       // `Vector`, needs nothing from `Map.hex` — the two are siblings over one
       // runtime module, not layers.
-      "Set.hex",
+      "Set",
       // #364: `Stream.hex` names `Seq` at `fromSeq`, `Option` at every pull,
       // and `Vector` at `collect`, so it sits after all three — and nothing
       // before it can name a `Stream`, because no pure module has business with
       // the impure sibling.
-      "Stream.hex",
+      "Stream",
       // #511: FFI Part 2's companion of the borrowed `Array(a)`, opening the
       // boundary block. One edge is forced — `get` answers with an `Option` —
       // and the lateness is deliberate: its two exports are `length` and `get`,
       // and from here they are visible to no prelude module that spells either
       // word, so the Modules §5.5 arithmetic is settled in user code.
-      "Array.hex",
+      "Array",
       // #792: FFI Part 10's two companions of the other borrowed views. Each
       // edge is forced by a signature — `JsMap.get` answers with an `Option`,
       // both `fromSeq` rows name `Seq`, and `JsMap.entries` reaches `Iterable`'s
@@ -129,8 +129,8 @@ describe("the module", () => {
       // the Part 11 block below names either type, so their position relative to
       // it is the same courtesy `Array.hex`'s is: the boundary companions sit
       // together.
-      "JsMap.hex",
-      "JsSet.hex",
+      "JsMap",
+      "JsSet",
       // #511: FFI Part 11's four. The first three each declare one union and
       // exist as modules of their own because `spec/ffi.md` §12 (as extended
       // for #511) makes every one of their constructors qualified-only, which
@@ -138,10 +138,10 @@ describe("the module", () => {
       // among them is forced — `JsConversionReason.hex` names
       // `Vector(JsPathSegment)` — and `JsValue.hex` then sits after all three
       // plus `Result.hex` and `Vector.hex`, which its decoders' answers name.
-      "JsKind.hex",
-      "JsPathSegment.hex",
-      "JsConversionReason.hex",
-      "JsValue.hex",
+      "JsKind",
+      "JsPathSegment",
+      "JsConversionReason",
+      "JsValue",
       // #509: the `JsError` door closes the boundary block. Its seat is forced
       // twice — the payload slot and both accessors name `JsValue`, and the
       // verdicts over the guarded reads name `Result` and `Option` — and it is a
@@ -149,14 +149,14 @@ describe("the module", () => {
       // accessors `JsError.message` and `JsError.stack`, so the home has to be
       // addressable under that name. From here the two bare words it exports,
       // `message` and `stack`, are visible to no prelude module at all.
-      "JsError.hex",
+      "JsError",
       // #407 closes the list, and is the one member no signature places:
       // `log` names `String` and `Unit`, `trace` names `Show`, all of which
       // seat in the first dozen. It is last for what the seat denies — from
       // here the two names are visible to no prelude module, so nothing in the
       // standard library can quietly acquire a probe, and no prelude module's
       // own bare names are ever in scope where these two are.
-      "Debug.hex",
+      "Debug",
     ]);
   });
 
@@ -199,7 +199,7 @@ describe("the module", () => {
     expect(javascript).not.toContain("export { toSeq };");
     // The trie arrives as one import line, and `length`'s lowering being an
     // imported name rather than a body is the whole of what makes it O(1).
-    expect(javascript).toContain('} from "./VectorTrie.js";');
+    expect(javascript).toContain('} from "./Runtime/VectorTrie.js";');
     // `fromSeq` takes a top-level `Seq(a)` *parameter*, so its export site takes
     // FFI Part 7 §7 occasion 1's wrapper exactly as an exported `.hex` function
     // of that signature would (`spec/intrinsics.md` §8.3's edit note).
@@ -342,7 +342,7 @@ describe("membership drags nothing in", () => {
     // `Pow.hex`'s and `Integral.hex`'s exceptions and `Option.hex`'s answer for
     // the checked family. `Vector.hex` is what must stay out, and does.
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
     ]);
   });
 
@@ -497,7 +497,7 @@ describe("two prelude members exporting one bare name", () => {
       ["/main.hex", "module Main\n\n" + "export let consumer: Vector(Int) = empty\n"],
       [
         "/Result.hex",
-        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        `${STDLIB_SOURCES["Result"]!}\n` +
         "export let member: Seq(Int) = empty\n",
       ],
     ]);
@@ -515,7 +515,7 @@ describe("two prelude members exporting one bare name", () => {
       ["/main.hex", "module Main\n\n" + "export let consumer: Vector(Int) = Vector.empty\n"],
       [
         "/Result.hex",
-        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        `${STDLIB_SOURCES["Result"]!}\n` +
         "export let member: Seq(Int) = Seq.empty\n",
       ],
     ]);
@@ -537,7 +537,7 @@ describe("two prelude members exporting one bare name", () => {
       ["/main.hex", "module Main\n\n" + "export let e: Vector(Int) = empty\n"],
       [
         "/Result.hex",
-        `${PRELUDE_SOURCES["Result.hex"]!}\n` +
+        `${STDLIB_SOURCES["Result"]!}\n` +
         "export let empty: Int = 0\n",
       ],
     ]);
