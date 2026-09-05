@@ -233,15 +233,26 @@ class Collector {
         this.#parsed.name.span,
       );
     }
-    const resolvedNames = new Map<string, string>();
+    // Keyed by the import **line**, not by its alias spelling. A resolved import
+    // carries the span of the parsed item it came from, so the two lists pair by
+    // identity; keying by alias made two imports landing on one spelling (§5.2's
+    // collision, an error state) publish both written heads as references to
+    // whichever of them resolved last.
+    const resolvedNames = new Map<number, string>();
     for (const item of this.#resolved.items) {
       if (item.kind !== "Import" || item.synthesized) continue;
       if (item.form.kind !== "Namespace") continue;
-      resolvedNames.set(item.form.alias, item.moduleName);
+      resolvedNames.set(item.span.start.offset, item.moduleName);
     }
     for (const item of this.#parsed.items) {
       if (item.kind !== "Import") continue;
-      const full = resolvedNames.get(item.alias.text);
+      // A **derived** name is the parser's recovery of a refused head (§3.1) —
+      // the line the author wrote is `import Geo from "./geometry"`, and
+      // publishing a module reference over the whole refused line would offer
+      // go-to-definition on text that has to change. `compileProject`'s edge
+      // loop skips the same items for the same reason.
+      if (!item.module.declared) continue;
+      const full = resolvedNames.get(item.span.start.offset);
       if (full === undefined || full === "") continue;
       this.#publish({ kind: "module", name: full }, "reference", item.module.text, item.module.span);
     }

@@ -42,6 +42,7 @@ import * as Typed from "../syntax/typed/index.js";
 import { lex } from "../passes/lexer/lexer.js";
 import { applyLayout } from "../passes/layout/layout.js";
 import { codePointBefore, isIdentifierContinue } from "../support/identifiers.js";
+import { importInsertionOffset } from "../support/import-placement.js";
 import {
   compileProject,
   specifierFor,
@@ -642,13 +643,22 @@ export class AnalysisSession {
     for (const diagnostic of asked) {
       for (const fix of diagnostic.fixes ?? []) {
         const edits = locate(analysis, fix.edits);
-        if (edits !== undefined) actions.push({ title: fix.message, diagnostic, edits });
+        // Every fix a diagnostic carries is a repair for that diagnostic, so
+        // the family is settled here rather than at each seat that writes one.
+        if (edits !== undefined) {
+          actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits });
+        }
       }
       const repair = diagnostic.importModuleRepair;
       if (repair === undefined) continue;
       const spelling = `${repair.namespace}:${repair.name}`;
       if (offered.has(spelling)) continue;
       offered.add(spelling);
+      // The compiler tier already wrote this line, and it came through `fixes`
+      // above (§5.1's applied-edit obligation, #829): the workspace tier's one
+      // question — *which module* — is answered, and a second offer would write
+      // the import twice.
+      if (repair.applied === true) continue;
       const insert = this.#importModuleAction(analysis, normalized, diagnostic);
       if (insert !== undefined) actions.push(insert);
     }
@@ -718,6 +728,14 @@ export class AnalysisSession {
    * compiler could not know is *which module* — a question about the workspace,
    * which is exactly what a session holds and a batch compile does not.
    *
+   * Which is why the tier is **skipped** where the compiler did know: a
+   * type-not-module refusal that reached the type's home names the module in
+   * its message and now carries the line as an applied edit of its own (§5.1,
+   * §10's row; the marker's `applied`). Nothing here could improve on that, and
+   * offering a second lightbulb would write the import twice. What is left for
+   * this tier is the arm §10 leaves it — "a spelling no reached module exports
+   * → the workspace tier names the candidates".
+   *
    * The inventory rule is the family's own, followed here as it is in every
    * message that names repairs: **one** exporter is the case worth acting on,
    * and the edit is offered applied. Several make the choice the author's, so
@@ -781,7 +799,7 @@ export class AnalysisSession {
     // `moduleImportLine` drops the clause where the module's declared name is
     // already the spelling, so the companion idiom's line stays `import Scale`.
     const importLine = moduleImportLine(exporters[0]!.name, repair.name);
-    const offset = importInsertionOffset(
+    const offset = insertionOffsetOf(
       analysis.resolvedOf(path),
       text,
       diagnostic.primary.start.offset,
@@ -1023,13 +1041,28 @@ export class AnalysisSession {
       .map(({ target }) => target);
     const mentions: RenameEdit[] = [];
     const seen = new Set<string>();
+    // `Eq`, `Ord`, `Show` and `Hash` are known to the checker rather than
+    // declared in Hexagon, so every mention of one is a reference and there is
+    // nothing to rewrite. Renaming them would silently detach every instance.
+    //
     // Asked of every spelling, not only the one under the cursor. An alias's
     // declaration is spelled differently *by definition* — that is what makes it
     // an alias — so testing the filtered set would report `import {two as deux}`
     // as having no declaration and refuse a rename that is perfectly ordinary.
-    const declared = targets.some((target) =>
-      analysis.byTarget(target).some(({ role }) => role === "definition")
-    );
+    //
+    // And asked **before** the mention walk, because the walk's own refusal
+    // needs the answer: with no definition occurrence there is no declaring
+    // module, and the not-owned sentence below would have only a *mentioner* to
+    // name — the fault Modules §1 and §10's row exist to forbid ("a module that
+    // merely mentions the name is never the one named"). A checker-known
+    // constraint reached that arm and was told it is declared in
+    // `Hex.Ordering`, whose `derives (Eq, Show)` is one mention of the word.
+    const definition = this.#definitionOf(analysis, targets);
+    if (definition === undefined) {
+      return {
+        refused: `\`${name}\` is built into the compiler, so it has no declaration to rename`,
+      };
+    }
     for (const target of targets) {
       for (const occurrence of analysis.byTarget(target)) {
         // An alias gives one identity two spellings. `import {Shade as Other}`
@@ -1057,9 +1090,8 @@ export class AnalysisSession {
           // report spells `Hex.` rather than dropping it (§7.6): this sentence
           // says the module is not the project's, and the package segment is
           // exactly what says whose it is.
-          const declaring = analysis.fullModuleNameOf(
-            this.#definitionOf(analysis, targets) ?? occurrence.span.fileId,
-          ) ?? owner;
+          const declaring = analysis.fullModuleNameOf(definition) ??
+            analysis.pathOf(definition) ?? owner;
           return {
             refused: `\`${name}\` is declared in module \`${declaring}\`, ` +
               "which this project does not own",
@@ -1070,14 +1102,6 @@ export class AnalysisSession {
         seen.add(key);
         mentions.push({ path: owner, span: occurrence.span });
       }
-    }
-    // `Eq`, `Ord`, `Show` and `Hash` are known to the checker rather than
-    // declared in Hexagon, so every mention of one is a reference and there is
-    // nothing to rewrite. Renaming them would silently detach every instance.
-    if (!declared) {
-      return {
-        refused: `\`${name}\` is built into the compiler, so it has no declaration to rename`,
-      };
     }
     const derived = this.#derivedMentions(analysis, normalized, targets);
     return {
@@ -1101,8 +1125,12 @@ export class AnalysisSession {
    * The **spelling** is not filtered, unlike the mention walk's: an alias is
    * one identity under two spellings, and the declaration an alias aliases is
    * spelled differently by definition — filtering would lose exactly the
-   * declaring module the caller asked for. Its caller has already established
-   * that a definition exists, so the `undefined` arm is the defensive one.
+   * declaring module the caller asked for.
+   *
+   * The `undefined` arm is **not** defensive: it is the built-in constraints'
+   * own answer, and its caller takes the built-in refusal there rather than
+   * falling back to whichever file the walk reached first. A fallback is
+   * exactly what would name a mentioner (Modules §1).
    */
   #definitionOf(
     analysis: Analysis,
@@ -1709,84 +1737,25 @@ function locate(
 }
 
 /**
- * Where an inserted import line goes in a file that already has text
- * in it (Modules §5.1's "placed so the file stays well-formed and any
- * term-position use sits below it", #577).
- *
- * Two placements, and the second is the one that needs saying. **After the last
- * import line above the use** is the natural one — the new alias joins the ones
- * already there, and §3's top-down half is satisfied by construction, since the
- * imports considered are only those the use is already below. **Just below the
- * `module` header** is the fallback, and it is chosen rather than settled for:
- * it is above every declaration, so it can split nothing — in particular it can
- * never come between a doc comment and the declaration the comment documents,
- * which is the one placement that would change what the file means rather than
- * merely how it reads (`spec/doc-comments.md` §2.1: a doc comment attaches to
- * what *immediately* follows it).
- *
- * The header is what the fallback is measured from, and not offset zero, since
- * #829: a file's first line is now `module Name`, and an import written above
- * it is not a badly-placed import but an ill-formed file — §5.1 requires the
- * applied edit to leave the module well-formed, and "code outside a module" is
- * what offset zero would produce. A file with no header has no module for the
- * edit to sit inside; the parser's own refusal there carries the repair, and
- * this falls back to the top exactly as it always did.
- *
- * Synthesized imports are not lines: the resolver writes one for the prelude
- * names a module used (Modules §5.5, §6.4), and it has no text to sit under.
- *
- * **"Any term-position use" is read locally — the use being repaired.** The
- * universal reading is available and is deliberately not taken. It differs only
- * where imports are *interleaved* between declarations and two refused uses of
- * one spelling straddle one: repairing the lower use seats the alias below the
- * upper one, which then draws its own declared-later error rather than being
- * fixed by the same edit. Three reasons for the local reading. It is what the
- * author asked for — the caret is on one use, and an edit that jumped above an
- * import line the author wrote between two declarations would be reordering
- * their file, not adding to it. It never makes a file worse: the upper use was
- * already refused and is now refused with a fixit of its own. And the shape is
- * reachable only through interleaved imports, which the top-down half of §3
- * exists to make legible rather than to encourage. The universal reading is
- * satisfied anyway wherever a request covers both uses, because `codeActions`
- * dedupes to the *first* refusal of a spelling and so places the line above the
- * earliest one.
+ * `importInsertionOffset` asked of a resolved module — the workspace tier's
+ * half of Modules §5.1's placement rule, which `support/import-placement.ts`
+ * states once for both tiers.
  */
-function importInsertionOffset(
+function insertionOffsetOf(
   resolved: Resolved.Module | undefined,
   text: string,
   before: number,
 ): number {
-  const header = resolved?.header;
-  let offset = header === undefined
-    ? 0
-    : pastBlankLines(text, pastLineEnd(text, header.end.offset));
-  for (const item of resolved?.items ?? []) {
-    if (item.kind !== "Import" || item.synthesized) continue;
-    if (item.span.end.offset > before) continue;
-    offset = Math.max(offset, pastLineEnd(text, item.span.end.offset));
-  }
-  return offset;
-}
-
-/**
- * The offset past any run of blank lines starting at `offset` — so a line
- * inserted below a header joins the module's body rather than wedging itself
- * into the blank the house style leaves under the header.
- */
-function pastBlankLines(text: string, offset: number): number {
-  let at = offset;
-  for (;;) {
-    const end = text.indexOf("\n", at);
-    const line = end === -1 ? text.slice(at) : text.slice(at, end);
-    if (line.trim() !== "" || end === -1) return at;
-    at = end + 1;
-  }
-}
-
-/** The offset just past the line break that ends the line `offset` is on. */
-function pastLineEnd(text: string, offset: number): number {
-  const index = text.indexOf("\n", offset);
-  return index === -1 ? text.length : index + 1;
+  return importInsertionOffset(
+    {
+      header: resolved?.header,
+      imports: (resolved?.items ?? []).flatMap((item) =>
+        item.kind === "Import" && !item.synthesized ? [item.span] : []
+      ),
+    },
+    text,
+    before,
+  );
 }
 
 /** Applies edits back to front, so an earlier one cannot move a later one. */

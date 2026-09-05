@@ -483,11 +483,21 @@ describe("rename", () => {
     // Not the Playground's `OUTSIDE_DOCUMENT`: this one is the compiler's, and
     // it is the reason the user is shown. Swallowing it and answering nothing
     // leaves the editor silent exactly where there is something to say.
-    // The declaring module by its **full name** (Packages §2.3, #838): the
-    // sentence says the module is not the project's, and the package segment
-    // is what says whose it is.
+    //
+    // The wording is the **built-in** refusal, and this line pinned
+    // ``declared in module `Hex.Ordering` `` until #836's second review found
+    // it wrong: `Show` is declared in `stdlib/Show.hex`, and `stdlib/Ordering.hex`
+    // holds one *mention* of the word (`derives (Eq, Show)`) — so the sentence
+    // sent the reader to a module that declares nothing of the name, the fault
+    // Modules §10's rename row exists to forbid. The compiler session answered
+    // this same construct with the built-in refusal all along
+    // (`session.test.ts`, "a name with no declaration anywhere…"); the two
+    // suites disagreed about one construct and both were green. With no
+    // definition anywhere there is no declaring module to name, so this is the
+    // whole answer, and the not-owned sentence is pinned where a declaration
+    // really is found (`session.test.ts`'s `None`).
     expect(analysis.prepareRename(source, at(source, "Show"))).toEqual({
-      refused: "`Show` is declared in module `Hex.Ordering`, which this project does not own",
+      refused: "`Show` is built into the compiler, so it has no declaration to rename",
     });
   });
 

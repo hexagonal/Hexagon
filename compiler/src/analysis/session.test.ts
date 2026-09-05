@@ -124,6 +124,37 @@ describe("AnalysisSession", () => {
       .toEqual([{ kind: "module", name: "Hex.Option" }]);
   });
 
+  test("two imports colliding on one alias each follow their own module", () => {
+    // §5.2's one import collision, an error state — and the index is keyed by
+    // the import **line**, not by the alias spelling, so each head still leads
+    // to the module it names. Keyed by alias, both heads became references to
+    // whichever of them resolved last, and go-to-definition on one sent the
+    // reader to the other's header (#836 review NB1).
+    const text = "module Main\n\n" + "import Render.Geometry\nimport Physics.Geometry\n";
+    const { session } = sessionOf({
+      "/r.hex": "module Render.Geometry\n\nexport let a: Int = 1\n",
+      "/p.hex": "module Physics.Geometry\n\nexport let b: Int = 2\n",
+      "/main.hex": text,
+    });
+    expect(session.definitions("/main.hex", at(text, "Render.Geometry", 1)).map(({ path }) => path))
+      .toEqual(["/r.hex"]);
+    expect(session.definitions("/main.hex", at(text, "Physics.Geometry", 1)).map(({ path }) => path))
+      .toEqual(["/p.hex"]);
+  });
+
+  test("a refused stale head publishes no module reference over the line it refused", () => {
+    // The parser recovers an import from `import Geo from "./geometry"` so uses
+    // below it resolve (§3.1), but the *name* in it is derived and never
+    // written: offering go-to-definition over the whole refused line would send
+    // a reader to a header from text that has to change (#836 review NB2).
+    const text = "module Main\n\n" + 'import Geo from "./geometry"\n';
+    const { session } = sessionOf({
+      "/geometry.hex": "module Geometry\n\nexport let a: Int = 1\n",
+      "/main.hex": text,
+    });
+    expect(session.definitions("/main.hex", at(text, "Geo"))).toEqual([]);
+  });
+
   test("the definition of a declaration is itself", () => {
     const { session, texts } = sessionOf({ "/helper.hex": HELPER, "/main.hex": MAIN });
     const declaration = at(HELPER, "brighten");
@@ -1089,6 +1120,17 @@ describe("AnalysisSession.rename", () => {
     const { session } = sessionOf({ "/main.hex": source });
     expect(refusal(session.rename("/main.hex", at(source, "show"), "display")))
       .toBe("`show` is built into the compiler, so it has no declaration to rename");
+
+    // The **constraint** at an `honor` head, which is where the two refusals
+    // used to race: whichever fired first won, and the not-owned one names a
+    // module only if a declaration was found — which here it is not. Answered
+    // before the mention walk, so the walk never reaches a mentioner to name
+    // (Modules §1, §10's rename row; #836 review B4).
+    const honored = "module Main\n\n" + "record Person = {name: String}\n" +
+      "honor Show<Person> =\n    show(person) = person.name\n";
+    const { session: honoring } = sessionOf({ "/main.hex": honored });
+    expect(refusal(honoring.rename("/main.hex", at(honored, "Show"), "Display")))
+      .toBe("`Show` is built into the compiler, so it has no declaration to rename");
   });
 
   test("rewrites a dot call, which only the checker knows the meaning of", () => {
