@@ -130,10 +130,10 @@ Node finds a package — its `node_modules`, then the `node_modules` of each dir
 above, the nearest copy answering — resolving each package reached in turn, outward
 from the project, into an acyclic set: the packages *in the program*. A copy farther up
 than the one that answered does not answer that package's lookup, and a package nobody
-lists enters no program. A `dependencies` cycle is refused and named, as an import cycle is. A program
-holds one copy of each package name, the project counted, and refuses to build when
-two of its packages reach two copies — the nested duplicate npm installs when two
-packages want two versions.
+lists enters no program. A `dependencies` cycle is refused and named, as an import
+cycle is. A program holds one copy of each package name, the project counted, and
+refuses to build when two of its packages reach two copies — the nested duplicate npm
+installs when two packages want two versions.
 
 Because a package ships its source, the compiler sees a program's dependencies exactly
 as it sees the program's own modules, and compiles the whole graph at once. Every rule
