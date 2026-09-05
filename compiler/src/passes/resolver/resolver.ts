@@ -26,7 +26,7 @@ import { displayModuleName, moduleImportLine } from "../../packages.js";
 import * as Source from "../../support/source.js";
 import {
   importInsertionOffset,
-  newlineOf,
+  insertedLine,
   type ImportPlacement,
 } from "../../support/import-placement.js";
 import * as Parsed from "../../syntax/parsed/index.js";
@@ -4658,10 +4658,11 @@ class Resolver {
       // it still owns (`#importModuleAction`): one repair offered under one
       // name, whichever tier reached it.
       message: `import \`${spelling}\``,
-      // The file's own line ending (`newlineOf`), not `\n`: an inserted line
-      // ends the way its neighbours do or the repair carries a whitespace diff
-      // into a CRLF file.
-      edits: [{ span: file.span(offset, offset), replacement: `${line}${newlineOf(text)}` }],
+      // The line written as a whole line (`insertedLine`), not spliced in: it
+      // ends the way its neighbours do, or the repair carries a whitespace diff
+      // into a CRLF file, and it opens with a break where the offset is the end
+      // of a file whose last line has none, or the repair welds two lines.
+      edits: [{ span: file.span(offset, offset), replacement: insertedLine(text, offset, line) }],
     };
   }
 

@@ -42,7 +42,7 @@ import * as Typed from "../syntax/typed/index.js";
 import { lex } from "../passes/lexer/lexer.js";
 import { applyLayout } from "../passes/layout/layout.js";
 import { codePointBefore, isIdentifierContinue } from "../support/identifiers.js";
-import { importInsertionOffset, newlineOf } from "../support/import-placement.js";
+import { importInsertionOffset, insertedLine } from "../support/import-placement.js";
 import {
   compileProject,
   specifierFor,
@@ -826,9 +826,10 @@ export class AnalysisSession {
       edits: [{
         path,
         span: file.span(offset, offset),
-        // The file's own line ending (`newlineOf`), as the compiler tier writes
-        // it: one rule for the line, one rule for how it ends.
-        replacement: `${importLine}${newlineOf(text)}`,
+        // A whole line (`insertedLine`), as the compiler tier writes it: one
+        // rule for the line, one rule for how it ends, and one rule for the
+        // file whose last line ends with nothing.
+        replacement: insertedLine(text, offset, importLine),
       }],
     };
   }

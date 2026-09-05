@@ -14,7 +14,8 @@
  * The line arithmetic the placement is built from is exported beside it, for
  * the same reason: Modules §2.2's header *move* lifts a line and its blank run,
  * and every tier that writes a line has to end it the way the file ends its
- * own. One copy of each, or the tiers drift.
+ * own — and has to cope with a file whose last line is ended by nothing at all
+ * (`insertedLine`). One copy of each, or the tiers drift.
  */
 
 import type * as Source from "./source.js";
@@ -120,10 +121,45 @@ export function pastBlankLines(text: string, offset: number): number {
  * The offset just past the line break that ends the line `offset` is on. The
  * break itself is kept in the slice below it, so a CRLF file's `\r` travels
  * with the line it ends rather than being left behind.
+ *
+ * **A file's last line need not be ended at all**, and then this answers
+ * `text.length` — an offset past the *line* that is not past a *break*. Every
+ * caller writing a line at, or lifting a line up to, an offset from here has to
+ * treat that case, which is what `insertedLine` is for: `pastLineEnd` reports
+ * where the line stops and nothing more, because inventing a break here would
+ * make the arithmetic disagree with the file it is measuring.
  */
 export function pastLineEnd(text: string, offset: number): number {
   const index = text.indexOf("\n", offset);
   return index === -1 ? text.length : index + 1;
+}
+
+/**
+ * The text a tier writes to put `line` at `offset` as a **whole line of its
+ * own** — `line`, ended the way the file ends its own lines where it does not
+ * end itself, and opened with a break where `offset` is the end of a file whose
+ * last line has none.
+ *
+ * Both halves answer the one fact `pastLineEnd` records: a file's last line can
+ * be unterminated, and the *first* file where that matters is not an exotic one
+ * — it is the buffer an author is typing in, whose last line is unterminated
+ * for exactly as long as it takes them to press Return. A tier that pasted its
+ * own line at such an offset would weld two lines into one, and a tier that
+ * lifted such a line and put it back elsewhere would weld it to whatever
+ * stands where it lands: `module Geometry` moved above `let stray: Int = 1`
+ * becomes `module Geometrylet stray: Int = 1`, which is a repair that refuses
+ * the file it repaired.
+ *
+ * One copy, and both tiers plus §2.2's header move read it, for the reason the
+ * module doc gives: a second notion of where a line ends is how two editors of
+ * one file come to disagree about it.
+ */
+export function insertedLine(text: string, offset: number, line: string): string {
+  const opening = offset > 0 && offset >= text.length && !text.endsWith("\n")
+    ? newlineOf(text)
+    : "";
+  const closing = line.endsWith("\n") ? "" : newlineOf(text);
+  return `${opening}${line}${closing}`;
 }
 
 /** The offset the line `offset` sits on begins at. */
