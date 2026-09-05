@@ -38,6 +38,7 @@ import {
   moduleImportLine,
   moduleNameOfLayoutPath,
 } from "../../packages.js";
+import type { ImportRepairs } from "../../support/import-placement.js";
 import type * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
@@ -65,6 +66,17 @@ export interface CheckOptions {
    * into itself (§8.1's one-node cycle).
    */
   readonly ownDefaultAlias?: string;
+  /**
+   * The module's applied-edit writer, **shared with the resolver** (§5.1's "one
+   * edit per module, however many seats draw the report"): the constraint seats
+   * report here, the other three report there, and a reader who wrote the
+   * spelling at both is owed one import line.
+   *
+   * A caller that supplies none — every pass-level `check` in a unit test —
+   * gets the message with no applied edit, the same degradation a missing
+   * `sourceText` takes.
+   */
+  readonly repairs?: ImportRepairs;
   /**
    * Every nominal declaration the program has resolved so far, dependencies
    * first. The variance analysis reads it and nothing else does; see
@@ -2502,6 +2514,8 @@ class Checker {
   readonly #importRepair: ((written: string) => ImportRepair | undefined) | undefined;
   /** See `CheckOptions.ownDefaultAlias`. */
   readonly #ownDefaultAlias: string | undefined;
+  /** See `CheckOptions.repairs`. */
+  readonly #repairs: ImportRepairs | undefined;
   /**
    * Every module alias this module binds, whatever it exports.
    *
@@ -2540,6 +2554,7 @@ class Checker {
     this.#packageName = options.packageName;
     this.#importRepair = options.importRepair;
     this.#ownDefaultAlias = options.ownDefaultAlias;
+    this.#repairs = options.repairs;
   }
 
   check(module: Resolved.Module): Typed.Module {
@@ -2731,7 +2746,7 @@ class Checker {
             if (!this.#constraintNames.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                ...this.#unknownConstraint(constraint),
+                ...this.#unknownConstraint(constraint, parameter.span),
                 primary: parameter.span,
               });
               continue;
@@ -2997,7 +3012,7 @@ class Checker {
               if (!this.#constraintNames.has(constraint)) {
                 this.#diagnostics.add({
                   severity: "error",
-                  ...this.#unknownConstraint(constraint),
+                  ...this.#unknownConstraint(constraint, parameter.span),
                   primary: parameter.span,
                 });
                 continue;
@@ -4854,7 +4869,7 @@ class Checker {
           if (this.#checkPreludeHonor(item, level)) continue;
           this.#diagnostics.add({
             severity: "error",
-            ...this.#unknownConstraint(item.constraint),
+            ...this.#unknownConstraint(item.constraint, item.span),
             primary: item.span,
           });
           this.#uninferredInstanceMembers.add(item);
@@ -5300,7 +5315,7 @@ class Checker {
         if (!this.#constraintNames.has(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            ...this.#unknownConstraint(constraint),
+            ...this.#unknownConstraint(constraint, parameter.span),
             primary: parameter.span,
           });
           continue;
@@ -12855,7 +12870,8 @@ class Checker {
    */
   #unknownConstraint(
     constraint: string,
-  ): Pick<Diagnostics.Diagnostic, "message" | "importModuleRepair"> {
+    span: Source.Span,
+  ): Pick<Diagnostics.Diagnostic, "message" | "importModuleRepair" | "fixes"> {
     const refusal = `unknown constraint \`${constraint}\``;
     const alias = this.#aliasConstraints.get(constraint);
     if (alias === undefined) {
@@ -12868,8 +12884,8 @@ class Checker {
         // qualifier *does* bind, the spelling really is an unknown constraint
         // of a known module and the plain refusal is what the row names.
         const qualifier = constraint.slice(0, constraint.indexOf("."));
-        const unbound = this.#unboundAliasRefusal(qualifier);
-        if (unbound !== undefined) return { message: unbound };
+        const unbound = this.#unboundAliasRefusal(qualifier, span);
+        if (unbound !== undefined) return unbound;
         return { message: refusal };
       }
       return {
@@ -12893,28 +12909,53 @@ class Checker {
   }
 
   /**
-   * Modules §5.1 rule 1's message for an unbound qualifier, or `undefined`
-   * where the qualifier binds a module and the seat's own refusal stands.
+   * Modules §5.1 rule 1's report for an unbound qualifier — message **and its
+   * applied edit** — or `undefined` where the qualifier binds a module and the
+   * seat's own refusal stands.
    *
-   * The message alone: the applied edit is the resolver's, which holds the
-   * module text and the placement this seat has neither of. A reader at a
-   * constraint seat gets the sentence and the line to write; a reader at the
-   * other three gets the line written for them.
+   * §5.1 names this seat among the ones the obligation covers ("the constraint
+   * seats whose rows Constraints §8 sends here"), and §10's row says "the
+   * applied edit from the compiler tier, one edit per module". The placement
+   * this seat once lacked is `ImportRepairs`, shared with the resolver, so the
+   * edit here is the *same* edit — the same range and the same text — as the
+   * one a term or type seat of the same spelling in the same module carries.
+   *
+   * The two arms that name no import carry none, exactly as the resolver's do:
+   * a contest cannot be chosen between (Packages §3.3), and a spelling that
+   * would resolve to nothing has no line to write.
    */
-  #unboundAliasRefusal(qualifier: string): string | undefined {
+  #unboundAliasRefusal(
+    qualifier: string,
+    span: Source.Span,
+  ): Pick<Diagnostics.Diagnostic, "message" | "fixes"> | undefined {
     if (this.#moduleAliases.has(qualifier) || this.#aliasConstraints.has(qualifier)) {
       return undefined;
     }
-    if (qualifier === this.#ownDefaultAlias) return "a module does not qualify through itself";
+    if (qualifier === this.#ownDefaultAlias) {
+      return { message: "a module does not qualify through itself" };
+    }
     const stem = `no module alias \`${qualifier}\``;
     const repair = this.#importRepair?.(qualifier);
-    if (repair === undefined) return stem;
+    if (repair === undefined) return { message: stem };
     if (repair.kind === "Contested") {
-      return `${stem}; ${
-        repair.fullNames.map((full: string) => `\`import ${full}\``).join(" or ")
-      }`;
+      return {
+        message: `${stem}; ${
+          repair.fullNames.map((full: string) => `\`import ${full}\``).join(" or ")
+        }`,
+      };
     }
-    return `${stem}; \`${moduleImportLine(repair.fullName, qualifier, this.#packageName)}\``;
+    const line = moduleImportLine(repair.fullName, qualifier, this.#packageName);
+    // §5.1's "a refused import head that offers the same line by its own
+    // rewrite is that line already offered, and the seats below it carry none"
+    // — read at this seat too, or a miscased head above a constraint annotation
+    // has two lightbulbs writing one import.
+    const fix = this.#repairs?.headRewrites(qualifier) === true
+      ? undefined
+      : this.#repairs?.fix(qualifier, line, span.start.offset);
+    return {
+      message: `${stem}; \`${line}\``,
+      ...(fix === undefined ? {} : { fixes: [fix] }),
+    };
   }
 
   /** Whether a constraint *named* here declares implied type members. */
@@ -14945,7 +14986,7 @@ class Checker {
         if (!this.#constraintNames.has(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            ...this.#unknownConstraint(constraint),
+            ...this.#unknownConstraint(constraint, annotation.span),
             primary: annotation.span,
           });
           continue;

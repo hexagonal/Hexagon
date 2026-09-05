@@ -366,6 +366,108 @@ describe("§13 (o) — every file declares its module", () => {
   });
 
   /**
+   * §13(o)'s own second file, run verbatim: `module Geometry` declaring an
+   * `export record Point`, a use of `Point.make` above the declaration of
+   * `make` and another below it, then `module Shapes` qualifying through the
+   * stranger above it and through itself.
+   *
+   * The record is what makes the specimen worth running: a record declares a
+   * type **and** a constructor of one spelling, so before this the two
+   * `Point.make` lines never reached rule 1 at all — the resolver read `Point.`
+   * as a field access on the constructor and the writer was handed `type
+   * mismatch: expected ({x: Float, y: Float}) -> Point, found {make: a, ...}`.
+   */
+  test("§13(o)'s own-type carve and self-qualification, over a record", () => {
+    const text = "module Geometry\n" + POINT +
+      "export let scale: Float = 1.0\n" +
+      "export let p: Point = Point.make(1.0, 1.0)\n" +
+      "export fun make(x: Float, y: Float): Point = Point({x = x, y = y})\n" +
+      "export let o: Point = Point.make(0.0, 0.0)\n" +
+      "end module Geometry\n" +
+      "module Shapes\n" +
+      "export let two: Float = 2.0 * Geometry.scale\n" +
+      "export let four: Float = Shapes.two * 2.0\n" +
+      "export fun grow(two: Float): Float = Shapes.two * two\n";
+    const reported = reports([["/f.hex", text]]);
+    expect(reported.map(({ message }) => message)).toEqual([
+      // `p` sits above `make`, and a `let`'s right-hand side sees no
+      // declaration below it (Functions §7.2), so no repair is named.
+      "`Point` is a type, not a module",
+      // `o` sits below it, so the bare spelling names the module's own binding
+      // and the qualifier is dropped — never `import Geometry` into itself.
+      "`Point` is a type, not a module; write `make(0.0, 0.0)`",
+      "no module alias `Geometry`; `import Geometry`",
+      // §5.1's normative example drops the qualifier from the **reference**;
+      // §13(o)'s golden quotes the enclosing expression ("write two * 2.0"),
+      // which is the wider quotation the rider settles. Implemented as §5.1
+      // writes it.
+      "a module does not qualify through itself; write `two`",
+      // `two` here is `grow`'s parameter, which eclipses the module's own
+      // binding, so the sentence stands alone.
+      "a module does not qualify through itself",
+    ]);
+    expect(reported[0]?.fixes).toBeUndefined();
+    expect(reported[4]?.fixes).toBeUndefined();
+    // And every named repair is one a reader can apply. Applying the three that
+    // name one leaves exactly the two that named none — which is the point of
+    // withholding them: neither `p`'s drop nor `grow`'s would have compiled.
+    const repaired = "module Geometry\n" + POINT +
+      "export let scale: Float = 1.0\n" +
+      "export let p: Point = Point.make(1.0, 1.0)\n" +
+      "export fun make(x: Float, y: Float): Point = Point({x = x, y = y})\n" +
+      "export let o: Point = make(0.0, 0.0)\n" +
+      "end module Geometry\n" +
+      "module Shapes\n" +
+      "import Geometry\n" +
+      "export let two: Float = 2.0 * Geometry.scale\n" +
+      "export let four: Float = two * 2.0\n" +
+      "export fun grow(two: Float): Float = Shapes.two * two\n";
+    expect(messages([["/f.hex", repaired]])).toEqual([
+      "`Point` is a type, not a module",
+      "a module does not qualify through itself",
+    ]);
+    // The withheld drops, taken anyway, are the programs the condition refuses
+    // to write: `p`'s names a declaration it does not yet see, and `grow`'s
+    // names the parameter.
+    expect(messages([["/f.hex", repaired.replace("Point.make(1.0, 1.0)", "make(1.0, 1.0)")]]))
+      .toContain(
+        "`make` is declared later in this block; declarations are read " +
+          "top-down — move its declaration above this use",
+      );
+  });
+
+  /**
+   * The refused-head suppression is read **per module**, not per file (§5.1's
+   * "a refused import head that offers the same line by its own rewrite … the
+   * seats below it carry none" — the seats *below it*, in the module it stands
+   * in). A stranger above a module is a stranger for this rule too: without the
+   * partition, a bad head in one module silently takes the repair away from a
+   * use in the next, and the reader is left with a sentence and nothing to
+   * apply for a reason nothing on their screen states.
+   */
+  test("a refused head takes the edit only from the module it stands in", () => {
+    const text = "module First\n" + "import geometry\n" + "end module First\n" +
+      "module Second\n" + "export let two: Float = 2.0 * Geometry.scale\n";
+    const reported = reports([
+      ["/g.hex", "module Geometry\n\nexport let scale: Float = 1.0\n"],
+      ["/f.hex", text],
+    ]);
+    const seat = reported.find(({ message }) => message.startsWith("no module alias"));
+    expect(seat?.message).toBe("no module alias `Geometry`; `import Geometry`");
+    const edit = seat?.fixes?.[0]?.edits[0];
+    expect(edit).toBeDefined();
+    // Below `module Second`'s own header, not `module First`'s.
+    expect(
+      text.slice(0, edit!.span.start.offset) + edit!.replacement +
+        text.slice(edit!.span.end.offset),
+    ).toBe(
+      "module First\n" + "import geometry\n" + "end module First\n" +
+        "module Second\n" + "import Geometry\n" +
+        "export let two: Float = 2.0 * Geometry.scale\n",
+    );
+  });
+
+  /**
    * The notation is the **language's**, so its markers are read by the lexer
    * and are trivia or text wherever the lexer says they are — a fact the
    * Playground's retired splitter scanned lines to approximate, and got wrong

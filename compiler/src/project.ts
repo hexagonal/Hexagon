@@ -1,6 +1,7 @@
 /** Whole-project orchestration for Hexagon's acyclic relative module graph. */
 
 import * as Diagnostics from "./support/diagnostics.js";
+import { ImportRepairs } from "./support/import-placement.js";
 import { relativeSpecifier } from "./support/paths.js";
 import * as Source from "./support/source.js";
 import type * as Parsed from "./syntax/parsed/index.js";
@@ -480,6 +481,11 @@ export function compileProject(
       }];
     });
     const unit = byPath.get(path)!;
+    // Modules §5.1's "one edit per module, however many seats draw the report".
+    // One writer, handed to **both** passes: the resolver reports rule 1 at the
+    // term, type and pattern seats and the checker at the constraint seats, and
+    // a module that draws the report at two of them offers one import line.
+    const repairs = new ImportRepairs(parsedModule, source.text, path);
     const resolved = resolve(parsedModule, {
       // This module's **address** — its full name laid out as a path (Packages
       // §6), which is the only source of `Resolved.Module.path` and of the
@@ -505,6 +511,7 @@ export function compileProject(
       // Modules §5.1 rule 1's repair clause; see `importRepairFor`.
       importRepair: (written: string) =>
         importRepairFor(written, unit, projectPackage, index),
+      repairs,
       symbolBase: isInjected ? preludeSymbolBase : symbolBase,
       unionBase: isInjected ? preludeUnionBase : unionBase,
       recordBase: isInjected ? preludeRecordBase : recordBase,
@@ -568,6 +575,7 @@ export function compileProject(
     const typed = check(resolved, {
       importRepair: (written: string) =>
         importRepairFor(written, unit, projectPackage, index),
+      repairs,
       ownDefaultAlias: unit.declaredName.split(".").at(-1)!,
       importedSchemes,
       programNominals,

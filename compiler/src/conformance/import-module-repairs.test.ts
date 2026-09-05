@@ -23,12 +23,16 @@ import * as Source from "../support/source.js";
  * have made the program work — and rule 1's sentence, promised verbatim in
  * §5.1 and §10 since the module rules were written, was implemented nowhere.
  *
- * **v1 is the failed-resolution shape and no more** (the #577 ruling). Where the
- * spelling resolves as a *term* — a record import binds its constructor, so
- * `Shape.make` is a field access on a constructor-typed head — nothing here
- * fires, and the inverted mismatch that writer meets is #642's. The suite below
- * pins both halves of that line: the messages at the seats that owe them, and
- * the untouched behaviour just past the boundary.
+ * **Rule 1's first two tests are read ahead of the term namespace** — the
+ * reporting module's own default alias, and a type of the spelling in scope
+ * (§5.1 rule 1: "`Name.` resolves in the module-alias namespace **first**"). The
+ * #577 ruling's v1 carve read the term namespace first, and a record — which
+ * declares a type *and* a constructor of one spelling — therefore never reached
+ * the row §13(o)'s own specimen is written for. What survives of the carve is
+ * the case rule 1 says nothing about: a term of the spelling that names no type
+ * and is not the module's own alias, whose `.field` is an ordinary access and
+ * whose inverted mismatch is #642's. The suite below pins both halves of that
+ * line.
  *
  * The **workspace tier** — one applied code action for all three seats, where
  * exactly one module exports the spelling — is `analysis/code-actions.test.ts`,
@@ -116,21 +120,23 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
   });
 
   /**
-   * §5.1 rule 1's **own-home carve** (#829's Ruling A). The type is this
-   * module's own declaration, so the repair the row above would name is
-   * `import Main` written inside `module Main` — §8.1's one-node cycle. A
-   * module does not qualify through itself, however the spelling reached the
-   * qualifier seat, and that is the sentence the reader gets.
+   * §5.1 rule 1's **own-home carve** (#829's Ruling A, as #847 settled it). The
+   * type is this module's own declaration, so the repair the row above would
+   * name is `import Main` written inside `module Main` — §8.1's one-node cycle.
+   * What the row takes instead is the own-alias row's *repair and condition*
+   * while **keeping its own fact**: §10 writes the two rows separately for
+   * exactly this, and the reader wrote a type's name — the sentence that says
+   * so is the one they can act on.
    *
    * No repair clause here: `area` is not a binding this module holds, so there
    * is no bare spelling to drop the qualifier onto.
    */
-  test("a type of the module's own takes the self-qualification sentence", () => {
+  test("a type of the module's own keeps the type's fact, with the own-alias repair", () => {
     expect(messages([
       ["/main.hex",
         "module Main\n\n" + "union Shape = Circle(Float)\n" +
         "export let n: Float = Shape.area(1.0)\n"],
-    ])).toEqual(["a module does not qualify through itself"]);
+    ])).toEqual(["`Shape` is a type, not a module"]);
   });
 
   /** And with a binding of the name, the qualifier is dropped as the edit. */
@@ -140,7 +146,9 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
       "export let n: Float = Shape.area(1.0)\n";
     const [diagnostic, ...rest] = compileFiles([["/main.hex", text]]).diagnostics;
     expect(diagnostic?.message)
-      .toBe("a module does not qualify through itself; write `area(1.0)`");
+      .toBe("`Shape` is a type, not a module; write `area(1.0)`");
+    // Never `import Main`, at the message or at the edit (§8.1's one-node cycle).
+    expect(diagnostic?.message).not.toContain("import");
     expect(rest).toEqual([]);
     expect(applied(text, diagnostic)).toBe(
       "module Main\n\n" + "union Shape = Circle(Float)\n" +
@@ -370,25 +378,44 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     ]);
   });
 
-  test("the constructor-bound shape is untouched — v1 is failed resolution only", () => {
-    // The #577 ruling's carve-out, pinned so the boundary is visible rather than
-    // implied: a record declaration binds the constructor, `Shape` resolves as a
-    // term, and `.make` is a field access against it. The inverted mismatch that
-    // results is #642's, not this one's — what this test asserts is that nothing
-    // here reclassified it. Written against the module's *own* record since
-    // #762: a bare constructor abroad is rule 3's fallback, which puts a module
-    // alias at the spelling and so answers `Shape.` before rule 1 is asked.
-    const reported = messages([
+  test("a record's own spelling reaches rule 1, constructor or no constructor", () => {
+    // A record declares a **type and a constructor** of one spelling, and rule 1
+    // reads the module-alias namespace first at both (§5.1 rule 1). The #577 v1
+    // carve read the term namespace first and so never reached this row: the
+    // writer of §13(o)'s own specimen was handed `type mismatch: expected
+    // ({n: Int}) -> Shape, found {make: a, ...}` — a sentence about the field
+    // access the recovery built, silent about the type standing one namespace
+    // over, which is the whole content of the mistake.
+    //
+    // Written against the module's *own* record since #762: a bare constructor
+    // abroad is rule 3's fallback, which puts a module alias at the spelling and
+    // so answers `Shape.` before rule 1 is asked.
+    const text = "module Main\n\n" + "export record Shape = {n: Int}\n" +
+      "export fun make(n: Int): Shape = Shape({n = n})\n" +
+      "export let s: Shape = Shape.make(3)\n";
+    const [diagnostic, ...rest] = compileFiles([["/main.hex", text]]).diagnostics;
+    expect(diagnostic?.message).toBe("`Shape` is a type, not a module; write `make(3)`");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Main\n\n" + "export record Shape = {n: Int}\n" +
+        "export fun make(n: Int): Shape = Shape({n = n})\n" +
+        "export let s: Shape = make(3)\n",
+    );
+    expect(messages([["/main.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("the carve that remains: a term of the spelling naming no type", () => {
+    // Rule 1's first two tests are what the term namespace yields to — the
+    // module's own alias, and a type of the spelling. Where **neither** answers
+    // and a term does, the term reading stands and the #577 v1 carve with it: a
+    // nullary constructor is a value, and `.at` against one is a field access
+    // whose mismatch is #642's, not this family's.
+    expect(messages([
       ["/main.hex",
-        "module Main\n\n" + "export record Shape = {n: Int}\n" +
-        "export let s: Shape = Shape.make(3)\n"],
-    ]);
-    // The claim is that the writer is shown a *mismatch*, with the constructor
-    // on the expected side. The field's type is an unsolved variable, which
-    // #649 spells `a` rather than the allocation counter this pin used to have
-    // to match.
-    expect(reported).toEqual([
-      "type mismatch: expected ({n: Int}) -> Shape, found {make: a, ...}",
+        "module Main\n\n" + "export union Colour = Red | Green\n" +
+        "export let n: Int = Red.at\n"],
+    ])).toEqual([
+      "type mismatch: expected Colour, found {at: a, ...}",
     ]);
   });
 });
@@ -502,6 +529,88 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
       "unknown constraint `Lib`; `Lib` is a module alias — the constraints it " +
         "exports are reached through it, as `Lib.Name`",
     );
+  });
+
+  /**
+   * §5.1's applied-edit obligation names this seat among the ones it covers —
+   * "the constraint seats whose rows Constraints §8 sends here" — and §10's row
+   * says "the applied edit from the compiler tier, one edit per module".
+   *
+   * The seat used to hand back a bare message: the placement lived in the
+   * resolver, the checker had none, and a reader who wrote `Scale.Scale` in a
+   * binder got the line to type and nothing to apply, at either tier.
+   */
+  test("an unbound qualifier at the constraint seat carries the applied edit", () => {
+    const text = "module Main\n\n" + "export fun go<a: Scale.Scale>(x: a): a = x\n";
+    const [diagnostic, ...rest] = compileFiles([SCALE, ["/main.hex", text]]).diagnostics;
+    expect(diagnostic?.message).toBe("no module alias `Scale`; `import Scale`");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Main\n\n" + "import Scale\n" + "export fun go<a: Scale.Scale>(x: a): a = x\n",
+    );
+    expect(messages([SCALE, ["/main.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("the constraint seat and a term seat of one spelling share one edit", () => {
+    // §5.1's "one edit per module, however many seats draw the report: every
+    // seat carries the same insert, the same range and the same text". The two
+    // seats are reported by two *passes* — the checker here, the resolver at the
+    // term — so the cache they mint from has to be the module's and not either
+    // pass's, or a host applying both writes two import lines.
+    //
+    // Written with an **interleaved import** between the two seats, which is the
+    // one shape where the placement differs between them: a cache per pass gives
+    // the constraint seat the offset below the header and the term seat the one
+    // below `import Other`, and a host applying both writes two lines. A cache
+    // per module gives both the same one, which is what the sentence asks for.
+    const text = "module Main\n\n" +
+      "export fun go<a: Scale.Scale>(x: a): a = x\n" +
+      "import Other\n" +
+      "export let one: Int = Scale.unit + Other.n\n";
+    const { diagnostics } = compileFiles([
+      ["/scale.hex",
+        "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n" +
+        "export let unit: Int = 1\n"],
+      ["/other.hex", "module Other\n\n" + "export let n: Int = 1\n"],
+      ["/main.hex", text],
+    ]);
+    expect(diagnostics.map(({ message }) => message)).toEqual([
+      "no module alias `Scale`; `import Scale`",
+      "no module alias `Scale`; `import Scale`",
+    ]);
+    const edits = diagnostics.map((diagnostic) => diagnostic.fixes?.[0]?.edits);
+    expect(edits[0]).toBeDefined();
+    expect(edits[1]).toEqual(edits[0]);
+    // And the line the two of them share is a program: applying it once leaves
+    // nothing to report at either seat.
+    const edit = edits[0]![0]!;
+    expect(
+      messages([
+        ["/scale.hex",
+          "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n" +
+          "export let unit: Int = 1\n"],
+        ["/other.hex", "module Other\n\n" + "export let n: Int = 1\n"],
+        ["/main.hex",
+          text.slice(0, edit.span.start.offset) + edit.replacement +
+            text.slice(edit.span.end.offset)],
+      ]),
+    ).toEqual([]);
+  });
+
+  test("a refused import head above it takes the edit away, as at every other seat", () => {
+    // §5.1: "a refused import head that offers the same line by its own rewrite
+    // is that line already offered, and the seats below it carry none" — read at
+    // the constraint seat too, or a miscased head has two lightbulbs writing one
+    // import, the second into the middle of the line the first rewrites.
+    const { diagnostics } = compileFiles([
+      SCALE,
+      ["/main.hex",
+        "module Main\n\n" + "import scale\n" +
+        "export fun go<a: Scale.Scale>(x: a): a = x\n"],
+    ]);
+    const seat = diagnostics.find(({ message }) => message.startsWith("no module alias"));
+    expect(seat?.message).toBe("no module alias `Scale`; `import Scale`");
+    expect(seat?.fixes).toBeUndefined();
   });
 
   test("a qualified head keeps the plain refusal — its repair is not an import line", () => {
