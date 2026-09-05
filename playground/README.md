@@ -72,12 +72,21 @@ Debug.log("${Mगणित.जोड़(20, 22)}")
   a miscased `module foo` is refused with the rewrite that spells it, and a header
   written inside a string is a string.
 
-**The root is the buffer's last module.** Hexagon has no entry function and no
-privileged name: a host selects a root, and running it means evaluating its emitted
-ESM (§8.3). The Playground chooses the rule the document already reads by — helpers
-first, the program last — which is where every example puts `module Main`. Nothing
-consults the name, and nothing consults which module holds top-level effects. **Run**
-executes the emitted modules with ordinary ESM linkage.
+**The root is `module Main` where the buffer declares one, and otherwise the
+buffer's last module.** Hexagon has no entry function: a host selects one or more
+root modules *by name*, and running one means evaluating its emitted ESM (§8.3).
+So the Playground chooses by name first — `module Main` is the program wherever in
+the buffer it stands, which is where every example already puts it — and falls back
+to position for a buffer that names no `Main`, reading the document the way it is
+written: helpers first, the program last. Nothing consults which module holds
+top-level effects. **Run** executes the emitted modules with ordinary ESM linkage.
+
+**The fallback fails silently, and this is the failure.** A buffer that writes its
+program *above* its helper and calls neither `Main` runs the **helper**: the compile
+succeeds, the JS pane shows the helper's emission, and **Run** prints nothing, with
+no diagnostic anywhere — the helper is a legitimate program that happens to do
+nothing. Naming the program `module Main` is the repair, and is why the rule reads
+the name first.
 
 **One approximation, stated.** The hosted `Rat` enters as a module of the compiled
 project rather than as `Hex.Rat`, because `ProjectOptions` gives a host no way to say
@@ -387,8 +396,6 @@ fresh execution worker with a two-second timeout.
 - There is one Hexagon grammar, `editors/vscode/syntaxes/hexagon.tmLanguage.json`.
   Playground consumes it; it does not copy it and does not generate from it.
 - Playground therefore tokenizes with `vscode-textmate` over Oniguruma, not Monarch.
-- Playground-only syntax goes in a Playground-side injection, never in the shared
-  grammar, which stays the `.hex` language.
 - This makes the two editors wrong in the *same* way, which is the point. It does not
   make them right: `spec/lexer.md` §8.1's `<` and §4.2's contextual keywords are beyond
   regex by construction. The layer that cannot be wrong is semantic tokens from the

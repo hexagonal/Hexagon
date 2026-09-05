@@ -20,30 +20,41 @@ export function compileSource(version: number, text: string): CompilerResponse {
   return compileWorkspace(version, layOutWorkspace(text));
 }
 
+/** The name the Playground reads as the program, where a buffer declares it. */
+const ROOT_MODULE_NAME = "Main";
+
 /**
- * The module the Playground builds and runs — **the last one the buffer
- * declares**.
+ * The module the Playground builds and runs — **the one named `Main` where the
+ * buffer declares one, and otherwise the last module it declares**.
  *
- * Hexagon has no entry function and no privileged name: a host selects a root
- * module and running it means evaluating its emitted ESM (Modules §8.3). So the
- * Playground has to choose, and it chooses the rule the document already reads
- * by: the modules a buffer declares are read top to bottom, helpers first and
- * the program last, which is where the splitter's trailing `/main.hex` sat and
- * where every example puts `module Main`. Nothing consults the name — a buffer
- * whose last module is `module Demo` runs `Demo` — and nothing consults which
- * module holds top-level effects, since a helper may print too and a program
- * that prints nothing is still a program.
+ * Hexagon has no entry function (Modules §8.3): a host selects one or more root
+ * modules, *by name*, and running one means evaluating its emitted ESM. So the
+ * Playground has to choose, and it chooses by name first, because that is what
+ * §8.3 says a host does and it is the rule every example is already written to:
+ * `module Main` is the program wherever in the buffer it stands.
  *
- * Read off the parse rather than the compile order: `compileProject` answers
- * dependency-first, so a helper imported by the program is *returned* first
- * however the buffer is written.
+ * The fallback is position, for the buffer that names no `Main`: the modules a
+ * buffer declares are read top to bottom, helpers first and the program last.
+ * **Its failure mode is silence** and it is stated rather than hidden: a
+ * program written *above* its helper with no module called `Main` runs the
+ * helper, which usually means running nothing at all. Naming a module `Main` is
+ * the repair, and the README says so where the rule is stated.
+ *
+ * Nothing consults which module holds top-level effects, since a helper may
+ * print too and a program that prints nothing is still a program.
+ *
+ * The fallback is read off the **parse** rather than the compile order:
+ * `compileProject` answers dependency-first, so a helper imported by the program
+ * is *returned* first however the buffer is written, and reading the compile
+ * order's last module would root the importer — the opposite of this rule — for
+ * every buffer that writes its program above its helper.
  */
 function rootModuleOf(
   modules: readonly CompiledModule[],
 ): CompiledModule | undefined {
-  return modules
-    .filter(({ source }) => source.path === bufferPath)
-    .reduce<CompiledModule | undefined>(
+  const declared = modules.filter(({ source }) => source.path === bufferPath);
+  return declared.find(({ name }) => name === ROOT_MODULE_NAME) ??
+    declared.reduce<CompiledModule | undefined>(
       (last, module) =>
         last === undefined ||
           module.parsed.span.start.offset > last.parsed.span.start.offset
@@ -92,12 +103,29 @@ function compileWorkspace(
       fundamentalInstances: project.fundamentalInstances,
     }),
   }));
+  // Diagnostics are anchored rather than mapped: every one of them has to be
+  // shown, including the ones from a module the buffer never wrote — the
+  // compiler's own injected `Hex` sources — which no buffer offset covers. See
+  // `WorkspaceMap.anchor`.
+  const mapOffset = (fileId: Source.FileId, offset: number): number =>
+    layout.map.anchor(pathsByFileId.get(Number(fileId)) ?? "", offset);
+
   const main = outputs.find(({ module }) => module === root);
   if (main === undefined) {
+    // **The project's own report first.** A buffer with no module to run is
+    // nearly always a buffer the compiler already refused — a header whose
+    // first segment names a package (Modules §2.2) lays the module out at an
+    // address an injected `Hex` module holds, so nothing of the buffer's is
+    // seated — and the report that says *why* is sitting in `project`. Showing
+    // a hand-written line in its place tells the author their buffer declares
+    // no module when it declares one, and discards the only message they can
+    // act on. The written line stands in only where the project reported
+    // nothing at all, which is the genuinely empty compile.
+    const reported = adaptDiagnostics(project.diagnostics, mapOffset);
     return {
       kind: "compile-failure",
       version,
-      diagnostics: [{
+      diagnostics: reported.length > 0 ? reported : [{
         severity: "error",
         message: "this buffer declares no module to run: write `module Main`",
         startOffset: 0,
@@ -111,11 +139,6 @@ function compileWorkspace(
   // prelude, and re-emitting one module alone would plan a different edition set
   // than the pane beside it shows.
   const preview = emitTypeScriptPreview(main.module.core, project.fundamentalInstances);
-  // Diagnostics are anchored rather than mapped: every one of them has to be
-  // shown, including the ones from a hosted library, which no buffer offset
-  // covers. See `WorkspaceMap.anchor`.
-  const mapOffset = (fileId: Source.FileId, offset: number): number =>
-    layout.map.anchor(pathsByFileId.get(Number(fileId)) ?? "", offset);
   const diagnostics = adaptDiagnostics([
     ...project.diagnostics,
     ...outputs.flatMap(({ javascript }) => javascript.diagnostics),

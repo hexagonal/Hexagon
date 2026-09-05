@@ -507,6 +507,67 @@ describe("§13 (o) — the miscased header (#838)", () => {
   });
 });
 
+describe("§2.2 / Comments §6 — a file's comments are cut with its modules", () => {
+  /**
+   * Modules §11 emits one JavaScript file per module, and Comments §6 preserves
+   * a module's comments in it. A file holding several modules therefore has to
+   * cut the comment list at the same places it cuts the item list: the parser
+   * handed every section the whole file's `comments`, so each emitted module
+   * carried every other module's comments — and, because the blank-line rhythm
+   * is measured between the entries' spans, a run of blank lines where the
+   * other module's items stood.
+   *
+   * The cut is by offset at each section's end: a comment above the file's
+   * first header belongs to the module that header opens, as the items above it
+   * do; a comment between a closer and the next header belongs to the module it
+   * stands above.
+   */
+  test("each module's emitted JavaScript carries its own comments and no others", () => {
+    const project = compileFiles([["/f.hex",
+      "// above the first header\n" +
+      "module Numbers\n" +
+      "\n" +
+      "// Numbers own line\n" +
+      "export let answer: Int = 21\n" +
+      "\n" +
+      "end module Numbers\n" +
+      "\n" +
+      "// written above the second header\n" +
+      "module Main\n" +
+      "\n" +
+      "// Main own line\n" +
+      "export let doubled: Int = 42\n",
+    ]]);
+    expect(project.diagnostics).toEqual([]);
+    const javascript = (name: string): string =>
+      project.modules.find((module) => module.name === name)!.javascript.text;
+
+    expect(javascript("Numbers")).toContain("// above the first header");
+    expect(javascript("Numbers")).toContain("// Numbers own line");
+    expect(javascript("Numbers")).not.toContain("// written above the second header");
+    expect(javascript("Numbers")).not.toContain("// Main own line");
+
+    expect(javascript("Main")).toContain("// written above the second header");
+    expect(javascript("Main")).toContain("// Main own line");
+    expect(javascript("Main")).not.toContain("// above the first header");
+    expect(javascript("Main")).not.toContain("// Numbers own line");
+
+    // The blank-run half of the same defect, pinned byte for byte: each file
+    // held the *other* module's comment and a run of blank lines where the
+    // other module's items stood. What is left is the two modules' own text,
+    // and the same shape in both — the one blank the source wrote, plus the
+    // line the header stood on, which emission has no line for.
+    expect(javascript("Numbers")).toBe(
+      "// above the first header\n\n\n// Numbers own line\n" +
+        "const answer = 21;\nexport { answer };\n",
+    );
+    expect(javascript("Main")).toBe(
+      "// written above the second header\n\n\n// Main own line\n" +
+        "const doubled = 42;\nexport { doubled };\n",
+    );
+  });
+});
+
 describe("§2.2 — two modules of one name in one package", () => {
   test("the second header is refused, both files named, with the dotted hint", () => {
     const [diagnostic, ...rest] = reports([

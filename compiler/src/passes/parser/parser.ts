@@ -564,13 +564,39 @@ class Parser {
 
     const sections = this.#sectionModules(items, fileId, path, fileSpan);
     const diagnostics = this.#diagnostics.toArray();
-    return sections.map((section) => ({
+    // Comments and doc blocks are the file's, and they are **cut with the
+    // items**. Modules §11 emits one JavaScript file per module and Comments §6
+    // preserves a module's own comments in it, so a file's whole comment list
+    // handed to every section put every module's comments — and the blank runs
+    // measured against their spans, where the other modules' items stood — into
+    // every module's emission. The cut is by offset, at each section's **end**:
+    // a comment written above a file's first header belongs to the module that
+    // header opens, as the items above it do (§2.2), and a comment between one
+    // module's closer and the next module's header was written about the module
+    // it stands above.
+    //
+    // The doc list is cut by the same boundaries, for the same reason and with
+    // no emission difference today: every consumer looks a block up by its
+    // `target` — the documented declaration's own span start — so a block of
+    // another module's answers nobody. It is cut because the two lists are one
+    // fact about the file and a reader who found them cut differently would
+    // have to work out which of the two was deliberate.
+    const bounds = sections.map(({ span }) => span.end.offset);
+    const sectionOf = (offset: number): number => {
+      const index = bounds.findIndex((end) => offset < end);
+      return index === -1 ? sections.length - 1 : index;
+    };
+    return sections.map((section, index) => ({
       kind: "Module" as const,
       fileId,
       name: section.name,
       items: section.items,
-      comments,
-      docs,
+      comments: sections.length === 1
+        ? comments
+        : comments.filter(({ span }) => sectionOf(span.start.offset) === index),
+      docs: sections.length === 1
+        ? docs
+        : docs.filter(({ span }) => sectionOf(span.start.offset) === index),
       span: section.span,
       // Every module a file declares carries the file's diagnostics. The bag is
       // the file's, and a diagnostic reported inside one module's items is no

@@ -695,8 +695,73 @@ describe("compileSource", () => {
   });
 
   /**
+   * Modules §8.3: the language has no entry function, so the host says which
+   * module is the root — and §8.3 says a host selects it **by name**. The
+   * Playground reads `Main` wherever the buffer writes it, which is the half of
+   * the rule that survives a program written above its helper.
+   */
+  test("runs the module named `Main` wherever the buffer writes it", () => {
+    const response = compileSource(
+      33,
+      "module Main\n" +
+        "\n" +
+        "import Helper\n" +
+        "\n" +
+        'Debug.log("${Helper.twice(3)}")\n' +
+        "\n" +
+        "end module Main\n" +
+        "\n" +
+        "module Helper\n" +
+        "\n" +
+        "export let twice(n: Int): Int = n * 2\n",
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    // `Helper` is both the buffer's last module and the compile order's last
+    // module (nothing imports `Main`), so only the *name* rule roots `Main`.
+    expect(response.entryPath).toBe("/Main.hex");
+    expect(response.javascript).toContain('import * as Helper from "./Helper.js";');
+  });
+
+  /**
+   * The fallback, and the justification its comment states: the parse order,
+   * never the compile order.
+   *
+   * `compileProject` answers dependency-first, so this buffer — the program
+   * written first, its helper last, neither called `Main` — comes back as
+   * `[Helper, Program]`. The two rules disagree here and nowhere the earlier
+   * cases reach: position roots `Helper`, the compile order's last module would
+   * root `Program`. This is also the silent failure the README states, pinned
+   * as behaviour: the compile succeeds and runs the helper.
+   */
+  test("falls back to the buffer's last module by parse order, not compile order", () => {
+    const response = compileSource(
+      34,
+      "module Program\n" +
+        "\n" +
+        "import Helper\n" +
+        "\n" +
+        'Debug.log("${Helper.twice(3)}")\n' +
+        "\n" +
+        "end module Program\n" +
+        "\n" +
+        "module Helper\n" +
+        "\n" +
+        "export let twice(n: Int): Int = n * 2\n",
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    expect(response.entryPath).toBe("/Helper.hex");
+    // The helper's own emission, which prints nothing: the failure mode stated.
+    expect(response.javascript).not.toContain("Debug");
+    expect(response.javascript).toContain("twice");
+  });
+
+  /**
    * Modules §8.3: the language has no entry function and no privileged name, so
-   * the host says which module is the root. The Playground's rule is the
+   * the host says which module is the root. The Playground's fallback is the
    * buffer's **last** module, and the two facts that follow from it are both
    * here — which module's JavaScript the JS pane shows, and which module the
    * worker is told to evaluate.
@@ -794,6 +859,37 @@ describe("compileSource", () => {
         startOffset: 0,
       }],
     });
+  });
+
+  /**
+   * A buffer with **no root** must show the compiler's report, not a written
+   * line standing in for it.
+   *
+   * `module Hex.Option` is refused by Modules §2.2's first-segment rule, and
+   * the refused header still lays the module out at `/Hex/Option.hex` — the
+   * address the injected standard-library module holds — so nothing of the
+   * buffer's is seated and there is no root to run. The arm that answers there
+   * used to discard `project.diagnostics` and write "this buffer declares no
+   * module to run", which is false twice over: the buffer declares one, and the
+   * repair it named was not the repair. The rule the Errors tab lives by is
+   * `WorkspaceMap.anchor`'s own — source that will not compile never leaves the
+   * tab claiming nothing is wrong.
+   */
+  test("shows the compiler's own report for a buffer with no module to run", () => {
+    const response = compileSource(
+      35,
+      "module Hex.Option\n\nexport let create(v: Int): Int = v\n",
+    );
+
+    expect(response.kind).toBe("compile-failure");
+    if (response.kind !== "compile-failure") return;
+    expect(response.diagnostics.map(({ message }) => message)).toContain(
+      "`Hex.Option` begins with the name of the package `Hex`; a dotted " +
+        "module's first segment cannot name a package in the program; rename the module",
+    );
+    expect(response.diagnostics.map(({ message }) => message)).not.toContain(
+      "this buffer declares no module to run: write `module Main`",
+    );
   });
 
   test("carries no library import into a program that writes none", () => {
