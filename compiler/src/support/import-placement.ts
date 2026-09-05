@@ -16,6 +16,17 @@
  * and every tier that writes a line has to end it the way the file ends its
  * own — and has to cope with a file whose last line is ended by nothing at all
  * (`insertedLine`). One copy of each, or the tiers drift.
+ *
+ * **One seat writes its line by hand, and says so here rather than looking like
+ * a fourth reader that forgot to call.** Modules §2.1's headerless repair (the
+ * parser's `every file declares its module`) writes `module Name` plus *two*
+ * breaks at offset zero. Both departures are the point: its offset is always
+ * zero, where `insertedLine`'s opening break — which exists for a file whose
+ * last line is unterminated — is never wanted, and the second break is the
+ * blank line the house style leaves under a header, which no other seat writes
+ * because no other seat is writing the header. It still ends its line the way
+ * the file ends its own (`newlineOf`), which is the part of the arithmetic
+ * there is only one copy of.
  */
 
 import type * as Source from "./source.js";

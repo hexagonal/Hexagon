@@ -177,6 +177,47 @@ describe("§13 (o) — every file declares its module", () => {
     expect(messages([["/f.hex", applied(recased, again)]])).toEqual([]);
   });
 
+  test("a lawful header spaced around its dots still moves — nothing refused it", () => {
+    // The near neighbour of the stand-down above, and the reason it is keyed to
+    // whether §2.1's seat published an *edit* rather than to whether the
+    // header's written text is its canonical spelling. `module Acme . Geometry`
+    // is a lawful header — one name, whose segments the layout dots (§2.3) —
+    // written with space around the dot. Its text differs from `Acme.Geometry`
+    // and nothing refuses it, so there is no second repair to collide with and
+    // a verbatim lift is the repair, exactly as it is when the dot is tight.
+    for (const header of ["module Acme . Geometry", "module Acme .Geometry"]) {
+      const text = `let stray: Int = 1\n\n${header}\n\n${POINT}`;
+      const [diagnostic, ...rest] = reports([["/f.hex", text]]);
+      expect(diagnostic?.message).toBe(
+        "code outside a module: a module begins with its header; " +
+          "move `module Acme.Geometry` above this item",
+      );
+      expect(rest).toEqual([]);
+      // Verbatim: the spacing the author wrote travels with the line, because a
+      // repair moves a line and reformats nothing.
+      expect(applied(text, diagnostic)).toBe(
+        `${header}\n\nlet stray: Int = 1\n\n${POINT}`,
+      );
+      expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
+    }
+  });
+
+  test("a header whose name spans two lines: the move stands down, message only", () => {
+    // A dotted name may be broken across lines, and what this move lifts is a
+    // *line*. The header's extent is then not a thing the line arithmetic can
+    // carry, so the lift is declined rather than made to guess where the name
+    // ends — the same call as the two stand-downs beside it, and its own
+    // condition rather than the casing test's shadow.
+    const text = "let stray: Int = 1\n\nmodule Acme.\n    Geometry\n\n" + POINT;
+    const [diagnostic, ...rest] = reports([["/f.hex", text]]);
+    expect(diagnostic?.message).toBe(
+      "code outside a module: a module begins with its header; " +
+        "move `module Acme.Geometry` above this item",
+    );
+    expect(diagnostic?.fixes ?? []).toEqual([]);
+    expect(rest).toEqual([]);
+  });
+
   test("an item and the header on one line: the move stands down, message only", () => {
     // `;` separates block items, so this is a lawful line that draws the row —
     // and the header's line is the stray item's line. Lifting the line and

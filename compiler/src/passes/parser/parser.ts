@@ -222,6 +222,21 @@ interface ModuleMarker {
   readonly name: Parsed.ModuleName;
   readonly span: Source.Span;
   readonly index: number;
+  /**
+   * Whether §2.1's casing refusal published an **edit** over this marker's name
+   * (`module geometry`, and not `module 用户`, where the operation is a no-op
+   * and the message names the slot instead).
+   *
+   * Recorded rather than re-derived, because the one reader of it — §2.2's
+   * header move, which stands down where its own edit would overlap this one —
+   * is asking whether an edit exists, and every test *about the text* that
+   * comes close to answering that is a different question wearing the same
+   * answer. Comparing the written spelling against the canonical one is the
+   * near miss: it is also true of `module Acme . Geometry`, a header nothing
+   * refused, and withholding the move there is a fixit §2.2 states, silently
+   * absent on a file that is otherwise clean.
+   */
+  readonly rewritten: boolean;
 }
 
 /** A derived (never written) module name, for a refused head's recovery. */
@@ -590,8 +605,8 @@ class Parser {
    * repaired file declares exactly the modules the refused one did — the edit
    * moves a line and moves nothing else.
    *
-   * What is lifted is **verbatim**, and the two shapes where a verbatim lift
-   * would not repair the file are the two the move stands down at, message
+   * What is lifted is **verbatim**, and the three shapes where a verbatim lift
+   * would not repair the file are the three the move stands down at, message
    * only, as the placement helper stands down for a headerless file:
    *
    * **The header sharing its line with an item.** `;` separates block items, so
@@ -616,6 +631,25 @@ class Parser {
    * header's own repair goes first, and this row is recomputed against the file
    * that repair produces, where the header is spelled as it should be and this
    * move is a plain lift again.
+   *
+   * The condition is **whether that seat published an edit**, carried on the
+   * marker (`ModuleMarker.rewritten`), and not whether the header's written
+   * text differs from its canonical spelling. The two agree on every header
+   * §2.1 refuses and part company on ones it does not: `module Acme . Geometry`
+   * and `module Acme .Geometry` are lawful headers whose written text is not
+   * the name's, nothing refuses them, there is no second repair to collide
+   * with, and a verbatim lift repairs them exactly as it repairs
+   * `module Acme.Geometry`. A spelling comparison withholds §2.2's fixit there
+   * for no reason the file gives.
+   *
+   * **A header spanning more than one line.** `module Acme.\n    Geometry` is
+   * one name across two lines (§2.3), and what this move lifts is a *line* —
+   * so the header's own extent is not a thing the line arithmetic can carry,
+   * and the lift is declined rather than made to guess where the name ends.
+   * This is a condition in its own right and not the casing test's shadow: the
+   * spelling comparison happened to refuse these too, and replacing it with the
+   * casing flag alone would have offered a lift that welds the name's halves to
+   * whatever stands around them.
    */
   #headerMoveFix(
     header: ModuleMarker,
@@ -629,8 +663,10 @@ class Parser {
     const shared = items.some(({ span }) =>
       span.start.offset < lineEnd && span.end.offset > from
     );
-    const written = text.slice(header.name.span.start.offset, header.name.span.end.offset);
-    if (shared || written !== header.name.text) return undefined;
+    const spread = text
+      .slice(header.span.start.offset, header.span.end.offset)
+      .includes("\n");
+    if (shared || header.rewritten || spread) return undefined;
     const to = pastBlankLines(text, lineEnd);
     const file = new Source.File(fileId, path, text);
     return {
@@ -1770,11 +1806,15 @@ class Parser {
    * spelling is what recovers: there is no other spelling to read the file
    * under, and the reports below it are better keyed to the name on the page
    * than to `<Name>`.
+   *
+   * Answers whether an **edit** was published beside the message, which is the
+   * fact §2.2's header move stands down at (`ModuleMarker.rewritten`): the
+   * two repairs overlap only where this seat has one to overlap with.
    */
   #refuseHeaderNameCasing(
     start: LaidOut.Token,
     written: Parsed.ModuleName,
-  ): Parsed.ModuleName {
+  ): { readonly name: Parsed.ModuleName; readonly rewritten: boolean } {
     const capitalised = capitalisedModuleName(written.segments);
     const rewrite = `module ${capitalised ?? MODULE_NAME_SLOT}`;
     this.#diagnostics.add({
@@ -1788,13 +1828,16 @@ class Parser {
         }],
       }),
     });
-    if (capitalised === undefined) return written;
+    if (capitalised === undefined) return { name: written, rewritten: false };
     const segments = written.segments.map((segment) => ({
       text: segment.text.charAt(0).toUpperCase() + segment.text.slice(1),
       startClass: "upper" as const,
       span: segment.span,
     }));
-    return { text: capitalised, segments, span: written.span, declared: true };
+    return {
+      name: { text: capitalised, segments, span: written.span, declared: true },
+      rewritten: true,
+    };
   }
 
   /**
@@ -2577,10 +2620,16 @@ class Parser {
     const kind = this.#atContextual("module") ? "closer" as const : "header" as const;
     if (kind === "closer") this.#advance();
     const written = this.#parseModuleNameReference();
-    const name = kind === "header" && !uppercaseStartName(written)
+    const refusal = kind === "header" && !uppercaseStartName(written)
       ? this.#refuseHeaderNameCasing(start, written)
-      : written;
-    return { kind, name, span: spanFrom(start.span, written.span), index };
+      : { name: written, rewritten: false };
+    return {
+      kind,
+      name: refusal.name,
+      span: spanFrom(start.span, written.span),
+      index,
+      rewritten: refusal.rewritten,
+    };
   }
 
   /**
