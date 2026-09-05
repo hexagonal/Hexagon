@@ -588,6 +588,15 @@ class Parser {
    * The items above the header are folded into the module it opens, so the
    * repaired file declares exactly the modules the refused one did — the edit
    * moves a line and moves nothing else.
+   *
+   * The one thing the lifted text does not carry verbatim is the **name**,
+   * which is written as the header declares it — `header.name.text`, the
+   * recovered spelling where the header was itself refused. A miscased header
+   * above an item draws two reports, and the message here names `module
+   * Geometry`; moving `module geometry` would contradict the sentence and leave
+   * the casing refusal standing in the file the repair produced. For every
+   * header that was not refused the two spellings are the same string, so this
+   * is the identity there.
    */
   #headerMoveFix(
     header: ModuleMarker,
@@ -597,10 +606,13 @@ class Parser {
     const file = new Source.File(fileId, path, this.#text);
     const from = lineStart(this.#text, header.span.start.offset);
     const to = pastBlankLines(this.#text, pastLineEnd(this.#text, header.span.end.offset));
+    const lifted = this.#text.slice(from, header.name.span.start.offset) +
+      header.name.text +
+      this.#text.slice(header.name.span.end.offset, to);
     return {
       message: `move \`module ${header.name.text}\` above this item`,
       edits: [
-        { span: file.span(0, 0), replacement: this.#text.slice(from, to) },
+        { span: file.span(0, 0), replacement: lifted },
         { span: file.span(from, to), replacement: "" },
       ],
     };

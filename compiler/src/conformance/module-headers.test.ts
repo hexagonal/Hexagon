@@ -144,6 +144,27 @@ describe("§13 (o) — every file declares its module", () => {
     expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
   });
 
+  test("a refused header moves as the message spells it, not as it was written", () => {
+    // Two reports at one line, and the move's own sentence names `module
+    // Geometry` — so the line it writes says `module Geometry`. Moving the
+    // written `module geometry` would contradict the sentence and leave the
+    // casing refusal standing in the file the repair produced; as it is, the
+    // repaired file draws nothing at all. (Both reports keep their own fixits;
+    // applied one at a time, either order reaches the same file.)
+    const text = "let stray: Int = 1\n\nmodule geometry\n\n" + POINT;
+    const [moved, cased, ...rest] = reports([["/f.hex", text]]);
+    expect(moved?.message).toBe(
+      "code outside a module: a module begins with its header; " +
+        "move `module Geometry` above this item",
+    );
+    expect(cased?.message).toBe("a module name is uppercase-start; write `module Geometry`");
+    expect(rest).toEqual([]);
+    expect(applied(text, moved)).toBe(
+      "module Geometry\n\nlet stray: Int = 1\n\n" + POINT,
+    );
+    expect(messages([["/f.hex", applied(text, moved)]])).toEqual([]);
+  });
+
   test("a CRLF file keeps its line endings — the lifted text is the file's own", () => {
     // Nothing in a token stream says how a line ends. The edit slices the text
     // it moves out of the file it is repairing, so the `\r` travels with its
