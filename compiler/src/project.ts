@@ -101,18 +101,6 @@ export interface CompiledModule {
  */
 type CheckedModule = Omit<CompiledModule, "javascript" | "declarations">;
 
-/**
- * Whether a module is an injected one the host should treat as compiler-owned
- * rather than as the user's source: the prelude members and the runtime
- * modules. A host presenting declarations, bindings, or an outline lists what
- * the user wrote, and these are not that.
- */
-export function isInjectedModule(path: string): boolean {
-  const basename = path.slice(path.lastIndexOf("/") + 1);
-  return PRELUDE_MODULES.some((module) => module.basename === basename) ||
-    RUNTIME_MODULES.some((module) => module.basename === basename);
-}
-
 export interface CompiledProject {
   readonly modules: readonly CompiledModule[];
   /**
@@ -944,9 +932,10 @@ function packageOf(unit: Unit, project: ProgramPackage): ProgramPackage {
  * halves and takes the seat: `stdlib/Option.hex` is replaced by two lines the
  * author wrote for themselves, and their module — sitting at a prelude seat —
  * takes `isPrelude` and with it `privileged`, the intrinsic door. The adoption
- * test is the last file-name-keyed module identity in the compiler
- * (`isInjectedModule` is the same shape, Playground-only), which is a fault in
- * the very design #829 states — "a source file's own name and place appear
+ * test is now the **only** file-name-keyed module identity in the compiler —
+ * `isInjectedModule`, which classified by basename for the Playground alone,
+ * went when the Playground stopped making files of its own (#829 PR B) — which
+ * is a fault in the very design #829 states — "a source file's own name and place appear
  * nowhere". It is kept for now because the basename is also what lets the
  * standard library be developed in Hexagon at all: with the name half alone,
  * any `module Option` anywhere would claim the seat, which is strictly worse.

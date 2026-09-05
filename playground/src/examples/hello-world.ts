@@ -10,7 +10,10 @@ export const helloWorld: PlaygroundExample = {
   id: "hello-world",
   title: "A Tour of Hexagon",
   description: "A commented tour of the language slices implemented so far.",
-  source: `// Unions describe a closed set of alternatives.
+  source: `// Every file declares its module, and the name is the module's identity.
+module Main
+
+// Unions describe a closed set of alternatives.
 union Suit =
     | Clubs
     | Diamonds

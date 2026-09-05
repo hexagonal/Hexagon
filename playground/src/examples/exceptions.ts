@@ -5,7 +5,25 @@ export const exceptions: PlaygroundExample = {
   title: "Exceptions",
   description:
     "Throw and catch exceptions, bind their payloads, and let the ones a catch does not name rethrow themselves.",
-  source: `// An exception declaration adds one constructor to Exn, the language's only
+  source: `// A file may declare several modules (Modules §2.2), and a module sees only
+// what it imports — so this one is written first and imported below.
+module Ledger
+
+export exception Overdrawn(balance: Int, message: String)
+
+export let withdraw(balance: Int, amount: Int): Int =
+    if amount > balance then
+        throw(Overdrawn(balance, "insufficient funds"))
+    else
+        balance - amount
+
+end module Ledger
+
+module Main
+
+import Ledger
+
+// An exception declaration adds one constructor to Exn, the language's only
 // open sum -- which is what lets every union stay closed. A message slot must
 // be a String, and it becomes the underlying Error's own message, so uncaught
 // output reads "SettingError: no such setting".
@@ -58,18 +76,8 @@ catch
 
 Debug.log("the fourth of three sizes: \${clamped}")
 
-// A second module -- module/end module is the Playground's virtual file -- and
+// The module declared at the top of this file is imported like any other, and
 // its exception is caught the same qualified way.
-module Ledger
-export exception Overdrawn(balance: Int, message: String)
-
-export let withdraw(balance: Int, amount: Int): Int =
-    if amount > balance then
-        throw(Overdrawn(balance, "insufficient funds"))
-    else
-        balance - amount
-end module Ledger
-
 let remaining = try
     "\${Ledger.withdraw(100, 250)} left"
 catch

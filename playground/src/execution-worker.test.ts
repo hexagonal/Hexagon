@@ -95,9 +95,15 @@ beforeAll(async () => {
   });
 });
 
-/** One compiled program, in the shape the worker is asked to run it. */
+/**
+ * One compiled program, in the shape the worker is asked to run it.
+ *
+ * The header is written here rather than in each body below: since #829 every
+ * buffer declares its module (Modules §2.1), and none of these tests is about
+ * that — they are about what the worker does with the modules it is handed.
+ */
 function execute(version: number, source: string): ExecutionRequest {
-  const compiled = compileSource(version, source);
+  const compiled = compileSource(version, `module Main\n\n${source}`);
   expect(compiled.kind).toBe("compile-success");
   if (compiled.kind !== "compile-success") throw new Error("did not compile");
   return {

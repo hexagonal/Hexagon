@@ -12,10 +12,10 @@
  *
  * Two things this layer owes its caller. Every coordinate it returns is an
  * *editor buffer* offset, because the buffer is the only document the user has;
- * the virtual files stop here. And every answer it cannot express in buffer
- * coordinates is refused rather than approximated — a rename whose edits reach
- * into a hosted library is declined with a reason, not performed on the half of
- * itself that fits.
+ * the hosted library files stop here. And every answer it cannot express in
+ * buffer coordinates is refused rather than approximated — a rename whose edits
+ * reach into a hosted library is declined with a reason, not performed on the
+ * half of itself that fits.
  *
  * The session outlives each request. It holds its analysis until a file changes,
  * so a hover after a code action on unchanged text costs a lookup rather than a
@@ -33,11 +33,18 @@ import type {
   PlaygroundRenameSubject,
   PlaygroundTextEdit,
 } from "./protocol";
-import { layOutWorkspace, type WorkspaceLayout, type WorkspaceMap } from "./workspace";
+import {
+  bufferPath,
+  layOutWorkspace,
+  type WorkspaceLayout,
+  type WorkspaceMap,
+} from "./workspace";
 
 /**
  * Shown when a repair or a rename is real but reaches code the buffer does not
- * contain — a hosted library, or the imports the Playground writes for the user.
+ * contain — a hosted library, which since #829 is the only source the Playground
+ * compiles that the user cannot see.
+ *
  * A sentence rather than a code, because every host that shows a refusal shows
  * it as prose.
  */
@@ -48,8 +55,8 @@ export class PlaygroundAnalysis {
 
   hover(source: string, offset: number): PlaygroundHover | undefined {
     const layout = this.#sync(source);
-    const at = layout?.map.locate(offset);
-    if (layout === undefined || at === undefined) return undefined;
+    const at = layout.map.locate(offset);
+    if (at === undefined) return undefined;
     const hover = this.#session.hover(at.path, at.offset);
     if (hover === undefined) return undefined;
     const range = this.#rangeOfSpan(layout.map, at.path, hover.span);
@@ -76,30 +83,24 @@ export class PlaygroundAnalysis {
    * waiting on the same text, and the session behind them holds its analysis
    * until a file changes, so the hover that follows costs a lookup.
    *
-   * Each span is mapped back through the path it was asked about rather than
-   * through the file its span names. Those are the same file — the session says
-   * so — and asking about the queried path is the reading that matches how the
-   * gate will be used: an offset is compared against one file's set.
-   *
-   * Spans the buffer cannot show are dropped, like a definition's — a caret
-   * cannot be inside one, so nothing is lost by not gating on it.
+   * Asked of the buffer's own file alone. The hosted libraries are files of the
+   * program and no part of the document, so every span they hold would be
+   * dropped by the map on the way back — walking them is work whose whole result
+   * is discarded, and the gate is asked once per settled document.
    */
   hoverSpans(source: string): readonly BufferRange[] {
     const layout = this.#sync(source);
-    if (layout === undefined) return [];
     return inBufferOrder(
-      layout.files.flatMap(({ path }) =>
-        this.#session
-          .hoverSpans(path)
-          .flatMap((range) => toRange(layout.map.toBufferRange(path, range)))
-      ),
+      this.#session
+        .hoverSpans(bufferPath)
+        .flatMap((range) => toRange(layout.map.toBufferRange(bufferPath, range))),
     );
   }
 
   definitions(source: string, offset: number): readonly BufferRange[] {
     const layout = this.#sync(source);
-    const at = layout?.map.locate(offset);
-    if (layout === undefined || at === undefined) return [];
+    const at = layout.map.locate(offset);
+    if (at === undefined) return [];
     // A definition in a hosted library has nowhere to go: the Playground shows
     // one document, and `Vector.hex` is not in it. Dropping it leaves the editor
     // saying there is no definition, which is the truth about what it can open.
@@ -114,8 +115,8 @@ export class PlaygroundAnalysis {
 
   references(source: string, offset: number): readonly BufferRange[] {
     const layout = this.#sync(source);
-    const at = layout?.map.locate(offset);
-    if (layout === undefined || at === undefined) return [];
+    const at = layout.map.locate(offset);
+    if (at === undefined) return [];
     // Mentions the buffer cannot show are dropped for the same reason as a
     // definition's: there is nowhere to peek to. Unlike a rename, this is a
     // reading, not an edit, so an incomplete one is a smaller list rather than
@@ -134,13 +135,13 @@ export class PlaygroundAnalysis {
     range: BufferRange,
   ): readonly PlaygroundCodeAction[] {
     const layout = this.#sync(source);
-    const start = layout?.map.locate(range.startOffset);
-    const end = layout?.map.locate(range.endOffset);
-    if (layout === undefined || start === undefined || end === undefined) return [];
-    // A selection running from one module block into another names no single
-    // file, and the session asks about one. Nothing is offered rather than
-    // silently answering about whichever end came first.
-    if (start.path !== end.path) return [];
+    const start = layout.map.locate(range.startOffset);
+    const end = layout.map.locate(range.endOffset);
+    if (start === undefined || end === undefined) return [];
+    // Both ends are the buffer's own file since #829, so a selection running
+    // from one module of it into the next is one request about one file — which
+    // is what the session already answers, per diagnostic, at the offsets the
+    // range touches.
     return this.#session
       .codeActions(start.path, { start: start.offset, end: end.offset })
       .map((action) => this.#action(layout.map, action));
@@ -151,8 +152,8 @@ export class PlaygroundAnalysis {
     offset: number,
   ): PlaygroundRenameSubject | PlaygroundRenameRefusal | undefined {
     const layout = this.#sync(source);
-    const at = layout?.map.locate(offset);
-    if (layout === undefined || at === undefined) return undefined;
+    const at = layout.map.locate(offset);
+    if (at === undefined) return undefined;
     const subject = this.#session.prepareRename(at.path, at.offset);
     if (subject === undefined || "refused" in subject) return subject;
     const range = this.#rangeOfSpan(layout.map, at.path, subject.span);
@@ -192,8 +193,8 @@ export class PlaygroundAnalysis {
     newName: string,
   ): PlaygroundRenamePlan | PlaygroundRenameRefusal | undefined {
     const layout = this.#sync(source);
-    const at = layout?.map.locate(offset);
-    if (layout === undefined || at === undefined) return undefined;
+    const at = layout.map.locate(offset);
+    if (at === undefined) return undefined;
     const result = this.#session.rename(at.path, at.offset, newName);
     if (result === undefined || "refused" in result) return result;
     const edits: PlaygroundTextEdit[] = [];
@@ -211,20 +212,22 @@ export class PlaygroundAnalysis {
   }
 
   /**
-   * The buffer as virtual files, with the session holding exactly those.
+   * The buffer and the hosted library, as the session's files.
    *
-   * Nothing is analysed while the Playground's own `module` notation is broken:
-   * an unclosed block means the split into files is a guess, and answering from
-   * a guessed split is worse than answering nothing. The compile path reports
-   * those errors, so the user is already being told.
+   * There is no gate here any more. The Playground used to refuse to analyse a
+   * buffer whose `module` blocks did not close, because the split into files was
+   * then a guess — since #829 there is no split: the buffer is one file, a
+   * half-written module is a parse error like any other, and the session answers
+   * about the text as far as it reads, which is what every editor does.
+   *
+   * And nothing is removed, because the **file set is constant**: the same four
+   * paths every time, the buffer's text the only thing that moves. A module the
+   * user deletes is gone the moment the buffer no longer declares it, since it
+   * was never a file of its own. The sweep this used to run — dropping session
+   * files the layout no longer produced — went with the files it swept.
    */
-  #sync(source: string): WorkspaceLayout | undefined {
+  #sync(source: string): WorkspaceLayout {
     const layout = layOutWorkspace(source);
-    if (layout.diagnostics.length > 0) return undefined;
-    const present = new Set(layout.files.map(({ path }) => path));
-    for (const path of this.#session.paths) {
-      if (!present.has(path)) this.#session.removeFile(path);
-    }
     for (const { path, source: text } of layout.files) {
       this.#session.setFile(path, text);
     }

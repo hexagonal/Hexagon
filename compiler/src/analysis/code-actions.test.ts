@@ -1416,8 +1416,8 @@ describe("code actions: the module-import repair family (#577)", () => {
   });
 
   test("a user's own module at a prelude basename is still a candidate", () => {
-    // Why the filter is the workspace's file set and not `isInjectedModule`,
-    // which classifies by *basename*: this file is the user's, and dropping it
+    // Why the filter is the workspace's file set and not a classification by
+    // *basename*: this file is the user's, and dropping it
     // would be the mirror-image defect — a repair withheld because of what the
     // author happened to name their module.
     const main = "module Main\n\n" + 'import Prelude as P\ntype Meters = P.Meters\n' +

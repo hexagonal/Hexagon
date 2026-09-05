@@ -5,7 +5,9 @@ export const vectors: PlaygroundExample = {
   title: "Persistent Vectors",
   description:
     "Use the canonical Vector companion for total access, signed access, persistent updates, and Seq conversion.",
-  source: `let numbers = Vector.fromSeq(Seq.iterate(10, number => number + 10).take(3))
+  source: `module Main
+
+let numbers = Vector.fromSeq(Seq.iterate(10, number => number + 10).take(3))
 let extended = numbers.append(40)
 let updated = extended.set(2, 25)
 

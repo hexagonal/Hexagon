@@ -11,13 +11,15 @@ the Output tab and the execution worker's browser console.
 Supported desktop browsers load Monaco asynchronously for Hexagon editing and
 read-only generated-code models; the textarea remains live until Monaco succeeds.
 
-The Playground also supplies a deliberately small, provisional **fundamental
-stdlib** from the repository's canonical Hexagon sources. `Rat` is its first module:
-Playground programs use the real opaque type and its globally coherent instances,
-not an example-local reimplementation. “Fundamental” names the current host-supplied
-foundation, not a closed inventory; the complete boundary remains stdlib-listing and
-project-loader work. This is distinct from the compiler's **fundamental
-specializations**, which are generated monomorphic editions of generic functions.
+The Playground also supplies a deliberately small **hosted library** from the
+repository's canonical Hexagon sources (`src/hosted-library.ts`): `Option` and
+`Vector`, which the compiler seats as the prelude modules they are, and `Rat`,
+which a program reaches by writing `import Rat` like any other module. Playground
+programs use the real opaque type and its globally coherent instances, not an
+example-local reimplementation. Hosting makes a module *available* and does
+nothing else — since #831 no line is ever written into a buffer on its account.
+The complete boundary remains stdlib-listing and project-loader work; see
+**Modules and the root** below for the one place the approximation shows.
 
 ## Try it
 
@@ -27,7 +29,7 @@ npm install
 npm run dev
 ```
 
-Open the local address printed by Vite. Edit `main.hex`, inspect **Errors**,
+Open the local address printed by Vite. Edit the buffer, inspect **Errors**,
 **JS**, **.d.ts**, and **Types**, then choose **Run**. The **Output** tab receives
 `log(...)` output. Top-level bindings do not need `export`: the
 `.d.ts` tab uses the compiler's inspection-only TypeScript preview while preserving
@@ -38,29 +40,51 @@ The playground opens on **JS** and begins with a commented tour of the supported
 language. Its comments and blank lines between top-level features also appear in
 the emitted JavaScript, so the first view demonstrates the readable-output doctrine.
 
-### Single-document module blocks
+### Modules and the root
 
-The playground has one host-only workspace extension for multi-module examples:
+**The buffer is one `.hex` file.** Since #829 a module is a named declaration and a
+file may hold several (`spec/modules.md` §2.1, §2.2), so the Playground hands the
+buffer to the compiler as itself and the parser does the splitting. There is no
+Playground notation left: every rule below is the language's, reported by the
+compiler at the offset the user is looking at.
 
 ```hexagon
 module Mगणित
+
 export fun जोड़(left: Int, right: Int): Int = left + right
+
 end module Mगणित
 
-log("${Mगणित.जोड़(20, 22)}")
+module Main
+
+import Mगणित
+
+Debug.log("${Mगणित.जोड़(20, 22)}")
 ```
 
-The block becomes a real virtual `Mगणित.hex` file and the remaining source receives
-the equivalent of `import module Mगणित from "./Mगणित"`. Block contents deliberately
-stay at column one: adding or removing the wrapper never requires reindentation. The
-closing name must exactly repeat the opener, blocks cannot nest, and names must be
-unique uppercase-start identifiers. Diagnostics retain their positions in the
-combined document, and **Run** executes the emitted modules with ordinary ESM
-linkage.
+- Every buffer declares its module. A buffer with no header is refused with an
+  applied fixit inserting one, and the name it offers is derived from the path the
+  Playground hands the buffer under — `module Main` (§2.1).
+- Modules sharing a file are **strangers**: the second module above sees the first
+  only because it imports it (§2.2), and the import names the module and carries no
+  path (§3.1).
+- Every module but the last is closed by `end module Name` before the next header,
+  a miscased `module foo` is refused with the rewrite that spells it, and a header
+  written inside a string is a string.
 
-This notation belongs to the playground document format, not the Hexagon language.
-Real `.hex` projects continue to use one module per file; `module` and `end` remain
-ordinary identifiers outside these exact playground delimiter lines.
+**The root is the buffer's last module.** Hexagon has no entry function and no
+privileged name: a host selects a root, and running it means evaluating its emitted
+ESM (§8.3). The Playground chooses the rule the document already reads by — helpers
+first, the program last — which is where every example puts `module Main`. Nothing
+consults the name, and nothing consults which module holds top-level effects. **Run**
+executes the emitted modules with ordinary ESM linkage.
+
+**One approximation, stated.** The hosted `Rat` enters as a module of the compiled
+project rather than as `Hex.Rat`, because `ProjectOptions` gives a host no way to say
+a file belongs to another package. So `import Hex.Rat` names no module here, and a
+buffer declaring its own `module Rat` draws the duplicate-name refusal (§2.2) against
+a file it cannot see, where a true `Hex.Rat` would be occluded silently
+(`spec/packages.md` §3.2).
 
 The Theme selector offers **System**, **Dark**, and **Light**. System is the default
 and follows live operating-system colour-scheme changes. The selected preference is
@@ -214,9 +238,9 @@ token-inventory change had to be made twice, and silently wasn't (#145). The cos
 consolidating is `onig.wasm`, 473 KB raw / 162 KB gzipped, on a page that already
 ships Monaco.
 
-Playground's own `module` / `end module` notation **is** `.hex` syntax since #829
-(`spec/modules.md` §2.1), so the shared grammar paints it and Playground loads no
-grammar of its own. The injection that painted the notation while the two forms were
+`module` / `end module` **is** `.hex` syntax since #829 (`spec/modules.md` §2.1), so
+the shared grammar paints it and Playground loads no grammar of its own. The
+injection that painted the Playground's own notation while the two forms were
 distinct is retired: one language, one grammar, and both editors agree about the line
 by construction. A name the language refuses — `module foo` — paints as ordinary code,
 and the host's diagnostic is what says why.
@@ -239,8 +263,8 @@ Where practical, example source should be derived from or shared with conformanc
 The curated set contains the initial `hello-world` tour plus focused recursion,
 union/match, and exact `Rat` programs. Every example is compiler-tested and
 demonstrates a top-level `log(...)` effect without requiring public exports.
-The `Rat` example exercises the canonical fundamental stdlib module through
-`half + third`, selecting its imported `Signed<Rat>` evidence.
+The `Rat` example writes `import Rat` and exercises the canonical stdlib module
+through `half + third`, selecting its imported `Signed<Rat>` evidence.
 
 ## Testing
 
@@ -283,7 +307,7 @@ playground/
     compiler-service.ts
     analysis.ts
     workspace.ts
-    workspace-source.ts
+    hosted-library.ts
     language-services.ts
     monaco-mapping.ts
     diagnostics.ts

@@ -4,7 +4,9 @@ export const patterns: PlaygroundExample = {
   id: "patterns",
   title: "Unions and Match",
   description: "A closed union handled by an exhaustive match expression.",
-  source: `// derives (Show) asks the compiler for the display operation
+  source: `module Main
+
+// derives (Show) asks the compiler for the display operation
 // interpolation needs, so a constructor can be printed by name.
 union Direction derives (Show) =
     | North

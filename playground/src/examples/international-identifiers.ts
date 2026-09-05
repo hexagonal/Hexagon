@@ -4,11 +4,17 @@ export const internationalIdentifiers: PlaygroundExample = {
   id: "international-identifiers",
   title: "International Names: T · C · M",
   description: "A later showcase of Hindi and Mandarin names using the optional T/C/M cultural convention.",
-  source: `// Playground-only workspace block: a real virtual गणित.hex module.
-// Its contents stay at column one; the repeated name closes it deliberately.
+  source: `// A module name is uppercase-start (Modules §2.1), which a caseless script
+// cannot be, so the M prefix here is doing real work as well as cultural.
 module Mगणित
+
 export fun जोड़(left: Int, right: Int): Int = left + right
+
 end module Mगणित
+
+module Main
+
+import Mगणित
 
 // Caseless scripts are ordinary term names. Uppercase Latin prefixes
 // are a readable cultural convention for Hexagon's uppercase-start roles.
@@ -30,7 +36,7 @@ let 用户 = Tउपयोगकर्ता({नाम = "अनाया", 城
 let $税率 = 0.10
 let _折扣 = 5
 
-// M = module alias. The block above implicitly imports its virtual file.
+// M = module alias. The import above binds it.
 Debug.log("\${展示(用户)} · \${Mगणित.जोड़(20, 22)} · \${$税率} · \${_折扣}")
 `,
   specificationReferences: [

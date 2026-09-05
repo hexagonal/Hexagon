@@ -372,9 +372,9 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
   });
 });
 
-describe("the Playground's module notation, painted by the shared grammar (#829)", () => {
-  // `module X` / `end module X` create a virtual file *and* are `.hex` syntax
-  // now (Modules §2.1), so the injection that used to paint them is retired and
+describe("the module header, painted by the shared grammar (#829)", () => {
+  // `module X` / `end module X` are `.hex` syntax (Modules §2.1), so the
+  // injection that used to paint the Playground's own notation is retired and
   // the shared grammar's own header rules answer here. One grammar, and the two
   // editors agree about the line by construction.
   const source = [
@@ -423,8 +423,7 @@ describe("the Playground's module notation, painted by the shared grammar (#829)
     // looked like a header the language accepts. It is not (§2.1's casing
     // refusal, and the rest are not names at all): the grammar leaves the line
     // alone and the host's own squiggle says why, which is the report §2.1
-    // owes it. The Playground still opens the virtual file — that is the host's
-    // recovery, not the language's blessing.
+    // owes it — a refusal whose reading recovers under the rewrite's name.
     for (const name of ["foo", "_X"]) {
       expect(`${name}: ${await tokenOf(`module ${name}`, "module")}`).not.toBe(
         `${name}: ${storage}`,

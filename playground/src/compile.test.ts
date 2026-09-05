@@ -10,15 +10,25 @@ import { compileSource } from "./compile";
 import { linkModule } from "./module-execution";
 import type { GeneratedSection } from "./protocol";
 
+/**
+ * The header every buffer declares since #829 (Modules §2.1).
+ *
+ * Written into each source below rather than added by a helper, because these
+ * tests assert offsets into the text the user has, and because a Playground
+ * buffer *is* an ordinary `.hex` file now — the header is part of the program
+ * each case is about, not scaffolding around it.
+ */
+const MAIN = "module Main\n\n";
+
 describe("compileSource", () => {
   test("compiles the canonical Vector module surface", () => {
     const response = compileSource(5, vectors.source);
 
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    // `Vector` is a prelude module, not Playground equipment, so nothing
-    // prepends `import Vector`: the members arrive named, through the same
-    // channel `Seq`'s `take`/`iterate` arrive on, and the calls are bare.
+    // `Vector` is a prelude module, so its members are in scope with no import
+    // to write: they arrive named, through the same channel `Seq`'s
+    // `take`/`iterate` arrive on, and the calls are bare.
     expect(response.javascript).toContain(
       'import { fromSeq, append, set, at, get } from "./Hex/Vector.js";',
     );
@@ -52,7 +62,8 @@ describe("compileSource", () => {
   test("executes the complete canonical Vector core API", async () => {
     const response = compileSource(
       5,
-      "let values = [10, 20, 30]\n" +
+      MAIN +
+        "let values = [10, 20, 30]\n" +
         "let updated = Vector.set(values, 2, 25)\n" +
         "export let crossed: (Vector(Int), Vector(Int), Bool, Int, " +
         "Vector(Int), Vector(Int), Option(Int), Option(Int), Vector(Int), " +
@@ -134,7 +145,7 @@ describe("compileSource", () => {
   });
 
   test("preserves the original signed index in Vector.at failures", async () => {
-    const response = compileSource(5, "let impossible = Vector.at([10, 20], -3)\n");
+    const response = compileSource(5, `${MAIN}let impossible = Vector.at([10, 20], -3)\n`);
 
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
@@ -207,11 +218,11 @@ describe("compileSource", () => {
     // `Debug.hex`'s own `logString` edition and hands it no dictionary.
     expect(response.javascript).toContain("logString(展示(用户,");
     expect(response.javascript).toContain("Mगणित.जोड़(20, 22)");
-    // This source names neither companion, so no equipment import is prepended
-    // — and `/stdlib/Vector.hex` drops out with it, because a prelude module is
-    // emitted only where something imports it. `/stdlib/Rat.hex` stays: hosting
-    // is unconditional, and Rat is no prelude member, so its file is compiled
-    // and emitted whether or not the buffer reaches it. `/Prelude.hex` is
+    // This source imports no library module, so `/stdlib/Vector.hex` never
+    // reaches the output: a prelude module is emitted only where something
+    // imports it. `/stdlib/Rat.hex` stays, because Rat is no prelude member —
+    // it is a file of the compiled project, so it is compiled and emitted
+    // whether or not the buffer reaches it. `/Prelude.hex` is
     // emitted because `Rat.hex` uses `Ordering`, and `/BigInt.hex` since #344
     // because `Rat.hex` normalizes through `Integral<BigInt>`'s members — so
     // the companion's dictionary and the constraint homes that declare what it
@@ -246,11 +257,18 @@ describe("compileSource", () => {
     ]);
   });
 
-  test("maps virtual-module diagnostics back into the combined workspace document", () => {
+  test("reports a diagnostic from any module at the offset the buffer shows", () => {
     const source =
       "module Repo\n" +
+      "\n" +
       "export let broken = missing\n" +
+      "\n" +
       "end module Repo\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Repo\n" +
+      "\n" +
       "Debug.log(Repo.broken)\n";
     const response = compileSource(7, source);
 
@@ -265,35 +283,26 @@ describe("compileSource", () => {
   });
 
   /**
-   * The minted header takes the block's **first item's** indent, not its first
-   * non-blank line's (#836 review N2). A comment is not an item — layout takes
-   * no baseline from one — so a comment less indented than the body it
-   * introduces used to put the header off the block's own baseline and turn
-   * every item below it into a continuation line.
+   * The header is the buffer's own text now, so nothing about a module's body
+   * has to be measured to write one: the two cases that used to break the
+   * minting — a comment above an indented body, and a body indented with a tab
+   * — are a comment and a tab, read by the lexer as it reads any other.
    */
-  test("a comment above an indented body does not move the minted header", () => {
-    const source =
-      "module Geo\n" +
+  test("a module's body is laid out at its own margin, comments and all", () => {
+    const source = "module Geo\n" +
+      "\n" +
       "(* a note *)\n" +
-      "    export let a: Int = 1\n" +
+      "export let a: Int = 1\n" +
+      "\n" +
       "end module Geo\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Geo\n" +
+      "\n" +
       "Debug.log(\"${Geo.a}\")\n";
 
     expect(compileSource(7, source)).toMatchObject({ kind: "compile-success", diagnostics: [] });
-  });
-
-  test("a tab-indented body mints a header of spaces, drawing no tab refusal", () => {
-    const source =
-      "module Geo\n" +
-      "\texport let a: Int = 1\n" +
-      "end module Geo\n" +
-      "Debug.log(\"${Geo.a}\")\n";
-    const response = compileSource(7, source);
-
-    // The body's own tab is still the lexer's to refuse; what must not happen
-    // is a *second* refusal against text the minted header introduced.
-    if (response.kind !== "compile-failure") return;
-    expect(response.diagnostics.filter(({ message }) => message.includes("tabs"))).toHaveLength(1);
   });
 
   test("previews private bindings through JavaScript and TypeScript emission", () => {
@@ -338,7 +347,8 @@ describe("compileSource", () => {
   test("compiles the canonical multiline conditional", () => {
     const response = compileSource(
       8,
-      "fun fact(n: Int): Int =\n" +
+      MAIN +
+        "fun fact(n: Int): Int =\n" +
         "    if n <= 1 then\n" +
         "        1\n" +
         "    else\n" +
@@ -361,7 +371,8 @@ describe("compileSource", () => {
   test("compiles first-argument pipe insertion through the worker pipeline", () => {
     const response = compileSource(
       9,
-      "let add(x: Int, y: Int) = x + y\n" +
+      MAIN +
+        "let add(x: Int, y: Int) = x + y\n" +
         "let answer = 1 |> add(2) |> add(3)\n",
     );
 
@@ -377,7 +388,7 @@ describe("compileSource", () => {
   });
 
   test("returns private specialization regions for compact JavaScript views", () => {
-    const response = compileSource(11, "let plus(x, y) = x + y\n");
+    const response = compileSource(11, `${MAIN}let plus(x, y) = x + y\n`);
 
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
@@ -423,7 +434,7 @@ describe("compileSource", () => {
     const stamp = "export fun stamp<a: Hash>(x: a, salt: Int): Int = x.hash() + salt\n";
 
     test("reports both artefacts' sizes and the zero-entry-point export beside them", () => {
-      const response = compileSource(40, `${weighty}${heaviest}\n${stamp}`);
+      const response = compileSource(40, `${MAIN}${weighty}${heaviest}\n${stamp}`);
 
       expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
       if (response.kind !== "compile-success") return;
@@ -461,7 +472,7 @@ describe("compileSource", () => {
      * the author nothing — in the one case where the absence is the whole news.
      */
     test("lists an export with no entry points even where nothing was generated", () => {
-      const response = compileSource(41, `${weighty}${heaviest}`);
+      const response = compileSource(41, `${MAIN}${weighty}${heaviest}`);
 
       expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
       if (response.kind !== "compile-success") return;
@@ -477,7 +488,7 @@ describe("compileSource", () => {
     });
 
     test("reports nothing at all for a module whose exports are unconstrained", () => {
-      const response = compileSource(42, "export fun plain(x: Int): Int = x + 1\n");
+      const response = compileSource(42, `${MAIN}export fun plain(x: Int): Int = x + 1\n`);
 
       expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
       if (response.kind !== "compile-success") return;
@@ -503,12 +514,13 @@ describe("compileSource", () => {
     test("measures every edition in UTF-8 bytes, whichever artefact holds the prose", () => {
       const documented = compileSource(
         43,
-        "(** Mélange un sel — «précision» — pour séparer deux valeurs égales. *)\n" + stamp,
+        `${MAIN}(** Mélange un sel — «précision» — pour séparer deux valeurs égales. *)\n${stamp}`,
       );
       // No doc block at all, and the accents inside the body's own literal.
       const accentedBody = compileSource(
         44,
-        "export fun label<a: Show>(x: a): String = \"Mélange «précision» — ${x}\"\n",
+        MAIN +
+          "export fun label<a: Show>(x: a): String = \"Mélange «précision» — ${x}\"\n",
       );
 
       expect(documented).toMatchObject({ kind: "compile-success", diagnostics: [] });
@@ -647,7 +659,10 @@ describe("compileSource", () => {
   test("brands exact Rat division by zero through imported Frac evidence", async () => {
     const response = compileSource(
       15,
-      "let half = Rat.create(1, 2)\n" +
+      MAIN +
+        "import Rat\n" +
+        "\n" +
+        "let half = Rat.create(1, 2)\n" +
         "let zero = Rat.create(0, 1)\n" +
         "let impossible = half / zero\n",
     );
@@ -679,47 +694,180 @@ describe("compileSource", () => {
     });
   });
 
-  test("leaves equipment out of a program that names no companion", () => {
-    const response = compileSource(16, "Debug.log(\"hello\")\n");
+  /**
+   * Modules §8.3: the language has no entry function and no privileged name, so
+   * the host says which module is the root. The Playground's rule is the
+   * buffer's **last** module, and the two facts that follow from it are both
+   * here — which module's JavaScript the JS pane shows, and which module the
+   * worker is told to evaluate.
+   */
+  test("runs the buffer's last module, whatever it is called", () => {
+    const response = compileSource(
+      30,
+      "module Helper\n" +
+        "\n" +
+        "export let twice(n: Int): Int = n * 2\n" +
+        "\n" +
+        "end module Helper\n" +
+        "\n" +
+        "module Demo\n" +
+        "\n" +
+        "import Helper\n" +
+        "\n" +
+        "Debug.log(\"${Helper.twice(3)}\")\n",
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    // Not `Main`: nothing consults the name. `Demo` is last, so `Demo` is the
+    // root — its emission is the pane's, and its layout path is the entry.
+    expect(response.entryPath).toBe("/Demo.hex");
+    expect(response.javascript).toContain('import * as Helper from "./Helper.js";');
+    expect(response.javascript).toContain("Helper.twice(3)");
+    // The helper is a module of the same file and a separate emitted file.
+    expect(response.executionModules.map(({ path }) => path))
+      .toEqual(expect.arrayContaining(["/Helper.hex", "/Demo.hex"]));
+  });
+
+  /**
+   * The one thing a *helper* module in the buffer owes its root: the reserved
+   * evidence handles a generic call across the module boundary reaches through
+   * (`exportInstanceEvidence`). Every module but the root is emitted with them —
+   * the root's own pane stays clean, and nothing imports the root.
+   *
+   * Run, not merely compiled: a missing handle is an emission that type-checks
+   * and dies at load, which is the failure this pane exists to catch.
+   */
+  test("a helper module exports the evidence the root's generic call reaches", async () => {
+    const response = compileSource(
+      31,
+      "module Shapes\n" +
+        "\n" +
+        "export record Box = {size: Int}\n" +
+        "\n" +
+        "honor Show<Box> =\n" +
+        '    show(box) = "box ${box.size}"\n' +
+        "\n" +
+        "end module Shapes\n" +
+        "\n" +
+        "module Main\n" +
+        "\n" +
+        "import Shapes\n" +
+        "\n" +
+        "export let describe<a: Show>(x: a): String = x.show()\n" +
+        "\n" +
+        "export let shown: String = describe(Shapes.Box({size = 3}))\n",
+    );
+
+    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+    if (response.kind !== "compile-success") return;
+    const shapes = response.executionModules.find(({ path }) => path === "/Shapes.hex");
+    expect(shapes?.javascript).toContain("__Show_Box");
+
+    const moduleUrls = new Map<string, string>();
+    for (const module of response.executionModules) {
+      const linked = linkModule(module.javascript, module.path, moduleUrls);
+      moduleUrls.set(
+        module.path,
+        `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
+      );
+    }
+    const entry = await import(
+      /* @vite-ignore */ moduleUrls.get(response.entryPath)!
+    ) as { readonly shown: string };
+    expect(entry.shown).toBe("box 3");
+  });
+
+  test("refuses a buffer that declares no module, naming the one to write", () => {
+    const source = 'Debug.log("hi")\n';
+    const response = compileSource(32, source);
+
+    // The seat the minted header stood at. The Playground writes no header for
+    // the user: a buffer with none is the language's own refusal (Modules
+    // §2.1), and the name it offers is derived from the path the buffer is
+    // handed under — `/main.hex`, so `module Main`.
+    expect(response).toMatchObject({
+      kind: "compile-failure",
+      diagnostics: [{
+        severity: "error",
+        message: "every file declares its module; write `module Main`",
+        startOffset: 0,
+      }],
+    });
+  });
+
+  test("carries no library import into a program that writes none", () => {
+    const response = compileSource(16, `${MAIN}Debug.log("hello")\n`);
 
     expect(response.kind).toBe("compile-success");
     if (response.kind !== "compile-success") return;
-    // #429's complaint: a one-line program opened with three import lines it
-    // never asked for — a `Rat` namespace, the eight-instance inventory a
-    // non-prelude import carries, and a `Vector` namespace that did nothing.
+    // #429's complaint, and #831's answer to it: a one-line program opened with
+    // three import lines it never asked for — a `Rat` namespace, the
+    // eight-instance inventory a non-prelude import carries, and a `Vector`
+    // namespace that did nothing. Now nothing is prepended to any buffer, so
+    // there is nothing to gate: what the program imports is what it wrote.
     expect(response.javascript).not.toContain("./Rat.js");
     expect(response.javascript).not.toContain("./Hex/Vector.js");
     expect(response.javascript).not.toContain("__Eq_Rat");
   });
 
-  test("prepends the Rat equipment import for a program that does name it", () => {
-    const response = compileSource(
-      17,
-      "let third = Rat.create(1, 3)\nDebug.log(\"\${Rat.reciprocal(third)}\")\n",
-    );
+  test("refuses a buffer that names `Rat` and imports nothing", () => {
+    const source = `${MAIN}let third = Rat.create(1, 3)\n`;
+    const response = compileSource(17, source);
 
-    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
-    if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain(
-      'import * as Rat from "./Rat.js";',
-    );
-    expect(response.javascript).toContain("Rat.reciprocal(third)");
+    // The seat the equipment stood at (#831). `Rat` is an ordinary module of
+    // the standard library, so a buffer that never imports it has an unknown
+    // name, reported where the name is written — the answer any `.hex` file
+    // gets, in a Playground that no longer writes lines for the user.
+    expect(response).toMatchObject({
+      kind: "compile-failure",
+      diagnostics: [{
+        severity: "error",
+        message: "unknown name `Rat`",
+        startOffset: source.indexOf("Rat"),
+        endOffset: source.indexOf("Rat") + "Rat".length,
+      }],
+    });
   });
 
-  test("a written `Rat` face selects exact arithmetic, with no import to write", () => {
+  test("compiles the ordinary `import Rat`, in every shape the grammar allows", () => {
+    // A comment is trivia between an import's tokens, and the head may break
+    // across lines: all of these bind `Rat` exactly as the plain spelling does.
+    const heads = [
+      "import Rat\n",
+      "import (* the exact one *) Rat\n",
+      "import\n    Rat\n",
+    ];
+
+    for (const head of heads) {
+      const response = compileSource(
+        17,
+        `${MAIN}${head}\nlet third = Rat.create(1, 3)\nDebug.log("\${Rat.reciprocal(third)}")\n`,
+      );
+
+      expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
+      if (response.kind !== "compile-success") continue;
+      expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
+      expect(response.javascript).toContain("Rat.reciprocal(third)");
+    }
+  });
+
+  test("a written `Rat` face selects exact arithmetic under the module's own import", () => {
     const response = compileSource(
       18,
-      "let exact(f: Int): Rat = (f - 32) * 5 / 9\nDebug.log(\"${exact(98)}\")\n",
+      MAIN +
+        "import Rat\n" +
+        "\n" +
+        "let exact(f: Int): Rat = (f - 32) * 5 / 9\n" +
+        "Debug.log(\"${exact(98)}\")\n",
     );
 
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    // The one injected line is what makes the annotation writable: Modules
-    // §5.1 rule 2's companion fallback (#531) lets the namespace alias answer
-    // the bare `Rat` face, so the named half the equipment used to carry beside
-    // it is gone and nothing here reads any differently. The lift is what makes
-    // the whole tree `Rat` arithmetic rather than an `Int` division converted
-    // after the damage.
+    // One line for both faces: Modules §5.1 rule 2's companion fallback (#531)
+    // lets the module alias answer the bare `Rat` in the annotation, and the
+    // lift is what makes the whole tree `Rat` arithmetic rather than an `Int`
+    // division converted after the damage.
     expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
     expect(response.javascript).toContain("__Frac_Rat.divide(__Num_Rat.multiply(");
     expect(response.javascript).not.toContain("/ 9");
@@ -729,128 +877,78 @@ describe("compileSource", () => {
     }));
   });
 
-  test("a buffer declaring its own `Rat` collides with no injected import", () => {
+  test("a buffer declaring its own `Rat` type keeps it, and imports nothing", () => {
     const response = compileSource(
       19,
-      "record Rat = {top: Int, bottom: Int}\n" +
+      MAIN +
+        "record Rat = {top: Int, bottom: Int}\n" +
         "let half = Rat({top = 1, bottom = 2})\n" +
         "Debug.log(\"${half.top}/${half.bottom}\")\n",
     );
 
-    // The collision this used to need a guard for — `record Rat` beside
-    // `import { Rat }`, a same-namespace duplicate reported at an import line
-    // the buffer neither wrote nor can see — is now unreachable by
-    // construction: the injected line binds only a module alias, and Modules
-    // §5.1 rule 2's fallback answers nothing where a declaration already does.
-    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
-    if (response.kind !== "compile-success") return;
-    expect(response.javascript).not.toContain("import { Rat }");
-  });
-
-  test("compiles a buffer that writes the equipment import itself", () => {
-    const response = compileSource(
-      20,
-      "import Rat\n" +
-        "let half = Rat.create(1, 2)\n" +
-        "Debug.log(\"${half}\")\n",
-    );
-
-    // #537: the equipment used to arrive on top of this and report the alias
-    // namespace's collision — two module aliases of one name — at the line the
-    // user wrote, under a line no buffer shows. It stands down instead, and the
-    // program compiles as the ordinary Hexagon file it already was.
-    expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
-    if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain('from "./Rat.js"');
-  });
-
-  test("compiles the alias import in every shape the grammar allows it", () => {
-    // A comment is trivia between an import's tokens, and the head may break
-    // across lines: all three of these bind `Rat` exactly as the plain
-    // spelling does, and each drew the collision back when the equipment read
-    // the buffer's lines instead of its tokens.
-    const shapes = [
-      "import (* the exact one *) Rat\n",
-      "import\n    Rat\n",
-    ];
-
-    for (const head of shapes) {
-      const response = compileSource(
-        23,
-        head + "let half = Rat.create(1, 2)\nDebug.log(\"${half}\")\n",
-      );
-
-      expect(response).toMatchObject({
-        kind: "compile-success",
-        diagnostics: [],
-      });
-    }
-  });
-
-  test("compiles a buffer aliasing another module as an equipment name", () => {
-    const response = compileSource(
-      21,
-      "module Helper\n" +
-        "    export let twice(n: Int): Int = n * 2\n" +
-        "end module Helper\n" +
-        "import Helper as Rat\n" +
-        "Debug.log(\"${Rat.twice(3)}\")\n",
-    );
-
-    // The name is what collides, not the module behind it, so the gate is
-    // keyed on the alias: `Rat` here is `/Helper.hex`, and it answers.
+    // The collision this used to need a guard for — a `record Rat` beside an
+    // import line the buffer neither wrote nor can see — cannot arise: no line
+    // is written for the user at all.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.javascript).not.toContain("./Rat.js");
   });
 
-  test("compiles a buffer whose own import is the companion's, both faces used", () => {
+  test("compiles a buffer aliasing another module as `Rat`", () => {
     const response = compileSource(
-      22,
-      "import Rat\n" +
-        "let half: Rat = Rat.create(1, 2)\n" +
-        "Debug.log(\"${half}\")\n",
+      21,
+      "module Helper\n" +
+        "\n" +
+        "export let twice(n: Int): Int = n * 2\n" +
+        "\n" +
+        "end module Helper\n" +
+        "\n" +
+        "module Main\n" +
+        "\n" +
+        "import Helper as Rat\n" +
+        "\n" +
+        "Debug.log(\"${Rat.twice(3)}\")\n",
     );
 
-    // #537's headline case, respelt for #762: the buffer's own alias is the
-    // one the injected line would otherwise have written, and the scan has to
-    // see it and stand down. Both faces of the alias are used above — the type,
-    // through §5.1 rule 2's companion fallback, and the qualified `Rat.create`.
+    // `Rat` names whatever the buffer binds it to (Modules §3.1) — here the
+    // module above it — and the library copy is neither reached nor in the way.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain('from "./Rat.js"');
+    expect(response.javascript).not.toContain("./Rat.js");
   });
 
-  test("lets a workspace Rat module occlude the fundamental companion", () => {
-    const source =
-      "module Rat\n" +
+  test("a buffer declaring its own `module Rat` collides with the hosted copy", () => {
+    const source = "module Rat\n" +
+      "\n" +
       "export let create(value: Int): Int = value\n" +
+      "\n" +
       "end module Rat\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Rat\n" +
+      "\n" +
       "let answer = Rat.create(42)\n";
     const response = compileSource(15, source);
 
-    expect(response.kind).toBe("compile-success");
-    if (response.kind !== "compile-success") return;
-    // The shadow is what keeps `/stdlib/Rat.hex` out — it is unhosted here, not
-    // merely un-imported, which is the one case where hosting is conditional.
-    // Nothing else survives: the buffer names no prelude module, and a prelude
-    // module with no importer is not emitted.
-    expect(response.executionModules.map(({ path }) => path)).toEqual([
-      "/Rat.hex",
-      "/Main.hex",
-    ]);
-    // And the `Rat` the entry imports is the block's own — one module named
-    // `Rat` in the program, emitted at the project root by its declared name,
-    // with the hosted copy never compiled. Its `create` is the buffer's
-    // identity function, not the stdlib's exact constructor.
-    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
-    const rat = response.executionModules.find(({ path }) => path === "/Rat.hex");
-    expect(rat?.javascript).toContain("const create = value => value;");
-    expect(rat?.javascript).not.toContain("bottom");
+    // **A wart, pinned as one.** The library copies are handed to the compiler
+    // as files of the project (`hosted-library.ts`), because `ProjectOptions`
+    // gives a host no way to say a file is the package `Hex`'s — so a buffer
+    // declaring `module Rat` declares a *second* `Rat` in one package, which
+    // Modules §2.2 refuses, naming a file the Playground never shows.
+    //
+    // What the language would say if the copy were `Hex.Rat`: nothing at all.
+    // The project's own module wins silently and `import Hex.Rat` still reaches
+    // the library's (Packages §3.2, and #831's own note on the spelling).
+    expect(response.kind).toBe("compile-failure");
+    if (response.kind !== "compile-failure") return;
+    expect(response.diagnostics.map(({ message }) => message)).toContainEqual(
+      expect.stringContaining("module `Rat` is declared twice"),
+    );
   });
 
   test("returns exact binding spans for editor hovers", () => {
-    const source = "let answer = 42\n";
+    const source = `${MAIN}let answer = 42\n`;
     const response = compileSource(10, source);
 
     expect(response.kind).toBe("compile-success");
@@ -865,7 +963,7 @@ describe("compileSource", () => {
   });
 
   test("returns inferred types and hover spans for tuple pattern bindings", () => {
-    const source = "let card = (10, \"hearts\")\nlet (rank, suit) = card\n";
+    const source = `${MAIN}let card = (10, "hearts")\nlet (rank, suit) = card\n`;
     const response = compileSource(11, source);
 
     expect(response.kind).toBe("compile-success");
@@ -894,6 +992,8 @@ describe("compileSource", () => {
     // type-only `hex.d.ts` this artefact is *executable*, so the program would
     // die at its first import with a clean compile behind it.
     const response = compileSource(9, [
+      "module Main",
+      "",
       "record Error = {code: Int}",
       "exception Boom(value: Int)",
       "export let caught(): Int =",
@@ -924,7 +1024,7 @@ describe("compileSource", () => {
   });
 
   test("returns bounded, de-duplicated diagnostics instead of partial output", () => {
-    const source = "let broken = missing\n";
+    const source = `${MAIN}let broken = missing\n`;
     const response = compileSource(8, source);
 
     expect(response.kind).toBe("compile-failure");
