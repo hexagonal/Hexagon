@@ -2176,6 +2176,15 @@ describe("emitJavaScript", () => {
   // test measures ~25s alone against the old 30s budget — passing in isolation
   // and failing under the full suite's parallel load, which is the same thin
   // margin the note above was written about, one prelude growth later.
+  //
+  // Raised to 120s with #829: the whole standard library is now embedded in
+  // every compilation, so each of these 250 compiles carries all of it. That is
+  // 19.2s alone here — well inside 60s, which is why every review round read the
+  // margin as merely thin — but 75.0s under the full suite's parallel load, and
+  // CI's runner crossed the same line at 60.6s. The property and the 250 runs
+  // are untouched; only the budget moved, and it moved past the measurement
+  // rather than up to it, so 120s stands at 1.6x the loaded cost where 60s
+  // stood below it.
   test("is deterministic and bounded for arbitrary compiler input", () => {
     fc.assert(
       fc.property(fc.string(), (text) => {
@@ -2192,7 +2201,7 @@ describe("emitJavaScript", () => {
       }),
       { numRuns: 250 },
     );
-  }, 60_000);
+  }, 120_000);
 });
 
 describe("emitDeclarations", () => {

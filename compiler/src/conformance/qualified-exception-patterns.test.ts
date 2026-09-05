@@ -38,6 +38,16 @@ import {
  *   binding, and every refusal read exactly as the bare form's do.
  */
 
+/**
+ * The budget `module-imports.test.ts` names, for the one test in this file that
+ * sits on it — the sweep over every prelude exception, which is fourteen whole
+ * compiles, prelude included, and #829 put the whole standard library in every
+ * compilation. It measures 1.2s alone and ~5s under the full suite's parallel
+ * load against vitest's 5s default, which is the signature of a budget rather
+ * than a regression; `stream.test.ts` names the same one for the same reason.
+ */
+const PIPELINE_TIMEOUT = 30_000;
+
 describe("a prelude module's own name qualifies its exceptions in catch arms", () => {
   test("`Vector.IndexError(i, s)` catches and binds both payload slots", async () => {
     const exports = await runMain("module Main\n\n" + "export fun guarded(v: Vector(Int)): Int =\n" +
@@ -111,7 +121,7 @@ describe("a prelude module's own name qualifies its exceptions in catch arms", (
         )).toEqual([]);
       }
     }
-  });
+  }, PIPELINE_TIMEOUT);
 });
 
 describe("a module alias qualifies an imported exception", () => {
