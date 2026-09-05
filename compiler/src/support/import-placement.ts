@@ -10,6 +10,11 @@
  * spelling is one no reached module exports and only an inventory can answer.
  * Both place it the same way, and this is the one place that says how — a
  * second copy is how two tiers come to disagree about a file they both edit.
+ *
+ * The line arithmetic the placement is built from is exported beside it, for
+ * the same reason: Modules §2.2's header *move* lifts a line and its blank run,
+ * and every tier that writes a line has to end it the way the file ends its
+ * own. One copy of each, or the tiers drift.
  */
 
 import type * as Source from "./source.js";
@@ -45,9 +50,19 @@ export interface ImportPlacement {
  * #829: a file's first line is now `module Name`, and an import written above
  * it is not a badly-placed import but an ill-formed file — §5.1 requires the
  * applied edit to leave the module well-formed, and "code outside a module" is
- * what offset zero would produce. A file with no header has no module for the
- * edit to sit inside; the parser's own refusal there carries the repair, and
- * this falls back to the top exactly as it always did.
+ * what offset zero would produce.
+ *
+ * **A file with no header gets no placement at all** — `undefined`, and the
+ * refusal keeps its message and drops its edit. There is no module for the line
+ * to sit inside, and the top of the file is the one seat it may not take: the
+ * parser's own "every file declares its module" refusal inserts `module Name`
+ * there, so two fixes would stand at offset zero and a host applying both at
+ * once could put the import above the header it was meant to follow. Applied
+ * one at a time the second is recomputed and lands correctly either way; a "fix
+ * all" does not recompute, so the collision is removed rather than ordered
+ * around, and the header repair — the one that file needs first — is left
+ * alone. An import line the use is already below still places, header or not:
+ * that offset is never zero, so nothing collides.
  *
  * **"Any term-position use" is read locally — the use being repaired.** The
  * universal reading is available and is deliberately not taken. It differs only
@@ -68,13 +83,14 @@ export function importInsertionOffset(
   placement: ImportPlacement,
   text: string,
   before: number,
-): number {
+): number | undefined {
   let offset = placement.header === undefined
-    ? 0
+    ? undefined
     : pastBlankLines(text, pastLineEnd(text, placement.header.end.offset));
   for (const span of placement.imports) {
     if (span.end.offset > before) continue;
-    offset = Math.max(offset, pastLineEnd(text, span.end.offset));
+    const below = pastLineEnd(text, span.end.offset);
+    offset = offset === undefined ? below : Math.max(offset, below);
   }
   return offset;
 }
@@ -83,8 +99,14 @@ export function importInsertionOffset(
  * The offset past any run of blank lines starting at `offset` — so a line
  * inserted below a header joins the module's body rather than wedging itself
  * into the blank the house style leaves under the header.
+ *
+ * Exported for Modules §2.2's other line edit, the header *move*: what a move
+ * lifts is the header's line and the blank run under it, which is the same run
+ * an insert below a header steps over. One copy of the arithmetic, for the
+ * reason the module doc gives — two tiers editing one file must not each own a
+ * notion of where a line ends.
  */
-function pastBlankLines(text: string, offset: number): number {
+export function pastBlankLines(text: string, offset: number): number {
   let at = offset;
   for (;;) {
     const end = text.indexOf("\n", at);
@@ -94,8 +116,33 @@ function pastBlankLines(text: string, offset: number): number {
   }
 }
 
-/** The offset just past the line break that ends the line `offset` is on. */
-function pastLineEnd(text: string, offset: number): number {
+/**
+ * The offset just past the line break that ends the line `offset` is on. The
+ * break itself is kept in the slice below it, so a CRLF file's `\r` travels
+ * with the line it ends rather than being left behind.
+ */
+export function pastLineEnd(text: string, offset: number): number {
   const index = text.indexOf("\n", offset);
   return index === -1 ? text.length : index + 1;
+}
+
+/** The offset the line `offset` sits on begins at. */
+export function lineStart(text: string, offset: number): number {
+  return offset <= 0 ? 0 : text.lastIndexOf("\n", offset - 1) + 1;
+}
+
+/**
+ * The line ending the file itself uses — `\r\n` where its first break is one,
+ * `\n` otherwise (a file with no break at all).
+ *
+ * An inserted line has to end the way the lines around it do: a `\n` written
+ * into a CRLF file leaves one line ending in the middle of the file that does
+ * not match its neighbours, which is a diff every reviewer of that file sees
+ * and no author wrote. The first break settles it because a file mixing the two
+ * has no answer to give, and its first line is the one convention anything else
+ * can be measured against.
+ */
+export function newlineOf(text: string): string {
+  const index = text.indexOf("\n");
+  return index > 0 && text[index - 1] === "\r" ? "\r\n" : "\n";
 }

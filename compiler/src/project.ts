@@ -483,6 +483,12 @@ export function compileProject(
       // the prelude's `Vector` brands `Hex.Vector` wherever its file sits and
       // the brand is a property of the module rather than of a directory.
       identity: unit.fullName,
+      // The package this module *resolves in* (Packages §3.1) — `Hex` for a
+      // standard-library module, the manifest `name` for a project module, and
+      // absent for an unnamed project's. Only the repair family's import lines
+      // read it, and they must: §3.3 refuses a package qualifying its own
+      // module, so a line offered inside `Acme` names `Lib`, never `Acme.Lib`.
+      ...(unit.packageName === undefined ? {} : { packageName: unit.packageName }),
       // Modules §5.5's refusal quotes the program back to itself; nothing else
       // reads the text.
       text: source.text,
@@ -552,6 +558,9 @@ export function compileProject(
       programNominals,
       programOperations,
       sourceText: source.text,
+      // The same fact `resolve` reads, for the same one purpose: the constraint
+      // alias's realias line (Packages §3.3).
+      ...(unit.packageName === undefined ? {} : { packageName: unit.packageName }),
     });
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
@@ -888,10 +897,18 @@ function runtimeDeclarationsBasename(units: readonly Unit[]): string {
  *   test was written to close.
  *
  * Seating the first is what `moduleIndexOf` already decided, so the `continue`
- * there now means what it says. A dropped unit is not silent: its **parse**
+ * there now means what it says.
+ *
+ * **What a dropped unit still says, and what it does not.** Its **parse**
  * reports are surfaced with every other unclaimed unit's, and the rule that
  * refused it — the duplicate name, the first segment — was drawn from the whole
- * unit list before anything was dropped.
+ * unit list before anything was dropped. Nothing *below* parsing runs on it, so
+ * a type error in the dropped file is never reported: `/a.hex` and `/b.hex`
+ * both `module Geo`, each with one, draw `/a.hex`'s alone. That is coherent
+ * rather than a gap. The program is refused by the duplicate report either way,
+ * §2.2 places that report at the second header, and checking a unit the
+ * compiler declined to seat would report against a module the program does not
+ * have.
  */
 function seatOneUnitPerAddress(units: readonly Unit[]): readonly Unit[] {
   const claimed = new Set<string>();
@@ -916,11 +933,25 @@ function packageOf(unit: Unit, project: ProgramPackage): ProgramPackage {
  * `Hex` modules among them (Modules §2.2; Packages §2.2, §2.4).
  *
  * A project file **supplying** an injected module wins, as it always has — the
- * stdlib-developing-itself path. The test is now both halves of the identity:
- * the file sits at the injected basename *and* declares the injected name. One
- * half alone would either hijack a user's `module Option` on a file called
- * anything, or hand `Hex.Option`'s seat to a file called `Option.hex` that
+ * stdlib-developing-itself path. The test is both halves at once: the file sits
+ * at the injected basename *and* declares the injected name. Each half rules
+ * out one adoption the other would allow — a user's `module Option` on a file
+ * called anything, and `Hex.Option`'s seat handed to an `Option.hex` that
  * declares something else.
+ *
+ * **It does not close the hole, and the second half does not make it narrow.**
+ * A user's own `/src/Option.hex` declaring `module Option` satisfies both
+ * halves and takes the seat: `stdlib/Option.hex` is replaced by two lines the
+ * author wrote for themselves, and their module — sitting at a prelude seat —
+ * takes `isPrelude` and with it `privileged`, the intrinsic door. The adoption
+ * test is the last file-name-keyed module identity in the compiler
+ * (`isInjectedModule` is the same shape, Playground-only), which is a fault in
+ * the very design #829 states — "a source file's own name and place appear
+ * nowhere". It is kept for now because the basename is also what lets the
+ * standard library be developed in Hexagon at all: with the name half alone,
+ * any `module Option` anywhere would claim the seat, which is strictly worse.
+ * Replacing it is design work, filed as **#843**, and this comment says what
+ * the code does rather than what it was hoped to do.
  *
  * **Only `.hex` sources are modules** (Packages §2.2). A host hands the compiler
  * every file it has, and a `.js` beside them is a foreign target an

@@ -42,7 +42,7 @@ import * as Typed from "../syntax/typed/index.js";
 import { lex } from "../passes/lexer/lexer.js";
 import { applyLayout } from "../passes/layout/layout.js";
 import { codePointBefore, isIdentifierContinue } from "../support/identifiers.js";
-import { importInsertionOffset } from "../support/import-placement.js";
+import { importInsertionOffset, newlineOf } from "../support/import-placement.js";
 import {
   compileProject,
   specifierFor,
@@ -784,7 +784,9 @@ export class AnalysisSession {
         edits: [],
         disabled: `${exporters.length} modules export a ${repair.namespace} ` +
           `\`${repair.name}\`: ` +
-          exporters.map((exporter) => `\`${displayModuleName(exporter.name)}\``).join(", ") +
+          exporters
+            .map((exporter) => `\`${displayModuleName(exporter.name, this.#options.packageName)}\``)
+            .join(", ") +
           " — write the import for the one you mean",
       };
     }
@@ -798,12 +800,24 @@ export class AnalysisSession {
     // through §5.1 rule 2's companion fallback, whose door is the alias.
     // `moduleImportLine` drops the clause where the module's declared name is
     // already the spelling, so the companion idiom's line stays `import Scale`.
-    const importLine = moduleImportLine(exporters[0]!.name, repair.name);
+    // The **project's** package name, where the manifest declared one: this
+    // file is one of the project's own modules, and Packages §3.3 refuses a
+    // package qualifying its own module — `import Acme.Lib` inside `Acme` is a
+    // line the compiler rejects, so the segment §3.2 elides is elided here.
+    const importLine = moduleImportLine(
+      exporters[0]!.name,
+      repair.name,
+      this.#options.packageName,
+    );
+    // No placement in a headerless file (`importInsertionOffset`): the line has
+    // no module to sit in, and the seat it would take is the one the parser's
+    // own "every file declares its module" repair writes at.
     const offset = insertionOffsetOf(
       analysis.resolvedOf(path),
       text,
       diagnostic.primary.start.offset,
     );
+    if (offset === undefined) return undefined;
     const file = new Source.File(this.#fileIds.get(path)!, path, text);
     return {
       title,
@@ -812,7 +826,9 @@ export class AnalysisSession {
       edits: [{
         path,
         span: file.span(offset, offset),
-        replacement: `${importLine}\n`,
+        // The file's own line ending (`newlineOf`), as the compiler tier writes
+        // it: one rule for the line, one rule for how it ends.
+        replacement: `${importLine}${newlineOf(text)}`,
       }],
     };
   }
@@ -1041,9 +1057,16 @@ export class AnalysisSession {
       .map(({ target }) => target);
     const mentions: RenameEdit[] = [];
     const seen = new Set<string>();
-    // `Eq`, `Ord`, `Show` and `Hash` are known to the checker rather than
-    // declared in Hexagon, so every mention of one is a reference and there is
-    // nothing to rewrite. Renaming them would silently detach every instance.
+    // A name with **no definition occurrence anywhere the session can see** has
+    // no declaration to rename. The pre-registered constraints are the case
+    // that reaches it in practice (Constraints §5.1.1): `Eq`, `Ord`, `Show` and
+    // `Hash` are declared in Hexagon — `stdlib/Eq.hex` and its siblings, each
+    // an `export constraint` — *and* known to the checker, which is what lets a
+    // project name them without importing anything and why a compile that never
+    // loaded their module still resolves every mention. What the refusal
+    // reports is the second fact: nothing here holds their declaration, so
+    // rewriting the mentions would detach every instance from a declaration
+    // this session cannot move.
     //
     // Asked of every spelling, not only the one under the cursor. An alias's
     // declaration is spelled differently *by definition* — that is what makes it
@@ -1090,8 +1113,13 @@ export class AnalysisSession {
           // report spells `Hex.` rather than dropping it (§7.6): this sentence
           // says the module is not the project's, and the package segment is
           // exactly what says whose it is.
-          const declaring = analysis.fullModuleNameOf(definition) ??
-            analysis.pathOf(definition) ?? owner;
+          // No path fallback beside it: §10's row says the declaring **module**
+          // is named "never its file", and every compiled module has a full
+          // name (Packages §2.3), so a fallback to a path could only ever print
+          // the spelling the row forbids. `owner` closes the type without
+          // widening the claim — it is reached only if a module were ever
+          // compiled without one, which nothing in `compileProject` can do.
+          const declaring = analysis.fullModuleNameOf(definition) ?? owner;
           return {
             refused: `\`${name}\` is declared in module \`${declaring}\`, ` +
               "which this project does not own",
@@ -1745,7 +1773,7 @@ function insertionOffsetOf(
   resolved: Resolved.Module | undefined,
   text: string,
   before: number,
-): number {
+): number | undefined {
   return importInsertionOffset(
     {
       header: resolved?.header,

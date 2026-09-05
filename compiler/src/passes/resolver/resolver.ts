@@ -26,6 +26,7 @@ import { displayModuleName, moduleImportLine } from "../../packages.js";
 import * as Source from "../../support/source.js";
 import {
   importInsertionOffset,
+  newlineOf,
   type ImportPlacement,
 } from "../../support/import-placement.js";
 import * as Parsed from "../../syntax/parsed/index.js";
@@ -693,6 +694,21 @@ export interface ResolveOptions {
    * distinguished from.
    */
   readonly identity?: string;
+  /**
+   * The **resolving package's** name (Packages §3.1), where it declared one —
+   * this module's own package, which is `Hex` for a standard-library module and
+   * the project's manifest `name` for a project module.
+   *
+   * One thing reads it: the import lines the repair family prints
+   * (`displayModuleName`). Packages §3.3 refuses a package qualifying its own
+   * module, so `import Acme.Lib` inside `Acme` is a line the language rejects —
+   * a repair has to elide the segment §3.2 already elides, and only the caller
+   * knows which segment that is.
+   *
+   * Absent for an unnamed project and for a pass-level harness alike, which is
+   * the same answer in both: nothing to elide.
+   */
+  readonly packageName?: string;
 }
 
 export function resolve(
@@ -1273,6 +1289,8 @@ class Resolver {
   readonly #identity: string;
   /** This module's source text; see `ResolveOptions.text`. */
   readonly #text: string | undefined;
+  /** The resolving package's name; see `ResolveOptions.packageName`. */
+  readonly #packageName: string | undefined;
   /**
    * The call whose callee is being resolved, when that callee is a bare name.
    *
@@ -1526,6 +1544,7 @@ class Resolver {
     this.#path = options.path;
     this.#identity = options.identity ?? "";
     this.#text = options.text;
+    this.#packageName = options.packageName;
     this.#nextSymbol = options.symbolBase ?? 0;
     this.#nextUnion = options.unionBase ?? 0;
     this.#nextRecord = options.recordBase ?? 0;
@@ -4590,7 +4609,9 @@ class Resolver {
     // Where no home is reached the message names none either, and the offer
     // stays the workspace's: only an inventory can say what exports the
     // spelling (§10's repair-family row).
-    const line = home === undefined ? undefined : moduleImportLine(home, name);
+    const line = home === undefined
+      ? undefined
+      : moduleImportLine(home, name, this.#packageName);
     const insert = line === undefined
       ? undefined
       : this.#importInsertion(line, receiver.span, name);
@@ -4616,7 +4637,9 @@ class Resolver {
    * pass-level test), which degrades to the message alone — the same
    * degradation `#writtenArguments` takes, and never to a wrong offset. Also
    * `undefined` for the second and later refusals of one spelling: the first
-   * carries the line, and it sits above them all.
+   * carries the line, and it sits above them all — and for a file with no
+   * header, where the placement declines rather than take the offset the header
+   * repair is already writing at.
    */
   #importInsertion(
     line: string,
@@ -4629,12 +4652,16 @@ class Resolver {
     const file = this.#placementFile ??
       (this.#placementFile = new Source.File(this.#moduleFileId, this.#path ?? "", text));
     const offset = importInsertionOffset(this.#placement, text, use.start.offset);
+    if (offset === undefined) return undefined;
     return {
       // The **family's** title, the one the workspace tier writes at the seats
       // it still owns (`#importModuleAction`): one repair offered under one
       // name, whichever tier reached it.
       message: `import \`${spelling}\``,
-      edits: [{ span: file.span(offset, offset), replacement: `${line}\n` }],
+      // The file's own line ending (`newlineOf`), not `\n`: an inserted line
+      // ends the way its neighbours do or the repair carries a whitespace diff
+      // into a CRLF file.
+      edits: [{ span: file.span(offset, offset), replacement: `${line}${newlineOf(text)}` }],
     };
   }
 
@@ -5630,7 +5657,7 @@ class Resolver {
     }
     return `\`${name}\` is a module alias, not a type; write \`${name}.${only}\` for the type it ` +
       `exports, name it bare with \`type ${only} = ${name}.${only}\`, ` +
-      `or realias as \`${moduleImportLine(home.name, only)}\``;
+      `or realias as \`${moduleImportLine(home.name, only, this.#packageName)}\``;
   }
 
   #includeNominals(imported: ModuleInterface, qualifier?: string): void {

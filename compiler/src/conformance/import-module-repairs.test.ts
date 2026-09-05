@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import { compileFiles } from "../support/test-project.js";
-import { resolveSpecifier, specifierFor } from "../project.js";
+import { type ProjectOptions, resolveSpecifier, specifierFor } from "../project.js";
+import { displayModuleName, moduleImportLine } from "../packages.js";
 import type * as Diagnostics from "../support/diagnostics.js";
 
 /**
@@ -31,8 +32,11 @@ import type * as Diagnostics from "../support/diagnostics.js";
  */
 
 /** Every message the project reported, in order. */
-function messages(files: readonly (readonly [string, string])[]): readonly string[] {
-  return compileFiles(files).diagnostics.map(({ message }) => message);
+function messages(
+  files: readonly (readonly [string, string])[],
+  options: ProjectOptions = {},
+): readonly string[] {
+  return compileFiles(files, options).diagnostics.map(({ message }) => message);
 }
 
 /**
@@ -489,5 +493,103 @@ describe("the specifier the workspace tier writes (`specifierFor`)", () => {
     expect(specifierFor("/src/main.hex", "/src/scale.hex")).toBe("./scale");
     expect(specifierFor("/src/main.hex", "/lib/deep/scale.hex")).toBe("../lib/deep/scale");
     expect(specifierFor("/main.hex", "/lib/scale.hex")).toBe("./lib/scale");
+  });
+});
+
+/**
+ * **The line a repair offers resolves where it lands** (Packages §3.3, §2.5;
+ * Declarations Preamble §1.1's Rewrite Rule).
+ *
+ * Packages §3.3 is flat about it — "a package's own modules are imported by
+ * their declared names" — and §3.2 answers `import Lib` inside `Acme` from the
+ * declared name alone, while `import Acme.Lib` there is the self-qualified
+ * refusal. So an import line this family prints for a project module has to
+ * elide the *resolving* package's segment and keep every other package's, which
+ * is `resolveModuleName` read backwards (`displayModuleName`).
+ *
+ * Every case below is the same two files compiled twice, once unnamed and once
+ * under a manifest `name`. That is the shape the fault took: the full name went
+ * into the line, so an unnamed project — every test the corpus had — was right
+ * and a named one offered `import Acme.Lib`, a line the compiler refuses. The
+ * repaired file recompiled to zero reports is what makes each case an
+ * obligation rather than a spelling preference.
+ */
+describe("the resolving package's own segment (Packages §3.3)", () => {
+  /** The two option sets every case below is measured under. */
+  const SHAPES = [{}, { packageName: "Acme" }] as const;
+
+  test("the type seat's message names the module as this package must write it", () => {
+    for (const options of SHAPES) {
+      expect(messages([
+        ["/lib.hex", "module Lib\n\n" + "export type Meters = Float\n"],
+        ["/main.hex",
+          "module Main\n\n" + "import Lib\n" +
+          "type Meters = Lib.Meters\n" +
+          "export let n: Float = Meters.zero\n"],
+      ], options)).toEqual([
+        "`Meters` is a type, not a module; `import Lib as Meters` and qualify through it",
+      ]);
+    }
+  });
+
+  test("the type seat's applied edit repairs the file under a manifest `name`", () => {
+    const text = "module Main\n\n" + "import Lib\n" +
+      "type Meters = Lib.Meters\n" + "export let n: Float = Meters.zero\n";
+    for (const options of SHAPES) {
+      const [diagnostic, ...rest] = compileFiles([LIB, ["/main.hex", text]], options).diagnostics;
+      expect(rest).toEqual([]);
+      const repaired = applied(text, diagnostic);
+      expect(repaired).toBe(
+        "module Main\n\n" + "import Lib\n" + "import Lib as Meters\n" +
+          "type Meters = Lib.Meters\n" + "export let n: Float = Meters.zero\n",
+      );
+      // The standard: the offered edit *repairs*. With the package segment in
+      // the line this drew two reports instead of none — the unresolved
+      // `Acme.Lib`, and the original refusal the repair did not repair.
+      expect(messages([LIB, ["/main.hex", repaired]], options)).toEqual([]);
+    }
+  });
+
+  test("the alias-is-not-a-type realias names the module as this package must write it", () => {
+    for (const options of SHAPES) {
+      expect(messages([
+        ["/render.hex", "module Render\n\n" + "opaque record Point = {x: Int}\n"],
+        ["/main.hex",
+          "module Main\n\n" + "import Render as R\n" +
+          "export let f(p: R): Int = 1\n"],
+      ], options)).toContain(
+        "`R` is a module alias, not a type; write `R.Point` for the type it exports, " +
+          "name it bare with `type Point = R.Point`, or realias as `import Render as Point`",
+      );
+    }
+  });
+
+  test("the constraint alias's realias names the module as this package must write it", () => {
+    for (const options of SHAPES) {
+      expect(messages([
+        ["/render.hex",
+          "module Render\n\n" + "export constraint Render<a> =\n    render(value: a): String\n"],
+        ["/main.hex",
+          "module Main\n\n" + "import Render as R\n" +
+          "export fun label<a: R>(x: a): String = R.render(x)\n"],
+      ], options)).toContain(
+        "unknown constraint `R`; `R` is a module alias — write `R.Render` for the " +
+          "constraint it exports, or realias as `import Render`",
+      );
+    }
+  });
+
+  test("another package's segment is kept — only the reader's own is elided", () => {
+    // The rule has two halves and only one of them is an elision. `Hex.` is the
+    // half that was always implemented, and it is the same rule from the other
+    // side: the standard library is always someone else's package, so a reader
+    // in `Acme` writes its modules bare because the prelude is in scope under
+    // exactly that spelling (Packages §2.4), not because the segment is theirs.
+    expect(displayModuleName("Acme.Lib", "Acme")).toBe("Lib");
+    expect(displayModuleName("Bolt.Lib", "Acme")).toBe("Bolt.Lib");
+    expect(displayModuleName("Hex.Ord", "Acme")).toBe("Ord");
+    expect(displayModuleName("Acme.Lib")).toBe("Acme.Lib");
+    expect(moduleImportLine("Acme.Metric", "Scale", "Acme")).toBe("import Metric as Scale");
+    expect(moduleImportLine("Bolt.Metric", "Scale", "Acme")).toBe("import Bolt.Metric as Scale");
   });
 });

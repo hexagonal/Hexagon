@@ -80,6 +80,18 @@ export interface CheckOptions {
    * alone. A fixit the reader cannot paste is worse than none (Modules §7.6).
    */
   readonly sourceText?: string;
+  /**
+   * The **resolving package's** name (Packages §3.1), where it declared one —
+   * this module's own package. One thing reads it, for the one reason
+   * `ResolveOptions.packageName` exists: an import line this module's reader
+   * would paste elides their own package's segment, because §3.3 refuses a
+   * package qualifying its own module.
+   *
+   * The other module names this file prints are read out of a **layout** path
+   * (`moduleBaseName`), which has the segment elided already (Packages §6), so
+   * they need no second copy of the rule.
+   */
+  readonly packageName?: string;
 }
 
 export function check(
@@ -2463,6 +2475,8 @@ class Checker {
   #fileId = 0;
   /** This module's source text, where the host supplied it — see `CheckOptions`. */
   readonly #sourceText: string | undefined;
+  /** The resolving package's name; see `CheckOptions.packageName`. */
+  readonly #packageName: string | undefined;
   /**
    * Whether the `let` pattern being checked is a lambda parameter's
    * destructuring (Pattern Matching §6.5) rather than a written binding. Read
@@ -2489,6 +2503,7 @@ class Checker {
     this.#programNominals = options.programNominals ?? { unions: [], records: [] };
     this.#programOperations = options.programOperations ?? new Map();
     this.#sourceText = options.sourceText;
+    this.#packageName = options.packageName;
   }
 
   check(module: Resolved.Module): Typed.Module {
@@ -12824,7 +12839,7 @@ class Checker {
     return {
       message: `${refusal}; \`${constraint}\` is a module alias — write \`${constraint}.${only}\` ` +
         `for the constraint it exports, or realias as ` +
-        `\`${moduleImportLine(alias.moduleName, only)}\``,
+        `\`${moduleImportLine(alias.moduleName, only, this.#packageName)}\``,
     };
   }
 

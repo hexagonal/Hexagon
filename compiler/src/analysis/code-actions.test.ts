@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { AnalysisSession, type CodeAction } from "./session.js";
+import { AnalysisSession, type CodeAction, type SessionOptions } from "./session.js";
 
 /** Offset of the `nth` occurrence of `needle`, counting from one. */
 function at(text: string, needle: string, nth = 1): number {
@@ -11,11 +11,11 @@ function at(text: string, needle: string, nth = 1): number {
   return offset;
 }
 
-function sessionOf(files: Record<string, string>): {
+function sessionOf(files: Record<string, string>, options: SessionOptions = {}): {
   readonly session: AnalysisSession;
   readonly texts: ReadonlyMap<string, string>;
 } {
-  const session = new AnalysisSession();
+  const session = new AnalysisSession(options);
   const texts = new Map(Object.entries(files));
   for (const [path, text] of texts) session.setFile(path, text);
   return { session, texts };
@@ -1181,6 +1181,43 @@ describe("code actions: the module-import repair family (#577)", () => {
     );
     session.setFile("/main.hex", applied(main, action));
     expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
+  });
+
+  test("under a manifest `name` the line elides the project's own segment", () => {
+    // Packages §3.3: "a package's own modules are imported by their declared
+    // names", and §3.2 answers `import Metric` inside `Acme` from the declared
+    // name alone — so `import Acme.Metric as Scale` is a line the compiler
+    // refuses, and offering it as a *fix* adds an error rather than removing
+    // one. `language-server`'s workspace passes `packageName` straight through
+    // from `hexagon.json`, so this is the line a real named project is offered.
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
+    for (const options of [{}, { packageName: "Acme" }]) {
+      const { session } = sessionOf({ "/metric.hex": METRIC, "/main.hex": main }, options);
+      const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
+      expect(applied(main, action)).toBe(
+        "module Main\n\n" + "import Metric as Scale\n" +
+          "export fun go<a: Scale>(x: a): a = x\n",
+      );
+      // And it repairs: the standard the whole family is held to.
+      session.setFile("/main.hex", applied(main, action));
+      expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
+    }
+  });
+
+  test("the disabled message names candidate modules the same way", () => {
+    // The arm that offers no edit still prints module names, and a reader
+    // picking one from the list writes it by hand — so the list is spelled the
+    // way a line in *this* package has to be.
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf(
+      { "/metric.hex": METRIC, "/scale.hex": SCALE, "/main.hex": main },
+      { packageName: "Acme" },
+    );
+    const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
+    expect(action.disabled).toBe(
+      "2 modules export a constraint `Scale`: `Metric`, `Scale` — " +
+        "write the import for the one you mean",
+    );
   });
 
   test("the constraint seats offer the same action, and it repairs them too", () => {

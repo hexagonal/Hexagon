@@ -100,20 +100,45 @@ export function moduleNameOfLayoutPath(path: string): string {
 }
 
 /**
- * A module's name **as a reader knows it** — the full name, with `Hex.`
- * dropped: Modules §7.6 names a prelude home "by its bare name as the reader
- * knows it (`Ord`, not `Hex.Ord`)", and the prelude is in scope under exactly
- * that spelling (Packages §2.4).
+ * A module's name **as a reader in `requesting` knows it** — the spelling that
+ * package's source has to write to reach it.
+ *
+ * This is `resolveModuleName` read backwards, and it has to be: a line a report
+ * offers is a line the reader will paste, so it must resolve where it lands.
+ * §3.2 answers a package's **own** module from its declared name and §3.3
+ * refuses the package's own name as a qualifier outright — "a package's own
+ * modules are imported by their declared names" — so the requesting package's
+ * segment is elided, and every other package's is kept: `Lib` inside `Acme`,
+ * `Bolt.Lib` for a dependency's. The standard library is elided by the same
+ * rule from the other side: it is always someone else's package, and Modules
+ * §7.6 names a prelude home "by its bare name as the reader knows it (`Ord`,
+ * not `Hex.Ord`)" because the prelude is in scope under exactly that spelling
+ * (Packages §2.4).
+ *
+ * `requesting` is the **resolving package's** name, where it declared one, as
+ * `moduleLayoutPath` takes the project's. Omitted — a pass-level harness with
+ * no project around it — only the `Hex.` rule applies, which is the unnamed
+ * project's answer and the one every caller had before the parameter existed.
  */
-export function displayModuleName(fullName: string): string {
-  return fullName.startsWith(`${STANDARD_LIBRARY}.`)
-    ? fullName.slice(STANDARD_LIBRARY.length + 1)
-    : fullName;
+export function displayModuleName(fullName: string, requesting?: string): string {
+  for (const own of [requesting, STANDARD_LIBRARY]) {
+    if (own !== undefined && fullName.startsWith(`${own}.`)) {
+      return fullName.slice(own.length + 1);
+    }
+  }
+  return fullName;
 }
 
-/** The `import` line that binds `fullName` under the alias `alias`. */
-export function moduleImportLine(fullName: string, alias?: string): string {
-  const name = displayModuleName(fullName);
+/**
+ * The `import` line that binds `fullName` under the alias `alias`, as a module
+ * of `requesting` must write it (see `displayModuleName`).
+ */
+export function moduleImportLine(
+  fullName: string,
+  alias?: string,
+  requesting?: string,
+): string {
+  const name = displayModuleName(fullName, requesting);
   return alias === undefined || alias === name.split(".").at(-1)
     ? `import ${name}`
     : `import ${name} as ${alias}`;
