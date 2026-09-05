@@ -295,7 +295,9 @@ describe("readManifest", () => {
  * Packages §2.1's two name seats, at the tier that reads them (#836 review N4).
  * The compiler's own unit tests over `packageNameRefusal` and
  * `dependencyRefusal` are `compiler/src/packages.test.ts`'s; what is here is
- * that this reader *asks* them, and what it does with the answer.
+ * that this reader *asks* them, and what it does with the answer — through
+ * `compiler/src/index.ts`, which is the entry point every cross-package import
+ * in this directory goes through and which these rows compile against.
  */
 describe("readManifest: the package's name and its dependencies (Packages §2.1)", () => {
   test("a lawful name and dependency list are carried through", async () => {

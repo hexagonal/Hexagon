@@ -38,12 +38,17 @@
  * Reading it lives here rather than in the compiler because it is filesystem
  * work, and the compiler is deliberately free of a filesystem. The *shape*
  * mirrors `ProjectOptions`, so a future `hexc` can share the schema without
- * sharing the reader.
+ * sharing the reader — and the *judgement* is the compiler's own
+ * (`packageNameRefusal`, `dependencyRefusal`), read through
+ * `compiler/src/index.ts` as every other cross-package import in this directory
+ * is. A reader reaching past the entry point pins itself to a file layout it
+ * does not own, and a second answer to "is this a lawful package name" is how
+ * a host comes to accept a name the compiler refuses.
  */
 
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { dependencyRefusal, packageNameRefusal } from "../../compiler/src/packages.js";
+import { dependencyRefusal, packageNameRefusal } from "../../compiler/src/index.js";
 import { normalizePath } from "./positions.js";
 
 export const MANIFEST_NAME = "hexagon.json";

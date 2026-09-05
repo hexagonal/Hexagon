@@ -1087,6 +1087,24 @@ export class AnalysisSession {
         refused: `\`${name}\` is built into the compiler, so it has no declaration to rename`,
       };
     }
+    // The declaring module, worked out **here** rather than at the seat that
+    // prints it: it is a fact about the declaration, and nothing the walk finds
+    // can change it. Settled outside the loop, the refusal below has no
+    // occurrence-derived module name within reach to print — which is the fault
+    // §10's row forbids, kept as an absence rather than as a rule the loop has
+    // to remember.
+    //
+    // By its **full name** (Packages §2.3), which is the one place a report
+    // spells `Hex.` rather than dropping it (§7.6): the sentence says the module
+    // is not the project's, and the package segment is what says whose it is.
+    //
+    // No path fallback beside it: §10's row says the declaring **module** is
+    // named, "never its file", and every compiled module has a full name, so a
+    // fallback to a path could only ever print the spelling the row forbids.
+    // `undefined` is closed at the seat with the occurrence's own path, which is
+    // reachable only if a module were ever compiled without a name — nothing
+    // `compileProject` can do.
+    const declaring = analysis.fullModuleNameOf(definition);
     for (const target of targets) {
       for (const occurrence of analysis.byTarget(target)) {
         // An alias gives one identity two spellings. `import {Shade as Other}`
@@ -1108,21 +1126,21 @@ export class AnalysisSession {
           // occurrence stopped at here is whichever came first, and a mention
           // is as likely as the definition — `Ordering.hex`'s `derives (Eq,
           // Show)` mentions `compare`, and naming `Ordering` would send the
-          // reader to a module that does not declare it (§1, §10).
+          // reader to a module that does not declare it (§1, §10). Which is why
+          // the name printed is `declaring`, settled above from the definition,
+          // and not anything this loop reached.
           //
-          // By its **full name** (Packages §2.3), which is the one place a
-          // report spells `Hex.` rather than dropping it (§7.6): this sentence
-          // says the module is not the project's, and the package segment is
-          // exactly what says whose it is.
-          // No path fallback beside it: §10's row says the declaring **module**
-          // is named "never its file", and every compiled module has a full
-          // name (Packages §2.3), so a fallback to a path could only ever print
-          // the spelling the row forbids. `owner` closes the type without
-          // widening the claim — it is reached only if a module were ever
-          // compiled without one, which nothing in `compileProject` can do.
-          const declaring = analysis.fullModuleNameOf(definition) ?? owner;
+          // With `{project, Hex}` the two can never disagree, and that is a
+          // fact about the injected set rather than about this walk: an
+          // injected module sees the injected modules before it and only those
+          // (Modules §5.5, `weaveInjected`), so no module outside the workspace
+          // can mention a name whose declaration is compiled after it. The
+          // disagreement becomes reachable the moment a real dependency package
+          // is in the program, where one dependency's module may mention
+          // another's — which is why this reads the definition even though no
+          // program this slice compiles could tell the difference.
           return {
-            refused: `\`${name}\` is declared in module \`${declaring}\`, ` +
+            refused: `\`${name}\` is declared in module \`${declaring ?? owner}\`, ` +
               "which this project does not own",
           };
         }

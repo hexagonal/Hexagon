@@ -1159,6 +1159,34 @@ describe("AnalysisSession.rename", () => {
       .toBe("`Show` is built into the compiler, so it has no declaration to rename");
   });
 
+  test("a not-owned name is its declaring module's, with a mentioner in the set", () => {
+    // The guard's **other** half — the module named is the definition's, not
+    // whichever not-owned occurrence the walk stopped at — is pinned as far as
+    // this package can pin it, and no further, which is worth saying plainly.
+    //
+    // `Seq.find` puts `Hex.Seq` in the program, and `Seq.hex` mentions `None`
+    // in its own body: the answer below is the declaring module with a
+    // mentioning one compiled beside it. It does **not** distinguish the two
+    // readings, because with `{project, Hex}` they cannot disagree. Every module
+    // outside the workspace is an injected one, and an injected module sees the
+    // injected modules before it and only those (Modules §5.5, `weaveInjected`)
+    // — so a mention outside the workspace is always compiled *after* the
+    // declaration it mentions, and the walk reaches the definition first
+    // whichever fact the sentence reads. The two part company only when a real
+    // dependency package is in the program, where one dependency's module may
+    // mention another's; that is out of this slice's reach (`Contested` and
+    // `NotADependency` are unreachable from `compileProject` here for the same
+    // reason). `#renameSubject` settles the declaring module from the definition
+    // before the walk begins, so there is no occurrence in scope for the
+    // sentence to read even if one disagreed.
+    const source = "module Main\n\n" +
+      "let found: Option(Int) = Seq.find(Vector.toSeq(Vector.empty()), (n) => True)\n" +
+      "let missing: Option(Int) = None\n";
+    const { session } = sessionOf({ "/main.hex": source });
+    expect(refusal(session.rename("/main.hex", at(source, "None"), "Nothing")))
+      .toBe("`None` is declared in module `Hex.Option`, which this project does not own");
+  });
+
   test("rewrites a dot call, which only the checker knows the meaning of", () => {
     // `Pale.brighten()` is companion dispatch. The resolved tree has only an
     // `Access` whose field nobody has decided the meaning of yet — the checker
