@@ -415,7 +415,7 @@ describe("what a qualified exception pattern refuses", () => {
         "    catch\n" +
         "        Nope.Boom(c) => 0\n" +
         "        _ => 1\n"],
-    ]).diagnostics.map(({ message }) => message)).toContain("unknown module alias `Nope`");
+    ]).diagnostics.map(({ message }) => message)).toContain("no module alias `Nope`");
 
     expect(compileFiles([
       ["/lib.hex", "module Lib\n\n" + "export exception Boom(code: Int)\n"],

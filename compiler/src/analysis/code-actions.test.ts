@@ -1448,13 +1448,20 @@ describe("code actions: the module-import repair family (#577)", () => {
       .filter(({ title }) => title === "import `Scale`")).toHaveLength(1);
   });
 
-  test("the placement law is read locally — the use being repaired", () => {
-    // Modules §5.1's "any term-position use sits below it", adjudicated: the
-    // caret's use, not every use in the file. The two readings differ only with
-    // imports interleaved between declarations and two refused uses straddling
-    // one. Repairing the lower use seats the alias below the upper one, which
-    // keeps its own refusal — now with a fixit of its own — rather than having
-    // the author's own import line reordered under them.
+  /**
+   * **One edit per module, however many seats draw the report** — Modules §5.1
+   * as #829 respelled it, and the reading this test used to pin the opposite of.
+   *
+   * The placement was read *locally* before: the caret's use chose the offset,
+   * so repairing the lower of two uses seated the alias below the upper one,
+   * which then kept a refusal of its own. The two readings differ only with
+   * imports interleaved between declarations and two refused uses straddling
+   * one, which is this file — and the ruling settles it the other way: every
+   * seat carries the same insert, the same range and the same text, computed
+   * from the first use, so whichever refusal the author repairs the file is
+   * repaired whole.
+   */
+  test("one edit per module: either use's repair fixes the file whole", () => {
     const main = "module Main\n\n" + 'import Shape as S\ntype Shape = S.Shape\n' +
       "export fun a(s: Shape): Float = Shape.area(s)\n" +
       'import Other\n' +
@@ -1464,24 +1471,23 @@ describe("code actions: the module-import repair family (#577)", () => {
       "/other.hex": "module Other\n\n" + "export let z: Int = 1\n",
       "/main.hex": main,
     });
+    const repaired = "module Main\n\n" +
+      'import Shape as S\n' +
+      'import Shape\n' +
+      "type Shape = S.Shape\n" +
+      "export fun a(s: Shape): Float = Shape.area(s)\n" +
+      'import Other\n' +
+      "export fun b(s: Shape): Float = Shape.area(s)\n";
     const lower = sole(actionsOn(session, "/main.hex", main, "Shape.area", 2));
-    expect(applied(main, lower)).toBe("module Main\n\n" + 
-      'import Shape as S\ntype Shape = S.Shape\n' +
-        "export fun a(s: Shape): Float = Shape.area(s)\n" +
-        'import Other\n' +
-        'import Shape\n' +
-        "export fun b(s: Shape): Float = Shape.area(s)\n",
-    );
-    session.setFile("/main.hex", applied(main, lower));
-    expect((session.allDiagnostics().get("/main.hex") ?? []).map(({ message }) => message))
-      .toEqual([
-        "`Shape.area` is declared later in this block; declarations are read " +
-          "top-down — move the import above this use",
-      ]);
+    expect(applied(main, lower)).toBe(repaired);
+    const upper = sole(actionsOn(session, "/main.hex", main, "Shape.area", 1));
+    expect(applied(main, upper)).toBe(repaired);
+    // Repaired whole from either seat, which is the point of one edit.
+    session.setFile("/main.hex", repaired);
+    expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
 
-    // And the universal reading is satisfied anyway wherever a request covers
-    // both: the dedupe keeps the *first* refusal, so the line lands above the
-    // earliest use and repairs the file whole.
+    // And a request covering both still offers one action, not two: the dedupe
+    // keeps the first refusal, and the second wanted the identical line anyway.
     session.setFile("/main.hex", main);
     const both = session.codeActions("/main.hex", { start: 0, end: main.length })
       .filter(({ title }) => title === "import `Shape`");

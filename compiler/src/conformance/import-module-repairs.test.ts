@@ -110,12 +110,39 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     ])).toEqual([SHAPE_HOME_NAMED]);
   });
 
-  test("the module's own type reads the same — the seat is the namespace, not the import", () => {
+  /**
+   * §5.1 rule 1's **own-home carve** (#829's Ruling A). The type is this
+   * module's own declaration, so the repair the row above would name is
+   * `import Main` written inside `module Main` — §8.1's one-node cycle. A
+   * module does not qualify through itself, however the spelling reached the
+   * qualifier seat, and that is the sentence the reader gets.
+   *
+   * No repair clause here: `area` is not a binding this module holds, so there
+   * is no bare spelling to drop the qualifier onto.
+   */
+  test("a type of the module's own takes the self-qualification sentence", () => {
     expect(messages([
       ["/main.hex",
         "module Main\n\n" + "union Shape = Circle(Float)\n" +
         "export let n: Float = Shape.area(1.0)\n"],
-    ])).toEqual([TYPE_NOT_A_MODULE]);
+    ])).toEqual(["a module does not qualify through itself"]);
+  });
+
+  /** And with a binding of the name, the qualifier is dropped as the edit. */
+  test("the qualifier is dropped where the module's own layer holds the spelling", () => {
+    const text = "module Main\n\n" + "union Shape = Circle(Float)\n" +
+      "let area(value: Float): Float = value\n" +
+      "export let n: Float = Shape.area(1.0)\n";
+    const [diagnostic, ...rest] = compileFiles([["/main.hex", text]]).diagnostics;
+    expect(diagnostic?.message)
+      .toBe("a module does not qualify through itself; write `area(1.0)`");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Main\n\n" + "union Shape = Circle(Float)\n" +
+        "let area(value: Float): Float = value\n" +
+        "export let n: Float = area(1.0)\n",
+    );
+    expect(messages([["/main.hex", applied(text, diagnostic)]])).toEqual([]);
   });
 
   test("a transparent alias is a type too, and says so under its own name", () => {
@@ -145,16 +172,20 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     ])).toEqual([SHAPE_HOME_NAMED, SHAPE_HOME_NAMED]);
   });
 
-  test("nothing of the spelling anywhere keeps the bare unknown name", () => {
-    // The sentence is conditioned on a type existing — "mentioning the type if
-    // one exists". With no type there is nothing to mention, and claiming one
-    // would be false.
+  test("nothing of the spelling anywhere is the plain unbound-alias report", () => {
+    // The type branch is conditioned on a type existing — "mentioning the type
+    // if one exists". With no type there is nothing to mention, and claiming
+    // one would be false; what is left is rule 1's own report, with no repair
+    // clause, because no module of the spelling is visible either (#829's
+    // Ruling A). Before it, the receiver decayed to ``unknown name `Chevron` ``
+    // — true of the term namespace, and silent about the namespace `Chevron.`
+    // was actually read in.
     // The specimen is a word the prelude does not use at all: since #742's
     // qualified-only default, `Shape` is `JsConversionReason`'s constructor and
-    // draws §5.5's refusal rather than the unknown name this seat is about.
+    // draws §5.5's refusal rather than the report this seat is about.
     expect(messages([
       ["/main.hex", "module Main\n\n" + "export let n: Float = Chevron.area(1.0)\n"],
-    ])).toEqual(["unknown name `Chevron`"]);
+    ])).toEqual(["no module alias `Chevron`"]);
   });
 
   test("a non-uppercase receiver is not rule 1's at all", () => {
@@ -293,15 +324,23 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
   });
 
   test("one line for one spelling, however many uses the module refuses", () => {
-    // Three refused uses of `Meters.` want the identical line, and the first
-    // carries it — so it sits above them all and applying every fix the file
-    // reports writes one import, not three.
+    // Two refused uses of `Meters.` want the identical line, computed from the
+    // first — so it sits above them both, and applying every fix the file
+    // reports writes one import, not two.
     const text = "module Main\n\n" + "import Lib\n" +
       "type Meters = Lib.Meters\n" +
       "export let a: Float = Meters.zero\n" +
       "export let b: Float = Meters.zero\n";
     const reported = compileFiles([LIB, ["/main.hex", text]]).diagnostics;
-    expect(reported.map(({ fixes }) => (fixes ?? []).length)).toEqual([1, 0]);
+    // Every seat carries it, and every seat carries the *same* one: same range,
+    // same text (§5.1, as #829 respelled the obligation). A host applying both
+    // applies one import; a reader who fixes the second gets the same repair as
+    // one who fixes the first, where before they got none at all.
+    expect(reported.map(({ fixes }) => (fixes ?? []).length)).toEqual([1, 1]);
+    const edits = reported.map(({ fixes }) => fixes![0]!.edits[0]!);
+    expect(edits[1]!.replacement).toBe(edits[0]!.replacement);
+    expect(edits[1]!.span.start.offset).toBe(edits[0]!.span.start.offset);
+    expect(applied(text, reported[1])).toBe(applied(text, reported[0]));
   });
 
   test("a prelude spelling never reaches the seat — its alias is always standing", () => {

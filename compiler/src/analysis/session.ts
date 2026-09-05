@@ -644,14 +644,28 @@ export class AnalysisSession {
     // one seated above the earliest refused use, and therefore above all of
     // them (see `importInsertionOffset` on the local reading of §5.1).
     const offered = new Set<string>();
+    // The same dedupe one tier down, for the fixes the **compiler** wrote.
+    // Since #829 every seat of one refused spelling carries the same insert —
+    // same range, same text (Modules §5.1's one edit per module) — so a range
+    // covering two of them holds two identical repairs, and offering both would
+    // put two indistinguishable lightbulbs on one line. Keyed by the edit
+    // rather than by the title, because two repairs sharing a title and
+    // differing in what they write are two repairs.
+    const written = new Set<string>();
     for (const diagnostic of asked) {
       for (const fix of diagnostic.fixes ?? []) {
         const edits = locate(analysis, fix.edits);
         // Every fix a diagnostic carries is a repair for that diagnostic, so
         // the family is settled here rather than at each seat that writes one.
-        if (edits !== undefined) {
-          actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits });
-        }
+        if (edits === undefined) continue;
+        const key = `${fix.message}\u0000${
+          edits.map(({ path, span, replacement }) =>
+            `${path}:${span.start.offset}:${span.end.offset}:${replacement}`
+          ).join("\u0000")
+        }`;
+        if (written.has(key)) continue;
+        written.add(key);
+        actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits });
       }
       const repair = diagnostic.importModuleRepair;
       if (repair === undefined) continue;

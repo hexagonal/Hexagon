@@ -34,6 +34,7 @@ import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { relativeSpecifier } from "../../support/paths.js";
 import {
   displayModuleName,
+  type ImportRepair,
   moduleImportLine,
   moduleNameOfLayoutPath,
 } from "../../packages.js";
@@ -44,6 +45,26 @@ import * as Typed from "../../syntax/typed/index.js";
 
 export interface CheckOptions {
   readonly importedSchemes?: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
+  /**
+   * How `import <written>` would resolve for this module — Modules §5.1 rule
+   * 1's repair clause, as `ResolveOptions.importRepair` supplies it to the
+   * resolver (#829's Ruling A).
+   *
+   * The constraint namespace's qualified seats are reported here rather than in
+   * the resolver (`honor Geo.Describe<Box>`, `<a: Geo.Ord>`), and rule 1 is one
+   * report at every seat, so the same question is asked with the same function.
+   */
+  readonly importRepair?: (written: string) => ImportRepair | undefined;
+  /**
+   * This module's **own default alias** — its declared name's last segment
+   * (Modules §3.1), as `Resolver` reads it off the header.
+   *
+   * Rule 1's first test at the constraint seats: `honor Point.Describe<T>`
+   * inside `module Point` is the module qualifying through itself, and the
+   * repair a plain unbound-alias report would name is an import of the module
+   * into itself (§8.1's one-node cycle).
+   */
+  readonly ownDefaultAlias?: string;
   /**
    * Every nominal declaration the program has resolved so far, dependencies
    * first. The variance analysis reads it and nothing else does; see
@@ -2477,6 +2498,19 @@ class Checker {
   readonly #sourceText: string | undefined;
   /** The resolving package's name; see `CheckOptions.packageName`. */
   readonly #packageName: string | undefined;
+  /** See `CheckOptions.importRepair`. */
+  readonly #importRepair: ((written: string) => ImportRepair | undefined) | undefined;
+  /** See `CheckOptions.ownDefaultAlias`. */
+  readonly #ownDefaultAlias: string | undefined;
+  /**
+   * Every module alias this module binds, whatever it exports.
+   *
+   * `#aliasConstraints` is not that set: it holds only the aliases whose module
+   * exports at least one constraint, which is what its own message needs. Rule
+   * 1 asks the opposite question — whether the qualifier binds a module at all
+   * — and an alias exporting no constraint must not be read as binding nothing.
+   */
+  readonly #moduleAliases = new Set<string>();
   /**
    * Whether the `let` pattern being checked is a lambda parameter's
    * destructuring (Pattern Matching §6.5) rather than a written binding. Read
@@ -2504,6 +2538,8 @@ class Checker {
     this.#programOperations = options.programOperations ?? new Map();
     this.#sourceText = options.sourceText;
     this.#packageName = options.packageName;
+    this.#importRepair = options.importRepair;
+    this.#ownDefaultAlias = options.ownDefaultAlias;
   }
 
   check(module: Resolved.Module): Typed.Module {
@@ -2591,6 +2627,7 @@ class Checker {
       if (item.kind === "Import") {
         if (item.form.kind === "Namespace") {
           const alias = item.form.alias;
+          this.#moduleAliases.add(alias);
           const prefix = `${alias}.`;
           const exported = item.constraints
             .filter(({ local }) => local.startsWith(prefix))
@@ -12822,7 +12859,19 @@ class Checker {
     const refusal = `unknown constraint \`${constraint}\``;
     const alias = this.#aliasConstraints.get(constraint);
     if (alias === undefined) {
-      if (constraint.includes(".")) return { message: refusal };
+      if (constraint.includes(".")) {
+        // §5.1 rule 1 governs the **qualifier**, at this seat as at the other
+        // three (#829's Ruling A): where nothing binds `Q`, `honor Q.Describe`
+        // is not one constraint spelling that failed to resolve — it is a
+        // module alias that does not exist, and the reader's next move is the
+        // import line, not a search of the constraint namespace. Where the
+        // qualifier *does* bind, the spelling really is an unknown constraint
+        // of a known module and the plain refusal is what the row names.
+        const qualifier = constraint.slice(0, constraint.indexOf("."));
+        const unbound = this.#unboundAliasRefusal(qualifier);
+        if (unbound !== undefined) return { message: unbound };
+        return { message: refusal };
+      }
       return {
         message: `${refusal}; import its home module under the alias ` +
           `\`${constraint}\` for qualified access`,
@@ -12841,6 +12890,31 @@ class Checker {
         `for the constraint it exports, or realias as ` +
         `\`${moduleImportLine(alias.moduleName, only, this.#packageName)}\``,
     };
+  }
+
+  /**
+   * Modules §5.1 rule 1's message for an unbound qualifier, or `undefined`
+   * where the qualifier binds a module and the seat's own refusal stands.
+   *
+   * The message alone: the applied edit is the resolver's, which holds the
+   * module text and the placement this seat has neither of. A reader at a
+   * constraint seat gets the sentence and the line to write; a reader at the
+   * other three gets the line written for them.
+   */
+  #unboundAliasRefusal(qualifier: string): string | undefined {
+    if (this.#moduleAliases.has(qualifier) || this.#aliasConstraints.has(qualifier)) {
+      return undefined;
+    }
+    if (qualifier === this.#ownDefaultAlias) return "a module does not qualify through itself";
+    const stem = `no module alias \`${qualifier}\``;
+    const repair = this.#importRepair?.(qualifier);
+    if (repair === undefined) return stem;
+    if (repair.kind === "Contested") {
+      return `${stem}; ${
+        repair.fullNames.map((full: string) => `\`import ${full}\``).join(" or ")
+      }`;
+    }
+    return `${stem}; \`${moduleImportLine(repair.fullName, qualifier, this.#packageName)}\``;
   }
 
   /** Whether a constraint *named* here declares implied type members. */

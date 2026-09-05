@@ -429,6 +429,12 @@ class Parser {
   readonly #tokens: readonly LaidOut.Token[];
   readonly #diagnostics: Diagnostics.Bag;
   /**
+   * Every refused import head's rewrite alias, with the span it was written at
+   * (`Parsed.Module.refusedImportAliases`). The span is kept so the list can be
+   * cut per module the way the comment list is: a file's modules are strangers.
+   */
+  readonly #refusedImportAliases: { readonly alias: string; readonly span: Source.Span }[] = [];
+  /**
    * Doc-comment bookkeeping (spec/doc-comments.md §4). Declaration parsers claim
    * the block sitting before their first token; the blocks nobody claims are
    * §5's hard errors, reported when the module closes.
@@ -589,6 +595,11 @@ class Parser {
     return sections.map((section, index) => ({
       kind: "Module" as const,
       fileId,
+      // Partitioned by span like the comments below, so a use in one module
+      // never stands down because a *stranger* above it wrote a refused head.
+      refusedImportAliases: this.#refusedImportAliases
+        .filter(({ span }) => sectionOf(span.start.offset) === index)
+        .map(({ alias }) => alias),
       name: section.name,
       items: section.items,
       comments: sections.length === 1
@@ -1811,6 +1822,15 @@ class Parser {
         }],
       }),
     });
+    // §5.1: the seats below this head carry no edit of their own, because this
+    // rewrite already offers the line they would write. Recorded under the
+    // alias the rewrite *binds*, which is what a use below spells.
+    if (capitalised !== undefined) {
+      this.#refusedImportAliases.push({
+        alias: alias ?? capitalised.split(".").at(-1)!,
+        span,
+      });
+    }
     this.#synchronize(itemEnds);
     return { kind: "ErrorItem", span };
   }

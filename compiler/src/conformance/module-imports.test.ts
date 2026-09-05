@@ -703,8 +703,22 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
         "export let n: Float = Geometry.area(2.0)\n"],
     ])).toEqual([
       "a module name is uppercase-start; write `import Geometry`",
-      "unknown name `Geometry`",
+      "no module alias `Geometry`; `import Geometry`",
     ]);
+    // The use names the line and carries **no applied edit**: the head above it
+    // already offers that line by its own rewrite (§5.1), and two lightbulbs
+    // writing one import — one of them into the middle of the line the other
+    // rewrites — is not a repair.
+    expect(
+      compileFiles([
+        GEOMETRY,
+        ["/main.hex",
+          "module Main\n\n" + "import geometry\n" +
+          "export let n: Float = Geometry.area(2.0)\n"],
+      ]).diagnostics
+        .filter(({ message }) => message.startsWith("no module alias"))
+        .map(({ fixes }) => fixes),
+    ).toEqual([undefined]);
     expect(messages([
       GEOMETRY,
       ["/main.hex",

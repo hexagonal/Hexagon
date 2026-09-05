@@ -220,7 +220,11 @@ describe("the boundary intrinsics are a fallback in both directions", () => {
   test("`Node` stays hidden outside one", () => {
     expect(runtimeDiagnostics("fun make(): Node(Int) = Node.empty()\n")).toEqual([
       "unknown generic type `Node`",
-      "unknown name `Node`",
+      // Rule 1's plain report: `Node.` is read in the module-alias namespace,
+      // and nothing there answers outside a runtime module. No repair clause —
+      // the trie node is unimportable, so no module of the spelling is visible
+      // (#829's Ruling A).
+      "no module alias `Node`",
     ]);
   });
 

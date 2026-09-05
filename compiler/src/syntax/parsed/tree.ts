@@ -31,6 +31,19 @@ export interface ModuleName {
 export interface Module {
   readonly kind: "Module";
   readonly fileId: Source.FileId;
+  /**
+   * The aliases a **refused import head** would bind under its own rewrite —
+   * `Geometry` for `import geometry`, `Geo` for `import geometry as geo`.
+   *
+   * A refused head is an `ErrorItem`: it binds nothing, so uses below it draw
+   * Modules §5.1 rule 1's unbound-alias report. What that report must not do is
+   * carry an applied edit inserting the same line the head's own rewrite
+   * already offers — "that line already offered, and the seats below it carry
+   * none" (§5.1). Nothing else can say which line that is: the head is gone
+   * from the tree by the time the resolver walks it, and the rewrite's spelling
+   * is the parser's own derivation.
+   */
+  readonly refusedImportAliases: readonly string[];
   /** This module's declared name (Modules §2.1) — its identity (§1). */
   readonly name: ModuleName;
   readonly items: readonly Item[];

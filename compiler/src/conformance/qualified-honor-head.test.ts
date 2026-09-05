@@ -438,15 +438,39 @@ describe("error paths, as the compiler reports them today", () => {
   });
 
   test("a qualifier that is not a module alias at all", () => {
-    // `Q` binds nothing here. The report still reads as though the qualified
-    // name were one constraint spelling that failed to resolve, rather than an
-    // unknown module.
+    // `Q` binds nothing here, and since #829's Ruling A the **qualifier** is
+    // what the report speaks about: Modules §5.1 rule 1 governs `Name.` at
+    // every seat the alias reaches, this one included, so the reader is told
+    // the alias does not exist rather than sent to search the constraint
+    // namespace for a name that could not have been found there.
+    //
+    // No repair clause: no module `Q` is visible either. Where one is, the
+    // report names its import — the case below.
     expect(messages([
       DESCRIBE,
       ["/main.hex",
         "module Main\n\n" + "export record Box = {n: Int}\n" +
         "honor Q.Describe<Box> =\n    describe(value) = \"x\"\n"],
-    ])).toEqual(["unknown constraint `Q.Describe`"]);
+    ])).toEqual(["no module alias `Q`"]);
+  });
+
+  test("a qualifier naming a module the file never imported names the import", () => {
+    expect(messages([
+      DESCRIBE,
+      ["/main.hex",
+        "module Main\n\n" + "export record Box = {n: Int}\n" +
+        "honor Describe.Describe<Box> =\n    describe(value) = \"x\"\n"],
+    ])).toEqual(["no module alias `Describe`; `import Describe`"]);
+  });
+
+  test("a module does not qualify through itself at the honor head either", () => {
+    expect(messages([
+      ["/main.hex",
+        "module Describe\n\n" +
+        "export constraint Describe<a> =\n    describe(value: a): String\n" +
+        "export record Box = {n: Int}\n" +
+        "honor Describe.Describe<Box> =\n    describe(value) = \"x\"\n"],
+    ])).toEqual(["a module does not qualify through itself"]);
   });
 
   test("`= derive` is judged before the head is resolved", () => {

@@ -7,6 +7,7 @@ import { specializations } from "./examples/specializations";
 import { rat } from "./examples/rat";
 import { vectors } from "./examples/vectors";
 import { compileSource } from "./compile";
+import { PlaygroundAnalysis } from "./analysis";
 import { linkModule } from "./module-execution";
 import type { GeneratedSection } from "./protocol";
 
@@ -895,22 +896,48 @@ describe("compileSource", () => {
     expect(response.javascript).not.toContain("__Eq_Rat");
   });
 
-  test("refuses a buffer that names `Rat` and imports nothing", () => {
+  test("refuses a buffer that names `Rat` and imports nothing, and offers the line", () => {
     const source = `${MAIN}let third = Rat.create(1, 3)\n`;
     const response = compileSource(17, source);
 
-    // The seat the equipment stood at (#831). `Rat` is an ordinary module of
-    // the standard library, so a buffer that never imports it has an unknown
-    // name, reported where the name is written — the answer any `.hex` file
-    // gets, in a Playground that no longer writes lines for the user.
+    // The seat the equipment stood at (#831), answered by the language since
+    // #829's Ruling A. `Rat` is an ordinary module of the standard library, so
+    // a buffer that never imports it draws Modules §5.1 rule 1's report at the
+    // offset the name is written — the answer any `.hex` file gets, naming the
+    // one line that repairs it. The equipment used to write that line into the
+    // buffer unasked; the compiler names it and leaves the writing to the
+    // reader, or to the quick fix the editor offers over the same diagnostic.
     expect(response).toMatchObject({
       kind: "compile-failure",
       diagnostics: [{
         severity: "error",
-        message: "unknown name `Rat`",
+        message: "no module alias `Rat`; `import Rat`",
         startOffset: source.indexOf("Rat"),
         endOffset: source.indexOf("Rat") + "Rat".length,
       }],
+    });
+  });
+
+  test("the Playground's own quick fix writes `import Rat` into the buffer", () => {
+    // The applied edit, through the tier the Playground actually calls: the
+    // report is the compiler's and so is the repair, so the editor's lightbulb
+    // needs nothing of the host's (Modules §5.1's compiler-tier obligation).
+    const analysis = new PlaygroundAnalysis();
+    const source = `${MAIN}let third = Rat.create(1, 3)\n`;
+    const actions = analysis.codeActions(source, {
+      startOffset: source.indexOf("Rat"),
+      endOffset: source.indexOf("Rat") + "Rat".length,
+    });
+    const fix = actions.find(({ title }) => title === "import `Rat`");
+    expect(fix?.edits).toEqual([{
+      startOffset: MAIN.length,
+      endOffset: MAIN.length,
+      replacement: "import Rat\n",
+    }]);
+    const repaired = source.slice(0, MAIN.length) + "import Rat\n" + source.slice(MAIN.length);
+    expect(compileSource(18, repaired)).toMatchObject({
+      kind: "compile-success",
+      diagnostics: [],
     });
   });
 

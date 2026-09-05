@@ -741,7 +741,10 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
         "module Main\n\n" + "export let early: Int = Nope.zork(1)\n" +
         "import Nowhere as Nope\n",
       ]])).toEqual([
-        "unknown name `Nope`",
+        // Rule 1's plain report, with no repair clause: `Nope` is no module
+        // alias, and no module the program holds bears the spelling either, so
+        // there is no import to name (#829's Ruling A).
+        "no module alias `Nope`",
         "no module `Nowhere`",
       ]);
       expect(diagnostics([["/main.hex",
@@ -750,7 +753,7 @@ describe("an import straddles the reading laws it imports (Modules §3, #465, #7
         "        Nope.Zork(x) => x\n" +
         "        _ => 0\n" +
         "import Nowhere as Nope\n",
-      ]])[0]).toBe("unknown module alias `Nope`");
+      ]])[0]).toBe("no module alias `Nope`");
     });
   });
 

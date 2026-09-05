@@ -19,6 +19,7 @@ import {
   moduleLayoutPath,
   resolveModuleName,
   STANDARD_LIBRARY,
+  type ImportRepair,
   type ModuleIndex,
   type ModuleResolution,
   type ProgramModule,
@@ -501,6 +502,9 @@ export function compileProject(
       // reads the text.
       text: source.text,
       imports,
+      // Modules §5.1 rule 1's repair clause; see `importRepairFor`.
+      importRepair: (written: string) =>
+        importRepairFor(written, unit, projectPackage, index),
       symbolBase: isInjected ? preludeSymbolBase : symbolBase,
       unionBase: isInjected ? preludeUnionBase : unionBase,
       recordBase: isInjected ? preludeRecordBase : recordBase,
@@ -562,6 +566,9 @@ export function compileProject(
       );
     }
     const typed = check(resolved, {
+      importRepair: (written: string) =>
+        importRepairFor(written, unit, projectPackage, index),
+      ownDefaultAlias: unit.declaredName.split(".").at(-1)!,
       importedSchemes,
       programNominals,
       programOperations,
@@ -932,6 +939,34 @@ function seatOneUnitPerAddress(units: readonly Unit[]): readonly Unit[] {
 }
 
 /** The package a unit's imports resolve against (Packages §3.1). */
+/**
+ * Modules §5.1 rule 1's repair clause, answered from the program's own module
+ * set (#829's Ruling A).
+ *
+ * A refusal of `Rat.create` has to say whether `import Rat` would work, and
+ * nothing inside a pass can know: a module's `imports` hold what it *wrote*,
+ * and this is a question about a line it did not. The resolution is §3's own,
+ * run for a spelling rather than for an import head, so a report and an import
+ * can never disagree about where a name would land — and the two passes that
+ * report rule 1's seats (the resolver's three, the checker's constraint ones)
+ * ask the one function.
+ */
+function importRepairFor(
+  written: string,
+  unit: Unit,
+  project: ProgramPackage,
+  index: ModuleIndex,
+): ImportRepair | undefined {
+  const resolution = resolveModuleName(written, packageOf(unit, project), index);
+  if (resolution.kind === "Resolved") {
+    return { kind: "Resolved", fullName: resolution.module.fullName };
+  }
+  if (resolution.kind === "Contested") {
+    return { kind: "Contested", fullNames: resolution.providers.map(({ fullName }) => fullName) };
+  }
+  return undefined;
+}
+
 function packageOf(unit: Unit, project: ProgramPackage): ProgramPackage {
   return unit.packageName === project.name
     ? project

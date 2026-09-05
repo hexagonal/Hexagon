@@ -327,14 +327,42 @@ describe("§13 (o) — every file declares its module", () => {
   });
 
   test("two modules sharing a file are strangers: neither's names are in scope", () => {
+    // §13(o)'s golden, and rule 1's **one report at every seat** (#829's Ruling
+    // A): the type seat and the term seat of one line draw the same sentence
+    // with the same repair, where before they drew ``unknown module alias
+    // `Geometry` `` and ``unknown name `Geometry` `` — two descriptions of one
+    // mistake, one of them silent about the module the writer meant.
     expect(messages([[
       "/f.hex",
       `module Geometry\n${POINT}end module Geometry\n` +
       "module Shapes\nexport fun unit(): Geometry.Point = Geometry.Point({x = 1.0, y = 2.0})\n",
     ]])).toEqual([
-      "unknown module alias `Geometry`",
-      "unknown name `Geometry`",
+      "no module alias `Geometry`; `import Geometry`",
+      "no module alias `Geometry`; `import Geometry`",
     ]);
+  });
+
+  test("the strangers' repair is one edit, and it makes the file compile", () => {
+    // The applied edit §5.1 obliges, at the seat the review met it: the line is
+    // placed below `module Shapes`' own header — not the file's first — and
+    // both seats carry the identical insert, so applying either repairs the
+    // module whole.
+    const text = `module Geometry\n${POINT}end module Geometry\n` +
+      "module Shapes\nexport fun unit(): Geometry.Point = Geometry.Point({x = 1.0, y = 2.0})\n";
+    const reported = compileFiles([["/f.hex", text]]).diagnostics;
+    const fixes = reported.map(({ fixes: each }) => each![0]!);
+    expect(fixes.map(({ message }) => message)).toEqual(["import `Geometry`", "import `Geometry`"]);
+    const repaired = `module Geometry\n${POINT}end module Geometry\n` +
+      "module Shapes\nimport Geometry\n" +
+      "export fun unit(): Geometry.Point = Geometry.Point({x = 1.0, y = 2.0})\n";
+    for (const fix of fixes) {
+      const edit = fix.edits[0]!;
+      expect(
+        text.slice(0, edit.span.start.offset) + edit.replacement +
+          text.slice(edit.span.end.offset),
+      ).toBe(repaired);
+    }
+    expect(messages([["/f.hex", repaired]])).toEqual([]);
   });
 
   test("a header below the top level is refused, the name uppercase-start", () => {
