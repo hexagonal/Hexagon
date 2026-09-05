@@ -51,7 +51,7 @@ export interface Occurrence {
  *   home; both citations are live, so there is nothing here to correct.)*
  *   - `Node(+a)`: the hidden fixed-32 immutable slot type, read-only from
  *     Hexagon; its disposition is owned by #223, the reopener for this row.
- *   - `Vector(+a)`: `runtime/VectorTrie.hex` writes the representation in
+ *   - `Vector(+a)`: `stdlib/Runtime/VectorTrie.hex` writes the representation in
  *     Hexagon, but nothing wires it to the emitter yet, so there is nothing for
  *     §6.3 to check. Collections Part 3 §4 specifies a persistent trie; what
  *     ships is a **copy-on-write native JavaScript array** (`append` is
@@ -77,7 +77,7 @@ export interface Occurrence {
  *
  * `Map`'s row is **verified** as of the Map step (#370), and it is `co, co`.
  * §11.4 sequenced the real claim after the milestone, and the milestone has
- * arrived: `runtime/HashTrie.hex` writes the representation and the emitter is
+ * arrived: `stdlib/Runtime/HashTrie.hex` writes the representation and the emitter is
  * wired to it, so there is something for §6.3 to check the claim *against* —
  * `k` and `v` reach `HashTrie` through `root: Root(k, v)`, whose three arms hold
  * them in `Sole(key: k, value: v)` and under `Tree(k, v)`'s `Node` slots, every

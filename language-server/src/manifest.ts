@@ -297,8 +297,9 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       // to prevent, and the likeliest cause is a spelling the filesystem itself
       // forgives: macOS and Windows open `Trie.hex` when the file is `trie.hex`,
       // so the user's own editor gives them no hint, while path comparison here
-      // is exact and the entry does nothing at all. A privileged module that is
-      // not privileged brings back the very errors it was written to remove.
+      // is exact and the entry does nothing at all. An `exclude` that excludes
+      // nothing leaves in the project exactly the files it was written to keep
+      // out, and reports that nowhere.
       if (!(await matchesExactly(rootPath, resolved))) {
         problems.push({
           message:

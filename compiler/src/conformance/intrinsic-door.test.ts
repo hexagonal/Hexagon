@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
-import type { ProjectOptions } from "../project.js";
+import vectorTrieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
 
 /**
  * Conformance for the intrinsic door itself (`spec/intrinsics.md`): the gate
@@ -18,12 +18,26 @@ import type { ProjectOptions } from "../project.js";
 
 function diagnostics(
   files: readonly (readonly [string, string])[],
-  options: ProjectOptions = {},
 ): readonly string[] {
   return compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
-    options,
   ).diagnostics.map((diagnostic) => diagnostic.message);
+}
+
+/**
+ * A specimen compiled inside a **runtime module**, which is the only place
+ * `Node(a)` can be spelled.
+ *
+ * The role is not a host's to hand out (#829): a file is a runtime member by
+ * sitting at the member's basename and declaring the member's name, so the
+ * specimen rides in `stdlib/Runtime/VectorTrie.hex`'s own text at
+ * `/VectorTrie.hex`. The trie's text comes along because the emitter writes this
+ * module's export list from a fixed inventory and reports the operations a file
+ * in this seat fails to declare — a bare specimen would draw a diagnostic about
+ * the wiring rather than about the door.
+ */
+function inRuntimeModule(source: string): readonly string[] {
+  return diagnostics([["/VectorTrie.hex", `${vectorTrieSource}\n${source}`]]);
 }
 
 /** One user module. The prelude is injected around it. */
@@ -336,15 +350,11 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
   test("an intrinsic declaration may carry constraint brackets, and they bind", () => {
     const constrained = 'extern from "hex:intrinsic"\n' +
       "    fun hashTrieNodeSingleton as one<a: Hash>(value: a): Node(a)\n";
-    expect(diagnostics(
-      [["/Runtime.hex", "module Runtime\n\n" + `${constrained}export let ok: Int = Node.get(one(1), 0)\n`]],
-      { runtimePaths: ["/Runtime.hex"] },
-    )).toEqual([]);
-    expect(diagnostics(
-      [["/Runtime.hex",
-        "module Runtime\n\n" + "record Weird = {s: String}\n" +
-        `${constrained}export let bad: Int = Node.get(one(Weird({s = "K"})), 0).s\n`]],
-      { runtimePaths: ["/Runtime.hex"] },
+    expect(inRuntimeModule(`${constrained}export let ok: Int = Node.get(one(1), 0)\n`))
+      .toEqual([]);
+    expect(inRuntimeModule(
+      "record Weird = {s: String}\n" +
+      `${constrained}export let bad: Int = Node.get(one(Weird({s = "K"})), 0).s\n`,
     ).join("\n")).toContain("type `Weird` has no `Hash` instance");
   });
 

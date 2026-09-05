@@ -122,7 +122,7 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   string iteration is codepoint-wise, which is §5.1's semantics exactly.
  *
  * The `hashTrie*` family is the door's first **runtime-module** customer (§5.2's
- * runtime bullet, #365): `runtime/HashTrie.hex` declares all ten, unexported,
+ * runtime bullet, #365): `stdlib/Runtime/HashTrie.hex` declares all ten, unexported,
  * and the trie is otherwise ordinary Hexagon. Three groups, each a single
  * JavaScript expression, and each there because Hexagon has no spelling for it
  * rather than because the trie wanted a shortcut.
@@ -136,7 +136,7 @@ export function isIntrinsicScheme(specifier: string): boolean {
  *   forbids.
  * - **Bit algebra** — `hashTrieDigit`, `hashTrieBitTest`, `hashTrieBitSet`,
  *   `hashTrieBitClear`, `hashTrieBitCount`, `hashTrieBitCountBelow`. Hexagon has
- *   no bitwise operators (`runtime/VectorTrie.hex` needed none, and divides
+ *   no bitwise operators (`stdlib/Runtime/VectorTrie.hex` needed none, and divides
  *   instead; a bitmap-compressed trie needs six bits' worth), and a popcount
  *   written over `div`/`rem` would be a loop where the host has a SWAR word.
  * - **Packed storage** — `hashTrieNodeSingleton`, `hashTrieNodeInsertAt`,
@@ -149,7 +149,7 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * The `map*` family is `stdlib/Map.hex`'s (§3.2, #370), and it is the first
  * whose lowerings are *another Hexagon module's* compiled operations rather than
  * emitter-written JavaScript: each of the seven aliases the corresponding export
- * of `runtime/HashTrie.hex`'s emitted module. Three things about the shape are
+ * of `Hex.Runtime.HashTrie`'s emitted module. Three things about the shape are
  * worth stating where the keys are.
  *
  * - **The keyed trio is constrained.** `mapGet`, `mapSet` and `mapRemove`
@@ -176,7 +176,7 @@ export function isIntrinsicScheme(specifier: string): boolean {
  * `Set(a)` is **not** the bare `HashTrie(a, Unit)` it sounds like: a trie value's
  * emitted iterator yields `[key, value]` pairs, which is `Hex.Map`'s face, while
  * `Hex.Set<a> extends Iterable<a>` promises elements, and one record carries one
- * iterator. So `runtime/HashTrie.hex` holds a one-field wrapper record
+ * iterator. So `stdlib/Runtime/HashTrie.hex` holds a one-field wrapper record
  * (`HashSet`) with thin set-facing operations over it, and these seven alias
  * *those* (#373). The wrapper is also what keeps the aliases 1:1 — it absorbs the
  * `Unit` argument that a bare-trie wiring would have needed adapters for.

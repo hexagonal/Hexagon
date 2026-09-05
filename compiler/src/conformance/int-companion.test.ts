@@ -727,7 +727,7 @@ describe("the widenings still cross where §5.1 says they do", () => {
   });
 });
 
-describe("`runtime/VectorTrie.hex`'s index arithmetic, re-routed", () => {
+describe("`stdlib/Runtime/VectorTrie.hex`'s index arithmetic, re-routed", () => {
   /**
    * The trie's `Int.div`/`Int.mod` used to resolve through the door this change
    * removed; they are `Integral<Int>`'s members at the companion now. The trie

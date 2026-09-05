@@ -1782,7 +1782,7 @@ export const STDLIB_SOURCES: Readonly<Record<string, string>> = {
     + "// The persistent hash array mapped trie that `Map(k, v)` and `Set(a)` are built\n"
     + "// on (Collections Part 4 §2.1), written over the hidden fixed-32 `Node`\n"
     + "// intrinsic and the bit-algebra rows the intrinsic door supplies. This is a\n"
-    + "// runtime-internal module in `runtime/VectorTrie.hex`'s exact sense: it is\n"
+    + "// runtime-internal module in `Hex.Runtime.VectorTrie`'s exact sense: it is\n"
     + "// compiled only as a privileged runtime module, and `Tree`, `Node`, and\n"
     + "// `HashTrie` never cross a module boundary — the public face is `Map(k, v)` and\n"
     + "// `Set(a)`, and the emitter is what will wire the two together.\n"

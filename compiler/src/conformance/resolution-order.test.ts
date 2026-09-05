@@ -45,17 +45,60 @@ function diagnostics(
 }
 
 /**
- * The same, for a project one of whose modules holds the runtime grant
- * (intrinsics §5.2) — the only place the hidden `Node` spelling answers, and so
- * the only place its ordering against the companion fallback is observable.
+ * The same, for a project that supplies a **runtime member's own file** — the
+ * only place the hidden `Node` spelling answers, and so the only place its
+ * ordering against the companion fallback is observable.
+ *
+ * A file is that member by sitting at its basename and declaring its name
+ * (#829); no host grant privileges a path any more. The body is written out
+ * here rather than read from `stdlib/Runtime/VectorTrie.hex` because the
+ * specimen aliases something *as* `Node`, and the shipped trie's own text is
+ * `Node.empty()`/`Node.get` throughout — the alias would take every one of
+ * them. `RUNTIME_OPERATIONS` is the export inventory the emitter reports a
+ * member for failing to declare (`VECTOR_RUNTIME_OPERATIONS`), so a member has
+ * to carry the names whatever else it says.
  */
-function grantedDiagnostics(
-  files: readonly (readonly [string, string])[],
-  runtimePaths: readonly string[],
+const RUNTIME_OPERATIONS = "let empty: Int = 0\n" +
+  "fun size(x: Int): Int = 0\n" +
+  "fun get(x: Int): Int = 0\n" +
+  "fun set(x: Int): Int = 0\n" +
+  "fun append(x: Int): Int = 0\n" +
+  "fun prepend(x: Int): Int = 0\n" +
+  "fun slice(x: Int): Int = 0\n" +
+  "fun window(x: Int): Int = 0\n" +
+  "fun concat(x: Int): Int = 0\n" +
+  "fun nodeRun(x: Int): Int = 0\n";
+
+/**
+ * The same for the *other* runtime member (`HASH_TRIE_RUNTIME_OPERATIONS`), so
+ * a specimen can seat both and let the later one reach the earlier.
+ */
+const HASH_TRIE_OPERATIONS = "let empty: Int = 0\n" +
+  "fun singleton(x: Int): Int = 0\n" +
+  "fun size(x: Int): Int = 0\n" +
+  "fun get(x: Int): Int = 0\n" +
+  "fun set(x: Int): Int = 0\n" +
+  "fun remove(x: Int): Int = 0\n" +
+  "fun entries(x: Int): Int = 0\n" +
+  "let emptySet: Int = 0\n" +
+  "fun soleMember(x: Int): Int = 0\n" +
+  "fun memberCount(x: Int): Int = 0\n" +
+  "fun containsMember(x: Int): Int = 0\n" +
+  "fun memberIn(x: Int): Int = 0\n" +
+  "fun addMember(x: Int): Int = 0\n" +
+  "fun removeMember(x: Int): Int = 0\n" +
+  "fun members(x: Int): Int = 0\n";
+
+function memberDiagnostics(
+  source: string,
+  extras: readonly (readonly [string, string])[] = [],
 ): readonly string[] {
+  const files = [
+    ["/VectorTrie.hex", `module Runtime.VectorTrie\n${source}`] as const,
+    ...extras,
+  ];
   return compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
-    { runtimePaths },
   ).diagnostics.map((diagnostic) => diagnostic.message);
 }
 
@@ -330,27 +373,76 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
 
   test("`Node` — the same pair, inside the one module where the spelling answers", () => {
     // Rule 2 carves the exception at `Node` only for a runtime-privileged
-    // module, and shipped runtime source holds no import lines: a project file
-    // at an injection path may, which is exactly this shape.
-    expect(grantedDiagnostics([
-      ["/mynode.hex", "module Mynode\n\n" + "export record Node(a) = { item: a }\n"],
-      ["/rt.hex",
-        "module Rt\n\n" + 'import Mynode as Node\n' +
-        "fun item(n: Node(Int)): Int = n.item\n" +
-        "export let answer: Int = item(Node.Node({ item = 1 }))\n"],
-    ], ["/rt.hex"])).toEqual([]);
-    expect(grantedDiagnostics([
-      ["/mynode.hex", "module Mynode\n\n" + "export fun count(): Int = 1\n"],
-      ["/rt.hex",
-        "module Rt\n\n" + 'import Mynode as Node\n' +
-        // The annotation is the whole assertion: with no `Node` type behind the
-        // alias the hidden intrinsic answers it, and without the intrinsic
-        // there would be no type at all ("unknown generic type `Node`"). The
-        // *term* spelling `Node.` is rule 1's, not rule 2's — an explicit alias
-        // takes it, which it always did.
-        "fun size(n: Node(Int)): Int = 1\n" +
-        "export let answer: Int = Node.count()\n"],
-    ], ["/rt.hex"])).toEqual([]);
+    // module, and shipped runtime source holds no import lines: a project
+    // supplying the member's own file may, which is exactly this shape.
+    // `Option` is a prelude member seated before this one, so it is in reach.
+    const alias = "import Option as Node\n\n" + RUNTIME_OPERATIONS +
+      // The annotation is the whole assertion: with no `Node` type behind the
+      // alias the hidden intrinsic answers it, and without the intrinsic there
+      // would be no type at all ("unknown generic type `Node`"). The *term*
+      // spelling `Node.` is rule 1's, not rule 2's — an explicit alias takes it,
+      // which it always did.
+      "fun sized(n: Node(Int)): Int = 1\n";
+    expect(memberDiagnostics(alias + "export let answer: Option(Int) = Node.Some(1)\n"))
+      .toEqual([]);
+    // And the type really is the intrinsic rather than the aliased module's own:
+    // the alias's value handed to that annotation is a mismatch naming both.
+    expect(memberDiagnostics(alias + "export let bad: Int = sized(Node.Some(1))\n").join("\n"))
+      .toContain("expected Node(Int)");
+  });
+
+  /**
+   * The block's headline direction at `Node`, which is the other half of the
+   * pair above: **an alias whose module exports a type `Node` outranks the
+   * intrinsic in type position.**
+   *
+   * The retired host grant reached this by putting a *project* module's exported
+   * `Node` behind the alias, and it needed that project module to hold the
+   * runtime privilege. Adoption reaches it with no project module at all,
+   * because a project may supply an **earlier runtime member's** file too: a
+   * member sees the injected modules seated before it (Modules §5.5), and
+   * `Runtime.VectorTrie` is one of them. So the pair is reconstructed inside the
+   * two members rather than retired.
+   */
+  test("`Node` — an alias whose module exports the type outranks the intrinsic", () => {
+    // The later member does the aliasing; only its inventory and its one
+    // annotation are load-bearing.
+    const aliasing: readonly [string, string] = [
+      "/HashTrie.hex",
+      "module Runtime.HashTrie\n\n" +
+      "import Runtime.VectorTrie as Node\n\n" +
+      HASH_TRIE_OPERATIONS +
+      "fun item(n: Node(Int)): Int = n.item\n",
+    ];
+    // The earlier member exports a type `Node`, so the annotation is *its*
+    // record and `n.item` reads a field that exists.
+    expect(memberDiagnostics(
+      "\nexport record Node(a) = { item: a }\n" + RUNTIME_OPERATIONS,
+      [aliasing],
+    )).toEqual([]);
+    // The discriminating control: the same pair with nothing named `Node`
+    // behind the alias. Now the hidden intrinsic answers the annotation, and
+    // the record-shaped use of it is the mismatch that names both.
+    expect(memberDiagnostics(
+      "\nexport fun count(): Int = 1\n" + RUNTIME_OPERATIONS,
+      [aliasing],
+    )).toEqual(["type mismatch: expected Node(Int), found {item: a, ...}"]);
+  });
+
+  /**
+   * The seat rule the retired grant used to let a specimen step around: a
+   * runtime member is compiled among the injected modules seated before it and
+   * nothing else, so a **project** module is not there to be aliased at all.
+   *
+   * `runtimePaths` handed the runtime privilege to an ordinary project module,
+   * which is what made the shape above reachable with a project module in it.
+   * With the grant gone the refusal here is the seat rule's, not the door's.
+   */
+  test("a runtime member cannot reach a project module, so it cannot alias one", () => {
+    expect(memberDiagnostics(
+      "import Mynode as Node\n\n" + RUNTIME_OPERATIONS + "fun item(n: Node(Int)): Int = 1\n",
+      [["/mynode.hex", "module Mynode\n\n" + "export record Node(a) = { item: a }\n"]],
+    )).toContain("no module `Mynode`");
   });
 
   test("the intrinsics that are not boundary types keep answering first", () => {

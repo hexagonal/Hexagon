@@ -122,10 +122,16 @@ export class WorkspaceMap {
    * The one place a refusal is the wrong answer. A compile that fails must show
    * the user why it failed, and a message dropped for having no buffer position
    * leaves the Errors tab claiming there is nothing wrong with source that will
-   * not compile. So a message against an injected `Hex` module — the duplicate
-   * refusal a buffer's own `module Rat` draws against `/Hex/Rat.hex` — is
+   * not compile. So a message carried against an injected `Hex` module is
    * anchored at the nearest position the buffer has rather than discarded.
-   * Requests answer through `toBuffer`, which refuses instead.
+   *
+   * The buffer cannot provoke one by *naming* a library module: since #829 its
+   * own `module Rat` is a module of the project, and it occludes `Hex.Rat`
+   * silently (Packages §3.2, pinned in `compile.test.ts`). What lands there is
+   * a report about the standard library's own source — what a compiler or
+   * stdlib regression looks like from here — and dropping it would leave the
+   * Errors tab empty on a compile that failed. Requests answer through
+   * `toBuffer`, which refuses instead.
    */
   anchor(path: string, offset: number): number {
     if (path !== bufferPath) return 0;

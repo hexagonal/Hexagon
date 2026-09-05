@@ -8,13 +8,15 @@ stale by two arcs.
 
 What has landed, and where the shipped design differs from this note:
 
-- **`Vector(a)`** is `runtime/VectorTrie.hex` (#299/#303/#306), written over the
+- **`Vector(a)`** is `stdlib/Runtime/VectorTrie.hex` (#299/#303/#306), written over the
   `Node` intrinsic exactly as §4 proposes, with `stdlib/Vector.hex` as its
   prelude companion (#218). §6's sequencing was *not* followed: package imports
   (§5.3) never landed and were not needed — the runtime module is injected by
-  basename and its text embedded by `npm run generate:prelude`, which is the
-  same mechanism the prelude uses.
-- **`Map(k, v)`** is `runtime/HashTrie.hex` (#365) — a bitmap-compressed HAMT
+  its membership in `Hex`'s runtime list and its text embedded by
+  `npm run generate:prelude`, which is the same mechanism the prelude uses. (The
+  basename is the *adoption* half: a project supplying the member's own file is
+  read at the member's basename declaring the member's name, #829.)
+- **`Map(k, v)`** is `stdlib/Runtime/HashTrie.hex` (#365) — a bitmap-compressed HAMT
   rather than a 32-way fixed fan, so it needs the three length-changing packed
   operations and the bit algebra §4's `Node` family has no member for; those
   cross the intrinsic door (`spec/intrinsics.md` §5.2's runtime bullet) rather
@@ -22,7 +24,7 @@ What has landed, and where the shipped design differs from this note:
   (#370), and the emitter's `persistentCollections` helper has lost its whole
   Map half.
 - **`Set(a)`** landed at the arc's last step (#373) and inherits the HAMT one
-  record over: a `Set(a)` is `runtime/HashTrie.hex`'s `HashSet(a)` — a one-field
+  record over: a `Set(a)` is `stdlib/Runtime/HashTrie.hex`'s `HashSet(a)` — a one-field
   wrapper holding a `HashTrie(a, Unit)`, which exists so the emitted set value
   carries element-only iteration where the trie's own iterator yields pairs.
   `stdlib/Set.hex` is its prelude companion, and the `persistentCollections`
