@@ -685,6 +685,99 @@ describe("the resolving package's own segment (Packages §3.3)", () => {
 });
 
 /**
+ * §5.1 rule 1's **first test**: the reporting module's own default alias — its
+ * declared name's last segment (Modules §3.1).
+ *
+ * No alias binds a module's own name inside it, so a module cannot qualify
+ * through itself, and the seat is tested ahead of every branch below for two
+ * reasons that meet here. The companion idiom puts a same-spelled *type* in
+ * scope in exactly this module, so the type branch would fire on the ordinary
+ * case; and the repair every branch below names is an import, which written
+ * here is `import Point` inside `module Point` — §8.1's one-node cycle.
+ */
+describe("a module does not qualify through itself (§5.1 rule 1, §3.1)", () => {
+  test("the qualifier is dropped, and the message quotes the call's own arguments", () => {
+    const text = "module Point\n\n" +
+      "export let make(x: Float, y: Float): Float = x + y\n" +
+      "export let one: Float = Point.make(1.0, 0.0)\n";
+    const [diagnostic, ...rest] = compileFiles([["/point.hex", text]]).diagnostics;
+    expect(diagnostic?.message)
+      .toBe("a module does not qualify through itself; write `make(1.0, 0.0)`");
+    // Never `import Point`, at the message or at the edit.
+    expect(diagnostic?.message).not.toContain("import");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Point\n\n" +
+        "export let make(x: Float, y: Float): Float = x + y\n" +
+        "export let one: Float = make(1.0, 0.0)\n",
+    );
+    expect(messages([["/point.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("a head binder holding the spelling takes the sentence and no repair", () => {
+    // §5.1: the edit is carried only where the bare spelling, read *at that
+    // use*, names the module's own binding. Here `two` is the parameter, so
+    // dropping the qualifier would silently name it — a repair that changes
+    // what the program means is worse than no repair.
+    const [diagnostic, ...rest] = compileFiles([["/shapes.hex",
+      "module Shapes\n\n" +
+      "export let two: Float = 2.0\n" +
+      "export fun grow(two: Float): Float = Shapes.two * two\n",
+    ]]).diagnostics;
+    expect(diagnostic?.message).toBe("a module does not qualify through itself");
+    expect(diagnostic?.fixes).toBeUndefined();
+    expect(rest).toEqual([]);
+  });
+
+  test("the module's own layer, and not the prelude's, is what the repair reads", () => {
+    // `show` is a prelude name in bare scope, and this module declares none of
+    // its own — so there is nothing here to drop the qualifier onto, and the
+    // sentence stands alone rather than rewriting to a prelude spelling.
+    const [diagnostic, ...rest] = compileFiles([["/point.hex",
+      "module Point\n\n" + 'export let one: String = Point.show(1)\n',
+    ]]).diagnostics;
+    expect(diagnostic?.message).toBe("a module does not qualify through itself");
+    expect(diagnostic?.fixes).toBeUndefined();
+    expect(rest).toEqual([]);
+  });
+
+  test("the seat is the declared name's **last segment**", () => {
+    // `module Render.Geometry`'s default alias is `Geometry` (§3.1), so that is
+    // the spelling this rule tests — and `Render.` is not it.
+    expect(messages([["/geo.hex",
+      "module Render.Geometry\n\n" +
+      "export let scale: Float = 1.0\n" +
+      "export let twice: Float = Geometry.scale * 2.0\n",
+    ]])).toEqual(["a module does not qualify through itself; write `scale`"]);
+  });
+
+  test("it holds in type position too, and drops the qualifier there", () => {
+    const text = "module Point\n\n" + "export type Meters = Float\n" +
+      "export let one: Point.Meters = 1.0\n";
+    const [diagnostic, ...rest] = compileFiles([["/point.hex", text]]).diagnostics;
+    expect(diagnostic?.message)
+      .toBe("a module does not qualify through itself; write `Meters`");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Point\n\n" + "export type Meters = Float\n" +
+        "export let one: Meters = 1.0\n",
+    );
+  });
+
+  test("an import may still bind the spelling to another module", () => {
+    // §3.1: `import Render.Point` inside `module Point` collides with nothing,
+    // and `Point.` then means what it imports — so this rule fires only where
+    // *nothing* binds the alias.
+    expect(messages([
+      ["/render.hex", "module Render.Point\n\n" + "export let origin: Float = 0.0\n"],
+      ["/point.hex",
+        "module Point\n\n" + "import Render.Point\n" +
+        "export let zero: Float = Point.origin\n"],
+    ])).toEqual([]);
+  });
+});
+
+/**
  * §5.1 rule 1's **contested** repair clause (Packages §3.3), at the pass.
  *
  * Two visible packages have to provide the written name and the resolving one
