@@ -463,18 +463,19 @@ export interface Name {
  * the resolver keys the module-alias lookup on.
  *
  * The one thing the spelling does **not** carry is where the qualifier stops,
- * and Modules §5.1 rule 1's repair is exactly a deletion of it: `Scale.Scale`
- * inside `module Scale` is reported with the qualifier dropped as the applied
- * edit. The text cannot be re-measured for that, because `Geo . Ord` is legal
- * spacing and normalizes to the same eleven characters — so the range the drop
- * deletes is recorded here, by the one place that saw both tokens.
+ * and Modules §5.1 rule 1 needs that twice over: its reports underline the
+ * qualifier, and its repair deletes the qualifier and its dot. The text cannot
+ * be re-measured for either, because `Geo . Ord` is legal spacing and
+ * normalizes to the same eleven characters — so both ranges are recorded here,
+ * by the one place that saw both tokens.
  */
 export interface ConstraintReference extends Name {
   /**
-   * The qualifier and its dot — the `Geo.` of `Geo.Ord` — or `undefined` where
-   * the reference is bare and there is nothing to drop.
+   * Where the qualifier stands — the `Geo` and the `Geo.` of `Geo.Ord`
+   * (`Source.Qualification`) — or `undefined` where the reference is bare and
+   * there is nothing to underline or drop.
    */
-  readonly qualification?: Source.Span;
+  readonly qualification?: Source.Qualification;
 }
 
 export type Pattern =

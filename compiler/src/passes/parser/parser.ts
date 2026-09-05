@@ -5916,13 +5916,17 @@ class Parser {
     return {
       text: `${token.text}.${(qualified as Lexed.NameToken).text}`,
       startClass: "upper",
-      // The range Modules §5.1 rule 1's drop deletes, recorded here because
-      // this is the only place both tokens are in hand: the reference's own
-      // `text` has already normalized whatever stood between them.
+      // The two ranges Modules §5.1 rule 1 reports and repairs with, recorded
+      // here because this is the only place both tokens are in hand: the
+      // reference's own `text` has already normalized whatever stood between
+      // them (`Source.Qualification`).
       qualification: {
-        fileId: token.span.fileId,
-        start: token.span.start,
-        end: qualified.span.start,
+        qualifier: token.span,
+        range: {
+          fileId: token.span.fileId,
+          start: token.span.start,
+          end: qualified.span.start,
+        },
       },
       span: spanFrom(token.span, qualified.span),
     };

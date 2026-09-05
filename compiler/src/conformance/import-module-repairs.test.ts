@@ -3,11 +3,13 @@ import { describe, expect, test } from "vitest";
 import { compileFiles } from "../support/test-project.js";
 import { type ProjectOptions, resolveSpecifier, specifierFor } from "../project.js";
 import { displayModuleName, type ImportRepair, moduleImportLine } from "../packages.js";
+import { check } from "../passes/checker/checker.js";
 import { applyLayout } from "../passes/layout/layout.js";
 import { lex } from "../passes/lexer/lexer.js";
 import { parse } from "../passes/parser/parser.js";
 import { resolve } from "../passes/resolver/resolver.js";
 import type * as Diagnostics from "../support/diagnostics.js";
+import { ImportRepairs } from "../support/import-placement.js";
 import * as Source from "../support/source.js";
 
 /**
@@ -49,8 +51,10 @@ function messages(
 }
 
 /**
- * Rule 1's sentence where the checker has **not** reached the type's home —
- * the module's own declaration, which no import repairs (§5.1, §10).
+ * Rule 1's type-branch sentence where the pass has **not** reached the type's
+ * home: the route is stated as a rule rather than as a line, and no edit is
+ * carried — only an inventory can say which module exports the spelling, and
+ * that offer is the workspace tier's (§5.1, §10).
  */
 const TYPE_NOT_A_MODULE = "`Shape` is a type, not a module; import its home " +
   "module to qualify through it";
@@ -659,6 +663,278 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
       "type `Box` has no `Num` instance; it could only be declared in " +
         "module `Main` (declares `Box`) or the module declaring `Num`",
     ]);
+  });
+});
+
+/**
+ * Rule 1's **type branch at the constraint seats** — §10's rows 533 and 534,
+ * at the four seats the checker owns.
+ *
+ * §5.1 rule 1 asks three questions in order, and the third is the plain
+ * unbound-alias report row 532 states with its own condition attached: "*where
+ * no module alias `Rat` is bound, `Rat` is not the reporting module's own
+ * alias, **and no type of the spelling is in scope***". The resolver's three
+ * seats asked all three. The checker's four asked the first two and then
+ * reported row 532 — with row 532's applied edit — at exactly the case its
+ * condition excludes, which is not a missing sentence but a wrong repair: with
+ * a project module of the spelling visible, the offered `import Shape` compiles
+ * and silently moves the head off the type the reader named and onto a
+ * module's constraint of the same spelling.
+ *
+ * The branch's own two rows are what belongs there instead. A type whose home
+ * is **this module** keeps the type's fact and takes the own-alias row's repair
+ * and condition (row 533) — never an import of the module into itself, §8.1's
+ * one-node cycle. A type whose home is **abroad** names that home and carries
+ * the import as the applied edit (row 534). Neither names an import of the
+ * *qualifier's* spelling, which is the whole content of the fix.
+ */
+describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branch)", () => {
+  /**
+   * The four seats. Written as one function of the reference so that the
+   * matrix below is a matrix: each case says what the module declares and what
+   * the qualified reference is, and all four seats are asked the same question
+   * about it — a binder's obligation (Constraints §4.2), an `honor` head
+   * (§4.1), a constrained hole (closure doc §4.4), and a parameterized head's
+   * own prefix (§4.3).
+   */
+  const SEATS: readonly (readonly [string, (reference: string) => string])[] = [
+    ["the binder", (reference) => `export fun go<a: ${reference}>(x: a): a = x\n`],
+    ["the honor head", (reference) => `honor ${reference}<Box> =\n    describe(value) = "b"\n`],
+    ["the hole binder", (reference) => `let f(x: _ : ${reference}): Int = 1\n`],
+    [
+      "the parameterized head prefix",
+      (reference) => `honor<a: ${reference}> Own<Twin(a)> =\n    own(value) = 1\n`,
+    ],
+  ];
+
+  /**
+   * The declarations every seat needs in scope — a subject for the head, a
+   * parameterized one for §4.3's, and a local constraint for the head that is
+   * not the one under test. Rule 1 is indifferent to all of it; it is here so
+   * the four seats differ in nothing but the seat.
+   */
+  const SCAFFOLD = "export record Box = {n: Int}\n" +
+    "export record Twin(a) = {left: a, right: a}\n" +
+    "export constraint Own<a> =\n    own(value: a): Int\n";
+
+  /**
+   * Rule 1's report, of however many the fixture drew.
+   *
+   * The seats sit inside declarations that raise complaints of their own — an
+   * unresolved obligation leaves a binder unconstrained, an `honor` head whose
+   * constraint never resolved infers no members — and none of those is what
+   * this suite is about. Exactly one report of this family is expected at each
+   * seat, which is itself part of the claim.
+   */
+  function ruleOne(
+    files: readonly (readonly [string, string])[],
+  ): Diagnostics.Diagnostic {
+    const found = compileFiles(files).diagnostics.filter(({ message }) =>
+      message.includes("is a type, not a module") ||
+      message.includes("no module alias") ||
+      message.includes("does not qualify through itself")
+    );
+    expect(found.map(({ message }) => message)).toHaveLength(1);
+    return found[0]!;
+  }
+
+  /** A `module Main` of `declarations` with one seat written under them. */
+  function main(declarations: string, seat: string): readonly [string, string] {
+    return ["/main.hex", `module Main\n\n${declarations}${seat}`];
+  }
+
+  /** A module exporting a constraint *and* a type of its own name. */
+  const SHAPE_HOME = [
+    "/shape.hex",
+    "module Shape\n\n" + "export union Shape = Circle(Float)\n" +
+      "export constraint Describe<a> =\n    describe(value: a): String\n",
+  ] as const;
+
+  describe("row 533 — a type this module declares", () => {
+    for (const [seat, write] of SEATS) {
+      test(`${seat} keeps the type's fact and takes the own-alias repair`, () => {
+        // The module declares the constraint too, so the bare spelling at this
+        // use names the module's own binding and the drop is carried (§5.1's
+        // condition, one namespace over from the term seat's).
+        const declarations = SCAFFOLD + "export record Shape = {n: Int}\n" +
+          "export constraint Describe<a> =\n    describe(value: a): String\n";
+        const file = main(declarations, write("Shape.Describe"));
+        const report = ruleOne([file]);
+        expect(report.message).toBe("`Shape` is a type, not a module; write `Describe`");
+        // Never an import, at the message or at the edit: `import Main` inside
+        // `module Main` is §8.1's one-node cycle, and `import Shape` — which a
+        // visible module of the spelling would make available — is the wrong
+        // declaration.
+        expect(report.message).not.toContain("import");
+        expect(applied(file[1], report)).toBe(
+          `module Main\n\n${declarations}${write("Describe")}`,
+        );
+      });
+    }
+
+    test("a project module of the spelling changes nothing — the type still wins", () => {
+      // The review case, and the reason this is a defect rather than a gap:
+      // `import Shape` is available here, it is what row 532 would have
+      // offered, and applying it compiles. It also honours **module** `Shape`'s
+      // `Describe` at the local record instead of naming the type the reader
+      // wrote, which is why row 532 states "and no type of the spelling is in
+      // scope" as part of its own condition.
+      const declarations = SCAFFOLD + "export record Shape = {n: Int}\n";
+      const file = main(declarations, "honor Shape.Describe<Shape> =\n    describe(value) = \"s\"\n");
+      const report = ruleOne([SHAPE_HOME, file]);
+      expect(report.message).toBe("`Shape` is a type, not a module");
+      expect(report.fixes).toBeUndefined();
+      // And the edit that is not offered would have been a program: this is the
+      // measurement that makes the missing suppression a wrong repair rather
+      // than a missing one.
+      expect(
+        messages([SHAPE_HOME, ["/main.hex", file[1].replace("module Main\n\n", "module Main\n\nimport Shape\n")]]),
+      ).toEqual([]);
+    });
+
+    test("the repair clause stands down where the bare spelling is not the module's own", () => {
+      // §5.1's condition from its failing side, at the type branch: `Describe`
+      // is reached through an import, so dropping the qualifier would name
+      // another module's declaration. The fact is still the type's.
+      const report = ruleOne([
+        ["/describe.hex",
+          "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a): String\n"],
+        main("import Describe\nexport record Point = {x: Int}\n",
+          "honor Point.Describe<Point> =\n    describe(value) = \"p\"\n"),
+      ]);
+      expect(report.message).toBe("`Point` is a type, not a module");
+      expect(report.fixes).toBeUndefined();
+    });
+  });
+
+  describe("row 534 — a type whose home is abroad", () => {
+    /**
+     * The one shape that carries a home across the border (`#typeHomeModule`):
+     * a transparent alias of this module's own whose expansion is qualified
+     * through an import. The type namespace holds `Shape`, and the module an
+     * import would reach is the one the alias points at.
+     */
+    const DECLARATIONS = "import Shape as S\n" + "type Shape = S.Shape\n" + SCAFFOLD;
+
+    for (const [seat, write] of SEATS) {
+      test(`${seat} names the home and carries the import`, () => {
+        const file = main(DECLARATIONS, write("Shape.Describe"));
+        const report = ruleOne([SHAPE_HOME, file]);
+        expect(report.message).toBe(
+          "`Shape` is a type, not a module; `import Shape` and qualify through it",
+        );
+        // The applied edit, and it is a repair: the line makes the qualifier a
+        // module alias, which is exactly what the sentence told the reader to do.
+        expect(messages([SHAPE_HOME, ["/main.hex", applied(file[1], report)]])).toEqual([]);
+      });
+    }
+
+    test("the import is the module's one edit, shared with a term seat of the spelling", () => {
+      // §5.1's "one edit per module, however many seats draw the report" holds
+      // across the branch too: the term seat is the resolver's and this one is
+      // the checker's, and both mint from the module's `ImportRepairs`.
+      const { diagnostics } = compileFiles([
+        SHAPE_HOME,
+        main(DECLARATIONS,
+          "export fun go<a: Shape.Describe>(x: a): a = x\n" +
+            "export let named: Float = Shape.area(1.0)\n"),
+      ]);
+      const edits = diagnostics
+        .filter(({ message }) => message.includes("is a type, not a module"))
+        .map(({ fixes }) => fixes?.[0]?.edits);
+      expect(edits).toHaveLength(2);
+      expect(edits[0]).toBeDefined();
+      expect(edits[1]).toEqual(edits[0]);
+    });
+  });
+
+  describe("row 532 — no type of the spelling, which is the row's own condition", () => {
+    for (const [seat, write] of SEATS) {
+      test(`${seat} keeps the plain report and its edit`, () => {
+        const file = main(SCAFFOLD, write("Shape.Describe"));
+        const report = ruleOne([SHAPE_HOME, file]);
+        expect(report.message).toBe("no module alias `Shape`; `import Shape`");
+        // And the edit is a repair: with no type of the spelling standing in
+        // the way, the import is exactly the line the reader needed.
+        expect(messages([SHAPE_HOME, ["/main.hex", applied(file[1], report)]])).toEqual([]);
+      });
+    }
+  });
+
+  test("a type in scope with no home reached names no import and carries no edit", () => {
+    // The branch's third arm, and the floor the whole fix rests on: **no arm
+    // inserts an import of the qualifier's own spelling where a type of it is
+    // in scope**. Reached at the pass, by handing the checker the namespace a
+    // later resolution would hand it — the same route the contested arm above
+    // is pinned by, and for the same reason: the arm is a function of that
+    // answer and of nothing else.
+    //
+    // Everything a repair needs is deliberately present — a module `Shape`
+    // that `import Shape` would resolve to, and the module's own edit writer —
+    // so that a report naming one would be reporting it, not failing to find it.
+    const text = "module Main\n\n" + "export fun go<a: Shape.Describe>(x: a): a = x\n";
+    const file = new Source.File(Source.fileId(0), "/main.hex", text);
+    const parsed = parse(applyLayout(lex(file)));
+    const typed = check({
+      ...resolve(parsed, { text }),
+      typeSpellings: new Map([["Shape", { own: false }]]),
+    }, {
+      importRepair: () => ({ kind: "Resolved", fullName: "Hex.Shape" }),
+      repairs: new ImportRepairs(parsed, text, "/main.hex"),
+    });
+    const report = typed.diagnostics
+      .find(({ message }) => message.includes("not a module") || message.includes("no module alias"));
+    expect(report?.message).toBe(TYPE_NOT_A_MODULE);
+    expect(report?.fixes).toBeUndefined();
+  });
+
+  describe("the report speaks about the qualifier, and underlines it", () => {
+    // §5.1's reports at these seats are about the name that failed to bind, and
+    // the resolver's three seats underline exactly that (`seat.qualifier.span`).
+    // The item's own span — the whole binder, or `honor` through the end of the
+    // head — is the span of the *obligation*, which is not what failed.
+    function underlined(files: readonly (readonly [string, string])[], text: string): string {
+      const report = ruleOne(files);
+      return text.slice(report.primary.start.offset, report.primary.end.offset);
+    }
+
+    for (const [seat, write] of SEATS) {
+      test(`${seat} underlines the qualifier alone`, () => {
+        const file = main(SCAFFOLD, write("Shape.Describe"));
+        expect(underlined([SHAPE_HOME, file], file[1])).toBe("Shape");
+      });
+    }
+
+    test("spacing inside the reference does not widen it", () => {
+      const file = main(SCAFFOLD, "export fun go<a: Shape . Describe>(x: a): a = x\n");
+      expect(underlined([SHAPE_HOME, file], file[1])).toBe("Shape");
+    });
+
+    test("a constraint that merely failed to resolve keeps the item's span", () => {
+      // The move is rule 1's, not the seat's: where the qualifier *binds*, the
+      // spelling really is an unknown constraint of a known module, and the
+      // reader has to look at the whole obligation.
+      const text = "module Main\n\n" + 'import Shape as S\n' +
+        "export fun go<a: S.NotThere>(x: a): a = x\n";
+      const [report] = compileFiles([SHAPE_HOME, ["/main.hex", text]]).diagnostics;
+      expect(report?.message).toBe("unknown constraint `S.NotThere`");
+      expect(text.slice(report!.primary.start.offset, report!.primary.end.offset))
+        .toBe("a: S.NotThere");
+    });
+  });
+
+  test("a prelude companion binds the alias, and rule 1 never reaches the type", () => {
+    // Rule 1 reads the module-alias namespace **first**, and §5.5 puts the
+    // prelude's companions in it — so `Option.` is a module here, and the
+    // refusal is the one a known module's missing constraint draws. Reading
+    // only the module's written imports made `Option` bind nothing, which sent
+    // the seat down to a later test: before the type branch, the plain report
+    // offering `import Option` for a module already in scope.
+    expect(messages([
+      ["/main.hex",
+        "module Main\n\n" + "export record Box = {n: Int}\n" +
+        "honor Option.Describe<Box> =\n    describe(value) = \"b\"\n"],
+    ])).toEqual(["unknown constraint `Option.Describe`"]);
   });
 });
 

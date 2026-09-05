@@ -22,6 +22,16 @@ import streamSource from "../../../stdlib/Stream.hex?raw";
 import { AnalysisSession } from "../analysis/session.js";
 import { compileFiles, projectDiagnostics, runMain } from "../support/test-project.js";
 
+/**
+ * The budget `module-imports.test.ts` names, for the one test in this file that
+ * sits on it — §4's "demands `!` at every consumer", which compiles fifteen
+ * whole projects, prelude included, and #829 put the whole standard library in
+ * every compilation. It measures ~5s under the full suite's parallel load
+ * against vitest's 5s default and passes comfortably alone, which is the
+ * signature of a budget rather than a regression.
+ */
+const PIPELINE_TIMEOUT = 30_000;
+
 /** A script `Stream` over the first `count` positive integers. */
 const script = (count: number): string =>
   `Stream.fromSeq(Seq.take(Seq.iterate(1, x => x + 1), ${count}))`;
@@ -233,7 +243,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
       ]);
       expect(projectDiagnostics(call(name, "!", rest, result))).toEqual([]);
     }
-  });
+  }, PIPELINE_TIMEOUT);
 });
 
 describe("§4.5 what the surface refuses", () => {

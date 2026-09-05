@@ -2403,6 +2403,7 @@ class Resolver {
       preludeTypeImports: this.#preludeTypeImports.map((entry) => ({ ...entry })),
       visibleConstraints: [...this.#visibleConstraints.values()],
       visibleExceptions: [...this.#visibleExceptions.values()],
+      typeSpellings: this.#typeSpellingChannel(),
       externTypes: this.#externTypes,
       comments: module.comments,
       docs: module.docs,
@@ -4929,6 +4930,40 @@ class Resolver {
    */
   #ownAliasOrType(name: string): boolean {
     return name === this.#ownDefaultAlias || this.#typeNamespaceHolds(name);
+  }
+
+  /**
+   * `Module.typeSpellings`: rule 1's type branch, written down for the pass
+   * that reports the **constraint** seats.
+   *
+   * The three questions are the three this file already asks at its own seats —
+   * `#typeNamespaceHolds`, `#ownTypeNames`, `#typeHomeModule` — so the channel
+   * is those three read once each per spelling rather than a second reading of
+   * the four maps. The checker cannot ask them itself: they are this pass's,
+   * and this pass has returned by the time a binder's obligation is checked.
+   *
+   * Built at the end and equal to what any seat saw during resolution: the four
+   * maps are complete before a body is walked (`#predeclareTypes` runs first,
+   * and the import and prelude layers are seeded before it), so no seat can
+   * have been reported against a smaller namespace than this one.
+   */
+  #typeSpellingChannel(): ReadonlyMap<string, Resolved.TypeSpelling> {
+    const spellings = new Map<string, Resolved.TypeSpelling>();
+    const names = [
+      ...this.#unionNames.keys(),
+      ...this.#recordNames.keys(),
+      ...this.#typeAliases.keys(),
+      ...this.#externTypeNames.keys(),
+    ];
+    for (const name of names) {
+      if (spellings.has(name)) continue;
+      const home = this.#typeHomeModule(name);
+      spellings.set(name, {
+        own: this.#ownTypeNames.has(name),
+        ...(home === undefined ? {} : { home }),
+      });
+    }
+    return spellings;
   }
 
   /**
