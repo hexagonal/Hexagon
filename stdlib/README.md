@@ -4,6 +4,19 @@ This directory holds Hexagon-written v1 standard-library modules as they become
 executable conformance clients of the compiler. They are ordinary source modules,
 not compiler intrinsics.
 
+Together they are the package **`Hex`** (Packages §2.4): every file here declares
+its module (`module Vector`, full name `Hex.Vector`), the prelude members are in
+scope everywhere without an import, and the rest (`Rat`) is imported by name —
+`import Rat`, or `import Hex.Rat` where a project's own `Rat` occludes the bare
+spelling. The directory is called `stdlib` and the package `Hex` on purpose: the
+one place in the repository where a package's directory and its name differ,
+since the compiler reads neither a directory nor a file name to learn a module's
+name (Modules §1). Dotted modules sit in the folder their name suggests —
+`Runtime/VectorTrie.hex` declares `module Runtime.VectorTrie` — as a convention
+for the reader (Packages §2.2), not a rule the language enforces; the only
+layout the language prescribes is the emitted one, `Hex/Runtime/VectorTrie.js`
+(Packages §6).
+
 - `Show.hex`, `Num.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex`, `Concat.hex`,
   `Eq.hex`, `Hash.hex`, `Ord.hex`, `Integral.hex`, and `Iterable.hex` are the
   **declaring modules** of the eleven constraints the compiler pre-registers. A
