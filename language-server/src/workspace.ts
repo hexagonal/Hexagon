@@ -234,12 +234,12 @@ export class Workspace {
    * **A multi-root workspace still compiles as one project**, which is what the
    * merge below has to answer for. `dependencies` unions: the field says which
    * packages an import may name, and a union names the ones any root's manifest
-   * allows. `name` cannot
-   * union — a project has one name or none — so the first root that declares
-   * one supplies it, in the order the client sent the roots. A workspace whose
-   * roots are two *named* packages is really a workspace of two packages, and
-   * that shape wants the host layer that reads installed packages; until then
-   * this answers deterministically rather than arbitrarily.
+   * allows. `name` cannot union — a project has one name or none — so the first
+   * root that declares one supplies it, in the order the client sent the roots.
+   * A workspace whose roots are two *named* packages is really a workspace of
+   * two packages, and that shape wants the host layer that reads installed
+   * packages; until then this answers deterministically rather than
+   * arbitrarily.
    */
   #configureSession(): void {
     const dependencies = new Set<string>();
