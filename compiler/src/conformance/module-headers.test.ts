@@ -144,25 +144,84 @@ describe("§13 (o) — every file declares its module", () => {
     expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
   });
 
-  test("a refused header moves as the message spells it, not as it was written", () => {
-    // Two reports at one line, and the move's own sentence names `module
-    // Geometry` — so the line it writes says `module Geometry`. Moving the
-    // written `module geometry` would contradict the sentence and leave the
-    // casing refusal standing in the file the repair produced; as it is, the
-    // repaired file draws nothing at all. (Both reports keep their own fixits;
-    // applied one at a time, either order reaches the same file.)
+  test("a refused header is repaired at its own seat first; the move stands down", () => {
+    // Two reports at one line, and their edits would overlap: the casing
+    // rewrite replaces the name, the move deletes the line the name is in. A
+    // host applying both at once ("fix all in file") has no defined result from
+    // a pair of overlapping spans, so the collision is *removed* rather than
+    // ordered around — the same call review round 3 made for the two fixes a
+    // headerless file used to offer at offset zero.
+    //
+    // The header's own repair is the one left standing, because it is the one
+    // that has to happen either way, and because a move that wrote the name the
+    // message spells would be editing inside the line it also deletes. The row
+    // keeps its message: what it says is true of this file whether or not an
+    // edit can be offered for it.
     const text = "let stray: Int = 1\n\nmodule geometry\n\n" + POINT;
     const [moved, cased, ...rest] = reports([["/f.hex", text]]);
     expect(moved?.message).toBe(
       "code outside a module: a module begins with its header; " +
         "move `module Geometry` above this item",
     );
+    expect(moved?.fixes ?? []).toEqual([]);
     expect(cased?.message).toBe("a module name is uppercase-start; write `module Geometry`");
     expect(rest).toEqual([]);
-    expect(applied(text, moved)).toBe(
-      "module Geometry\n\nlet stray: Int = 1\n\n" + POINT,
+    // And the two repairs compose in sequence, which is what the removal buys:
+    // the casing rewrite lands, the row is recomputed against the file it made,
+    // and *that* move repairs the file to nothing.
+    const recased = applied(text, cased);
+    expect(recased).toBe("let stray: Int = 1\n\nmodule Geometry\n\n" + POINT);
+    const [again, ...others] = reports([["/f.hex", recased]]);
+    expect(others).toEqual([]);
+    expect(applied(recased, again)).toBe("module Geometry\n\nlet stray: Int = 1\n\n" + POINT);
+    expect(messages([["/f.hex", applied(recased, again)]])).toEqual([]);
+  });
+
+  test("an item and the header on one line: the move stands down, message only", () => {
+    // `;` separates block items, so this is a lawful line that draws the row —
+    // and the header's line is the stray item's line. Lifting the line and
+    // putting it back at the top is two edits that cancel: the lightbulb is
+    // offered, the user clicks it, and the file is unchanged with the error
+    // still standing. An offered rewrite must rewrite (Declarations Preamble
+    // §1.1), so where a verbatim lift cannot, none is offered.
+    const text = "let stray: Int = 1; module Geometry\n\n" + POINT;
+    const [diagnostic, ...rest] = reports([["/f.hex", text]]);
+    expect(diagnostic?.message).toBe(
+      "code outside a module: a module begins with its header; " +
+        "move `module Geometry` above this item",
     );
-    expect(messages([["/f.hex", applied(text, moved)]])).toEqual([]);
+    expect(diagnostic?.fixes ?? []).toEqual([]);
+    expect(rest).toEqual([]);
+  });
+
+  test("the header on the file's last line, ended by nothing, still moves", () => {
+    // The file an author has while they are typing the header: the line exists
+    // and no Return has been pressed yet, and the lightbulb is live at that
+    // keystroke. A lift that carried no terminator would weld the header to the
+    // line it lands above — `module Geometrylet stray: Int = 1` — so the line
+    // is written as a whole line, ended the way this file ends its own
+    // (`insertedLine`).
+    const text = "let stray: Int = 1\n\nmodule Geometry";
+    const [diagnostic, ...rest] = reports([["/f.hex", text]]);
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe("module Geometry\nlet stray: Int = 1\n\n");
+    expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("the same file in CRLF, and with the header's line left trailing spaces", () => {
+    // The terminator the move supplies is the file's own, so a CRLF file keeps
+    // its endings here as it does where the lift carries them; and the lifted
+    // text stays verbatim, trailing whitespace included, because a repair
+    // reformats nothing.
+    const crlf = "let stray: Int = 1\r\n\r\nmodule Geometry";
+    const [crlfReport] = reports([["/f.hex", crlf]]);
+    expect(applied(crlf, crlfReport)).toBe("module Geometry\r\nlet stray: Int = 1\r\n\r\n");
+    expect(messages([["/f.hex", applied(crlf, crlfReport)]])).toEqual([]);
+
+    const spaced = "let stray: Int = 1\n\nmodule Geometry   ";
+    const [spacedReport] = reports([["/f.hex", spaced]]);
+    expect(applied(spaced, spacedReport)).toBe("module Geometry   \nlet stray: Int = 1\n\n");
+    expect(messages([["/f.hex", applied(spaced, spacedReport)]])).toEqual([]);
   });
 
   test("a CRLF file keeps its line endings — the lifted text is the file's own", () => {

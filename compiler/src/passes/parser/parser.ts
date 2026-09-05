@@ -12,6 +12,7 @@ import * as Diagnostics from "../../support/diagnostics.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
 import * as Source from "../../support/source.js";
 import {
+  insertedLine,
   lineStart,
   newlineOf,
   pastBlankLines,
@@ -589,30 +590,57 @@ class Parser {
    * repaired file declares exactly the modules the refused one did — the edit
    * moves a line and moves nothing else.
    *
-   * The one thing the lifted text does not carry verbatim is the **name**,
-   * which is written as the header declares it — `header.name.text`, the
-   * recovered spelling where the header was itself refused. A miscased header
-   * above an item draws two reports, and the message here names `module
-   * Geometry`; moving `module geometry` would contradict the sentence and leave
-   * the casing refusal standing in the file the repair produced. For every
-   * header that was not refused the two spellings are the same string, so this
-   * is the identity there.
+   * What is lifted is **verbatim**, and the two shapes where a verbatim lift
+   * would not repair the file are the two the move stands down at, message
+   * only, as the placement helper stands down for a headerless file:
+   *
+   * **The header sharing its line with an item.** `;` separates block items, so
+   * `let stray: Int = 1; module Geometry` is a lawful line that draws this row,
+   * and its "header's line" is the item's line too — lifting it and putting it
+   * back at the top is a fix that changes nothing, and lifting the header alone
+   * would leave a dangling separator behind. The item list settles it: any item
+   * touching the header's line and the move declines. What sits *after* the
+   * header on its line is a different matter and travels with it — a trailing
+   * comment belongs to the line it was written on, and text the parse refused
+   * to read as an item at all (`module Geometry export let n: Int = 2` has no
+   * separator, so the second half is never an item here) leaves the file drawing
+   * the report it already drew for its own reason, wherever the line stands.
+   *
+   * **A header whose own name was refused.** The name is the one part of the
+   * line a verbatim lift gets wrong — `module geometry` moved unchanged leaves
+   * the casing refusal standing in the file the repair produced — and writing
+   * the recovered spelling instead is an edit *inside* the line this move also
+   * deletes, which is a span the casing rewrite already owns. Two overlapping
+   * edits have no defined "fix all", so the collision is removed rather than
+   * ordered around (review round 3's NB3, at the seat round 4 found it): the
+   * header's own repair goes first, and this row is recomputed against the file
+   * that repair produces, where the header is spelled as it should be and this
+   * move is a plain lift again.
    */
   #headerMoveFix(
     header: ModuleMarker,
+    items: readonly Parsed.Item[],
     fileId: Source.FileId,
     path: string,
-  ): Diagnostics.Fix {
-    const file = new Source.File(fileId, path, this.#text);
-    const from = lineStart(this.#text, header.span.start.offset);
-    const to = pastBlankLines(this.#text, pastLineEnd(this.#text, header.span.end.offset));
-    const lifted = this.#text.slice(from, header.name.span.start.offset) +
-      header.name.text +
-      this.#text.slice(header.name.span.end.offset, to);
+  ): Diagnostics.Fix | undefined {
+    const text = this.#text;
+    const from = lineStart(text, header.span.start.offset);
+    const lineEnd = pastLineEnd(text, header.span.end.offset);
+    const shared = items.some(({ span }) =>
+      span.start.offset < lineEnd && span.end.offset > from
+    );
+    const written = text.slice(header.name.span.start.offset, header.name.span.end.offset);
+    if (shared || written !== header.name.text) return undefined;
+    const to = pastBlankLines(text, lineEnd);
+    const file = new Source.File(fileId, path, text);
     return {
       message: `move \`module ${header.name.text}\` above this item`,
       edits: [
-        { span: file.span(0, 0), replacement: lifted },
+        // A whole line (`insertedLine`): the last line of a file need not be
+        // ended by anything, and a header lifted from one would otherwise be
+        // welded to whatever stands where it lands — which is the file an
+        // author has while they are still typing the header.
+        { span: file.span(0, 0), replacement: insertedLine(text, 0, text.slice(from, to)) },
         { span: file.span(from, to), replacement: "" },
       ],
     };
@@ -658,12 +686,18 @@ class Parser {
         // direction §2.2 states ("its fixit the header moved above the item").
         // The items are folded into the module the header opens, so one
         // misplaced line unbinds nothing.
+        //
+        // The *edit* stands down for the two shapes a verbatim lift cannot
+        // repair (`#headerMoveFix`); the report is the row either way, since
+        // what it says is true of the file whether or not an edit can be
+        // offered for it.
+        const move = this.#headerMoveFix(firstHeader, items, fileId, path);
         this.#diagnostics.add({
           severity: "error",
           message: "code outside a module: a module begins with its header; move " +
             `\`module ${firstHeader.name.text}\` above this item`,
           primary: leading[0]!.span,
-          fixes: [this.#headerMoveFix(firstHeader, fileId, path)],
+          ...(move === undefined ? {} : { fixes: [move] }),
         });
       }
     } else {
