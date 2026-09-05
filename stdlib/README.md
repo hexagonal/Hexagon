@@ -6,11 +6,10 @@ not compiler intrinsics.
 
 Together they are the package **`Hex`** (Packages §2.4): every file here declares
 its module (`module Vector`, full name `Hex.Vector`), and the prelude modules are
-in scope everywhere without an import (their bare names being Modules §5.5's
-closed set). `Rat` is the one module outside the prelude — the spec's "rest of
-`Hex`", reached by `import Rat` once the whole library is embedded (#846); today
-the compiler embeds the prelude and the runtime tries only, and a project that
-wants `Rat` supplies the file itself. The directory is called `stdlib` and the
+in scope everywhere without an import, Modules §5.5's closed set of sixteen being
+what they seed in the term namespace. `Rat` is the one module outside the
+prelude — the spec's "rest of `Hex`". Today the compiler embeds the prelude and
+the runtime tries only, and a project that wants `Rat` supplies the file itself. The directory is called `stdlib` and the
 package `Hex` on purpose: the compiler reads neither a directory nor a file name
 to learn a module's name (Modules §1), so a directory says what it holds and a
 package is what a program writes. A dotted module may sit in the folder its name
