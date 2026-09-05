@@ -246,6 +246,51 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     );
   });
 
+  test("a headerless file carries the message and no edit — the header repair owns offset zero", () => {
+    // Two applied edits would stand at offset zero: the parser's "every file
+    // declares its module" insert, and this line. A host applying both at once
+    // does not recompute the second, so the import can land above the header it
+    // was meant to follow — "code outside a module" (§2.2), which is not what
+    // §5.1's "placed so the file stays well-formed" allows. The placement
+    // declines instead; once the header repair lands, this answers normally.
+    // The import sits *below* the use, so no line above it anchors the edit and
+    // the header fallback is the one that would answer — the shape that reaches
+    // offset zero. An import the use is already below places as it always did:
+    // that offset is never zero, so nothing collides there.
+    const text = "type Meters = P.Meters\n" +
+      "export let n: Float = Meters.zero\n" + "import Lib as P\n";
+    const reported = compileFiles([LIB, ["/main.hex", text]]).diagnostics;
+    expect(reported.map(({ message }) => message)).toEqual([
+      "every file declares its module; write `module Main`",
+      "`Meters` is a type, not a module; `import Lib as Meters` and qualify through it",
+    ]);
+    expect(reported.map(({ fixes }) => (fixes ?? []).length)).toEqual([1, 0]);
+    // And the header repair alone leaves a file this seat then repairs: the
+    // second offer is not withheld, it is deferred to a file that has a module.
+    const headed = applied(text, reported[0]);
+    expect(headed).toBe(`module Main\n\n${text}`);
+    const [second, ...rest] = compileFiles([LIB, ["/main.hex", headed]]).diagnostics;
+    expect(rest).toEqual([]);
+    expect(applied(headed, second)).toBe(
+      "module Main\n\n" + "import Lib as Meters\n" + "type Meters = P.Meters\n" +
+        "export let n: Float = Meters.zero\n" + "import Lib as P\n",
+    );
+  });
+
+  test("the inserted line ends the way the file ends its own lines", () => {
+    // A `\n` written into a CRLF file leaves one line ending that matches none
+    // of its neighbours — a whitespace diff the author never wrote, carried in
+    // by the repair (review round 3's NB4).
+    const text = "module Main\r\n\r\nimport Lib\r\n" +
+      "type Meters = Lib.Meters\r\n" + "export let n: Float = Meters.zero\r\n";
+    const [diagnostic] = compileFiles([LIB, ["/main.hex", text]]).diagnostics;
+    expect(applied(text, diagnostic)).toBe(
+      "module Main\r\n\r\nimport Lib\r\nimport Lib as Meters\r\n" +
+        "type Meters = Lib.Meters\r\n" + "export let n: Float = Meters.zero\r\n",
+    );
+    expect(messages([LIB, ["/main.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
   test("one line for one spelling, however many uses the module refuses", () => {
     // Three refused uses of `Meters.` want the identical line, and the first
     // carries it — so it sits above them all and applying every fix the file
