@@ -814,10 +814,10 @@ module _internal.util                        -- ERROR (parse): a module name is 
 module Geometry
 export record Point = {x: Float, y: Float}
 export let scale: Float = 1.0
-export fun origin(): Point = Point.make(0.0, 0.0) -- ERROR: Point is a type, not a module; write
+export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
+export let o: Point = Point.make(0.0, 0.0)   -- ERROR: Point is a type, not a module; write
                                              --   make(0.0, 0.0) (the module's own type: the drop,
                                              --   never import Geometry into itself)
-export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
 end module Geometry                          -- required: a second module follows (§2.2)
 module Shapes
 export fun unit(): Geometry.Point = ...      -- ERROR: no module alias Geometry; import Geometry
