@@ -8,8 +8,13 @@ Together they are the package **`Hex`** (Packages §2.4): every file here declar
 its module (`module Vector`, full name `Hex.Vector`), and the prelude modules are
 in scope everywhere without an import, Modules §5.5's closed set of sixteen being
 what they seed in the term namespace. `Rat` is the one module outside the
-prelude — the spec's "rest of `Hex`". Today the compiler embeds the prelude and
-the runtime tries only, and a project that wants `Rat` supplies the file itself.
+prelude — the spec's "rest of `Hex`" — and the compiler embeds the whole
+directory, so a program in any host reaches it by `import Rat` or
+`import Hex.Rat` (Packages §2.4). `Runtime/VectorTrie.hex` and
+`Runtime/HashTrie.hex` are the runtime modules, `Hex.Runtime.VectorTrie` and
+`Hex.Runtime.HashTrie`: importable like any member of `Hex`, exporting nothing
+at the Hexagon level, their privileges keyed by the compiler's runtime list and
+never by the folder (Intrinsics §5.2).
 The directory is called `stdlib` and the package `Hex` on purpose: the compiler
 reads neither a directory nor a file name to learn a module's name (Modules §1),
 so a directory says what it holds and a package is what a program writes. A
@@ -42,8 +47,8 @@ emitted one (Packages §6).
   standard-library accessors.
 - `Vector.hex`, `Map.hex`, and `Set.hex` own the public collection companions,
   each declaring its representation-sensitive operations through the intrinsic
-  door (`spec/intrinsics.md` §3.2) onto the injected runtime tries
-  (`runtime/VectorTrie.hex`, `runtime/HashTrie.hex`); everything above those
+  door (`spec/intrinsics.md` §3.2) onto the runtime tries
+  (`Runtime/VectorTrie.hex`, `Runtime/HashTrie.hex`); everything above those
   declarations is ordinary Hexagon. `Vector.hex` carries one door row that is
   not one of Collections Part 3 §7's seven: `toArray`, FFI Part 2 §9's outbound
   conversion, which §9.1's obligation 2 places at this door and in this file —
