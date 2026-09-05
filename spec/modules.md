@@ -830,7 +830,7 @@ export fun unit(): Geometry.Point = ...      -- ERROR: no module alias Geometry;
 export let two: Float = 2.0 * Geometry.scale -- ERROR: the same report in term position — the
                                              --   same edit; applying both applies one (§5.1)
 export let four: Float = Shapes.two * 2.0    -- ERROR: a module does not qualify through itself;
-                                             --   write two * 2.0 (bare two resolves to the module's
+                                             --   write two (bare two resolves to the module's
                                              --   own binding here: the applied edit drops the
                                              --   qualifier)
 export fun grow(two: Float): Float =         -- ERROR: a module does not qualify through itself —
