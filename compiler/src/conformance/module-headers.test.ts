@@ -398,9 +398,10 @@ describe("§13 (o) — every file declares its module", () => {
       "`Point` is a type, not a module; write `make(0.0, 0.0)`",
       "no module alias `Geometry`; `import Geometry`",
       // The repair drops the qualifier from the **reference**, which is what
-      // §5.1's normative example writes and what §13(o)'s golden quotes
-      // ("write `two`"): the two spellings agree, and this is the one the
-      // compiler emits.
+      // §5.1's normative example writes and what §13(o)'s golden quotes once
+      // #852 respells it ("write `two`"; `spec/modules.md` §13(o) still reads
+      // "write `two * 2.0`" until that lands). This is the spelling the
+      // compiler emits either way, and after #852 the two agree.
       "a module does not qualify through itself; write `two`",
       // `two` here is `grow`'s parameter, which eclipses the module's own
       // binding, so the sentence stands alone.

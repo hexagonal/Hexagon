@@ -538,7 +538,8 @@ export function compileProject(
       privileged: isPrelude || isRuntimeModule,
       // A primitive's home module is its fixed prelude companion (Constraints
       // §5.3), and nothing in the module's text can say so — a primitive has no
-      // declaration. Like the privilege above, the fact follows the *path*.
+      // declaration. Like the privilege above, the fact follows **membership
+      // and the declared name** — never the path the file came in on.
       ...(isPrelude && PRIMITIVE_COMPANION_MODULES.has(unit.declaredName)
         ? {
           companionPrimitive: PRIMITIVE_COMPANION_MODULES.get(

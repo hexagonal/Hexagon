@@ -69,6 +69,26 @@ const RUNTIME_OPERATIONS = "let empty: Int = 0\n" +
   "fun concat(x: Int): Int = 0\n" +
   "fun nodeRun(x: Int): Int = 0\n";
 
+/**
+ * The same for the *other* runtime member (`HASH_TRIE_RUNTIME_OPERATIONS`), so
+ * a specimen can seat both and let the later one reach the earlier.
+ */
+const HASH_TRIE_OPERATIONS = "let empty: Int = 0\n" +
+  "fun singleton(x: Int): Int = 0\n" +
+  "fun size(x: Int): Int = 0\n" +
+  "fun get(x: Int): Int = 0\n" +
+  "fun set(x: Int): Int = 0\n" +
+  "fun remove(x: Int): Int = 0\n" +
+  "fun entries(x: Int): Int = 0\n" +
+  "let emptySet: Int = 0\n" +
+  "fun soleMember(x: Int): Int = 0\n" +
+  "fun memberCount(x: Int): Int = 0\n" +
+  "fun containsMember(x: Int): Int = 0\n" +
+  "fun memberIn(x: Int): Int = 0\n" +
+  "fun addMember(x: Int): Int = 0\n" +
+  "fun removeMember(x: Int): Int = 0\n" +
+  "fun members(x: Int): Int = 0\n";
+
 function memberDiagnostics(
   source: string,
   extras: readonly (readonly [string, string])[] = [],
@@ -372,15 +392,51 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
   });
 
   /**
-   * The other half of the pair the retired host grant used to reach, and the
-   * reason it is gone rather than moved.
+   * The block's headline direction at `Node`, which is the other half of the
+   * pair above: **an alias whose module exports a type `Node` outranks the
+   * intrinsic in type position.**
    *
-   * That specimen put a **project** module's exported `Node` type behind the
-   * alias, and it needed an ordinary project module to hold the runtime
-   * privilege — which is what `runtimePaths` handed out and what #829 retired.
-   * Privilege is membership now, and a member sees the injected modules before
-   * it and nothing else (Modules §5.5), so a project module is not there to be
-   * aliased. The refusal is the seat rule's, not the door's.
+   * The retired host grant reached this by putting a *project* module's exported
+   * `Node` behind the alias, and it needed that project module to hold the
+   * runtime privilege. Adoption reaches it with no project module at all,
+   * because a project may supply an **earlier runtime member's** file too: a
+   * member sees the injected modules seated before it (Modules §5.5), and
+   * `Runtime.VectorTrie` is one of them. So the pair is reconstructed inside the
+   * two members rather than retired.
+   */
+  test("`Node` — an alias whose module exports the type outranks the intrinsic", () => {
+    // The later member does the aliasing; only its inventory and its one
+    // annotation are load-bearing.
+    const aliasing: readonly [string, string] = [
+      "/HashTrie.hex",
+      "module Runtime.HashTrie\n\n" +
+      "import Runtime.VectorTrie as Node\n\n" +
+      HASH_TRIE_OPERATIONS +
+      "fun item(n: Node(Int)): Int = n.item\n",
+    ];
+    // The earlier member exports a type `Node`, so the annotation is *its*
+    // record and `n.item` reads a field that exists.
+    expect(memberDiagnostics(
+      "\nexport record Node(a) = { item: a }\n" + RUNTIME_OPERATIONS,
+      [aliasing],
+    )).toEqual([]);
+    // The discriminating control: the same pair with nothing named `Node`
+    // behind the alias. Now the hidden intrinsic answers the annotation, and
+    // the record-shaped use of it is the mismatch that names both.
+    expect(memberDiagnostics(
+      "\nexport fun count(): Int = 1\n" + RUNTIME_OPERATIONS,
+      [aliasing],
+    )).toEqual(["type mismatch: expected Node(Int), found {item: a, ...}"]);
+  });
+
+  /**
+   * The seat rule the retired grant used to let a specimen step around: a
+   * runtime member is compiled among the injected modules seated before it and
+   * nothing else, so a **project** module is not there to be aliased at all.
+   *
+   * `runtimePaths` handed the runtime privilege to an ordinary project module,
+   * which is what made the shape above reachable with a project module in it.
+   * With the grant gone the refusal here is the seat rule's, not the door's.
    */
   test("a runtime member cannot reach a project module, so it cannot alias one", () => {
     expect(memberDiagnostics(

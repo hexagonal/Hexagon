@@ -12,8 +12,10 @@ What has landed, and where the shipped design differs from this note:
   `Node` intrinsic exactly as §4 proposes, with `stdlib/Vector.hex` as its
   prelude companion (#218). §6's sequencing was *not* followed: package imports
   (§5.3) never landed and were not needed — the runtime module is injected by
-  basename and its text embedded by `npm run generate:prelude`, which is the
-  same mechanism the prelude uses.
+  its membership in `Hex`'s runtime list and its text embedded by
+  `npm run generate:prelude`, which is the same mechanism the prelude uses. (The
+  basename is the *adoption* half: a project supplying the member's own file is
+  read at the member's basename declaring the member's name, #829.)
 - **`Map(k, v)`** is `stdlib/Runtime/HashTrie.hex` (#365) — a bitmap-compressed HAMT
   rather than a 32-way fixed fan, so it needs the three length-changing packed
   operations and the bit algebra §4's `Node` family has no member for; those

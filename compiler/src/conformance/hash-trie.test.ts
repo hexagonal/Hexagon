@@ -1267,6 +1267,30 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
   });
 
   /**
+   * **And the mirror: the basename alone is not enough either.** The same text
+   * at the *right* basename under a header of the author's own — `/HashTrie.hex`
+   * declaring `module Mine` — is an ordinary project module too, and draws the
+   * same two refusals.
+   *
+   * This half is what keeps the one above from being a path grant by another
+   * name. After `runtimePaths` the basename is the only path-shaped thing left
+   * in the adoption predicate, and on its own it decides nothing: a file takes
+   * the seat by *being the member*, which is a claim its header makes.
+   */
+  test("the same text at the basename under another name is not adopted either", () => {
+    const renamed = probeSource.replace("module Runtime.HashTrie", "module Mine");
+    const project = compileFiles([[PROBE_PATH, `${renamed}\n${DOOR}`], TOUCH]);
+    const messages = project.diagnostics.map(({ message }) => message);
+    expect(messages).toContain(RESERVED);
+    expect(messages).toContain("unknown generic type `Node`");
+    // The embedded copy kept the seat, and this file is compiled at the address
+    // its own header names — `module Mine`, not the member it sits beside.
+    const paths = project.modules.map(({ path }) => path);
+    expect(paths).toContain("/Hex/Runtime/HashTrie.hex");
+    expect(paths).toContain("/Mine.hex");
+  });
+
+  /**
    * The widening's **other** consequence, recorded because it was found by
    * auditing every `#privileged` consumer rather than by wanting it.
    *
