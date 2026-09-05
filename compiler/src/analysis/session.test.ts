@@ -1131,6 +1131,32 @@ describe("AnalysisSession.rename", () => {
     const { session: honoring } = sessionOf({ "/main.hex": honored });
     expect(refusal(honoring.rename("/main.hex", at(honored, "Show"), "Display")))
       .toBe("`Show` is built into the compiler, so it has no declaration to rename");
+
+    // **The arrangement, not only the answer.** The two fixtures above give the
+    // built-in refusal whichever order the checks run in, because no `Show`
+    // occurrence outside the workspace is ever *reached* — so they cannot tell
+    // a definition-first walk from a mentioner-first one, and #836's third
+    // review found the guard alive only in `playground`.
+    //
+    // One line changes that: naming `Ordering` puts the prelude module that
+    // *mentions* `Show` — `stdlib/Ordering.hex`'s `derives (Eq, Show)` — into
+    // the occurrence set, in a file no workspace holds. A walk that asked for
+    // the declaring module only once it had stopped at a not-owned occurrence
+    // answers ``declared in module `Hex.Ordering` ``, which is a module that
+    // declares nothing of the name — Modules §1 and §10's rename row's "a
+    // module that merely mentions the name is never the one named". Asking
+    // first is what makes the sentence unreachable, and this fixture is what
+    // makes asking first testable here rather than one package over.
+    const reaching = "module Main\n\n" + "record Person = {name: String}\n" +
+      "honor Show<Person> =\n    show(person) = person.name\n" +
+      "let ordering: Ordering = Ordering.Less\n";
+    const { session: reachingSession } = sessionOf({ "/main.hex": reaching });
+    expect(refusal(reachingSession.rename("/main.hex", at(reaching, "Show"), "Display")))
+      .toBe("`Show` is built into the compiler, so it has no declaration to rename");
+    // The same caret through `prepareRename`, the query an editor asks first:
+    // one arrangement answers both, and the refusal a user reads is this one.
+    expect(refusal(reachingSession.prepareRename("/main.hex", at(reaching, "Show"))))
+      .toBe("`Show` is built into the compiler, so it has no declaration to rename");
   });
 
   test("rewrites a dot call, which only the checker knows the meaning of", () => {
