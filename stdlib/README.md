@@ -5,18 +5,18 @@ executable conformance clients of the compiler. They are ordinary source modules
 not compiler intrinsics.
 
 Together they are the package **`Hex`** (Packages §2.4): every file here declares
-its module (`module Vector`, full name `Hex.Vector`), the prelude modules are in
-scope everywhere without an import (their bare names being Modules §5.5's closed
-set), and the rest (`Rat`) is imported by name — `import Rat`, or `import Hex.Rat`
-where a project's own `Rat` occludes the bare spelling. The directory is called
-`stdlib` and the package `Hex` on purpose: the one place in the repository where
-a package's source sits in a directory not named for it, since the compiler
-reads neither a directory nor a file name to learn a module's name (Modules §1),
-and `Hex` reaches a compile by embedding rather than discovery. A dotted module
-may sit in the folder its name suggests — `Render/Geometry.hex` for `module
-Render.Geometry` — as a convention for the reader (Packages §2.2), not a rule the
-language enforces; the only layout the language prescribes is the emitted one
-(Packages §6).
+its module (`module Vector`, full name `Hex.Vector`), and the prelude modules are
+in scope everywhere without an import (their bare names being Modules §5.5's
+closed set). `Rat` is the one module outside the prelude — the spec's "rest of
+`Hex`", reached by `import Rat` once the whole library is embedded (#846); today
+the compiler embeds the prelude and the runtime tries only, and a project that
+wants `Rat` supplies the file itself. The directory is called `stdlib` and the
+package `Hex` on purpose: the compiler reads neither a directory nor a file name
+to learn a module's name (Modules §1), so a directory says what it holds and a
+package is what a program writes. A dotted module may sit in the folder its name
+suggests — `Render/Geometry.hex` for `module Render.Geometry` — for the reader's
+sake (Packages §2.2), not by any rule the language enforces; the only layout the
+language prescribes is the emitted one (Packages §6).
 
 - `Show.hex`, `Num.hex`, `Signed.hex`, `Frac.hex`, `Pow.hex`, `Concat.hex`,
   `Eq.hex`, `Hash.hex`, `Ord.hex`, `Integral.hex`, and `Iterable.hex` are the
