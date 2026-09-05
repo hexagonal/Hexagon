@@ -14,7 +14,7 @@ directory, so a program in any host reaches it by `import Rat` or
 `Runtime/HashTrie.hex` are the runtime modules, `Hex.Runtime.VectorTrie` and
 `Hex.Runtime.HashTrie`: importable like any member of `Hex`, exporting nothing
 at the Hexagon level, their privileges keyed by the compiler's runtime list and
-never by the folder (Intrinsics §5.2).
+never by the folder (`spec/intrinsics.md` §5.2).
 
 The directory is called `stdlib` and the package `Hex` on purpose: the compiler
 reads neither a directory nor a file name to learn a module's name (Modules §1),
