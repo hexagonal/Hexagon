@@ -270,7 +270,41 @@ export class Workspace {
         if (walked !== undefined) this.#runtimePaths.add(walked);
       }
     }
-    this.session.configure({ runtimePaths: [...this.#runtimePaths] });
+    this.#configureSession();
+  }
+
+  /**
+   * Every compilation option the manifests decide, handed to the session at
+   * once (Packages §2.1).
+   *
+   * At once, because `configure` replaces the whole option set: a call that
+   * passed only `runtimePaths` would drop the project's `name` and rebrand
+   * every module in it. There is one seat for that reason, and every caller
+   * goes through it.
+   *
+   * **A multi-root workspace still compiles as one project**, which is what the
+   * merge below has to answer for. `runtimePaths` unions, as it always has —
+   * privilege is per module, so every root's modules keep theirs. `dependencies`
+   * unions for the same reason: the field says which packages an import may
+   * name, and a union names the ones any root's manifest allows. `name` cannot
+   * union — a project has one name or none — so the first root that declares
+   * one supplies it, in the order the client sent the roots. A workspace whose
+   * roots are two *named* packages is really a workspace of two packages, and
+   * that shape wants the host layer that reads installed packages; until then
+   * this answers deterministically rather than arbitrarily.
+   */
+  #configureSession(): void {
+    const dependencies = new Set<string>();
+    let packageName: string | undefined;
+    for (const manifest of this.#manifests.values()) {
+      packageName ??= manifest.name;
+      for (const dependency of manifest.dependencies) dependencies.add(dependency);
+    }
+    this.session.configure({
+      runtimePaths: [...this.#runtimePaths],
+      ...(packageName === undefined ? {} : { packageName }),
+      ...(dependencies.size === 0 ? {} : { dependencies: [...dependencies] }),
+    });
   }
 
   /**
@@ -288,7 +322,7 @@ export class Workspace {
     if (!this.#runtimeRealPaths.has(realPath)) return;
     if (this.#runtimePaths.has(path)) return;
     this.#runtimePaths.add(path);
-    this.session.configure({ runtimePaths: [...this.#runtimePaths] });
+    this.#configureSession();
   }
 
   /**

@@ -62,6 +62,19 @@ export interface Diagnostic {
   readonly importModuleRepair?: {
     readonly name: string;
     readonly namespace: "type" | "constraint";
+    /**
+     * Set where the **compiler** tier already wrote the line, in this
+     * diagnostic's own `fixes` (Modules §10's row: "the type's home named, the
+     * applied edit carried"). The workspace tier then adds nothing: it exists
+     * to answer *which module*, and that question is answered — a second offer
+     * would put two identical lightbulbs on one refusal, and taking both would
+     * write the import twice.
+     *
+     * The marker stays on the diagnostic regardless, because it is also what
+     * the tooling dedupes a spelling by: one range can hold several refusals of
+     * one name, and every one of them wants the identical line.
+     */
+    readonly applied?: true;
   };
   /**
    * The region this report speaks for: every other diagnostic whose primary

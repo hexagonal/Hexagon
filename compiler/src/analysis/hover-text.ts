@@ -53,5 +53,7 @@ function describeTarget(target: Target): string {
       return "foreign type";
     case "constraint":
       return "constraint";
+    case "module":
+      return "module";
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { AnalysisSession, type CodeAction } from "./session.js";
+import { AnalysisSession, type CodeAction, type SessionOptions } from "./session.js";
 
 /** Offset of the `nth` occurrence of `needle`, counting from one. */
 function at(text: string, needle: string, nth = 1): number {
@@ -11,11 +11,11 @@ function at(text: string, needle: string, nth = 1): number {
   return offset;
 }
 
-function sessionOf(files: Record<string, string>): {
+function sessionOf(files: Record<string, string>, options: SessionOptions = {}): {
   readonly session: AnalysisSession;
   readonly texts: ReadonlyMap<string, string>;
 } {
-  const session = new AnalysisSession();
+  const session = new AnalysisSession(options);
   const texts = new Map(Object.entries(files));
   for (const [path, text] of texts) session.setFile(path, text);
   return { session, texts };
@@ -57,27 +57,27 @@ describe("code actions: the diagnostic's own fixes", () => {
   test("a compiler-authored fix is offered where the diagnostic is", () => {
     // The lexer redirects JavaScript's comment spelling to Hexagon's (#171) and
     // carries the repair on the diagnostic. Nothing but this could reach it.
-    const source = ["/* a note */", "let value: Int = 1", ""].join("\n");
+    const source = "module Main\n\n" + ["/* a note */", "let value: Int = 1", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "/*"));
     expect(action.title).toBe("use the Hexagon block comment spelling");
-    expect(applied(source, action)).toBe(
+    expect(applied(source, action)).toBe("module Main\n\n" + 
       ["(* a note *)", "let value: Int = 1", ""].join("\n"),
     );
     expect(action.disabled).toBeUndefined();
   });
 
   test("the retired console form offers its rewrite for one argument only", () => {
-    const single = 'console.log("hello")\n';
+    const single = "module Main\n\n" + 'console.log("hello")\n';
     const { session } = sessionOf({ "/main.hex": single });
     const action = sole(actionsOn(session, "/main.hex", single, "console"));
     expect(action.title).toBe("write `Debug.log`");
-    expect(applied(single, action)).toBe('Debug.log("hello")\n');
+    expect(applied(single, action)).toBe("module Main\n\n" + 'Debug.log("hello")\n');
 
     // Two arguments have no mechanical rewrite — `log` takes one rendered
     // `String`, and the interpolation is the writer's — so the report stands
     // alone.
-    const several = 'console.log("hello", 42)\n';
+    const several = "module Main\n\n" + 'console.log("hello", 42)\n';
     session.setFile("/main.hex", several);
     expect(actionsOn(session, "/main.hex", several, "console")).toEqual([]);
   });
@@ -90,15 +90,17 @@ describe("code actions: the diagnostic's own fixes", () => {
    * import line offers in the editor.
    */
   test("JavaScript's namespace head offers the module form's rewrite", () => {
-    const source = 'import * as Geo from "./geometry"\nlet n: Int = 1\n';
-    const { session } = sessionOf({ "/main.hex": source, "/geometry.hex": "" });
+    const source = "module Main\n\n" + 'import * as Geo from "./geometry"\nlet n: Int = 1\n';
+    const { session } = sessionOf({ "/main.hex": source, "/geometry.hex": "module Geometry\n\n" });
     const action = sole(actionsOn(session, "/main.hex", source, "*"));
-    expect(action.title).toBe("write `import`");
+    // #829: the fix names the derived rewrite directly, as every seat in the
+    // applied-edit family now does, rather than the generic "write `import`".
+    expect(action.title).toBe("write `import Geometry as Geo`");
     // The alias and the path are the user's own text and are never retyped;
     // the head's own tokens, and the whitespace they spent, are what the edit
     // deletes — so the file it produces is the sentence the message printed.
-    expect(applied(source, action)).toBe(
-      'import Geo from "./geometry"\nlet n: Int = 1\n',
+    expect(applied(source, action)).toBe("module Main\n\n" + 
+      'import Geometry as Geo\nlet n: Int = 1\n',
     );
     expect(action.disabled).toBeUndefined();
     // And it compiles, which is the property that makes an *applied* edit
@@ -115,11 +117,11 @@ describe("code actions: the diagnostic's own fixes", () => {
    * never retyped — only the two head words become one.
    */
   test("`export opaque` offers the bare-head rewrite", () => {
-    const source = "export opaque record Point = {x: Float, y: Float}\n";
+    const source = "module Main\n\n" + "export opaque record Point = {x: Float, y: Float}\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "opaque"));
     expect(action.title).toBe("write `opaque`");
-    expect(applied(source, action)).toBe(
+    expect(applied(source, action)).toBe("module Main\n\n" + 
       "opaque record Point = {x: Float, y: Float}\n",
     );
     expect(action.disabled).toBeUndefined();
@@ -130,13 +132,13 @@ describe("code actions: the diagnostic's own fixes", () => {
   });
 
   test("nothing is offered away from the diagnostic", () => {
-    const source = ["/* a note */", "let value: Int = 1", ""].join("\n");
+    const source = "module Main\n\n" + ["/* a note */", "let value: Int = 1", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(actionsOn(session, "/main.hex", source, "value")).toEqual([]);
   });
 
   test("a selection covering the diagnostic is enough, not only a caret on it", () => {
-    const source = ["/* a note */", "let value: Int = 1", ""].join("\n");
+    const source = "module Main\n\n" + ["/* a note */", "let value: Int = 1", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.codeActions("/main.hex", { start: 0, end: source.length })).toHaveLength(1);
   });
@@ -149,7 +151,7 @@ describe("code actions: the diagnostic's own fixes", () => {
     // *diagnostic's* start offset to `functionAt`, never the caret, so the
     // inclusive end of the binding span in `functionAt` is not what this test
     // exercises and moving it will not fail here.
-    const source = "export fun zero() = 0\n";
+    const source = "module Main\n\n" + "export fun zero() = 0\n";
     const { session } = sessionOf({ "/main.hex": source });
     const past = at(source, "zero") + "zero".length;
     expect(session.codeActions("/main.hex", { start: past, end: past })
@@ -159,7 +161,7 @@ describe("code actions: the diagnostic's own fixes", () => {
 
 describe("code actions: infer return type", () => {
   test("writes the inferred type after the parameter list", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       "export union Colour =",
       "    | Red",
       "    | Green",
@@ -180,45 +182,45 @@ describe("code actions: infer return type", () => {
   });
 
   test("keeps the spelling of a type variable the signature already wrote", () => {
-    const source = "export fun listOf(value: a) = [value]\n";
+    const source = "module Main\n\n" + "export fun listOf(value: a) = [value]\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "listOf"));
-    expect(applied(source, action)).toBe("export fun listOf(value: a): Vector(a) = [value]\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export fun listOf(value: a): Vector(a) = [value]\n");
   });
 
   test("mints a name for a variable no annotation spells, avoiding the ones taken", () => {
     // `first` is written, so the empty vector's element cannot be `a` — writing
     // it would say the two are the same type, which they are not.
-    const source = "export fun pair(first: a) = (first, [])\n";
+    const source = "module Main\n\n" + "export fun pair(first: a) = (first, [])\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "pair"));
-    expect(applied(source, action)).toBe(
+    expect(applied(source, action)).toBe("module Main\n\n" + 
       "export fun pair(first: a): (a, Vector(b)) = (first, [])\n",
     );
   });
 
   test("parenthesizes a lambda that wrote no parameter list", () => {
-    const source = "export let twice = x => (1, 2)\n";
+    const source = "module Main\n\n" + "export let twice = x => (1, 2)\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "twice"));
-    expect(applied(source, action)).toBe("export let twice = (x): (Int, Int) => (1, 2)\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export let twice = (x): (Int, Int) => (1, 2)\n");
   });
 
   test("parenthesizes a destructured parameter around all of it", () => {
     // A record pattern carries an `=` of its own, and the parameter list starts
     // where the lambda does — not at the last `=` before the arrow, which is
     // inside the pattern and would put the open parenthesis in the middle of it.
-    const source = "export let get = {a = p} => 1\n";
+    const source = "module Main\n\n" + "export let get = {a = p} => 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "get"));
-    expect(applied(source, action)).toBe("export let get = ({a = p}): Int => 1\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export let get = ({a = p}): Int => 1\n");
   });
 
   test("parenthesizes a constructor pattern, which ends in a parenthesis of its own", () => {
     // A parameter is a pattern, and this one closes with `)` without there
     // being a parameter list at all. Reading that `)` as the list's produced
     // `Box(v): Int => 1`, which is not a program.
-    const source = [
+    const source = "module Main\n\n" + [
       "export union Box(a) =",
       "    | Box(value: a)",
       "",
@@ -233,33 +235,33 @@ describe("code actions: infer return type", () => {
   test("adds no parentheses to a parameter that already has them", () => {
     // `((x, y))` is one tuple-destructured parameter (Functions §3.1): the outer
     // parentheses are the parameter list and are already there.
-    const source = "export let fst = ((x, y)) => 1\n";
+    const source = "module Main\n\n" + "export let fst = ((x, y)) => 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "fst"));
-    expect(applied(source, action)).toBe("export let fst = ((x, y)): Int => 1\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export let fst = ((x, y)): Int => 1\n");
   });
 
   test("writes a zero-parameter signature after its empty parentheses", () => {
-    const source = "export fun zero() = 0\n";
+    const source = "module Main\n\n" + "export fun zero() = 0\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "zero"));
-    expect(applied(source, action)).toBe("export fun zero(): Int = 0\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export fun zero(): Int = 0\n");
   });
 
   test("leaves a comment between the parameters and the body where it was", () => {
-    const source = "export fun zero() (* why *) = 0\n";
+    const source = "module Main\n\n" + "export fun zero() (* why *) = 0\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "zero"));
-    expect(applied(source, action)).toBe("export fun zero(): Int (* why *) = 0\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export fun zero(): Int (* why *) = 0\n");
   });
 
   test("writes a function type with the parentheses that keep its arity", () => {
     // `((Int, Int) -> Int, …)` is a two-element tuple of two-parameter
     // functions. Dropping either pair of parentheses says something else.
-    const source = "export fun both(f: (Int, Int) -> Int) = (f, f)\n";
+    const source = "module Main\n\n" + "export fun both(f: (Int, Int) -> Int) = (f, f)\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "both"));
-    expect(applied(source, action)).toBe(
+    expect(applied(source, action)).toBe("module Main\n\n" + 
       "export fun both(f: (Int, Int) -> Int): ((Int, Int) -> Int, (Int, Int) -> Int) = (f, f)\n",
     );
   });
@@ -267,20 +269,20 @@ describe("code actions: infer return type", () => {
   test("writes the empty tuple by its name", () => {
     // Products §2.7 (#159): the type is `Unit`, and `()` in type notation is a
     // zero-parameter domain rather than a type.
-    const source = "export fun nothing() = ()\n";
+    const source = "module Main\n\n" + "export fun nothing() = ()\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "nothing"));
-    expect(applied(source, action)).toBe("export fun nothing(): Unit = ()\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export fun nothing(): Unit = ()\n");
   });
 
   test("spells an imported record, whose alias is a type and a constructor", () => {
-    // `import Point from "./helper"` reaches both namespaces at once through
+    // `import Helper as Point` reaches both namespaces at once through
     // §5.1's two companion fallbacks — rule 2's type and rule 3's constructor —
     // so the clause carries a value symbol *and* names a type. Reading the
     // symbol as "this is not a type import" made every imported record
     // unspellable.
-    const helper = "export record Point = {x: Int, y: Int}\n";
-    const source = ['import Point from "./helper"', "", "export fun same(p: Point) = p", ""]
+    const helper = "module Helper\n\n" + "export record Point = {x: Int, y: Int}\n";
+    const source = "module Main\n\n" + ['import Helper as Point', "", "export fun same(p: Point) = p", ""]
       .join("\n");
     const { session } = sessionOf({ "/helper.hex": helper, "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "same"));
@@ -288,9 +290,9 @@ describe("code actions: infer return type", () => {
   });
 
   test("qualifies a type reached only through a namespace import", () => {
-    const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
-    const source = [
-      'import Palette from "./helper"',
+    const helper = "module Helper\n\n" + ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
+    const source = "module Main\n\n" + [
+      'import Helper as Palette',
       "",
       "export fun pick() = Palette.Red",
       "",
@@ -304,10 +306,10 @@ describe("code actions: infer return type", () => {
     // Two namespace imports of one module make one identity reachable twice.
     // Either name would compile; answering the same request differently on two
     // runs would not, so the first is kept.
-    const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
-    const source = [
-      'import Palette from "./helper"',
-      'import Shades from "./helper"',
+    const helper = "module Helper\n\n" + ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
+    const source = "module Main\n\n" + [
+      'import Helper as Palette',
+      'import Helper as Shades',
       "",
       "export fun pick() = Palette.Red",
       "",
@@ -322,7 +324,7 @@ describe("code actions: infer return type", () => {
     // identity to look up and nothing but this stops `: Unit` naming the union
     // declared above — which typechecks against nothing and reports the
     // memorable `expected Unit, found Unit`.
-    const source = ["union Unit =", "    | U", "", "export fun v() = ()", ""].join("\n");
+    const source = "module Main\n\n" + ["union Unit =", "    | U", "", "export fun v() = ()", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "v"));
     expect(action.edits).toEqual([]);
@@ -331,7 +333,7 @@ describe("code actions: infer return type", () => {
 
   test("a type alias takes the name too, though nothing can be spelled as one", () => {
     // `type Unit = Int` is accepted and silently makes `Unit` mean `Int` here.
-    const source = ["type Unit = Int", "", "export fun v() = ()", ""].join("\n");
+    const source = "module Main\n\n" + ["type Unit = Int", "", "export fun v() = ()", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "v")).disabled)
       .toContain("this module declares its own `Unit`");
@@ -340,7 +342,7 @@ describe("code actions: infer return type", () => {
   test("and takes it from a prelude type as surely as a union would", () => {
     // The same occlusion, on the other kind of spelling: an alias named
     // `Option` is what `Option` means here, so the prelude's has no name.
-    const source = ["type Option = Int", "", "export fun some(value: Int) = Some(value)", ""]
+    const source = "module Main\n\n" + ["type Option = Int", "", "export fun some(value: Int) = Some(value)", ""]
       .join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "some")).disabled)
@@ -348,10 +350,10 @@ describe("code actions: infer return type", () => {
   });
 
   test("prefers the prelude's bare spelling", () => {
-    const source = "export fun some(value: a) = Some(value)\n";
+    const source = "module Main\n\n" + "export fun some(value: a) = Some(value)\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "some"));
-    expect(applied(source, action)).toBe("export fun some(value: a): Option(a) = Some(value)\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export fun some(value: a): Option(a) = Some(value)\n");
   });
 
   test("refuses a type this module has no name for, and says which", () => {
@@ -359,9 +361,9 @@ describe("code actions: infer return type", () => {
     // module only through a middle module's signature, and no alias, no
     // declaration and no prelude entry spells it — exactly the case a silent
     // insertion would break.
-    const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
-    const mid = 'import H from "./helper"\nexport fun red(): H.Colour = H.Red\n';
-    const source = ['import Mid from "./mid"', "", "export fun pick() = Mid.red()", ""]
+    const helper = "module Helper\n\n" + ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
+    const mid = "module Mid\n\n" + 'import Helper as H\nexport fun red(): H.Colour = H.Red\n';
+    const source = "module Main\n\n" + ['import Mid', "", "export fun pick() = Mid.red()", ""]
       .join("\n");
     const { session } = sessionOf({
       "/helper.hex": helper,
@@ -378,7 +380,7 @@ describe("code actions: infer return type", () => {
     // prelude's. `Some` still builds the prelude's, and writing `Option(Int)`
     // here would name the union declared two lines up — a different type, and
     // no diagnostic would say the annotation had moved.
-    const source = [
+    const source = "module Main\n\n" + [
       "union Option =",
       "    | Nothing",
       "",
@@ -392,7 +394,7 @@ describe("code actions: infer return type", () => {
   });
 
   test("offers nothing for a function that already writes its return type", () => {
-    const source = "export fun zero(): Int = 0\n";
+    const source = "module Main\n\n" + "export fun zero(): Int = 0\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
     expect(actionsOn(session, "/main.hex", source, "zero")).toEqual([]);
@@ -403,17 +405,17 @@ describe("code actions: infer return type", () => {
     // variable — it is reserved by the declaration alone. Reusing it for the
     // empty vector's element would say that element is the type the caller
     // chooses, which it is not.
-    const source = "export fun hold<a>(value: Int) = []\n";
+    const source = "module Main\n\n" + "export fun hold<a>(value: Int) = []\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "hold"));
-    expect(applied(source, action)).toBe("export fun hold<a>(value: Int): Vector(b) = []\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export fun hold<a>(value: Int): Vector(b) = []\n");
   });
 
   test("offers nothing on a private function's own error", () => {
     // A private declaration can carry a diagnostic on its name — this one is
     // rebound — and that is not an invitation to write a signature nothing
     // asked for.
-    const source = ["let same(x: Int) = x", "let same(y: Int) = y", ""].join("\n");
+    const source = "module Main\n\n" + ["let same(x: Int) = x", "let same(y: Int) = y", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toHaveLength(1);
     expect(actionsOn(session, "/main.hex", source, "same", 2)).toEqual([]);
@@ -422,7 +424,7 @@ describe("code actions: infer return type", () => {
   test("offers nothing for a private function, which needs no signature", () => {
     // Modules §4.1.1 asks for a complete signature at the module boundary only,
     // so there is no error here and nothing to repair.
-    const source = ["let helper(x: Int) = x + 1", "export fun use(x: Int): Int = helper(x)", ""]
+    const source = "module Main\n\n" + ["let helper(x: Int) = x + 1", "export fun use(x: Int): Int = helper(x)", ""]
       .join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex")).toEqual([]);
@@ -435,7 +437,7 @@ describe("code actions: infer return type", () => {
     // the return half through would let this through too. Asked of the tree
     // instead: `value` has no annotation, so its type is a fresh variable, and
     // the result *is* that variable.
-    const source = "export fun identity(value) = value\n";
+    const source = "module Main\n\n" + "export fun identity(value) = value\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "identity"));
     expect(action.edits).toEqual([]);
@@ -445,7 +447,7 @@ describe("code actions: infer return type", () => {
 
     // What refusing buys. `: a` reads as right until the parameter is written,
     // and then it is the annotation that gets blamed.
-    const written = "export fun identity(value: Int): a = value\n";
+    const written = "module Main\n\n" + "export fun identity(value: Int): a = value\n";
     const { session: after } = sessionOf({ "/main.hex": written });
     expect(after.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
       "`a` is a declared type variable, but the body requires `Int`; " +
@@ -457,10 +459,10 @@ describe("code actions: infer return type", () => {
     // The borrowing is what decides, not the missing annotation. `1` is `Int`
     // however `x` is eventually typed, so the repair is right under every
     // completion and refusing would give it up for nothing.
-    const source = "export fun m(x) = 1\n";
+    const source = "module Main\n\n" + "export fun m(x) = 1\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
-    expect(applied(source, action)).toBe("export fun m(x): Int = 1\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export fun m(x): Int = 1\n");
   });
 
   test("the result borrows through whatever wraps it", () => {
@@ -468,17 +470,17 @@ describe("code actions: infer return type", () => {
     // of these through, and each is a different arm of the walk that finds the
     // variables a result mentions. One wrong annotation per arm otherwise.
     const wrappings: readonly [string, string][] = [
-      ["export fun m(x) = [x]\n", "Vector"],
-      ["export fun m(x) = (x, 1)\n", "tuple"],
-      ["export fun m(x) = {a = x}\n", "record field"],
-      ["export fun m(x) = Some(x)\n", "union argument"],
-      ["export fun m(x) = () => x\n", "function result"],
-      ["export fun m(x) = {...x}\n", "record row"],
-      ["export fun m(x) = Map.set(Map.empty, x, 1)\n", "map key"],
-      ["export fun m(x) = Map.set(Map.empty, 1, x)\n", "map value"],
+      ["module Main\n\nexport fun m(x) = [x]\n", "Vector"],
+      ["module Main\n\nexport fun m(x) = (x, 1)\n", "tuple"],
+      ["module Main\n\nexport fun m(x) = {a = x}\n", "record field"],
+      ["module Main\n\nexport fun m(x) = Some(x)\n", "union argument"],
+      ["module Main\n\nexport fun m(x) = () => x\n", "function result"],
+      ["module Main\n\nexport fun m(x) = {...x}\n", "record row"],
+      ["module Main\n\nexport fun m(x) = Map.set(Map.empty, x, 1)\n", "map key"],
+      ["module Main\n\nexport fun m(x) = Map.set(Map.empty, 1, x)\n", "map value"],
       // The variable is in the returned function's *parameter*, and nowhere in
       // its result: walking only what a function returns would miss it.
-      ["export fun m(x) = (y) => x == y\n", "function parameter"],
+      ["module Main\n\nexport fun m(x) = (y) => x == y\n", "function parameter"],
     ];
     for (const [source, wrapping] of wrappings) {
       const { session } = sessionOf({ "/main.hex": source });
@@ -490,7 +492,7 @@ describe("code actions: infer return type", () => {
   test("the refusal names the parameter that would settle it", () => {
     // `x` is bare too, and is not why. Sending the user to the wrong word is
     // worse than saying nothing, because they annotate it and nothing changes.
-    const source = "export fun m(x, y) = [y]\n";
+    const source = "module Main\n\n" + "export fun m(x, y) = [y]\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
       .toBe("`y` has no type yet, so the result type of `m` is not settled");
@@ -500,17 +502,17 @@ describe("code actions: infer return type", () => {
     // `Nullable(a)` is ordinary source syntax — the `?` spelling is what does
     // not lex in this slice, which is a different claim — so a result can be
     // one, and the arm that walks it is as load-bearing as the rest.
-    const source = ["export fun m(x, y: Int) =", "    let z: Nullable(a) = x", "    z", ""]
+    const source = "module Main\n\n" + ["export fun m(x, y: Int) =", "    let z: Nullable(a) = x", "    z", ""]
       .join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
       .toBe("`x` has no type yet, so the result type of `m` is not settled");
 
     // Written on the parameter, it is the user's own and is offered.
-    const annotated = "export fun m(x: Nullable(a), y) = x\n";
+    const annotated = "module Main\n\n" + "export fun m(x: Nullable(a), y) = x\n";
     const { session: paired } = sessionOf({ "/main.hex": annotated });
     expect(applied(annotated, sole(actionsOn(paired, "/main.hex", annotated, "m("))))
-      .toBe("export fun m(x: Nullable(a), y): Nullable(a) = x\n");
+      .toBe("module Main\n\n" + "export fun m(x: Nullable(a), y): Nullable(a) = x\n");
   });
 
   test("a variable the user already wrote is not one to wait for", () => {
@@ -519,13 +521,13 @@ describe("code actions: infer return type", () => {
     // `y`. Waiting here would give up a repair for nothing: the mismatch a bad
     // completion produces is reported identically with the annotation and
     // without it, so writing it moves no blame.
-    const source = "export fun m(x: a, y) = [x, y]\n";
+    const source = "module Main\n\n" + "export fun m(x: a, y) = [x, y]\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
-    expect(applied(source, action)).toBe("export fun m(x: a, y): Vector(a) = [x, y]\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export fun m(x: a, y): Vector(a) = [x, y]\n");
 
     // Same signature, and the result is the *bare* parameter's variable instead.
-    const other = "export fun m(x: a, y) = [y]\n";
+    const other = "module Main\n\n" + "export fun m(x: a, y) = [y]\n";
     const { session: waits } = sessionOf({ "/main.hex": other });
     expect(sole(actionsOn(waits, "/main.hex", other, "m(")).disabled)
       .toBe("`y` has no type yet, so the result type of `m` is not settled");
@@ -538,7 +540,7 @@ describe("code actions: infer return type", () => {
     // that appears in no parameter's type at all, while being wholly determined
     // by one: `x` is one fresh variable and the result is another, unified only
     // once the subject reaches a concrete instance.
-    const source = [
+    const source = "module Main\n\n" + [
       "constraint Source<a> =",
       "    type Item",
       "    get(value: a): Item",
@@ -563,6 +565,10 @@ describe("code actions: infer return type", () => {
     // And what it averts: the projection is `Int`, so `: a` is blamed as soon
     // as the parameter is written — and the user has no generic completion to
     // reach for, because a binder may not carry a projection in this slice.
+    // `source` already carries the header; prefixing a second one made the file
+    // two modules of one name at one layout address, and only one of a pair can
+    // be compiled (Packages §6) — so the report below was reached by whichever
+    // of them won that address, which is no property of this rule at all.
     const written = source.replace("export fun peek(x) = get(x)", "export fun peek(x: Box): a = get(x)");
     const { session: after } = sessionOf({ "/main.hex": written });
     expect(after.diagnostics("/main.hex").map(({ message }) => message))
@@ -574,7 +580,7 @@ describe("code actions: infer return type", () => {
 
   test("is offered once when two diagnostics caret the same declaration", () => {
     // A missing signature and an undeclared constraint both point at the name.
-    const source = "export fun double(value) = value + value\n";
+    const source = "module Main\n\n" + "export fun double(value) = value + value\n";
     const { session } = sessionOf({ "/main.hex": source });
     const messages = session.diagnostics("/main.hex").map(({ message }) => message);
     expect(messages.length).toBeGreaterThan(1);
@@ -583,7 +589,7 @@ describe("code actions: infer return type", () => {
   });
 
   test("leaves the session's own analysis untouched", () => {
-    const source = "export fun zero() = 0\n";
+    const source = "module Main\n\n" + "export fun zero() = 0\n";
     const { session } = sessionOf({ "/main.hex": source });
     const settled = session.version;
     actionsOn(session, "/main.hex", source, "zero");
@@ -598,7 +604,7 @@ describe("code actions: infer return type", () => {
     // repair on offer would be `: a` — true of the broken text and wrong the
     // moment the name is fixed, at which point the rigid annotation is what gets
     // blamed.
-    const source = "export fun bad() = missingName(1)\n";
+    const source = "module Main\n\n" + "export fun bad() = missingName(1)\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "bad"));
     expect(action.edits).toEqual([]);
@@ -609,7 +615,7 @@ describe("code actions: infer return type", () => {
     // The same error at the body's last character, where it ends exactly where
     // the declaration does. Both edges of the region are edges something lands
     // on: an error at the body's first character is the ordinary case above.
-    const ending = "export fun bad(x: Int) = missingName\n";
+    const ending = "module Main\n\n" + "export fun bad(x: Int) = missingName\n";
     const { session: other } = sessionOf({ "/main.hex": ending });
     expect(sole(actionsOn(other, "/main.hex", ending, "bad")).disabled)
       .toBe("the body of `bad` has an error to fix first: unknown name `missingName`");
@@ -620,7 +626,7 @@ describe("code actions: infer return type", () => {
     // checker does not stop there: it gives `x` a fresh variable, so the result
     // generalizes and the repair on offer is `: Vector(a)`. That is not wrong
     // about the text on screen and is wrong about the text being typed towards.
-    const source = "export fun m(x: I) = [x]\n";
+    const source = "module Main\n\n" + "export fun m(x: I) = [x]\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.edits).toEqual([]);
@@ -630,7 +636,7 @@ describe("code actions: infer return type", () => {
 
     // What refusing buys, stated as the thing that would otherwise happen: had
     // the annotation been written, finishing the word would blame the signature.
-    const written = "export fun m(x: Int): Vector(a) = [x]\n";
+    const written = "module Main\n\n" + "export fun m(x: Int): Vector(a) = [x]\n";
     const { session: after } = sessionOf({ "/main.hex": written });
     expect(after.diagnostics("/main.hex").map(({ message }) => message)).toEqual([
       "`a` is a declared type variable, but the body requires `Int`; " +
@@ -639,7 +645,7 @@ describe("code actions: infer return type", () => {
   });
 
   test("a later parameter's type is as much the signature as the first one's", () => {
-    const source = "export fun m(x: Int, y: Bogus) = x\n";
+    const source = "module Main\n\n" + "export fun m(x: Int, y: Bogus) = x\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "m(")).disabled)
       .toMatch(/^the signature of `m` has an error to fix first: unknown type `Bogus`/);
@@ -651,7 +657,7 @@ describe("code actions: infer return type", () => {
     // answered by writing one. A rebinding conflict leaves the body's type
     // unresolved — `m(y)` cannot be settled while `m` means two things — so the
     // repair would be `: a`, rigid and wrong the moment the conflict is.
-    const source = "export fun m(x: Int) = [x]\nexport fun m(y) = [m(y)]\n";
+    const source = "module Main\n\n" + "export fun m(x: Int) = [x]\nexport fun m(y) = [m(y)]\n";
     const { session } = sessionOf({ "/main.hex": source });
     const second = source.indexOf("m(y)");
     const conflict = session.diagnostics("/main.hex")
@@ -672,25 +678,25 @@ describe("code actions: infer return type", () => {
     // means the parser failed on the header and then there is no function here
     // to ask about. `export fun m) = 0` reports at exactly that offset and
     // offers nothing at all.
-    const source = "export fun double(value: a) = value + value\n";
+    const source = "module Main\n\n" + "export fun double(value: a) = value + value\n";
     const { session } = sessionOf({ "/main.hex": source });
     const messages = session.diagnostics("/main.hex").map(({ message }) => message);
     expect(messages).toHaveLength(2);
     expect(messages[1]).toMatch(/must declare every constraint/);
     const action = sole(actionsOn(session, "/main.hex", source, "double"));
     expect(action.disabled).toBeUndefined();
-    expect(applied(source, action)).toBe("export fun double(value: a): a = value + value\n");
+    expect(applied(source, action)).toBe("module Main\n\n" + "export fun double(value: a): a = value + value\n");
   });
 
   test("an error in another declaration is not this declaration's to wait on", () => {
     // The region is one declaration's. A file with a mistake elsewhere is the
     // ordinary state of a file being worked on, and refusing everywhere while
     // anything anywhere is broken would make the repair unreachable in practice.
-    const source = "export fun m(x: Int) = [x]\nlet helper(y: Bogus) = y\n";
+    const source = "module Main\n\n" + "export fun m(x: Int) = [x]\nlet helper(y: Bogus) = y\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.disabled).toBeUndefined();
-    expect(applied(source, action)).toBe(
+    expect(applied(source, action)).toBe("module Main\n\n" + 
       "export fun m(x: Int): Vector(Int) = [x]\nlet helper(y: Bogus) = y\n",
     );
   });
@@ -701,7 +707,7 @@ describe("code actions: infer return type", () => {
     // rendering it as `?` would put a character in the file that does not lex —
     // and it is reachable only from *another* declaration, since an error in
     // this one is refused before the type is ever spelled.
-    const source = "let helper(x: Int) = missingName\nexport fun size(v: Int) = helper(v)\n";
+    const source = "module Main\n\n" + "let helper(x: Int) = missingName\nexport fun size(v: Int) = helper(v)\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(sole(actionsOn(session, "/main.hex", source, "size")).disabled).toBe(
       "the return type of `size` cannot be written here: " +
@@ -714,7 +720,7 @@ describe("code actions: infer return type", () => {
     // is offered right beside this one, and the body's type — `Int` — is not in
     // question. Saying "its type is not settled" would be a causal claim the
     // compiler contradicts; what is true is only that there is something to fix.
-    const source = "export fun m(x: Int) = 1 /* c */ + 2\n";
+    const source = "module Main\n\n" + "export fun m(x: Int) = 1 /* c */ + 2\n";
     const { session } = sessionOf({ "/main.hex": source });
     const actions = actionsOn(session, "/main.hex", source, "m(");
     expect(actions.map(({ title }) => title)).toEqual(["Infer return type"]);
@@ -765,7 +771,7 @@ describe("code actions: infer return type", () => {
       "export fun m(x: Int) = 1\n}\n",
       "export fun m(x: Int) = 1\n\n\n(* note *)\n)\n",
       "export fun m(x: Int) =\n    1\n}\n",
-    ]) {
+    ].map((body) => "module Main\n\n" + body)) {
       const { session } = sessionOf({ "/main.hex": source });
       const action = sole(actionsOn(session, "/main.hex", source, "m("));
       expect(action.edits, source).toEqual([]);
@@ -803,7 +809,7 @@ describe("code actions: infer return type", () => {
       "export fun m(x: Int) =\n    if x > 0 then\n        1\n    else\n        2\n",
       "export fun m(x: Int) = match x\n    _ => 1\nexport fun g(): Int = 2\n",
       "export fun m(x: Int) =\n    let y: Int = x\n    y",
-    ]) {
+    ].map((body) => "module Main\n\n" + body)) {
       const { session } = sessionOf({ "/main.hex": source });
       const action = sole(actionsOn(session, "/main.hex", source, "m("));
       expect(action.disabled, source).toBeUndefined();
@@ -819,7 +825,7 @@ describe("code actions: infer return type", () => {
     // next declaration. Both are outside this declaration, and neither is
     // distinguishable by position from a complaint about the file. The unclosed
     // bracket is, and it is in this declaration's own text.
-    for (const [source, named] of [
+    for (const [source, named] of ([
       // Last in the file, and followed by another — the two the report lands in
       // completely different places for.
       ["export fun m(x: Int) = {a = x\n", "{"],
@@ -828,7 +834,7 @@ describe("code actions: infer return type", () => {
       // The innermost is the one named: `[` is context, `{` is where the
       // cursor is.
       ["export fun m(x: Int) = [{a = x\n", "{"],
-    ] as const) {
+    ] as const).map(([body, named]) => [`module Main\n\n${body}`, named] as const)) {
       const { session } = sessionOf({ "/main.hex": source });
       const action = sole(actionsOn(session, "/main.hex", source, "m("));
       expect(action.edits, source).toEqual([]);
@@ -843,7 +849,7 @@ describe("code actions: infer return type", () => {
     // `x` is an ordinary expression. What is missing is the `)` the return
     // annotation has to follow (Functions §4.1), and writing the colon anyway
     // produced `f(x: Int: Int = x`.
-    const source = "export fun f(x: Int = x\n";
+    const source = "module Main\n\n" + "export fun f(x: Int = x\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "f("));
     expect(action.edits).toEqual([]);
@@ -857,7 +863,7 @@ describe("code actions: infer return type", () => {
     // one — but `mm`'s body is `1`, its brackets balance, and its type is
     // settled. Reported *after* the declaration, exactly like the recovery
     // report above, and it is not this declaration's problem.
-    const source = ["export fun mm(x: Int) = 1", "@@@", "export fun nn(y: Int): Int = y", ""]
+    const source = "module Main\n\n" + ["export fun mm(x: Int) = 1", "@@@", "export fun nn(y: Int): Int = y", ""]
       .join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "mm"));
@@ -868,7 +874,7 @@ describe("code actions: infer return type", () => {
   test("the next declaration's own half-typed body is not this one's problem", () => {
     // Typing a new function under a finished one. The unclosed brace is in
     // `nn`'s text, not `mm`'s, and `mm` still has a repair to offer.
-    const source = ["export fun mm(x: Int) = 1", "export fun nn(y: Int) = {a = y", ""].join("\n");
+    const source = "module Main\n\n" + ["export fun mm(x: Int) = 1", "export fun nn(y: Int) = {a = y", ""].join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "mm"));
     expect(action.disabled).toBeUndefined();
@@ -880,17 +886,17 @@ describe("code actions: infer return type", () => {
   test("a brace inside a string is not an unclosed brace", () => {
     // A string is one token however much punctuation it holds, and an
     // interpolation's tokens are nested inside it.
-    const source = 'export fun f(x: Int) = "a{b${x}"\n';
+    const source = "module Main\n\n" + 'export fun f(x: Int) = "a{b${x}"\n';
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "f("));
-    expect(applied(source, action)).toBe('export fun f(x: Int): String = "a{b${x}"\n');
+    expect(applied(source, action)).toBe("module Main\n\n" + 'export fun f(x: Int): String = "a{b${x}"\n');
   });
 
   test("an error on either side of the declaration is not the body's", () => {
     // The region has two edges and both are wrong if either is: an error before
     // this body, and one in the declaration after it, are neither of them this
     // one's.
-    const source = [
+    const source = "module Main\n\n" + [
       "let before: Int = missingOne",
       "export fun zero() = 0",
       "let after: Int = missingTwo",
@@ -913,7 +919,7 @@ describe("code actions: infer return type", () => {
     // result by way of `value`. Verification still has its own reaching inputs
     // — see the open-record test below — so this moved rather than removed the
     // cover.
-    const source = ["export fun keep(value) =", "    let held: z = value", "    held", ""]
+    const source = "module Main\n\n" + ["export fun keep(value) =", "    let held: z = value", "    held", ""]
       .join("\n");
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "keep"));
@@ -923,7 +929,7 @@ describe("code actions: infer return type", () => {
     );
 
     // Written, it pairs, and the repair is the user's own spelling.
-    const annotated = ["export fun keep(value: z) =", "    let held: z = value", "    held", ""]
+    const annotated = "module Main\n\n" + ["export fun keep(value: z) =", "    let held: z = value", "    held", ""]
       .join("\n");
     const { session: paired } = sessionOf({ "/main.hex": annotated });
     expect(applied(annotated, sole(actionsOn(paired, "/main.hex", annotated, "keep"))))
@@ -936,11 +942,12 @@ describe("code actions: infer return type", () => {
     // inserting five characters earlier on the line moves that column. Compared
     // by message, the same pre-existing error would look like one the edit
     // caused, and the repair would be refused for breaking nothing.
-    const source = "export fun m(x: Int) = 1; export let y: Int = 2 (* oops\n";
+    const source = "module Main\n\n" + "export fun m(x: Int) = 1; export let y: Int = 2 (* oops\n";
     const { session } = sessionOf({ "/main.hex": source });
     expect(session.diagnostics("/main.hex").map(({ message }) => message))
-      .toContain("unterminated block comment; opened at line 1, column 49");
-    const action = sole(actionsOn(session, "/main.hex", source, "m"));
+      .toContain("unterminated block comment; opened at line 3, column 49");
+    // nth=2: the first bare "m" is now inside the "module" header word.
+    const action = sole(actionsOn(session, "/main.hex", source, "m", 2));
     expect(action.disabled).toBeUndefined();
     expect(applied(source, action)).toContain("export fun m(x: Int): Int = 1;");
   });
@@ -951,7 +958,7 @@ describe("code actions: infer return type", () => {
     // empty one, with no diagnostic anywhere saying so. Directly, the row comes
     // from `r` and the bare-parameter check gets there first — which is why the
     // walk has to count a record's tail and not only its fields.
-    const source = "export fun copy(r) = {...r}\n";
+    const source = "module Main\n\n" + "export fun copy(r) = {...r}\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "copy"));
     expect(action.edits).toEqual([]);
@@ -960,10 +967,10 @@ describe("code actions: infer return type", () => {
     );
 
     // Annotated, the row is the user's own and writing it closes nothing.
-    const annotated = "export fun copy(r: {...a}) = {...r}\n";
+    const annotated = "module Main\n\n" + "export fun copy(r: {...a}) = {...r}\n";
     const { session: paired } = sessionOf({ "/main.hex": annotated });
     expect(applied(annotated, sole(actionsOn(paired, "/main.hex", annotated, "copy"))))
-      .toBe("export fun copy(r: {...a}): {...a} = {...r}\n");
+      .toBe("module Main\n\n" + "export fun copy(r: {...a}): {...a} = {...r}\n");
   });
 
   test("refuses an annotation that would silently change the type", () => {
@@ -981,7 +988,7 @@ describe("code actions: infer return type", () => {
     // bare shape (`= (r) => {...r}`) is where the return annotation now
     // *supplies*: the parameter takes the written row itself, the two faces
     // agree, and the action is offered. Pinned as its own case below.
-    const source = "export fun m() = ((r) => {...r}, 1)\n";
+    const source = "module Main\n\n" + "export fun m() = ((r) => {...r}, 1)\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.edits).toEqual([]);
@@ -997,18 +1004,18 @@ describe("code actions: infer return type", () => {
     // (Functions §4.3), so `r` *is* the written `{...a}` rather than an
     // independently inferred row unified with it afterwards — and the written
     // face is now the inferred one. The action is offered, not disabled.
-    const source = "export fun m() = (r) => {...r}\n";
+    const source = "module Main\n\n" + "export fun m() = (r) => {...r}\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "m("));
     expect(action.disabled).toBe(undefined);
     expect(applied(source, action))
-      .toBe("export fun m(): {...a} -> {...a} = (r) => {...r}\n");
+      .toBe("module Main\n\n" + "export fun m(): {...a} -> {...a} = (r) => {...r}\n");
   });
 });
 
 describe("code actions: the variance an opaque type could declare (#205)", () => {
   test("offers the claim the representation supports", () => {
-    const source = [
+    const source = "module Main\n\n" + [
       "opaque record Box(a) = { get: () -> a }",
       "",
     ].join("\n");
@@ -1025,7 +1032,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
   });
 
   test("applying it leaves the file clean, and the claim verified", () => {
-    const source = "opaque record Box(a) = { get: () -> a }\n";
+    const source = "module Main\n\n" + "opaque record Box(a) = { get: () -> a }\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "a) = {"));
     session.setFile("/main.hex", applied(source, action));
@@ -1035,7 +1042,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
   });
 
   test("a contravariant representation offers the contravariant claim", () => {
-    const source = "opaque record Sink(a) = { accept: a -> Unit }\n";
+    const source = "module Main\n\n" + "opaque record Sink(a) = { accept: a -> Unit }\n";
     const { session } = sessionOf({ "/main.hex": source });
     const action = sole(actionsOn(session, "/main.hex", source, "a) = {"));
     expect(action.title).toContain("Declare `Sink(-a)`");
@@ -1051,7 +1058,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
         "record Box(a) = { get: () -> a }\n",
         "export record Box(a) = { get: () -> a }\n",
         "opaque record Tag(a) = { name: String }\n",
-      ]
+      ].map((body) => "module Main\n\n" + body)
     ) {
       const { session } = sessionOf({ "/main.hex": source });
       expect(actionsOn(session, "/main.hex", source, "a) = {")).toEqual([]);
@@ -1063,7 +1070,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
     // range)`. Dropping the filter left every test above green — they all ask
     // at the declaration — while a request anywhere in the file answered with
     // every under-claim in it. A client asks about the line under the cursor.
-    const source = [
+    const source = "module Main\n\n" + [
       "opaque record Box(a) = { get: () -> a }",
       "",
       "export fun size(): Int = 0",
@@ -1083,7 +1090,7 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
         // Over-claimed: an error, and §6.3's report is the answer to it — not a
         // refactor offering the same claim a second time.
         "opaque record Sink(+a) = { accept: a -> Unit }\n",
-      ]
+      ].map((body) => "module Main\n\n" + body)
     ) {
       const { session } = sessionOf({ "/main.hex": source });
       const titles = actionsOn(session, "/main.hex", source, "a) = {")
@@ -1093,8 +1100,8 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
   });
 
   test("an imported declaration's head is not this file's to edit", () => {
-    const box = "opaque record Box(a) = { get: () -> a }\n";
-    const main = 'import B from "./box.hex"\nexport let n: Int = 1\n';
+    const box = "module Box\n\n" + "opaque record Box(a) = { get: () -> a }\n";
+    const main = "module Main\n\n" + 'import Box as B\nexport let n: Int = 1\n';
     const { session } = sessionOf({ "/box.hex": box, "/main.hex": main });
     expect(session.codeActions("/main.hex", { start: 0, end: main.length })).toEqual([]);
   });
@@ -1118,10 +1125,13 @@ describe("code actions: the variance an opaque type could declare (#205)", () =>
  */
 describe("code actions: the module-import repair family (#577)", () => {
   /** A user constraint in its own module, unimported by anything below. */
-  const SCALE = "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n";
+  const SCALE = "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n";
   /** A union and a function over it: the type seat's exporter. */
-  const SHAPE = "export union Shape = Circle(Float) | Square(Float)\n" +
+  const SHAPE = "module Shape\n\n" + "export union Shape = Circle(Float) | Square(Float)\n" +
     "export fun area(s: Shape): Float = 1.0\n";
+  /** The same constraint in a module whose **name is not the spelling**. */
+  const METRIC = "module Metric\n\n" +
+    "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n";
 
   test("the type seat's insert lands beside the imports already there", () => {
     // The filing's own shape, respelt for #762: the type is named bare by a
@@ -1129,16 +1139,16 @@ describe("code actions: the module-import repair family (#577)", () => {
     // module. The alias joins the import block, and the line the author already
     // wrote is left exactly as it is — this action adds a line, it does not
     // rewrite one.
-    const main = 'import S from "./shape"\ntype Shape = S.Shape\n\n' +
+    const main = "module Main\n\n" + 'import Shape as S\ntype Shape = S.Shape\n\n' +
       "export fun go(s: Shape): Float = Shape.area(s)\n";
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
     expect(action.title).toBe("import `Shape`");
     expect(action.kind).toBe("quickfix");
     expect(action.disabled).toBeUndefined();
-    expect(applied(main, action)).toBe(
-      'import S from "./shape"\n' +
-        'import Shape from "./shape"\n' +
+    expect(applied(main, action)).toBe("module Main\n\n" + 
+      'import Shape as S\n' +
+        'import Shape\n' +
         "type Shape = S.Shape\n\n" +
         "export fun go(s: Shape): Float = Shape.area(s)\n",
     );
@@ -1148,7 +1158,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     // The property that makes an *applied* edit honest: the file it produces
     // compiles. Asserted for the seat whose message the author cannot act on
     // without knowing the path.
-    const main = 'import S from "./shape"\ntype Shape = S.Shape\n' +
+    const main = "module Main\n\n" + 'import Shape as S\ntype Shape = S.Shape\n' +
       "export fun go(s: Shape): Float = Shape.area(s)\n";
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const action = sole(actionsOn(session, "/main.hex", main, "Shape.area"));
@@ -1156,38 +1166,92 @@ describe("code actions: the module-import repair family (#577)", () => {
     expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
   });
 
+  test("the repair carries the refused spelling as the alias where they differ", () => {
+    // The property above, asked where the module's declared name is *not* the
+    // spelling the caret is on — which is the only shape in which the alias
+    // does any work, and therefore the only shape in which dropping it can be
+    // caught. §5.1 rule 2's companion fallback is the door the bare `Scale`
+    // resolves through, and the alias is what opens it.
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf({ "/metric.hex": METRIC, "/main.hex": main });
+    const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
+    expect(applied(main, action)).toBe(
+      "module Main\n\n" + "import Metric as Scale\n" +
+        "export fun go<a: Scale>(x: a): a = x\n",
+    );
+    session.setFile("/main.hex", applied(main, action));
+    expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
+  });
+
+  test("under a manifest `name` the line elides the project's own segment", () => {
+    // Packages §3.3: "a package's own modules are imported by their declared
+    // names", and §3.2 answers `import Metric` inside `Acme` from the declared
+    // name alone — so `import Acme.Metric as Scale` is a line the compiler
+    // refuses, and offering it as a *fix* adds an error rather than removing
+    // one. `language-server`'s workspace passes `packageName` straight through
+    // from `hexagon.json`, so this is the line a real named project is offered.
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
+    for (const options of [{}, { packageName: "Acme" }]) {
+      const { session } = sessionOf({ "/metric.hex": METRIC, "/main.hex": main }, options);
+      const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
+      expect(applied(main, action)).toBe(
+        "module Main\n\n" + "import Metric as Scale\n" +
+          "export fun go<a: Scale>(x: a): a = x\n",
+      );
+      // And it repairs: the standard the whole family is held to.
+      session.setFile("/main.hex", applied(main, action));
+      expect(session.allDiagnostics().get("/main.hex") ?? []).toEqual([]);
+    }
+  });
+
+  test("the disabled message names candidate modules the same way", () => {
+    // The arm that offers no edit still prints module names, and a reader
+    // picking one from the list writes it by hand — so the list is spelled the
+    // way a line in *this* package has to be.
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
+    const { session } = sessionOf(
+      { "/metric.hex": METRIC, "/scale.hex": SCALE, "/main.hex": main },
+      { packageName: "Acme" },
+    );
+    const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
+    expect(action.disabled).toBe(
+      "2 modules export a constraint `Scale`: `Metric`, `Scale` — " +
+        "write the import for the one you mean",
+    );
+  });
+
   test("the constraint seats offer the same action, and it repairs them too", () => {
     // A binder, and a `widens` head: two different passes report, one marker
     // carries, one action answers.
-    const binder = "export fun go<a: Scale>(x: a): a = x\n";
+    const binder = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": binder });
     const first = sole(actionsOn(session, "/main.hex", binder, "Scale>"));
     expect(first.title).toBe("import `Scale`");
-    expect(applied(binder, first)).toBe(
-      'import Scale from "./scale"\n' +
+    expect(applied(binder, first)).toBe("module Main\n\n" + 
+      'import Scale\n' +
         "export fun go<a: Scale>(x: a): a = x\n",
     );
 
-    const head = "export record Metre = {m: Float}\n" +
+    const head = "module Main\n\n" + "export record Metre = {m: Float}\n" +
       "widens Scale.scale(value: Metre, factor: Float): Metre = value\n";
     session.setFile("/main.hex", head);
     const second = sole(actionsOn(session, "/main.hex", head, "Scale.scale"));
-    expect(applied(head, second)).toBe(
-      'import Scale from "./scale"\n' +
+    expect(applied(head, second)).toBe("module Main\n\n" + 
+      'import Scale\n' +
         "export record Metre = {m: Float}\n" +
         "widens Scale.scale(value: Metre, factor: Float): Metre = value\n",
     );
   });
 
   test("the specifier is relative to the file being fixed", () => {
-    const main = "export fun go<a: Scale>(x: a): a = x\n";
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
     const { session } = sessionOf({
       "/lib/scaling/scale.hex": SCALE,
       "/src/main.hex": main,
     });
     const action = sole(actionsOn(session, "/src/main.hex", main, "Scale>"));
-    expect(applied(main, action)).toBe(
-      'import Scale from "../lib/scaling/scale"\n' +
+    expect(applied(main, action)).toBe("module Main\n\n" + 
+      'import Scale\n' +
         "export fun go<a: Scale>(x: a): a = x\n",
     );
   });
@@ -1198,14 +1262,14 @@ describe("code actions: the module-import repair family (#577)", () => {
     // (`spec/doc-comments.md` §2.1), so an insert between the two would silently
     // unfile the documentation. With no import line to sit under, the top of the
     // file is above the comment and above everything else.
-    const main = "(** The metre, and nothing else. *)\n" +
+    const main = "module Main\n\n" + "(** The metre, and nothing else. *)\n" +
       "export record Metre = {m: Float}\n" +
       "\n" +
       "export fun go<a: Scale>(x: a): a = x\n";
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
     const action = sole(actionsOn(session, "/main.hex", main, "Scale>"));
-    expect(applied(main, action)).toBe(
-      'import Scale from "./scale"\n' +
+    expect(applied(main, action)).toBe("module Main\n\n" + 
+      'import Scale\n' +
         "(** The metre, and nothing else. *)\n" +
         "export record Metre = {m: Float}\n" +
         "\n" +
@@ -1221,12 +1285,14 @@ describe("code actions: the module-import repair family (#577)", () => {
   test("an import written below the use is not one the alias could sit under", () => {
     // §3's top-down half is the whole of the placement rule for term positions:
     // only imports the refused use is already *below* are candidates to join.
-    const main = "export fun go(s: Shape): Float = Shape.area(s)\n" +
-      'import S from "./shape"\ntype Shape = S.Shape\n';
+    const main = "module Main\n\n" + "export fun go(s: Shape): Float = Shape.area(s)\n" +
+      'import Shape as S\ntype Shape = S.Shape\n';
     const { session } = sessionOf({ "/shape.hex": SHAPE, "/main.hex": main });
     const actions = actionsOn(session, "/main.hex", main, "Shape.area");
     const action = actions.find(({ title }) => title === "import `Shape`")!;
-    expect(applied(main, action).startsWith('import Shape from "./shape"\n'))
+    // So the line takes the fallback placement — the top of the *module*, which
+    // since #829 is the line below the header rather than offset zero.
+    expect(applied(main, action).startsWith("module Main\n\nimport Shape\n"))
       .toBe(true);
   });
 
@@ -1235,22 +1301,27 @@ describe("code actions: the module-import repair family (#577)", () => {
     // message in the family. The action is returned refused rather than dropped:
     // the repair is real and obvious, and choosing between two modules is the
     // author's call, not the tooling's.
-    const main = "export fun go<a: Scale>(x: a): a = x\n";
+    // #829: two files can no longer share the name `Scale` — a workspace
+    // disambiguates by declared module name, not by file path — so the two
+    // candidates are two distinctly named modules that each export a
+    // constraint spelled `Scale`.
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
+    const constraintScale = "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n";
     const { session } = sessionOf({
-      "/lib/metric.hex": SCALE,
-      "/lib/imperial.hex": "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
+      "/lib/metric.hex": "module Metric\n\n" + constraintScale,
+      "/lib/imperial.hex": "module Imperial\n\n" + constraintScale,
       "/src/main.hex": main,
     });
     const action = sole(actionsOn(session, "/src/main.hex", main, "Scale>"));
     expect(action.edits).toEqual([]);
     expect(action.disabled).toBe(
-      "2 modules export a constraint `Scale`: `../lib/imperial`, `../lib/metric` " +
+      "2 modules export a constraint `Scale`: `Imperial`, `Metric` " +
         "— write the import for the one you mean",
     );
   });
 
   test("no exporter is silence, not a guess", () => {
-    const main = "export fun go<a: Scale>(x: a): a = x\n";
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
     const { session } = sessionOf({ "/main.hex": main });
     expect(actionsOn(session, "/main.hex", main, "Scale>")).toEqual([]);
   });
@@ -1258,16 +1329,19 @@ describe("code actions: the module-import repair family (#577)", () => {
   test("the namespaces do not answer for each other", () => {
     // A module exporting a *type* `Scale` is no candidate for a constraint the
     // workspace has none of, and the reverse holds at the type seat.
-    const main = "export fun go<a: Scale>(x: a): a = x\n";
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
     const { session } = sessionOf({
-      "/scale.hex": "export record Scale = {factor: Float}\n",
+      "/scale.hex": "module Scale\n\n" + "export record Scale = {factor: Float}\n",
       "/main.hex": main,
     });
     expect(actionsOn(session, "/main.hex", main, "Scale>")).toEqual([]);
 
     const qualified = "union Shape = Circle(Float)\n" +
       "export let n: Float = Shape.area(1.0)\n";
-    session.setFile("/scale.hex", "export constraint Shape<a> =\n    area(value: a): Float\n");
+    session.setFile(
+      "/scale.hex",
+      "module Scale\n\n" + "export constraint Shape<a> =\n    area(value: a): Float\n",
+    );
     session.setFile("/main.hex", qualified);
     expect(actionsOn(session, "/main.hex", qualified, "Shape.area")).toEqual([]);
   });
@@ -1275,7 +1349,7 @@ describe("code actions: the module-import repair family (#577)", () => {
   test("the module being fixed is never its own candidate", () => {
     // It exports the spelling and still cannot import itself; the repair for a
     // `Name.` seat over the module's own type is not an import at all.
-    const main = "export union Shape = Circle(Float)\n" +
+    const main = "module Main\n\n" + "export union Shape = Circle(Float)\n" +
       "export let n: Float = Shape.area(1.0)\n";
     const { session } = sessionOf({ "/main.hex": main });
     expect(actionsOn(session, "/main.hex", main, "Shape.area")).toEqual([]);
@@ -1297,7 +1371,7 @@ describe("code actions: the module-import repair family (#577)", () => {
    * is written about. The first line is what puts `/JsValue.hex` in the
    * inventory, and with it there the tier is asked the real question.
    */
-  const REACHES_PRELUDE = "export let c: JsConversionError =\n" +
+  const REACHES_PRELUDE = "module Main\n\n" + "export let c: JsConversionError =\n" +
     "    JsValue.JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n" +
     "export let n: Int = JsConversionError.rank(1)\n";
 
@@ -1311,7 +1385,7 @@ describe("code actions: the module-import repair family (#577)", () => {
     // The line the tier would otherwise write is `import
     // JsConversionError from "./JsValue"`, which repairs nothing — the
     // recompiled file reports ``module `JsConversionError` does not export
-    // `rank```` — and emits `import * as JsConversionError from "./JsValue.js"`
+    // `rank```` — and emits `import * as JsConversionError from "./Hex/JsValue.js"`
     // into the user's JavaScript.
     expect(actionsOn(session, "/main.hex", REACHES_PRELUDE, "JsConversionError.rank"))
       .toEqual([]);
@@ -1322,15 +1396,22 @@ describe("code actions: the module-import repair family (#577)", () => {
     // enabled arm inherits. With a user module exporting the spelling there is
     // exactly one candidate, not two: the action is enabled and names `./mine`.
     const { session } = sessionOf({
-      "/mine.hex": "export union JsConversionError = Up | Down\n",
+      "/mine.hex": "module Mine\n\n" + "export union JsConversionError = Up | Down\n",
       "/main.hex": REACHES_PRELUDE,
     });
     const action = sole(
       actionsOn(session, "/main.hex", REACHES_PRELUDE, "JsConversionError.rank"),
     );
     expect(action.disabled).toBeUndefined();
+    // #829: the fix names the *module*, and carries the refused spelling as the
+    // alias — the module is `Mine`, the caret is on `JsConversionError`, and
+    // only the alias makes that spelling resolve (§5.1 rule 2).
     expect(applied(REACHES_PRELUDE, action)).toBe(
-      'import JsConversionError from "./mine"\n' + REACHES_PRELUDE,
+      "module Main\n\n" +
+        "import Mine as JsConversionError\n" +
+        "export let c: JsConversionError =\n" +
+        "    JsValue.JsConversionError({ reason = JsConversionReason.Shape, path = [] })\n" +
+        "export let n: Int = JsConversionError.rank(1)\n",
     );
   });
 
@@ -1339,16 +1420,20 @@ describe("code actions: the module-import repair family (#577)", () => {
     // which classifies by *basename*: this file is the user's, and dropping it
     // would be the mirror-image defect — a repair withheld because of what the
     // author happened to name their module.
-    const main = 'import P from "./lib/Prelude"\ntype Meters = P.Meters\n' +
+    const main = "module Main\n\n" + 'import Prelude as P\ntype Meters = P.Meters\n' +
       "export let n: Float = Meters.zero\n";
     const { session } = sessionOf({
-      "/lib/Prelude.hex": "export type Meters = Float\n",
+      "/lib/Prelude.hex": "module Prelude\n\n" + "export type Meters = Float\n",
       "/main.hex": main,
     });
     const action = sole(actionsOn(session, "/main.hex", main, "Meters.zero"));
+    // #829: the fix names the module, under the spelling the caret used — the
+    // second alias joining the block binds `Meters`, which is the name that was
+    // refused, and not `Prelude`, which would leave it refused.
     expect(applied(main, action)).toBe(
-      'import P from "./lib/Prelude"\n' +
-        'import Meters from "./lib/Prelude"\n' +
+      "module Main\n\n" +
+        'import Prelude as P\n' +
+        'import Prelude as Meters\n' +
         "type Meters = P.Meters\n" +
         "export let n: Float = Meters.zero\n",
     );
@@ -1357,7 +1442,7 @@ describe("code actions: the module-import repair family (#577)", () => {
   test("one spelling, one offer, however many refusals a range holds", () => {
     // Two obligations naming one unimported constraint are two diagnostics and
     // one keystroke. The dedupe is the method's own idiom, one block down.
-    const main = "export fun go<a: Scale, b: Scale>(x: a, y: b): a = x\n";
+    const main = "module Main\n\n" + "export fun go<a: Scale, b: Scale>(x: a, y: b): a = x\n";
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
     expect(session.codeActions("/main.hex", { start: 0, end: main.length })
       .filter(({ title }) => title === "import `Scale`")).toHaveLength(1);
@@ -1370,21 +1455,21 @@ describe("code actions: the module-import repair family (#577)", () => {
     // one. Repairing the lower use seats the alias below the upper one, which
     // keeps its own refusal — now with a fixit of its own — rather than having
     // the author's own import line reordered under them.
-    const main = 'import S from "./shape"\ntype Shape = S.Shape\n' +
+    const main = "module Main\n\n" + 'import Shape as S\ntype Shape = S.Shape\n' +
       "export fun a(s: Shape): Float = Shape.area(s)\n" +
-      'import Other from "./other"\n' +
+      'import Other\n' +
       "export fun b(s: Shape): Float = Shape.area(s)\n";
     const { session } = sessionOf({
       "/shape.hex": SHAPE,
-      "/other.hex": "export let z: Int = 1\n",
+      "/other.hex": "module Other\n\n" + "export let z: Int = 1\n",
       "/main.hex": main,
     });
     const lower = sole(actionsOn(session, "/main.hex", main, "Shape.area", 2));
-    expect(applied(main, lower)).toBe(
-      'import S from "./shape"\ntype Shape = S.Shape\n' +
+    expect(applied(main, lower)).toBe("module Main\n\n" + 
+      'import Shape as S\ntype Shape = S.Shape\n' +
         "export fun a(s: Shape): Float = Shape.area(s)\n" +
-        'import Other from "./other"\n' +
-        'import Shape from "./shape"\n' +
+        'import Other\n' +
+        'import Shape\n' +
         "export fun b(s: Shape): Float = Shape.area(s)\n",
     );
     session.setFile("/main.hex", applied(main, lower));
@@ -1406,16 +1491,16 @@ describe("code actions: the module-import repair family (#577)", () => {
   });
 
   test("a private declaration is no export, and offers nothing", () => {
-    const main = "export fun go<a: Scale>(x: a): a = x\n";
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n";
     const { session } = sessionOf({
-      "/scale.hex": "constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
+      "/scale.hex": "module Scale\n\n" + "constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
       "/main.hex": main,
     });
     expect(actionsOn(session, "/main.hex", main, "Scale>")).toEqual([]);
   });
 
   test("the offer is scoped to the caret, like every other action here", () => {
-    const main = "export fun go<a: Scale>(x: a): a = x\n" +
+    const main = "module Main\n\n" + "export fun go<a: Scale>(x: a): a = x\n" +
       "export let n: Int = 1\n";
     const { session } = sessionOf({ "/scale.hex": SCALE, "/main.hex": main });
     expect(actionsOn(session, "/main.hex", main, "Scale>")).toHaveLength(1);

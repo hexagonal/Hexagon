@@ -85,7 +85,7 @@ export interface TypeNames {
  */
 export function typeNamesOf(
   resolved: Resolved.Module,
-  fileOfSpecifier?: (specifier: string) => Source.FileId | undefined,
+  fileOfModule?: (moduleName: string) => Source.FileId | undefined,
 ): TypeNames {
   const unions = new Map<Resolved.UnionId, string>();
   const records = new Map<Resolved.RecordId, string>();
@@ -147,7 +147,12 @@ export function typeNamesOf(
   const namespaces: { readonly alias: string; readonly fileId: Source.FileId }[] = [];
   for (const item of resolved.items) {
     if (item.kind !== "Import" || item.synthesized) continue;
-    const declaring = fileOfSpecifier?.(item.specifier);
+    // By the module the import **names**, not by the specifier it emits: since
+    // #829 `specifier` is the JS path this edge writes (Modules §11.2), which
+    // no source path corresponds to, and reading it back would answer nothing
+    // for every import — leaving a nameable imported type reported as one this
+    // module has no name for.
+    const declaring = fileOfModule?.(item.moduleName);
     if (declaring === undefined || item.form.kind !== "Namespace") continue;
     const { alias } = item.form;
     namespaces.push({ alias, fileId: declaring });

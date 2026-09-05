@@ -1,3 +1,5 @@
+module Rat
+
 (** An exact rational number: a canonical pair of `BigInt` top and bottom,
     always reduced, the bottom always positive. *)
 opaque record Rat derives (Eq, Hash) = {

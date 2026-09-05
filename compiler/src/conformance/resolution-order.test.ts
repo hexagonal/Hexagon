@@ -39,7 +39,7 @@ function diagnostics(
 ): readonly string[] {
   const files = [
     ...extras.map(([path, text], index) => new Source.File(Source.fileId(index + 1), path, text)),
-    new Source.File(Source.fileId(0), "/main.hex", source),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
   ];
   return compileProject(files).diagnostics.map((diagnostic) => diagnostic.message);
 }
@@ -64,7 +64,7 @@ function runtimeDiagnostics(
   source: string,
   options: { readonly runtime?: boolean } = {},
 ): readonly string[] {
-  const file = new Src.File(Src.fileId(0), "/runtime.hex", source);
+  const file = new Src.File(Src.fileId(0), "/runtime.hex", "module Runtime\n\n" + source);
   // The checker carries resolver diagnostics forward, so this is the union of both.
   return check(resolve(parse(applyLayout(lex(file))), options)).diagnostics.map((d) => d.message);
 }
@@ -100,7 +100,7 @@ function link(
 
 /** Compiles a program and executes it, returning `/main.hex`'s exports. */
 async function run(source: string): Promise<Record<string, unknown>> {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
   // The project-wide bag, not just the entry's: a broken prelude module must fail here.
   expect(project.diagnostics).toEqual([]);
   const moduleUrls = new Map<string, string>();
@@ -142,10 +142,10 @@ describe("a user record occludes a same-named intrinsic, coherently", () => {
 
   test("companion dispatch reaches an imported home module", () => {
     expect(diagnostics(
-      "import Boxes from \"./boxes\"\n" +
+      "import Boxes\n" +
       "export fun use(box: Boxes.Vector(Int)): Int = box.doubled()\n",
       [["/boxes.hex",
-        "export record Vector(a) = { item: a }\n" +
+        "module Boxes\n\n" + "export record Vector(a) = { item: a }\n" +
         "export fun doubled(box: Vector(Int)): Int = box.item * 2\n"]],
     )).toEqual([]);
   });
@@ -275,14 +275,14 @@ describe("the boundary intrinsics are a fallback in both directions", () => {
  * defect 6's own signature, one namespace over.
  */
 describe("the companion fallback outranks the boundary intrinsics", () => {
-  const ARR = ["/arr.hex", "export record Array(a) = { item: a }\n"] as const;
-  const NUL = ["/nul.hex", "export record Nullable(a) = { item: a }\n"] as const;
+  const ARR = ["/arr.hex", "module Arr\n\n" + "export record Array(a) = { item: a }\n"] as const;
+  const NUL = ["/nul.hex", "module Nul\n\n" + "export record Nullable(a) = { item: a }\n"] as const;
 
   test("`Array` — a same-spelled export through a same-spelled alias wins", () => {
     // The discriminator is the field: only the record has one. Under the old
     // order the annotation was the intrinsic and this read was a mismatch.
     expect(diagnostics(
-      'import Array from "./arr"\n' +
+      'import Arr as Array\n' +
       "export fun item(a: Array(Int)): Int = a.item\n",
       [ARR],
     )).toEqual([]);
@@ -290,7 +290,7 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
 
   test("`Array` — a constructed value meets the annotation, no same-name mismatch", () => {
     expect(diagnostics(
-      'import Array from "./arr"\n' +
+      'import Arr as Array\n' +
       "export fun wrap(item: Int): Array(Int) = Array.Array({ item = item })\n",
       [ARR],
     )).toEqual([]);
@@ -301,26 +301,26 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     // answered before the fallback existed. If it had not, the extern row would
     // draw `unknown generic type \`Array\``.
     expect(diagnostics(
-      'import Array from "./arr"\n' +
+      'import Arr as Array\n' +
       'extern from "host"\n    fun rows(): Array(Int)\n' +
       "export let first: Array(Int) = rows!()\n" +
       "export let n: Int = Array.count()\n",
-      [["/arr.hex", "export fun count(): Int = 1\n"]],
+      [["/arr.hex", "module Arr\n\n" + "export fun count(): Int = 1\n"]],
     )).toEqual([]);
   });
 
   test("`Nullable` — the same pair", () => {
     expect(diagnostics(
-      'import Nullable from "./nul"\n' +
+      'import Nul as Nullable\n' +
       "export fun item(a: Nullable(Int)): Int = a.item\n",
       [NUL],
     )).toEqual([]);
     expect(diagnostics(
-      'import Nullable from "./nul"\n' +
+      'import Nul as Nullable\n' +
       'extern from "host"\n    fun maybe(): Nullable(Int)\n' +
       "export let first: Nullable(Int) = maybe!()\n" +
       "export let n: Int = Nullable.count()\n",
-      [["/nul.hex", "export fun count(): Int = 1\n"]],
+      [["/nul.hex", "module Nul\n\n" + "export fun count(): Int = 1\n"]],
     )).toEqual([]);
   });
 
@@ -329,16 +329,16 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     // module, and shipped runtime source holds no import lines: a project file
     // at an injection path may, which is exactly this shape.
     expect(grantedDiagnostics([
-      ["/mynode.hex", "export record Node(a) = { item: a }\n"],
+      ["/mynode.hex", "module Mynode\n\n" + "export record Node(a) = { item: a }\n"],
       ["/rt.hex",
-        'import Node from "./mynode"\n' +
+        "module Rt\n\n" + 'import Mynode as Node\n' +
         "fun item(n: Node(Int)): Int = n.item\n" +
         "export let answer: Int = item(Node.Node({ item = 1 }))\n"],
     ], ["/rt.hex"])).toEqual([]);
     expect(grantedDiagnostics([
-      ["/mynode.hex", "export fun count(): Int = 1\n"],
+      ["/mynode.hex", "module Mynode\n\n" + "export fun count(): Int = 1\n"],
       ["/rt.hex",
-        'import Node from "./mynode"\n' +
+        "module Rt\n\n" + 'import Mynode as Node\n' +
         // The annotation is the whole assertion: with no `Node` type behind the
         // alias the hidden intrinsic answers it, and without the intrinsic
         // there would be no type at all ("unknown generic type `Node`"). The
@@ -354,9 +354,9 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
     // JS views are not among them, so conservativity there is exact: a
     // same-spelled alias over a same-spelled export changes nothing.
     expect(diagnostics(
-      'import Vector from "./myvec"\n' +
+      'import Myvec as Vector\n' +
       "export fun first(values: Vector(Int)): Int = values[0]\n",
-      [["/myvec.hex", "export record Vector(a) = { item: a }\n"]],
+      [["/myvec.hex", "module Myvec\n\n" + "export record Vector(a) = { item: a }\n"]],
     )).toEqual([]);
   });
 });
@@ -408,17 +408,17 @@ describe("the term-level yield stays pinned", () => {
   // namespace has now been brought into line with; pin it against drift.
   test("a module alias named `Seq` takes `Seq.iterate`", () => {
     expect(diagnostics(
-      "import Seq from \"./myseq\"\n" +
+      "import Myseq as Seq\n" +
       "export fun use(): Int = Seq.iterate(1, x => x + 1)\n",
-      [["/myseq.hex", "export fun iterate(seed: Int, step: (Int) -> Int): Int = step(seed)\n"]],
+      [["/myseq.hex", "module Myseq\n\n" + "export fun iterate(seed: Int, step: (Int) -> Int): Int = step(seed)\n"]],
     )).toEqual([]);
   });
 
   test("a module alias named `Vector` takes `Vector.length`", () => {
     expect(diagnostics(
-      "import Vector from \"./myvec\"\n" +
+      "import Myvec as Vector\n" +
       "export fun use(): Int = Vector.length(7)\n",
-      [["/myvec.hex", "export fun length(n: Int): Int = n\n"]],
+      [["/myvec.hex", "module Myvec\n\n" + "export fun length(n: Int): Int = n\n"]],
     )).toEqual([]);
   });
 });

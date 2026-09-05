@@ -10,7 +10,14 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
-import type * as Source from "../../support/source.js";
+import * as Source from "../../support/source.js";
+import {
+  insertedLine,
+  lineStart,
+  newlineOf,
+  pastBlankLines,
+  pastLineEnd,
+} from "../../support/import-placement.js";
 import { displayParameterName, syntheticParameterName } from "../../support/synthetic.js";
 import {
   type ForeignLiteral,
@@ -106,6 +113,140 @@ function derivedAlias(specifier: string): string {
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join("");
   return /^[A-Z][A-Za-z0-9_]*$/.test(alias) ? alias : ALIAS_SLOT;
+}
+
+/**
+ * The slot a refused head or a headerless file names where the derivation
+ * yields no uppercase-start identifier — `module <Name>` (Modules §2.1),
+ * `import <Name> as Geo` (§3.1). The message names the seat rather than a
+ * spelling the language would refuse a second time.
+ */
+const MODULE_NAME_SLOT = "<Name>";
+
+/**
+ * The module **name** derived from a file basename or an import specifier's:
+ * the `.hex` extension dropped, each `-`, `_`, or `.`-separated segment
+ * upper-cased at its start and joined (Modules §2.1, §3.1, §10). `geometry`
+ * → `Geometry`, `search-params.hex` → `SearchParams`; where the derivation
+ * yields no uppercase-start identifier the caller names the slot instead.
+ *
+ * The derivation serves the **fixit only**: the compiler never reads a
+ * module's name off a path (Modules §2.1, §9.2), so nothing can drift. It is
+ * deliberately not a general identifier sanitiser — a segment that is not
+ * already identifier-shaped fails the whole derivation rather than being
+ * mangled into something the author never chose.
+ */
+export function derivedModuleName(pathOrSpecifier: string): string {
+  const basename = (pathOrSpecifier.split("/").at(-1) ?? "").replace(/\.hex$/u, "");
+  const name = basename
+    .split(/[-_.]/)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join("");
+  return /^[A-Z][A-Za-z0-9_]*$/.test(name) ? name : MODULE_NAME_SLOT;
+}
+
+/**
+ * Modules §2.1's casing **rewrite** for a written module name: each
+ * dot-separated segment upper-cased at its start, the dots kept —
+ * `render.geometry` → `Render.Geometry`. Never the basename joiner
+ * `derivedModuleName` uses, which would answer `RenderGeometry` and name a
+ * module the program has not got: a dotted name is one name whose segments are
+ * the author's (§2.3).
+ *
+ * `undefined` where upper-casing yields no uppercase-start identifier —
+ * `import 用户`, `import _x`, where the operation is a no-op — and the caller
+ * names the slot instead, carrying no applied edit.
+ */
+function capitalisedModuleName(
+  segments: readonly { readonly text: string }[],
+): string | undefined {
+  const capitalised = segments
+    .map(({ text }) => text.charAt(0).toUpperCase() + text.slice(1))
+    .join(".");
+  return segments.length > 0 && lawfulModuleName(capitalised) ? capitalised : undefined;
+}
+
+/** One segment of a module name: an uppercase-start identifier (Modules §2.1). */
+const MODULE_NAME_SEGMENT = /^[A-Z][A-Za-z0-9_]*$/u;
+
+/**
+ * Whether a written module name is one §2.1 admits: every dot-separated segment
+ * an uppercase-start identifier.
+ *
+ * The test `capitalisedModuleName` answers `undefined` against — "upper-casing
+ * yields no lawful module name" — hoisted out and exported for the one rule
+ * downstream of the casing recovery that must tell a lawful declared name from
+ * the **slot**'s (§2.1, #838): §2.2's duplicate report, whose dotted hint is
+ * itself unspellable at a name no dotting could make lawful, and which says
+ * "rename the module" there instead (§10).
+ */
+export function lawfulModuleName(name: string): boolean {
+  return name.split(".").every((segment) => MODULE_NAME_SEGMENT.test(segment));
+}
+
+/** Whether every segment of a written module name is uppercase-start (§2.1). */
+function uppercaseStartName(name: Parsed.ModuleName): boolean {
+  return name.segments.every(({ startClass }) => startClass === "upper");
+}
+
+/**
+ * The **alias** a refused head's rewrite carries: the spelling that stood in the
+ * alias seat, reduced to what an alias may be (Modules §3.1) — its last dotted
+ * segment, upper-cased at its start — or `undefined` where nothing stood there
+ * and where that yields no lawful alias (`import Render.用户 from "./geometry"`).
+ *
+ * A stale head's alias seat can hold a spelling no alias may be, because the
+ * heads this serves are the half-migrated ones: `import Render.Geometry from
+ * "./geometry"` is a module name written into v1's alias slot. Handing the
+ * written text back — `import Geometry as Render.Geometry` — printed a line the
+ * language refuses at once, which is the one thing Declarations Preamble §1.1's
+ * Rewrite Rule forbids a rewrite to do. The segments before the last are the
+ * *name*'s and never bind (§2.3), so the last segment is the whole of what the
+ * author asked to bind; `#importRewrite` then drops the clause where it is the
+ * derived name's own last segment, and `import Geometry` is what is offered.
+ *
+ * The **recovery binds this same alias**, never the written one: a lowercase
+ * `geometry` bound as a module alias is a binding the alias rule forbids and
+ * nothing downstream would report.
+ */
+function rewriteAlias(written: Parsed.ModuleName | undefined): string | undefined {
+  const last = written?.segments.at(-1)?.text;
+  if (last === undefined) return undefined;
+  const capitalised = last.charAt(0).toUpperCase() + last.slice(1);
+  return MODULE_NAME_SEGMENT.test(capitalised) ? capitalised : undefined;
+}
+
+/** One module header or closer, with where in the item list it stood. */
+interface ModuleMarker {
+  readonly kind: "header" | "closer";
+  readonly name: Parsed.ModuleName;
+  readonly span: Source.Span;
+  readonly index: number;
+  /**
+   * Whether §2.1's casing refusal published an **edit** over this marker's name
+   * (`module geometry`, and not `module 用户`, where the operation is a no-op
+   * and the message names the slot instead).
+   *
+   * Recorded rather than re-derived, because the one reader of it — §2.2's
+   * header move, which stands down where its own edit would overlap this one —
+   * is asking whether an edit exists, and every test *about the text* that
+   * comes close to answering that is a different question wearing the same
+   * answer. Comparing the written spelling against the canonical one is the
+   * near miss: it is also true of `module Acme . Geometry`, a header nothing
+   * refused, and withholding the move there is a fixit §2.2 states, silently
+   * absent on a file that is otherwise clean.
+   */
+  readonly rewritten: boolean;
+}
+
+/** A derived (never written) module name, for a refused head's recovery. */
+function derivedModuleNameReference(name: string, span: Source.Span): Parsed.ModuleName {
+  return {
+    text: name,
+    segments: [{ text: name, startClass: "upper", span }],
+    span,
+    declared: false,
+  };
 }
 
 /**
@@ -250,8 +391,18 @@ const matchFunctionCatchError =
   "`catch` to observe — to guard the arm bodies, write a lambda whose body is " +
   "`try match x …` with `catch` aligned to the `try`";
 
-/** Parses one layout-aware file and retains diagnostics from earlier passes. */
-export function parse(file: LaidOut.File): Parsed.Module {
+/**
+ * Parses one layout-aware file into the modules it declares, retaining
+ * diagnostics from earlier passes.
+ *
+ * A file holds one module or several (Modules §2.2), so this returns a list.
+ * The list is never empty: a file that declares nothing recovers under the
+ * name §2.1's fixit offers, so every later pass has a module to work with.
+ *
+ * `path` is read for that derivation and for nothing else — the compiler never
+ * reads a module's *name* off a path (§2.1, §9.2).
+ */
+export function parseFile(file: LaidOut.File, path = ""): readonly Parsed.Module[] {
   const diagnostics = new Diagnostics.Bag();
   for (const diagnostic of file.diagnostics) {
     diagnostics.add(diagnostic);
@@ -261,7 +412,17 @@ export function parse(file: LaidOut.File): Parsed.Module {
     file.tokens,
     diagnostics,
     new DocBlocks(file.tokens, file.comments, diagnostics),
-  ).parseModule(file.fileId, file.comments);
+    file.text,
+  ).parseFile(file.fileId, file.comments, path);
+}
+
+/**
+ * The first module a file declares — the single-module convenience over
+ * `parseFile`, for the pass-level harnesses that compile one module with no
+ * project around it.
+ */
+export function parse(file: LaidOut.File, path = ""): Parsed.Module {
+  return parseFile(file, path)[0]!;
 }
 
 class Parser {
@@ -273,6 +434,18 @@ class Parser {
    * §5's hard errors, reported when the module closes.
    */
   readonly #docs: DocBlocks;
+  /**
+   * The module headers and closers this file wrote, in source order, each
+   * carrying the item count that stood when it was read (Modules §2.2).
+   * `#sectionModules` cuts the item list at those counts.
+   */
+  readonly #moduleMarkers: ModuleMarker[] = [];
+  /**
+   * The file's own source text — read by one fixit and nothing else (Modules
+   * §2.2's header move; see `Lexed.File.text`). Every other decision this
+   * parser makes is over tokens and spans, and stays that way.
+   */
+  readonly #text: string;
   #index = 0;
   /**
    * Type-parameter lambdas awaiting their position check (Functions §4.2). The grammar
@@ -358,17 +531,23 @@ class Parser {
     tokens: readonly LaidOut.Token[],
     diagnostics: Diagnostics.Bag,
     docs: DocBlocks,
+    text: string,
   ) {
     this.#tokens = tokens;
     this.#diagnostics = diagnostics;
     this.#docs = docs;
+    this.#text = text;
   }
 
-  /** Consumes the module's implicit layout block and requires a final Eof. */
-  parseModule(
+  /**
+   * Consumes the file's implicit layout block, requires a final Eof, and cuts
+   * the items into the modules their headers and closers mark (Modules §2.2).
+   */
+  parseFile(
     fileId: Source.FileId,
     comments: readonly Source.Comment[],
-  ): Parsed.Module {
+    path: string,
+  ): readonly Parsed.Module[] {
     const opening = this.#expect("VOpen", "expected the module layout block");
     const items = this.#parseItems(true);
     const closing = this.#expect("VClose", "expected the module layout block to close");
@@ -377,20 +556,302 @@ class Parser {
     this.#reportReservedNames();
     const first = opening ?? items[0] ?? closing ?? eof ?? this.#current();
     const last = eof ?? closing ?? items.at(-1) ?? first;
+    const fileSpan = spanFrom(first.span, last.span);
 
     // After the items: `finish` reports every block nobody claimed (§5), and
     // those diagnostics have to be in the bag before it is drained.
     const docs = this.#docs.finish();
 
-    return {
-      kind: "Module",
+    const sections = this.#sectionModules(items, fileId, path, fileSpan);
+    const diagnostics = this.#diagnostics.toArray();
+    return sections.map((section) => ({
+      kind: "Module" as const,
       fileId,
-      items,
+      name: section.name,
+      items: section.items,
       comments,
       docs,
-      span: spanFrom(first.span, last.span),
-      diagnostics: this.#diagnostics.toArray(),
+      span: section.span,
+      // Every module a file declares carries the file's diagnostics. The bag is
+      // the file's, and a diagnostic reported inside one module's items is no
+      // less the file's report for the file having declared two — a host that
+      // showed one module's share would drop the rest.
+      diagnostics,
+    }));
+  }
+
+  /**
+   * §2.2's fixit for an item standing above the first header: **the header
+   * moved above the item** — "*the same error, its fixit the header moved above
+   * the item*".
+   *
+   * A move, and therefore two edits: the header's line is lifted from where it
+   * stands and inserted at the top of the file. What is lifted is the whole
+   * line plus the blank run beneath it — the same run `importInsertionOffset`
+   * steps over, from the same helpers — so the text put back is the text taken
+   * out, byte for byte, and a CRLF file's line endings travel with their lines
+   * instead of being reconstructed. That is what the file's own text is carried
+   * this far for: nothing in a token stream says how many blank lines the
+   * author left under their header, and a fixit that guessed would reformat the
+   * file it was asked to repair.
+   *
+   * The insert goes at the **top of the file**, not at the stray item's own
+   * line. Above the item is what the row asks for and the top satisfies it for
+   * every item at once; a doc comment sits immediately above the declaration it
+   * documents (`spec/doc-comments.md` §2.1), so the item's line start is a
+   * position an edit must never take. The top is above every comment there is.
+   *
+   * The items above the header are folded into the module it opens, so the
+   * repaired file declares exactly the modules the refused one did — the edit
+   * moves a line and moves nothing else.
+   *
+   * What is lifted is **verbatim**, and the three shapes where a verbatim lift
+   * would not repair the file are the three the move stands down at, message
+   * only, as the placement helper stands down for a headerless file:
+   *
+   * **The header sharing its line with an item.** `;` separates block items, so
+   * `let stray: Int = 1; module Geometry` is a lawful line that draws this row,
+   * and its "header's line" is the item's line too — lifting it and putting it
+   * back at the top is a fix that changes nothing, and lifting the header alone
+   * would leave a dangling separator behind. The item list settles it: any item
+   * touching the header's line and the move declines. What sits *after* the
+   * header on its line is a different matter and travels with it — a trailing
+   * comment belongs to the line it was written on, and text the parse refused
+   * to read as an item at all (`module Geometry export let n: Int = 2` has no
+   * separator, so the second half is never an item here) leaves the file drawing
+   * the report it already drew for its own reason, wherever the line stands.
+   *
+   * **A header whose own name was refused.** The name is the one part of the
+   * line a verbatim lift gets wrong — `module geometry` moved unchanged leaves
+   * the casing refusal standing in the file the repair produced — and writing
+   * the recovered spelling instead is an edit *inside* the line this move also
+   * deletes, which is a span the casing rewrite already owns. Two overlapping
+   * edits have no defined "fix all", so the collision is removed rather than
+   * ordered around (review round 3's NB3, at the seat round 4 found it): the
+   * header's own repair goes first, and this row is recomputed against the file
+   * that repair produces, where the header is spelled as it should be and this
+   * move is a plain lift again.
+   *
+   * The condition is **whether that seat published an edit**, carried on the
+   * marker (`ModuleMarker.rewritten`), and not whether the header's written
+   * text differs from its canonical spelling. The two agree on every header
+   * §2.1 refuses and part company on ones it does not: `module Acme . Geometry`
+   * and `module Acme .Geometry` are lawful headers whose written text is not
+   * the name's, nothing refuses them, there is no second repair to collide
+   * with, and a verbatim lift repairs them exactly as it repairs
+   * `module Acme.Geometry`. A spelling comparison withholds §2.2's fixit there
+   * for no reason the file gives.
+   *
+   * **A header spanning more than one line.** `module Acme.\n    Geometry` is
+   * one name across two lines (§2.3), and what this move lifts is a *line* —
+   * so the header's own extent is not a thing the line arithmetic can carry,
+   * and the lift is declined rather than made to guess where the name ends.
+   * This is a condition in its own right and not the casing test's shadow: the
+   * spelling comparison happened to refuse these too, and replacing it with the
+   * casing flag alone would have offered a lift that welds the name's halves to
+   * whatever stands around them.
+   */
+  #headerMoveFix(
+    header: ModuleMarker,
+    items: readonly Parsed.Item[],
+    fileId: Source.FileId,
+    path: string,
+  ): Diagnostics.Fix | undefined {
+    const text = this.#text;
+    const from = lineStart(text, header.span.start.offset);
+    const lineEnd = pastLineEnd(text, header.span.end.offset);
+    const shared = items.some(({ span }) =>
+      span.start.offset < lineEnd && span.end.offset > from
+    );
+    const spread = text
+      .slice(header.span.start.offset, header.span.end.offset)
+      .includes("\n");
+    if (shared || header.rewritten || spread) return undefined;
+    const to = pastBlankLines(text, lineEnd);
+    const file = new Source.File(fileId, path, text);
+    return {
+      message: `move \`module ${header.name.text}\` above this item`,
+      edits: [
+        // A whole line (`insertedLine`): the last line of a file need not be
+        // ended by anything, and a header lifted from one would otherwise be
+        // welded to whatever stands where it lands — which is the file an
+        // author has while they are still typing the header.
+        { span: file.span(0, 0), replacement: insertedLine(text, 0, text.slice(from, to)) },
+        { span: file.span(from, to), replacement: "" },
+      ],
     };
+  }
+
+  /**
+   * Cuts one file's items into modules at the headers and closers `#parseItems`
+   * recorded (Modules §2.2), reporting every way the marks can be wrong.
+   *
+   * The markers are held beside the item list rather than in it because a
+   * header is no declaration: it names the container the declarations sit in,
+   * and no pass below this one has a use for a marker item it would have to
+   * skip.
+   */
+  #sectionModules(
+    items: readonly Parsed.Item[],
+    fileId: Source.FileId,
+    path: string,
+    fileSpan: Source.Span,
+  ): readonly {
+    readonly name: Parsed.ModuleName;
+    readonly items: readonly Parsed.Item[];
+    readonly span: Source.Span;
+  }[] {
+    const markers = this.#moduleMarkers;
+    const sections: {
+      name: Parsed.ModuleName;
+      items: readonly Parsed.Item[];
+      span: Source.Span;
+    }[] = [];
+    const firstHeader = markers.find(({ kind }) => kind === "header");
+    // Items standing before any header — the whole file where it declares no
+    // module at all. §2.1: every file declares its module, and the fixit
+    // inserts the line the basename derives.
+    const leading = items.slice(0, firstHeader?.index ?? items.length);
+    if (firstHeader !== undefined) {
+      if (leading.length > 0) {
+        // §2.2's family, not §2.1's: this file *does* declare its module, and
+        // the fault is the item standing above the header — so the report says
+        // so, and names no name derived from the path, which is a spelling the
+        // language never reads (§2.1, §9.2). The sentence is §10's own row,
+        // as `8e5c7fc` (#835) settled it: the repair moves the **header**, the
+        // direction §2.2 states ("its fixit the header moved above the item").
+        // The items are folded into the module the header opens, so one
+        // misplaced line unbinds nothing.
+        //
+        // The *edit* stands down for the two shapes a verbatim lift cannot
+        // repair (`#headerMoveFix`); the report is the row either way, since
+        // what it says is true of the file whether or not an edit can be
+        // offered for it.
+        const move = this.#headerMoveFix(firstHeader, items, fileId, path);
+        this.#diagnostics.add({
+          severity: "error",
+          message: "code outside a module: a module begins with its header; move " +
+            `\`module ${firstHeader.name.text}\` above this item`,
+          primary: leading[0]!.span,
+          ...(move === undefined ? {} : { fixes: [move] }),
+        });
+      }
+    } else {
+      const derived = derivedModuleName(path);
+      const insertAt = { fileId, start: fileSpan.start, end: fileSpan.start };
+      this.#diagnostics.add({
+        severity: "error",
+        message: `every file declares its module; write \`module ${derived}\``,
+        primary: leading[0]?.span ?? fileSpan,
+        // The applied edit is the whole repair here — a file that declares
+        // nothing — and is withheld only where the derivation names the slot.
+        ...(derived === MODULE_NAME_SLOT ? {} : {
+          fixes: [{
+            message: `write \`module ${derived}\``,
+            edits: [{
+              span: insertAt,
+              // The file's own line ending, not `\n`: an inserted line matches the
+              // lines around it or the repair shows up as a whitespace diff.
+              replacement: `module ${derived}${newlineOf(this.#text).repeat(2)}`,
+            }],
+          }],
+        }),
+      });
+      sections.push({
+        name: {
+          text: derived,
+          segments: [{ text: derived, startClass: "upper", span: fileSpan }],
+          span: fileSpan,
+          declared: false,
+        },
+        items: leading,
+        span: fileSpan,
+      });
+    }
+    // Items before the first header join the module that header opens, so a
+    // file with one misplaced line still binds every name it declares.
+    let open: { name: Parsed.ModuleName; start: number; span: Source.Span } | undefined;
+    for (const [ordinal, marker] of markers.entries()) {
+      const next = markers[ordinal + 1];
+      if (marker.kind === "header") {
+        if (open !== undefined) {
+          // §2.2: a second header met with the module before it still open.
+          this.#diagnostics.add({
+            severity: "error",
+            message: "a file holding several modules closes each with " +
+              `\`end module ${open.name.text}\``,
+            primary: marker.span,
+            fixes: [{
+              message: `write \`end module ${open.name.text}\``,
+              edits: [{
+                span: { fileId, start: marker.span.start, end: marker.span.start },
+                replacement: `end module ${open.name.text}${newlineOf(this.#text).repeat(2)}`,
+              }],
+            }],
+          });
+          sections.push({
+            name: open.name,
+            items: items.slice(open.start, marker.index),
+            span: spanFrom(open.span, marker.span),
+          });
+        }
+        open = {
+          name: marker.name,
+          start: marker === firstHeader ? 0 : marker.index,
+          span: marker.span,
+        };
+        continue;
+      }
+      // A closer.
+      if (open === undefined) {
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`end module ${marker.name.text}\` closes no module; ` +
+            "open one with `module Name`",
+          primary: marker.span,
+        });
+        continue;
+      }
+      if (marker.name.text !== open.name.text) {
+        // §2.2: the closer names the module it closes.
+        this.#diagnostics.add({
+          severity: "error",
+          message: `\`end module ${marker.name.text}\` closes \`module ${open.name.text}\`; ` +
+            `write \`end module ${open.name.text}\``,
+          primary: marker.name.span,
+          fixes: [{
+            message: `write \`end module ${open.name.text}\``,
+            edits: [{ span: marker.name.span, replacement: open.name.text }],
+          }],
+        });
+      }
+      const trailing = items.slice(marker.index, next?.index ?? items.length);
+      if (trailing.length > 0) {
+        // §2.2: anything after a closer that is not a header is code outside a
+        // module. Reported once, at the first such item; the items stay with
+        // the module that just closed so one stray line does not unbind a file.
+        this.#diagnostics.add({
+          severity: "error",
+          message: `code outside a module: \`end module ${open.name.text}\` ended the ` +
+            "module above; open another with `module Name`",
+          primary: trailing[0]!.span,
+        });
+      }
+      sections.push({
+        name: open.name,
+        items: items.slice(open.start, next?.index ?? items.length),
+        span: spanFrom(open.span, marker.span),
+      });
+      open = undefined;
+    }
+    if (open !== undefined) {
+      sections.push({
+        name: open.name,
+        items: items.slice(open.start),
+        span: spanFrom(open.span, fileSpan),
+      });
+    }
+    return sections;
   }
 
   /** Parses one interpolation's expression-only token stream. */
@@ -426,7 +887,14 @@ class Parser {
       // of the enclosing block: the head binds no name, and to code outside it
       // a block is ordinary (Functions §7.3). So one head yields several items
       // here, and every later pass reads the run it produced.
-      if (this.#atFunBlockHead()) {
+      // Modules §2.1–§2.2's head words. They mark the container, not an item,
+      // so they are recorded beside the list and `#sectionModules` cuts it.
+      if (
+        moduleItems &&
+        (this.#atModuleHeader() || this.#atMiscasedModuleHeader() || this.#atModuleCloser())
+      ) {
+        this.#moduleMarkers.push(this.#parseModuleMarker(items.length));
+      } else if (this.#atFunBlockHead()) {
         items.push(...this.#parseFunBlock(moduleItems, start));
       } else {
         const item = this.#parseItem(moduleItems);
@@ -710,6 +1178,18 @@ class Parser {
   }
 
   #parseItem(moduleItems: boolean): Parsed.Item {
+    if (!moduleItems && (this.#atModuleHeader() || this.#atModuleCloser())) {
+      // Modules §2.2's last bullet: the head words mark a module at a file's
+      // top level, and this seat is below one.
+      const start = this.#current().span;
+      this.#parseModuleMarker(0);
+      this.#errorAt(
+        start,
+        "`module` and `end module` mark a module at a file's top level; " +
+          "a module cannot be declared or closed inside a block",
+      );
+      return { kind: "ErrorItem", span: spanFrom(start, this.#previous().span) };
+    }
     if (this.#at("Extern")) {
       if (!moduleItems) {
         const start = this.#advance();
@@ -1031,24 +1511,26 @@ class Parser {
   }
 
   /**
-   * `import Geo from "./geometry"` — the one binding form (Modules §3.1, #762).
+   * `import Geometry`, `import Render.Geometry as Geo` — the one binding form
+   * (Modules §3.1, #762, #829).
    *
-   * An `import` binds a module and nothing smaller, so the grammar has one
-   * alias seat and no items. Four heads a reader's muscle memory produces
-   * reach here and are refused under the Rewrite Rule (Declarations Preamble
-   * §1.1), each naming the module form: JavaScript's named list and its
-   * namespace glob, this form's own earlier spelling `import module` (#565),
-   * and the effect import `import "./telemetry"` (§3.3). The alias's
-   * mandatory uppercase start is the fifth refusal and the form's visible
-   * tell against JavaScript's default import, which it is spelled like and is
-   * not.
+   * An `import` names a module and binds it, and nothing smaller, so the
+   * grammar is a module name and an optional alias, and there is no path.
+   * Five heads a reader's muscle memory produces reach here and are refused
+   * under the Rewrite Rule (Declarations Preamble §1.1), each naming the
+   * module form: the **path form** `import Geometry as Geo`, which is
+   * Hexagon's own v1 head (§9.14); JavaScript's named list and its namespace
+   * glob; the earlier spelling `import module` (#565); and the effect import
+   * `import "./telemetry"` (§3.3). The alias's mandatory uppercase start is
+   * the sixth refusal.
    *
    * Recovery differs by what the head wrote, and the difference is the one
-   * this parser makes everywhere: a head that named an alias recovers as the
-   * import it was reaching for — one diagnostic, and the module still
-   * resolves, which is what keeps a whole file of a stale spelling from
-   * cascading during a migration — while a head that named none has nothing
-   * to bind and recovers as an `ErrorItem`.
+   * this parser makes everywhere: a head from which a module name is
+   * derivable recovers as the import it was reaching for — one diagnostic,
+   * and the module still resolves once the file it named declares that name,
+   * which is what keeps a whole file of a stale spelling from cascading
+   * during a migration — while a head that names none has nothing to bind and
+   * recovers as an `ErrorItem`.
    */
   #parseImport(): Parsed.ImportItem | Parsed.ErrorItem {
     const start = this.#advance();
@@ -1058,88 +1540,312 @@ class Parser {
       this.#errorAt(
         span,
         "Hexagon has no effect import; a module is imported for its names — " +
-          `\`import ${derivedAlias(specifier.value)} from ${JSON.stringify(specifier.value)}\`` +
+          `\`import ${derivedModuleName(specifier.value)}\`` +
           " — or run as a root",
       );
       return { kind: "ErrorItem", span };
     }
     if (this.#at("LeftBrace")) return this.#refuseNamedList(start);
-    let glob: Source.Span | undefined;
-    let staleHead: Source.Span | undefined;
-    if (this.#at("Star")) {
-      glob = this.#refuseJavaScriptNamespaceHead();
-    } else if (this.#atContextual("module")) {
+    if (this.#at("Star")) return this.#refuseStaleHead(start, this.#refuseJavaScriptNamespaceHead());
+    if (this.#atContextual("module")) {
       // Modules §3.1 / Lexer §4.2: the word is gone from the grammar with the
       // head that carried it, so `module` is an ordinary name everywhere and
       // is recognised here only to redirect. Recognition is unconditional
-      // rather than gated on an uppercase name ahead, because the position
-      // admits no name at all — which is what makes it total, and what makes
-      // `import module` die in the alias seat by start class rather
-      // than by a special case of its own.
-      staleHead = this.#advance().span;
+      // rather than gated on a name ahead, because the position admits no
+      // term at all.
+      return this.#refuseStaleHead(start, this.#advance().span);
     }
-    // The alias seat is *read*, not refused at the token: every message this
-    // head can give names the specifier, which is two tokens further on, so
-    // the seat takes whatever name stands in it and the report waits for the
-    // path. Two spellings are declined rather than taken — `from` standing
-    // immediately before the path, which is the head's own word and not an
-    // alias, and anything that is no name at all — and each leaves the seat
-    // empty, which the one refusal below names.
-    const takeable = this.#at("UpperName") ||
-      (this.#at("NonUpperName") &&
-        !(this.#atContextual("from") && this.#peek(1).kind === "String"));
-    const aliasToken = takeable ? (this.#advance() as Lexed.NameToken) : undefined;
-    const written = aliasToken?.kind === "UpperName";
-    const alias: Parsed.Name = aliasToken === undefined
-      ? { text: "Invalid", startClass: "upper" as const, span: this.#current().span }
-      : parsedName(aliasToken);
-    this.#expectContextual("from", "expected `from` before the module path");
-    const specifier = this.#parseImportSpecifier();
-    const rewriteAlias = written ? alias.text : derivedAlias(specifier.value);
-    const rewrite = `import ${rewriteAlias} from ${JSON.stringify(specifier.value)}`;
-    const staleSpan = glob ?? staleHead;
-    if (staleSpan !== undefined) {
-      // The glob head keeps the alias it wrote and carries no item clause —
-      // the program names no item; the `import module` head's rewrite drops
-      // the word. One sentence, one edit: the head's own tokens go away.
-      //
-      // The edit reaches **to the alias**, not to the head's last token, so the
-      // whitespace the head spent goes with it and the applied edit is the
-      // sentence the message prints, byte for byte. Deleting the tokens alone
-      // leaves `import  Geo from "./geometry"`, which compiles and is not what
-      // the reader was told to write — the Rewrite Rule's whole demand is that
-      // the offered line is the line.
-      const edit = aliasToken === undefined ? staleSpan : {
-        fileId: staleSpan.fileId,
-        start: staleSpan.start,
-        end: aliasToken.span.start,
-      };
-      this.#diagnostics.add({
-        severity: "error",
-        message: `Hexagon imports bind modules: write \`${rewrite}\``,
-        primary: staleSpan,
-        fixes: [{ message: "write `import`", edits: [{ span: edit, replacement: "" }] }],
-      });
-    } else if (!written) {
-      // The seat's own rule, which settles every degenerate spelling by start
-      // class alone — an empty seat included, since a head with no alias is a
-      // head whose alias is not uppercase-start.
-      this.#refuseAliasSeat(alias, specifier.value, aliasToken !== undefined);
+    if (!this.#atName()) {
+      // Nothing that could be a name at all: the slot, with no head to read.
+      return this.#refuseModuleNameCasing(start, undefined, undefined);
+    }
+    if (this.#at("NonUpperName") && this.#peekContextual(1, "from")) {
+      // A non-uppercase head is a module name that is not one (§2.1). The
+      // path form is the likelier fault when `from` follows, so it leads.
+      return this.#refuseStaleHead(start, undefined);
+    }
+    // The whole dotted name is read before its case is judged, miscased
+    // segments included: `import Render.geometry` is one name with one wrong
+    // segment (§2.3), and stopping at the dot would spend the rest of the line
+    // on a second, unrelated report.
+    const module = this.#parseModuleNameReference();
+    if (this.#atContextual("from") && this.#peek(1).kind === "String") {
+      // The path form, `import Geometry as Geo` — v1's own head, with
+      // an uppercase alias standing where the module name now stands.
+      return this.#refusePathForm(start, module);
+    }
+    let aliasToken: Lexed.NameToken | undefined;
+    if (this.#atContextual("as")) {
+      this.#advance();
+      if (this.#atName()) {
+        aliasToken = this.#advance() as Lexed.NameToken;
+      } else {
+        this.#error("expected a module alias after `as`");
+      }
+    }
+    if (!uppercaseStartName(module)) {
+      // §3.1: one report and one rewrite correcting both seats — the alias's
+      // own rule never fires beside this one, since the rewrite this prints
+      // already spells the alias the way that rule would.
+      return this.#refuseModuleNameCasing(start, module, aliasToken);
+    }
+    let alias: Parsed.Name = module.segments.at(-1)!;
+    if (aliasToken !== undefined) {
+      alias = parsedName(aliasToken);
+      if (aliasToken.kind !== "UpperName") this.#refuseAliasSeat(module, alias);
     }
     return {
       kind: "Import",
-      specifier: specifier.value,
+      module,
       alias,
-      span: spanFrom(start.span, specifier.span),
+      span: spanFrom(start.span, this.#previous().span),
+    };
+  }
+
+  /**
+   * A written module name — one uppercase-start segment, or several joined by
+   * `.` (Modules §2.1). The dotted name is **one** name: its segments are not
+   * modules and bind nothing (§2.3).
+   *
+   * A **miscased** segment is read here rather than refused here: both seats
+   * that write a module name — the import head (§3.1) and the header (§2.1) —
+   * judge the case of the whole name they got, and each has its own rewrite to
+   * print. Reading `Render.geometry` as `Render` and leaving `.geometry` to the
+   * item grammar would cost the seat its rewrite and the reader a second,
+   * unrelated report.
+   */
+  #parseModuleNameReference(): Parsed.ModuleName {
+    const segments: Parsed.Name[] = [parsedName(this.#advance() as Lexed.NameToken)];
+    while (this.#at("Dot") && this.#peekIsName(1)) {
+      this.#advance();
+      segments.push(parsedName(this.#advance() as Lexed.NameToken));
+    }
+    return {
+      text: segments.map(({ text }) => text).join("."),
+      segments,
+      span: spanFrom(segments[0]!.span, segments.at(-1)!.span),
+      declared: true,
+    };
+  }
+
+  /**
+   * The rewrite one refused head prints: `import Geometry`, or
+   * `import Geometry as Geo` where the alias differs from the name (§3.1).
+   *
+   * "Differs" is measured against the **default alias** — the name's last
+   * segment (§3.1) — so a rewrite never writes the `as` clause the source
+   * would bind anyway: `import Render.Geometry as Geometry` prints as
+   * `import Render.Geometry`, which is the rule `moduleImportLine` keeps for
+   * every other tier's line.
+   */
+  #importRewrite(name: string, alias: string | undefined): string {
+    return alias === undefined || alias === name.split(".").at(-1)
+      ? `import ${name}`
+      : `import ${name} as ${alias}`;
+  }
+
+  /**
+   * The namespace glob and the `import module` head, and the path form written
+   * with a lowercase alias: each spends its own tokens, then an alias, `from`,
+   * and a specifier the rewrite is derived from (Modules §3.1, §10).
+   *
+   * `staleSpan` is the head's own tokens where it wrote some, and `undefined`
+   * where the fault is the path alone.
+   */
+  #refuseStaleHead(
+    start: LaidOut.Token,
+    staleSpan: Source.Span | undefined,
+  ): Parsed.ImportItem | Parsed.ErrorItem {
+    // The alias seat is empty where `from` stands in it — `import module from
+    // "./x"` wrote no alias — and reading the word as one would spend the
+    // token the specifier clause needs and draw a second report for a head
+    // §13(n) pins with one.
+    //
+    // The whole **dotted** spelling is read where one stands there, for the
+    // reason the head's own name is (`#parseModuleNameReference`): stopping at
+    // the dot leaves `.Geometry` to the item grammar, and `import * as
+    // Render.Geometry from "./x"` drew four reports where §13(n) pins one.
+    const written = this.#atName() && !(this.#atContextual("from") && this.#peek(1).kind === "String")
+      ? this.#parseModuleNameReference()
+      : undefined;
+    this.#expectContextual("from", "expected `from` before the module path");
+    const specifier = this.#parseImportSpecifier();
+    const span = spanFrom(start.span, specifier.span);
+    const name = derivedModuleName(specifier.value);
+    // The written alias reduced to one an alias may be, and kept only where it
+    // differs from the derived name (§3.1 — "kept where it differs from that
+    // name, dropped where it does not"): `rewriteAlias`.
+    const alias = rewriteAlias(written);
+    this.#diagnostics.add({
+      severity: "error",
+      message: `Hexagon imports name modules: write \`${this.#importRewrite(name, alias)}\``,
+      primary: staleSpan ?? span,
+      fixes: name === MODULE_NAME_SLOT ? [] : [{
+        message: `write \`${this.#importRewrite(name, alias)}\``,
+        edits: [{ span, replacement: this.#importRewrite(name, alias) }],
+      }],
+    });
+    if (name === MODULE_NAME_SLOT) return { kind: "ErrorItem", span };
+    return {
+      kind: "Import",
+      module: derivedModuleNameReference(name, span),
+      alias: {
+        text: alias ?? name,
+        startClass: "upper",
+        span: written?.span ?? span,
+      },
+      span,
+    };
+  }
+
+  /**
+   * The path form with an uppercase head, `import Geometry as Geo` —
+   * v1's own head (Modules §9.14), refused with the rewrite (§3.1, §13(n)).
+   */
+  #refusePathForm(
+    start: LaidOut.Token,
+    written: Parsed.ModuleName,
+  ): Parsed.ImportItem | Parsed.ErrorItem {
+    this.#advance();
+    const specifier = this.#parseImportSpecifier();
+    const span = spanFrom(start.span, specifier.span);
+    const name = derivedModuleName(specifier.value);
+    // The written spelling reduced to an alias (`rewriteAlias`), so the message
+    // and the recovery say one thing and the line offered is a line: a
+    // half-migrated `import Render.Geometry from "./geometry"` is offered
+    // `import Geometry`, never `import Geometry as Render.Geometry`.
+    const alias = rewriteAlias(written);
+    const rewrite = this.#importRewrite(name, alias);
+    this.#diagnostics.add({
+      severity: "error",
+      message: `Hexagon imports name modules: write \`${rewrite}\``,
+      primary: span,
+      fixes: name === MODULE_NAME_SLOT
+        ? []
+        : [{ message: `write \`${rewrite}\``, edits: [{ span, replacement: rewrite }] }],
+    });
+    if (name === MODULE_NAME_SLOT) return { kind: "ErrorItem", span };
+    return {
+      kind: "Import",
+      module: derivedModuleNameReference(name, span),
+      alias: { text: alias ?? name, startClass: "upper", span: written.span },
+      span,
+    };
+  }
+
+  /**
+   * `import geometry` — a module name is uppercase-start (Modules §2.1, §3.1,
+   * §10), refused at the head before any resolution.
+   *
+   * The whole head is read before anything is reported, because all three of
+   * its parts govern the rewrite. A **dotted** spelling is one name (§2.3), so
+   * every segment is upper-cased at its start and the dots are kept —
+   * `render.geometry` → `Render.Geometry`, never the basename joiner the
+   * *specifier* derivation uses (§2.1), which would answer `RenderGeometry`
+   * and name a module the program has not got. The **alias** the author wrote
+   * is kept: it is the importer's own choice, and a rewrite that dropped it
+   * would change what the file binds. And where upper-casing yields no
+   * uppercase-start identifier — `import 用户`, `import _x`, where the
+   * operation is a no-op — the message names the slot, `import <Name>`, and
+   * carries no applied edit, exactly as the specifier derivation does.
+   *
+   * A head tripping this rule *and* the alias rule (`import geometry as geo`)
+   * draws **one** report whose rewrite corrects both seats, "write `import
+   * Geometry as Geo`" (§3.1): two reports for one line would each name a
+   * repair that leaves the other fault standing, and the applied edit here
+   * spans both seats so the message and the edit say the same thing.
+   */
+  #refuseModuleNameCasing(
+    start: LaidOut.Token,
+    module: Parsed.ModuleName | undefined,
+    aliasToken: Lexed.NameToken | undefined,
+  ): Parsed.ErrorItem {
+    const capitalised = module === undefined
+      ? undefined
+      : capitalisedModuleName(module.segments);
+    const alias = aliasToken === undefined
+      ? undefined
+      : aliasToken.text.charAt(0).toUpperCase() + aliasToken.text.slice(1);
+    const rewrite = this.#importRewrite(capitalised ?? MODULE_NAME_SLOT, alias);
+    const span = spanFrom(start.span, this.#previous().span);
+    this.#diagnostics.add({
+      severity: "error",
+      message: `a module name is uppercase-start; write \`${rewrite}\``,
+      primary: span,
+      ...(capitalised === undefined || module === undefined ? {} : {
+        fixes: [{
+          message: `write \`${rewrite}\``,
+          // Both seats in one edit: the redundant-alias rule can drop the
+          // whole `as` clause (`import geometry as Geometry`), which no edit
+          // confined to the name's own span could do.
+          edits: [{
+            span: spanFrom(module.span, aliasToken?.span ?? module.span),
+            replacement: rewrite.slice("import ".length),
+          }],
+        }],
+      }),
+    });
+    this.#synchronize(itemEnds);
+    return { kind: "ErrorItem", span };
+  }
+
+  /**
+   * `module geometry` at the head of a top-level item — the same rule at the
+   * **header** seat (Modules §2.1, §10). No header by the contextual-word rule
+   * and no lawful item either, since Hexagon has no juxtaposition, so the seat
+   * is claimed for the refusal.
+   *
+   * Answers the name the reading recovers under: the rewrite's own spelling,
+   * so the rest of the file is read under `Geometry` and §2.2's rules — the
+   * closer's naming, a second header, a duplicate name — apply to it as at any
+   * header, each with its own report and fixit at its own seat. Nothing is
+   * suppressed: a file whose header is miscased is a file with a header, so no
+   * headerless report follows, and everything else stands on its own fault.
+   *
+   * Where upper-casing is a no-op the message names the slot and the written
+   * spelling is what recovers: there is no other spelling to read the file
+   * under, and the reports below it are better keyed to the name on the page
+   * than to `<Name>`.
+   *
+   * Answers whether an **edit** was published beside the message, which is the
+   * fact §2.2's header move stands down at (`ModuleMarker.rewritten`): the
+   * two repairs overlap only where this seat has one to overlap with.
+   */
+  #refuseHeaderNameCasing(
+    start: LaidOut.Token,
+    written: Parsed.ModuleName,
+  ): { readonly name: Parsed.ModuleName; readonly rewritten: boolean } {
+    const capitalised = capitalisedModuleName(written.segments);
+    const rewrite = `module ${capitalised ?? MODULE_NAME_SLOT}`;
+    this.#diagnostics.add({
+      severity: "error",
+      message: `a module name is uppercase-start; write \`${rewrite}\``,
+      primary: spanFrom(start.span, written.span),
+      ...(capitalised === undefined ? {} : {
+        fixes: [{
+          message: `write \`${rewrite}\``,
+          edits: [{ span: written.span, replacement: capitalised }],
+        }],
+      }),
+    });
+    if (capitalised === undefined) return { name: written, rewritten: false };
+    const segments = written.segments.map((segment) => ({
+      text: segment.text.charAt(0).toUpperCase() + segment.text.slice(1),
+      startClass: "upper" as const,
+      span: segment.span,
+    }));
+    return {
+      name: { text: capitalised, segments, span: written.span, declared: true },
+      rewritten: true,
     };
   }
 
   /**
    * JavaScript's named list, refused under the Rewrite Rule with the module
-   * form named (Modules §3.1, §10; #762).
+   * form named (Modules §3.1, §10; #762, #829).
    *
-   * The message names the first listed item and an alias derived from the
-   * specifier's basename, which is the whole rewrite the author needs: the
+   * The message names the first listed item and the module name derived from
+   * the specifier's basename, which is the whole rewrite the author needs: the
    * one line they wrote becomes one line that works, and the item they named
    * becomes the qualified spelling that reaches it. The list binds nothing,
    * so the item recovers as an `ErrorItem` — there is no alias here to
@@ -1165,42 +1871,47 @@ class Parser {
     if (this.#atContextual("from")) this.#advance();
     const specifier = this.#at("String") ? this.#parseImportSpecifier() : undefined;
     const span = spanFrom(start.span, this.#previous().span);
-    const alias = derivedAlias(specifier?.value ?? "");
-    const path = JSON.stringify(specifier?.value ?? "./module");
+    const name = derivedModuleName(specifier?.value ?? "");
     this.#diagnostics.add({
       severity: "error",
-      message: `Hexagon imports bind modules: write \`import ${alias} from ${path}\`` +
-        (first === undefined ? "" : ` and reach \`${first}\` as \`${alias}.${first}\``),
+      message: `Hexagon imports name modules: write \`import ${name}\`` +
+        (first === undefined ? "" : ` and reach \`${first}\` as \`${name}.${first}\``),
       primary: span,
     });
     return { kind: "ErrorItem", span };
   }
 
   /**
-   * A non-uppercase-start alias (Modules §3.1, §10). The seat settles every
-   * degenerate spelling by start class alone, and the rewrite is the same
-   * derivation the refused heads use — the specifier's own basename, which is
-   * what the author was naming the module after anyway.
+   * A non-uppercase-start alias (Modules §3.1, §10) — `import Geometry as geo`.
+   * The rewrite upper-cases the word the author wrote, which is the one edit
+   * the seat admits.
+   *
+   * Where upper-casing lands on the **default** alias — `import Geometry as
+   * geometry` — the clause is redundant and the rewrite drops it, the rule
+   * `moduleImportLine` keeps for every line a tier writes: the message and the
+   * applied edit say the same thing, and neither writes `as Geometry` after
+   * `import Geometry`.
    */
-  #refuseAliasSeat(alias: Parsed.Name, specifier: string, occupied: boolean): void {
-    const derived = derivedAlias(specifier);
+  #refuseAliasSeat(module: Parsed.ModuleName, alias: Parsed.Name): void {
+    const derived = alias.text.charAt(0).toUpperCase() + alias.text.slice(1);
+    const redundant = derived === module.text.split(".").at(-1);
     this.#diagnostics.add({
       severity: "error",
       message: "a module alias is uppercase-start; write " +
-        `\`import ${derived} from ${JSON.stringify(specifier)}\``,
+        `\`${this.#importRewrite(module.text, derived)}\``,
       primary: alias.span,
-      // The fix-it needs a word to replace. An *empty* seat has none — the span
-      // is the next token's, which the edit must not eat — so the message
-      // stands alone there, the restraint every other seat in this parser keeps
-      // when it has no text to rewrite.
-      ...(!occupied || derived === ALIAS_SLOT
-        ? {}
-        : {
-            fixes: [{
-              message: `write \`${derived}\``,
-              edits: [{ span: alias.span, replacement: derived }],
-            }],
-          }),
+      fixes: [{
+        message: redundant ? "drop the alias" : `write \`${derived}\``,
+        edits: [
+          redundant
+            // The whole ` as geometry` clause, from the module name's end.
+            ? {
+              span: { fileId: alias.span.fileId, start: module.span.end, end: alias.span.end },
+              replacement: "",
+            }
+            : { span: alias.span, replacement: derived },
+        ],
+      }],
     });
   }
 
@@ -1857,6 +2568,68 @@ class Parser {
   #peekContextual(offset: number, text: string): boolean {
     const token = this.#peek(offset);
     return token.kind === "NonUpperName" && token.text === text;
+  }
+
+  /**
+   * Whether a module **header** starts here — the contextual `module`
+   * (Lexer §4.2, #829), recognized by `union`'s and `widens`' mechanism and
+   * for their reason: Hexagon has no juxtaposition, so `module` followed by an
+   * uppercase name is no term, and elsewhere `module` is an ordinary name
+   * (`let module = 3` binds).
+   */
+  #atModuleHeader(): boolean {
+    return this.#atContextual("module") && this.#peek(1).kind === "UpperName";
+  }
+
+  /**
+   * The **refused** header seat — `module geometry` (Lexer §4.2's `module` row,
+   * Modules §2.1). Recognition includes it for the `opaque` row's reason: no
+   * expression could occupy the seat either, so claiming it costs nothing and
+   * buys the casing refusal its rewrite.
+   *
+   * Read only at a file's top level. Below one no header was ever possible, so
+   * there is nothing to redirect to and `module geometry` in a block stays the
+   * ordinary parse error (§2.1, §10).
+   */
+  #atMiscasedModuleHeader(): boolean {
+    return this.#atContextual("module") && this.#peek(1).kind === "NonUpperName";
+  }
+
+  /**
+   * Whether a module **closer** starts here — `end module Name` (Lexer §4.2,
+   * Modules §2.2, #829). The two words together are the mark; `end` alone
+   * stays an ordinary name everywhere, which is what keeps
+   * `SliceError(start, end)` in `stdlib/Vector.hex` spellable.
+   */
+  #atModuleCloser(): boolean {
+    return this.#atContextual("end") && this.#peekContextual(1, "module") &&
+      this.#peekIsName(2);
+  }
+
+  /**
+   * Consumes one header or closer, at whichever of the two stands here.
+   *
+   * A miscased **header** name is refused here and recovers as the rewrite
+   * spells it (§2.1). A miscased **closing** name is not: the closer is never
+   * a casing seat, and `end module geometry` under `module Geometry` is
+   * §2.2's closer-naming error, whose own rewrite reaches legal code by
+   * itself (Lexer §4.2's `end` row).
+   */
+  #parseModuleMarker(index: number): ModuleMarker {
+    const start = this.#advance();
+    const kind = this.#atContextual("module") ? "closer" as const : "header" as const;
+    if (kind === "closer") this.#advance();
+    const written = this.#parseModuleNameReference();
+    const refusal = kind === "header" && !uppercaseStartName(written)
+      ? this.#refuseHeaderNameCasing(start, written)
+      : { name: written, rewritten: false };
+    return {
+      kind,
+      name: refusal.name,
+      span: spanFrom(start.span, written.span),
+      index,
+      rewritten: refusal.rewritten,
+    };
   }
 
   /**
@@ -3836,6 +4609,7 @@ class Parser {
         part.tokens,
         this.#diagnostics,
         DocBlocks.none(this.#diagnostics),
+        this.#text,
       ).parseStandaloneExpression();
       return { kind: "Interpolation", expression, span: part.span };
     });
@@ -5224,6 +5998,17 @@ class Parser {
 
   #at(kind: TokenKind): boolean {
     return this.#current().kind === kind;
+  }
+
+  /** Either name kind — the seats that read a spelling before judging its case. */
+  #atName(): boolean {
+    return this.#at("UpperName") || this.#at("NonUpperName");
+  }
+
+  /** `#atName` at a lookahead, for the dotted spellings read one segment ahead. */
+  #peekIsName(distance: number): boolean {
+    const { kind } = this.#peek(distance);
+    return kind === "UpperName" || kind === "NonUpperName";
   }
 
   #current(): LaidOut.Token {

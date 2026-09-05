@@ -52,7 +52,7 @@ function distinct(label: string): (path: string, javascript: string) => string {
 }
 
 function emitted(source: string): string {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
@@ -263,12 +263,12 @@ describe("the binder set an export is told to write", () => {
     // The third reader of the same set. `Num` is absorbed, so the advice must
     // not offer it — a binder list naming a base constraint beside the one that
     // provides it is refused by the very next compile.
-    expect(projectDiagnostics("export let d1(n) = if n <= 0 then 0 else n - 1\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let d1(n) = if n <= 0 then 0 else n - 1\n")).toEqual([
       "exported function `d1` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `d1` must declare every constraint in its signature; write `<a: (Ord, Signed)>`",
     ]);
     expect(
-      projectDiagnostics("export let h1(n, stop: Bool) = if stop then (n - 1) + 0 else n / n\n"),
+      projectDiagnostics("module Main\n\n" + "export let h1(n, stop: Bool) = if stop then (n - 1) + 0 else n / n\n"),
     ).toEqual([
       "exported function `h1` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `h1` must declare every constraint in its signature; write `<a: Frac>`",
@@ -302,7 +302,7 @@ describe("the binder set an export is told to write", () => {
     // `Mid.forward`, with no alias for `/lib.hex` itself ever appearing in
     // `/main.hex` unless a row adds one for the spelling test alone.
     const HEFT_MID = [
-      'import Lib from "./lib.hex"',
+      'import Lib',
       "export let forward<a: Lib.Heft>(n: a): a = Lib.useHeft(n)",
       "",
     ].join("\n");
@@ -311,21 +311,21 @@ describe("the binder set an export is told to write", () => {
     // No spelling here at all: `/main.hex` never imports `/lib.hex`, only
     // `/mid.hex` — so the law routes (#715).
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
-      ["/main.hex", 'import Mid from "./mid.hex"\n' + caller],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
+      ["/main.hex", "module Main\n\n" + 'import Mid\n' + caller],
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: Lib.Heft>` — `Heft` is declared in `./lib`; " +
-      "`import Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "write `<a: Lib.Heft>` — `Heft` is declared in module `Lib`; " +
+      "`import Lib` and spell it `Lib.Heft`",
     ]);
     // Spellable bare, through a second alias of `/lib.hex` spelled `Heft` —
     // the companion fallback's own route, needing no further word.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
-      ["/main.hex", 'import Mid from "./mid.hex"\nimport Heft from "./lib.hex"\n' + caller],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
+      ["/main.hex", "module Main\n\n" + 'import Mid\nimport Lib as Heft\n' + caller],
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `caller` must declare every constraint in its signature; write `<a: Heft>`",
@@ -335,15 +335,15 @@ describe("the binder set an export is told to write", () => {
     // test.ts`'s occlusion law), so only the qualified route is offered, and
     // the message says why.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
-      ["/main.hex", 'import Mid from "./mid.hex"\n' +
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
+      ["/main.hex", "module Main\n\n" + 'import Mid\n' +
         "constraint Heft<a> =\n    other(value: a): a\n" + caller],
     ])).toEqual([
       "exported function `caller` requires a complete signature; add type for parameter `n` and a return type",
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: Lib.Heft>` — `Heft` is declared in `./lib`, and this module binds " +
-      "another `Heft`; `import Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "write `<a: Lib.Heft>` — `Heft` is declared in module `Lib`, and this module binds " +
+      "another `Heft`; `import Lib` and spell it `Lib.Heft`",
     ]);
   });
 
@@ -352,9 +352,9 @@ describe("the binder set an export is told to write", () => {
     // offered is written out and compiled, and the `Num` demand it no longer
     // names is emitted as the projection off the binder it does.
     const project = compileFiles([
-      ["/lib.hex", HEFT_LIB],
-      ["/main.hex", [
-        'import Lib from "./lib.hex"',
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/main.hex", "module Main\n\n" + [
+        'import Lib',
         "export let caller<a: Lib.Heft>(n: a, stop: Bool): a =",
         "    if stop then n + n else Lib.useHeft(n)",
         "",
@@ -370,7 +370,7 @@ describe("the binder set an export is told to write", () => {
 describe("the factorial runs", () => {
   test("at `Int`", async () => {
     const exports = await runProject(
-      [["/main.hex", "fun fact(n) = if n <= 1 then 1 else n * fact(n - 1)\n" +
+      [["/main.hex", "module Main\n\n" + "fun fact(n) = if n <= 1 then 1 else n * fact(n - 1)\n" +
         "export let answer: Int = fact(5)\n"]],
       { transform: distinct("fact-int") },
     );
@@ -381,7 +381,7 @@ describe("the factorial runs", () => {
     // One definition, two instantiations: the run says the projections read the
     // dictionary that was actually passed, not one the emitter guessed at.
     const exports = await runProject(
-      [["/main.hex", "fun fact(n) = if n <= 1 then 1 else n * fact(n - 1)\n" +
+      [["/main.hex", "module Main\n\n" + "fun fact(n) = if n <= 1 then 1 else n * fact(n - 1)\n" +
         "export let atInt: Int = fact(5)\n" +
         "export let atBig: BigInt = fact(5n)\n"]],
       { transform: distinct("fact-both") },

@@ -37,7 +37,7 @@ import seqSource from "../../../stdlib/Seq.hex?raw";
 function compileSeq(entry: string): ReturnType<typeof compileProject> {
   return compileProject([
     new Source.File(Source.fileId(1), "/Seq.hex", seqSource),
-    new Source.File(Source.fileId(0), "/main.hex", entry),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + entry),
   ]);
 }
 
@@ -63,7 +63,7 @@ function docAbove(emitted: string, declaration: string): string | undefined {
     .join("\n");
 }
 
-const IMPORT = "import Seq from \"./Seq\"\n";
+const IMPORT = "import Seq\n";
 
 describe("stdlib/Seq.hex compiles and serves its own surface", () => {
   test("the module compiles clean", () => {

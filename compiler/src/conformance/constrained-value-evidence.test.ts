@@ -75,18 +75,23 @@ async function run(
   expect(project.diagnostics).toEqual([]);
   const moduleUrls = new Map<string, string>();
   for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls);
+    // Keyed and linked by the module's **address** — its full name laid out as
+    // a path (Packages §6) — because that is what the emitted specifiers name
+    // since #829; a source file's own name and place appear nowhere in the
+    // emitted graph.
+    const linked = link(module.javascript.text, module.path, moduleUrls);
     moduleUrls.set(
-      module.source.path,
+      module.path,
       `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
     );
   }
-  // By path, never `modules[0]`: the prelude members share the project.
-  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
+  // By module name, never `modules[0]`: the prelude members share the project.
+  const root = project.modules.find(({ name }) => name === "Main");
+  return (await import(/* @vite-ignore */ moduleUrls.get(root!.path)!)) as Record<string, unknown>;
 }
 
 function main(source: string): Promise<Record<string, unknown>> {
-  return run([["/main.hex", source]]);
+  return run([["/main.hex", "module Main\n\n" + source]]);
 }
 
 describe("a constrained function carries its evidence into value position", () => {
@@ -163,9 +168,9 @@ describe("a constrained function carries its evidence into value position", () =
 
   test("imported from another module", async () => {
     const exports = await run([
-      ["/lib.hex", "export let plus<a: Num>(left: a, right: a): a = left + right\n"],
+      ["/lib.hex", "module Lib\n\n" + "export let plus<a: Num>(left: a, right: a): a = left + right\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "let apply(f: (Int, Int) -> Int): Int = f(1, 2)\n" +
         "export let out: Int = apply(Lib.plus)\n"],
     ]);
@@ -243,7 +248,7 @@ describe("what must not change", () => {
     // allocation per mention.
     const project = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
-        "let identity(value: Int): Int = value\n" +
+        "module Main\n\n" + "let identity(value: Int): Int = value\n" +
         "let apply(f: Int -> Int): Int = f(1)\n" +
         "export let out: Int = apply(identity)\n"),
     ]);

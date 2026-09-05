@@ -16,7 +16,7 @@ import { projectDiagnostics, runProject } from "../support/test-project.js";
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Int = noSuchName\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Int = noSuchName\n"))
       .toEqual(["unknown name `noSuchName`"]);
   });
 });
@@ -24,6 +24,8 @@ describe("the control: diagnostics are project-level, so prove the probe can fai
 describe("what the claim reaches", () => {
   test("a private `let` collides — export status is not what is read", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Int}",
       "",
       "let show(box: Box): String = \"private ${box.value}\"",
@@ -32,7 +34,7 @@ describe("what the claim reaches", () => {
       "    show(box) = \"member ${box.value}\"",
       "",
     ].join("\n"))).toEqual([
-      "the `Show<Box>` instance binds `show`, which is already bound (line 3); " +
+      "the `Show<Box>` instance binds `show`, which is already bound (line 5); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
@@ -80,6 +82,8 @@ describe("what the claim reaches", () => {
    */
   test("a defaulted member the instance never writes is claimed too", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Odd = {n: Int}",
       "",
       "let notEquals(left: Odd, right: Odd): Bool = True",
@@ -88,7 +92,7 @@ describe("what the claim reaches", () => {
       "    equals(left, right) = left.n == right.n",
       "",
     ].join("\n"))).toEqual([
-      "the `Eq<Odd>` instance binds `notEquals`, which is already bound (line 3); " +
+      "the `Eq<Odd>` instance binds `notEquals`, which is already bound (line 5); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
@@ -100,6 +104,8 @@ describe("what the claim reaches", () => {
    */
   test("a `derives` clause claims its members", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export union Colour derives (Eq) =",
       "    | Red",
       "    | Blue",
@@ -108,7 +114,7 @@ describe("what the claim reaches", () => {
       "",
     ].join("\n"))).toEqual([
       "`equals` is already bound: the `Eq<Colour>` instance binds it as a member " +
-        "(line 1); Hexagon does not allow rebinding — choose a different name.",
+        "(line 3); Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
 
@@ -118,13 +124,15 @@ describe("what the claim reaches", () => {
     // member's wider face is declared, not exported (Constraints §4.7) — and
     // `show` has no remaining seat to widen, so no declaration could exist here.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Point derives (Show) = {x: Int}",
       "",
       "export let show(point: Point): String = \"x=${point.x}\"",
       "",
     ].join("\n"))).toEqual([
       "`show` is already bound: the `Show<Point>` instance binds it as a member " +
-        "(line 1); Hexagon does not allow rebinding — choose a different name.",
+        "(line 3); Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
 });
@@ -143,11 +151,11 @@ describe("what the claim does not reach", () => {
    */
   test("two constraints with one member name, honored at one type", async () => {
     const exports = await runProject([
-      ["/loud.hex", "export constraint Loud<a> =\n    volume(value: a): Int\n"],
-      ["/soft.hex", "export constraint Soft<a> =\n    volume(value: a): Int\n"],
-      ["/main.hex", [
-        "import Loud from \"./loud\"",
-        "import Soft from \"./soft\"",
+      ["/loud.hex", "module Loud\n\n" + "export constraint Loud<a> =\n    volume(value: a): Int\n"],
+      ["/soft.hex", "module Soft\n\n" + "export constraint Soft<a> =\n    volume(value: a): Int\n"],
+      ["/main.hex", "module Main\n\n" + [
+        "import Loud",
+        "import Soft",
         "",
         "export record Horn = {n: Int}",
         "",
@@ -176,7 +184,7 @@ describe("what the claim does not reach", () => {
    * grew an honor block.
    */
   test("a module may declare a constraint and honor it", async () => {
-    const exports = await runProject([["/main.hex", [
+    const exports = await runProject([["/main.hex", "module Main\n\n" + [
       "export constraint Describe<a> =",
       "    describe(value: a): String",
       "",
@@ -199,7 +207,7 @@ describe("what the claim does not reach", () => {
    * what the prelude exports.
    */
   test("a module-level `let show` with no `Show` instance of its own is fine", async () => {
-    const exports = await runProject([["/main.hex", [
+    const exports = await runProject([["/main.hex", "module Main\n\n" + [
       "export let show(n: Int): String = \"local ${n}\"",
       "",
       "export let local: String = show(7)",
@@ -218,7 +226,7 @@ describe("what the claim does not reach", () => {
    * refused — the claim reaches member *spellings*, not the module's helpers.
    */
   test("helpers a member body calls are ordinary bindings", async () => {
-    const exports = await runProject([["/main.hex", [
+    const exports = await runProject([["/main.hex", "module Main\n\n" + [
       "export record Ratio = {top: Int, bottom: Int}",
       "",
       "let build(top: Int, bottom: Int): Ratio = Ratio({top = top, bottom = bottom})",

@@ -1,3 +1,5 @@
+module JsSet
+
 // The public companion of the borrowed foreign `JsSet(a)` (FFI Part 10).
 //
 // `JsSet(a)` is compiler-owned: no `.hex` file declares it, so this module is

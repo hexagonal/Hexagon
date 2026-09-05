@@ -1,3 +1,5 @@
+module BigInt
+
 // The public `BigInt` companion. A primitive's home module is its fixed prelude
 // companion (Constraints §5.3), so this file is where `BigInt`'s instances are
 // declared and where the orphan rule lets them be declared.

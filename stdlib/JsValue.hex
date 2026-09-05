@@ -1,3 +1,5 @@
+module JsValue
+
 // The public companion of `JsValue` — the type of a JavaScript value about
 // which Hexagon asserts nothing (FFI Part 11 section 2).
 //

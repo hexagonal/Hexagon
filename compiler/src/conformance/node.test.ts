@@ -30,7 +30,7 @@ import { emitJavaScript, emitTypeScriptPreview } from "../passes/emitter/emitter
  */
 async function runRuntime(source: string): Promise<Record<string, unknown>> {
   return runProject(
-    [["/runtime.hex", source]],
+    [["/runtime.hex", "module Runtime\n\n" + source]],
     { runtimePaths: ["/runtime.hex"], entry: "/runtime.hex" },
   );
 }
@@ -38,7 +38,7 @@ async function runRuntime(source: string): Promise<Record<string, unknown>> {
 /** The diagnostic messages a source produces, resolved with the given options. */
 function diagnose(source: string, options: { readonly runtime?: boolean } = {}): readonly string[] {
   return compileFiles(
-    [["/runtime.hex", source]],
+    [["/runtime.hex", "module Runtime\n\n" + source]],
     options.runtime === true ? { runtimePaths: ["/runtime.hex"] } : {},
   ).diagnostics.map(({ message }) => message);
 }
@@ -94,7 +94,7 @@ describe("Node intrinsic conformance", () => {
   // `stdlib/Bool.hex` since #147.
   test("emits raw array operations and the copy-on-write helper", () => {
     const project = compileFiles(
-      [["/runtime.hex", "export let one: Int = Node.get(Node.copy(Node.set(Node.empty(), 0, 1)), 0)\n"]],
+      [["/runtime.hex", "module Runtime\n\n" + "export let one: Int = Node.get(Node.copy(Node.set(Node.empty(), 0, 1)), 0)\n"]],
       { runtimePaths: ["/runtime.hex"] },
     );
     expect(project.diagnostics).toEqual([]);
@@ -111,7 +111,7 @@ describe("Node intrinsic visibility gate", () => {
     const file = new Source.File(
       Source.fileId(0),
       "/main.hex",
-      "export let leak: Int = Node.get(Node.empty(), 0)\n",
+      "module Main\n\n" + "export let leak: Int = Node.get(Node.empty(), 0)\n",
     );
     const resolved = resolve(parse(applyLayout(lex(file))));
     expect(resolved.diagnostics.length).toBeGreaterThan(0);
@@ -243,7 +243,7 @@ describe("the `Node(a)` face is the mutable `Array<a>` (FFI Part 7 §14.1)", () 
     const compiled = compileFiles(
       [[
         "/runtime.hex",
-        "let n = Node.empty()\n" +
+        "module Runtime\n\n" + "let n = Node.empty()\n" +
         "let slots: Node(Int) = Node.set(n, 0, 7)\n" +
         "export let first: Int = Node.get(slots, 0)\n",
       ]],

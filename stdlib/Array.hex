@@ -1,3 +1,5 @@
+module Array
+
 // The public companion of the borrowed foreign `Array(a)` (FFI Part 2
 // section 6).
 //

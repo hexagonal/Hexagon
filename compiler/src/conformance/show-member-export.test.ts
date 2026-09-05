@@ -13,7 +13,7 @@ import { compileMain, projectDiagnostics, runMain, runProject } from "../support
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: String = shew(42)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: String = shew(42)\n"))
       .toEqual(["unknown name `shew`"]);
   });
 });
@@ -21,6 +21,8 @@ describe("the control: diagnostics are project-level, so prove the probe can fai
 describe("bare `show` is in scope everywhere (the book's rule becomes the language's)", () => {
   test("the book's `display` compiles and runs", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let display<a: Show>(value: a): String = show(value)",
       "",
       "export let shown: String = display(42)",
@@ -31,19 +33,21 @@ describe("bare `show` is in scope everywhere (the book's rule becomes the langua
   });
 
   test("`show(42)` defaults the literal to Int (Numeric Literals §4)", async () => {
-    const exports = await runMain("export let r: String = show(42)\n");
+    const exports = await runMain("module Main\n\n" + "export let r: String = show(42)\n");
 
     expect(exports.r).toBe("42");
   });
 
   test("pipe position: `42 |> show`", async () => {
-    const exports = await runMain("export let r: String = 42 |> show\n");
+    const exports = await runMain("module Main\n\n" + "export let r: String = 42 |> show\n");
 
     expect(exports.r).toBe("42");
   });
 
   test("higher-order position: mapping `show` over a Vector's elements", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let values: Vector(Int) = [1, 2, 3]",
       "",
       "export let joined: String =",
@@ -56,6 +60,8 @@ describe("bare `show` is in scope everywhere (the book's rule becomes the langua
 
   test("non-numeric instances are unchanged: String and Bool", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let text: String = show(\"abc\")",
       "export let truth: String = show(True)",
       "",
@@ -68,7 +74,7 @@ describe("bare `show` is in scope everywhere (the book's rule becomes the langua
 
 describe("qualified access: `Show.show` is ordinary module-qualified access to an export", () => {
   test("`Show.show(42)` compiles and runs", async () => {
-    const exports = await runMain("export let r: String = Show.show(42)\n");
+    const exports = await runMain("module Main\n\n" + "export let r: String = Show.show(42)\n");
 
     expect(exports.r).toBe("42");
   });
@@ -77,6 +83,8 @@ describe("qualified access: `Show.show` is ordinary module-qualified access to a
 describe("the member is one value, instantiated per use (no monomorphic access system)", () => {
   test("an unapplied `show` binds at a concrete type", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let renderInt: Int -> String = show",
       "",
       "export let r: String = renderInt(6)",

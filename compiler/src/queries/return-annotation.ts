@@ -77,7 +77,8 @@ export interface ReturnAnnotationInput {
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
   /** An offset on the declaration's name. */
   readonly offset: number;
-  readonly fileOfSpecifier?: (specifier: string) => Source.FileId | undefined;
+  /** The file a module of this full name was compiled from (Packages §2.3). */
+  readonly fileOfModule?: (moduleName: string) => Source.FileId | undefined;
 }
 
 /**
@@ -143,7 +144,7 @@ export function planReturnAnnotation(
 
   const spelled = spellType(
     type.result,
-    typeNamesOf(input.resolved, input.fileOfSpecifier),
+    typeNamesOf(input.resolved, input.fileOfModule),
     variables,
   );
   if (unspellable(spelled)) {

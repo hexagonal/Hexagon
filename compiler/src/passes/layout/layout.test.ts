@@ -9,7 +9,7 @@ import { applyLayout } from "./layout.js";
 describe("applyLayout", () => {
   test("wraps the module and separates top-level items", () => {
     expect(kinds(layout("let x = 1\nprint(x)").tokens)).toEqual([
-      "VOpen", "Let", "NonUpperName", "Equal", "Integer",
+      "VOpen", "NonUpperName", "UpperName", "VSep", "Let", "NonUpperName", "Equal", "Integer",
       "VSep", "NonUpperName", "LeftParen", "NonUpperName", "RightParen",
       "VClose", "Eof",
     ]);
@@ -21,7 +21,7 @@ describe("applyLayout", () => {
     );
 
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VSep", "VClose", "VClose",
+      "VOpen", "VSep", "VOpen", "VSep", "VClose", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
   });
@@ -30,7 +30,7 @@ describe("applyLayout", () => {
     const result = layout("fun f(x) =\n    if x then\n        print(x)\n    else\n        print(0)\n    print(1)\nprint(2)");
 
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VOpen", "VClose", "VOpen", "VClose",
+      "VOpen", "VSep", "VOpen", "VOpen", "VClose", "VOpen", "VClose",
       "VSep", "VClose", "VSep", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
@@ -39,14 +39,14 @@ describe("applyLayout", () => {
   test("treats deeper declaration lines as continuations", () => {
     const result = layout("union Shape\n        derives Eq =\n    | Circle\n    | Point\nlet x = 1");
 
-    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VClose"]);
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VSep", "VClose"]);
     expect(result.diagnostics).toEqual([]);
   });
 
   test("recognizes exported block declarations", () => {
     const result = layout("export constraint Visible<a> =\n    show(x: a): String");
 
-    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VOpen", "VClose", "VClose"]);
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
     expect(result.diagnostics).toEqual([]);
   });
 
@@ -59,7 +59,7 @@ describe("applyLayout", () => {
         "    .take(5)",
     );
 
-    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VOpen", "VClose", "VClose"]);
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
     expect(result.diagnostics).toEqual([]);
   });
 
@@ -73,7 +73,7 @@ describe("applyLayout", () => {
         "    <a>(x: a): a => x",
     );
 
-    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VOpen", "VSep", "VClose", "VClose"]);
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VOpen", "VSep", "VClose", "VClose"]);
     expect(result.diagnostics).toEqual([]);
   });
 
@@ -84,7 +84,7 @@ describe("applyLayout", () => {
         "    > b",
     );
 
-    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VOpen", "VClose", "VClose"]);
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VOpen", "VClose", "VClose"]);
     expect(result.diagnostics).toEqual([]);
   });
 
@@ -95,7 +95,7 @@ describe("applyLayout", () => {
         "    y + 2",
     );
 
-    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VOpen", "VSep", "VClose", "VClose"]);
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VOpen", "VSep", "VClose", "VClose"]);
     expect(result.diagnostics).toEqual([]);
   });
 
@@ -108,7 +108,7 @@ describe("applyLayout", () => {
     );
 
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VSep", "VClose", "VSep", "VClose",
+      "VOpen", "VSep", "VOpen", "VSep", "VClose", "VSep", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
   });
@@ -119,7 +119,7 @@ describe("applyLayout", () => {
     );
 
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VClose", "VOpen", "VClose", "VSep",
+      "VOpen", "VSep", "VOpen", "VClose", "VOpen", "VClose", "VSep",
       "VOpen", "VClose", "VOpen", "VClose", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
@@ -136,6 +136,7 @@ describe("applyLayout", () => {
 
     expect(virtualKinds(result.tokens)).toEqual([
       "VOpen",
+      "VSep",
       "VOpen",
       "VOpen",
       "VClose",
@@ -150,7 +151,7 @@ describe("applyLayout", () => {
   test("ignores newlines inside physical delimiters", () => {
     const result = layout("let value = call(\n    first,\n    second\n)\nprint(value)");
 
-    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VClose"]);
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VSep", "VClose"]);
     expect(result.diagnostics).toEqual([]);
   });
 
@@ -158,7 +159,7 @@ describe("applyLayout", () => {
     const result = layout("map(values, x =>\n    inspect(x); transform(x)\n)\nprint(\"done\")");
 
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VClose", "VSep", "VClose",
+      "VOpen", "VSep", "VOpen", "VClose", "VSep", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
   });
@@ -182,7 +183,7 @@ describe("applyLayout", () => {
 
     // Module, lambda body, arm block; the two inner closes land before `})`.
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
+      "VOpen", "VSep", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
   });
@@ -199,7 +200,7 @@ describe("applyLayout", () => {
 
     // Module, lambda body — separated statements — and the `while` body within.
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VSep", "VOpen", "VClose", "VSep", "VClose", "VClose",
+      "VOpen", "VSep", "VOpen", "VSep", "VOpen", "VClose", "VSep", "VClose", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
   });
@@ -219,7 +220,7 @@ describe("applyLayout", () => {
     const closer = result.tokens.findIndex(({ kind }) => kind === "RightBrace");
     expect(result.tokens[closer - 1]?.kind).toBe("VClose");
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
+      "VOpen", "VSep", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
   });
@@ -237,7 +238,7 @@ describe("applyLayout", () => {
     const closer = result.tokens.findLastIndex(({ kind }) => kind === "RightParen");
     expect(result.tokens[closer - 1]?.kind).toBe("VClose");
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
+      "VOpen", "VSep", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
   });
@@ -268,7 +269,7 @@ describe("applyLayout", () => {
     // The `}` and `)` close nothing: the arm block predates the group, and `B`
     // still gets its VSep as a sibling arm.
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
+      "VOpen", "VSep", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
     ]);
     expect(result.diagnostics).toEqual([]);
   });
@@ -323,7 +324,7 @@ describe("applyLayout", () => {
 
     expect(result.diagnostics).toEqual([]);
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
+      "VOpen", "VSep", "VOpen", "VOpen", "VSep", "VClose", "VClose", "VClose",
     ]);
   });
 
@@ -334,7 +335,7 @@ describe("applyLayout", () => {
     const closer = result.tokens.findIndex(({ kind }) => kind === "RightParen");
     expect(result.tokens[closer - 1]?.kind).not.toBe("VClose");
     expect(virtualKinds(result.tokens)).toEqual([
-      "VOpen", "VOpen", "VOpen", "VClose", "VClose", "VClose",
+      "VOpen", "VSep", "VOpen", "VOpen", "VClose", "VClose", "VClose",
     ]);
   });
 
@@ -353,7 +354,7 @@ describe("applyLayout", () => {
   test("retains a legal semicolon without adding a virtual separator", () => {
     const result = layout("let f = x => print(x); print(\"done\")");
 
-    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VClose"]);
+    expect(virtualKinds(result.tokens)).toEqual(["VOpen", "VSep", "VClose"]);
     expect(result.tokens.filter(({ kind }) => kind === "Semicolon")).toHaveLength(1);
     expect(result.diagnostics).toEqual([]);
   });
@@ -369,7 +370,7 @@ describe("applyLayout", () => {
 
   test("preserves lexical diagnostics and closes an empty module", () => {
     const empty = layout("");
-    expect(kinds(empty.tokens)).toEqual(["VOpen", "VClose", "Eof"]);
+    expect(kinds(empty.tokens)).toEqual(["VOpen", "NonUpperName", "UpperName", "VClose", "Eof"]);
 
     const invalid = layout("@\nlet x = 1");
     expect(invalid.diagnostics.map(({ message }) => message)).toContain(
@@ -427,7 +428,7 @@ describe("applyLayout", () => {
           if (token.kind === "VClose") depth -= 1;
           expect(depth).toBeGreaterThanOrEqual(0);
           expect(token.span.start.offset).toBeGreaterThanOrEqual(0);
-          expect(token.span.end.offset).toBeLessThanOrEqual(text.length);
+          expect(token.span.end.offset).toBeLessThanOrEqual(HEADER.length + text.length);
         }
 
         expect(depth).toBe(0);
@@ -438,8 +439,10 @@ describe("applyLayout", () => {
   });
 });
 
+const HEADER = "module Test\n\n";
+
 function layout(text: string): LaidOut.File {
-  const source = new Source.File(Source.fileId(0), "test.hex", text);
+  const source = new Source.File(Source.fileId(0), "test.hex", HEADER + text);
   return applyLayout(lex(source));
 }
 

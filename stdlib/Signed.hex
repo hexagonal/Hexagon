@@ -1,3 +1,5 @@
+module Signed
+
 (** The polymorphic face of subtraction and sign. Honoring `Signed` gives a type
     the binary and unary `-` operators.
 

@@ -52,6 +52,7 @@ const SHOW_PAIR =
   "export let pair<a: Show, b: Show>(x: a, y: b): String = show(x) ++ show(y)\n";
 
 const LOCAL_PAIR =
+  "module Main\n\n" +
   "let pair<a: Show, b: Show>(x: a, y: b): String = show(x) ++ show(y)\n";
 
 /** A type outside Part 8's fundamental set, so no edition can hide the call. */
@@ -64,10 +65,10 @@ describe("two constrained variables at one type keep two slots", () => {
   test("the issue's call runs, imported", async () => {
     const exports = await runProject(
       [
-        ["/pair.hex", SHOW_PAIR],
+        ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
         [
           "/main.hex",
-          'import Pair from "./pair"\n' +
+          "module Main\n\n" + 'import Pair\n' +
             "export let answer: String = Pair.pair(2, 3)\n",
         ],
       ],
@@ -96,12 +97,12 @@ describe("two constrained variables at one type keep two slots", () => {
    */
   test("the generic path writes the shared dictionary once per slot", () => {
     const javascript = emitted([
-      ["/point.hex", POINT],
-      ["/pair.hex", SHOW_PAIR],
+      ["/point.hex", "module Point\n\n" + POINT],
+      ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
         "/main.hex",
-        'import Point from "./point"\n' +
-          'import Pair from "./pair"\n' +
+        "module Main\n\n" + 'import Point\n' +
+          'import Pair\n' +
           "export let answer: String = Pair.pair(Point.Point({x = 1}), Point.Point({x = 2}))\n",
       ],
     ]);
@@ -119,7 +120,7 @@ describe("two constrained variables at one type keep two slots", () => {
   test("three variables keep three slots, in declared order", () => {
     const javascript = emitted([[
       "/main.hex",
-      "let trio<a: Show, b: Show, c: Show>(x: a, y: b, z: c): String =\n" +
+      "module Main\n\n" + "let trio<a: Show, b: Show, c: Show>(x: a, y: b, z: c): String =\n" +
         "    show(x) ++ show(y) ++ show(z)\n" +
         'export let answer: String = trio(1, "s", 2)\n',
     ]]);
@@ -136,7 +137,7 @@ describe("two constrained variables at one type keep two slots", () => {
     const exports = await runProject(
       [[
         "/main.hex",
-        "let trio<a: Show, b: Show, c: Show>(x: a, y: b, z: c): String =\n" +
+        "module Main\n\n" + "let trio<a: Show, b: Show, c: Show>(x: a, y: b, z: c): String =\n" +
           "    show(x) ++ show(y) ++ show(z)\n" +
           'export let answer: String = trio(1, "s", 2)\n',
       ]],
@@ -155,7 +156,7 @@ describe("two constrained variables at one type keep two slots", () => {
   test("distinct constraints on distinct variables are not siblings", () => {
     const javascript = emitted([[
       "/main.hex",
-      "let mix<a: Num, b: Signed>(x: a, y: b): b = y - y\n" +
+      "module Main\n\n" + "let mix<a: Num, b: Signed>(x: a, y: b): b = y - y\n" +
         "export let answer: Int = mix(1, 2)\n",
     ]]);
 
@@ -193,10 +194,10 @@ describe("routing, once the arity is right", () => {
    */
   test("both variables at one fundamental reach the edition", () => {
     const javascript = emitted([
-      ["/pair.hex", SHOW_PAIR],
+      ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
         "/main.hex",
-        'import Pair from "./pair"\n' +
+        "module Main\n\n" + 'import Pair\n' +
           "export let answer: String = Pair.pair(2, 3)\n",
       ],
     ]);
@@ -208,10 +209,10 @@ describe("routing, once the arity is right", () => {
   test("the edition it reaches computes the same answer", async () => {
     const exports = await runProject(
       [
-        ["/pair.hex", SHOW_PAIR],
+        ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
         [
           "/main.hex",
-          'import Pair from "./pair"\n' +
+          "module Main\n\n" + 'import Pair\n' +
             "export let cartesian: String = Pair.pair(1, \"x\")\n" +
             "export let repeated: String = Pair.pair(2, 3)\n",
         ],
@@ -232,10 +233,10 @@ describe("evidence threaded from an enclosing polymorphic body", () => {
    */
   test("one ground slot beside one parameter is unchanged", () => {
     const javascript = emitted([
-      ["/pair.hex", SHOW_PAIR],
+      ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
         "/main.hex",
-        'import Pair from "./pair"\n' +
+        "module Main\n\n" + 'import Pair\n' +
           "export let half<b: Show>(y: b): String = Pair.pair(1, y)\n",
       ],
     ]);
@@ -252,10 +253,10 @@ describe("evidence threaded from an enclosing polymorphic body", () => {
    */
   test("both slots at one caller parameter are two arguments, one name", () => {
     const javascript = emitted([
-      ["/pair.hex", SHOW_PAIR],
+      ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
         "/main.hex",
-        'import Pair from "./pair"\n' +
+        "module Main\n\n" + 'import Pair\n' +
           "export let twin<b: Show>(y: b): String = Pair.pair(y, y)\n",
       ],
     ]);
@@ -268,10 +269,10 @@ describe("evidence threaded from an enclosing polymorphic body", () => {
   test("the threaded shape runs at a caller's chosen type", async () => {
     const exports = await runProject(
       [
-        ["/pair.hex", SHOW_PAIR],
+        ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
         [
           "/main.hex",
-          'import Pair from "./pair"\n' +
+          "module Main\n\n" + 'import Pair\n' +
             "let twin<b: Show>(y: b): String = Pair.pair(y, y)\n" +
             'export let answer: String = twin("q")\n',
         ],
@@ -293,7 +294,7 @@ describe("what must not change", () => {
   test("conjuncts on one variable keep their own slots and order", () => {
     const javascript = emitted([[
       "/main.hex",
-      "let twice<a: (Num, Show)>(x: a): String = show(x + x)\n" +
+      "module Main\n\n" + "let twice<a: (Num, Show)>(x: a): String = show(x + x)\n" +
         "export let answer: String = twice(2)\n",
     ]]);
 
@@ -310,7 +311,7 @@ describe("what must not change", () => {
     // it, and the definition declares a parameter only for the maximal one.
     const javascript = emitted([[
       "/main.hex",
-      "let negate(a) = 0 - a\n" + "export let answer: Int = negate(5)\n",
+      "module Main\n\n" + "let negate(a) = 0 - a\n" + "export let answer: Int = negate(5)\n",
     ]]);
 
     expect(javascript).toContain("const negate = (a, __Signed_a) =>");

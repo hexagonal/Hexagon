@@ -19,7 +19,7 @@ import { compileFiles, projectDiagnostics, runProject, runMain } from "../suppor
 describe("an honoring module's member is not a bare export (the §5 item 8 boundary)", () => {
   const box = [
     "/box.hex",
-    [
+    "module Box\n\n" + [
       "export record Box = {value: Int}",
       "",
       "honor Show<Box> =",
@@ -31,8 +31,8 @@ describe("an honoring module's member is not a bare export (the §5 item 8 bound
   test("a consumer's bare `show` is still the polymorphic member, at Int and at Box", async () => {
     const exports = await runProject([
       box,
-      ["/main.hex", [
-        "import Box from \"./box\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Box",
         "",
         "export let atInt: String = show(42)",
         "export let atBox: String = show(Box({value = 3}))",
@@ -56,11 +56,11 @@ describe("an honoring module's member is not a bare export (the §5 item 8 bound
   test("a named import of the member is a parse error, not an export refusal", () => {
     const compiled = compileFiles([
       box,
-      ["/main.hex", 'import { show } from "./box"\nexport let r: String = show(42)\n'],
+      ["/main.hex", "module Main\n\n" + 'import { show } from "./box"\nexport let r: String = show(42)\n'],
     ]);
 
     expect(compiled.diagnostics.map(({ message }) => message)).toContain(
-      "Hexagon imports bind modules: write `import Box from \"./box\"` and reach " +
+      "Hexagon imports name modules: write `import Box` and reach " +
         "`show` as `Box.show`",
     );
   });
@@ -69,6 +69,8 @@ describe("an honoring module's member is not a bare export (the §5 item 8 bound
 describe("occlusion and shadowing (the note's §5 item 6, pinned)", () => {
   test("a module-level `let show` occludes the prelude member (§5.4, layer test)", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let show(n: Int): String = \"local ${n}\"",
       "",
       "export let r: String = show(7)",
@@ -91,6 +93,8 @@ describe("occlusion and shadowing (the note's §5 item 6, pinned)", () => {
    */
   test("an inner-layer `let show` shadows, as for every prelude name (§5.4)", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let f(n: Int): String =",
       "    let show = \"not the member\"",
       "    show",
@@ -125,6 +129,8 @@ describe("the split-spelling defect is now refused (consequence 3)", () => {
    */
   test("`honor Show<Box>` then `export let show` is refused", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Int}",
       "",
       "honor Show<Box> =",
@@ -134,12 +140,14 @@ describe("the split-spelling defect is now refused (consequence 3)", () => {
       "",
     ].join("\n"))).toEqual([
       "`show` is already bound: the `Show<Box>` instance binds it as a member " +
-        "(line 3); Hexagon does not allow rebinding — choose a different name.",
+        "(line 5); Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
 
   test("`export let show` then `honor Show<Box>` is refused", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Int}",
       "",
       "export let show(box: Box): String = \"export ${box.value}\"",
@@ -148,7 +156,7 @@ describe("the split-spelling defect is now refused (consequence 3)", () => {
       "    show(box) = \"member ${box.value}\"",
       "",
     ].join("\n"))).toEqual([
-      "the `Show<Box>` instance binds `show`, which is already bound (line 3); " +
+      "the `Show<Box>` instance binds `show`, which is already bound (line 5); " +
         "Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
@@ -164,6 +172,8 @@ describe("the split-spelling defect is now refused (consequence 3)", () => {
    */
   test("bare `show` inside an honoring module reaches the honored instance via evidence", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export record Tag = {name: String}",
       "",
       "honor Show<Tag> =",

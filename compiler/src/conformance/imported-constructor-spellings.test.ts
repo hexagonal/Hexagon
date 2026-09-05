@@ -31,13 +31,13 @@ describe("an arm reached through the door matches the declared tag", () => {
   test("constructed abroad qualified, matched at home bare", async () => {
     const exports = await runProject([
       ["/shapes.hex",
-        SHAPES +
+        "module Shapes\n\n" + SHAPES +
         "export fun name(s: Shape): String =\n" +
         "    match s\n" +
         "        Circle(r) => \"round\"\n" +
         "        Square(x) => \"boxy\"\n"],
       ["/main.hex",
-        'import Shapes from "./shapes"\n' +
+        "module Main\n\n" + 'import Shapes\n' +
         "export let first: String = Shapes.name(Shapes.Circle(1.0))\n" +
         "export let second: String = Shapes.name(Shapes.Square(1.0))\n"],
     ]);
@@ -50,11 +50,11 @@ describe("an arm reached through the door matches the declared tag", () => {
     // spelling, and the scrutinee's type supplies both constructors (§2.2).
     const exports = await runProject([
       ["/shapes.hex",
-        SHAPES +
+        "module Shapes\n\n" + SHAPES +
         "export let unitCircle: Shape = Circle(1.0)\n" +
         "export let unitSquare: Shape = Square(1.0)\n"],
       ["/main.hex",
-        'import Shapes from "./shapes"\n' +
+        "module Main\n\n" + 'import Shapes\n' +
         "export fun name(s: Shapes.Shape): String =\n" +
         "    match s\n" +
         "        Circle(r) => \"round\"\n" +
@@ -72,10 +72,10 @@ describe("an arm reached through the door matches the declared tag", () => {
     // through a second emission.
     const exports = await runProject([
       ["/traffic.hex",
-        "export union Signal = Stop | Go\n" +
+        "module Traffic\n\n" + "export union Signal = Stop | Go\n" +
         "export let halt: Signal = Stop\n"],
       ["/main.hex",
-        'import Traffic from "./traffic"\n' +
+        "module Main\n\n" + 'import Traffic\n' +
         "export fun word(s: Traffic.Signal): String =\n" +
         "    match s\n" +
         "        Stop => \"halt\"\n" +
@@ -89,16 +89,16 @@ describe("an arm reached through the door matches the declared tag", () => {
 
   test("the emitted arm tests the declared tag, and the alias stays in the import", () => {
     const javascript = compileFiles([
-      ["/shapes.hex", SHAPES],
+      ["/shapes.hex", "module Shapes\n\n" + SHAPES],
       ["/main.hex",
-        'import Shapes from "./shapes"\n' +
+        "module Main\n\n" + 'import Shapes\n' +
         "export fun radius(s: Shapes.Shape): Float =\n" +
         "    match s\n" +
         "        Circle(r) => r\n" +
         "        Square(x) => x\n"],
     ]).modules.find(({ source }) => source.path === "/main.hex")!.javascript.text;
 
-    expect(javascript).toContain('import * as Shapes from "./shapes.js";');
+    expect(javascript).toContain('import * as Shapes from "./Shapes.js";');
     expect(javascript).toContain(
       "  switch (__match.tag) {\n" +
       "    case \"Circle\":\n",
@@ -110,9 +110,9 @@ describe("an arm reached through the door matches the declared tag", () => {
 
   test("a door-reached match is exhaustive with no wildcard", () => {
     expect(compileFiles([
-      ["/shapes.hex", SHAPES],
+      ["/shapes.hex", "module Shapes\n\n" + SHAPES],
       ["/main.hex",
-        'import Shapes from "./shapes"\n' +
+        "module Main\n\n" + 'import Shapes\n' +
         "export fun only(s: Shapes.Shape): Float =\n" +
         "    match s\n" +
         "        Circle(r) => r\n"],
@@ -142,9 +142,9 @@ describe("the arms that never reach the switch", () => {
 
   test("a nested door-reached constructor tests the declared tag", async () => {
     const files = [
-      ["/parcel.hex", PARCEL],
+      ["/parcel.hex", "module Parcel\n\n" + PARCEL],
       ["/main.hex",
-        'import Parcel from "./parcel"\n' +
+        "module Main\n\n" + 'import Parcel\n' +
         "export fun contents(p: Parcel.Parcel): String =\n" +
         "    match p\n" +
         "        Wrapped(Circle(r)) => \"round\"\n" +
@@ -173,9 +173,9 @@ describe("the arms that never reach the switch", () => {
 
   test("a guarded door-reached arm tests the declared tag too", async () => {
     const files = [
-      ["/guarded.hex", PARCEL],
+      ["/guarded.hex", "module Guarded\n\n" + PARCEL],
       ["/main.hex",
-        'import Guarded from "./guarded"\n' +
+        "module Main\n\n" + 'import Guarded\n' +
         "export fun scaled(s: Guarded.Shape): Float =\n" +
         "    match s\n" +
         "        Circle(r) when r > 0.5 => r * 10.0\n" +
@@ -198,9 +198,9 @@ describe("the arms that never reach the switch", () => {
 describe("what the reader is shown stays the spelling the reader wrote", () => {
   const arityDiagnostics = (arm: string): readonly string[] =>
     compileFiles([
-      ["/shapes.hex", SHAPES],
+      ["/shapes.hex", "module Shapes\n\n" + SHAPES],
       ["/main.hex",
-        'import Shapes from "./shapes"\n' +
+        "module Main\n\n" + 'import Shapes\n' +
         "export fun area(s: Shapes.Shape): Float =\n" +
         "    match s\n" +
         `        ${arm} => 1.0\n` +
@@ -221,9 +221,9 @@ describe("what the reader is shown stays the spelling the reader wrote", () => {
 
   test("an unreachable case quotes the written spelling too", () => {
     expect(compileFiles([
-      ["/shapes.hex", SHAPES],
+      ["/shapes.hex", "module Shapes\n\n" + SHAPES],
       ["/main.hex",
-        'import Shapes from "./shapes"\n' +
+        "module Main\n\n" + 'import Shapes\n' +
         "export fun twice(s: Shapes.Shape): Float =\n" +
         "    match s\n" +
         "        Circle(r) => r\n" +
@@ -240,9 +240,9 @@ describe("what the reader is shown stays the spelling the reader wrote", () => {
     // constructor" stood is the door reading the scrutinee's type and finding
     // no such constructor in it (§12).
     expect(compileFiles([
-      ["/shapes.hex", SHAPES],
+      ["/shapes.hex", "module Shapes\n\n" + SHAPES],
       ["/main.hex",
-        'import Shapes from "./shapes"\n' +
+        "module Main\n\n" + 'import Shapes\n' +
         "export fun area(s: Shapes.Shape): Float =\n" +
         "    match s\n" +
         "        Round(r) => r\n" +
@@ -265,14 +265,14 @@ describe("an exception constructor reached abroad", () => {
   test("thrown abroad, caught by the declaring module under its own name", async () => {
     const exports = await runProject([
       ["/blast.hex",
-        "export exception Blast(code: Int)\n" +
+        "module Blast\n\n" + "export exception Blast(code: Int)\n" +
         "export fun shielded(f: (() ->? Int)): Int =\n" +
         "    try\n" +
         "        f?()\n" +
         "    catch\n" +
         "        Blast(c) => c\n"],
       ["/main.hex",
-        'import Blast from "./blast"\n' +
+        "module Main\n\n" + 'import Blast\n' +
         "export fun detonate(): Int = throw(Blast.Blast(7))\n" +
         "export let survived: Int = Blast.shielded(detonate)\n"],
     ]);
@@ -282,9 +282,9 @@ describe("an exception constructor reached abroad", () => {
 
   test("a catch arm names an imported exception through its alias", async () => {
     const files: readonly (readonly [string, string])[] = [
-      ["/blast.hex", "export exception Blast(code: Int)\n"],
+      ["/blast.hex", "module Blast\n\n" + "export exception Blast(code: Int)\n"],
       ["/main.hex",
-        'import Boom from "./blast"\n' +
+        "module Main\n\n" + 'import Blast as Boom\n' +
         "export fun f(): Int =\n" +
         "    try\n" +
         "        throw(Boom.Blast(3))\n" +
@@ -302,7 +302,7 @@ describe("the prelude's constructors read as any other module's do", () => {
   test("`Some` is bare by the open-union grant, and matches what the prelude builds", async () => {
     const exports = await runProject([
       ["/main.hex",
-        "export fun unwrap(o: Option(Int)): Int =\n" +
+        "module Main\n\n" + "export fun unwrap(o: Option(Int)): Int =\n" +
         "    match o\n" +
         "        Some(v) => v + 1\n" +
         "        None => 0\n" +
@@ -316,14 +316,14 @@ describe("the prelude's constructors read as any other module's do", () => {
   test("a qualified-only prelude constructor is bare in a pattern and never in an expression", () => {
     expect(compileFiles([
       ["/main.hex",
-        "export fun sign(a: Int, b: Int): Int =\n" +
+        "module Main\n\n" + "export fun sign(a: Int, b: Int): Int =\n" +
         "    match a.compare(b)\n" +
         "        Less => -1\n" +
         "        Equal => 0\n" +
         "        Greater => 1\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([]);
     expect(compileFiles([
-      ["/main.hex", "export let o: Ordering = Less\n"],
+      ["/main.hex", "module Main\n\n" + "export let o: Ordering = Less\n"],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "no bare `Less`; write `Ordering.Less`",
     ]);
@@ -333,9 +333,9 @@ describe("the prelude's constructors read as any other module's do", () => {
 describe("what value position emits", () => {
   test("the qualified application erases; the tag is written by the declaring module", () => {
     const project = compileFiles([
-      ["/shapes.hex", SHAPES],
+      ["/shapes.hex", "module Shapes\n\n" + SHAPES],
       ["/main.hex",
-        'import Shapes from "./shapes"\n' +
+        "module Main\n\n" + 'import Shapes\n' +
         "export let one: Shapes.Shape = Shapes.Circle(1.0)\n"],
     ]);
     const javascriptOf = (path: string) =>
@@ -359,9 +359,9 @@ describe("what value position emits", () => {
     // The other half of §11.2, which the erasure does not reach: no application
     // to erase, so the reference is the alias's qualified access.
     const project = compileFiles([
-      ["/shapes.hex", SHAPES],
+      ["/shapes.hex", "module Shapes\n\n" + SHAPES],
       ["/main.hex",
-        'import Shapes from "./shapes"\n' +
+        "module Main\n\n" + 'import Shapes\n' +
         "export let mk: (Float) -> Shapes.Shape = Shapes.Circle\n"],
     ]);
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;

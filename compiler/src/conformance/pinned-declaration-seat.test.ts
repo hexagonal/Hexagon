@@ -61,7 +61,7 @@ function declarationSet(compiled: CompiledProject): Record<string, string> {
   const runtime = compiled.runtimeDeclarations;
   if (runtime !== undefined) files[runtime.path.replace(/^\//u, "")] = runtime.text;
   for (const module of compiled.modules) {
-    files[module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
+    files[module.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts")] =
       module.declarations.text;
   }
   return files;
@@ -80,6 +80,7 @@ function lines(files: Readonly<Record<string, string>>, name: string): readonly 
  * when something in the program pulls it into the module graph.
  */
 const PROGRAM =
+  "module Main\n\n" +
   "export let e: Seq(Int) = Seq.empty\n" +
   "export let twice(s: Seq(Int)): Int = Seq.length(s) * 2\n" +
   "export let live: Stream(Int) = Stream.fromSeq(e)\n";
@@ -87,12 +88,12 @@ const PROGRAM =
 describe("a §2.3-pinned type's seat is the pin's alias (§14.5)", () => {
   test("`Seq.d.ts` declares the alias exactly, and declares no brand", () => {
     const files = declarationSet(project({ "/main.hex": PROGRAM }));
-    const seq = files["Seq.d.ts"]!;
+    const seq = files["Hex/Seq.d.ts"]!;
 
     // The seat, as a whole line. Paired with the absences below so the pair
     // fails rather than passes if the seat moves or stops being emitted: a
     // missing declaration would satisfy every `not.toContain` here on its own.
-    expect(lines(files, "Seq.d.ts")).toContain("export type Seq<a> = Iterable<a>;");
+    expect(lines(files, "Hex/Seq.d.ts")).toContain("export type Seq<a> = Iterable<a>;");
     expect(seq).not.toContain("SeqBrand");
     expect(seq).not.toContain("unique symbol");
 
@@ -108,14 +109,14 @@ describe("a §2.3-pinned type's seat is the pin's alias (§14.5)", () => {
     // assertion that only ever runs after its own subject has been caught by a
     // narrower neighbour is not the guard it reads as.
     expect(seq).not.toContain("source: Seq<a>");
-    expect(lines(files, "Seq.d.ts")).toContain("export declare const empty: Iterable<never>;");
+    expect(lines(files, "Hex/Seq.d.ts")).toContain("export declare const empty: Iterable<never>;");
     expect(seq).toContain("export declare function memoize<a>(source: Iterable<a>): Iterable<a>;");
-    expect(lines(files, "main.d.ts")).toContain("export declare const e: Iterable<number>;");
+    expect(lines(files, "Main.d.ts")).toContain("export declare const e: Iterable<number>;");
   });
 
   test("the type's documentation rides the alias", () => {
     const files = declarationSet(project({ "/main.hex": PROGRAM }));
-    const seat = lines(files, "Seq.d.ts");
+    const seat = lines(files, "Hex/Seq.d.ts");
     const at = seat.indexOf("export type Seq<a> = Iterable<a>;");
 
     // Read backwards from the seat rather than searched for anywhere in the
@@ -139,8 +140,8 @@ describe("a §2.3-pinned type's seat is the pin's alias (§14.5)", () => {
       await typeScriptErrors({
         ...files,
         "consumer.ts":
-          'import type { Seq } from "./Seq.js";\n' +
-          'import { e, twice } from "./main.js";\n' +
+          'import type { Seq } from "./Hex/Seq.js";\n' +
+          'import { e, twice } from "./Main.js";\n' +
           "export const byBrand: Seq<number> = e;\n" +
           "export const roundTrip: number = twice(byBrand);\n" +
           // The outbound direction through the *declared* type, and the only
@@ -165,12 +166,13 @@ describe("the gate is the pin, not opacity", () => {
   test("an ordinary `opaque record` still takes §5's brand", () => {
     const files = declarationSet(project({
       "/main.hex":
+        "module Main\n\n" +
         "opaque record Point = {x: Int, y: Int}\n" +
         "export let origin(): Point = Point({x = 0, y = 0})\n",
     }));
 
-    expect(lines(files, "main.d.ts")).toContain("declare const PointBrand: unique symbol;");
-    expect(lines(files, "main.d.ts")).toContain(
+    expect(lines(files, "Main.d.ts")).toContain("declare const PointBrand: unique symbol;");
+    expect(lines(files, "Main.d.ts")).toContain(
       "export type Point = { readonly [PointBrand]: never };",
     );
   });
@@ -183,7 +185,7 @@ describe("the gate is the pin, not opacity", () => {
     // settles its membership and lands the face — consciously, by moving
     // `pinnedRecord`, which is what these exact lines are here to require.
     const files = declarationSet(project({ "/main.hex": PROGRAM }));
-    const stream = lines(files, "Stream.d.ts");
+    const stream = lines(files, "Hex/Stream.d.ts");
 
     expect(stream).toContain("declare const StreamBrand: unique symbol;");
     expect(stream).toContain("export type Stream<a> = { readonly [StreamBrand]: a };");
@@ -197,8 +199,8 @@ describe("the gate is the pin, not opacity", () => {
     // gate widened to `Stream` would leave its *own* seat branded while every
     // consumer face became the notion — the mismatch this issue closed, in the
     // mirror. Both halves are pinned so that #659 has to move both.
-    expect(lines(files, "main.d.ts")).toContain('import type { Stream } from "./Stream.js";');
-    expect(lines(files, "main.d.ts")).toContain("export declare const live: Stream<number>;");
+    expect(lines(files, "Main.d.ts")).toContain('import type { Stream } from "./Hex/Stream.js";');
+    expect(lines(files, "Main.d.ts")).toContain("export declare const live: Stream<number>;");
   });
 
   test("a module's own `opaque record Seq` is an ordinary opaque type", () => {
@@ -208,12 +210,13 @@ describe("the gate is the pin, not opacity", () => {
     // its seat is §5's brand and its faces name the brand type.
     const files = declarationSet(project({
       "/main.hex":
+        "module Main\n\n" +
         "opaque record Seq(+a) = {held: a}\n" +
         "export let hold(value: a): Seq(a) = Seq({held = value})\n",
     }));
 
-    expect(lines(files, "main.d.ts")).toContain("declare const SeqBrand: unique symbol;");
-    expect(lines(files, "main.d.ts")).toContain(
+    expect(lines(files, "Main.d.ts")).toContain("declare const SeqBrand: unique symbol;");
+    expect(lines(files, "Main.d.ts")).toContain(
       "export type Seq<a> = { readonly [SeqBrand]: a };",
     );
   });

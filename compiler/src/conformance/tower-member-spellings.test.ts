@@ -79,12 +79,12 @@ const fixtures = "let i: Int = 6\n" +
   "fun same(value: Int): Int = value\n";
 
 function verdict(source: string): readonly string[] {
-  return projectDiagnostics(fixtures + source);
+  return projectDiagnostics("module Main\n\n" + fixtures + source);
 }
 
 /** `/main.hex`'s emitted JavaScript, with the project asserted clean. */
 function emitted(source: string): string {
-  const project = compileFiles([["/main.hex", fixtures + source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + fixtures + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!
     .javascript.text;
@@ -99,7 +99,7 @@ function probeLine(source: string): string {
 
 function withRat(source: string): readonly (readonly [string, string])[] {
   return [
-    ["/main.hex", `import Rat from "./Rat"\n${fixtures}${source}`],
+    ["/main.hex", "module Main\n\n" + `import Rat\n${fixtures}${source}`],
     ["/Rat.hex", RAT],
   ];
 }
@@ -144,7 +144,7 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
     // other three did not, so the silent overflow had three spellings to hide
     // in. All four now run at `BigInt`.
     const exports = await runProject([["/main.hex",
-      "// the lift, spelled four ways\n" +
+      "module Main\n\n" + "// the lift, spelled four ways\n" +
       "let large: Int = 9007199254740991\n" +
       "let two: Int = 2\n" +
       "export let operator: BigInt = large + two\n" +
@@ -166,7 +166,7 @@ describe("§14(t): the five spellings of a tower member are one call", () => {
     // and injected the quotient; the shape is the pin, and the run is here to
     // say the shape is a program.
     const exports = await runProject([["/main.hex",
-      "// Integral under the lift\n" +
+      "module Main\n\n" + "// Integral under the lift\n" +
       "let large: Int = 9007199254740991\n" +
       "let two: Int = 2\n" +
       "export let qualified: BigInt = Integral.div(large, two)\n" +
@@ -296,14 +296,14 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
    * makes the type's spelling at the use site `Foo.Foo`.
    */
   const fooModule = foo.slice(0, foo.indexOf("let i: Int"));
-  const fooMain = 'import Foo from "./Foo"\n' +
+  const fooMain = "module Main\n\n" + 'import Foo\n' +
     "let p: Foo.Foo = Foo.mk()\n" +
     "let q: Foo.Foo = Foo.mk()\n" +
     "let s2: Foo.Foo = Foo.mk()\n";
 
   /** One standalone program's diagnostics, in production order. */
   const refusals = (source: string): readonly string[] =>
-    compileFiles([["/main.hex", source]]).diagnostics.map(({ message }) => message);
+    compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics.map(({ message }) => message);
 
   /**
    * §9 row 16's report, assembled from its three facts so a pin states them
@@ -348,7 +348,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
 
   /** One standalone program's `probe` line, with the project asserted clean. */
   const line = (source: string): string => {
-    const project = compileFiles([["/main.hex", source]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const found = project.modules.find(({ source: file }) => file.path === "/main.hex")!
       .javascript.text.split("\n").find((text) => text.includes("const probe"));
@@ -358,7 +358,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
 
   test("the dot chain lifts as the operator chain and the pipe do", async () => {
     const exports = await runProject([["/main.hex",
-      "// the receiver seat\n" +
+      "module Main\n\n" + "// the receiver seat\n" +
       "let x: Int = 9007199254740991\n" +
       "let y: Int = 2\n" +
       "let z: Int = 3\n" +
@@ -390,7 +390,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // reciprocal power where `Pow<Int>`'s guard used to throw — the dot
     // converging on `let x: Float = 2 ** negOne`.
     const exports = await runProject([["/main.hex",
-      "// the guard flip\n" +
+      "module Main\n\n" + "// the guard flip\n" +
       "let i: Int = 1\n" +
       "let j: Int = 1\n" +
       "let negOne: Int = -1\n" +
@@ -410,7 +410,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // erases: `Integral<Int>`'s `rem` throws on a zero divisor where
     // `Float.hex`'s answers `NaN`.
     const exports = await runProject([["/main.hex",
-      "// the rung gate\n" +
+      "module Main\n\n" + "// the rung gate\n" +
       "let i: Int = 7\n" +
       "let j: Int = 1\n" +
       "let k: Int = 3\n" +
@@ -520,7 +520,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // *this* module spells it.
     const project = compileFiles([
       ["/main.hex", fooMain + "let probe: BigInt = Foo.add(p, q).gcd(s2)\n"],
-      ["/Foo.hex", fooModule],
+      ["/Foo.hex", "module Foo\n\n" + fooModule],
     ]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     expect(
@@ -532,7 +532,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     expect(
       compileFiles([
         ["/main.hex", fooMain + "let probe: BigInt = p.add(q).gcd(s2)\n"],
-        ["/Foo.hex", fooModule],
+        ["/Foo.hex", "module Foo\n\n" + fooModule],
       ]).diagnostics.map(({ message }) => message),
     ).toEqual([
       rowSixteen({
@@ -988,7 +988,7 @@ describe("§14(v): the receiver seat, and §5.1's stand-down", () => {
     // missing — refused either way, and neither refusal is row 16.
     expect(refusals(`${foo}let probe = (1 + 2).gcd(s2)\n`)).toEqual([
       "type `Foo` has no `Integral` instance; it could only be declared in " +
-      "`./main.hex` (declares `Foo`) or the module declaring `Integral`",
+      "module `Main` (declares `Foo`) or the module declaring `Integral`",
     ]);
     expect(line(`${foo}let probe: BigInt = (1 + 2).gcd(3)\n`))
       .toBe("const probe = __Integral_BigInt_gcd(1n + 2n, 3n);");
@@ -1079,7 +1079,7 @@ describe("the dot's seats are the bare call's, with the receiver in seat 1", () 
 
   /** One standalone program's `probe` line, with the project asserted clean. */
   const line = (source: string): string => {
-    const project = compileFiles([["/main.hex", source]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const found = project.modules.find(({ source: file }) => file.path === "/main.hex")!
       .javascript.text.split("\n").find((text) => text.includes("const probe"));
@@ -1283,14 +1283,14 @@ describe("doors are addressed by the receiver (§6.1, #783)", () => {
     // always required the rewritten call to widen as the qualified one does.
     const exports = await runProject([
       ["/main.hex",
-        'import Box from "./box"\n' +
+        "module Main\n\n" + 'import Box\n' +
         "let boxed: Box.Box = Box.Box({size = 1n})\n" +
         "let step: Int = 2\n" +
         "export let dotted: BigInt = Box.size(boxed.bump(step))\n" +
         "export let qualified: BigInt = Box.size(Box.bump(boxed, step))\n",
       ],
       ["/box.hex",
-        "export record Box = {size: BigInt}\n" +
+        "module Box\n\n" + "export record Box = {size: BigInt}\n" +
         "\n" +
         "export let bump(box: Box, k: BigInt): Box = Box({size = box.size + k})\n" +
         "\n" +
@@ -1326,7 +1326,7 @@ describe("§9 row 14: the exponent seat's fixit, in every spelling", () => {
   test("the span is the argument, never the whole call", () => {
     // #783's second finding. A report against the whole dot call points the
     // reader at the receiver, which is not the seat that refused.
-    const source = `${fixtures}let probe = i.pow(2n)\n`;
+    const source = "module Main\n\n" + `${fixtures}let probe = i.pow(2n)\n`;
     const project = compileFiles([["/main.hex", source]]);
     const reported = project.diagnostics[0]!;
     expect(source.slice(
@@ -1359,7 +1359,7 @@ describe("§4.2's ownership clause and §9 row 15's rider", () => {
     // lifted `n.subtract(m)` would have no dot spelling at all. The value is the
     // pin — a difference that leaves `Nat`.
     const exports = await runProject([["/main.hex",
-      "// ownership at Nat\n" +
+      "module Main\n\n" + "// ownership at Nat\n" +
       "let small: Nat = 2\n" +
       "let large: Nat = 7\n" +
       "export let dotted: Int = small.subtract(large)\n" +
@@ -1514,7 +1514,7 @@ describe("§14(u): the operator's lowering, verbatim, in every spelling", () => 
   test("one text per operation across its spellings, and one value", async () => {
     // The check §8.1 asks for, run as a check rather than asserted.
     const exports = await runProject([["/main.hex",
-      "// one operation, five spellings\n" +
+      "module Main\n\n" + "// one operation, five spellings\n" +
       "let left: Int = 6\n" +
       "let right: Int = 4\n" +
       "export let operator: Int = left + right\n" +

@@ -20,22 +20,64 @@
  * anywhere else. A project has to say so.
  *
  * The file is deliberately small. It answers "what is this project" and nothing
- * else: no dependency resolution, no build configuration, no compiler flags.
- * Those need designing rather than inventing, and nothing yet needs them.
+ * else: no build configuration, no compiler flags. Those need designing rather
+ * than inventing, and nothing yet needs them.
+ *
+ * Two of its four fields are the *language's* rather than the host's — `name`
+ * and `dependencies` (Packages §2.1) — and this reader validates them exactly
+ * as far as one manifest can be read alone: `name` against §2.1's rule, each
+ * `dependencies` entry against §2.4 and §4.4. It **resolves** nothing. Deciding
+ * that a listed name is installed, or is installed twice, or closes a cycle
+ * needs every installed package's manifest, which nothing here reads yet; a
+ * reader that guessed would report "no installed package declares `Bolt`"
+ * about a package sitting in `node_modules`. So a listed name contributes to
+ * the package set — which Modules §2.2's first-segment rule reads — and
+ * supplies no modules, and §7's installed-package rows wait for the host slice
+ * that reads them.
  *
  * Reading it lives here rather than in the compiler because it is filesystem
  * work, and the compiler is deliberately free of a filesystem. The *shape*
  * mirrors `ProjectOptions`, so a future `hexc` can share the schema without
- * sharing the reader.
+ * sharing the reader — and the *judgement* is the compiler's own
+ * (`packageNameRefusal`, `dependencyRefusal`), read through
+ * `compiler/src/index.ts` as every other cross-package import in this directory
+ * is. A reader reaching past the entry point pins itself to a file layout it
+ * does not own, and a second answer to "is this a lawful package name" is how
+ * a host comes to accept a name the compiler refuses.
  */
 
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { dependencyRefusal, packageNameRefusal } from "../../compiler/src/index.js";
 import { normalizePath } from "./positions.js";
 
 export const MANIFEST_NAME = "hexagon.json";
 
+/** The keys this reader knows, in the order §2.1 introduces them. */
+const KNOWN_KEYS = ["name", "dependencies", "runtimePaths", "exclude"] as const;
+
 export interface Manifest {
+  /**
+   * The package's name (Packages §2.1) — one uppercase-start identifier, and
+   * the namespace segment of every module's full name (§2.3).
+   *
+   * Absent for a project that declares none, which is the ordinary case: a
+   * project that is never published needs no name, and its modules' full names
+   * are their declared names (§2.5). Absent too where the manifest declared one
+   * this reader refused, so that a rejected name never silently rebrands every
+   * module and every exception in the project.
+   */
+  readonly name: string | undefined;
+  /**
+   * The Hexagon packages this one's modules may import (Packages §2.1, §3.1).
+   *
+   * Validated in shape only — a name that is not one uppercase-start
+   * identifier, and `"Hex"`, are refused here. Whether an installed package
+   * declares each name is not asked: nothing here reads `node_modules`, so a
+   * listed name contributes to the program's package set and supplies no
+   * modules.
+   */
+  readonly dependencies: readonly string[];
   /**
    * Paths compiled as privileged runtime modules, absolute, resolved against the
    * manifest's own directory.
@@ -79,7 +121,7 @@ export interface ManifestResult {
   readonly present: boolean;
 }
 
-const EMPTY: Manifest = { runtimePaths: [], exclude: [] };
+const EMPTY: Manifest = { name: undefined, dependencies: [], runtimePaths: [], exclude: [] };
 
 /**
  * Reads the manifest at a workspace root.
@@ -145,15 +187,82 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
 
   const record = parsed as Record<string, unknown>;
   for (const key of Object.keys(record)) {
-    if (key === "runtimePaths" || key === "exclude") continue;
+    if ((KNOWN_KEYS as readonly string[]).includes(key)) continue;
     // Named rather than ignored: an unknown key is nearly always a misspelling
     // of a known one, and silence is what makes that expensive to find.
     problems.push({
-      message: `unknown ${MANIFEST_NAME} key \`${key}\`; expected \`runtimePaths\` or \`exclude\``,
+      message: `unknown ${MANIFEST_NAME} key \`${key}\`; expected ${
+        KNOWN_KEYS.map((known) => `\`${known}\``).join(", ")
+      }`,
       line: lineOf(key),
       severity: "error",
     });
   }
+
+  /**
+   * The package's own name (Packages §2.1), or nothing.
+   *
+   * A refused name yields `undefined` rather than the written string: the name
+   * is the first segment of every module's full name and of every exception
+   * brand (§2.3), so honouring one the spec refuses would carry the mistake
+   * into every diagnostic and every emitted artefact instead of into one report
+   * against the manifest.
+   */
+  const readName = (): string | undefined => {
+    const value = record["name"];
+    if (value === undefined) return undefined;
+    if (typeof value !== "string") {
+      problems.push({
+        message: `${MANIFEST_NAME} \`name\` must be a string`,
+        line: lineOf("name"),
+        severity: "error",
+      });
+      return undefined;
+    }
+    const refusal = packageNameRefusal(value);
+    if (refusal === undefined) return value;
+    problems.push({ message: refusal, line: lineOf("name"), severity: "error" });
+    return undefined;
+  };
+
+  /** The Hexagon packages this one lists (Packages §2.1), shape-checked only. */
+  const readDependencies = (): readonly string[] => {
+    const value = record["dependencies"];
+    if (value === undefined) return [];
+    if (!Array.isArray(value)) {
+      problems.push({
+        message: `${MANIFEST_NAME} \`dependencies\` must be an array of package names`,
+        line: lineOf("dependencies"),
+        severity: "error",
+      });
+      return [];
+    }
+    const names: string[] = [];
+    for (const entry of value) {
+      if (typeof entry !== "string") {
+        problems.push({
+          message: `${MANIFEST_NAME} \`dependencies\` entries must be strings`,
+          line: lineOf("dependencies"),
+          severity: "error",
+        });
+        continue;
+      }
+      const refusal = dependencyRefusal(entry);
+      if (refusal !== undefined) {
+        problems.push({
+          message: refusal,
+          line: lineOf("dependencies"),
+          severity: "error",
+        });
+        continue;
+      }
+      // A name listed twice is one dependency written twice, not two packages;
+      // the second entry says nothing the first did not, so it is dropped
+      // rather than reported — §2.1 makes the field a set of names.
+      if (!names.includes(entry)) names.push(entry);
+    }
+    return names;
+  };
 
   const readPaths = async (key: "runtimePaths" | "exclude"): Promise<readonly string[]> => {
     const value = record[key];
@@ -232,6 +341,8 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
     // Sequential rather than concurrent so that problems are reported in the
     // order the fields are written, which is the order the user reads them in.
     manifest: {
+      name: readName(),
+      dependencies: readDependencies(),
       runtimePaths: await readPaths("runtimePaths"),
       exclude: await readPaths("exclude"),
     },

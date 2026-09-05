@@ -229,7 +229,7 @@ const DECLARED_MODULE = [
 ].join("\n");
 
 const MAIN_MODULE = [
-  'import Declared from "./declared"',
+  'import Declared',
   "export record Point derives (Eq, Ord, Show, Hash) = {x: Int, y: Int}",
   "export let shownPair: String = show((1, 2))",
   'export let interpolated: String = "pair ${(3, 4)}"',
@@ -261,8 +261,8 @@ const MAIN_MODULE = [
 
 describe("the live name-reads see pre-registered names only", () => {
   const compiled = compileFiles([
-    ["/declared.hex", DECLARED_MODULE],
-    ["/main.hex", MAIN_MODULE],
+    ["/declared.hex", "module Declared\n\n" + DECLARED_MODULE],
+    ["/main.hex", "module Main\n\n" + MAIN_MODULE],
   ]);
   const rows = compiled.modules.flatMap(({ typed }) => [...requirements(typed)]);
   const preRegistered = (identity: string): boolean =>
@@ -365,8 +365,7 @@ describe("what keeps a pre-registered name canonical", () => {
    * module cannot mint a second constraint that answers to one of the six.
    */
   test("a pre-registered name cannot be redeclared", () => {
-    expect(projectDiagnostics(
-      "constraint Eq<a> =\n    equals(left: a, right: a): Bool\n",
+    expect(projectDiagnostics("module Main\n\n" + "constraint Eq<a> =\n    equals(left: a, right: a): Bool\n",
     )).toEqual(["constraint `Eq` is pre-registered and cannot be redeclared"]);
   });
 
@@ -397,8 +396,7 @@ describe("what keeps a pre-registered name canonical", () => {
     const declaration = "constraint Describe<a> =\n    describe(subject: a): String\n";
 
     for (const head of ["(Int, Int)", "Vector(Int)", "{x: Int}"]) {
-      expect(projectDiagnostics(
-        `${declaration}honor Describe<${head}> =\n    describe(v) = "shape"\n`,
+      expect(projectDiagnostics("module Main\n\n" + `${declaration}honor Describe<${head}> =\n    describe(v) = "shape"\n`,
       )).toContain("an instance head must name a primitive or nominal type constructor");
     }
   });
@@ -410,8 +408,7 @@ describe("what keeps a pre-registered name canonical", () => {
    * declared `Describe` lands in the key as `S|Describe|Tuple(Int,Int)|`.
    */
   test("a declared constraint demanded at a tuple is refused, not satisfied", () => {
-    expect(projectDiagnostics(
-      "constraint Describe<a> =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "constraint Describe<a> =\n" +
         "    describe(subject: a): String\n" +
         "honor Describe<Int> =\n" +
         '    describe(n) = "int"\n' +

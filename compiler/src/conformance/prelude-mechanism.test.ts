@@ -47,7 +47,14 @@ function danglingImports(compiled: ReturnType<typeof project>): readonly string[
     for (const match of module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)) {
       const specifier = match[1];
       if (specifier === undefined) continue;
-      const target = `${specifier.replace(/\.js$/u, "")}.hex`.replace(/^\.\//u, "/");
+      // A prelude member emits under `Hex/` (Modules §11.1, Packages §6) even
+      // though these stand-ins live at the project root on disk (`injectPrelude`
+      // substitutes them in by basename) — strip the leading `../`s and the
+      // `Hex/` directory the emitter adds so the specifier maps back to the
+      // fixture's own flat source path.
+      const relative = specifier.replace(/^(?:\.\.\/)+/u, "").replace(/^\.\//u, "");
+      const withoutHexDirectory = relative.replace(/^Hex\//u, "");
+      const target = `/${withoutHexDirectory.replace(/\.js$/u, "")}.hex`;
       if (!emitted.has(target)) dangling.push(`${module.source.path} -> ${specifier}`);
     }
   }
@@ -55,15 +62,15 @@ function danglingImports(compiled: ReturnType<typeof project>): readonly string[
 }
 
 /** A stand-in prelude whose members are the project's own, in `PRELUDE_MODULES` order. */
-const ORDERING = ["/Ordering.hex", "export union Ordering = Less | Equal | Greater\n"] as const;
-const OPTION = ["/Option.hex", "export union Option(a) = Some(value: a) | None\n"] as const;
-const RESULT = ["/Result.hex", "export union Result(a, e) = Ok(value: a) | Err(error: e)\n"] as const;
-const ENTRY = ["/main.hex", "export let ok: Int = 1\n"] as const;
+const ORDERING = ["/Ordering.hex", "module Ordering\n\n" + "export union Ordering = Less | Equal | Greater\n"] as const;
+const OPTION = ["/Option.hex", "module Option\n\n" + "export union Option(a) = Some(value: a) | None\n"] as const;
+const RESULT = ["/Result.hex", "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n"] as const;
+const ENTRY = ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"] as const;
 
 /** `Result` gaining a backward reference to `Option` — no import line, per §5.5. */
 const RESULT_USING_OPTION = [
   "/Result.hex",
-  "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
+  "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
   "export fun toOption(result: Result(a, e)): Option(a) =\n" +
   "    match result\n" +
   "        Ok(value) => Some(value)\n" +
@@ -76,8 +83,8 @@ describe("ordered intra-prelude visibility", () => {
     // by the embedded `Prelude.hex`; supplying our own without it must make the
     // name unavailable, proving the embedded copy is genuinely out of play.
     expect(diagnostics([
-      ["/Ordering.hex", "export union Direction = Up | Down\n"],
-      ["/main.hex", "export fun compare(): Ordering = Ordering.Less\n"],
+      ["/Ordering.hex", "module Ordering\n\n" + "export union Direction = Up | Down\n"],
+      ["/main.hex", "module Main\n\n" + "export fun compare(): Ordering = Ordering.Less\n"],
     ])).not.toEqual([]);
   });
 
@@ -94,7 +101,7 @@ describe("ordered intra-prelude visibility", () => {
       // `Option.hex`'s seat, which is *before* `stdlib/Int.hex`'s (#344), so an
       // integer literal here would raise its own — true, and beside the point.
       ["/Option.hex",
-        "export union Option(a) = Some(value: a) | None\n" +
+        "module Option\n\n" + "export union Option(a) = Some(value: a) | None\n" +
         "export fun toResult(option: Option(a)): Result(a, String) =\n" +
         "    match option\n" +
         "        Some(value) => Ok(value)\n" +
@@ -111,7 +118,7 @@ describe("ordered intra-prelude visibility", () => {
   test("the first member sees nothing", () => {
     expect(diagnostics([
       ["/Prelude.hex",
-        "export union Ordering = Less | Equal | Greater\n" +
+        "module Prelude\n\n" + "export union Ordering = Less | Equal | Greater\n" +
         "export fun wrap(n: Int): Option(Int) = Some(n)\n"],
       OPTION,
       RESULT,
@@ -131,7 +138,7 @@ describe("ordered intra-prelude visibility", () => {
       // No integer literal, for the reason the case above gives: this seat is
       // before `stdlib/Int.hex`'s.
       ["/Option.hex",
-        "export union Option(a) = Some(value: a) | None\n" +
+        "module Option\n\n" + "export union Option(a) = Some(value: a) | None\n" +
         "export fun peek(result: Result(Int, Int), fallback: Int): Int = fallback\n"],
       RESULT_USING_OPTION,
       ENTRY,
@@ -142,7 +149,7 @@ describe("ordered intra-prelude visibility", () => {
     expect(diagnostics([
       ORDERING, OPTION, RESULT,
       ["/main.hex",
-        "export fun a(): Ordering = Ordering.Less\n" +
+        "module Main\n\n" + "export fun a(): Ordering = Ordering.Less\n" +
         "export fun b(): Option(Int) = Some(1)\n" +
         "export fun c(): Result(Int, Int) = Ok(1)\n"],
     ])).toEqual([]);
@@ -152,7 +159,7 @@ describe("ordered intra-prelude visibility", () => {
 describe("emission follows the new dependency edge", () => {
   const USES_RESULT = [
     "/main.hex",
-    "import R from \"./Result\"\n" +
+    "module Main\n\n" + "import Result as R\n" +
     "export fun use(r: Result(Int, Int)): Option(Int) = R.toOption(r)\n",
   ] as const;
 
@@ -170,7 +177,7 @@ describe("emission follows the new dependency edge", () => {
    */
   const RESULT_IMPORTING_OPTION = [
     "/Result.hex",
-    "import O from \"./Option\"\n" +
+    "module Result\n\n" + "import Option as O\n" +
     "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
     "export fun toOption(result: Result(a, e)): O.Option(a) =\n" +
     "    match result\n" +
@@ -208,7 +215,7 @@ describe("emission follows the new dependency edge", () => {
 
   test("defect 8's reproduction: the dependency written as an explicit import", () => {
     // On `main` this compiled clean, emitted ["/Result.hex", "/main.hex"], and
-    // wrote `import ... from "./Option.js"` into Result.js — unloadable output
+    // wrote `import ... from "./Hex/Option.js"` into Result.js — unloadable output
     // reported as success, with no Phase 3 machinery involved.
     const compiled = project([ORDERING, OPTION, RESULT_IMPORTING_OPTION, USES_RESULT]);
     expect(compiled.diagnostics).toEqual([]);

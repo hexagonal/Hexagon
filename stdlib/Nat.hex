@@ -1,3 +1,5 @@
+module Nat
+
 // The public `Nat` companion. A primitive's home module is its fixed prelude
 // companion (Constraints §5.3), so this file is where `Nat`'s instances are
 // declared and where the orphan rule lets them be declared.

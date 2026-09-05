@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 
-import { moduleBrandIdentity } from "../project.js";
 import { compileFiles, projectDiagnostics, runProject } from "../support/test-project.js";
 import { typeScriptErrors } from "../support/typescript-check.js";
 
@@ -47,11 +46,11 @@ function declarationsOf(
 describe("the brand is the declaring module's path identity (#488, §7.1)", () => {
   test("a root-level module brands its name; a nested one brands its path", () => {
     const files = [
-      ["/errors.hex", "export exception Boom(code: Int)\n"],
-      ["/client/failures.hex", "export exception Splat(code: Int)\n"],
+      ["/errors.hex", "module Errors\n\n" + "export exception Boom(code: Int)\n"],
+      ["/client/failures.hex", "module Failures\n\n" + "export exception Splat(code: Int)\n"],
       ["/main.hex",
-        "import Errors from \"./errors\"\n" +
-        "import Failures from \"./client/failures\"\n" +
+        "module Main\n\n" + "import Errors\n" +
+        "import Failures\n" +
         "export fun a(): Int =\n" +
         "    try\n" +
         "        throw(Errors.Boom(1))\n" +
@@ -66,18 +65,18 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
 
     // Forward slashes, no leading slash, `.hex` dropped — Modules §2's "a
     // module's identity is its path", rendered.
-    expect(javascriptOf(files, "/errors.hex")).toContain('{ $hex: "errors", name: __name }');
+    expect(javascriptOf(files, "/errors.hex")).toContain('{ $hex: "Errors", name: __name }');
     expect(javascriptOf(files, "/client/failures.hex"))
-      .toContain('{ $hex: "client/failures", name: __name }');
+      .toContain('{ $hex: "Failures", name: __name }');
   });
 
   test("the identity is relative to the project root, not absolute", () => {
     // Every file under `/src`, so the root is `/src` and nothing in the brand
     // records where the host unpacked the program.
     const files = [
-      ["/src/client/failures.hex", "export exception Splat(code: Int)\n"],
+      ["/src/client/failures.hex", "module Failures\n\n" + "export exception Splat(code: Int)\n"],
       ["/src/main.hex",
-        "import Failures from \"./client/failures\"\n" +
+        "module Main\n\n" + "import Failures\n" +
         "export fun b(): Int =\n" +
         "    try\n" +
         "        throw(Failures.Splat(2))\n" +
@@ -86,7 +85,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     ] as const;
 
     expect(javascriptOf(files, "/src/client/failures.hex"))
-      .toContain('{ $hex: "client/failures", name: __name }');
+      .toContain('{ $hex: "Failures", name: __name }');
   });
 
   test("an injected prelude module brands its canonical injected name", () => {
@@ -95,14 +94,14 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     // arm below is written in `/src/main.hex` and still tests `"Vector"`.
     const files = [
       ["/src/main.hex",
-        "export fun guarded(v: Vector(Int)): Int =\n" +
+        "module Main\n\n" + "export fun guarded(v: Vector(Int)): Int =\n" +
         "    try\n" +
         "        v.at(9)\n" +
         "    catch\n" +
         "        Vector.IndexError(index, size) => index + size\n"],
     ] as const;
 
-    expect(javascriptOf(files, "/src/main.hex")).toContain('$hex === "Vector"');
+    expect(javascriptOf(files, "/src/main.hex")).toContain('$hex === "Hex.Vector"');
   });
 
   test("a helper that raises a prelude exception brands the declaring module", async () => {
@@ -110,20 +109,20 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     // still `Vector`'s. Branding the emitting module here would put every
     // `Vector.IndexError` arm in the program permanently past it.
     const files = [["/deep/reader.hex",
-      "let values: Vector(Int) = [10, 20]\n" +
+      "module Reader\n\n" + "let values: Vector(Int) = [10, 20]\n" +
       "export let boom: Int = values[9]\n"]] as const;
 
-    expect(javascriptOf(files, "/deep/reader.hex")).toContain('__error.$hex = "Vector"');
+    expect(javascriptOf(files, "/deep/reader.hex")).toContain('__error.$hex = "Hex.Vector"');
     await expect(runProject(files, { entry: "/deep/reader.hex" })).rejects.toThrowError(
-      expect.objectContaining({ name: "IndexError", $hex: "Vector" }),
+      expect.objectContaining({ name: "IndexError", $hex: "Hex.Vector" }),
     );
   });
 
   test("the `.d.ts` face publishes the brand as the literal a JS caller copies", () => {
     const files = [
-      ["/client/failures.hex", "export exception Splat(code: Int)\n"],
+      ["/client/failures.hex", "module Failures\n\n" + "export exception Splat(code: Int)\n"],
       ["/main.hex",
-        "import Failures from \"./client/failures\"\n" +
+        "module Main\n\n" + "import Failures\n" +
         "export fun b(): Int =\n" +
         "    try\n" +
         "        throw(Failures.Splat(2))\n" +
@@ -132,43 +131,39 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     ] as const;
 
     expect(declarationsOf(files, "/client/failures.hex")).toContain(
-      'export type Splat = Error & { readonly $hex: "client/failures"; ' +
+      'export type Splat = Error & { readonly $hex: "Failures"; ' +
         'readonly name: "Splat"; readonly code: number };',
     );
   });
 
-  test("the rendering is canonical: a host separator never reaches the brand", () => {
+  test("the brand is the module's full name, wherever its file sits (#829)", () => {
     // The brand is compiled into emitted JavaScript and into a `.d.ts` literal a
-    // consumer copies, so a separator that varied with the build machine would
-    // be a real incompatibility. This suite cannot run on Windows, so the
-    // rendering is exercised directly with the input that platform produces.
-    expect(moduleBrandIdentity("C:\\app\\client\\errors.hex", "C:\\app", false))
-      .toBe("client/errors");
-    expect(moduleBrandIdentity("C:\\app\\Vector.hex", "C:\\app", true)).toBe("Vector");
-    // And the POSIX rendering of the same project is the same string, which is
-    // the whole claim.
-    expect(moduleBrandIdentity("/app/client/errors.hex", "/app", false))
-      .toBe("client/errors");
-  });
-
-  test("no brand ascends out of the project root", () => {
-    // `root` is `commonRoot`, a prefix of every source path in the program, so
-    // the relativization is a plain suffix with no ascent to express. Pinned so
-    // it stays true: a `../`-prefixed brand would be neither unique nor a name
-    // a JS consumer could copy, and the non-prefix branch below is defensive
-    // only — reached by no compilation.
-    for (
-      const [path, root] of [
-        ["/app/src/errors.hex", "/app/src"],
-        ["/errors.hex", ""],
-        ["/other/errors.hex", "/app"],
-        ["errors.hex", "/app"],
-      ] as const
-    ) {
-      const identity = moduleBrandIdentity(path, root, false);
-      expect(identity.startsWith("../")).toBe(false);
-      expect(identity.startsWith("/")).toBe(false);
-    }
+    // consumer copies, so a rendering that varied with the build machine would
+    // be a real incompatibility. Since #829 it cannot: a module's identity is
+    // its declared name (Modules §1), and no path reaches the brand at all —
+    // the same declaration under two directories brands identically.
+    const declaring = "module Client.Failures\n\n" +
+      "export exception Splat(code: Int)\n";
+    const use = "module Main\n\n" +
+      "import Client.Failures\n" +
+      "export fun b(): Int =\n" +
+      "    try\n" +
+      "        throw(Failures.Splat(2))\n" +
+      "    catch\n" +
+      "        Failures.Splat(c) => c\n";
+    const face = 'readonly $hex: "Client.Failures"';
+    expect(
+      declarationsOf(
+        [["/deep/down/anywhere.hex", declaring], ["/main.hex", use]] as const,
+        "/deep/down/anywhere.hex",
+      ),
+    ).toContain(face);
+    expect(
+      declarationsOf(
+        [["/x.hex", declaring], ["/main.hex", use]] as const,
+        "/x.hex",
+      ),
+    ).toContain(face);
   });
 
   test("`Exn` faces `Error`, flat — the brand is not in that position", () => {
@@ -182,7 +177,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     // `isHexError`'s predicate, both pinned below.
     const files = [
       ["/main.hex",
-        "export exception Boom(code: Int)\n" +
+        "module Main\n\n" + "export exception Boom(code: Int)\n" +
         "export fun rethrow(e: Exn): Exn = e\n"],
     ] as const;
 
@@ -191,7 +186,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
     expect(declarations).not.toContain("e: Error & {");
     // And the two seats that keep the intersection are untouched by that.
     expect(declarations).toContain(
-      'export type Boom = Error & { readonly $hex: "main"; readonly name: "Boom"; ' +
+      'export type Boom = Error & { readonly $hex: "Main"; readonly name: "Boom"; ' +
         "readonly code: number };",
     );
     expect(declarations).toContain(
@@ -204,7 +199,7 @@ describe("the brand is the declaring module's path identity (#488, §7.1)", () =
 describe("boundary guards (#478, §7.6)", () => {
   const guarded = [
     ["/errors.hex",
-      "export exception ParseError(line: Int, message: String)\n" +
+      "module Errors\n\n" + "export exception ParseError(line: Int, message: String)\n" +
       "export exception NotFound\n" +
       "exception Hidden(code: Int)\n" +
       "export fun conceal(code: Int): Int =\n" +
@@ -212,19 +207,19 @@ describe("boundary guards (#478, §7.6)", () => {
       "        throw(Hidden(code))\n" +
       "    catch\n" +
       "        Hidden(c) => c\n"],
-    ["/other.hex", "export exception ParseError(line: Int, message: String)\n"],
-    ["/main.hex", "export let seed: Int = 1\n"],
+    ["/other.hex", "module Other\n\n" + "export exception ParseError(line: Int, message: String)\n"],
+    ["/main.hex", "module Main\n\n" + "export let seed: Int = 1\n"],
   ] as const;
 
   test("every exported constructor gains `is`, the nullary one included", () => {
     const javascript = javascriptOf(guarded, "/errors.hex");
 
     expect(javascript).toContain(
-      'ParseError.is = (__error) => __error != null && __error.$hex === "errors"' +
+      'ParseError.is = (__error) => __error != null && __error.$hex === "Errors"' +
         ' && __error.name === "ParseError";',
     );
     expect(javascript).toContain(
-      'NotFound.is = (__error) => __error != null && __error.$hex === "errors"' +
+      'NotFound.is = (__error) => __error != null && __error.$hex === "Errors"' +
         ' && __error.name === "NotFound";',
     );
   });
@@ -248,13 +243,13 @@ describe("boundary guards (#478, §7.6)", () => {
     // and the stage-1 question has no consumer here.
     const javascript = javascriptOf([
       ["/quiet.hex",
-        "exception Hidden(code: Int)\n" +
+        "module Quiet\n\n" + "exception Hidden(code: Int)\n" +
         "export fun conceal(code: Int): Int =\n" +
         "    try\n" +
         "        throw(Hidden(code))\n" +
         "    catch\n" +
         "        Hidden(c) => c\n"],
-      ["/main.hex", "export let seed: Int = 1\n"],
+      ["/main.hex", "module Main\n\n" + "export let seed: Int = 1\n"],
     ], "/quiet.hex");
 
     expect(javascript).not.toContain("isHexError");
@@ -332,8 +327,7 @@ describe("boundary guards (#478, §7.6)", () => {
     // FFI Part 7 §11's one owned error: the guard is a fixed public face, so it
     // cannot be moved aside by a probe and the source's name cannot be moved
     // aside silently. Both sites are named; the fix is a source rename.
-    expect(projectDiagnostics(
-      "export exception Boom(code: Int)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export exception Boom(code: Int)\n" +
       "export fun isHexError(value: Int): Bool = value > 0\n",
     )).toEqual([
       "generated guard `isHexError` conflicts with exported `isHexError`; rename the export",
@@ -343,8 +337,7 @@ describe("boundary guards (#478, §7.6)", () => {
   test("and so is one with a private binding of the name", () => {
     // The same collision in the emitted module, which has one name space: two
     // `isHexError` declarations is not a program. The family's other wording.
-    expect(projectDiagnostics(
-      "export exception Boom(code: Int)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export exception Boom(code: Int)\n" +
       "let isHexError = 1\n" +
       "export let seed: Int = isHexError\n",
     )).toEqual([
@@ -366,15 +359,14 @@ describe("boundary guards (#478, §7.6)", () => {
   // it never went through an import.
 
   test("a module exporting no exception may bind the name freely", () => {
-    expect(projectDiagnostics(
-      "export fun isHexError(value: Int): Bool = value > 0\n",
+    expect(projectDiagnostics("module Main\n\n" + "export fun isHexError(value: Int): Bool = value > 0\n",
     )).toEqual([]);
   });
 });
 
 describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
   const derived = (source: string): string =>
-    declarationsOf([["/main.hex", source]], "/main.hex");
+    declarationsOf([["/main.hex", "module Main\n\n" + source]], "/main.hex");
 
   // Doc Comments §11's manifest block, snippet for snippet.
   test("a recognized sentence rides verbatim and derives its tag", () => {
@@ -383,7 +375,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
       "export exception ParseError(line: Int)\n" +
       "(** Parses. Throws `ParseError` when the input is malformed. *)\n" +
       "export fun parse(text: String): Int = throw(ParseError(1))\n";
-    const files = [["/main.hex", source]] as const;
+    const files = [["/main.hex", "module Main\n\n" + source]] as const;
 
     for (const artifact of [javascriptOf(files, "/main.hex"), declarationsOf(files, "/main.hex")]) {
       expect(artifact).toContain("Parses. Throws `ParseError` when the input is malformed.");
@@ -417,7 +409,7 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // binding of an unexported term is not a consumer surface.
     const javascript = javascriptOf([
       ["/main.hex",
-        "(** Throws `ParseError` when the input is malformed. *)\n" +
+        "module Main\n\n" + "(** Throws `ParseError` when the input is malformed. *)\n" +
         "fun helper(text: String): Int = 0\n" +
         "export let seed: Int = helper(\"\")\n"],
     ], "/main.hex");
@@ -706,9 +698,9 @@ describe("the throws manifest (#479, Doc Comments §6.1/§7.4)", () => {
     // The end-to-end check the respell earns: `stdlib/Vector.hex` documents
     // `at` and `set` with the recognized sentence, and the exported face of
     // each carries the tag.
-    const project = compileFiles([["/main.hex", "export let x: Int = Vector.at([1], 1)\n"]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + "export let x: Int = Vector.at([1], 1)\n"]]);
     expect(project.diagnostics).toEqual([]);
-    const vector = project.modules.find(({ source }) => source.path === "/Vector.hex")!;
+    const vector = project.modules.find(({ source }) => source.path === "/Hex/Vector.hex")!;
 
     expect(vector.declarations.text).toContain(
       "@throws {IndexError} when no such element exists — zero never addresses one",

@@ -104,7 +104,7 @@ function kindOf(value: unknown): string {
 }
 
 beforeAll(async () => {
-  exports_ = await runMain(PROGRAM);
+  exports_ = await runMain("module Main\n\n" + PROGRAM);
 });
 
 describe("success is the same array, borrowed (§4.2)", () => {
@@ -307,7 +307,7 @@ describe("the probe is unguarded, and `kind`'s is not (§4.2 against §3)", () =
    * call. A future lowering that guarded both would pass nothing above but this.
    */
   test("the emitted rows differ: one probe is wrapped, the other is bare", () => {
-    const compiled = compileMain(PROGRAM);
+    const compiled = compileMain("module Main\n\n" + PROGRAM);
     expect(compiled.diagnostics).toEqual([]);
     const companion = compiled.modules.find(({ source }) => source.path.endsWith("/JsValue.hex"));
     expect(companion).toBeDefined();
@@ -334,8 +334,7 @@ describe("what the operation spends, and what stays behind the door", () => {
    * `vector-to-array.test.ts`, rather than twice.
    */
   test("the qualified spelling is the surface, and it resolves", () => {
-    expect(projectDiagnostics(
-      "export let a(v: JsValue): Result(Array(JsValue), JsConversionError) = JsValue.toArray(v)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): Result(Array(JsValue), JsConversionError) = JsValue.toArray(v)\n",
     )).toEqual([]);
   });
 
@@ -347,12 +346,11 @@ describe("what the operation spends, and what stays behind the door", () => {
    * have leaked — an unguarded predicate and an unchecked cast to `Array`.
    */
   test("the probe and the unchecked crossing are unreachable", () => {
-    expect(projectDiagnostics("export let a(v: JsValue): Bool = isArray(v)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): Bool = isArray(v)\n"))
       .toEqual(["unknown name `isArray`"]);
-    expect(projectDiagnostics("export let a(v: JsValue): Bool = JsValue.isArray(v)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): Bool = JsValue.isArray(v)\n"))
       .toEqual(["module `JsValue` does not export `isArray`"]);
-    expect(projectDiagnostics(
-      "export let a(v: JsValue): Array(JsValue) = JsValue.asArrayUnchecked(v)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): Array(JsValue) = JsValue.asArrayUnchecked(v)\n",
     )).toEqual(["module `JsValue` does not export `asArrayUnchecked`"]);
   });
 });
@@ -366,7 +364,7 @@ describe("the boundary face composes (`Array(JsValue)`)", () => {
    * operation reads.
    */
   test("`Array(JsValue)` is `ReadonlyArray<unknown>` in the `.d.ts`", () => {
-    const compiled = compileMain(PROGRAM);
+    const compiled = compileMain("module Main\n\n" + PROGRAM);
     expect(compiled.diagnostics).toEqual([]);
     const main = compiled.modules.find(({ source }) => source.path === "/main.hex");
     expect(main!.declarations.text).toContain(
@@ -385,7 +383,7 @@ describe("the boundary face composes (`Array(JsValue)`)", () => {
    * where the elements are `unknown`.
    */
   test("a TypeScript consumer reads through the face and cannot write to it", async () => {
-    const compiled = compileMain(PROGRAM);
+    const compiled = compileMain("module Main\n\n" + PROGRAM);
     // The whole declaration set, never one file: `main.d.ts` imports its types
     // from the prelude's own declaration files, and checking it alone is what
     // left #227 undetected.

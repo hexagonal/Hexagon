@@ -60,14 +60,14 @@ describe("at home: the declaration, the reference, the match, the face", () => {
     const source = "export union Colour = Red | Green | Blue\n" +
       "export let chosen: Colour = Green\n";
 
-    expect(javascript([["/main.hex", source]])).toContain(
+    expect(javascript([["/main.hex", "module Main\n\n" + source]])).toContain(
       'const Red = { tag: "Red" };\n' +
         'const Green = { tag: "Green" };\n' +
         'const Blue = { tag: "Blue" };\n' +
         "const chosen = Green;\n",
     );
 
-    const main = await runProject([["/main.hex", source]]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(main["chosen"]).toEqual({ tag: "Green" });
     // Shared, not rebuilt: the reference reads the constant, allocating nothing
     // (§6.1). Identity is the only way to see that from here, and it is exactly
@@ -82,14 +82,14 @@ describe("at home: the declaration, the reference, the match, the face", () => {
       "    Beta => \"b\"\n" +
       "    Gamma => \"c\"\n";
 
-    expect(javascript([["/main.hex", source]])).toContain(
+    expect(javascript([["/main.hex", "module Main\n\n" + source]])).toContain(
       "const letter = g => {\n" +
         "  const __match = g;\n" +
         "  switch (__match.tag) {\n" +
         '    case "Alpha":\n      return "a";\n',
     );
 
-    const main = await runProject([["/main.hex", source]]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     const letter = main["letter"] as (g: unknown) => string;
     expect(letter(main["Alpha"])).toBe("a");
     expect(letter(main["Gamma"])).toBe("c");
@@ -100,7 +100,7 @@ describe("at home: the declaration, the reference, the match, the face", () => {
 
   test("the `.d.ts` face is the discriminated union, the constructors constants", () => {
     expect(declarations([["/main.hex",
-      "export union Ink = Cyan | Magenta | Yellow\n" +
+      "module Main\n\n" + "export union Ink = Cyan | Magenta | Yellow\n" +
       "export let base: Ink = Cyan\n"]]))
       .toBe(
         'export type Ink = { tag: "Cyan" } | { tag: "Magenta" } | { tag: "Yellow" };\n' +
@@ -112,7 +112,7 @@ describe("at home: the declaration, the reference, the match, the face", () => {
   });
 
   test("export publishes the constants themselves", () => {
-    const emitted = javascript([["/main.hex", "export union Tone = Flat | Sharp\n"]]);
+    const emitted = javascript([["/main.hex", "module Main\n\n" + "export union Tone = Flat | Sharp\n"]]);
     expect(emitted).toContain("export { Flat };");
     expect(emitted).toContain("export { Sharp };");
   });
@@ -121,9 +121,9 @@ describe("at home: the declaration, the reference, the match, the face", () => {
 describe("abroad: the qualified reference and the imported match", () => {
   test("a reference through the module alias reads the exporter's constant", async () => {
     const files = [
-      ["/palette.hex", "export union Palette = Scarlet | Olive | Indigo\n"],
+      ["/palette.hex", "module Palette\n\n" + "export union Palette = Scarlet | Olive | Indigo\n"],
       ["/main.hex",
-        'import Palette from "./palette"\n' +
+        "module Main\n\n" + 'import Palette\n' +
         "export let picked: Palette.Palette = Palette.Olive\n"],
     ] as const;
 
@@ -135,10 +135,10 @@ describe("abroad: the qualified reference and the imported match", () => {
 
   test("a match over an imported union switches on the same tag", async () => {
     const files = [
-      ["/signals.hex", "export union Lamp = Amber | Emerald\n" +
+      ["/signals.hex", "module Signals\n\n" + "export union Lamp = Amber | Emerald\n" +
         "export let first: Lamp = Amber\n"],
       ["/main.hex",
-        'import Signals from "./signals"\n' +
+        "module Main\n\n" + 'import Signals\n' +
         "export let word(l: Signals.Lamp): String = match l\n" +
         "    Amber => \"wait\"\n" +
         "    Emerald => \"go\"\n" +
@@ -158,7 +158,7 @@ describe("the derived instances, executed", () => {
     // `Ord` is *declaration* order (§7's implementer note), which the retired
     // string form could have got right by accident and the tag table cannot.
     const main = await runProject([["/main.hex",
-      "export union Beacon derives (Eq, Ord, Show, Hash) = Rust | Amber | Green\n" +
+      "module Main\n\n" + "export union Beacon derives (Eq, Ord, Show, Hash) = Rust | Amber | Green\n" +
       "export let sameValue: Bool = Rust == Rust\n" +
       "export let differentValues: Bool = Rust != Green\n" +
       "export let declaredOrder: Bool = Rust < Amber and Amber < Green\n" +
@@ -184,7 +184,7 @@ describe("the derived instances, executed", () => {
     // `Show`'s the tag, of `Hash`'s the same tag's hash, and of `Ord`'s `Equal`
     // — so what remains is the tag test the walk would have reached anyway.
     const emitted = javascript([["/main.hex",
-      "export union Coin derives (Eq, Ord, Show, Hash) = Copper | Silver\n" +
+      "module Main\n\n" + "export union Coin derives (Eq, Ord, Show, Hash) = Copper | Silver\n" +
       "export let one: Coin = Copper\n"]]);
 
     expect(emitted).toContain(
@@ -205,7 +205,7 @@ describe("the derived instances, executed", () => {
 describe("`Ordering` end to end", () => {
   test("a `compare` answers with the tagged constant, and `==`/`show` agree", async () => {
     const main = await runProject([["/main.hex",
-      "export let lesser: Ordering = Ord.compare(1, 2)\n" +
+      "module Main\n\n" + "export let lesser: Ordering = Ord.compare(1, 2)\n" +
       "export let isLess: Bool = Ord.compare(1, 2) == Ordering.Less\n" +
       "export let named: String = show(Ord.compare(1, 2))\n" +
       "export let matched: String = match Ord.compare(3, 2)\n" +
@@ -236,7 +236,7 @@ describe("`Ordering` end to end", () => {
     //   `atVector`                      the `Vector` walk
     //   `atUnionTag`/`atUnionPayload`   a union's tag order and its payload path
     const main = await runProject([["/main.hex",
-      "export record Switch derives (Eq, Ord) = {on: Bool}\n" +
+      "module Main\n\n" + "export record Switch derives (Eq, Ord) = {on: Bool}\n" +
       "export record Ledger derives (Eq, Ord) = {rows: Int, note: String}\n" +
       "export union Token derives (Eq, Ord) = Blank | Marked(weight: Int)\n" +
       "export let atInt: Ordering = Ord.compare(1, 2)\n" +
@@ -286,7 +286,7 @@ describe("`Ordering` end to end", () => {
     // `Float`, `String`, `BigInt`, and the `Bool` pin, which compare operands
     // directly) and at the four that go through a `compare` and read its tag.
     const main = await runProject([["/main.hex",
-      "export record Reading derives (Eq, Ord) = {step: Int}\n" +
+      "module Main\n\n" + "export record Reading derives (Eq, Ord) = {step: Int}\n" +
       "export union Phase derives (Eq, Ord) = Warm | Cold(depth: Int)\n" +
       "export let ints: Bool = 1 < 2\n" +
       "export let nats: Bool = (1: Nat) <= (2: Nat)\n" +
@@ -319,18 +319,18 @@ describe("`Ordering` end to end", () => {
 
   test("a function returning `Ordering` faces the prelude's type", () => {
     expect(declarations([["/main.hex",
-      "export let rank(a: Int, b: Int): Ordering = Ord.compare(a, b)\n"]]))
+      "module Main\n\n" + "export let rank(a: Int, b: Int): Ordering = Ord.compare(a, b)\n"]]))
       .toBe(
-        'import type { Ordering } from "./Ordering.js";\n' +
+        'import type { Ordering } from "./Hex/Ordering.js";\n' +
           "export declare const rank: (a: number, b: number) => Ordering;\n",
       );
   });
 
   test("the prelude's own `Ordering` module carries the constants and the face", () => {
     const project = compileFiles([["/main.hex",
-      "export let side(a: Int, b: Int): Ordering = Ord.compare(b, a)\n"]]);
+      "module Main\n\n" + "export let side(a: Int, b: Int): Ordering = Ord.compare(b, a)\n"]]);
     expect(project.diagnostics).toEqual([]);
-    const ordering = project.modules.find(({ source }) => source.path === "/Ordering.hex")!;
+    const ordering = project.modules.find(({ name }) => name === "Hex.Ordering")!;
 
     expect(ordering.javascript.text).toContain(
       'const Less = { tag: "Less" };\n' +
@@ -366,7 +366,7 @@ describe("a manufactured value is one hoisted constant per module", () => {
     // Four seats in one module reach `Less`: two derived `compare` bodies and
     // the two comparisons over them.
     const emitted = javascript([["/main.hex",
-      "export record Reading derives (Eq, Ord) = {step: Int}\n" +
+      "module Main\n\n" + "export record Reading derives (Eq, Ord) = {step: Int}\n" +
       "export record Sample derives (Eq, Ord) = {mark: Int}\n" +
       "export let a: Bool = Reading({step = 1}) < Reading({step = 2})\n" +
       "export let b: Bool = Sample({mark = 1}) < Sample({mark = 2})\n"]]);
@@ -383,7 +383,7 @@ describe("a manufactured value is one hoisted constant per module", () => {
     // No derivation, no comparison, no `kind` — nothing to hoist. The constants
     // are on `#useHelper`'s shape: minted on demand, never speculatively.
     const emitted = javascript([["/main.hex",
-      "export union Colour = Ochre | Slate\n" +
+      "module Main\n\n" + "export union Colour = Ochre | Slate\n" +
       "export let picked: Colour = Slate\n"]]);
 
     expect(emitted).not.toContain("__Less");
@@ -398,7 +398,7 @@ describe("a manufactured value is one hoisted constant per module", () => {
     // declaration — either a hoisted constant (`__Less`) or, in the two
     // declaring modules, the constructor's own binding (`Less`).
     const project = compileFiles([["/main.hex",
-      "export record Tick derives (Eq, Ord) = {at: Int}\n" +
+      "module Main\n\n" + "export record Tick derives (Eq, Ord) = {at: Int}\n" +
       "export let ordered: Bool = Tick({at = 1}) < Tick({at = 2})\n" +
       "export let ranked: Ordering = Ord.compare(1.5, 2.5)\n" +
       "export let sized: Ordering = Ord.compare(\"a\", \"b\")\n" +
@@ -426,7 +426,7 @@ describe("a manufactured value is one hoisted constant per module", () => {
     // JavaScript, by `===`. Within a module every `Less` is one object, so a
     // comparison-heavy body allocates no `Ordering` at all.
     const main = await runProject([["/main.hex",
-      "export record Gauge derives (Eq, Ord) = {tick: Int}\n" +
+      "module Main\n\n" + "export record Gauge derives (Eq, Ord) = {tick: Int}\n" +
       "export let first: Ordering = Ord.compare(Gauge({tick = 1}), Gauge({tick = 2}))\n" +
       "export let second: Ordering = Ord.compare(Gauge({tick = 3}), Gauge({tick = 9}))\n" +
       "export let level: Ordering = Ord.compare(Gauge({tick = 4}), Gauge({tick = 4}))\n"]]);
@@ -441,7 +441,7 @@ describe("a manufactured value is one hoisted constant per module", () => {
     // prelude's own `Ordering.Less` and a compare's answer are different
     // objects and the same value. Every question Hexagon can ask agrees.
     const main = await runProject([["/main.hex",
-      "export let computed: Ordering = Ord.compare(1, 2)\n" +
+      "module Main\n\n" + "export let computed: Ordering = Ord.compare(1, 2)\n" +
       "export let written: Ordering = Ordering.Less\n" +
       "export let same: Bool = Ord.compare(1, 2) == Ordering.Less\n" +
       "export let shown: String = show(Ord.compare(1, 2))\n" +
@@ -463,10 +463,10 @@ describe("a manufactured value is one hoisted constant per module", () => {
     // not, so six of the ten `JsKind` constants meet #425's probe. Pinned
     // because it is the one place the hoist's spelling is not the plain one.
     const project = compileFiles([["/main.hex",
-      "export let classify(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
+      "module Main\n\n" + "export let classify(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
     expect(project.diagnostics).toEqual([]);
     const text = project.modules
-      .find(({ source }) => source.path === "/JsValue.hex")!.javascript.text;
+      .find(({ name }) => name === "Hex.JsValue")!.javascript.text;
 
     expect(text).toContain('const __Null = { tag: "Null" };');
     expect(text).toContain('const __Number_1 = { tag: "Number" };');
@@ -477,7 +477,7 @@ describe("a manufactured value is one hoisted constant per module", () => {
 describe("`JsKind`", () => {
   test("`kind` answers the tagged constant, and a match reads three of them", async () => {
     const main = await runProject([["/main.hex",
-      "export let isNull(v: JsValue): Bool = JsValue.kind(v) == JsKind.Null\n" +
+      "module Main\n\n" + "export let isNull(v: JsValue): Bool = JsValue.kind(v) == JsKind.Null\n" +
       "export let label(v: JsValue): String = match JsValue.kind(v)\n" +
       "    JsKind.Null => \"null\"\n" +
       "    JsKind.Number => \"number\"\n" +
@@ -500,10 +500,10 @@ describe("`JsKind`", () => {
 
   test("the `kind` ladder answers with the module's hoisted constants", () => {
     const project = compileFiles([["/main.hex",
-      "export let classify(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
+      "module Main\n\n" + "export let classify(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
     expect(project.diagnostics).toEqual([]);
     const text = project.modules
-      .find(({ source }) => source.path === "/JsValue.hex")!.javascript.text;
+      .find(({ name }) => name === "Hex.JsValue")!.javascript.text;
 
     expect(text).toContain('const __Null = { tag: "Null" };');
     expect(text).toContain("if (__value === null) return __Null;");
@@ -524,7 +524,7 @@ describe("what one shape does not change", () => {
       "    False => True\n" +
       "export let pick(b: Bool): Int = if b then 1 else 0\n";
 
-    const emitted = javascript([["/main.hex", source]]);
+    const emitted = javascript([["/main.hex", "module Main\n\n" + source]]);
     expect(emitted).toContain("const yes = true;\nconst no = false;\n");
     expect(emitted).toContain(
       "const flip = b => {\n  switch (b) {\n    case true:\n      return false;\n",
@@ -532,14 +532,14 @@ describe("what one shape does not change", () => {
     expect(emitted).toContain("const pick = b => b ? 1 : 0;");
     expect(emitted).not.toContain(".tag");
 
-    expect(declarations([["/main.hex", source]])).toBe(
+    expect(declarations([["/main.hex", "module Main\n\n" + source]])).toBe(
       "export declare const yes: boolean;\n" +
         "export declare const no: boolean;\n" +
         "export declare const flip: (b: boolean) => boolean;\n" +
         "export declare const pick: (b: boolean) => number;\n",
     );
 
-    const main = await runProject([["/main.hex", source]]);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]]);
     expect(main["yes"]).toBe(true);
     expect((main["flip"] as (b: boolean) => boolean)(true)).toBe(false);
     expect((main["pick"] as (b: boolean) => number)(false)).toBe(0);
@@ -547,7 +547,7 @@ describe("what one shape does not change", () => {
 
   test("a nullary constructor of a mixed union is the same constant it always was", () => {
     expect(javascript([["/main.hex",
-      "export union Figure = Vertex | Segment(length: Float)\n" +
+      "module Main\n\n" + "export union Figure = Vertex | Segment(length: Float)\n" +
       "export let origin: Figure = Vertex\n"]]))
       .toContain('const Vertex = { tag: "Vertex" };');
   });
@@ -570,8 +570,8 @@ describe("what one shape does not change", () => {
         .slice("export type Relic = ".length, -1)
         .split(" | ");
 
-    const beforeProject = compileFiles([["/main.hex", before]]);
-    const afterProject = compileFiles([["/main.hex", after]]);
+    const beforeProject = compileFiles([["/main.hex", "module Main\n\n" + before]]);
+    const afterProject = compileFiles([["/main.hex", "module Main\n\n" + after]]);
     expect(beforeProject.diagnostics).toEqual([]);
     expect(afterProject.diagnostics).toEqual([]);
     const emitted = (project: typeof beforeProject) =>
@@ -594,8 +594,8 @@ describe("what one shape does not change", () => {
   });
 
   test("a union of nullary constructors is no longer a `.d.ts` string union", () => {
-    const text = declarations([["/main.hex", "export union Mood = Calm | Wild\n"]]);
+    const text = declarations([["/main.hex", "module Main\n\n" + "export union Mood = Calm | Wild\n"]]);
     expect(text).not.toContain('"Calm" | "Wild"');
-    expect(compileMain("export union Mood = Calm | Wild\n").diagnostics).toEqual([]);
+    expect(compileMain("module Main\n\n" + "export union Mood = Calm | Wild\n").diagnostics).toEqual([]);
   });
 });

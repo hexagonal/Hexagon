@@ -6,7 +6,9 @@
 
 export const RUNTIME_SOURCES: Readonly<Record<string, string>> = {
   "VectorTrie.hex":
-    "// The persistent 32-way bit-partitioned trie backing `Vector(a)` (Collections\n"
+    "module VectorTrie\n"
+    + "\n"
+    + "// The persistent 32-way bit-partitioned trie backing `Vector(a)` (Collections\n"
     + "// Part 3 §4), written over the hidden fixed-32 `Node` intrinsic. This is a\n"
     + "// runtime-internal module: it is compiled only as a privileged runtime module,\n"
     + "// and `Tree`, `Node`, and `TrieVector` never cross a module boundary — the\n"
@@ -494,7 +496,9 @@ export const RUNTIME_SOURCES: Readonly<Record<string, string>> = {
     + "        index := index + run\n"
     + "    result\n",
   "HashTrie.hex":
-    "// The persistent hash array mapped trie that `Map(k, v)` and `Set(a)` are built\n"
+    "module HashTrie\n"
+    + "\n"
+    + "// The persistent hash array mapped trie that `Map(k, v)` and `Set(a)` are built\n"
     + "// on (Collections Part 4 §2.1), written over the hidden fixed-32 `Node`\n"
     + "// intrinsic and the bit-algebra rows the intrinsic door supplies. This is a\n"
     + "// runtime-internal module in `runtime/VectorTrie.hex`'s exact sense: it is\n"

@@ -33,7 +33,7 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
  * which is what a writer does today for every unannotatable lambda.
  */
 
-const maybe = "export union Maybe = Just(Int) | Nothing\n";
+const maybe = "module Main\n\n" + "export union Maybe = Just(Int) | Nothing\n";
 
 describe("a scrutinee-less `match` is a unary function literal", () => {
   test("it parses as a lambda whose body is a match on its own parameter", () => {
@@ -131,14 +131,12 @@ describe("a scrutinee-less `match` is a unary function literal", () => {
   test("a bare-binder match function succeeds exactly as its desugar does", () => {
     const armsOnly = "    n when n > 0 => \"positive\"\n    _ => \"other\"\n";
 
-    const written = projectDiagnostics(
-      "let sign: (Int) -> String = value =>\n" +
+    const written = projectDiagnostics("module Main\n\n" + "let sign: (Int) -> String = value =>\n" +
         "    match value\n" +
         armsOnly.replaceAll("    ", "        ") +
         "export let a: String = sign(3)\n",
     );
-    const desugared = projectDiagnostics(
-      "let sign: (Int) -> String = match\n" +
+    const desugared = projectDiagnostics("module Main\n\n" + "let sign: (Int) -> String = match\n" +
         armsOnly +
         "export let a: String = sign(3)\n",
     );
@@ -162,12 +160,11 @@ describe("a scrutinee-less `match` is a unary function literal", () => {
       "function with its own annotated `let`, or use it where its parameter " +
       "type is known";
 
-    const written = projectDiagnostics(
-      "let sign = value =>\n" +
+    const written = projectDiagnostics("module Main\n\n" + "let sign = value =>\n" +
         "    match value\n" +
         armsOnly.replaceAll("    ", "        "),
     );
-    const desugared = projectDiagnostics("let sign = match\n" + armsOnly);
+    const desugared = projectDiagnostics("module Main\n\n" + "let sign = match\n" + armsOnly);
 
     expect(written).toEqual([rider]);
     expect(desugared).toEqual(written);
@@ -207,8 +204,7 @@ describe("callback position — the form's reason to exist", () => {
   });
 
   test("it maps a sequence, run end to end", async () => {
-    const exports = await runMain(
-      "let labels(values: Vector(Option(String))): Vector(String) =\n" +
+    const exports = await runMain("module Main\n\n" + "let labels(values: Vector(Option(String))): Vector(String) =\n" +
         "    Vector.fromSeq(Seq.map(values.toSeq(), match\n" +
         "        Some(value) => value\n" +
         "        None => \"missing\"\n" +
@@ -267,7 +263,7 @@ describe("it is a `match`: exhaustiveness and reachability are demanded", () => 
   });
 
   test("an arm block is still required", () => {
-    expect(projectDiagnostics("let describe = match\n"))
+    expect(projectDiagnostics("module Main\n\n" + "let describe = match\n"))
       .toContain("expected an indented block of match arms");
   });
 });
@@ -279,8 +275,7 @@ describe("it is a lambda literal, and the `fun` seat is retired (#700)", () => {
    * the header — which is the whole retirement: one `fun` shape, no exceptions.
    */
   test("`fun f = match` is refused with the header rewrite", () => {
-    expect(projectDiagnostics(
-      "union Peano = Zero | Succ(Peano)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "union Peano = Zero | Succ(Peano)\n" +
         "fun depth = match\n" +
         "    Zero => 0\n" +
         "    Succ(inner) => 1 + depth(inner)\n",
@@ -291,8 +286,7 @@ describe("it is a lambda literal, and the `fun` seat is retired (#700)", () => {
   });
 
   test("the rewrite compiles and recurses", async () => {
-    const exports = await runMain(
-      "union Peano = Zero | Succ(Peano)\n" +
+    const exports = await runMain("module Main\n\n" + "union Peano = Zero | Succ(Peano)\n" +
         "fun depth(shape) = match shape\n" +
         "    Zero => 0\n" +
         "    Succ(inner) => 1 + depth(inner)\n" +
@@ -305,8 +299,7 @@ describe("it is a lambda literal, and the `fun` seat is retired (#700)", () => {
   test("`fun f =` with the `match` on the next line is the same refusal", () => {
     // The wrappers are read through, so the wrapped arrival is the same written
     // spelling and takes the same rewrite rather than the catch-all.
-    expect(projectDiagnostics(
-      "union Peano = Zero | Succ(Peano)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "union Peano = Zero | Succ(Peano)\n" +
         "fun depth =\n" +
         "    match\n" +
         "        Zero => 0\n" +
@@ -320,8 +313,7 @@ describe("it is a lambda literal, and the `fun` seat is retired (#700)", () => {
   test("a match function is a syntactic value, so it generalizes", () => {
     // The value restriction lets a lambda's binding generalize; this one is used
     // at two element types, which only type-checks if it did.
-    expect(projectDiagnostics(
-      "let firstOr(fallback: a): (Option(a)) -> a = match\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let firstOr(fallback: a): (Option(a)) -> a = match\n" +
         "    Some(value) => value\n" +
         "    None => fallback\n" +
         "export let text: String = firstOr(\"none\")(Some(\"a\"))\n" +

@@ -65,7 +65,7 @@ function messages(files: readonly (readonly [string, string])[]): readonly strin
  */
 const BOX = [
   "/box.hex",
-  "export record Box = {n: Float}\n" +
+  "module Box\n\n" + "export record Box = {n: Float}\n" +
     "export fun double(value: Box): Box = Box({n = value.n * 2.0})\n" +
     "export fun reading(value: Box): Float = value.n\n",
 ] as const;
@@ -74,7 +74,7 @@ const BOX = [
 const BOX_CALL = [
   BOX,
   ["/main.hex",
-    'import Box from "./box"\n' +
+    "module Main\n\n" + 'import Box\n' +
     "export let out: Float = Box.reading(Box.Box({n = 1.5}).double())\n"],
 ] as const;
 
@@ -102,7 +102,7 @@ describe("the ordinary operation: one `export fun`, no constraint in sight (#585
     expect(messages([
       BOX,
       ["/main.hex",
-        'import B from "./box"\n' +
+        "module Main\n\n" + 'import Box as B\n' +
         "export let out: Float = B.reading(B.Box({n = 1.5}).double())\n"],
     ])).toEqual([]);
   });
@@ -116,10 +116,10 @@ describe("the no-such-operation diagnostic tells the truth again (#585)", () => 
     // narrowing of *when* the message fires and not a weakening of the message.
     expect(messages([
       ["/crate.hex",
-        "export record Crate = {n: Float}\n" +
+        "module Crate\n\n" + "export record Crate = {n: Float}\n" +
         "export fun tripled(value: Crate): Float = value.n * 3.0\n"],
       ["/main.hex",
-        'import Crate from "./crate"\n' +
+        "module Main\n\n" + 'import Crate\n' +
         "export let out: Float = Crate.Crate({n = 1.0}).quadrupled()\n"],
     ])).toEqual([
       "`Crate` has no field `quadrupled`, its companion exports no operation " +
@@ -136,11 +136,11 @@ describe("the no-such-operation diagnostic tells the truth again (#585)", () => 
     // module alias already in scope. No message at all is the pin.
     expect(messages([
       ["/tin.hex",
-        "export record Tin = {depth: Float}\n" +
+        "module Tin\n\n" + "export record Tin = {depth: Float}\n" +
         "export fun flatten(value: Tin): Tin = Tin({depth = 0.0})\n" +
         "export fun depthOf(value: Tin): Float = value.depth\n"],
       ["/main.hex",
-        'import Tin from "./tin"\n' +
+        "module Main\n\n" + 'import Tin\n' +
         "export let out: Float = Tin.depthOf(Tin.Tin({depth = 7.0}).flatten())\n"],
     ])).toEqual([]);
   });
@@ -160,12 +160,12 @@ describe("the no-such-operation diagnostic tells the truth again (#585)", () => 
  */
 const GAUGE = [
   "/gauge.hex",
-  "export constraint Gauge<a> =\n    stretch(value: a, factor: Int): a\n",
+  "module Gauge\n\n" + "export constraint Gauge<a> =\n    stretch(value: a, factor: Int): a\n",
 ] as const;
 
 const PANEL = [
   "/panel.hex",
-  'import G from "./gauge"\n' +
+  "module Panel\n\n" + 'import Gauge as G\n' +
     "export record Panel = {span: Float}\n" +
     "widens G.stretch(value: Panel, factor: Float): Panel = " +
     "Panel({span = value.span * factor})\n" +
@@ -181,7 +181,7 @@ const PANEL_CALL = [
   GAUGE,
   PANEL,
   ["/main.hex",
-    'import Panel from "./panel"\n' +
+    "module Main\n\n" + 'import Panel\n' +
     "export let out: Float = Panel.spanOf(Panel.Panel({span = 1.5}).stretch(2.5))\n"],
 ] as const;
 
@@ -190,7 +190,7 @@ describe("the widened member reached across a module boundary (#585)", () => {
     // `/panel.hex`'s two module-level bindings are checked whenever the module
     // is compiled; nothing here imports it. The control that says the fixture's
     // widened body is well-formed before any importer is involved.
-    expect(messages([GAUGE, PANEL, ["/main.hex", "export let n: Int = 1\n"]])).toEqual([]);
+    expect(messages([GAUGE, PANEL, ["/main.hex", "module Main\n\n" + "export let n: Int = 1\n"]])).toEqual([]);
   });
 
   test("the module alias reaches it: the `Float` factor is accepted", () => {
@@ -217,8 +217,8 @@ describe("the widened member reached across a module boundary (#585)", () => {
       GAUGE,
       PANEL,
       ["/main.hex",
-        'import P from "./panel"\n' +
-        'import Panel from "./panel"\n' +
+        "module Main\n\n" + 'import Panel as P\n' +
+        'import Panel\n' +
         "export let out: Float = Panel.spanOf(Panel.Panel({span = 1.5}).stretch(2.5))\n"],
     ])).toEqual([]);
   });
@@ -231,7 +231,7 @@ describe("the widened member reached across a module boundary (#585)", () => {
       GAUGE,
       PANEL,
       ["/main.hex",
-        'import P from "./panel"\n' +
+        "module Main\n\n" + 'import Panel as P\n' +
         "export let out: Float = P.spanOf(P.stretch(P.panel(1.5), 2.5))\n"],
     ])).toEqual([]);
   });
@@ -256,8 +256,8 @@ describe("the adjacent non-defect stays refused (#585)", () => {
       GAUGE,
       PANEL,
       ["/main.hex",
-        'import G from "./gauge"\n' +
-        'import Panel from "./panel"\n' +
+        "module Main\n\n" + 'import Gauge as G\n' +
+        'import Panel\n' +
         "export let out: Panel.Panel = G.stretch(Panel.Panel({span = 1.5}), 2.5)\n"],
     ])).toEqual(["type mismatch: expected Int, found Float"]);
   });
@@ -271,18 +271,18 @@ describe("the adjacent non-defect stays refused (#585)", () => {
  * `/main.hex` below imports `/depot.hex` and nothing else. `Barrel` arrives as
  * the *result type* of `stock`, its home module unnamed anywhere in the call
  * site's text — so its operations cannot come from anything this file imported,
- * and its `import { fill } from "./barrel.js"` is a dependency emission adds
+ * and its `import { fill } from "./Barrel.js"` is a dependency emission adds
  * (§8.2) rather than one the source wrote.
  */
 const TRANSITIVE = [
   ["/barrel.hex",
-    "export record Barrel = {litres: Float}\n" +
+    "module Barrel\n\n" + "export record Barrel = {litres: Float}\n" +
     "export fun fill(value: Barrel): Float = value.litres + 10.0\n"],
   ["/depot.hex",
-    'import Barrel from "./barrel"\n' +
+    "module Depot\n\n" + 'import Barrel\n' +
     "export fun stock(litres: Float): Barrel.Barrel = Barrel.Barrel({litres = litres})\n"],
   ["/main.hex",
-    'import Depot from "./depot"\n' +
+    "module Main\n\n" + 'import Depot\n' +
     "export let out: Float = Depot.stock(4.0).fill()\n"],
 ] as const;
 
@@ -298,8 +298,8 @@ describe("a type whose home module the call site never imported at all (#585)", 
     // file whose source names `./depot` and nothing else.
     const main = compileFiles(TRANSITIVE).modules
       .find(({ source }) => source.path === "/main.hex")!;
-    expect(main.javascript.text).toContain('from "./barrel.js"');
-    expect(main.javascript.companionOperationImports).toEqual(["./barrel"]);
+    expect(main.javascript.text).toContain('from "./Barrel.js"');
+    expect(main.javascript.companionOperationImports).toEqual(["./Barrel"]);
   });
 
   test("— and it runs", async () => {
@@ -321,10 +321,10 @@ describe("a type whose home module the call site never imported at all (#585)", 
  */
 const BAG = [
   ["/bag.hex",
-    "export record Bag = {n: Int}\n" +
+    "module Bag\n\n" + "export record Bag = {n: Int}\n" +
     'export fun labelled<a: Show>(value: Bag, extra: a): String = "${value.n}/${show(extra)}"\n'],
   ["/main.hex",
-    'import Bag from "./bag"\n' +
+    "module Main\n\n" + 'import Bag\n' +
     "export let out: String = Bag.Bag({n = 2}).labelled(7)\n"],
 ] as const;
 
@@ -342,7 +342,7 @@ describe("a constrained companion operation reached the same way (#585)", () => 
     // than guessing a plain `labelled`, which is #585's own claim; which of the
     // two the call resolves to is #440's, not this issue's.
     const main = compileFiles(BAG).modules.find(({ source }) => source.path === "/main.hex")!;
-    expect(main.javascript.text).toContain('import { __labelled, labelledInt } from "./bag.js";');
+    expect(main.javascript.text).toContain('import { __labelled, labelledInt } from "./Bag.js";');
     expect((await runProject(BAG))["out"]).toBe("2/7");
   });
 });
@@ -354,6 +354,6 @@ describe("the prelude control, unmoved", () => {
     // is why this call worked throughout and why it is the control rather than a
     // repair. It is here so that a change to the nominal half that disturbed the
     // built-in and primitive channels would be visible.
-    expect(projectDiagnostics("export let root: Float = (2.0).pow(0.5)\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let root: Float = (2.0).pow(0.5)\n")).toEqual([]);
   });
 });

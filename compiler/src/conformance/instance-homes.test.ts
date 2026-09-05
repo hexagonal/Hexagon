@@ -31,55 +31,55 @@ const messagesOf = (files: readonly (readonly [string, string])[]): readonly str
 describe("the ordinary branch: both homes named, offerable ones offered", () => {
   test("two project homes are two paths, each with what it declares", () => {
     expect(messagesOf([
-      ["/badge.hex", [
+      ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
         "    mark(subject: a): String",
         "",
       ].join("\n")],
-      ["/token.hex", [
+      ["/token.hex", "module Token\n\n" + [
         "export record Token = {serial: Int}",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Badge from \"./badge\"",
-        "import Token from \"./token\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Badge",
+        "import Token",
         "",
         "export fun go(t: Token.Token): String = Badge.mark(t)",
         "",
       ].join("\n")],
     ])).toEqual([
       "type `Token` has no `Badge` instance; it could only be declared in " +
-        "`./token.hex` (declares `Token`) or `./badge.hex` (declares `Badge`)",
+        "module `Token` (declares `Token`) or module `Badge` (declares `Badge`)",
     ]);
   });
 
   test("one home when they coincide — the file is named once, for both", () => {
     // §7.6's parenthesis: "the two legal homes (or the one home when they
-    // coincide)". Naming `./kit.hex` twice would read as two places to look.
+    // coincide)". Naming module `Kit` twice would read as two places to look.
     expect(messagesOf([
-      ["/kit.hex", [
+      ["/kit.hex", "module Kit\n\n" + [
         "export constraint Badge<a> =",
         "    mark(subject: a): String",
         "",
         "export record Token = {serial: Int}",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Kit from \"./kit\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Kit",
         "",
         "export fun go(t: Kit.Token): String = Kit.mark(t)",
         "",
       ].join("\n")],
     ])).toEqual([
       "type `Token` has no `Badge` instance; it could only be declared in " +
-        "`./kit.hex`, which declares both `Token` and `Badge`",
+        "module `Kit`, which declares both `Token` and `Badge`",
     ]);
   });
 
   test("a prelude constraint is stated as fact; the subject's home is offered", () => {
     // The asymmetry §7.6 spells out, and the one the §3.3 loop-head report
-    // already kept: `./widget.hex` is a file the reader can open and write the
-    // honor in, and `Show`'s home is not. Naming it with a path would offer a
+    // already kept: module `Widget` is a module the reader can open and write the
+    // honor in, and `Show`'s home is not. Naming it would offer a
     // repair in the prelude.
     //
     // `Show` is derivable, and `Widget` has a `derives` seat, so §7.6's
@@ -88,19 +88,19 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
     // a hand-written honor, so the fixit is the cheaper repair beside them, not
     // a replacement for them.
     expect(messagesOf([
-      ["/widget.hex", [
+      ["/widget.hex", "module Widget\n\n" + [
         "export record Widget = {size: Int}",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Widget from \"./widget\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Widget",
         "",
         "export fun go(w: Widget.Widget): String = show(w)",
         "",
       ].join("\n")],
     ])).toEqual([
       "type `Widget` has no `Show` instance; it could only be declared in " +
-        "`./widget.hex` (declares `Widget`) or the module declaring `Show`" +
+        "module `Widget` (declares `Widget`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Widget`",
     ]);
   });
@@ -110,20 +110,20 @@ describe("the ordinary branch: both homes named, offerable ones offered", () => 
     // `honor Badge<Int>` is legal in exactly two files and only one of them is
     // the user's. That one is offered; the companion is stated (#287).
     expect(messagesOf([
-      ["/badge.hex", [
+      ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
         "    mark(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Badge from \"./badge\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Badge",
         "",
         "export fun go(n: Int): String = Badge.mark(n)",
         "",
       ].join("\n")],
     ])).toEqual([
       "type `Int` has no `Badge` instance; it could only be declared in " +
-        "`./badge.hex` (declares `Badge`) or `Int`'s prelude companion module",
+        "module `Badge` (declares `Badge`) or `Int`'s prelude companion module",
     ]);
   });
 });
@@ -133,7 +133,7 @@ describe("the closed pair: no offerable home, so no honor offered", () => {
     // Both legal homes sit outside project source. §7.6: "an impossible fixit
     // would be worse than none" — the actionable content is the two exits that
     // need no instance at all.
-    expect(projectDiagnostics("export fun gap(a: Nat, b: Nat): Nat = a - b\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export fun gap(a: Nat, b: Nat): Nat = a - b\n")).toEqual([
       "type `Nat` has no `Signed` instance; its only legal homes are the module " +
         "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
         "source, so this pair's honored set is closed — change the type, or go through " +
@@ -149,7 +149,7 @@ describe("the closed pair: no offerable home, so no honor offered", () => {
   test("no `honor` and no file path appear in a closed-pair report", () => {
     // The negative half, pinned rather than assumed: the closed branch must not
     // leak the offering vocabulary of the branch above it.
-    const [message] = projectDiagnostics("export fun gap(a: Nat, b: Nat): Nat = a - b\n");
+    const [message] = projectDiagnostics("module Main\n\n" + "export fun gap(a: Nat, b: Nat): Nat = a - b\n");
 
     expect(message).not.toContain("honor ");
     expect(message).not.toContain(".hex");
@@ -167,25 +167,25 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
    *
    * The distinction is not academic: taking the sealed branch here would deny
    * the home that works and direct the reader at one that cannot work, because
-   * `./units.hex` can only name `Siren` by importing `./main.hex`, which §7.3's
+   * module `Units` can only name `Siren` by importing module `Main`, which §7.3's
    * acyclic-import rule forbids on this graph. §7.6 files this shape under its
    * discoverability *residue* (bullet (a)), never under the sealed branch.
    */
   test("an exported constraint this module never imported takes the ordinary branch", () => {
     expect(messagesOf([
-      ["/units.hex", [
+      ["/units.hex", "module Units\n\n" + [
         "export constraint Loud<a> =",
         "    shout(subject: a): String",
         "",
       ].join("\n")],
-      ["/middle.hex", [
-        "import Units from \"./units\"",
+      ["/middle.hex", "module Middle\n\n" + [
+        "import Units",
         "",
         "export fun banner<a: Units.Loud>(subject: a): String = Units.shout(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Middle from \"./middle\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Middle",
         "",
         "export record Siren = {pitch: Int}",
         "",
@@ -193,8 +193,8 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Siren` has no `Loud` instance; it could only be declared in `./main.hex` " +
-        "(declares `Siren`) or `./units.hex` (declares `Loud`)",
+      "type `Siren` has no `Loud` instance; it could only be declared in module `Main` " +
+        "(declares `Siren`) or module `Units` (declares `Loud`)",
     ]);
   });
 
@@ -202,12 +202,12 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
     // The other half of the pair: `Gate` is private, but *here* it is nameable,
     // so nothing is sealed away from this reader and the two homes stand.
     expect(messagesOf([
-      ["/token.hex", [
+      ["/token.hex", "module Token\n\n" + [
         "export record Token = {serial: Int}",
         "",
       ].join("\n")],
-      ["/gatekeeper.hex", [
-        "import Token from \"./token\"",
+      ["/gatekeeper.hex", "module Gatekeeper\n\n" + [
+        "import Token",
         "",
         "constraint Gate<a> =",
         "    pass(subject: a): String",
@@ -216,8 +216,8 @@ describe("unexported is what licenses the sealed branch, not un-imported", () =>
         "",
       ].join("\n")],
     ])).toEqual([
-      "type `Token` has no `Gate` instance; it could only be declared in `./token.hex` " +
-        "(declares `Token`) or `./gatekeeper.hex` (declares `Gate`)",
+      "type `Token` has no `Gate` instance; it could only be declared in module `Token` " +
+        "(declares `Token`) or module `Gatekeeper` (declares `Gate`)",
     ]);
   });
 });
@@ -230,7 +230,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
    */
   test("a private middle link names its own module, never the subject's", () => {
     expect(messagesOf([
-      ["/scales.hex", [
+      ["/scales.hex", "module Scales\n\n" + [
         "constraint Tiny<a> =",
         "    tiny(subject: a): String",
         "",
@@ -241,8 +241,8 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "    big(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Scales from \"./scales\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Scales",
         "",
         "export record Ounce = {drams: Int}",
         "",
@@ -252,7 +252,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       ].join("\n")],
     ])).toEqual([
       "type `Ounce` has no `Small` instance; `Small` is not nameable here, so the " +
-        "honor can only be written in `./scales.hex`, which declares it",
+        "honor can only be written in module `Scales`, which declares it",
     ]);
   });
 
@@ -264,7 +264,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
    */
   test("a private constraint gating an exported binding names its home", () => {
     expect(messagesOf([
-      ["/gatekeeper.hex", [
+      ["/gatekeeper.hex", "module Gatekeeper\n\n" + [
         "constraint Gate<a> =",
         "    pass(subject: a): String",
         "",
@@ -276,8 +276,8 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "export fun admit<a: Gate>(subject: a): String = pass(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Gatekeeper from \"./gatekeeper\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Gatekeeper",
         "",
         "export record Badge = {serial: Int}",
         "",
@@ -286,14 +286,14 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       ].join("\n")],
     ])).toEqual([
       "type `Badge` has no `Gate` instance; `Gate` is not nameable here, so the " +
-        "honor can only be written in `./gatekeeper.hex`, which declares it",
+        "honor can only be written in module `Gatekeeper`, which declares it",
     ]);
   });
 
   /** Route (c) — a private **base of an exported constraint**, one hop (#633). */
   test("a sealed base of an exported constraint names its home", () => {
     expect(messagesOf([
-      ["/seal.hex", [
+      ["/seal.hex", "module Seal\n\n" + [
         "constraint Sealed<a> =",
         "    seal(subject: a): String",
         "",
@@ -301,8 +301,8 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "    face(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Seal from \"./seal\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Seal",
         "",
         "export record Panel = {width: Int}",
         "",
@@ -312,7 +312,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       ].join("\n")],
     ])).toEqual([
       "type `Panel` has no `Sealed` instance; `Sealed` is not nameable here, so the " +
-        "honor can only be written in `./seal.hex`, which declares it",
+        "honor can only be written in module `Seal`, which declares it",
     ]);
   });
 
@@ -321,7 +321,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     // *is* a lawful home under the orphan rule, and the honor cannot be written
     // there, because no import or alias in it reaches the constraint's name.
     const [message] = messagesOf([
-      ["/seal.hex", [
+      ["/seal.hex", "module Seal\n\n" + [
         "constraint Sealed<a> =",
         "    seal(subject: a): String",
         "",
@@ -329,8 +329,8 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "    face(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Seal from \"./seal\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Seal",
         "",
         "export record Panel = {width: Int}",
         "",
@@ -340,20 +340,23 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
       ].join("\n")],
     ]);
 
-    expect(message).not.toContain("./main.hex");
+    // No diagnostic names a path since #829 — a module is named, never a file
+    // (Modules §1) — so the needle is the *module*, which is what naming
+    // `/main.hex` as a seat would now spell.
+    expect(message).not.toContain("module `Main`");
     expect(message).not.toContain("could only be declared");
   });
 
   /**
    * Sealed × **coincide** — the sealed analogue of "one home when they coincide",
-   * and the one sealed shape whose repair needs no new import at all: `./gate.hex`
+   * and the one sealed shape whose repair needs no new import at all: module `Gate`
    * declares the constraint *and* the subject, so the honor can be written there
    * as it stands. The clause names that one module, which is what it always does
    * on this branch; the point of the pin is that the coinciding case is a record.
    */
   test("a sealed constraint whose subject shares its module names that module", () => {
     expect(messagesOf([
-      ["/gate.hex", [
+      ["/gate.hex", "module Gate\n\n" + [
         "constraint Gate<a> =",
         "    pass(subject: a): String",
         "",
@@ -362,15 +365,15 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
         "export fun admit<a: Gate>(subject: a): String = pass(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Gate from \"./gate\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Gate",
         "",
         "export fun go(t: Gate.Ticket): String = Gate.admit(t)",
         "",
       ].join("\n")],
     ])).toEqual([
       "type `Ticket` has no `Gate` instance; `Gate` is not nameable here, so the honor " +
-        "can only be written in `./gate.hex`, which declares it",
+        "can only be written in module `Gate`, which declares it",
     ]);
   });
 
@@ -391,12 +394,12 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     ].join("\n");
     const sealed = (subject: string) =>
       `type \`${subject}\` has no \`Gate\` instance; \`Gate\` is not nameable here, ` +
-      "so the honor can only be written in `./gate.hex`, which declares it";
+      "so the honor can only be written in module `Gate`, which declares it";
 
     expect(messagesOf([
-      ["/gate.hex", gate],
-      ["/main.hex", [
-        "import Gate from \"./gate\"",
+      ["/gate.hex", "module Gate\n\n" + gate],
+      ["/main.hex", "module Main\n\n" + [
+        "import Gate",
         "",
         "export fun go(m: Option(Int)): String = Gate.admit(m)",
         "",
@@ -404,9 +407,9 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
     ])).toEqual([sealed("Option(Int)")]);
 
     expect(messagesOf([
-      ["/gate.hex", gate],
-      ["/main.hex", [
-        "import Gate from \"./gate\"",
+      ["/gate.hex", "module Gate\n\n" + gate],
+      ["/main.hex", "module Main\n\n" + [
+        "import Gate",
         "",
         "export union Colour = Red | Green",
         "",
@@ -417,7 +420,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
   });
 
   /**
-   * §5.1.1's disambiguate-by-home remedy. The branch is right here — `./alpha.hex`'s
+   * §5.1.1's disambiguate-by-home remedy. The branch is right here — module `Alpha`'s
    * `Describe` is genuinely private — but "`Describe` is not nameable here" reads
    * as plainly false to a reader who has just written `constraint Describe` in
    * this very file. What they cannot name is the *declaration*; a constraint is
@@ -426,15 +429,15 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
    */
   test("a same-spelled local constraint gets the identity wording, not the name wording", () => {
     const messages = messagesOf([
-      ["/alpha.hex", [
+      ["/alpha.hex", "module Alpha\n\n" + [
         "constraint Describe<a> =",
         "    describe(subject: a): String",
         "",
         "export fun render<a: Describe>(subject: a): String = describe(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Alpha from \"./alpha\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Alpha",
         "",
         "export constraint Describe<a> =",
         "    describe(subject: a): String",
@@ -451,7 +454,7 @@ describe("the unnameable branch: the declaring module, alone (§7.6, #633)", () 
 
     expect(messages).toEqual([
       "type `Panel` has no `Describe` instance; the `Describe` required here is " +
-        "`./alpha.hex`'s, not the one this module names; the honor can only be " +
+        "module `Alpha`'s, not the one this module names; the honor can only be " +
         "written there",
     ]);
     // The claim the plain wording would have made, and which is false here.
@@ -463,20 +466,20 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
   /**
    * The sealed branch is scoped by §7.6's subject clause exactly as the ordinary
    * one is. Constraints §5.4/§9.3 refuse a structural instance head outright, so
-   * `honor Gate<(Int, Int)>` is legal in *no* file — naming `./gate.hex` would be
+   * `honor Gate<(Int, Int)>` is legal in *no* module — naming module `Gate` would be
    * an impossible fixit, which is the one thing §7.6 rules out by name.
    */
   test("a sealed constraint at a tuple subject still keeps the bare head", () => {
     expect(messagesOf([
-      ["/gate.hex", [
+      ["/gate.hex", "module Gate\n\n" + [
         "constraint Gate<a> =",
         "    pass(subject: a): String",
         "",
         "export fun admit<a: Gate>(subject: a): String = pass(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Gate from \"./gate\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Gate",
         "",
         "export fun go(p: (Int, Int)): String = Gate.admit(p)",
         "",
@@ -485,26 +488,26 @@ describe("a structural subject has no home under either branch (§5.4, §9.3)", 
   });
 
   test("a sealed constraint at a primitive subject keeps its clause — a primitive has a home", () => {
-    // The boundary the fix must not overshoot: `honor Gate<Int>` in `./gate.hex`
+    // The boundary the fix must not overshoot: `honor Gate<Int>` in module `Gate`
     // is lawful (Constraints §5.3 gives `Int` a home, and the constraint's own
     // module is always a legal seat), so this one is genuinely directed.
     expect(messagesOf([
-      ["/gate.hex", [
+      ["/gate.hex", "module Gate\n\n" + [
         "constraint Gate<a> =",
         "    pass(subject: a): String",
         "",
         "export fun admit<a: Gate>(subject: a): String = pass(subject)",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Gate from \"./gate\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Gate",
         "",
         "export fun go(n: Int): String = Gate.admit(n)",
         "",
       ].join("\n")],
     ])).toEqual([
       "type `Int` has no `Gate` instance; `Gate` is not nameable here, so the honor " +
-        "can only be written in `./gate.hex`, which declares it",
+        "can only be written in module `Gate`, which declares it",
     ]);
   });
 });
@@ -514,13 +517,13 @@ describe("what the clause does not reach", () => {
     // §7.6 scopes the obligation to "subjects that have a declaring module to
     // name"; a tuple has none, so nothing is appended.
     expect(messagesOf([
-      ["/badge.hex", [
+      ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
         "    mark(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Badge from \"./badge\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Badge",
         "",
         "export fun go(p: (Int, Int)): String = Badge.mark(p)",
         "",
@@ -530,13 +533,13 @@ describe("what the clause does not reach", () => {
 
   test("a function subject keeps its own message", () => {
     expect(messagesOf([
-      ["/badge.hex", [
+      ["/badge.hex", "module Badge\n\n" + [
         "export constraint Badge<a> =",
         "    mark(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Badge from \"./badge\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Badge",
         "",
         "export fun go(f: ((Int) -> Int)): String = Badge.mark(f)",
         "",
@@ -547,15 +550,14 @@ describe("what the clause does not reach", () => {
   test("a literal-origin failure keeps the numeric-literal message", () => {
     // Numeric Literals §6 owns this seat, and §7.6's clause has no business on
     // it: the fault is the literal's type, not a missing home.
-    expect(projectDiagnostics("export let flag: Bool = 1\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let flag: Bool = 1\n"))
       .toEqual(["integer literal cannot have type `Bool`"]);
   });
 
   test("the §3.3 loop-head report still wins at a user nominal", () => {
     // Collections Part 5 §3.3 is the more specific report and is untouched: it
     // already keeps the offering discipline §7.6 generalised.
-    const messages = projectDiagnostics(
-      "export record Bag = {size: Int}\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "export record Bag = {size: Int}\n" +
         "export fun run(bag: Bag): Unit =\n" +
         "    for item in bag\n" +
         "        ()\n",

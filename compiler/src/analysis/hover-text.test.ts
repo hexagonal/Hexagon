@@ -4,7 +4,7 @@ import * as Source from "../support/source.js";
 import type { Target } from "../queries/occurrences.js";
 import { hoverMarkdown } from "./hover-text.js";
 
-const span = new Source.File(Source.fileId(0), "/main.hex", "x").span(0, 1);
+const span = new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + "x").span(0, 1);
 
 const hover = (fields: {
   readonly name: string;
@@ -17,7 +17,7 @@ const hover = (fields: {
  * The word in front of a name, for every kind a name can denote.
  *
  * Keyed by `Target["kind"]` rather than listed, so this is exhaustive by the
- * type checker and not by my counting: a sixth kind added to `Target` fails to
+ * type checker and not by my counting: a seventh kind added to `Target` fails to
  * compile here as well as in `describeTarget`'s switch. Each value is a string
  * a user reads, so they are spelled out rather than derived from the kind.
  */
@@ -27,6 +27,7 @@ const words: Record<Target["kind"], string> = {
   "record": "record",
   "extern-type": "foreign type",
   "constraint": "constraint",
+  "module": "module",
 };
 
 /** One `Target` per kind, with a payload the renderer never looks at. */
@@ -36,6 +37,7 @@ const targets: Record<Target["kind"], Target> = {
   "record": { kind: "record", record: 1 as never },
   "extern-type": { kind: "extern-type", externType: 1 as never },
   "constraint": { kind: "constraint", name: "Show" },
+  "module": { kind: "module", name: "Geometry" },
 };
 
 const kinds = Object.entries(words).map(

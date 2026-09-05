@@ -320,7 +320,7 @@ void everyTypedOnlyKindIsListed;
 // declaration, so a module assembled by calling the passes directly cannot type
 // a condition, a guard, a comparison, or a logic operator.
 function elaborateSource(text: string): Core.Module {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", text)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + text)]);
   return project.modules.find((module) => module.source.path === "/main.hex")!.core;
 }
 

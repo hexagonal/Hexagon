@@ -1,3 +1,5 @@
+module Eq
+
 (** The polymorphic face of equality. Honoring `Eq` gives a type the `==` and
     `!=` operators, and admits it as a component of a derived equality elsewhere.
 

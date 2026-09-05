@@ -22,8 +22,7 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
  */
 describe("the §5 constants: zero observable change", () => {
   test("`show ()` is `\"()\"`, alone and inside a composite", async () => {
-    const module = await runMain(
-      'export let shown: String = "${()}"\n' +
+    const module = await runMain("module Main\n\n" + 'export let shown: String = "${()}"\n' +
         'export let composite: String = "${((), 1)}"\n',
     );
 
@@ -32,8 +31,7 @@ describe("the §5 constants: zero observable change", () => {
   });
 
   test("equality and ordering are the vacuous structural answers", async () => {
-    const module = await runMain(
-      "export let equal: Bool = () == ()\n" +
+    const module = await runMain("module Main\n\n" + "export let equal: Bool = () == ()\n" +
         "export let strict: Bool = () < ()\n" +
         "export let loose: Bool = () <= ()\n",
     );
@@ -46,8 +44,7 @@ describe("the §5 constants: zero observable change", () => {
   test("ordering reaches `Unit` through a dictionary too", async () => {
     // The generic path hands the call a structural `Ord` dictionary built at
     // arity 0, rather than inlining the comparison — same answer either way.
-    const module = await runMain(
-      "export let order<a: Ord>(left: a, right: a): Bool = left <= right\n" +
+    const module = await runMain("module Main\n\n" + "export let order<a: Ord>(left: a, right: a): Bool = left <= right\n" +
         "export let ordered: Bool = order((), ())\n",
     );
 
@@ -58,7 +55,7 @@ describe("the §5 constants: zero observable change", () => {
     // The §5 continuity fact: `stableHash(undefined)` and the zero-element
     // structural fold produce the *same* constant, so hashes persisted under
     // the primitive regime stay valid under the structural one.
-    const module = await runMain("export let hashed: Int = Hash.hash(())\n");
+    const module = await runMain("module Main\n\n" + "export let hashed: Int = Hash.hash(())\n");
 
     expect(module.hashed).toBe(0);
   });
@@ -66,15 +63,14 @@ describe("the §5 constants: zero observable change", () => {
 
 describe("the tuple machinery answers at arity 0 (#159 §2)", () => {
   test("`itemN` on `Unit` is the ordinary arity error at K = 0", () => {
-    expect(projectDiagnostics("export let broken: Int = ().item1\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "export let broken: Int = ().item1\n")).toContain(
       "this tuple has 0 components; there is no item1",
     );
   });
 
   test("a `match` on `Unit` with a `()` arm is exhaustive with no `_`", () => {
     expect(
-      projectDiagnostics(
-        "export fun tag(u: Unit): Int =\n" +
+      projectDiagnostics("module Main\n\n" + "export fun tag(u: Unit): Int =\n" +
           "    match u\n" +
           "        () => 1\n",
       ),
@@ -90,10 +86,10 @@ describe("the tuple machinery answers at arity 0 (#159 §2)", () => {
       "export fun effect(): Unit = ()\n" +
       "let () = effect()\n" +
       "export let after: Int = 1\n";
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.after).toBe(1);
 
-    const emitted = compileMain(source).modules
+    const emitted = compileMain("module Main\n\n" + source).modules
       .find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
     expect(emitted).toContain("effect();");
     expect(emitted).not.toContain("const [] =");
@@ -101,8 +97,7 @@ describe("the tuple machinery answers at arity 0 (#159 §2)", () => {
 
   test("`honor` cannot target `Unit`: structural types are user-closed", () => {
     expect(
-      projectDiagnostics(
-        "honor Show<Unit> =\n" +
+      projectDiagnostics("module Main\n\n" + "honor Show<Unit> =\n" +
           '    show(value) = "nope"\n',
       ),
     ).toContain(
@@ -115,7 +110,7 @@ describe("the tuple machinery answers at arity 0 (#159 §2)", () => {
   test("a mismatch against `Unit` names `Unit`, never a 0-tuple", () => {
     // §2.2's display rule: the reclassification is spec vocabulary; a user
     // sees the type's one name, not tuple-arity talk.
-    const messages = projectDiagnostics("export let wrong: Unit = (1, 2)\n");
+    const messages = projectDiagnostics("module Main\n\n" + "export let wrong: Unit = (1, 2)\n");
 
     expect(messages.some((message) => message.includes("Unit"))).toBe(true);
     expect(messages.join("\n")).not.toContain("tuple arity mismatch");
@@ -124,7 +119,7 @@ describe("the tuple machinery answers at arity 0 (#159 §2)", () => {
 
 describe("`()` in type position (Products §6, #159 §3)", () => {
   test("a bare `()` redirects to `Unit`", () => {
-    expect(projectDiagnostics("export let broken: () = ()\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "export let broken: () = ()\n")).toContain(
       "the empty tuple's type is written `Unit`; `()` in type syntax is only " +
         "the zero-parameter domain `() -> T`",
     );
@@ -132,8 +127,7 @@ describe("`()` in type position (Products §6, #159 §3)", () => {
 
   test("`() -> T` stays the zero-parameter domain", () => {
     expect(
-      projectDiagnostics(
-        "let thunk: () -> Int = () => 5\n" +
+      projectDiagnostics("module Main\n\n" + "let thunk: () -> Int = () => 5\n" +
           "export let five: Int = thunk()\n",
       ),
     ).toEqual([]);
@@ -142,11 +136,11 @@ describe("`()` in type position (Products §6, #159 §3)", () => {
 
 describe("the representation's arity-0 clause (#159 §4)", () => {
   const javascript = (source: string): string =>
-    compileMain(source).modules.find(({ source: file }) => file.path === "/main.hex")!
+    compileMain("module Main\n\n" + source).modules.find(({ source: file }) => file.path === "/main.hex")!
       .javascript.text;
 
   const declarations = (source: string): string =>
-    compileMain(source).modules.find(({ source: file }) => file.path === "/main.hex")!
+    compileMain("module Main\n\n" + source).modules.find(({ source: file }) => file.path === "/main.hex")!
       .declarations.text;
 
   test("`()` emits `undefined`, never `[]`", () => {

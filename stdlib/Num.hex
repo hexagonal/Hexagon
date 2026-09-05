@@ -1,3 +1,5 @@
+module Num
+
 (** The polymorphic face of addition and multiplication. Honoring `Num` gives a
     type the `+` and `*` operators.
 

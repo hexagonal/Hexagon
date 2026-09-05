@@ -51,15 +51,19 @@ async function run(files: readonly (readonly [string, string])[]): Promise<Recor
   );
   expect(project.diagnostics).toEqual([]);
   const moduleUrls = new Map<string, string>();
+  // Keyed and linked by the module's **address** — its full name laid out as a
+  // path (Packages §6) — since that, not the source file's own path, is what
+  // every emitted specifier is computed from (Modules §11.2, #829).
   for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls);
+    const linked = link(module.javascript.text, module.path, moduleUrls);
     moduleUrls.set(
-      module.source.path,
+      module.path,
       `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
     );
   }
   // By path, never `modules[0]`: the prelude members share the project.
-  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
+  const main = project.modules.find((module) => module.source.path === "/main.hex")!;
+  return (await import(/* @vite-ignore */ moduleUrls.get(main.path)!)) as Record<string, unknown>;
 }
 
 /**
@@ -87,14 +91,24 @@ async function run(files: readonly (readonly [string, string])[]): Promise<Recor
  */
 
 function diagnostics(source: string): readonly string[] {
-  return compileProject([new Source.File(Source.fileId(0), "/main.hex", source)])
+  return compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)])
     .diagnostics.map((diagnostic) => diagnostic.message);
 }
 
+/**
+ * Compiles the entry beside a second module at `path`, whose header is derived
+ * from its basename the way the headerless-file fixit derives one (Modules
+ * §2.1): `mine.hex` declares `module Mine`.
+ */
 function withModule(path: string, text: string, entry: string): readonly string[] {
+  const basename = path.slice(path.lastIndexOf("/") + 1).replace(/\.hex$/u, "");
+  const name = basename
+    .split(/[-_.]/u)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join("");
   return compileProject([
-    new Source.File(Source.fileId(1), path, text),
-    new Source.File(Source.fileId(0), "/main.hex", entry),
+    new Source.File(Source.fileId(1), path, `module ${name}\n\n${text}`),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + entry),
   ]).diagnostics.map((diagnostic) => diagnostic.message);
 }
 
@@ -159,7 +173,7 @@ describe("an explicit alias is a module-level binding and wins", () => {
     expect(withModule(
       "/mine.hex",
       "export let greet(name: String): String = name\n",
-      "import Option from \"./mine\"\n" +
+      "import Mine as Option\n" +
       "export let a: String = Option.greet(\"x\")\n",
     )).toEqual([]);
   });
@@ -168,7 +182,7 @@ describe("an explicit alias is a module-level binding and wins", () => {
     expect(withModule(
       "/mine.hex",
       "export let greet(name: String): String = name\n",
-      "import Option from \"./mine\"\n" +
+      "import Mine as Option\n" +
       "export let a: Option(Int) = Some(1)\n" +
       "export let b: String = Option.greet(\"x\")\n",
     )).toEqual([]);
@@ -186,7 +200,7 @@ describe("the qualified spelling runs (PR #90 finding F1)", () => {
   test("a qualified constructor produces the value", async () => {
     const module = await run([[
       "/main.hex",
-      "export let wrapped: Option(Int) = Option.Some(41)\n" +
+      "module Main\n\n" + "export let wrapped: Option(Int) = Option.Some(41)\n" +
       "export let unwrapped: Int = match wrapped\n" +
       "    None => 0\n" +
       "    Some(value) => value + 1\n",
@@ -197,7 +211,7 @@ describe("the qualified spelling runs (PR #90 finding F1)", () => {
   test("a qualified nullary constructor produces the value", async () => {
     const module = await run([[
       "/main.hex",
-      "export let nothing: Option(Int) = Option.None\n" +
+      "module Main\n\n" + "export let nothing: Option(Int) = Option.None\n" +
       "export let isNothing: Bool = nothing == None\n",
     ]]);
     expect(module["isNothing"]).toBe(true);
@@ -206,7 +220,7 @@ describe("the qualified spelling runs (PR #90 finding F1)", () => {
   test("a qualified value from a second member produces the value", async () => {
     const module = await run([[
       "/main.hex",
-      "export let ordered: Ordering = Ordering.Less\n" +
+      "module Main\n\n" + "export let ordered: Ordering = Ordering.Less\n" +
       "export let isLess: Bool = ordered == Ordering.Less\n",
     ]]);
     expect(module["isLess"]).toBe(true);
@@ -219,10 +233,10 @@ describe("the qualified spelling runs (PR #90 finding F1)", () => {
     // have to survive to runtime, and be different.
     const module = await run([
       ["/Result.hex",
-        "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
+        "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
         "export let tally: Int = 7\n"],
       ["/main.hex",
-        "export let tally: Int = 1\n" +
+        "module Main\n\n" + "export let tally: Int = 1\n" +
         "export let mine: Int = tally\n" +
         "export let theirs: Int = Result.tally\n"],
     ]);
@@ -235,7 +249,7 @@ describe("the qualified spelling runs (PR #90 finding F1)", () => {
     // produce two conflicting local bindings.
     const module = await run([[
       "/main.hex",
-      "export let viaBare: Option(Int) = Some(1)\n" +
+      "module Main\n\n" + "export let viaBare: Option(Int) = Some(1)\n" +
       "export let viaQualified: Option(Int) = Option.Some(2)\n" +
       "export let same: Bool = viaBare != viaQualified\n",
     ]]);
@@ -265,9 +279,9 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // route for a value bare under another module's name — an explicit `let`
     // — is the modern shape of the same collision risk.
     const module = await run([
-      ["/lib.hex", "export let take(value: Int): Int = value + 1\n"],
+      ["/lib.hex", "module Lib\n\n" + "export let take(value: Int): Int = value + 1\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "let take = Lib.take\n" +
         "let source: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
         "export let mine: Int = take(1)\n" +
@@ -283,7 +297,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // tell a companion dispatch from a call of a function-valued field.
     const module = await run([
       ["/main.hex",
-        "constraint Mappable<c> =\n" +
+        "module Main\n\n" + "constraint Mappable<c> =\n" +
         "    map(value: c, transform: Int -> Int): c\n" +
         "record Holder = { map: Int -> Int }\n" +
         "let holder = Holder({ map = value => value * 2 })\n" +
@@ -298,7 +312,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // 11's family — and the qualified spelling must still reach past it.
     const module = await run([
       ["/main.hex",
-        "let (take, keep) = (10, 2)\n" +
+        "module Main\n\n" + "let (take, keep) = (10, 2)\n" +
         "let source: Seq(Int) = Seq.iterate(1, x => x + 1)\n" +
         "export let mine: Int = take + keep\n" +
         "export let theirs: Vector(Int) = Vector.fromSeq(Seq.take(source, 2))\n"],
@@ -312,7 +326,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // is that the emitted top level declares each name once.
     const project = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
-        "extern from \"lib\"\n" +
+        "module Main\n\n" + "extern from \"lib\"\n" +
         "    fun fold(value: Int): Int\n" +
         "export let mine: Int = fold!(1)\n" +
         "export let theirs: Int = Seq.length(Vector.toSeq([1, 2]))\n"),
@@ -339,13 +353,13 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // exercise the suppression at all. Its terminal disposition is #223.
     const project = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
-        "let s: Set(Int) = Set.empty\n" +
+        "module Main\n\n" + "let s: Set(Int) = Set.empty\n" +
         "export let blank: Bool = Set.isEmpty(s)\n"),
     ]);
     expect(project.diagnostics).toEqual([]);
     const main = project.modules.find((module) => module.source.path === "/main.hex")!;
     expect(main.javascript.text).not.toContain("Vector.js");
-    expect(synthesizedImportNames(main)).toEqual(["./Set:empty", "./Set:isEmpty"]);
+    expect(synthesizedImportNames(main)).toEqual(["./Hex/Set:empty", "./Hex/Set:isEmpty"]);
     // The machinery the guard used to hold back is unchanged, and this is where
     // it is read. This is a function-valued *field* call, not companion dispatch —
     // it is the shape that cannot be decided without the checker, which is
@@ -355,7 +369,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // emitted text of this module says nothing about what was registered.
     const fieldCall = compileProject([
       new Source.File(Source.fileId(0), "/main.hex",
-        "record Holder = { length: Int -> Int }\n" +
+        "module Main\n\n" + "record Holder = { length: Int -> Int }\n" +
         "let holder = Holder({ length = value => value })\n" +
         "export let n: Int = holder.length(3)\n"),
     ]);
@@ -370,7 +384,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // other member's import had bound. `Array.hex` joined the exporters at #511
     // and rides the same rule, which is the point of asserting the whole list.
     expect(synthesizedImportNames(fieldMain))
-      .toEqual(["./Seq:length", "./Vector:length", "./Array:length"]);
+      .toEqual(["./Hex/Seq:length", "./Hex/Vector:length", "./Hex/Array:length"]);
     expect(fieldMain.javascript.text).not.toContain("Seq.js");
     expect(fieldMain.javascript.text).not.toContain("Vector.js");
   });
@@ -383,7 +397,7 @@ describe("the synthesized import dodges every module-level binding (PR #91 findi
     // a missing import is a load-time `ReferenceError`, which only linking finds.
     const module = await run([
       ["/main.hex",
-        "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
+        "module Main\n\n" + "let source: Seq(Int) = Vector.toSeq([1, 2, 3])\n" +
         "let s: Set(Int) = Set.empty\n" +
         "export let measured: Bool = Set.isEmpty(s)\n" +
         "export let dispatched: Int = source.length()\n"],

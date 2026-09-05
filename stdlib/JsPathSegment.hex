@@ -1,3 +1,5 @@
+module JsPathSegment
+
 // `JsPathSegment`'s home, and its only reason for being a module of its own:
 // `spec/ffi.md` section 12's extension makes all five constructors
 // qualified-only — `JsPathSegment.Index(3)`, never a bare `Index` — and a

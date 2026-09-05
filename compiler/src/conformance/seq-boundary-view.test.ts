@@ -130,7 +130,11 @@ async function run(
     moduleUrls.set(specifier, url(source));
   }
   for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls)
+    // Keyed and linked by the module's **address** — its full name laid out as
+    // a path (Packages §6) — because that is what the emitted specifiers name
+    // since #829; a source file's own name and place appear nowhere in the
+    // emitted graph (test-project.ts's `runProject` states the same fact).
+    const linked = link(module.javascript.text, module.path, moduleUrls)
       .replace(
         /^(\s*import(?:[^;\n]*?\sfrom)?\s+)(["'])([^"']+)\2;/gmu,
         (statement, prefix: string, _quote: string, specifier: string) => {
@@ -138,13 +142,13 @@ async function run(
           return target === undefined ? statement : `${prefix}${JSON.stringify(target)};`;
         },
       );
-    moduleUrls.set(module.source.path, url(linked));
+    moduleUrls.set(module.path, url(linked));
   }
-  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
+  return (await import(/* @vite-ignore */ moduleUrls.get("/Main.hex")!)) as Record<string, unknown>;
 }
 
 function main(source: string): Promise<Record<string, unknown>> {
-  return run([["/main.hex", source]]);
+  return run([["/main.hex", "module Main\n\n" + source]]);
 }
 
 describe("the face is representation, at every construction site (§9.4)", () => {
@@ -166,7 +170,7 @@ describe("the face is representation, at every construction site (§9.4)", () =>
   test("an adapter-built Seq is iterable", async () => {
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "\n" +
         "export let adapted: Seq(Int) = counter!()\n"]],
@@ -238,7 +242,7 @@ describe("§9.4 property 2: all cursors share one memoized view", () => {
   }> {
     const exports = await run(
       [["/main.hex",
-        "extern from \"probe\"\n" +
+        "module Main\n\n" + "extern from \"probe\"\n" +
         "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
@@ -301,7 +305,7 @@ describe("§9.4 property 3: the view is created lazily", () => {
   test("a Seq JavaScript never traverses forces nothing", async () => {
     const exports = await run(
       [["/main.hex",
-        "extern from \"probe\"\n" +
+        "module Main\n\n" + "extern from \"probe\"\n" +
         "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
@@ -324,7 +328,7 @@ describe("§9.4 property 3: the view is created lazily", () => {
   test("opening a cursor without advancing it forces nothing", async () => {
     const exports = await run(
       [["/main.hex",
-        "extern from \"probe\"\n" +
+        "module Main\n\n" + "extern from \"probe\"\n" +
         "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
@@ -354,7 +358,7 @@ describe("§9.4 property 4: failure is memoized per position", () => {
   test("a throwing position replays the same value and is not re-run", async () => {
     const exports = await run(
       [["/main.hex",
-        "extern from \"probe\"\n" +
+        "module Main\n\n" + "extern from \"probe\"\n" +
         "    pure fun risky(value: Int): Int\n" +
         "    fun attempts(): Int\n" +
         "\n" +
@@ -432,7 +436,7 @@ describe("§9.4 property 6: an early return() ends that cursor only", () => {
     // usable for every other cursor over the same value.
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "    fun closes(): Int\n" +
         "\n" +
@@ -541,7 +545,7 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
   test("two internal traversals re-derive; two foreign traversals do not", async () => {
     const exports = await run(
       [["/main.hex",
-        "extern from \"probe\"\n" +
+        "module Main\n\n" + "extern from \"probe\"\n" +
         "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
@@ -587,7 +591,7 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
     // pins what a program would actually observe.
     const exports = await run(
       [["/main.hex",
-        "extern from \"probe\"\n" +
+        "module Main\n\n" + "extern from \"probe\"\n" +
         "    pure fun note(value: Int): Int\n" +
         "    fun steps(): Int\n" +
         "\n" +
@@ -625,7 +629,7 @@ describe("§9.4 channel separation: internal traversal never uses the face", () 
       new Source.File(
         Source.fileId(0),
         "/main.hex",
-        "export let total(source: Seq(Int)): Int =\n" +
+        "module Main\n\n" + "export let total(source: Seq(Int)): Int =\n" +
         "    var sum = 0\n" +
         "    for value in source\n" +
         "        sum := sum + value\n" +
@@ -661,7 +665,7 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
     // cross-module call did not break the call.
     const exports = await run([
       ["/lib.hex",
-        "export let firstOf(source: Seq(Int)): Option(Int) =\n" +
+        "module Lib\n\n" + "export let firstOf(source: Seq(Int)): Option(Int) =\n" +
         "    match Seq.next(source)\n" +
         "        None => None\n" +
         "        Some((value, _)) => Some(value)\n" +
@@ -669,7 +673,7 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
         "export let identical(left: Seq(Int), right: Seq(Int)): Bool =\n" +
         "    Seq.length(left) == Seq.length(right)\n"],
       ["/main.hex",
-        "import LibHex from \"./lib.hex\"\n" +
+        "module Main\n\n" + "import Lib as LibHex\n" +
         "\n" +
         "let shared: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
         "\n" +
@@ -689,9 +693,9 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
     const exports = await run(
       [
         ["/lib.hex",
-          "export let twice(source: Seq(Int)): Int = Seq.length(source) + Seq.length(source)\n"],
+          "module Lib\n\n" + "export let twice(source: Seq(Int)): Int = Seq.length(source) + Seq.length(source)\n"],
         ["/main.hex",
-          "import LibHex from \"./lib.hex\"\n" +
+          "module Main\n\n" + "import Lib as LibHex\n" +
           "extern from \"probe\"\n" +
           "    pure fun note(value: Int): Int\n" +
           "    fun steps(): Int\n" +
@@ -724,7 +728,7 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
       "export let total<a: Num>(source: Seq(a), start: a): a =\n" +
       "    Seq.fold(source, start, (x, y) => x + y)\n";
     const project = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", source),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
     ]);
     expect(project.diagnostics).toEqual([]);
     const compiled = project.modules.find((module) => module.source.path === "/main.hex")!;
@@ -762,7 +766,7 @@ describe("occasion 1's wrapper is transparent to Hexagon importers (§9.4)", () 
       "export let total(values: Seq(Int)): Int = Seq.fold(values, 0, (a, b) => a + b)\n" +
       "export let alsoTotal(values: Seq(Int)): Int = total(values)\n";
     const project = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", source),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
     ]);
     expect(project.diagnostics).toEqual([]);
     const javascript = project.modules
@@ -792,7 +796,7 @@ describe("§9.4 R1: the representation family is four, and nothing else knows", 
       new Source.File(
         Source.fileId(0),
         "/main.hex",
-        "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
+        "module Main\n\n" + "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
         "export let total(source: Seq(Int)): Int = Seq.fold(source, 0, (a, b) => a + b)\n",
       ),
     ]);

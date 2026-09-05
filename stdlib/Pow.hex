@@ -1,3 +1,5 @@
+module Pow
+
 (** Raised when an integer type is raised to a negative power, which has no
     answer at that type. `message` names the operation that threw. *)
 export exception NegativeExponentError(message: String)

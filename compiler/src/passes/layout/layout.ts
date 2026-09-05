@@ -170,6 +170,7 @@ export function applyLayout(file: Lexed.File): LaidOut.File {
 
   return {
     fileId: file.fileId,
+    text: file.text,
     tokens,
     comments: file.comments,
     diagnostics: diagnostics.toArray(),

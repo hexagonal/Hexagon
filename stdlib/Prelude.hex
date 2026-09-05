@@ -1,2 +1,4 @@
+module Prelude
+
 (** Evaluates its argument and discards the result, returning `()`. *)
 export let ignore(value: a): Unit = ()

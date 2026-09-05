@@ -55,22 +55,26 @@ async function run(
 ): Promise<Record<string, unknown>> {
   const files = [
     ...extras.map(([path, text], index) => new Source.File(Source.fileId(index + 1), path, text)),
-    new Source.File(Source.fileId(0), "/main.hex", source),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
   ];
   const project = compileProject(files);
   expect(project.diagnostics).toEqual([]);
-  const main = project.modules.find(({ source: file }) => file.path === "/main.hex")!;
+  const main = project.modules.find(({ name }) => name === "Main")!;
   expect(main.typed.diagnostics).toEqual([]);
   expect(main.javascript.diagnostics).toEqual([]);
   const moduleUrls = new Map<string, string>();
   for (const module of project.modules) {
-    const linked = link(module.javascript.text, module.source.path, moduleUrls);
+    // Keyed and linked by the module's **address** — its full name laid out as
+    // a path (Packages §6) — because that is what the emitted specifiers name
+    // since #829; a source file's own name and place appear nowhere in the
+    // emitted graph.
+    const linked = link(module.javascript.text, module.path, moduleUrls);
     moduleUrls.set(
-      module.source.path,
+      module.path,
       `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
     );
   }
-  return (await import(/* @vite-ignore */ moduleUrls.get("/main.hex")!)) as Record<string, unknown>;
+  return (await import(/* @vite-ignore */ moduleUrls.get(main.path)!)) as Record<string, unknown>;
 }
 
 // Fixture builders. `appendBuild`/`prependBuild` both produce [1, 2, ..., n], via the
@@ -262,7 +266,7 @@ describe("Vector specification conformance", () => {
 // Companion surface from stdlib/Vector.hex (the real module, loaded via ?raw), not the
 // core intrinsics. Thin wrappers, but pinned so the trie rewrite can't break them.
 const COMPANION_MAIN =
-  'import Vector from "./Vector"\n' +
+  'import Vector\n' +
   "let three: Vector(Int) = [1, 2, 3]\n" +
   "let none: Vector(Int) = []\n" +
   "export let firstFull: Int = match Vector.first(three)\n    Some(v) => v\n    None => 0 - 1\n" +

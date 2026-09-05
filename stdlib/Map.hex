@@ -1,3 +1,5 @@
+module Map
+
 // The public Map companion over the runtime's hash array mapped trie.
 
 (** Raised when `map[key]` is read at a key the map does not bind. `Map.get` is

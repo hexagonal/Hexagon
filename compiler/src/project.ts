@@ -10,7 +10,20 @@ import type * as Core from "./syntax/core/index.js";
 import type * as Emitted from "./emission/index.js";
 import { lex } from "./passes/lexer/lexer.js";
 import { applyLayout } from "./passes/layout/layout.js";
-import { parse } from "./passes/parser/parser.js";
+import { lawfulModuleName, parseFile } from "./passes/parser/parser.js";
+import {
+  displayModuleName,
+  firstSegmentPackage,
+  fullModuleName,
+  moduleImportLine,
+  moduleLayoutPath,
+  resolveModuleName,
+  STANDARD_LIBRARY,
+  type ModuleIndex,
+  type ModuleResolution,
+  type ProgramModule,
+  type ProgramPackage,
+} from "./packages.js";
 import { internalNameInputs, moduleInterface, resolve } from "./passes/resolver/resolver.js";
 import {
   check,
@@ -34,13 +47,26 @@ import {
   preludeBoolUnion,
   type FundamentalInstances,
 } from "./passes/emitter/specializations.js";
-import type { PreludeImport } from "./passes/resolver/resolver.js";
+import type { ModuleImport, PreludeImport } from "./passes/resolver/resolver.js";
 import type { RuntimeLocations } from "./passes/emitter/emitter.js";
 import { PRELUDE_MODULES, PRIMITIVE_COMPANION_BASENAMES } from "./prelude.js";
 import { RUNTIME_MODULES } from "./runtime-modules.js";
 
 export interface CompiledModule {
   readonly source: Source.File;
+  /**
+   * The module's **full name** (Packages §2.3) — its identity (Modules §1).
+   * `Main`, `Render.Geometry`, `Hex.Option`.
+   */
+  readonly name: string;
+  /**
+   * Where this module's emitted files go, relative to the output root, as a
+   * `.hex` path: the full name laid out as a path (Packages §6). The compiler's
+   * internal address for the module, and what every emitted specifier is
+   * computed from. Not a source path — a source file's name and place appear
+   * nowhere in the output.
+   */
+  readonly path: string;
   readonly parsed: Parsed.Module;
   readonly resolved: Resolved.Module;
   readonly typed: Typed.Module;
@@ -134,6 +160,34 @@ export interface ProjectOptions {
    * declaration rather than a primitive.
    */
   readonly runtimePaths?: readonly string[];
+  /**
+   * The project's manifest `name` (Packages §2.5), where it has one. A project
+   * that is never published needs none: its own modules are addressed by their
+   * declared names alone, and it never qualifies them by its own name.
+   */
+  readonly packageName?: string;
+  /**
+   * The Hexagon packages the project's manifest lists (Packages §2.1). In this
+   * slice the compiler reads no `node_modules`, so a listed name contributes to
+   * the **package set** — which Modules §2.2's first-segment rule reads — and
+   * supplies no modules; resolving an installed package to its source is the
+   * host layer's, and additive.
+   */
+  readonly dependencies?: readonly string[];
+}
+
+/** One module of the program, as `compileProject` addresses it. */
+interface Unit {
+  readonly source: Source.File;
+  readonly parsed: Parsed.Module;
+  readonly packageName: string | undefined;
+  readonly declaredName: string;
+  readonly fullName: string;
+  /** The canonical layout path — this module's address (Packages §6). */
+  readonly path: string;
+  readonly injected: "prelude" | "runtime" | undefined;
+  /** Seat in the injected order, for §5.5's visible-prefix slice. */
+  readonly seat: number | undefined;
 }
 
 /** Compiles every supplied file in dependency-first order without filesystem access. */
@@ -143,65 +197,71 @@ export function compileProject(
 ): CompiledProject {
   const runtimePaths = new Set((options.runtimePaths ?? []).map(normalizePath));
   const diagnostics = new Diagnostics.Bag();
-  const sources = new Map(files.map((file) => [normalizePath(file.path), file]));
-  const root = commonRoot([...sources.keys()]);
+  const projectPackage: ProgramPackage = {
+    name: options.packageName,
+    dependencies: options.dependencies ?? [],
+  };
+  const sourceFiles = files.map((file) =>
+    file.path === normalizePath(file.path)
+      ? file
+      : new Source.File(file.id, normalizePath(file.path), file.text)
+  );
   // One injected list, prelude and runtime members woven together, in the order
   // that makes each see the members before it and only those (Modules §5.5, and
   // `RuntimeModule.precedes` for what the runtime seats decide).
   const injectedModules = weaveInjected(PRELUDE_MODULES, RUNTIME_MODULES);
-  const injectedPaths = injectEmbedded(sources, root, injectedModules);
-  const preludePaths = injectedPaths.filter((_, index) => !injectedModules[index]!.runtime);
+  const units = gatherModules(sourceFiles, projectPackage, injectedModules);
+  const injectedUnits = units.filter(({ injected }) => injected !== undefined)
+    .sort((left, right) => left.seat! - right.seat!);
+  const preludeUnits = injectedUnits.filter(({ injected }) => injected === "prelude");
+  const preludePaths = preludeUnits.map(({ path }) => path);
   const preludeSet = new Set(preludePaths);
-  const runtimeModulePaths = injectedPaths.filter((_, index) => injectedModules[index]!.runtime);
-  const runtimeModuleSet = new Set(runtimeModulePaths);
+  const runtimeModuleSet = new Set(
+    injectedUnits.filter(({ injected }) => injected === "runtime").map(({ path }) => path),
+  );
   /** Each injected path's seat, for the "sees only what precedes it" slice. */
-  const injectedSeats = new Map(injectedPaths.map((path, index) => [path, index]));
+  const injectedSeats = new Map(injectedUnits.map(({ path, seat }) => [path, seat!]));
   /**
-   * Where each wired runtime module was injected, by basename. A wiring whose
+   * Where each wired runtime module was seated, by basename. A wiring whose
    * module is absent from the project — which is only an empty project — has no
    * entry, and emission falls back to the same-directory default.
    */
   const runtimeModulePathsByBasename = new Map(
     RUNTIME_WIRINGS.flatMap(({ basename }) => {
-      const path = injectedPaths.find((candidate, index) =>
-        injectedModules[index]!.runtime && candidate.endsWith(`/${basename}`)
+      const unit = injectedUnits.find(({ injected, declaredName }) =>
+        injected === "runtime" && `${declaredName}.hex` === basename
       );
-      return path === undefined ? [] : [[basename, path] as const];
+      return unit === undefined ? [] : [[basename, unit.path] as const];
     }),
   );
-  // The runtime declaration module's basename, settled before any module is
-  // emitted because every importer has to spell the same one (FFI Part 1 §8.3).
-  const runtimeBasename = runtimeDeclarationsBasename(sources.keys(), root);
-  const parsed = new Map<string, Parsed.Module>();
-  for (const [path, file] of sources) {
-    parsed.set(path, parse(applyLayout(lex(file))));
-  }
+  // The runtime declaration module's stem, settled before any module is emitted
+  // because every importer has to spell the same one (FFI Part 1 §8.3).
+  const runtimeBasename = runtimeDeclarationsBasename(units);
 
-  const ordered: string[] = [];
-  const visiting: string[] = [];
-  const visited = new Set<string>();
-  const visit = (path: string): void => {
-    if (visited.has(path)) return;
-    const cycleStart = visiting.indexOf(path);
-    if (cycleStart >= 0) {
-      const module = parsed.get(path);
-      if (module !== undefined) {
-        diagnostics.add({
-          severity: "error",
-          message: `import cycle: ${[...visiting.slice(cycleStart), path].join(" -> ")}`,
-          primary: module.span,
-        });
-      }
-      return;
-    }
-    const module = parsed.get(path);
-    if (module === undefined) return;
-    visiting.push(path);
-    for (const item of module.items) {
+  const sourcePaths = new Set(sourceFiles.map(({ path }) => path));
+  // The index reads every unit — its two rules are about the *set*, and a unit
+  // that loses its address still has to draw the duplicate report that says so.
+  const index = moduleIndexOf(units, diagnostics, projectPackage);
+  const seated = seatOneUnitPerAddress(units);
+  const byPath = new Map(seated.map((unit) => [unit.path, unit]));
+  const parsed = new Map(seated.map((unit) => [unit.path, unit.parsed]));
+  const sources = new Map(seated.map((unit) => [unit.path, unit.source]));
+
+  /**
+   * The edges each module's imports name, keyed by the **written spelling** —
+   * the key `resolve` reads them back by (Modules §2.3). A written name that
+   * resolved to nothing has no entry: it was refused here, where the package
+   * set is known, and binds no alias (§5.2).
+   */
+  const importEdges = new Map<string, Map<string, string>>();
+  for (const unit of seated) {
+    const edges = new Map<string, string>();
+    importEdges.set(unit.path, edges);
+    for (const item of unit.parsed.items) {
       if (
         (item.kind === "ExternBlock" || item.kind === "ExternImport") &&
         (item.specifier.startsWith("./") || item.specifier.startsWith("../")) &&
-        sources.has(resolveSpecifier(path, item.specifier))
+        sourcePaths.has(resolveSpecifier(unit.source.path, item.specifier))
       ) {
         diagnostics.add({
           severity: "error",
@@ -211,28 +271,63 @@ export function compileProject(
         continue;
       }
       if (item.kind !== "Import") continue;
-      const target = resolveSpecifier(path, item.specifier);
-      if (!sources.has(target)) {
+      if (edges.has(item.module.text)) continue;
+      const resolution = resolveModuleName(item.module.text, packageOf(unit, projectPackage), index);
+      if (resolution.kind === "Resolved") {
+        edges.set(item.module.text, resolution.module.path);
+        continue;
+      }
+      // A **derived** name is the parser's recovery of a refused head (Modules
+      // §3.1): the line already carries its rewrite, and the module the
+      // specifier's basename names may well not exist. Reporting it unresolved
+      // would answer a question the author never asked.
+      if (!item.module.declared) continue;
+      diagnostics.add({
+        severity: "error",
+        message: unresolvedModuleMessage(item.module.text, resolution),
+        primary: item.span,
+      });
+    }
+  }
+
+  const ordered: string[] = [];
+  const visiting: string[] = [];
+  const visited = new Set<string>();
+  const visit = (path: string): void => {
+    if (visited.has(path)) return;
+    const cycleStart = visiting.indexOf(path);
+    if (cycleStart >= 0) {
+      const module = byPath.get(path);
+      if (module !== undefined) {
         diagnostics.add({
           severity: "error",
-          message: `cannot resolve module \`${item.specifier}\` from \`${path}\``,
-          primary: item.span,
+          // Modules §8.1: the cycle is named by its modules, never by files.
+          message: `import cycle: ${
+            [...visiting.slice(cycleStart), path]
+              .map((member) => displayModuleName(byPath.get(member)?.fullName ?? member))
+              .join(" -> ")
+          }`,
+          primary: module.parsed.span,
         });
-      } else {
-        visit(target);
       }
+      return;
     }
+    const module = byPath.get(path);
+    if (module === undefined) return;
+    visiting.push(path);
+    for (const target of importEdges.get(path)?.values() ?? []) visit(target);
     visiting.pop();
     visited.add(path);
     ordered.push(path);
   };
-  for (const path of sources.keys()) visit(path);
+  for (const unit of seated) visit(unit.path);
   // Prelude modules compile before their consumers, and their identities live in a
   // reserved high range so consumer ids stay stable whether or not a prelude is present.
   // The runtime modules sit among them on both counts, for the same reasons: a
   // module has to compile behind everything it sees, and a project's own symbol
   // ids must not shift because the compiler injects a trie the project may not
   // even reach.
+  const injectedPaths = injectedUnits.map(({ path }) => path);
   for (const path of injectedPaths) {
     const index = ordered.indexOf(path);
     if (index >= 0) ordered.splice(index, 1);
@@ -335,13 +430,19 @@ export function compileProject(
     const isInjected = isPrelude || isRuntimeModule;
     const source = sources.get(path)!;
     const parsedModule = parsed.get(path)!;
-    const imports = new Map<string, ReturnType<typeof moduleInterface>>();
+    // Keyed by the **written spelling** (Modules §2.3), carrying the specifier
+    // the emitter writes — computed from the two modules' full names and their
+    // package directories (§11.2, Packages §6), because the source wrote none.
+    const imports = new Map<string, ModuleImport>();
     const importedSchemes = new Map<Resolved.SymbolId, Typed.Scheme>();
-    for (const item of parsedModule.items) {
-      if (item.kind !== "Import") continue;
-      const dependency = checked.get(resolveSpecifier(path, item.specifier));
+    for (const [written, target] of importEdges.get(path) ?? []) {
+      const dependency = checked.get(target);
       if (dependency === undefined) continue;
-      imports.set(item.specifier, moduleInterface(dependency.resolved));
+      imports.set(written, {
+        interface: moduleInterface(dependency.resolved),
+        specifier: relativeSpecifier(path, target),
+        name: byPath.get(target)!.fullName,
+      });
       for (const symbol of dependency.typed.symbols) {
         importedSchemes.set(symbol.id, symbol.scheme);
       }
@@ -366,21 +467,28 @@ export function compileProject(
       return [{
         interface: moduleInterface(preludeCompiled.resolved),
         specifier: relativeSpecifier(path, preludePath),
+        name: byPath.get(preludePath)!.fullName,
       }];
     });
+    const unit = byPath.get(path)!;
     const resolved = resolve(parsedModule, {
-      // Where this module lives, project-root-normalized. It is the only source
-      // of `Resolved.Module.path` and of the `declaringPath` every nominal
-      // declared here is stamped with, which together let the checker name
-      // another module's *file* in Collections Part 5 §3.3's diagnostic.
+      // This module's **address** — its full name laid out as a path (Packages
+      // §6), which is the only source of `Resolved.Module.path` and of the
+      // `declaringPath` every nominal declared here is stamped with. Those
+      // travel so a diagnostic can name another *module*; the name is what a
+      // report prints, and the address is what specifier arithmetic reads.
       path,
       // The same fact read the other way round: what this module *is*, for
-      // Exceptions §7.1's brand (#488). Root-relative and extensionless, except
-      // that an injected module brands its canonical injected name wherever its
-      // file sits — a project supplying its own `stdlib/Vector.hex` is still
-      // `Vector`, which is what keeps the brand a property of the module rather
-      // than of the directory a host happened to unpack the stdlib into.
-      identity: moduleBrandIdentity(path, root, isInjected),
+      // Exceptions §7.1's brand (#488) — its **full name** (Packages §2.3), so
+      // the prelude's `Vector` brands `Hex.Vector` wherever its file sits and
+      // the brand is a property of the module rather than of a directory.
+      identity: unit.fullName,
+      // The package this module *resolves in* (Packages §3.1) — `Hex` for a
+      // standard-library module, the manifest `name` for a project module, and
+      // absent for an unnamed project's. Only the repair family's import lines
+      // read it, and they must: §3.3 refuses a package qualifying its own
+      // module, so a line offered inside `Acme` names `Lib`, never `Acme.Lib`.
+      ...(unit.packageName === undefined ? {} : { packageName: unit.packageName }),
       // Modules §5.5's refusal quotes the program back to itself; nothing else
       // reads the text.
       text: source.text,
@@ -407,14 +515,14 @@ export function compileProject(
       // The two privileges stay **separate flags**, not one merged notion:
       // `runtime` puts a name in scope and `privileged` opens a declaration
       // form, and a prelude member holds the second without the first.
-      privileged: isPrelude || runtimePaths.has(path) || isRuntimeModule,
+      privileged: isPrelude || runtimePaths.has(unit.source.path) || isRuntimeModule,
       // A primitive's home module is its fixed prelude companion (Constraints
       // §5.3), and nothing in the module's text can say so — a primitive has no
       // declaration. Like the privilege above, the fact follows the *path*.
-      ...(isPrelude && PRIMITIVE_COMPANION_BASENAMES.has(path.slice(path.lastIndexOf("/") + 1))
+      ...(isPrelude && PRIMITIVE_COMPANION_BASENAMES.has(`${unit.declaredName}.hex`)
         ? {
           companionPrimitive: PRIMITIVE_COMPANION_BASENAMES.get(
-            path.slice(path.lastIndexOf("/") + 1),
+            `${unit.declaredName}.hex`,
           )! as Resolved.PrimitiveName,
         }
         : {}),
@@ -422,7 +530,7 @@ export function compileProject(
       // by being one. A host may still grant it by path (`hexagon.json`), which
       // is how `runtime/VectorTrie.hex` compiles under its own repository path
       // rather than at the injection basename.
-      ...(runtimePaths.has(path) || isRuntimeModule ? { runtime: true } : {}),
+      ...(runtimePaths.has(unit.source.path) || isRuntimeModule ? { runtime: true } : {}),
       ...(preludeImports.length === 0 ? {} : { prelude: preludeImports }),
     });
     if (isInjected) {
@@ -450,6 +558,9 @@ export function compileProject(
       programNominals,
       programOperations,
       sourceText: source.text,
+      // The same fact `resolve` reads, for the same one purpose: the constraint
+      // alias's realias line (Packages §3.3).
+      ...(unit.packageName === undefined ? {} : { packageName: unit.packageName }),
     });
     programNominals.unions.push(...resolved.unions);
     programNominals.records.push(...resolved.records);
@@ -500,11 +611,14 @@ export function compileProject(
     const core = elaborate(typed, source);
     const runtimes = runtimesFor(path, runtimeModulePathsByBasename);
     // Source-form, like every other specifier emission is handed: the runtime
-    // module sits at the source common root under §8.3's probed stem, and a
-    // module below the root spells it `../hex` (FFI Part 7 §1.2).
-    const runtimeGlobalsSpecifier = relativeSpecifier(path, `${root}/${runtimeBasename}.hex`);
+    // module sits at the **output root** under §8.3's probed stem, and a module
+    // a directory down — a dotted name's, or a package's — spells it `../hex`
+    // (FFI Part 7 §1.2; Packages §6).
+    const runtimeGlobalsSpecifier = relativeSpecifier(path, `/${runtimeBasename}.hex`);
     checked.set(path, {
       source,
+      name: unit.fullName,
+      path,
       parsed: parsedModule,
       resolved,
       typed,
@@ -538,6 +652,8 @@ export function compileProject(
     const { runtimeGlobalsSpecifier } = module;
     compiled.set(path, {
       source,
+      name: module.name,
+      path,
       parsed: parsedModule,
       resolved,
       typed,
@@ -552,7 +668,7 @@ export function compileProject(
       }),
       declarations: emitDeclarations(core, {
         runtimeSpecifier: emittedModuleSpecifier(
-          relativeSpecifier(path, `${root}/${runtimeBasename}.hex`),
+          relativeSpecifier(path, `/${runtimeBasename}.hex`),
         ),
         nominalHomes,
         modulePath: path,
@@ -583,6 +699,24 @@ export function compileProject(
     }
   }
 
+  // Two modules of one name in one package (Modules §2.2) share one layout
+  // address, so only one of them is compiled — and the other's reports would go
+  // down with it, silently. Its **parse** reports belong to the file, which was
+  // read whatever the index then decided: §2.1's stage line puts every check
+  // that runs where parsing does inside the recovery's reach, and the duplicate
+  // rule is one of them. So a file refused for its casing and shadowed by a
+  // namesake still draws its casing report (§13(o)'s `a.hex`/`b.hex`), and a
+  // duplicate-named file's syntax errors are never swallowed. Nothing later
+  // than parsing is surfaced here: the module was never resolved or checked.
+  for (const unit of units) {
+    if (compiled.get(unit.path)?.parsed === unit.parsed) continue;
+    for (const diagnostic of unit.parsed.diagnostics) {
+      if (surfaced.has(diagnostic)) continue;
+      surfaced.add(diagnostic);
+      diagnostics.add(diagnostic);
+    }
+  }
+
   // Emit a prelude module only when something emitted imports it, so a project
   // that never touches its nominals is unchanged by the prelude's existence.
   // Since §5.5 lets prelude modules import each other, this is reachability
@@ -596,7 +730,7 @@ export function compileProject(
   // edges are decided during emission, so they are read back from what emission
   // reported rather than inferred from the tree — the same shape as
   // `Declarations.importsRuntimeTypes`. Missing them is defect 8 exactly: an
-  // emitted `import … from "./Prelude.js"` next to no `Prelude.js`, on a project
+  // emitted `import … from "./Hex/Prelude.js"` next to no `Prelude.js`, on a project
   // that reported no diagnostic.
   // A *synthesized* prelude import item is not an edge either, for the same
   // reason and since #263: its names are the resolver's over-approximation of
@@ -687,7 +821,7 @@ export function compileProject(
     runtimeDeclarations: modules.some(({ declarations }) => declarations.importsRuntimeTypes)
       ? {
           kind: "RuntimeDeclarations",
-          path: `${root}/${runtimeBasename}.d.ts`,
+          path: `/${runtimeBasename}.d.ts`,
           text: runtimeDeclarationsText(),
         }
       : undefined,
@@ -699,7 +833,7 @@ export function compileProject(
     runtimeGlobals: modules.some(({ javascript }) => javascript.importsRuntimeGlobals)
       ? {
           kind: "RuntimeGlobals",
-          path: `${root}/${runtimeBasename}.js`,
+          path: `/${runtimeBasename}.js`,
           text: runtimeGlobalsText(),
         }
       : undefined,
@@ -709,8 +843,9 @@ export function compileProject(
 }
 
 /**
- * The basename the runtime declaration module claims at the source common root:
- * the first free of `hex`, `hex1`, `hex2`, … (FFI Part 1 §8.3).
+ * The stem the runtime declaration module claims at the **output root**: the
+ * first free of `hex`, `hex1`, `hex2`, … (FFI Part 1 §8.3, as respelled by
+ * #829).
  *
  * §10's probing discipline, lifted from identifiers to filenames: a user module
  * whose own emission claims `hex.js`/`hex.d.ts` **at that root** keeps its name
@@ -718,23 +853,19 @@ export function compileProject(
  * case-colliding filesystems exist, and a program that compiled here and
  * overwrote a file there would be the worst possible way to find that out.
  *
- * Only files directly at the root can collide — a deeper module emits into its
- * own directory. The probe runs over every source there, which is a superset of
- * the emitted ones, and the superset is the safe direction: over-claiming only
- * ever moves the generated file, which nothing outside this compile names,
- * while under-claiming would silently overwrite a user's. It costs nothing
- * today, because a source goes unemitted only by being an unreached *injected*
- * module, and those basenames are fixed to `Bool`, `Prelude`, `Option`, `Seq`,
- * `Result`, `Vector`, and `VectorTrie` — never `hex`. Nothing else drops out:
- * `emitted` is seeded with every non-injected path in `ordered`, and `ordered`
- * holds every source, including the members of an import cycle (`visit` returns
- * early only from the re-entrant frame, so the outer one still pushes).
+ * The probe reads the **emitted filenames** — a module's declared name, laid
+ * out (Packages §6) — never a source path, which appears nowhere in the output.
+ * Only a module at the root can collide: a dotted name and a package's modules
+ * emit into their own directories. The probe runs over every module, which is a
+ * superset of the emitted ones, and the superset is the safe direction:
+ * over-claiming only ever moves the generated file, which nothing outside this
+ * compile names, while under-claiming would silently overwrite a user's.
  */
-function runtimeDeclarationsBasename(paths: Iterable<string>, root: string): string {
+function runtimeDeclarationsBasename(units: readonly Unit[]): string {
   const claimed = new Set<string>();
-  for (const path of paths) {
+  for (const { path } of units) {
     const directory = path.slice(0, Math.max(0, path.lastIndexOf("/")));
-    if (directory !== root) continue;
+    if (directory !== "") continue;
     claimed.add(path.slice(path.lastIndexOf("/") + 1).replace(/\.hex$/, "").toLowerCase());
   }
   if (!claimed.has(RUNTIME_DECLARATIONS_STEM)) return RUNTIME_DECLARATIONS_STEM;
@@ -742,6 +873,298 @@ function runtimeDeclarationsBasename(paths: Iterable<string>, root: string): str
     const candidate = `${RUNTIME_DECLARATIONS_STEM}${suffix}`;
     if (!claimed.has(candidate)) return candidate;
   }
+}
+
+/**
+ * The units that hold their layout address — **one address, one unit** (Packages
+ * §6), the first claimant seated and every later one dropped.
+ *
+ * The address is the compiler's whole identity for a module: `byPath`, the
+ * parsed and source maps, the import edges and the emitted specifier are all
+ * keyed by it. Building those maps straight off the unit list made the *last*
+ * unit at an address win while `moduleIndexOf` registered the **first**, and the
+ * two disagreements that follows from are not cosmetic:
+ *
+ * - Two modules of one name in one package (Modules §2.2) are refused at the
+ *   second header, and the one the rule *accepted* was then the one nobody
+ *   could reach: an importer writing `Geo.x` against the accepted `/a.hex` was
+ *   told "module `Geo` does not export `x`", because `/b.hex` was what compiled.
+ * - A refused `module Hex.Option` in a project file lays out at `/Hex/Option.hex`
+ *   — the injected prelude module's seat — and, pushed after the injected units,
+ *   took it: the whole standard library collapsed behind one report the author
+ *   could act on, and the user's file inherited `isPrelude`, and with it the
+ *   `privileged` intrinsic door, by a route `gatherModules`' two-halves adoption
+ *   test was written to close.
+ *
+ * Seating the first is what `moduleIndexOf` already decided, so the `continue`
+ * there now means what it says.
+ *
+ * **What a dropped unit still says, and what it does not.** Its **parse**
+ * reports are surfaced with every other unclaimed unit's, and the rule that
+ * refused it — the duplicate name, the first segment — was drawn from the whole
+ * unit list before anything was dropped. Nothing *below* parsing runs on it, so
+ * a type error in the dropped file is never reported: `/a.hex` and `/b.hex`
+ * both `module Geo`, each with one, draw `/a.hex`'s alone. That is coherent
+ * rather than a gap. The program is refused by the duplicate report either way,
+ * §2.2 places that report at the second header, and checking a unit the
+ * compiler declined to seat would report against a module the program does not
+ * have.
+ */
+function seatOneUnitPerAddress(units: readonly Unit[]): readonly Unit[] {
+  const claimed = new Set<string>();
+  return units.filter(({ path }) => {
+    if (claimed.has(path)) return false;
+    claimed.add(path);
+    return true;
+  });
+}
+
+/** The package a unit's imports resolve against (Packages §3.1). */
+function packageOf(unit: Unit, project: ProgramPackage): ProgramPackage {
+  return unit.packageName === project.name
+    ? project
+    // `Hex` sees itself and nothing else: the prelude's intra-set visibility is
+    // Modules §5.5's ordered prefix, applied where the module is compiled.
+    : { name: unit.packageName, dependencies: [] };
+}
+
+/**
+ * Parses every source file into the modules it declares and seats the injected
+ * `Hex` modules among them (Modules §2.2; Packages §2.2, §2.4).
+ *
+ * A project file **supplying** an injected module wins, as it always has — the
+ * stdlib-developing-itself path. The test is both halves at once: the file sits
+ * at the injected basename *and* declares the injected name. Each half rules
+ * out one adoption the other would allow — a user's `module Option` on a file
+ * called anything, and `Hex.Option`'s seat handed to an `Option.hex` that
+ * declares something else.
+ *
+ * **It does not close the hole, and the second half does not make it narrow.**
+ * A user's own `/src/Option.hex` declaring `module Option` satisfies both
+ * halves and takes the seat: `stdlib/Option.hex` is replaced by two lines the
+ * author wrote for themselves, and their module — sitting at a prelude seat —
+ * takes `isPrelude` and with it `privileged`, the intrinsic door. The adoption
+ * test is the last file-name-keyed module identity in the compiler
+ * (`isInjectedModule` is the same shape, Playground-only), which is a fault in
+ * the very design #829 states — "a source file's own name and place appear
+ * nowhere". It is kept for now because the basename is also what lets the
+ * standard library be developed in Hexagon at all: with the name half alone,
+ * any `module Option` anywhere would claim the seat, which is strictly worse.
+ * Replacing it is design work, filed as **#843**, and this comment says what
+ * the code does rather than what it was hoped to do.
+ *
+ * **Only `.hex` sources are modules** (Packages §2.2). A host hands the compiler
+ * every file it has, and a `.js` beside them is a foreign target an
+ * `extern from "./world.js"` names, not a Hexagon module: parsing it would ask
+ * it for a `module` header it can never carry. It stays in the file list, where
+ * the extern seats read it, and never becomes a unit. A package whose sources
+ * hold no `.hex` file therefore has no modules at all, and injects nothing —
+ * the same answer an empty project has always given, asked of the module set
+ * rather than of the file list.
+ */
+function gatherModules(
+  sourceFiles: readonly Source.File[],
+  project: ProgramPackage,
+  injectedModules: readonly InjectedModule[],
+): readonly Unit[] {
+  const seat = (
+    source: Source.File,
+    parsed: Parsed.Module,
+    packageName: string | undefined,
+    injected: Unit["injected"],
+    index: number | undefined,
+  ): Unit => {
+    const fullName = fullModuleName(packageName, parsed.name.text);
+    return {
+      source,
+      parsed,
+      packageName,
+      declaredName: parsed.name.text,
+      fullName,
+      // Packages §6: the project's own modules lie at the output root under
+      // their declared names, its package segment elided — the layout's one
+      // asymmetry, and the reason a project that gains a `name` moves no file.
+      path: moduleLayoutPath(fullName, project.name),
+      injected,
+      seat: index,
+    };
+  };
+  const moduleFiles = sourceFiles.filter(({ path }) => path.endsWith(".hex"));
+  // A project with no modules injects nothing: its (empty) module list needs no
+  // prelude, and the compile stays what a compilation of nothing was.
+  if (moduleFiles.length === 0) return [];
+  const supplied = moduleFiles.flatMap((source) =>
+    parseFile(applyLayout(lex(source)), source.path).map((parsed) => ({ source, parsed }))
+  );
+  const adopted = new Set<Parsed.Module>();
+  const units: Unit[] = [];
+  for (const [index, member] of injectedModules.entries()) {
+    const declared = member.basename.replace(/\.hex$/u, "");
+    const own = supplied.find(({ source, parsed }) =>
+      !adopted.has(parsed) &&
+      source.path.slice(source.path.lastIndexOf("/") + 1) === member.basename &&
+      parsed.name.text === declared
+    );
+    if (own !== undefined) {
+      adopted.add(own.parsed);
+      units.push(
+        seat(own.source, own.parsed, STANDARD_LIBRARY, member.runtime ? "runtime" : "prelude", index),
+      );
+      continue;
+    }
+    const source = new Source.File(
+      Source.fileId(nextFileId(sourceFiles, units)),
+      `/${STANDARD_LIBRARY}/${member.basename}`,
+      member.source,
+    );
+    const parsed = parseFile(applyLayout(lex(source)), source.path)[0]!;
+    units.push(seat(source, parsed, STANDARD_LIBRARY, member.runtime ? "runtime" : "prelude", index));
+  }
+  for (const { source, parsed } of supplied) {
+    if (adopted.has(parsed)) continue;
+    units.push(seat(source, parsed, project.name, undefined, undefined));
+  }
+  return units;
+}
+
+function nextFileId(sourceFiles: readonly Source.File[], units: readonly Unit[]): number {
+  return Math.max(
+    -1,
+    ...sourceFiles.map((file) => Number(file.id)),
+    ...units.map((unit) => Number(unit.source.id)),
+  ) + 1;
+}
+
+/**
+ * The program's module index, with the two rules that read the *set* rather
+ * than one import: duplicate names within a package (Modules §2.2) and the
+ * first-segment rule at the header seat (§2.2, Packages §6).
+ */
+function moduleIndexOf(
+  units: readonly Unit[],
+  diagnostics: Diagnostics.Bag,
+  project: ProgramPackage,
+): ModuleIndex {
+  // Packages §3.1: the project, `Hex`, and the `dependencies` closure. In this
+  // slice the closure is the project's own list — a fact of the package set,
+  // fixed before any import is resolved.
+  const packageNames = new Set<string>([STANDARD_LIBRARY, ...project.dependencies]);
+  if (project.name !== undefined) packageNames.add(project.name);
+  const byFullName = new Map<string, ProgramModule>();
+  /** First declaration of each name, per package, folded for the case rule. */
+  const declared = new Map<string, Unit>();
+  for (const unit of units) {
+    const offending = firstSegmentPackage(unit.declaredName, packageNames);
+    if (offending !== undefined) {
+      diagnostics.add({
+        severity: "error",
+        // The repair clause is the message's own (Modules §2.2, §10; Packages
+        // §7): the header seat's one repair is a rename, and at a name the
+        // casing refusal recovered under — `module hex.util` recovering as
+        // `Hex.Util` — it is the repair that reaches legal code, the casing
+        // rewrite being one repair of two.
+        message: `\`${unit.declaredName}\` begins with the name of the package ` +
+          `\`${offending}\`; a dotted module's first segment cannot name a package ` +
+          "in the program; rename the module",
+        primary: unit.parsed.name.span,
+      });
+      continue;
+    }
+    // Modules §2.2: two modules of one name in one package, compared
+    // case-insensitively on the emitted filesystem's account (§11.1).
+    // The separator is written as an escape, never as a literal NUL byte: a
+    // source file carrying one is binary to every text tool a reader has.
+    const key = `${unit.packageName ?? ""}\u0000${unit.declaredName.toLowerCase()}`;
+    const first = declared.get(key);
+    if (first !== undefined) {
+      diagnostics.add({
+        severity: "error",
+        message: `module \`${unit.declaredName}\` is declared twice: ` +
+          `\`${first.source.path}\` (line ${first.parsed.name.span.start.line + 1}) and ` +
+          `\`${unit.source.path}\` (line ${unit.parsed.name.span.start.line + 1})`,
+        primary: unit.parsed.name.span,
+        fixes: [],
+        // The dotted hint is the ordinary repair, and it is unspellable at a
+        // name §2.1's casing refusal recovered under its **slot** (`用户`,
+        // `_internal.util`): no dotting makes such a name lawful, so the hint
+        // there is the repair that does — a rename, lawful and local (§2.2,
+        // §10; #838).
+        notes: [
+          lawfulModuleName(unit.declaredName)
+            ? `give one a dotted name, \`module Render.${unit.declaredName}\``
+            : "rename the module",
+        ],
+      });
+      continue;
+    }
+    declared.set(key, unit);
+    byFullName.set(unit.fullName, {
+      packageName: unit.packageName,
+      declaredName: unit.declaredName,
+      fullName: unit.fullName,
+      // The address the unit was seated at, never laid out a second time
+      // (Packages §6): the project's segment is elided at the seat, and an
+      // edge that laid the full name out again would point at a file the
+      // compile has not got.
+      path: unit.path,
+    });
+  }
+  return { byFullName, packages: [project] };
+}
+
+/**
+ * Modules §10's rows for a written name that resolved to nothing.
+ *
+ * Exported for its tests alone. Two of its arms — `Contested` and
+ * `NotADependency` — cannot be reached from `compileProject` while the package
+ * set is `{project, Hex}`: a contest needs two packages providing one declared
+ * name, and §3.2's occlusion answers before any two the project can assemble,
+ * while a not-a-dependency report needs an installed set to check a name
+ * against. They ship with byte-exact §10 wording, so the wording is executed
+ * here until a real dependency package makes both reachable end to end.
+ */
+export function unresolvedModuleMessage(
+  written: string,
+  resolution: Exclude<ModuleResolution, { kind: "Resolved" }>,
+): string {
+  switch (resolution.kind) {
+    case "Contested": {
+      // A package name is code, quoted as every other name a report prints is
+      // (Packages §3.3's own row: "`Acme` and `Hex`"); "this project" is prose,
+      // the one participant with no name to print (Packages §2.5).
+      const packages = resolution.providers.map(({ packageName }) =>
+        packageName === undefined ? "this project" : `\`${packageName}\``
+      );
+      const spellings = resolution.providers.map(({ fullName }) => `\`import ${fullName}\``);
+      return `\`${written}\` is provided by ${joinWithAnd(packages)}; write ${
+        joinWithOr(spellings)
+      }`;
+    }
+    case "SelfQualified":
+      return `no module \`${written}\`; a package's own modules are imported by their ` +
+        `declared names: \`import ${resolution.declaredName}\``;
+    case "NotADependency":
+      return `\`${resolution.packageName}\` is not a dependency of this package; add ` +
+        `\`"${resolution.packageName}"\` to \`dependencies\` in \`hexagon.json\``;
+    case "Unknown":
+      return `no module \`${written}\`` + (resolution.nearMisses.length === 0
+        ? ""
+        : `; did you mean ${
+          joinWithOr(resolution.nearMisses.map((name) => `\`${name}\``))
+        }?`);
+  }
+}
+
+function joinWithAnd(items: readonly string[]): string {
+  return items.length <= 1
+    ? items.join("")
+    : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+function joinWithOr(items: readonly string[]): string {
+  return items.length <= 1
+    ? items.join("")
+    : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
 }
 
 /** Reserved id floor for prelude identities, above any realistic per-project count. */
@@ -815,115 +1238,25 @@ function runtimesFor(
   );
 }
 
-/**
- * Injects each implicit prelude or runtime module at the common root of the
- * project's sources, unless the project already supplies a file there (e.g.
- * compiling the stdlib itself, where the on-disk copy wins). Returns the
- * normalized paths in compilation order; empty for an empty project.
- *
- * `root` is the caller's, not recomputed here: the runtime declaration module
- * is placed at the same root (FFI Part 1 §8.3) and the two must not be able to
- * disagree about where that is.
- *
- * Called once per injected set, in compilation order, so that each set's ids
- * continue from the one before: `maxId` is read from the sources map, which the
- * earlier call has already grown.
- */
-function injectEmbedded(
-  sources: Map<string, Source.File>,
-  root: string,
-  modules: readonly { readonly basename: string; readonly source: string }[],
-): readonly string[] {
-  const paths = [...sources.keys()];
-  if (paths.length === 0) return [];
-  // Prefer a project file that already provides a prelude module (by basename,
-  // wherever it lives — e.g. /stdlib/Option.hex), so the embedded fallback never
-  // creates a duplicate that would collide with the project's own declarations.
-  const existingByBasename = new Map<string, string>();
-  for (const path of paths) {
-    const basename = path.slice(path.lastIndexOf("/") + 1);
-    if (!existingByBasename.has(basename)) existingByBasename.set(basename, path);
-  }
-  let maxId = Math.max(-1, ...[...sources.values()].map((file) => Number(file.id)));
-  return modules.map((module) => {
-    const existing = existingByBasename.get(module.basename);
-    if (existing !== undefined) return existing;
-    const path = normalizePath(`${root}/${module.basename}`);
-    maxId += 1;
-    sources.set(path, new Source.File(Source.fileId(maxId), path, module.source));
-    return path;
-  });
-}
 
 /**
- * A module's **brand identity** — the string its exceptions carry as `$hex`
- * (`spec/exceptions.md` §7.1, #488).
+ * The path an **emitted** specifier names, from the module that wrote it.
  *
- * Two rules, and which one applies is settled by how the module is compiled,
- * never by its text:
+ * No Hexagon `import` carries a specifier since #829 — a module is named, not
+ * pathed (Modules §3) — so this now serves the two places a specifier still
+ * exists, and they read against **different trees**.
  *
- * - An **injected** module brands its canonical injected name: its basename with
- *   the extension dropped. `injectEmbedded` seats an injected module at whichever
- *   project file already carries its basename, so the directory is the host's
- *   business and the name is the language's — `stdlib/Vector.hex` and an embedded
- *   `Vector.hex` are one module, `Vector`, and one brand.
- * - Every other module brands its path **relative to the project root**, with
- *   the extension dropped and no leading separator: one module per path, so the
- *   brand is unique by construction and needs no naming rule.
- *
- * **The rendering is canonical, not the host's path text.** Backslashes become
- * forward slashes here as well as in `normalizePath`, so a Windows build and a
- * POSIX build of one project brand identically — the brand is compiled into
- * emitted JavaScript and into `.d.ts` literals a consumer copies, so a
- * separator that varied by build machine would be a real incompatibility, not a
- * cosmetic one. Written at the rendering rather than relied on upstream because
- * this is the rule; `normalizePath` merely happens to agree.
- *
- * The result never begins with `/` or `../`: `root` is `commonRoot`, a prefix of
- * every source path in the program, so the relativization is a plain suffix and
- * has no ascent to express. The non-prefix branch is defensive only.
- *
- * Exported because the identity rule is a *rule* — the same reason
- * `resolveSpecifier` is — and because pinning the canonical rendering means
- * handing it a separator the test platform never produces.
- */
-export function moduleBrandIdentity(
-  path: string,
-  root: string,
-  injected: boolean,
-): string {
-  const canonical = path.replaceAll("\\", "/");
-  if (injected) {
-    return canonical.slice(canonical.lastIndexOf("/") + 1).replace(/\.hex$/u, "");
-  }
-  const canonicalRoot = root.replaceAll("\\", "/");
-  const relative = canonicalRoot !== "" && canonical.startsWith(`${canonicalRoot}/`)
-    ? canonical.slice(canonicalRoot.length + 1)
-    : canonical;
-  return relative.replace(/^\//u, "").replace(/\.hex$/u, "");
-}
-
-/** Longest shared directory prefix of the given file paths. */
-function commonRoot(paths: readonly string[]): string {
-  const directories = paths.map((path) => path.split("/").slice(0, -1));
-  let common = directories[0] ?? [];
-  for (const parts of directories.slice(1)) {
-    let index = 0;
-    while (index < common.length && index < parts.length && common[index] === parts[index]) {
-      index += 1;
-    }
-    common = common.slice(0, index);
-  }
-  return common.join("/");
-}
-
-/**
- * The path an import specifier names, from the module that wrote it.
- *
- * Exported because it is a rule about the module graph rather than a detail of
- * compiling one: an editor asking which module a name was imported from has to
- * answer it the same way the compiler did, and a second copy that drifted would
- * be wrong only for the imports it disagreed about.
+ * The emitted module graph's specifiers are computed from the modules' names
+ * (§11.2), so they are read against the *layout*: `resolveSpecifier(unit.path,
+ * …)`. A **foreign** specifier is never computed and never re-based (FFI Part
+ * 4 §2.1, #839): it is JavaScript's own, emitted verbatim, and resolves at
+ * load from the emitted file's own place — `extern from "./world.js"` in
+ * `module Deep.Nested` names `Deep/world.js`, a file Hexagon neither writes
+ * nor places. The compiler reads one of these exactly once, for the refusal
+ * that catches a specifier naming a Hexagon source, and takes that reading
+ * against the *source* tree from the importing file's own directory
+ * (`resolveSpecifier(unit.source.path, …)`) — which is the tree the author
+ * wrote it in. Nothing else reads it.
  */
 export function resolveSpecifier(importer: string, specifier: string): string {
   const directory = importer.slice(0, Math.max(0, importer.lastIndexOf("/")));

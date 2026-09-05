@@ -55,7 +55,7 @@ import { compileMain, runProject } from "../support/test-project.js";
 
 /** One module's emitted JavaScript, with the project's diagnostics asserted empty. */
 function javascript(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
@@ -63,17 +63,17 @@ function javascript(source: string): string {
 describe("a record's derived `Hash` over a reached union component", () => {
   test("a payload-free union reached through an alias still separates (#609 filed case)", async () => {
     const module = await runProject([
-      ["/flag.hex", "export union Flag derives (Eq, Hash) = On | Off\n"],
+      ["/flag.hex", "module Flag\n\n" + "export union Flag derives (Eq, Hash) = On | Off\n"],
       [
         "/flagalias.hex",
-        "import Flag from \"./flag\"\n" +
+        "module Flagalias\n\n" + "import Flag\n" +
         "export type F = Flag\n" +
         "export fun on(): F = Flag.On\n" +
         "export fun off(): F = Flag.Off\n",
       ],
       [
         "/main.hex",
-        "import F from \"./flagalias\"\n" +
+        "module Main\n\n" + "import Flagalias as F\n" +
         "export record Box derives (Eq, Hash) = {f: F}\n" +
         "export let onHash: Int = Hash.hash(Box({f = F.on()}))\n" +
         "export let offHash: Int = Hash.hash(Box({f = F.off()}))\n" +
@@ -91,17 +91,17 @@ describe("a record's derived `Hash` over a reached union component", () => {
 
   test("a payload-carrying union reached through an alias separates by payload", async () => {
     const module = await runProject([
-      ["/shape.hex", "export union Shape derives (Eq, Hash) = Dot | Circle(radius: Int)\n"],
+      ["/shape.hex", "module Shape\n\n" + "export union Shape derives (Eq, Hash) = Dot | Circle(radius: Int)\n"],
       [
         "/shapealias.hex",
-        "import Shape from \"./shape\"\n" +
+        "module Shapealias\n\n" + "import Shape\n" +
         "export type S = Shape\n" +
         "export fun dot(): S = Shape.Dot\n" +
         "export fun circle(r: Int): S = Shape.Circle(r)\n",
       ],
       [
         "/main.hex",
-        "import S from \"./shapealias\"\n" +
+        "module Main\n\n" + "import Shapealias as S\n" +
         "export record Frame derives (Eq, Hash) = {s: S}\n" +
         "export let three: Int = Hash.hash(Frame({s = S.circle(3)}))\n" +
         "export let four: Int = Hash.hash(Frame({s = S.circle(4)}))\n" +
@@ -118,16 +118,16 @@ describe("a record's derived `Hash` over a reached union component", () => {
 
   test("a nominal record component reached through an alias separates (the record half)", async () => {
     const module = await runProject([
-      ["/cell.hex", "export record Cell derives (Eq, Hash) = {v: Int}\n"],
+      ["/cell.hex", "module Cell\n\n" + "export record Cell derives (Eq, Hash) = {v: Int}\n"],
       [
         "/cellalias.hex",
-        "import Cell from \"./cell\"\n" +
+        "module Cellalias\n\n" + "import Cell\n" +
         "export type C = Cell\n" +
         "export fun cell(v: Int): C = Cell({v = v})\n",
       ],
       [
         "/main.hex",
-        "import C from \"./cellalias\"\n" +
+        "module Main\n\n" + "import Cellalias as C\n" +
         "export record Crate derives (Eq, Hash) = {c: C}\n" +
         "export let one: Int = Hash.hash(Crate({c = C.cell(1)}))\n" +
         "export let two: Int = Hash.hash(Crate({c = C.cell(2)}))\n" +
@@ -141,10 +141,10 @@ describe("a record's derived `Hash` over a reached union component", () => {
 
   test("the direct-import spelling is unmoved (parity control)", async () => {
     const module = await runProject([
-      ["/mark.hex", "export union Mark derives (Eq, Hash) = Up | Down\n"],
+      ["/mark.hex", "module Mark\n\n" + "export union Mark derives (Eq, Hash) = Up | Down\n"],
       [
         "/main.hex",
-        "import Mark from \"./mark\"\n" +
+        "module Main\n\n" + "import Mark\n" +
         "export record Slot derives (Eq, Hash) = {m: Mark}\n" +
         "export let up: Int = Hash.hash(Slot({m = Mark.Up}))\n" +
         "export let down: Int = Hash.hash(Slot({m = Mark.Down}))\n" +
@@ -161,16 +161,16 @@ describe("a record's derived `Hash` over a reached union component", () => {
 describe("the `Eq` law through the hash-backed collections (#609's severer half)", () => {
   test("a `Set` over a structural record holding a reached tagged union dedups", async () => {
     const module = await runProject([
-      ["/a.hex", "export union Ring derives (Eq, Hash) = Nil | Node(size: Int)\n"],
+      ["/a.hex", "module A\n\n" + "export union Ring derives (Eq, Hash) = Nil | Node(size: Int)\n"],
       [
         "/b.hex",
-        "import Ring from \"./a\"\n" +
+        "module B\n\n" + "import A as Ring\n" +
         "export type R = Ring\n" +
         "export fun node(n: Int): R = Ring.Node(n)\n",
       ],
       [
         "/main.hex",
-        "import R from \"./b\"\n" +
+        "module Main\n\n" + "import B as R\n" +
         "let rings: Set({r: R}) = Set.add(Set.add(Set.empty, {r = R.node(3)}), {r = R.node(3)})\n" +
         "export let count: Int = Set.size(rings)\n" +
         "export let found: Bool = Set.contains(rings, {r = R.node(3)})\n" +
@@ -188,16 +188,16 @@ describe("the `Eq` law through the hash-backed collections (#609's severer half)
 
   test("a `Map` keyed by a structural record over a reached union replaces rather than adds", async () => {
     const module = await runProject([
-      ["/keys.hex", "export union Key derives (Eq, Hash) = Anon | Named(id: Int)\n"],
+      ["/keys.hex", "module Keys\n\n" + "export union Key derives (Eq, Hash) = Anon | Named(id: Int)\n"],
       [
         "/keysalias.hex",
-        "import Key from \"./keys\"\n" +
+        "module Keysalias\n\n" + "import Keys as Key\n" +
         "export type K = Key\n" +
         "export fun named(id: Int): K = Key.Named(id)\n",
       ],
       [
         "/main.hex",
-        "import K from \"./keysalias\"\n" +
+        "module Main\n\n" + "import Keysalias as K\n" +
         "let table: Map({k: K}, Int) =\n" +
         "    Map.set(Map.set(Map.empty, {k = K.named(7)}, 1), {k = K.named(7)}, 2)\n" +
         "export let entries: Int = Map.size(table)\n" +
@@ -211,10 +211,10 @@ describe("the `Eq` law through the hash-backed collections (#609's severer half)
 
   test("the direct-import `Set` spelling is unmoved (parity control)", async () => {
     const module = await runProject([
-      ["/tone.hex", "export union Tone derives (Eq, Hash) = Flat | Sharp(step: Int)\n"],
+      ["/tone.hex", "module Tone\n\n" + "export union Tone derives (Eq, Hash) = Flat | Sharp(step: Int)\n"],
       [
         "/main.hex",
-        "import Tone from \"./tone\"\n" +
+        "module Main\n\n" + "import Tone\n" +
         "let tones: Set({t: Tone}) = Set.add(Set.add(Set.empty, {t = Tone.Sharp(2)}), {t = Tone.Sharp(2)})\n" +
         "export let count: Int = Set.size(tones)\n" +
         "export let found: Bool = Set.contains(tones, {t = Tone.Sharp(2)})\n",
@@ -229,17 +229,17 @@ describe("the `Eq` law through the hash-backed collections (#609's severer half)
 describe("the evidence chain through structural layers", () => {
   test("`Vector` and tuple components over a reached union carry the selection", async () => {
     const module = await runProject([
-      ["/beat.hex", "export union Beat derives (Eq, Hash) = Rest | Hit(force: Int)\n"],
+      ["/beat.hex", "module Beat\n\n" + "export union Beat derives (Eq, Hash) = Rest | Hit(force: Int)\n"],
       [
         "/beatalias.hex",
-        "import Beat from \"./beat\"\n" +
+        "module Beatalias\n\n" + "import Beat\n" +
         "export type B = Beat\n" +
         "export fun rest(): B = Beat.Rest\n" +
         "export fun hit(force: Int): B = Beat.Hit(force)\n",
       ],
       [
         "/main.hex",
-        "import B from \"./beatalias\"\n" +
+        "module Main\n\n" + "import Beatalias as B\n" +
         "export record Bar derives (Eq, Hash) = {beats: Vector(B), lead: (B, Int)}\n" +
         "let soft: Bar = Bar({beats = [B.hit(1), B.rest()], lead = (B.hit(1), 0)})\n" +
         "let loud: Bar = Bar({beats = [B.hit(2), B.rest()], lead = (B.hit(1), 0)})\n" +
@@ -264,17 +264,17 @@ describe("the evidence chain through structural layers", () => {
 
   test("a transitively reached union needs no table lookup here", async () => {
     const module = await runProject([
-      ["/inner.hex", "export union Inner derives (Eq, Hash) = Zero | One\n"],
+      ["/inner.hex", "module Inner\n\n" + "export union Inner derives (Eq, Hash) = Zero | One\n"],
       [
         "/outer.hex",
-        "import Inner from \"./inner\"\n" +
+        "module Outer\n\n" + "import Inner\n" +
         "export union Outer derives (Eq, Hash) = Wrap(inner: Inner)\n" +
         "export fun wrapZero(): Outer = Wrap(Inner.Zero)\n" +
         "export fun wrapOne(): Outer = Wrap(Inner.One)\n",
       ],
       [
         "/outeralias.hex",
-        "import Outer from \"./outer\"\n" +
+        "module Outeralias\n\n" + "import Outer\n" +
         "export type O = Outer\n" +
         "export fun zero(): O = Outer.wrapZero()\n" +
         "export fun one(): O = Outer.wrapOne()\n",
@@ -283,7 +283,7 @@ describe("the evidence chain through structural layers", () => {
         "/main.hex",
         // Neither `Outer` nor `Inner` is spelled in this module — only the
         // alias `O`, itself two removes from either declaration.
-        "import O from \"./outeralias\"\n" +
+        "module Main\n\n" + "import Outeralias as O\n" +
         "export record Cage derives (Eq, Hash) = {held: O}\n" +
         "export let zeroHash: Int = Hash.hash(Cage({held = O.zero()}))\n" +
         "export let oneHash: Int = Hash.hash(Cage({held = O.one()}))\n" +
@@ -297,16 +297,16 @@ describe("the evidence chain through structural layers", () => {
 
   test("a union subject's slot over a reached nominal separates", async () => {
     const module = await runProject([
-      ["/coin.hex", "export record Coin derives (Eq, Hash) = {value: Int}\n"],
+      ["/coin.hex", "module Coin\n\n" + "export record Coin derives (Eq, Hash) = {value: Int}\n"],
       [
         "/coinalias.hex",
-        "import Coin from \"./coin\"\n" +
+        "module Coinalias\n\n" + "import Coin\n" +
         "export type Money = Coin\n" +
         "export fun coin(value: Int): Money = Coin({value = value})\n",
       ],
       [
         "/main.hex",
-        "import Money from \"./coinalias\"\n" +
+        "module Main\n\n" + "import Coinalias as Money\n" +
         "export union Purse derives (Eq, Hash) = Empty | Holding(coin: Money)\n" +
         "export let one: Int = Hash.hash(Holding(Money.coin(1)))\n" +
         "export let two: Int = Hash.hash(Holding(Money.coin(2)))\n" +

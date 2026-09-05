@@ -110,6 +110,7 @@ function ticker(label: string): string {
 }
 
 const TICKER_HEADER =
+  "module Main\n\n" +
   'extern from "ticker"\n' +
   "    pure fun tick(value: Int): Int\n" +
   "    fun ticks(): Int\n" +
@@ -264,7 +265,7 @@ describe("Loops §6.4: re-derivation is the default, `memoize` the opt-in", () =
   test("a long memoized run drives in constant stack", async () => {
     const exports = await run(
       [["/main.hex",
-        "let memoized: Seq(Int) = Seq.memoize(Seq.take(Seq.iterate(1, x => x + 1), 50000))\n" +
+        "module Main\n\n" + "let memoized: Seq(Int) = Seq.memoize(Seq.take(Seq.iterate(1, x => x + 1), 50000))\n" +
         "export let total: Int = Seq.fold(memoized, 0, (running, value) => running + value)\n" +
         "export let again: Int = Seq.fold(memoized, 0, (running, value) => running + value)\n"]],
     );
@@ -287,7 +288,7 @@ describe("failure is memoized per position (FFI Part 3 §7.1, inherited)", () =>
   test("forcing a failed position again replays the throw without re-running it", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "boom"\n' +
+        "module Main\n\n" + 'extern from "boom"\n' +
         "    pure fun explode(value: Int): Int\n" +
         "    fun attempts(): Int\n" +
         "\n" +
@@ -334,7 +335,7 @@ describe("failure is memoized per position (FFI Part 3 §7.1, inherited)", () =>
 describe("the door's emission (spec/intrinsics.md §8)", () => {
   function seqModule(): { javascript: string; declarations: string } {
     const project = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", "export let ok: Int = Seq.length(Seq.empty)\n"),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + "export let ok: Int = Seq.length(Seq.empty)\n"),
     ]);
     expect(project.diagnostics).toEqual([]);
     const module = project.modules.find(({ source }) => source.path.endsWith("Seq.hex"))!;
@@ -390,7 +391,7 @@ describe("the door's emission (spec/intrinsics.md §8)", () => {
   test("consumers reach it qualified and by dot-call", async () => {
     const exports = await run(
       [["/main.hex",
-        "let base: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
+        "module Main\n\n" + "let base: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n" +
         "export let qualified: Int = Seq.length(Seq.memoize(base))\n" +
         "export let dotCalled: Int = Seq.length(base.memoize())\n"]],
     );
@@ -439,7 +440,7 @@ describe("§7: `memoize` moves values, and does nothing else to them", () => {
   test("every element out of the memoized spine is the element that went in", async () => {
     const exports = await run(
       [["/main.hex",
-        "export record Cell = {tag: Int}\n" +
+        "module Main\n\n" + "export record Cell = {tag: Int}\n" +
         "export let one: Cell = Cell({tag = 1})\n" +
         "export let two: Cell = Cell({tag = 2})\n" +
         "export let three: Cell = Cell({tag = 3})\n" +
@@ -470,7 +471,7 @@ describe("§7: `memoize` moves values, and does nothing else to them", () => {
     // reconstructions of them.
     const exports = await run(
       [["/main.hex",
-        "export record Cell = {tag: Int}\n" +
+        "module Main\n\n" + "export record Cell = {tag: Int}\n" +
         "let source: Seq(Cell) = Seq.prepend(Seq.prepend(Seq.empty, Cell({tag = 2})), Cell({tag = 1}))\n" +
         "let memoized: Seq(Cell) = Seq.memoize(source)\n" +
         "export let first: Vector(Cell) = Vector.fromSeq(memoized)\n" +
@@ -491,7 +492,7 @@ describe("§7: `memoize` moves values, and does nothing else to them", () => {
     // whole rather than as something that merely printed the same.
     const exports = await run(
       [["/main.hex",
-        "let source: Seq(Int -> Int) = Seq.prepend(Seq.prepend(Seq.empty, x => x * 2), x => x + 1)\n" +
+        "module Main\n\n" + "let source: Seq(Int -> Int) = Seq.prepend(Seq.prepend(Seq.empty, x => x * 2), x => x + 1)\n" +
         "let memoized: Seq(Int -> Int) = Seq.memoize(source)\n" +
         "let applied: Seq(Int) = Seq.map(memoized, f => f(10))\n" +
         "export let results: Vector(Int) = Vector.fromSeq(applied)\n"]],

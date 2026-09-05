@@ -22,7 +22,7 @@ export interface JavaScript extends Output {
    * when something emitted imports it, and this channel's imports are decided
    * during emission rather than declared as `Import` items, so reachability
    * cannot see them by reading the tree. Without this the project compiles
-   * clean and emits `import … from "./Prelude.js"` beside no `Prelude.js`.
+   * clean and emits `import … from "./Hex/Prelude.js"` beside no `Prelude.js`.
    */
   readonly preludeInstanceImports: readonly string[];
   /**

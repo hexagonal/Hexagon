@@ -78,7 +78,7 @@ async function run(
   source: string,
   foreign: Readonly<Record<string, string>> = {},
 ): Promise<Record<string, unknown>> {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   runTag += 1;
   const url = (text: string): string =>
@@ -107,14 +107,14 @@ async function run(
 
 /** `/main.hex`'s emitted JavaScript. */
 function mainJavascript(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
 /** One emitted module's `.d.ts`, by path. */
 function declarationsOf(source: string, path: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === path)!.declarations?.text ?? "";
 }
@@ -203,7 +203,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
       caught = error;
     }
     expect((caught as { name?: string }).name).toBe("Boom");
-    expect((caught as { $hex?: string }).$hex).toBe("main");
+    expect((caught as { $hex?: string }).$hex).toBe("Main");
     expect((caught as Error).message).toBe("domestic");
   });
 
@@ -237,16 +237,14 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
   });
 
   test("a second `JsError` arm is unreachable, and so is anything after `_`", () => {
-    expect(projectDiagnostics(
-      "export let run(n: Int): String =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let run(n: Int): String =\n" +
         "    try\n" +
         "        Int.show(n)\n" +
         "    catch\n" +
         "        JsError(_) => \"first\"\n" +
         "        JsError(_) => \"second\"\n",
     )).toEqual(["exception `JsError` is already caught above"]);
-    expect(projectDiagnostics(
-      "export let run(n: Int): String =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let run(n: Int): String =\n" +
         "    try\n" +
         "        Int.show(n)\n" +
         "    catch\n" +
@@ -256,8 +254,7 @@ describe("the arm is the foreign branch, in both catch seats (§6.2, §7.4)", ()
   });
 
   test("a domestic arm after a `JsError` arm is fine — the door covers one branch", () => {
-    expect(projectDiagnostics(
-      "exception Boom(message: String)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "exception Boom(message: String)\n" +
         "export let run(n: Int): String =\n" +
         "    try\n" +
         "        Int.show(n)\n" +
@@ -310,7 +307,7 @@ describe("the wrapping is virtual and the unwrapping syntactic (§6.2)", () => {
         "    throw(held)\n",
     );
     const wrapped = (exports["wrap"] as (e: unknown) => Record<string, unknown>)("payload");
-    expect(wrapped["$hex"]).toBe("JsError");
+    expect(wrapped["$hex"]).toBe("Hex.JsError");
     expect(wrapped["name"]).toBe("JsError");
     expect(wrapped["error"]).toBe("payload");
     // Thrown later, the wrapper is what travels — the unwrapping is the form's,
@@ -321,7 +318,7 @@ describe("the wrapping is virtual and the unwrapping syntactic (§6.2)", () => {
     } catch (error) {
       caught = error;
     }
-    expect((caught as { $hex?: string }).$hex).toBe("JsError");
+    expect((caught as { $hex?: string }).$hex).toBe("Hex.JsError");
     expect((caught as { error?: unknown }).error).toBe("payload");
   });
 
@@ -357,7 +354,7 @@ describe("every gate keys on the declaration, never on the spelling (#679/#727)"
   test("a module's own `JsError` is branded with that module and really wraps", async () => {
     const text = mainJavascript(ownDoor);
     expect(text).toContain('const JsError = error => __exception("JsError", "", { error });');
-    expect(text).toContain('$hex: "main"');
+    expect(text).toContain('$hex: "Main"');
     expect(text).toContain("throw JsError(e)");
 
     const exports = await run(ownDoor);
@@ -368,7 +365,7 @@ describe("every gate keys on the declaration, never on the spelling (#679/#727)"
     } catch (error) {
       caught = error;
     }
-    expect((caught as { $hex?: string }).$hex).toBe("main");
+    expect((caught as { $hex?: string }).$hex).toBe("Main");
     expect((caught as { error?: unknown }).error).toBe(payload);
     // And it is caught domestically by its own arm, payload slot and all.
     expect((exports["caught"] as (e: unknown) => unknown)(payload)).toBe(payload);
@@ -379,7 +376,7 @@ describe("every gate keys on the declaration, never on the spelling (#679/#727)"
     // No stage-1 binding: the arm in this module is an ordinary domestic arm.
     expect(text).not.toContain("__foreign");
     expect(text).toContain(
-      'JsError.is = (__error) => __error != null && __error.$hex === "main" ' +
+      'JsError.is = (__error) => __error != null && __error.$hex === "Main" ' +
         '&& __error.name === "JsError";',
     );
 
@@ -503,7 +500,7 @@ describe("the accessors are total and conservative (FFI Part 11 §7)", () => {
 });
 
 describe("`Result.attempt` bridges back to data (§8.2)", () => {
-  const attemptSource = externThrower +
+  const attemptSource = "module Main\n\n" + externThrower +
     "exception Boom(message: String)\n" +
     "let pure(): Int = 7\n" +
     "let domestic(): Int = throw(Boom(\"declared\"))\n";
@@ -603,8 +600,7 @@ describe("`Result.attempt` bridges back to data (§8.2)", () => {
  */
 describe("the bare namespace the door occupies (Modules §5.5)", () => {
   test("all four new bare names are single-homed, so each spelling resolves", () => {
-    expect(projectDiagnostics(
-      "export let m(v: JsValue): String = JsError.message(v)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let m(v: JsValue): String = JsError.message(v)\n" +
         "export let s(v: JsValue): Option(String) = JsError.stack(v)\n" +
         "let pure(): Int = 7\n" +
         "export let a(ignored: Int): Result(Int, Exn) = Result.attempt(pure)\n" +
@@ -612,14 +608,12 @@ describe("the bare namespace the door occupies (Modules §5.5)", () => {
     )).toEqual([]);
     // Since #742 only the exception constructor is bare, and it is bare as a
     // category (§5.5); the three function spellings name their one home each.
-    expect(projectDiagnostics(
-      "export let m(v: JsValue): String = message(v)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let m(v: JsValue): String = message(v)\n",
     )).toEqual(["no bare `message`; write `JsError.message(v)`"]);
   });
 
   test("the qualified spellings the specs write resolve to the same declarations", () => {
-    expect(projectDiagnostics(
-      "export let m(v: JsValue): String = JsError.message(v)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let m(v: JsValue): String = JsError.message(v)\n" +
         "export let s(v: JsValue): Option(String) = JsError.stack(v)\n" +
         "let pure(): Int = 7\n" +
         "export let a(ignored: Int): Result(Int, Exn) = Result.attempt(pure)\n",
@@ -635,15 +629,14 @@ describe("the bare namespace the door occupies (Modules §5.5)", () => {
    */
   test("`JsError.message` is the module's export, not a property of the constructor", () => {
     const text = mainJavascript("export let m(v: JsValue): String = JsError.message(v)\n");
-    expect(text).toContain('import { message } from "./JsError.js";');
+    expect(text).toContain('import { message } from "./Hex/JsError.js";');
     expect(text).toContain("const m = v => message(v);");
     expect(text).not.toContain("JsError.message");
   });
 
   /** And every one of them is occludable, like any prelude name (Modules §5.4). */
   test("a module's own declaration occludes each of them", () => {
-    expect(projectDiagnostics(
-      "let message(subject: String): String = subject\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let message(subject: String): String = subject\n" +
         "let stack(depth: Int): Int = depth\n" +
         "let attempt(times: Int): Int = times\n" +
         "export let used(subject: String, depth: Int, times: Int): String =\n" +
@@ -670,7 +663,7 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
       'const __foreign = __error == null || typeof __error.$hex !== "string";',
     );
     expect(withDoor).toContain(
-      'if (__foreign || (__error != null && __error.$hex === "JsError" ' +
+      'if (__foreign || (__error != null && __error.$hex === "Hex.JsError" ' +
         '&& __error.name === "JsError")) {',
     );
     expect(withDoor).toContain("const e = __foreign ? __error : __error.error;");
@@ -685,7 +678,7 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
     );
     expect(withoutDoor).not.toContain("__foreign");
     expect(withoutDoor).toContain(
-      'if (__error != null && __error.$hex === "main" && __error.name === "Boom") {',
+      'if (__error != null && __error.$hex === "Main" && __error.name === "Boom") {',
     );
   });
 
@@ -707,15 +700,15 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
   });
 
   test("`JsError` ships no `is` guard, in JavaScript or in the `.d.ts`", () => {
-    const project = compileFiles([["/main.hex", DOOR_USER]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + DOOR_USER]]);
     expect(project.diagnostics).toEqual([]);
-    const door = project.modules.find(({ source }) => source.path === "/JsError.hex")!;
+    const door = project.modules.find(({ source }) => source.path === "/Hex/JsError.hex")!;
     expect(door.javascript.text).not.toContain("JsError.is =");
     const declarations = door.declarations?.text ?? "";
     expect(declarations).not.toContain("declare namespace JsError");
     // The type and the constructor still ship — §6.2's residue is a real value.
     expect(declarations).toContain(
-      'export type JsError = Error & { readonly $hex: "JsError"; ' +
+      'export type JsError = Error & { readonly $hex: "Hex.JsError"; ' +
         'readonly name: "JsError"; readonly error: unknown };',
     );
     expect(declarations).toContain("export declare function JsError(error: unknown): JsError;");
@@ -728,8 +721,8 @@ describe("emission and the guard the door does not ship (§7.4, §7.6)", () => {
   });
 
   test("the guarded read is one property access inside one `try`", () => {
-    const project = compileFiles([["/main.hex", DOOR_USER]]);
-    const door = project.modules.find(({ source }) => source.path === "/JsError.hex")!;
+    const project = compileFiles([["/main.hex", "module Main\n\n" + DOOR_USER]]);
+    const door = project.modules.find(({ source }) => source.path === "/Hex/JsError.hex")!;
     expect(door.javascript.text).toContain(
       [
         "function __jsErrorRead(__value, __property) {",

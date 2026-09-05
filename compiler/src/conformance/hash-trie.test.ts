@@ -1165,15 +1165,17 @@ describe("the emitted module's import surface", () => {
       ...emitted!.javascript.text.matchAll(/^\s*import\b[^;\n]*?from\s+"([^"]+)";/gmu),
     ].map((match) => match[1]!);
 
-    expect(specifiers).not.toContain("./Vector.js");
-    expect(specifiers).not.toContain("./VectorTrie.js");
+    expect(specifiers).not.toContain("./Hex/Vector.js");
+    expect(specifiers).not.toContain("./Hex/VectorTrie.js");
+    // The prelude emits under `Hex/` (Modules §11.1; Packages §6), and the
+    // probe sits at the output root, so a prelude specifier reads `./Hex/…`.
     const seatedBefore = PRELUDE_MODULES
-      .map(({ basename }) => `./${basename.replace(/\.hex$/u, ".js")}`)
+      .map(({ basename }) => `./Hex/${basename.replace(/\.hex$/u, ".js")}`)
       .slice(0, PRELUDE_MODULES.findIndex(({ basename }) => basename === "Vector.hex"));
     for (const specifier of specifiers) expect(seatedBefore).toContain(specifier);
     // And it really does import — an empty list would pass the loop vacuously.
     expect(specifiers.length).toBeGreaterThan(0);
-    expect(specifiers).toContain("./Seq.js");
+    expect(specifiers).toContain("./Hex/Seq.js");
   });
 });
 
@@ -1194,14 +1196,14 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
     "export let answer: Int = Node.get(held, 0)\n";
 
   test("a runtimePaths-granted module may declare a door block", () => {
-    const project = compileFiles([["/Granted.hex", DOOR]], {
+    const project = compileFiles([["/Granted.hex", "module Granted\n\n" + DOOR]], {
       runtimePaths: ["/Granted.hex"],
     });
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   });
 
   test("the grant reaches emission, not only checking", async () => {
-    const m = await runProject([["/Granted.hex", DOOR]], {
+    const m = await runProject([["/Granted.hex", "module Granted\n\n" + DOOR]], {
       runtimePaths: ["/Granted.hex"],
       entry: "/Granted.hex",
     });
@@ -1209,7 +1211,7 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
   });
 
   test("an ungranted module is still refused, and `Node` with it", () => {
-    const project = compileFiles([["/Ordinary.hex", DOOR]]);
+    const project = compileFiles([["/Ordinary.hex", "module Ordinary\n\n" + DOOR]]);
     const messages = project.diagnostics.map(({ message }) => message);
     expect(messages).toContain(
       "the `hex:` specifier scheme is reserved to standard-library source; " +
@@ -1243,10 +1245,10 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
       "    quot(left: a, right: a): a\n" +
       "    rem(left: a, right: a): a\n";
     expect(
-      compileFiles([["/Ordinary.hex", declaration]]).diagnostics.map(({ message }) => message),
+      compileFiles([["/Ordinary.hex", "module Ordinary\n\n" + declaration]]).diagnostics.map(({ message }) => message),
     ).toEqual(["constraint `Integral` is pre-registered and cannot be redeclared"]);
     expect(
-      compileFiles([["/Granted.hex", declaration]], { runtimePaths: ["/Granted.hex"] })
+      compileFiles([["/Granted.hex", "module Granted\n\n" + declaration]], { runtimePaths: ["/Granted.hex"] })
         .diagnostics.map(({ message }) => message),
     ).toEqual([]);
   });
@@ -1258,7 +1260,7 @@ describe("runtime modules hold the intrinsic door (§5.2)", () => {
    */
   test("a foreign extern still cannot name Node, grant or no grant", () => {
     const project = compileFiles(
-      [["/Granted.hex", 'extern from "./host.js"\n    fun one(value: Int): Node(Int)\n']],
+      [["/Granted.hex", "module Granted\n\n" + 'extern from "./host.js"\n    fun one(value: Int): Node(Int)\n']],
       { runtimePaths: ["/Granted.hex"] },
     );
     expect(project.diagnostics.map(({ message }) => message)).toContain(

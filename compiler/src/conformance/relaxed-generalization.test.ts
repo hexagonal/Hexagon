@@ -16,7 +16,7 @@ import type * as Typed from "../syntax/typed/index.js";
  */
 
 function scheme(source: string, name: string): Typed.Scheme {
-  const compiled = compileFiles([["/main.hex", source]]);
+  const compiled = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   const typed = compiled.modules.find((module) => module.source.path === "/main.hex")!.typed;
   const symbol = typed.symbols.find(
@@ -33,8 +33,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
     // admit it — so all three clauses pass. SML rejects this program; the whole
     // reason Step 2 exists is that OCaml does not.
     expect(
-      projectDiagnostics(
-        "fun makeEmpty<a>(): Vector(a) = []\n" +
+      projectDiagnostics("module Main\n\n" + "fun makeEmpty<a>(): Vector(a) = []\n" +
           "let xs = makeEmpty()\n" +
           "export let n: Int = Vector.at(xs, 1)\n" +
           'export let s: String = Vector.at(xs, 1)\n',
@@ -59,8 +58,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
     // the answer. Here clause (a) and clause (c) both pass in both specimens,
     // so clause (b) is the only thing between them.
     expect(
-      projectDiagnostics(
-        "export record Co(a) = { items: Vector(a) }\n" +
+      projectDiagnostics("module Main\n\n" + "export record Co(a) = { items: Vector(a) }\n" +
           "fun makeEmpty<a>(): Co(a) = Co({ items = [] })\n" +
           "let xs = makeEmpty()\n" +
           "export let n: Co(Int) = xs\n" +
@@ -68,8 +66,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
       ),
     ).toEqual([]);
     expect(
-      projectDiagnostics(
-        "export record Inv(a) = { items: Vector(a), sink: a -> Unit }\n" +
+      projectDiagnostics("module Main\n\n" + "export record Inv(a) = { items: Vector(a), sink: a -> Unit }\n" +
           "fun makeEmpty<a>(): Inv(a) = Inv({ items = [], sink = (value) => () })\n" +
           "let xs = makeEmpty()\n" +
           "export let n: Inv(Int) = xs\n" +
@@ -103,8 +100,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
     expect(messages.length).toBeGreaterThan(0);
     // The control: the same shape with the constraint gone generalizes.
     expect(
-      projectDiagnostics(
-        "fun makeEmpty<a>(): Vector(a) = []\n" +
+      projectDiagnostics("module Main\n\n" + "fun makeEmpty<a>(): Vector(a) = []\n" +
           "let y = makeEmpty()\n" +
           "export let n: Int = Vector.at(y, 1)\n" +
           'export let s: String = Vector.at(y, 1)\n',
@@ -117,7 +113,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
     // depends on. `?k` occurs contravariantly and is pinned by its first use;
     // `?v` occurs covariantly, is unconstrained, and generalizes — soundly,
     // because the once-loaded table can contain no elements (§4.2 leg 1).
-    const source = "record Table(k, v) = { rows: Vector((k, v)) }\n" +
+    const source = "module Main\n\n" + "record Table(k, v) = { rows: Vector((k, v)) }\n" +
       "fun load<k, v>(): Table(k, v) = Table({ rows = [] })\n" +
       "exception Missing\n" +
       "fun find<k, v>(table: Table(k, v), key: k): v = throw(Missing)\n" +
@@ -160,8 +156,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
     // (§7): the memoized spine shared across instantiations can hold only values
     // pulled from a source that, by parametricity, never produced any.
     expect(
-      projectDiagnostics(
-        "let e = Seq.empty\n" +
+      projectDiagnostics("module Main\n\n" + "let e = Seq.empty\n" +
           "let m = Seq.memoize(e)\n" +
           "export let ys: Seq(Int) = Seq.prepend(m, 42)\n" +
           'export let xs: Seq(String) = Seq.prepend(m, "Briar")\n',
@@ -175,8 +170,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
 
   test("(vii) an annotated expansive binding generalizes when every variable passes", () => {
     expect(
-      projectDiagnostics(
-        "fun makeEmpty<a>(): Vector(a) = []\n" +
+      projectDiagnostics("module Main\n\n" + "fun makeEmpty<a>(): Vector(a) = []\n" +
           "let xs: Vector(a) = makeEmpty()\n" +
           "export let n: Int = Vector.at(xs, 1)\n" +
           'export let s: String = Vector.at(xs, 1)\n',
@@ -197,8 +191,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
 
   test("(vii) a declined variable under an annotation is a declaration-site error", () => {
     expect(
-      projectDiagnostics(
-        "fun double<a: Num>(value: a): a = value + value\n" +
+      projectDiagnostics("module Main\n\n" + "fun double<a: Num>(value: a): a = value + value\n" +
           "let y: a = double(42)\n",
       ),
     ).toEqual([declined("`a` is constrained by `Num`")]);
@@ -206,8 +199,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
 
   test("(vii) clause (b) names its own reason", () => {
     expect(
-      projectDiagnostics(
-        "fun make<a>(): (a -> a) = (x) => x\n" +
+      projectDiagnostics("module Main\n\n" + "fun make<a>(): (a -> a) = (x) => x\n" +
           "let f: (a -> a) = make()\n",
       ),
     ).toEqual([declined("`a` occurs in an invariant position")]);
@@ -215,8 +207,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
 
   test("(vii) an export inherits the error through its mandatory signature", () => {
     expect(
-      projectDiagnostics(
-        "fun double<a: Num>(value: a): a = value + value\n" +
+      projectDiagnostics("module Main\n\n" + "fun double<a: Num>(value: a): a = value + value\n" +
           "export let y: a = double(42)\n",
       ),
     ).toEqual([declined("`a` is constrained by `Num`")]);
@@ -228,8 +219,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
     // decision. The variable behaves exactly as it did before #205 — the first
     // use pins it, and `BigInt` is reachable.
     expect(
-      projectDiagnostics(
-        "fun double<a: Num>(value: a): a = value + value\n" +
+      projectDiagnostics("module Main\n\n" + "fun double<a: Num>(value: a): a = value + value\n" +
           "let y = double(42)\n" +
           "export let big: BigInt = y\n",
       ),
@@ -249,12 +239,12 @@ describe("§4.1 the relaxed rule, per variable", () => {
     // evidence during JavaScript emission` — a note that reads like a compiler
     // defect — over an emitted `const x = undefined.fromNat(42)`.
     const source = "export let x: a = 42\n";
-    expect(projectDiagnostics(source)).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([
       "`a` is a declared type variable, but the body requires `Int`; " +
         "change the annotation to `Int`, or remove it to let the type be inferred",
     ]);
     const javascript = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", source),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     expect(javascript).not.toContain("fromNat");
   });
@@ -263,8 +253,7 @@ describe("§4.1 the relaxed rule, per variable", () => {
 describe("§6 declared variance on `opaque`", () => {
   test("§6.1 a covariant claim on an opaque record is legal and believed", () => {
     expect(
-      projectDiagnostics(
-        "opaque record Box(+a) = { get: () -> a }\n" +
+      projectDiagnostics("module Main\n\n" + "opaque record Box(+a) = { get: () -> a }\n" +
           "exception Empty\n" +
           "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
           "let b = makeBox()\n" +
@@ -276,8 +265,7 @@ describe("§6 declared variance on `opaque`", () => {
 
   test("§6.1 a contravariant claim is legal on a consumer", () => {
     expect(
-      projectDiagnostics(
-        "opaque record Sink(-a) = { accept: a -> Unit }\n",
+      projectDiagnostics("module Main\n\n" + "opaque record Sink(-a) = { accept: a -> Unit }\n",
       ),
     ).toEqual([]);
   });
@@ -286,8 +274,7 @@ describe("§6 declared variance on `opaque`", () => {
     // The same declaration without the sigil. Under-claiming is legal forever,
     // and this is what it costs — the client's binding is pinned by its first
     // use, exactly as `Map`'s is.
-    const messages = projectDiagnostics(
-      "opaque record Box(a) = { get: () -> a }\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "opaque record Box(a) = { get: () -> a }\n" +
         "exception Empty\n" +
         "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
         "let b = makeBox()\n" +
@@ -298,8 +285,7 @@ describe("§6 declared variance on `opaque`", () => {
   });
 
   test("§6.3 an over-claim is a hard error naming a witness occurrence", () => {
-    const messages = projectDiagnostics(
-      "opaque record Sink(+a) = { accept: a -> Unit }\n",
+    const messages = projectDiagnostics("module Main\n\n" + "opaque record Sink(+a) = { accept: a -> Unit }\n",
     );
     expect(messages).toContain(
       "`a` cannot be declared covariant in `Sink`: field `accept` uses `a` in argument " +
@@ -309,7 +295,7 @@ describe("§6 declared variance on `opaque`", () => {
 
   test("§6.3 the witness is a real span, not garnish", () => {
     const compiled = compileFiles([
-      ["/main.hex", "opaque record Sink(+a) = { accept: a -> Unit }\n"],
+      ["/main.hex", "module Main\n\n" + "opaque record Sink(+a) = { accept: a -> Unit }\n"],
     ]);
     const diagnostic = compiled.diagnostics.find(({ message }) =>
       message.includes("cannot be declared covariant")
@@ -317,14 +303,14 @@ describe("§6 declared variance on `opaque`", () => {
     expect(diagnostic.labels?.length).toBe(1);
     const label = diagnostic.labels![0]!;
     const text = "opaque record Sink(+a) = { accept: a -> Unit }\n";
-    expect(text.slice(label.span.start.offset, label.span.end.offset)).toBe("a");
+    const header = "module Main\n\n";
+    expect((header + text).slice(label.span.start.offset, label.span.end.offset)).toBe("a");
     // The label points at the offending occurrence, not at the declaration head.
-    expect(label.span.start.offset).toBeGreaterThan(text.indexOf("accept"));
+    expect(label.span.start.offset).toBeGreaterThan(header.length + text.indexOf("accept"));
   });
 
   test("§6.3 an over-claimed contravariance reports too", () => {
-    const messages = projectDiagnostics(
-      "opaque record Box(-a) = { get: () -> a }\n",
+    const messages = projectDiagnostics("module Main\n\n" + "opaque record Box(-a) = { get: () -> a }\n",
     );
     expect(messages.some((message) =>
       message.includes("`a` cannot be declared contravariant in `Box`") &&
@@ -338,20 +324,20 @@ describe("§6 declared variance on `opaque`", () => {
     // With two, the choice is visible — and it should be the first, because
     // that is the one the author's eye reaches first in their own declaration.
     const text = "opaque record Sink(+a) = { first: a -> Unit, second: a -> Unit }\n";
-    const compiled = compileFiles([["/main.hex", text]]);
+    const compiled = compileFiles([["/main.hex", "module Main\n\n" + text]]);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([
       "`a` cannot be declared covariant in `Sink`: field `first` uses `a` in " +
       "argument position. Remove the `+`, or change the field",
     ]);
     // ...and the label follows the message, rather than pointing somewhere else.
     const label = compiled.diagnostics[0]!.labels![0]!;
-    expect(label.span.start.offset).toBeLessThan(text.indexOf("second"));
-    expect(label.span.start.offset).toBeGreaterThan(text.indexOf("first"));
+    const header = "module Main\n\n";
+    expect(label.span.start.offset).toBeLessThan(header.length + text.indexOf("second"));
+    expect(label.span.start.offset).toBeGreaterThan(header.length + text.indexOf("first"));
   });
 
   test("§6.3 a union's constructor slot is a witness too", () => {
-    const messages = projectDiagnostics(
-      "opaque union Handler(+a) = OnEach(step: a -> Unit)\n",
+    const messages = projectDiagnostics("module Main\n\n" + "opaque union Handler(+a) = OnEach(step: a -> Unit)\n",
     );
     expect(messages.some((message) =>
       message.includes("constructor slot `OnEach.step`")
@@ -360,10 +346,10 @@ describe("§6 declared variance on `opaque`", () => {
 
   test("§6.3 an unused parameter admits any claim", () => {
     expect(
-      projectDiagnostics("opaque record Tag(+a) = { name: String }\n"),
+      projectDiagnostics("module Main\n\n" + "opaque record Tag(+a) = { name: String }\n"),
     ).toEqual([]);
     expect(
-      projectDiagnostics("opaque record Tag(-a) = { name: String }\n"),
+      projectDiagnostics("module Main\n\n" + "opaque record Tag(-a) = { name: String }\n"),
     ).toEqual([]);
   });
 
@@ -374,8 +360,7 @@ describe("§6 declared variance on `opaque`", () => {
     // the case is a regression guard on the shape the stdlib ships and nothing
     // more — recorded because it looked like the SCC test and is not.
     expect(
-      projectDiagnostics(
-        "opaque record Chain(+a) = { pull: () -> Option((a, Chain(a))) }\n",
+      projectDiagnostics("module Main\n\n" + "opaque record Chain(+a) = { pull: () -> Option((a, Chain(a))) }\n",
       ),
     ).toEqual([]);
 
@@ -387,17 +372,16 @@ describe("§6 declared variance on `opaque`", () => {
     // the `-a` is refused. Both were verified to fail with `#slotVariance`'s
     // in-SCC branch removed.
     expect(
-      projectDiagnostics("opaque record Odd(+a) = { f: (Odd(a)) -> Unit }\n"),
+      projectDiagnostics("module Main\n\n" + "opaque record Odd(+a) = { f: (Odd(a)) -> Unit }\n"),
     ).toEqual([]);
     expect(
-      projectDiagnostics("opaque record Neg(-a) = { f: (Neg(a)) -> Unit }\n"),
+      projectDiagnostics("module Main\n\n" + "opaque record Neg(-a) = { f: (Neg(a)) -> Unit }\n"),
     ).toEqual([]);
   });
 
   test("§6.4 the claim governs in the home module too", () => {
     // No private view: an under-claiming author sees exactly what a client sees.
-    const messages = projectDiagnostics(
-      "opaque record Box(a) = { get: () -> a }\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "opaque record Box(a) = { get: () -> a }\n" +
         "exception Empty\n" +
         "fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
         "let b = makeBox()\n" +
@@ -422,26 +406,32 @@ describe("§6 declared variance on `opaque`", () => {
     "export let s: Box(String) = b\n";
 
   test("§6.1 a covariant claim on an opaque union is believed", () => {
-    expect(projectDiagnostics(UNION_BOX("+") + USE_BOX)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + UNION_BOX("+") + USE_BOX)).toEqual([]);
   });
 
   test("§6.2 the same union bare declines — the claim is what did the work", () => {
-    expect(projectDiagnostics(UNION_BOX("") + USE_BOX)).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + UNION_BOX("") + USE_BOX)).toEqual([
       "type mismatch: expected String, found Int",
     ]);
   });
 
   test("§6.4 a union's claim travels with the imported declaration", () => {
-    const client = 'import B from "./box.hex"\n' +
+    const client = 'import Box as B\n' +
       "let b = B.makeBox()\n" +
       "export let n: B.Box(Int) = b\n" +
       "export let s: B.Box(String) = b\n";
     expect(
-      compileFiles([["/box.hex", UNION_BOX("+")], ["/main.hex", client]])
+      compileFiles([
+        ["/box.hex", "module Box\n\n" + UNION_BOX("+")],
+        ["/main.hex", "module Main\n\n" + client],
+      ])
         .diagnostics.map(({ message }) => message),
     ).toEqual([]);
     expect(
-      compileFiles([["/box.hex", UNION_BOX("")], ["/main.hex", client]])
+      compileFiles([
+        ["/box.hex", "module Box\n\n" + UNION_BOX("")],
+        ["/main.hex", "module Main\n\n" + client],
+      ])
         .diagnostics.map(({ message }) => message),
     ).toEqual(["type mismatch: expected String, found Int"]);
   });
@@ -449,11 +439,11 @@ describe("§6 declared variance on `opaque`", () => {
   test("§6.4 a claim travels with an imported declaration", () => {
     const compiled = compileFiles([
       ["/box.hex",
-        "opaque record Box(+a) = { get: () -> a }\n" +
+        "module Box\n\n" + "opaque record Box(+a) = { get: () -> a }\n" +
         "exception Empty\n" +
         "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n"],
       ["/main.hex",
-        'import B from "./box.hex"\n' +
+        "module Main\n\n" + 'import Box as B\n' +
         "let b = B.makeBox()\n" +
         "export let n: B.Box(Int) = b\n" +
         "export let s: B.Box(String) = b\n"],
@@ -467,9 +457,9 @@ describe("§6 declared variance on `opaque`", () => {
     // `module.records` nor `module.unions` there — which is why the analysis is
     // sourced from the program and not from a module's own view.
     const compiled = compileFiles([
-      ["/box.hex", BOX],
-      ["/mid.hex", MID],
-      ["/main.hex", MAIN],
+      ["/box.hex", "module Box\n\n" + BOX],
+      ["/mid.hex", "module Mid\n\n" + MID],
+      ["/main.hex", "module Main\n\n" + MAIN],
     ]);
     expect(compiled.diagnostics.map(({ message }) => message)).toEqual([]);
   });
@@ -480,14 +470,14 @@ describe("§6 declared variance on `opaque`", () => {
     // import that `/main.hex` makes no use of is the sharpest form of "one import
     // away" — nothing about the program changes except what the module can see.
     const without = compileFiles([
-      ["/box.hex", BOX],
-      ["/mid.hex", MID],
-      ["/main.hex", MAIN],
+      ["/box.hex", "module Box\n\n" + BOX],
+      ["/mid.hex", "module Mid\n\n" + MID],
+      ["/main.hex", "module Main\n\n" + MAIN],
     ]);
     const with_ = compileFiles([
-      ["/box.hex", BOX],
-      ["/mid.hex", MID],
-      ["/main.hex", 'import Unused from "./box.hex"\n' + MAIN],
+      ["/box.hex", "module Box\n\n" + BOX],
+      ["/mid.hex", "module Mid\n\n" + MID],
+      ["/main.hex", "module Main\n\n" + 'import Box as Unused\n' + MAIN],
     ]);
     expect(without.diagnostics.map(({ message }) => message))
       .toEqual(with_.diagnostics.map(({ message }) => message));
@@ -500,11 +490,11 @@ const BOX = "opaque record Box(+a) = { get: () -> a }\n" +
   "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n";
 
 /** Re-exports `Box` under an alias, so the declaration's own name never travels. */
-const MID = 'import BoxHex from "./box.hex"\n' +
+const MID = 'import Box as BoxHex\n' +
   "export type Crate(a) = BoxHex.Box(a)\n" +
   "export fun makeCrate<a>(): Crate(a) = BoxHex.makeBox()\n";
 
-const MAIN = 'import MidHex from "./mid.hex"\n' +
+const MAIN = 'import Mid as MidHex\n' +
   "let c = MidHex.makeCrate()\n" +
   "export let n: MidHex.Crate(Int) = c\n" +
   "export let s: MidHex.Crate(String) = c\n";
@@ -518,7 +508,7 @@ describe("§6.1 the sigil grammar", () => {
       "export union Maybe(-a) = Just(value: a) | Nothing\n",
     ]) {
       // Declarations Preamble §2.1's normative text, exactly.
-      expect(projectDiagnostics(declaration)).toContain(
+      expect(projectDiagnostics("module Main\n\n" + declaration)).toContain(
         `variance is inferred for transparent types; remove the \`${
           declaration.includes("(+a)") ? "+" : "-"
         }\``,
@@ -528,7 +518,7 @@ describe("§6.1 the sigil grammar", () => {
 
   test("a sigil on a `type` alias is a parse error", () => {
     // One message for all three forms: an alias is transparent by definition.
-    expect(projectDiagnostics("type Pair(+a) = (a, a)\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "type Pair(+a) = (a, a)\n")).toContain(
       "variance is inferred for transparent types; remove the `+`",
     );
   });
@@ -552,15 +542,14 @@ describe("§6.1 the sigil grammar", () => {
       "Box(+(Int, Int))",
     ]) {
       expect(
-        projectDiagnostics(`${declarations}export let b: ${annotation} = throw(Empty)\n`),
+        projectDiagnostics("module Main\n\n" + `${declarations}export let b: ${annotation} = throw(Empty)\n`),
       ).toContain(message);
     }
   });
 
   test("§5.4 an annotation naming an opaque type carries no sigil and needs none", () => {
     expect(
-      projectDiagnostics(
-        "opaque record Box(+a) = { get: () -> a }\n" +
+      projectDiagnostics("module Main\n\n" + "opaque record Box(+a) = { get: () -> a }\n" +
           "exception Empty\n" +
           "export fun makeBox<a>(): Box(a) = Box({ get = () => throw(Empty) })\n" +
           "let b: Box(a) = makeBox()\n" +
@@ -610,13 +599,13 @@ describe("§5.3 the compiler-side claim table", () => {
     // `Node` is absent deliberately: it is not nameable in a type annotation
     // (`unknown generic type \`Node\``), which is what makes its row's warrant
     // `intrinsics.md` §4.2 rather than anything a user could write.
-    expect(projectDiagnostics("opaque record W(+a) = { v: Vector(a) }\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Vector(a) }\n")).toEqual([]);
     // `Map` moved sides at #370 and `Set` at #373: their rows are verified
     // (`co, co` and `co`) now, so both belong with `Vector` above rather than in
     // the invariant list below, which is down to the two borrowed foreign views.
-    expect(projectDiagnostics("opaque record W(+a) = { v: Map(String, a) }\n")).toEqual([]);
-    expect(projectDiagnostics("opaque record W(+a) = { v: Map(a, String) }\n")).toEqual([]);
-    expect(projectDiagnostics("opaque record W(+a) = { v: Set(a) }\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Map(String, a) }\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Map(a, String) }\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "opaque record W(+a) = { v: Set(a) }\n")).toEqual([]);
     for (
       const field of [
         "Array(a)",
@@ -626,7 +615,7 @@ describe("§5.3 the compiler-side claim table", () => {
         "JsMap(a, String)",
       ]
     ) {
-      expect(projectDiagnostics(`opaque record W(+a) = { v: ${field} }\n`)).toContain(
+      expect(projectDiagnostics("module Main\n\n" + `opaque record W(+a) = { v: ${field} }\n`)).toContain(
         "`a` cannot be declared covariant in `W`: field `v` uses `a` in an " +
           "invariant position. Remove the `+`, or change the field",
       );
@@ -649,7 +638,7 @@ describe("§13.2 nothing else may generalize a `var`'s type", () => {
   // and turns exactly one of these programs silent — which is the bug §13.2
   // exists to forbid: a polymorphic view of a binding that can still be
   // assigned at one type.
-  const EMPTY = "exception Empty\n";
+  const EMPTY = "module Main\n\n" + "exception Empty\n";
 
   test("the `Vector`/`Set`/`Array`/`Node` arm: an element variable", () => {
     expect(
@@ -726,8 +715,7 @@ describe("the acceptance test still runs", () => {
    * empty sequence, so it names the member it means.
    */
   test("§1.1's empty-sequence program produces both sequences", async () => {
-    const exports = await runMain(
-      "let e = Seq.empty\n" +
+    const exports = await runMain("module Main\n\n" + "let e = Seq.empty\n" +
         "export let ys: Int = Seq.length(Seq.prepend(e, 42))\n" +
         'export let xs: Int = Seq.length(Seq.prepend(e, "Briar"))\n',
     );
@@ -739,10 +727,10 @@ describe("the acceptance test still runs", () => {
     const source = "fun makeEmpty<a>(): Vector(a) = []\n" +
       "let xs = makeEmpty()\n" +
       "export let n: Int = Vector.length(xs)\n";
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
     expect(exports.n).toBe(0);
     const javascript = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", source),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
     ]).modules.find((module) => module.source.path === "/main.hex")!.javascript.text;
     // Generalization is types-only: the right-hand side still runs once, at its
     // textual position, and unconstrained variables carry no evidence (§11.2).

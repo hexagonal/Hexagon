@@ -92,7 +92,7 @@ function pathLength(decoder: Decoder, value: unknown): number {
 }
 
 beforeAll(async () => {
-  exports_ = await runMain(PROGRAM);
+  exports_ = await runMain("module Main\n\n" + PROGRAM);
 });
 
 describe("`kind` classifies ten ways (§3)", () => {
@@ -132,7 +132,7 @@ describe("`kind` classifies ten ways (§3)", () => {
     expect(kindOf(3.5)).toBe("Number");
     expect(kindOf(Number.NaN)).toBe("Number");
     expect(kindOf(Number.POSITIVE_INFINITY)).toBe("Number");
-    expect(projectDiagnostics("export let k: JsKind = JsKind.Int\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let k: JsKind = JsKind.Int\n"))
       .toEqual(["module `JsKind` does not export `Int`"]);
   });
 
@@ -210,8 +210,7 @@ describe("`kind` classifies ten ways (§3)", () => {
 
   /** The classification is reachable both ways: qualified, and as a dot call. */
   test("`JsValue.kind(v)` and `v.kind()` are the same operation", async () => {
-    const main = await runMain(
-      "export let qualified(v: JsValue): JsKind = JsValue.kind(v)\n" +
+    const main = await runMain("module Main\n\n" + "export let qualified(v: JsValue): JsKind = JsValue.kind(v)\n" +
         "export let dotted(v: JsValue): JsKind = v.kind()\n",
     );
     const qualified = main["qualified"] as (v: unknown) => unknown;
@@ -382,8 +381,7 @@ describe("the scalar decoders are strict and non-coercing (§4.1)", () => {
 
   /** The decoders reach through the dot as well, at the same companion. */
   test("`v.toInt()` is `JsValue.toInt(v)`", async () => {
-    const main = await runMain(
-      "export let dotted(v: JsValue): Result(Int, JsConversionError) = v.toInt()\n" +
+    const main = await runMain("module Main\n\n" + "export let dotted(v: JsValue): Result(Int, JsConversionError) = v.toInt()\n" +
         "export let ok(r: Result(Int, JsConversionError)): Bool = match r\n" +
         "    Ok(_) => True\n" +
         "    Err(_) => False\n",
@@ -404,8 +402,7 @@ describe("the failure type is ordinary data (§5.1)", () => {
    * throws an exception of its own choosing, at its own site.
    */
   test("a `JsConversionError` is not an exception and cannot be thrown", () => {
-    expect(projectDiagnostics(
-      "export let abort(v: JsValue): Int = match JsValue.toInt(v)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let abort(v: JsValue): Int = match JsValue.toInt(v)\n" +
         "    Ok(n) => n\n" +
         "    Err(e) => throw(e)\n",
     )[0]).toContain("Exn");
@@ -413,8 +410,7 @@ describe("the failure type is ordinary data (§5.1)", () => {
 
   /** And the value itself carries no `Error` machinery at run time. */
   test("the failure value has no stack, no name, and no brand", async () => {
-    const main = await runMain(
-      "export let fail(v: JsValue): Result(Int, JsConversionError) = JsValue.toInt(v)\n",
+    const main = await runMain("module Main\n\n" + "export let fail(v: JsValue): Result(Int, JsConversionError) = JsValue.toInt(v)\n",
     );
     const failure = (main["fail"] as (v: unknown) => { tag: string; error: unknown })("x");
     expect(failure.tag).toBe("Err");
@@ -437,8 +433,7 @@ describe("the failure type is ordinary data (§5.1)", () => {
    * `js-kind-qualification.test.ts`'s.
    */
   test("the whole path vocabulary and every reason class is nameable", () => {
-    expect(projectDiagnostics(
-      "export let segments: Vector(JsPathSegment) = [\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let segments: Vector(JsPathSegment) = [\n" +
         "    JsPathSegment.Field(\"name\"),\n" +
         "    JsPathSegment.Index(3),\n" +
         "    JsPathSegment.MapKey(2),\n" +
@@ -463,8 +458,7 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
    * which is what makes the dot call type-directed rather than lexical.
    */
   test("the qualified surface is the section's, and nothing else", () => {
-    expect(projectDiagnostics(
-      "export let a(v: JsValue): JsKind = JsValue.kind(v)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): JsKind = JsValue.kind(v)\n" +
         "export let b(v: JsValue): Result(Int, JsConversionError) = JsValue.toInt(v)\n" +
         "export let c(v: JsValue): Result(Float, JsConversionError) = JsValue.toFloat(v)\n" +
         "export let d(v: JsValue): Result(BigInt, JsConversionError) = JsValue.toBigInt(v)\n" +
@@ -480,8 +474,7 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
    * decoder that quietly left would be caught in the file that owns the list.
    */
   test("`toArray` completes the surface", () => {
-    expect(projectDiagnostics(
-      "export let a(v: JsValue): Result(Array(JsValue), JsConversionError) =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let a(v: JsValue): Result(Array(JsValue), JsConversionError) =\n" +
         "    JsValue.toArray(v)\n",
     )).toEqual([]);
   });
@@ -501,7 +494,7 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
       "asStringUnchecked",
       "isSafeInteger",
     ]) {
-      expect(projectDiagnostics(`export let x(v: JsValue): Int = JsValue.${name}(v)\n`))
+      expect(projectDiagnostics("module Main\n\n" + `export let x(v: JsValue): Int = JsValue.${name}(v)\n`))
         .toContain(`module \`JsValue\` does not export \`${name}\``);
     }
   });
@@ -509,9 +502,9 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
   /** The emitted classification is one helper, shared, and reached by import. */
   test("the companion's `kind` lowers to the guarded classification helper", () => {
     const compiled = compileFiles([["/main.hex",
-      "export let k(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
+      "module Main\n\n" + "export let k(v: JsValue): JsKind = JsValue.kind(v)\n"]]);
     expect(compiled.diagnostics).toEqual([]);
-    const companion = compiled.modules.find(({ source }) => source.path === "/JsValue.hex")!;
+    const companion = compiled.modules.find(({ name }) => name === "Hex.JsValue")!;
     const text = companion.javascript.text;
     // The ladder answers with the module's hoisted constants (#771 B1), whose
     // names take Lexer §3.2's reservation and, where that collides with a
@@ -549,10 +542,10 @@ describe("the companion is `stdlib/JsValue.hex` (Method Syntax §4.1)", () => {
  */
 describe("the bare namespace this slice narrows (Modules §5.5)", () => {
   test("bare `toInt` and `toFloat` are refused, naming both homes", () => {
-    expect(projectDiagnostics("export let n(b: BigInt): Int = toInt(b)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let n(b: BigInt): Int = toInt(b)\n")).toEqual([
       "no bare `toInt`; write `b.toInt()`, `BigInt.toInt(b)`, or `JsValue.toInt(b)`",
     ]);
-    expect(projectDiagnostics("export let f(b: BigInt): Float = toFloat(b)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let f(b: BigInt): Float = toFloat(b)\n")).toEqual([
       "no bare `toFloat`; write `b.toFloat()`, `BigInt.toFloat(b)`, " +
       "or `JsValue.toFloat(b)`",
     ]);
@@ -565,15 +558,14 @@ describe("the bare namespace this slice narrows (Modules §5.5)", () => {
    * reader has to do.
    */
   test("the argument's type does not change the refusal", () => {
-    expect(projectDiagnostics("export let n(v: JsValue): Int = toInt(v)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let n(v: JsValue): Int = toInt(v)\n")).toEqual([
       "no bare `toInt`; write `v.toInt()`, `BigInt.toInt(v)`, or `JsValue.toInt(v)`",
     ]);
   });
 
   /** And both offered repairs answer, alongside the dot call §5.5 leaves alone. */
   test("the qualified spelling and the dot call both compile", () => {
-    expect(projectDiagnostics(
-      "export let a(b: BigInt): Option(Int) = BigInt.toInt(b)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let a(b: BigInt): Option(Int) = BigInt.toInt(b)\n" +
         "export let b_(b: BigInt): Option(Int) = b.toInt()\n" +
         "export let c(b: BigInt): Float = BigInt.toFloat(b)\n" +
         "export let d(b: BigInt): Float = b.toFloat()\n" +
@@ -584,8 +576,7 @@ describe("the bare namespace this slice narrows (Modules §5.5)", () => {
 
   /** Run, because "compiles" is not the claim — the two homes stay two answers. */
   test("the two homes answer their own way at run time", async () => {
-    const main = await runMain(
-      "export let qualified: Option(Int) = BigInt.toInt(5n)\n" +
+    const main = await runMain("module Main\n\n" + "export let qualified: Option(Int) = BigInt.toInt(5n)\n" +
         "export let dotted: Option(Int) = 5n.toInt()\n" +
         "export let widened: Float = BigInt.toFloat(5n)\n" +
         "export let dottedFloat: Float = 5n.toFloat()\n" +

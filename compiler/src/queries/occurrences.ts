@@ -42,7 +42,14 @@ export type Target =
   | { readonly kind: "union"; readonly union: Resolved.UnionId }
   | { readonly kind: "record"; readonly record: Resolved.RecordId }
   | { readonly kind: "extern-type"; readonly externType: Resolved.ExternTypeId }
-  | { readonly kind: "constraint"; readonly name: string };
+  | { readonly kind: "constraint"; readonly name: string }
+  /**
+   * A module, keyed by its **full name** (Packages §2.3) — the identity a module
+   * has (Modules §1), so `import Geometry` in one file and `module Geometry` in
+   * another are one target however each is spelled, and `import Hex.Option`
+   * lands on the prelude module rather than on a project's own `Option`.
+   */
+  | { readonly kind: "module"; readonly name: string };
 
 /**
  * Whether this occurrence is the site that introduces the identity or a use of
@@ -60,9 +67,11 @@ export interface Occurrence {
   readonly span: Source.Span;
 }
 
-/** The four views of one module this query needs; a subset of `CompiledModule`. */
+/** The views of one module this query needs; a subset of `CompiledModule`. */
 export interface ModuleInput {
   readonly source: Source.File;
+  /** This module's full name (Packages §2.3) — the identity its header declares. */
+  readonly name: string;
   readonly parsed: Parsed.Module;
   readonly resolved: Resolved.Module;
   readonly typed: Typed.Module;
@@ -97,6 +106,8 @@ export function targetKey(target: Target): string {
       return `extern-type:${Number(target.externType)}`;
     case "constraint":
       return `constraint:${target.name}`;
+    case "module":
+      return `module:${target.name}`;
   }
 }
 
@@ -117,6 +128,7 @@ export function collectOccurrences(
 
 class Collector {
   readonly #source: Source.File;
+  readonly #name: string;
   readonly #parsed: Parsed.Module;
   readonly #resolved: Resolved.Module;
   readonly #typed: Typed.Module;
@@ -128,6 +140,7 @@ class Collector {
 
   constructor(module: ModuleInput, options: CollectOptions) {
     this.#source = module.source;
+    this.#name = module.name;
     this.#parsed = module.parsed;
     this.#resolved = module.resolved;
     this.#typed = module.typed;
@@ -136,6 +149,7 @@ class Collector {
   }
 
   run(): readonly Occurrence[] {
+    this.#collectModuleOccurrences();
     this.#collectValueDefinitions();
     this.#collectTypeDefinitions();
     for (const item of this.#resolved.items) {
@@ -188,6 +202,61 @@ class Collector {
   }
 
   // -------------------------------------------------------------- definitions
+
+  /**
+   * The module header as a definition, and every `import` head as a reference
+   * to one (Modules §2.1, §3.1).
+   *
+   * This is what makes go-to-definition work on `import Geometry`: the header
+   * of the module named is where a reader wants to land, and since #829 that
+   * name — not a path, which the line no longer carries — is the only thing
+   * there is to follow. Find-references over the header answers with every
+   * import of the module, which is the question "who depends on this?".
+   *
+   * **Keyed by full name, taken from the resolution and not from the spelling.**
+   * `Option`, `Hex.Option` and `import Hex.Option as Opt` are three spellings of
+   * one module (Packages §3.4), and reading the written text would make three
+   * targets of them. The resolved import carries the name the program settled
+   * on; a written name that resolved to nothing carries the empty one, and is
+   * skipped rather than published as a target no header can answer.
+   *
+   * A file with no header of its own publishes no definition: the parser
+   * derives a name there and refuses it (§2.1), and offering that derived name
+   * as a declaration site would send a reader to a line that has to change.
+   */
+  #collectModuleOccurrences(): void {
+    if (this.#parsed.name.declared) {
+      this.#publish(
+        { kind: "module", name: this.#name },
+        "definition",
+        this.#parsed.name.text,
+        this.#parsed.name.span,
+      );
+    }
+    // Keyed by the import **line**, not by its alias spelling. A resolved import
+    // carries the span of the parsed item it came from, so the two lists pair by
+    // identity; keying by alias made two imports landing on one spelling (§5.2's
+    // collision, an error state) publish both written heads as references to
+    // whichever of them resolved last.
+    const resolvedNames = new Map<number, string>();
+    for (const item of this.#resolved.items) {
+      if (item.kind !== "Import" || item.synthesized) continue;
+      if (item.form.kind !== "Namespace") continue;
+      resolvedNames.set(item.span.start.offset, item.moduleName);
+    }
+    for (const item of this.#parsed.items) {
+      if (item.kind !== "Import") continue;
+      // A **derived** name is the parser's recovery of a refused head (§3.1) —
+      // the line the author wrote is `import Geo from "./geometry"`, and
+      // publishing a module reference over the whole refused line would offer
+      // go-to-definition on text that has to change. `compileProject`'s edge
+      // loop skips the same items for the same reason.
+      if (!item.module.declared) continue;
+      const full = resolvedNames.get(item.span.start.offset);
+      if (full === undefined || full === "") continue;
+      this.#publish({ kind: "module", name: full }, "reference", item.module.text, item.module.span);
+    }
+  }
 
   #collectValueDefinitions(): void {
     // `symbols` carries every symbol the module can see, imported ones included;

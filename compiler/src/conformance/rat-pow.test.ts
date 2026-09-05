@@ -39,7 +39,7 @@ const RAT = (() => {
 
 function withRat(source: string): readonly (readonly [string, string])[] {
   return [
-    ["/main.hex", `import Rat from "./Rat"\n${source}`],
+    ["/main.hex", "module Main\n\n" + `import Rat\n${source}`],
     ["/Rat.hex", RAT],
   ];
 }
@@ -214,7 +214,7 @@ describe("the one partiality left, and where it reports", () => {
       "export let boom(): Rat.Rat = Rat.pow(Rat.create(0, 1), -1)\n",
     );
     const main = await runProject(files);
-    const pow = await runProject(files, { entry: "/Pow.hex" });
+    const pow = await runProject(files, { entry: "/Hex/Pow.hex" });
 
     const error = threw(main["boom"] as () => unknown);
     const negative = pow["NegativeExponentError"] as { is: (value: unknown) => boolean };

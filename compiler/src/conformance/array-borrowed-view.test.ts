@@ -73,7 +73,7 @@ function peeked(xs: readonly number[], index: number): number {
 
 /** `/main.hex`'s emitted JavaScript, for the emission-shape assertions. */
 function mainJavaScript(source: string): string {
-  const compiled = compileMain(source);
+  const compiled = compileMain("module Main\n\n" + source);
   expect(compiled.diagnostics).toEqual([]);
   const main = compiled.modules.find(({ source: file }) => file.path === "/main.hex");
   if (main === undefined) throw new Error("no /main.hex in the compiled project");
@@ -82,7 +82,7 @@ function mainJavaScript(source: string): string {
 
 /** The emitted JavaScript of the injected `stdlib/Array.hex`. */
 function companionJavaScript(): string {
-  const compiled = compileMain("export let size(xs: Array(Int)): Int = Array.length(xs)\n");
+  const compiled = compileMain("module Main\n\n" + "export let size(xs: Array(Int)): Int = Array.length(xs)\n");
   expect(compiled.diagnostics).toEqual([]);
   const companion = compiled.modules.find(({ source }) => source.path.endsWith("/Array.hex"));
   if (companion === undefined) throw new Error("no Array.hex in the compiled project");
@@ -90,7 +90,7 @@ function companionJavaScript(): string {
 }
 
 beforeAll(async () => {
-  exports_ = await runMain(PROGRAM);
+  exports_ = await runMain("module Main\n\n" + PROGRAM);
 });
 
 describe("`xs[i]` is 1-based, asserting, and native underneath (§6.3)", () => {
@@ -143,10 +143,13 @@ describe("`xs[i]` is 1-based, asserting, and native underneath (§6.3)", () => {
    * `index` as passed and `size` at the fault.
    */
   test("the throw carries `IndexError`'s identity and payload", async () => {
+    // The brand is the module's **full** name (Packages §2.3) — `Hex.Vector`
+    // for the prelude's `Vector` — stamped by the `__arrayIndex` helper and
+    // tested by every catch arm from the one seat that spells it.
     await expect(async () => read([10, 20, 30], 99)).rejects
-      .toMatchObject({ name: "IndexError", $hex: "Vector", index: 99, size: 3 });
+      .toMatchObject({ name: "IndexError", $hex: "Hex.Vector", index: 99, size: 3 });
     await expect(async () => read([10, 20, 30], 0)).rejects
-      .toMatchObject({ name: "IndexError", $hex: "Vector", index: 0, size: 3 });
+      .toMatchObject({ name: "IndexError", $hex: "Hex.Vector", index: 0, size: 3 });
   });
 
   /**
@@ -156,6 +159,9 @@ describe("`xs[i]` is 1-based, asserting, and native underneath (§6.3)", () => {
    * above would not have proved it.
    */
   test("an `IndexError(index, size)` arm catches it and binds both slots", () => {
+    // The other half of the brand's one seat: the generated guard tests
+    // `$hex === "Hex.Vector"` and `__arrayIndex`'s throw stamps it, so the arm
+    // matches. The two used to be written out separately and drifted (#829).
     const guarded = exports_["guarded"] as (xs: readonly number[], i: number) => number;
     expect(guarded([10, 20, 30], 9)).toBe(9 * 1000 + 3);
     expect(guarded([10, 20, 30], 0)).toBe(0 * 1000 + 3);
@@ -255,8 +261,7 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
    * here rather than passing on a substring.
    */
   test("the bare read `xs.length` is the specialized hard error", () => {
-    const messages = projectDiagnostics(
-      "export let n(xs: Array(Int)): Int = xs.length\n",
+    const messages = projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Int = xs.length\n",
     );
     expect(messages).toEqual([
       "`Array(a)` is a borrowed foreign view, not a record: it has no fields, and " +
@@ -266,8 +271,7 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
   });
 
   test("the message explains grammar, and never says the name is wrong", () => {
-    const [message] = projectDiagnostics(
-      "export let n(rows: Array(Int)): Int = rows.length\n",
+    const [message] = projectDiagnostics("module Main\n\n" + "export let n(rows: Array(Int)): Int = rows.length\n",
     );
     // The subject is the absence of a field surface (§13.1 fact 1)...
     expect(message).toContain("not a record");
@@ -279,8 +283,7 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
   });
 
   test("both rewrites are named, canonical first (§13.1 fact 2)", () => {
-    const [message] = projectDiagnostics(
-      "export let n(rows: Array(Int)): Int = rows.length\n",
+    const [message] = projectDiagnostics("module Main\n\n" + "export let n(rows: Array(Int)): Int = rows.length\n",
     );
     // The author's own spelling, so both rewrites are pasteable.
     expect(message).toContain("`Array.length(rows)`");
@@ -305,8 +308,7 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
    * this reason.
    */
   test("a receiver with no name is spelled neutrally, never manufactured", () => {
-    const messages = projectDiagnostics(
-      "export let n(xs: Vector(Int), xss: Array(Array(Int))): Int = xss[1].length\n",
+    const messages = projectDiagnostics("module Main\n\n" + "export let n(xs: Vector(Int), xss: Array(Array(Int))): Int = xss[1].length\n",
     );
     expect(messages).toEqual([
       "`Array(a)` is a borrowed foreign view, not a record: it has no fields, and " +
@@ -318,8 +320,7 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
     expect(messages[0]).not.toContain("xs");
     // And the premise, so the row cannot pass vacuously: `xs.length()` really
     // would have compiled, against the wrong receiver.
-    expect(projectDiagnostics(
-      "export let n(xs: Vector(Int), xss: Array(Array(Int))): Int = xs.length()\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let n(xs: Vector(Int), xss: Array(Array(Int))): Int = xs.length()\n",
     )).toEqual([]);
   });
 
@@ -329,8 +330,7 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
    * gets one tuned message, for the one reflex that earns it.
    */
   test("another field name takes the ordinary refusal, not this one", () => {
-    const messages = projectDiagnostics(
-      "export let n(xs: Array(Int)): Int = xs.count\n",
+    const messages = projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Int = xs.count\n",
     );
     expect(messages).not.toEqual([]);
     expect(messages.join("\n")).not.toContain("borrowed foreign view");
@@ -349,7 +349,7 @@ describe("the dot form is companion dispatch, and the bare read is not (§13.1)"
  */
 describe("the vocabulary this module spends (Modules §5.5)", () => {
   test("`length`'s refusal grows by one home when `Array` joins", () => {
-    expect(projectDiagnostics("export let n(v: Vector(Int)): Int = length(v)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(v: Vector(Int)): Int = length(v)\n"))
       .toEqual([
         "no bare `length`; write `v.length()`, `Seq.length(v)`, `Vector.length(v)`, " +
         "or `Array.length(v)`",
@@ -359,7 +359,7 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
   test("`get`'s refusal grows by one home when `Array` joins", () => {
     // Five homes now: `JsMap.get` joined at #792, which is the same growth one
     // arc later and changes nothing about this module's spend.
-    expect(projectDiagnostics("export let n(v: Vector(Int)): Option(Int) = get(v, 1)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(v: Vector(Int)): Option(Int) = get(v, 1)\n"))
       .toEqual([
         "no bare `get`; write `v.get(1)`, `Vector.get(v, 1)`, `Map.get(v, 1)`, " +
         "`Array.get(v, 1)`, or `JsMap.get(v, 1)`",
@@ -373,7 +373,7 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
    * being single-homed buys no bare spelling.
    */
   test("`toVector` is single-homed, and still has no bare spelling", () => {
-    expect(projectDiagnostics("export let n(xs: Array(Int)): Vector(Int) = toVector(xs)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Vector(Int) = toVector(xs)\n"))
       .toEqual(["no bare `toVector`; write `xs.toVector()` or `Array.toVector(xs)`"]);
   });
 
@@ -384,13 +384,13 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
    * of its own to leak.
    */
   test("the module exports exactly `length`, `get` and `toVector`", () => {
-    expect(projectDiagnostics("export let n(xs: Array(Int)): Int = Array.length(xs)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Int = Array.length(xs)\n"))
       .toEqual([]);
-    expect(projectDiagnostics("export let n(xs: Array(Int)): Option(Int) = Array.get(xs, 1)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Option(Int) = Array.get(xs, 1)\n"))
       .toEqual([]);
-    expect(projectDiagnostics("export let n(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n"))
       .toEqual([]);
-    expect(projectDiagnostics("export let n(xs: Array(Int)): Int = Array.arrayLength(xs)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n(xs: Array(Int)): Int = Array.arrayLength(xs)\n"))
       .toEqual(["module `Array` does not export `arrayLength`"]);
   });
 });
@@ -408,12 +408,12 @@ describe("the vocabulary this module spends (Modules §5.5)", () => {
  */
 describe("two of §9's four conversions have shipped", () => {
   test("`Vector.toArray` compiles, and is no longer one of the absences", () => {
-    expect(projectDiagnostics("export let a(v: Vector(Int)): Array(Int) = Vector.toArray(v)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let a(v: Vector(Int)): Array(Int) = Vector.toArray(v)\n"))
       .toEqual([]);
   });
 
   test("`Array.toVector` compiles, and is no longer one of the absences", () => {
-    expect(projectDiagnostics("export let a(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let a(xs: Array(Int)): Vector(Int) = Array.toVector(xs)\n"))
       .toEqual([]);
   });
 });
@@ -424,7 +424,7 @@ describe("what this slice does not ship is absent, not stubbed (§9.1)", () => {
     ["toSeq", "export let a(xs: Array(Int)): Seq(Int) = Array.toSeq(xs)\n"],
     ["fromSeq", "export let a(s: Seq(Int)): Array(Int) = Array.fromSeq(s)\n"],
   ])("`Array.%s` is the ordinary unknown-export error", (name, source) => {
-    expect(projectDiagnostics(source))
+    expect(projectDiagnostics("module Main\n\n" + source))
       .toEqual([`module \`Array\` does not export \`${name}\``]);
   });
 
@@ -435,7 +435,7 @@ describe("what this slice does not ship is absent, not stubbed (§9.1)", () => {
    * would be false about a receiver that *is* an `Array`.
    */
   test("the slice `xs[lo..hi]` is refused, naming what does read", () => {
-    expect(projectDiagnostics("export let a(xs: Array(Int)): Array(Int) = xs[1..2]\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let a(xs: Array(Int)): Array(Int) = xs[1..2]\n"))
       .toEqual([
         "slicing an `Array` is not available; `Array.get` and `xs[i]` read one element",
       ]);
@@ -449,8 +449,7 @@ describe("what this slice does not ship is absent, not stubbed (§9.1)", () => {
    * whose bracket compiles.
    */
   test("its element read is spelled at the author's receiver, or not at all", () => {
-    expect(projectDiagnostics(
-      "export let a(xs: Vector(Int), xss: Array(Array(Int))): Array(Int) = xss[1][1..2]\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let a(xs: Vector(Int), xss: Array(Array(Int))): Array(Int) = xss[1][1..2]\n",
     )).toEqual([
       "slicing an `Array` is not available; `Array.get` and `…[i]` read one element",
     ]);
@@ -462,9 +461,9 @@ describe("what this slice does not ship is absent, not stubbed (§9.1)", () => {
    * has no assignment grammar at all, so the refusal is the parser's.
    */
   test("there is no `set`, and no assignment-to-index grammar", () => {
-    expect(projectDiagnostics("export let a(xs: Array(Int)): Array(Int) = Array.set(xs, 1, 9)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let a(xs: Array(Int)): Array(Int) = Array.set(xs, 1, 9)\n"))
       .toEqual(["module `Array` does not export `set`"]);
-    expect(projectDiagnostics("export let a(xs: Array(Int)): Unit =\n    xs[1] = 9\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let a(xs: Array(Int)): Unit =\n    xs[1] = 9\n"))
       .not.toEqual([]);
   });
 });

@@ -23,7 +23,7 @@ import type { CompiledModule } from "../project.js";
  */
 
 function compiled(source: string): CompiledModule {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!;
 }
 
@@ -42,7 +42,7 @@ function attachments(source: string): readonly string[] {
 }
 
 function diagnostics(source: string): readonly string[] {
-  return compileMain(source).diagnostics.map(({ message }) => message);
+  return compileMain("module Main\n\n" + source).diagnostics.map(({ message }) => message);
 }
 
 const DANGLING =
@@ -149,10 +149,16 @@ describe("§11: attachment", () => {
     expect(diagnostics(source)).toEqual([]);
   });
 
+  // A doc comment that closes mid-line before code is still leading (§4.3).
+  // The seat is a member block whose only member sets the block's column:
+  // at the module top level the mandatory header owns column 1 (Lexer &
+  // Layout §3, Modules §2.1), so a top-level item pushed off that column by
+  // a same-line comment is the ordinary offside error, not an attachment case.
   test("a doc comment closing mid-line before code is leading", () => {
-    const source = "(** doc *) let x = 1\n";
+    const source = "constraint Keyed<c> =\n" +
+      "    (** doc *) keyOf(x: c): Int\n";
 
-    expect(attachments(source)).toEqual(['let x = 1 :: "doc"']);
+    expect(attachments(source)).toEqual(['keyOf(x: c): Int :: "doc"']);
     expect(diagnostics(source)).toEqual([]);
   });
 
@@ -255,7 +261,7 @@ describe("§5: the hard errors", () => {
   });
 
   test("an import is not documentable, and the message names the deferral", () => {
-    const source = '(** Module header? *)\nimport Other from "./other.hex"\n';
+    const source = '(** Module header? *)\nimport Other\n';
 
     expect(diagnostics(source)[0]).toBe(
       `${DANGLING} imports are not documentable; module-level documentation is not in v1.`,
@@ -329,7 +335,7 @@ describe("§5: the hard errors", () => {
     const source = "(** never closed\n";
 
     expect(diagnostics(source)).toEqual([
-      "unterminated block comment; opened at line 1, column 1",
+      "unterminated block comment; opened at line 3, column 1",
     ]);
   });
 });
@@ -619,10 +625,10 @@ describe("termination is the lexer's answer, not the text's", () => {
     // `(** a (* b *)` ends in `*)` and is open at depth 1 all the same; asking
     // the text would admit it to a block and stack "documents nothing" on top.
     expect(diagnostics("(** doc (* inner *)")).toEqual([
-      "unterminated block comment; opened at line 1, column 1",
+      "unterminated block comment; opened at line 3, column 1",
     ]);
     expect(diagnostics("(** doc")).toEqual([
-      "unterminated block comment; opened at line 1, column 1",
+      "unterminated block comment; opened at line 3, column 1",
     ]);
   });
 });

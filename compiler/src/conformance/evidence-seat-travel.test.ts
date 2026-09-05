@@ -91,8 +91,10 @@ const LIB_B = fancyLib("fancyB", "useB", "B");
  */
 function mid(conjunction: string): string {
   return [
-    'import LibA from "./liba.hex"',
-    'import LibB from "./libb.hex"',
+    'module Mid',
+    '',
+    'import Liba as LibA',
+    'import Libb as LibB',
     "",
     `export let both<u: ${conjunction}>(v: u): String = ` +
       '"${LibA.useA(v)}|${LibB.useB(v)}"',
@@ -105,7 +107,7 @@ const FLIPPED = "(LibB.Fancy, LibA.Fancy)";
 
 /** A saturated call at `Int`, which Part 8 routes to an edition. */
 const CALLS_DIRECTLY = [
-  'import Mid from "./mid.hex"',
+  'import Mid',
   "",
   "let seven: Int = 7",
   "export let r: String = Mid.both(seven)",
@@ -114,7 +116,7 @@ const CALLS_DIRECTLY = [
 
 /** The same call from an inferred generalized function, which is not routed. */
 const CALLS_THROUGH_WRAPPER = [
-  'import Mid from "./mid.hex"',
+  'import Mid',
   "",
   "let wrap(v) = Mid.both(v)",
   "let seven: Int = 7",
@@ -124,7 +126,7 @@ const CALLS_THROUGH_WRAPPER = [
 
 /** The same call through a value-position reference of the imported function. */
 const CALLS_THROUGH_ALIAS = [
-  'import Mid from "./mid.hex"',
+  'import Mid',
   "",
   "let alias = Mid.both",
   "let seven: Int = 7",
@@ -137,10 +139,10 @@ function graph(
   main: string,
 ): readonly (readonly [string, string])[] {
   return [
-    ["/liba.hex", LIB_A],
-    ["/libb.hex", LIB_B],
+    ["/liba.hex", "module Liba\n\n" + LIB_A],
+    ["/libb.hex", "module Libb\n\n" + LIB_B],
     ["/mid.hex", mid(conjunction)],
-    ["/main.hex", main],
+    ["/main.hex", "module Main\n\n" + main],
   ];
 }
 
@@ -329,8 +331,8 @@ describe("a recursion knot agrees with itself about both seats", () => {
    * `"A7|A7"` and not a crash.
    */
   const KNOT = [
-    'import LibA from "./liba.hex"',
-    'import LibB from "./libb.hex"',
+    'import Liba as LibA',
+    'import Libb as LibB',
     "",
     "fun walk<u: (LibA.Fancy, LibB.Fancy)>(v: u, n: Int): String =",
     '    if n <= 0 then "${LibA.useA(v)}|${LibB.useB(v)}" else walk(v, n - 1)',
@@ -341,9 +343,9 @@ describe("a recursion knot agrees with itself about both seats", () => {
   ].join("\n");
 
   const files = [
-    ["/liba.hex", LIB_A],
-    ["/libb.hex", LIB_B],
-    ["/main.hex", KNOT],
+    ["/liba.hex", "module Liba\n\n" + LIB_A],
+    ["/libb.hex", "module Libb\n\n" + LIB_B],
+    ["/main.hex", "module Main\n\n" + KNOT],
   ] as const;
 
   test("the self-call forwards the two seats it was handed, in order", () => {
@@ -368,8 +370,8 @@ describe("a parameterized instance's factory takes the head's flipped list", () 
    * element.
    */
   const HONOR = [
-    'import LibA from "./liba.hex"',
-    'import LibB from "./libb.hex"',
+    'import Liba as LibA',
+    'import Libb as LibB',
     "",
     "record Box(t) = {value: t}",
     "",
@@ -383,9 +385,9 @@ describe("a parameterized instance's factory takes the head's flipped list", () 
   ].join("\n");
 
   const files = [
-    ["/liba.hex", LIB_A],
-    ["/libb.hex", LIB_B],
-    ["/main.hex", HONOR],
+    ["/liba.hex", "module Liba\n\n" + LIB_A],
+    ["/libb.hex", "module Libb\n\n" + LIB_B],
+    ["/main.hex", "module Main\n\n" + HONOR],
   ] as const;
 
   test("the body reads the seat the head's own list names, not the first", () => {

@@ -214,9 +214,12 @@ token-inventory change had to be made twice, and silently wasn't (#145). The cos
 consolidating is `onig.wasm`, 473 KB raw / 162 KB gzipped, on a page that already
 ships Monaco.
 
-Playground's own `module` / `end module` notation is not `.hex` syntax, so it is not in
-the shared grammar. It lives in `src/playground-module.tmLanguage.json`, a TextMate
-injection Playground alone loads.
+Playground's own `module` / `end module` notation **is** `.hex` syntax since #829
+(`spec/modules.md` §2.1), so the shared grammar paints it and Playground loads no
+grammar of its own. The injection that painted the notation while the two forms were
+distinct is retired: one language, one grammar, and both editors agree about the line
+by construction. A name the language refuses — `module foo` — paints as ordinary code,
+and the host's diagnostic is what says why.
 
 Monaco does not officially support mobile browsers. The playground is therefore Monaco-first on supported desktop browsers and retains a plain textarea editor for mobile, unsupported environments, initial loading, or editor-startup failure. The fallback must still support source editing, compilation, diagnostics in the Errors tab, generated views, and explicit Run; richer inline language services may be unavailable there. Switching to or from the fallback must preserve the current source and source version.
 

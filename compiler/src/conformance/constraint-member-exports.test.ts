@@ -33,14 +33,14 @@ function stdlib(basename: string): string {
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Bool = equalz(1, 1)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Bool = equalz(1, 1)\n"))
       .toEqual(["unknown name `equalz`"]);
   });
 });
 
 describe("generic member calls exist (the note's §4: previously unspellable)", () => {
   test("a generic `compare` — Method Syntax §9 row 6's promise, discharged", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let ordering<a: Ord>(left: a, right: a): Ordering = Ord.compare(left, right)",
       "",
       "export let ints: String = \"${ordering(1, 2)}\"",
@@ -55,7 +55,7 @@ describe("generic member calls exist (the note's §4: previously unspellable)", 
   });
 
   test("a generic `equals`, dispatching per instantiation", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let same<a: Eq>(left: a, right: a): Bool = Eq.equals(left, right)",
       "",
       "export let onInts: Bool = same(3, 3)",
@@ -75,7 +75,7 @@ describe("generic member calls exist (the note's §4: previously unspellable)", 
    * remainder is non-negative unconditionally), `-7 quot 2` is `-3`.
    */
   test("a generic `div` and `quot`, with the Euclidean/truncated split visible", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let euclidean<a: Integral>(left: a, right: a): a = Integral.div(left, right)",
       "export let truncated<a: Integral>(left: a, right: a): a = Integral.quot(left, right)",
       "",
@@ -93,7 +93,7 @@ describe("generic member calls exist (the note's §4: previously unspellable)", 
   });
 
   test("`Hash.hash`, in pipe and higher-order position as well as applied", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let applied: Int = Hash.hash(42)",
       "export let piped: Int = 42 |> Hash.hash",
       "",
@@ -116,7 +116,7 @@ describe("generic member calls exist (the note's §4: previously unspellable)", 
 
 describe("qualified access to a declaring module (ordinary access to an export)", () => {
   test("`Eq.equals`, `Ord.compare`, `Num.add`, `Hash.hash`, `Integral.gcd`", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let equal: Bool = Eq.equals(1, 1)",
       "export let unequal: Bool = Eq.notEquals(1, 2)",
       "export let ordered: String = \"${Ord.compare(1, 2)}\"",
@@ -139,7 +139,7 @@ describe("qualified access to a declaring module (ordinary access to an export)"
 
 describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () => {
   test("an instance that omits it inherits the negation, bare and through `!=`", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export record Odd = {n: Int}",
       "",
       "honor Eq<Odd> =",
@@ -178,7 +178,7 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
    * behavioural pin therefore cannot see this: it has to read the text.
    */
   test("the inherited default emits no reference to a helper that cannot travel", () => {
-    const project = compileMain([
+    const project = compileMain("module Main\n\n" + [
       "export record Pair = {n: Int}",
       "",
       "honor Eq<Pair> =",
@@ -204,7 +204,7 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
    * would be the negation instead.
    */
   test("an override is honored, bare and through `!=`", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export record Weird = {n: Int}",
       "",
       "honor Eq<Weird> =",
@@ -230,14 +230,14 @@ describe("`Eq`'s defaulted `notEquals` (Constraints §2's first default)", () =>
  */
 describe("`concat` has two prelude exporters (Modules §5.5, accepted)", () => {
   test("the bare name is refused, naming both qualified homes", () => {
-    expect(projectDiagnostics("export let r: String = concat(\"a\", \"b\")\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let r: String = concat(\"a\", \"b\")\n")).toEqual([
       "no bare `concat`; write `(\"a\").concat(\"b\")`, " +
         "`Concat.concat(\"a\", \"b\")`, or `Seq.concat(\"a\", \"b\")`",
     ]);
   });
 
   test("both qualified spellings work, and dot call is untouched", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let left: Seq(Int) = [1, 2].toSeq()",
       "let right: Seq(Int) = [3].toSeq()",
       "",
@@ -257,7 +257,7 @@ describe("`concat` has two prelude exporters (Modules §5.5, accepted)", () => {
 
 describe("`Integral` is a held declaration now, not a name", () => {
   test("a module-level redeclaration is refused as a pre-registered twin", () => {
-    expect(projectDiagnostics([
+    expect(projectDiagnostics("module Main\n\n" + [
       "constraint Integral<a: (Num, Ord)> =",
       "    div(left: a, right: a): a",
       "",
@@ -272,7 +272,7 @@ describe("`Integral` is a held declaration now, not a name", () => {
    * Euclidean answer (note §5 item 10).
    */
   test("the `Int.div` guard spelling still works beside the member", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let guarded: Int = Int.div(-7, 2)",
       "export let member: Int = (-7).div(2)",
       "export let qualified: Int = Integral.div(-7, 2)",
@@ -302,7 +302,7 @@ describe("`Hash` stays derivable-only with its declaration in view", () => {
    * pin doubles as a regression site for it.
    */
   test("a hand-written `honor Hash<T>` is refused with the derivable-only diagnostic", () => {
-    expect(projectDiagnostics([
+    expect(projectDiagnostics("module Main\n\n" + [
       "export record Point = {x: Int}",
       "",
       "honor Hash<Point> =",
@@ -315,7 +315,7 @@ describe("`Hash` stays derivable-only with its declaration in view", () => {
   });
 
   test("and a derived one still answers", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export record Point derives (Eq, Hash) = {x: Int}",
       "",
       "export let stable: Bool = Hash.hash(Point({x = 1})) == Hash.hash(Point({x = 1}))",
@@ -338,8 +338,8 @@ describe("`Hash` stays derivable-only with its declaration in view", () => {
  */
 describe("Rat after the fold-in", () => {
   const project = [
-    ["/main.hex", [
-      "import Rat from \"./Rat\"",
+    ["/main.hex", "module Main\n\n" + [
+      "import Rat",
       "",
       "let half: Rat.Rat = Rat.create(1n, 2n)",
       "let third: Rat.Rat = Rat.create(1n, 3n)",
@@ -372,8 +372,8 @@ describe("Rat after the fold-in", () => {
 
   test("`divide`'s zero check moved with its body", async () => {
     const exports = await runProject([
-      ["/main.hex", [
-        "import Rat from \"./Rat\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Rat",
         "",
         "export fun attempt(): String =",
         "    \"${Rat.create(1n, 2n) / Rat.create(0n, 5n)}\"",
@@ -400,8 +400,8 @@ describe("Rat after the fold-in", () => {
    */
   test("`Num.add` at `Rat` reaches the honored member through the prelude export", async () => {
     const exports = await runProject([
-      ["/main.hex", [
-        "import Rat from \"./Rat\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Rat",
         "",
         "export let bare: String =",
         "    \"${Num.add(Rat.create(1n, 2n), Rat.create(1n, 3n))}\"",

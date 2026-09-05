@@ -1,3 +1,5 @@
+module JsKind
+
 // `JsKind`'s home, and its only reason for being a module of its own: FFI
 // Part 11 section 3 makes all ten constructors qualified-only — `JsKind.Null`,
 // never a bare `Null` — and a qualified constructor is spelled through the

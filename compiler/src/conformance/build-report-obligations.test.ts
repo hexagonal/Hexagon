@@ -82,7 +82,7 @@ function compile(files: readonly (readonly [string, string])[]): {
 
 /** One module compiled as `/main.hex`, prelude included. */
 function main(source: string): CompiledModule {
-  return compile([["/main.hex", source]]).module("/main.hex");
+  return compile([["/main.hex", "module Main\n\n" + source]]).module("/main.hex");
 }
 
 /** Every `export declare function` name the `.d.ts` publishes. */
@@ -181,7 +181,7 @@ describe("the zero-entry-point list (§3.4)", () => {
     // is what this pins and nothing else does: move the row-write below the
     // collision filter and the whole suite stays green except for this row,
     // which goes from `[]` to `["plus"]`.
-    const project = compileFiles([["/main.hex", [
+    const project = compileFiles([["/main.hex", "module Main\n\n" + [
       "export fun plusNat(x: Nat, y: Nat): Nat = x + y",
       "",
       "export fun plusInt(x: Int, y: Int): Int = x + y",
@@ -253,15 +253,15 @@ describe("the zero-entry-point list (§3.4)", () => {
 
   test("is the declaring module's alone — an importer repeats nothing", () => {
     const project = compile([
-      ["/lib.hex", [
+      ["/lib.hex", "module Lib\n\n" + [
         "export constraint Weighty<a> =",
         "    weight(subject: a): Float",
         "",
         "export fun heaviest<a: Weighty>(x: a): Float = x.weight()",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import LibHex from \"./lib.hex\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Lib as LibHex",
         "",
         "export record Grams = {n: Float}",
         "",

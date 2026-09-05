@@ -42,7 +42,7 @@ import { projectDiagnostics, runMain } from "../support/test-project.js";
 /** `Result.hex` supplied by the project — the injected fallback then stands down. */
 const RESULT_WITH_VALUE = [
   "/Result.hex",
-  "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
+  "module Result\n\n" + "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
   "export let combine(left: Int, right: Int): Int = left + right\n" +
   "export let tally: Int = 0\n",
 ] as const;
@@ -50,7 +50,7 @@ const RESULT_WITH_VALUE = [
 function diagnostics(entry: string, result: string = RESULT_WITH_VALUE[1]): readonly string[] {
   return compileProject([
     new Source.File(Source.fileId(1), RESULT_WITH_VALUE[0], result),
-    new Source.File(Source.fileId(0), "/main.hex", entry),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + entry),
   ]).diagnostics.map((diagnostic) => diagnostic.message);
 }
 
@@ -150,8 +150,7 @@ describe("a function-local sequential binder may shadow the prelude layer (#464)
   });
 
   test("the local `let` is what the block sees, not the prelude's", async () => {
-    const exports = await runMain(
-      "export fun local(): Float =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun local(): Float =\n" +
       "    let nan = 2.5\n" +
       "    nan\n" +
       "export let r: Float = local()\n",
@@ -161,8 +160,7 @@ describe("a function-local sequential binder may shadow the prelude layer (#464)
   });
 
   test("`var` shadows too, and assigns", async () => {
-    const exports = await runMain(
-      "export fun mutated(): Float =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun mutated(): Float =\n" +
       "    var nan = 1.0\n" +
       "    nan := 2.0\n" +
       "    nan\n" +
@@ -176,8 +174,7 @@ describe("a function-local sequential binder may shadow the prelude layer (#464)
     // The interpolation inside the body is *not* rerouted: elaboration-internal
     // dispatch keeps the honored `Show` instance (§5.4's first adjacent fact),
     // which is also why this terminates.
-    const exports = await runMain(
-      "export fun localFun(): String =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun localFun(): String =\n" +
       "    fun show(x: Int): String = \"custom ${x}\"\n" +
       "    show(3)\n" +
       "export let r: String = localFun()\n",
@@ -187,8 +184,7 @@ describe("a function-local sequential binder may shadow the prelude layer (#464)
   });
 
   test("`let`-destructuring shadows every name its pattern binds", async () => {
-    const exports = await runMain(
-      "export fun destructured(): String =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun destructured(): String =\n" +
       "    let {show, hash} = {show = \"local\", hash = 3}\n" +
       "    show ++ Int.show(hash)\n" +
       "export let r: String = destructured()\n",
@@ -201,8 +197,7 @@ describe("a function-local sequential binder may shadow the prelude layer (#464)
     // §5.4's second adjacent fact, at function-local scope: the binder's own
     // name is *pending* in its own RHS (Statements §5.1), so the RHS reaches the
     // prelude's `show` — one wrap, not a self-call.
-    const exports = await runMain(
-      "export fun wrapped(): String =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun wrapped(): String =\n" +
       "    let show = (v: Int) => \"«\" ++ show(v) ++ \"»\"\n" +
       "    show(4)\n" +
       "export let r: String = wrapped()\n",
@@ -247,13 +242,12 @@ describe("the module's own layers stay under the full ban", () => {
     // The layer test, not a name test (§5.4's third bullet): the module-level
     // `fun` moved `show` into the module layer, so the local below it is the
     // ordinary rebinding error — citing the module's own line, not stdlib's.
-    expect(projectDiagnostics(
-      "fun show(x: Int): String = \"custom\"\n" +
+    expect(projectDiagnostics("module Main\n\n" + "fun show(x: Int): String = \"custom\"\n" +
       "export fun use(): String =\n" +
       "    let show = \"inner\"\n" +
       "    show\n",
     )).toContain(
-      "`show` is already bound (line 1); Hexagon does not allow rebinding — " +
+      "`show` is already bound (line 3); Hexagon does not allow rebinding — " +
         "choose a different name.",
     );
   });
@@ -270,13 +264,12 @@ describe("the module's own layers stay under the full ban", () => {
       ["nan"],
       ["zephyr"],
     );
-    expect(projectDiagnostics(
-      "export fun use(): Float =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun use(): Float =\n" +
       "    let nan = 1.0\n" +
       "    let nan = 2.0\n" +
       "    nan\n",
     )).toEqual([
-      "`nan` is already bound (line 2); Hexagon does not allow rebinding — " +
+      "`nan` is already bound (line 4); Hexagon does not allow rebinding — " +
         "choose a different name.",
     ]);
   });
@@ -314,8 +307,7 @@ describe("shadowing reserves the name for the whole block (§5.4's reservation)"
       ["show"],
       ["zephyr"],
     );
-    expect(projectDiagnostics(
-      "export fun use(): String =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun use(): String =\n" +
       "    let early = show(1)\n" +
       "    let show = (v: Int) => \"custom\"\n" +
       "    early\n",
@@ -376,8 +368,7 @@ describe("module-wide is enforced the same way (§5.4's reservation, defect 2)",
       ["show"],
       ["zephyr"],
     );
-    expect(projectDiagnostics(
-      "export let early: String = show(1)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let early: String = show(1)\n" +
       "fun show(x: Int): String = \"custom\"\n" +
       "export let late: String = show(2)\n",
     )).toEqual([
@@ -402,15 +393,13 @@ describe("module-wide is enforced the same way (§5.4's reservation, defect 2)",
     // binds every member before the first body is walked, so `early` resolves
     // `show` to the block's own — never to the prelude's, which would have made
     // this "1".
-    expect(projectDiagnostics(
-      "fun\n" +
+    expect(projectDiagnostics("module Main\n\n" + "fun\n" +
       "    early(x: Int): String = show(x)\n" +
       "    show(x: Int): String = \"custom ${x}\"\n" +
       "export let r: String = early(7)\n",
     )).toEqual([]);
 
-    const exports = await runMain(
-      "fun\n" +
+    const exports = await runMain("module Main\n\n" + "fun\n" +
       "    early(x: Int): String = show(x)\n" +
       "    show(x: Int): String = \"custom ${x}\"\n" +
       "export let grouped: String = early(7)\n",
@@ -457,15 +446,13 @@ describe("a declaration's constructor names occlude too (#466)", () => {
    */
 
   test("a union may take a prelude constructor over, and the module's is what it means", async () => {
-    expect(projectDiagnostics(
-      "export union Direction = Less | Greater\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export union Direction = Less | Greater\n" +
       "export let d: Direction = Less\n",
     )).toEqual([]);
 
     // The discriminator is the annotation: the prelude's `Less` is an
     // `Ordering`, so if the occlusion had not happened this would not type.
-    const exports = await runMain(
-      "export union Direction = Less | Greater\n" +
+    const exports = await runMain("module Main\n\n" + "export union Direction = Less | Greater\n" +
       "export let d: Direction = Less\n" +
       "export let g: Direction = Greater\n",
     );
@@ -478,8 +465,7 @@ describe("a declaration's constructor names occlude too (#466)", () => {
     // §5.4 reads pattern position and value position as one scope, so the
     // pattern means what the reference means: the module's own constructor.
     // Were it still the prelude's, the scrutinee would not type as `Direction`.
-    const exports = await runMain(
-      "export union Direction = Less | Greater\n" +
+    const exports = await runMain("module Main\n\n" + "export union Direction = Less | Greater\n" +
       "export fun name(d: Direction): String =\n" +
       "    match d\n" +
       "        Less => \"the module's Less\"\n" +
@@ -506,8 +492,7 @@ describe("a declaration's constructor names occlude too (#466)", () => {
       ["Less", "Greater"],
       ["Zork", "Zap"],
     );
-    expect(projectDiagnostics(
-      "export fun f(d: Direction): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(d: Direction): Int =\n" +
       "    match d\n" +
       "        Less => 1\n" +
       "        _ => 2\n" +
@@ -529,12 +514,11 @@ describe("a declaration's constructor names occlude too (#466)", () => {
   });
 
   test("an exception may take a prelude exception's name over", async () => {
-    expect(projectDiagnostics("export exception IndexError(code: Int)\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export exception IndexError(code: Int)\n")).toEqual([]);
 
     // Thrown and caught below the declaration through the bare spelling: the
     // catch arm is a constructor pattern like any other (exceptions.md §5.2).
-    const exports = await runMain(
-      "export exception IndexError(code: Int)\n" +
+    const exports = await runMain("module Main\n\n" + "export exception IndexError(code: Int)\n" +
       "export fun caught(): Int =\n" +
       "    try\n" +
       "        throw(IndexError(7))\n" +
@@ -547,13 +531,11 @@ describe("a declaration's constructor names occlude too (#466)", () => {
   });
 
   test("a record may take a prelude constructor's name over", async () => {
-    expect(projectDiagnostics(
-      "export record Some(a) = { value: a }\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export record Some(a) = { value: a }\n" +
       "export let s: Some(Int) = Some({value = 1})\n",
     )).toEqual([]);
 
-    const exports = await runMain(
-      "export record Some(a) = { value: a }\n" +
+    const exports = await runMain("module Main\n\n" + "export record Some(a) = { value: a }\n" +
       "export let boxed: Some(Int) = Some({value = 9})\n" +
       "export let unboxed: Int = boxed.value\n",
     );
@@ -565,16 +547,14 @@ describe("a declaration's constructor names occlude too (#466)", () => {
     // §5.4's own example. Occluding `True` costs the module the bare spelling
     // of the boolean and nothing else: every context demanding `Bool` still
     // demands it, so a strayed `Flag` constructor is a loud type error.
-    expect(projectDiagnostics("export union Flag = True | Maybe\n")).toEqual([]);
-    expect(projectDiagnostics(
-      "export union Flag = True | Maybe\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export union Flag = True | Maybe\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export union Flag = True | Maybe\n" +
       "export let stray: Bool = Maybe\n",
     )).toEqual(["type mismatch: expected Bool, found Flag"]);
   });
 
   test("and `Bool.True` stays spellable in both positions", async () => {
-    const exports = await runMain(
-      "export union Flag = True | Maybe\n" +
+    const exports = await runMain("module Main\n\n" + "export union Flag = True | Maybe\n" +
       "export let flag: Flag = True\n" +
       "export let yes: Bool = Bool.True\n" +
       "export fun describe(b: Bool): String =\n" +
@@ -594,11 +574,10 @@ describe("a declaration's constructor names occlude too (#466)", () => {
   test("user-versus-user collisions are untouched: two unions in one module", () => {
     // Unions §2's declaration-site hard error. The exemption is the prelude
     // layer only, so a name the module's own layers bind still fights.
-    expect(projectDiagnostics(
-      "union A = Dup | X\n" +
+    expect(projectDiagnostics("module Main\n\n" + "union A = Dup | X\n" +
       "union B = Dup | Y\n",
     )).toEqual([
-      "`Dup` is already bound (line 1); Hexagon does not allow rebinding — " +
+      "`Dup` is already bound (line 3); Hexagon does not allow rebinding — " +
         "choose a different name.",
     ]);
   });
@@ -625,6 +604,7 @@ describe("in prelude source, the prelude layer is the §5.5 visible prefix", () 
   test("a prelude module's function-local binder shadows an earlier member's export", () => {
     expect(diagnostics(
       "export let use: Int = 1\n",
+      "module Result\n\n" +
       "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
       "export let labelled(n: Int): String =\n" +
       "    let show = \"prefix shadow\"\n" +
@@ -635,6 +615,7 @@ describe("in prelude source, the prelude layer is the §5.5 visible prefix", () 
   test("and reserves it there for the whole block, exactly as in user code", () => {
     expect(diagnostics(
       "export let use: Int = 1\n",
+      "module Result\n\n" +
       "export union Result(a, e) = Ok(value: a) | Err(error: e)\n" +
       "export let labelled(n: Int): String =\n" +
       "    let early = show(n)\n" +

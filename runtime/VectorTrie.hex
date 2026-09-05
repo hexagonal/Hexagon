@@ -1,3 +1,5 @@
+module VectorTrie
+
 // The persistent 32-way bit-partitioned trie backing `Vector(a)` (Collections
 // Part 3 §4), written over the hidden fixed-32 `Node` intrinsic. This is a
 // runtime-internal module: it is compiled only as a privileged runtime module,

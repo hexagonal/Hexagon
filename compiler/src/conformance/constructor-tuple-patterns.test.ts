@@ -20,7 +20,7 @@ import { compileProject, Source } from "../index";
  */
 
 function diagnostics(source: string): readonly string[] {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
   return project.diagnostics.map((diagnostic) => diagnostic.message);
 }
 
@@ -59,7 +59,7 @@ function link(
  * emitted too and `modules[0]` is one of them, not the entry.
  */
 async function run(source: string): Promise<Record<string, unknown>> {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
   expect(project.diagnostics).toEqual([]);
   const moduleUrls = new Map<string, string>();
   for (const module of project.modules) {

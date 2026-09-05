@@ -101,8 +101,8 @@ const WEIGH_LIB = [
 
 /** The consumer of an extending constraint, honoring both at its own record. */
 const WEIGH_MAIN = [
-  'import Mid from "./mid.hex"',
-  'import Lib from "./lib.hex"',
+  'import Mid',
+  'import Lib',
   "",
   "record Wrap = {n: Int}",
   "",
@@ -118,9 +118,9 @@ const WEIGH_MAIN = [
 
 function weighGraph(mid: string): readonly (readonly [string, string])[] {
   return [
-    ["/lib.hex", WEIGH_LIB],
-    ["/mid.hex", mid],
-    ["/main.hex", WEIGH_MAIN],
+    ["/lib.hex", "module Lib\n\n" + WEIGH_LIB],
+    ["/mid.hex", "module Mid\n\n" + mid],
+    ["/main.hex", "module Main\n\n" + WEIGH_MAIN],
   ];
 }
 
@@ -133,7 +133,7 @@ describe("a base constraint's slot follows its declaration, not the spelling", (
   // one the old fixture pinned: the module alias's own spelling never moves
   // the slot, which is minted from the base declaration's identity.
   const ALIASED = [
-    'import Heft from "./lib.hex"',
+    'import Lib as Heft',
     "",
     "export constraint Both<a: Heft.Weigh> =",
     "    label(value: a): String",
@@ -159,7 +159,7 @@ describe("a base constraint's slot follows its declaration, not the spelling", (
   });
 
   const QUALIFIED = [
-    'import L from "./lib.hex"',
+    'import Lib as L',
     "",
     "export constraint Both<a: L.Weigh> =",
     "    label(value: a): String",
@@ -202,8 +202,8 @@ describe("two same-spelled bases both stay reachable", () => {
   }
 
   const MID = [
-    'import Lib1 from "./lib1.hex"',
-    'import Lib2 from "./lib2.hex"',
+    'import Lib1',
+    'import Lib2',
     "",
     "export constraint Both<a: (Lib1.Tag, Lib2.Tag)> =",
     "    label(value: a): String",
@@ -214,9 +214,9 @@ describe("two same-spelled bases both stay reachable", () => {
   ].join("\n");
 
   const MAIN = [
-    'import Mid from "./mid.hex"',
-    'import Lib1 from "./lib1.hex"',
-    'import Lib2 from "./lib2.hex"',
+    'import Mid',
+    'import Lib1',
+    'import Lib2',
     "",
     "record Wrap = {n: Int}",
     "",
@@ -234,10 +234,10 @@ describe("two same-spelled bases both stay reachable", () => {
   ].join("\n");
 
   const GRAPH: readonly (readonly [string, string])[] = [
-    ["/lib1.hex", tagLib("one", "first")],
-    ["/lib2.hex", tagLib("two", "second")],
-    ["/mid.hex", MID],
-    ["/main.hex", MAIN],
+    ["/lib1.hex", "module Lib1\n\n" + tagLib("one", "first")],
+    ["/lib2.hex", "module Lib2\n\n" + tagLib("two", "second")],
+    ["/mid.hex", "module Mid\n\n" + MID],
+    ["/main.hex", "module Main\n\n" + MAIN],
   ];
 
   test("the second numbers around the first, in written order", () => {
@@ -278,9 +278,9 @@ describe("two same-spelled bases both stay reachable", () => {
       ].join("\n");
     }
     const mid = [
-      'import Lib1 from "./lib1.hex"',
-      'import Lib2 from "./lib2.hex"',
-      'import Lib3 from "./lib3.hex"',
+      'import Lib1',
+      'import Lib2',
+      'import Lib3',
       "",
       "export constraint Both<a: (Lib1.Tag, Lib2.Tag, Lib3.Tag_1)> =",
       "    label(value: a): String",
@@ -290,10 +290,10 @@ describe("two same-spelled bases both stay reachable", () => {
       "",
     ].join("\n");
     const main = [
-      'import Mid from "./mid.hex"',
-      'import Lib1 from "./lib1.hex"',
-      'import Lib2 from "./lib2.hex"',
-      'import Lib3 from "./lib3.hex"',
+      'import Mid',
+      'import Lib1',
+      'import Lib2',
+      'import Lib3',
       "",
       "record Wrap = {n: Int}",
       "",
@@ -313,11 +313,11 @@ describe("two same-spelled bases both stay reachable", () => {
       "",
     ].join("\n");
     const graph: readonly (readonly [string, string])[] = [
-      ["/lib1.hex", lib("Tag", "one")],
-      ["/lib2.hex", lib("Tag", "two")],
-      ["/lib3.hex", lib("Tag_1", "three")],
-      ["/mid.hex", mid],
-      ["/main.hex", main],
+      ["/lib1.hex", "module Lib1\n\n" + lib("Tag", "one")],
+      ["/lib2.hex", "module Lib2\n\n" + lib("Tag", "two")],
+      ["/lib3.hex", "module Lib3\n\n" + lib("Tag_1", "three")],
+      ["/mid.hex", "module Mid\n\n" + mid],
+      ["/main.hex", "module Main\n\n" + main],
     ];
     // Write side: `Tag`, then `Tag_2` stepping over the third entry's claim,
     // then `Tag_1` kept by the base that is actually declared `Tag_1`.
@@ -365,8 +365,8 @@ describe("a base list names each declaration once", () => {
     // — the one bare route #762 leaves standing here — beside the qualified
     // entry through a second alias, `L`, for the same module.
     const mid = [
-      'import Weigh from "./lib.hex"',
-      'import L from "./lib.hex"',
+      'import Lib as Weigh',
+      'import Lib as L',
       "",
       "export constraint Both<a: (Weigh, L.Weigh)> =",
       "    label(value: a): String",
@@ -376,7 +376,7 @@ describe("a base list names each declaration once", () => {
     ].join("\n");
     expect(diagnostics(weighGraph(mid))).toEqual([
       "`Weigh` and `L.Weigh` both name the constraint declared `Weigh` in " +
-        "`./lib.hex`; remove one",
+        "module `Lib`; remove one",
     ]);
   });
 
@@ -389,8 +389,8 @@ describe("a base list names each declaration once", () => {
     // so the message quotes both qualified spellings rather than one of them
     // bare.
     const mid = [
-      'import W from "./lib.hex"',
-      'import L from "./lib.hex"',
+      'import Lib as W',
+      'import Lib as L',
       "",
       "export constraint Both<a: (W.Weigh, L.Weigh)> =",
       "    label(value: a): String",
@@ -400,7 +400,7 @@ describe("a base list names each declaration once", () => {
     ].join("\n");
     expect(diagnostics(weighGraph(mid))).toEqual([
       "`W.Weigh` and `L.Weigh` both name the constraint declared `Weigh` in " +
-        "`./lib.hex`; remove one",
+        "module `Lib`; remove one",
     ]);
   });
 
@@ -411,7 +411,7 @@ describe("a base list names each declaration once", () => {
     // is all the repair needs.
     expect(diagnostics([[
       "/main.hex",
-      "export constraint Loud<a: (Show, Show)> =\n    boom(value: a): String\n",
+      "module Main\n\n" + "export constraint Loud<a: (Show, Show)> =\n    boom(value: a): String\n",
     ]])).toEqual([
       "`Show` and `Show` both name the constraint declared `Show`; remove one",
     ]);
@@ -427,7 +427,7 @@ describe("a base list names each declaration once", () => {
       "    label(value: a): String",
       "",
     ].join("\n");
-    expect(diagnostics([["/mid.hex", mid]])).toEqual([
+    expect(diagnostics([["/mid.hex", "module Mid\n\n" + mid]])).toEqual([
       "unknown base constraint `Bogus`",
       "unknown base constraint `Bogus`",
     ]);
@@ -437,17 +437,17 @@ describe("a base list names each declaration once", () => {
     // The stand-down is per *entry*. An unrelated unknown third spelling neither
     // suppresses the pair's refusal nor joins it.
     const mid = [
-      'import W from "./lib.hex"',
-      'import L from "./lib.hex"',
+      'import Lib as W',
+      'import Lib as L',
       "",
       "export constraint Both<a: (W.Weigh, L.Weigh, Bogus)> =",
       "    label(value: a): String",
       "",
     ].join("\n");
-    expect(diagnostics([["/lib.hex", WEIGH_LIB], ["/mid.hex", mid]])).toEqual([
+    expect(diagnostics([["/lib.hex", "module Lib\n\n" + WEIGH_LIB], ["/mid.hex", "module Mid\n\n" + mid]])).toEqual([
       "unknown base constraint `Bogus`",
       "`W.Weigh` and `L.Weigh` both name the constraint declared `Weigh` in " +
-        "`./lib.hex`; remove one",
+        "module `Lib`; remove one",
     ]);
   });
 
@@ -455,8 +455,8 @@ describe("a base list names each declaration once", () => {
     // The contest above, asked as a negative: identity is what the rule keys on,
     // so a same-*spelled* pair passes where a same-*declaration* pair does not.
     const mid = [
-      'import Lib1 from "./lib1.hex"',
-      'import Lib2 from "./lib2.hex"',
+      'import Lib1',
+      'import Lib2',
       "",
       "export constraint Both<a: (Lib1.Tag, Lib2.Tag)> =",
       "    label(value: a): String",
@@ -468,9 +468,9 @@ describe("a base list names each declaration once", () => {
       "",
     ].join("\n");
     expect(diagnostics([
-      ["/lib1.hex", tagLib],
-      ["/lib2.hex", tagLib.replace("tag(", "tag2(")],
-      ["/mid.hex", mid],
+      ["/lib1.hex", "module Lib1\n\n" + tagLib],
+      ["/lib2.hex", "module Lib2\n\n" + tagLib.replace("tag(", "tag2(")],
+      ["/mid.hex", "module Mid\n\n" + mid],
     ])).toEqual([]);
   });
 });
@@ -491,7 +491,7 @@ describe("a member cannot take a minted slot, and needs no rule saying so", () =
   ].join("\n");
 
   const MID = [
-    'import Weigh from "./lib.hex"',
+    'import Lib as Weigh',
     "",
     "export constraint Both<a: Weigh> =",
     "    weigh(value: a): String",
@@ -501,8 +501,8 @@ describe("a member cannot take a minted slot, and needs no rule saying so", () =
   ].join("\n");
 
   const MAIN = [
-    'import Mid from "./mid.hex"',
-    'import Lib from "./lib.hex"',
+    'import Mid',
+    'import Lib',
     "",
     "record Wrap = {n: Int}",
     "",
@@ -517,9 +517,9 @@ describe("a member cannot take a minted slot, and needs no rule saying so", () =
   ].join("\n");
 
   const GRAPH: readonly (readonly [string, string])[] = [
-    ["/lib.hex", LIB],
-    ["/mid.hex", MID],
-    ["/main.hex", MAIN],
+    ["/lib.hex", "module Lib\n\n" + LIB],
+    ["/mid.hex", "module Mid\n\n" + MID],
+    ["/main.hex", "module Main\n\n" + MAIN],
   ];
 
   test("a member spelled like the base declaration's name is legal", () => {
@@ -551,13 +551,13 @@ describe("a member cannot take a minted slot, and needs no rule saying so", () =
     // alias's own spelling here (not the base's — #762 leaves no bare rename to
     // reach for), so this is the same claim: the alias's word is not the slot.
     const mid = [
-      'import Heft from "./lib.hex"',
+      'import Lib as Heft',
       "",
       "export constraint Both<a: Heft.Weigh> =",
       "    heft(value: a): String",
       "",
     ].join("\n");
-    expect(diagnostics([["/lib.hex", LIB], ["/mid.hex", mid]])).toEqual([]);
+    expect(diagnostics([["/lib.hex", "module Lib\n\n" + LIB], ["/mid.hex", "module Mid\n\n" + mid]])).toEqual([]);
   });
 });
 
@@ -573,7 +573,7 @@ describe("an uncontested slot is the base declaration's name, verbatim", () => {
       "export let r: Int = Hash.hash(Point({x = 1, y = 2}))",
       "",
     ].join("\n");
-    const text = emitted([["/main.hex", main]], "/main.hex");
+    const text = emitted([["/main.hex", "module Main\n\n" + main]], "/main.hex");
     expect(text).toContain("const __Hash_Point = { Eq: __Eq_Point,");
     // The same slot from the other direction. The derived-equality walks read a
     // component's equality off a `Hash` dictionary with no `Hash` declaration in
@@ -603,7 +603,7 @@ describe("an uncontested slot is the base declaration's name, verbatim", () => {
       "export let r: String = use(Wrap({n = 1}))",
       "",
     ].join("\n");
-    expect(emitted([["/main.hex", main]], "/main.hex")).toContain(
+    expect(emitted([["/main.hex", "module Main\n\n" + main]], "/main.hex")).toContain(
       "const __Both_Wrap = { Weigh: __Weigh_Wrap, label: __Both_Wrap_label };",
     );
   });

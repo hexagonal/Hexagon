@@ -19,8 +19,7 @@ import { compileFiles, compileMain, projectDiagnostics, runMain } from "../suppo
  */
 describe("Bool is a prelude union (#147 §2)", () => {
   test("`True` and `False` are nullary constructors, used bare", async () => {
-    const module = await runMain(
-      "export let yes: Bool = True\n" +
+    const module = await runMain("module Main\n\n" + "export let yes: Bool = True\n" +
         "export let no: Bool = False\n",
     );
 
@@ -32,8 +31,7 @@ describe("Bool is a prelude union (#147 §2)", () => {
     // §4.1's acceptance test, respelled: it now exercises the union path rather
     // than the deleted finite-literal-domain carve-out.
     expect(
-      projectDiagnostics(
-        "export let label(flag: Bool): String =\n" +
+      projectDiagnostics("module Main\n\n" + "export let label(flag: Bool): String =\n" +
           "    match flag\n" +
           "        True => \"on\"\n" +
           "        False => \"off\"\n",
@@ -43,8 +41,7 @@ describe("Bool is a prelude union (#147 §2)", () => {
 
   test("a match missing a constructor is the ordinary missing-case error", () => {
     expect(
-      projectDiagnostics(
-        "export let label(flag: Bool): String =\n" +
+      projectDiagnostics("module Main\n\n" + "export let label(flag: Bool): String =\n" +
           "    match flag\n" +
           "        True => \"on\"\n",
       ),
@@ -56,16 +53,14 @@ describe("Bool is a prelude union (#147 §2)", () => {
     // that displayed a `Bool` now print `True`/`False` rather than JavaScript's
     // lowercase form, with no diagnostic, because nothing is wrong — the display
     // form changed. Pinned here so the flip cannot drift back unnoticed.
-    const module = await runMain(
-      "export let shown: String = \"${True} and ${False}\"\n",
+    const module = await runMain("module Main\n\n" + "export let shown: String = \"${True} and ${False}\"\n",
     );
 
     expect(module.shown).toBe("True and False");
   });
 
   test("derived `Ord` puts `False` before `True`", async () => {
-    const module = await runMain(
-      "export let ordered: Bool = False < True\n" +
+    const module = await runMain("module Main\n\n" + "export let ordered: Bool = False < True\n" +
         "export let reversed: Bool = True < False\n",
     );
 
@@ -76,19 +71,19 @@ describe("Bool is a prelude union (#147 §2)", () => {
 
 describe("the reserved redirect words (#147 §2.2)", () => {
   test("`true` in value position redirects to the constructor", () => {
-    expect(projectDiagnostics("export let flag: Bool = true\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "export let flag: Bool = true\n")).toContain(
       "`true` is reserved; Bool's constructors are `True` and `False` — write `True`",
     );
   });
 
   test("`false` in value position redirects to its own constructor", () => {
-    expect(projectDiagnostics("export let flag: Bool = false\n")).toContain(
+    expect(projectDiagnostics("module Main\n\n" + "export let flag: Bool = false\n")).toContain(
       "`false` is reserved; Bool's constructors are `True` and `False` — write `False`",
     );
   });
 
   test("`false` in name position gets no constructor fixit either", () => {
-    const messages = projectDiagnostics("fun false() = 1\n");
+    const messages = projectDiagnostics("module Main\n\n" + "fun false() = 1\n");
 
     expect(messages).toContain("`false` is reserved and cannot be used as a name");
     expect(messages.join("\n")).not.toContain("write `False`");
@@ -98,7 +93,7 @@ describe("the reserved redirect words (#147 §2.2)", () => {
     // "write `True`" would be wrong here: `let True = ...` is a refutable
     // constructor pattern and errors again. The position-aware split is the
     // parser's, per Lexer §4.1.
-    const messages = projectDiagnostics("let true = 1\n");
+    const messages = projectDiagnostics("module Main\n\n" + "let true = 1\n");
 
     expect(messages).toContain("`true` is reserved and cannot be used as a name");
     expect(messages.join("\n")).not.toContain("write `True`");
@@ -107,11 +102,11 @@ describe("the reserved redirect words (#147 §2.2)", () => {
 
 describe("the representation pin (#147 §3)", () => {
   const javascript = (source: string): string =>
-    compileMain(source).modules.find(({ source: file }) => file.path === "/main.hex")!
+    compileMain("module Main\n\n" + source).modules.find(({ source: file }) => file.path === "/main.hex")!
       .javascript.text;
 
   const declarations = (source: string): string =>
-    compileMain(source).modules.find(({ source: file }) => file.path === "/main.hex")!
+    compileMain("module Main\n\n" + source).modules.find(({ source: file }) => file.path === "/main.hex")!
       .declarations.text;
 
   test("`True` emits `true` and `False` emits `false`", () => {
@@ -176,8 +171,7 @@ describe("the representation pin (#147 §3)", () => {
     // FFI §3.3: the boundary was `Bool ↔ boolean` before the ruling and the
     // pin's whole purpose is that it still is. A foreign predicate's result
     // flows into a `match` and back out through an export with no conversion.
-    const project = compileMain(
-      "extern from \"host\"\n" +
+    const project = compileMain("module Main\n\n" + "extern from \"host\"\n" +
         "    export fun isReady(): Bool\n" +
         "export let describe(): String =\n" +
         "    match isReady!()\n" +
@@ -198,8 +192,7 @@ describe("`Bool` inside a composite (#147, regression)", () => {
   // containing a `Bool` displayed as `"True"` — the wrong value, with no diagnostic.
   // Found in review of the commit that introduced it.
   test("a record field, a tuple element, and a payload all display in place", async () => {
-    const module = await runMain(
-      "record Flagged derives (Show) = {on: Bool, count: Int}\n" +
+    const module = await runMain("module Main\n\n" + "record Flagged derives (Show) = {on: Bool, count: Int}\n" +
         "union Wrap derives (Show) = Wrapped(flag: Bool)\n" +
         "export let inRecord: String = \"${Flagged({on = False, count = 2})}\"\n" +
         "export let inTuple: String = \"${(True, 1)}\"\n" +
@@ -212,8 +205,7 @@ describe("`Bool` inside a composite (#147, regression)", () => {
   });
 
   test("`Bool` works as a `Set` element and a `Map` key", async () => {
-    const module = await runMain(
-      "let flags: Set(Bool) = Set.add(Set.add(Set.empty, True), False)\n" +
+    const module = await runMain("module Main\n\n" + "let flags: Set(Bool) = Set.add(Set.add(Set.empty, True), False)\n" +
         "export let size: Int = Set.size(flags)\n" +
         "export let hasTrue: Bool = Set.contains(flags, True)\n" +
         "let byFlag: Map(Bool, String) = Map.set(Map.empty, True, \"yes\")\n" +
@@ -234,7 +226,7 @@ describe("the declaration's shape is verified, not trusted (#147 §3.5/§7)", ()
   // ceremonial: the emitter maps the constructor named `True` to `true`, and
   // derived `Ord` leans on the declaration order.
   const shapeError = (source: string): string | undefined =>
-    projectDiagnostics(source).find((message) =>
+    projectDiagnostics("module Main\n\n" + source).find((message) =>
       message.startsWith("compiler integrity: the prelude `Bool`")
     );
 
@@ -247,8 +239,8 @@ describe("the declaration's shape is verified, not trusted (#147 §3.5/§7)", ()
     // (`injectPrelude` prefers a project file at the injection path), so it is
     // also the way to prove the check runs.
     const reversed = compileFiles([
-      ["/Bool.hex", "export union Bool derives (Eq, Ord, Show, Hash) =\n    | True\n    | False\n"],
-      ["/main.hex", "export let flag: Bool = True\n"],
+      ["/Bool.hex", "module Bool\n\n" + "export union Bool derives (Eq, Ord, Show, Hash) =\n    | True\n    | False\n"],
+      ["/main.hex", "module Main\n\n" + "export let flag: Bool = True\n"],
     ]);
 
     expect(reversed.diagnostics.map(({ message }) => message).join("\n")).toContain(
@@ -258,8 +250,8 @@ describe("the declaration's shape is verified, not trusted (#147 §3.5/§7)", ()
 
   test("a third constructor is refused", () => {
     const extra = compileFiles([
-      ["/Bool.hex", "export union Bool derives (Eq, Ord, Show, Hash) =\n    | False\n    | True\n    | Maybe\n"],
-      ["/main.hex", "export let flag: Bool = True\n"],
+      ["/Bool.hex", "module Bool\n\n" + "export union Bool derives (Eq, Ord, Show, Hash) =\n    | False\n    | True\n    | Maybe\n"],
+      ["/main.hex", "module Main\n\n" + "export let flag: Bool = True\n"],
     ]);
 
     expect(extra.diagnostics.map(({ message }) => message).join("\n")).toContain(
@@ -274,8 +266,7 @@ describe("the pin is granted to one declaration, not to a name (#147 §3.1)", ()
   // (Modules §5.4) and gets none of the privilege: the ordinary tagged objects,
   // an ordinary `.d.ts` face, and no claim on what `if` accepts.
   test("a user union named `Bool` gets the tagged representation, not the pin", () => {
-    const project = compileMain(
-      "export union Bool = Naw | Aye\n" +
+    const project = compileMain("module Main\n\n" + "export union Bool = Naw | Aye\n" +
         "export let pick: Bool = Aye\n",
     );
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
@@ -289,8 +280,7 @@ describe("the pin is granted to one declaration, not to a name (#147 §3.1)", ()
     // The occluding declaration cannot make its own type a condition type.
     // (The message itself is poor — both sides render as `Bool` — which is #156.)
     expect(
-      projectDiagnostics(
-        "union Bool = Naw | Aye\n" +
+      projectDiagnostics("module Main\n\n" + "union Bool = Naw | Aye\n" +
           "let f(b: Bool): Int = if b then 1 else 0\n",
       ).join("\n"),
     ).toContain("type mismatch");

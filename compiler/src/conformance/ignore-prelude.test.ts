@@ -76,7 +76,7 @@ const audit = 'let audit(label: String): Int =\n' +
 
 /** `/main.hex`'s emitted JavaScript, with the project asserted clean. */
 function emitted(source: string): string {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!
     .javascript.text;
@@ -84,12 +84,12 @@ function emitted(source: string): string {
 
 /** Every diagnostic `/main.hex` produced, in order. */
 function diagnostics(source: string): readonly string[] {
-  return compileFiles([["/main.hex", source]]).diagnostics.map(({ message }) => message);
+  return compileFiles([["/main.hex", "module Main\n\n" + source]]).diagnostics.map(({ message }) => message);
 }
 
 /**
  * Whether the text applies `ignore` to anything. The import line
- * `import { ignore } from "./Prelude.js";` is deliberately not matched: a value
+ * `import { ignore } from "./Hex/Prelude.js";` is deliberately not matched: a value
  * reference is the ordinary ESM export and is never what erasure removes.
  */
 function callsIgnore(javascript: string): boolean {
@@ -123,13 +123,17 @@ describe("discarding position erases (§3.3, mandatory)", () => {
     expect(javascript).not.toContain("void");
     expect(callsIgnore(javascript)).toBe(false);
     // The whole point of erasing: no import survives for a call that is gone.
-    expect(javascript).not.toContain("./Prelude.js");
+    // The prelude's modules emit under `Hex/` since #829, so the needle has to
+    // be the specifier the emitter would actually write — `"./Prelude.js"`
+    // could not appear whatever the compiler did.
+    expect(javascript).not.toContain("Hex/Prelude.js");
   });
 
   test("the operand runs exactly once, and the block goes on", async () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'export let prepare(): Int =\n' +
           '    ignore(audit("erased-once"))\n' +
           '    1\n']],
@@ -157,6 +161,7 @@ describe("discarding position erases (§3.3, mandatory)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'export let piped(): Int =\n' +
           '    audit("piped-once") |> ignore\n' +
           '    1\n']],
@@ -220,7 +225,7 @@ describe("discarding position erases (§3.3, mandatory)", () => {
     // syntax error, and the module fails to load at all.
     const module = await runProject(
       [["/main.hex",
-        'record Point = {x: Int, y: Int}\n' +
+        "module Main\n\n" + 'record Point = {x: Int, y: Int}\n' +
         'export let go(): Int =\n' +
         '    ignore(Point({x = 2, y = 3}))\n' +
         '    9\n']],
@@ -235,6 +240,7 @@ describe("value position yields `Unit`, never the operand (§3.3)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'export let bound(): Unit =\n' +
           '    let u: Unit = ignore(audit("bound"))\n' +
           '    u\n']],
@@ -250,6 +256,7 @@ describe("value position yields `Unit`, never the operand (§3.3)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'let step(): Unit =\n' +
           '    Debug.log("step")\n' +
           '    ignore(audit("tail"))\n' +
@@ -277,6 +284,7 @@ describe("value position yields `Unit`, never the operand (§3.3)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'let passThrough(u: Unit): Unit = u\n' +
           'export let nested(): Unit = passThrough(ignore(audit("nested")))\n']],
         { transform: distinct("nested") },
@@ -292,9 +300,9 @@ describe("referenced as a value: the ordinary ESM export (§3.3)", () => {
     const module = await runProject(
       [
         ["/apply.hex",
-          "export let applyTo(value: Int, action: (Int) -> Unit): Unit = action(value)\n"],
+          "module Apply\n\n" + "export let applyTo(value: Int, action: (Int) -> Unit): Unit = action(value)\n"],
         ["/main.hex",
-          'import Apply from "./apply"\n' +
+          "module Main\n\n" + 'import Apply\n' +
           "export let handed(): Unit = Apply.applyTo(3, ignore)\n"],
       ],
       { transform: distinct("first-class") },
@@ -306,7 +314,7 @@ describe("referenced as a value: the ordinary ESM export (§3.3)", () => {
 
   test("the reference emits an import of the prelude module", () => {
     const javascript = emitted("export let f: (Int) -> Unit = ignore\n");
-    expect(javascript).toContain('import { ignore } from "./Prelude.js";');
+    expect(javascript).toContain('import { ignore } from "./Hex/Prelude.js";');
     expect(javascript).toContain("const f = ignore;");
   });
 });
@@ -327,6 +335,7 @@ describe("the qualified home `Prelude.ignore` (Modules §6.4)", () => {
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit + 'export let qualified(): Int =\n' +
           '    Prelude.ignore(audit("qualified-run"))\n' +
           '    5\n']],
@@ -339,7 +348,7 @@ describe("the qualified home `Prelude.ignore` (Modules §6.4)", () => {
 
   test("the qualified value reference is the same ordinary export", () => {
     const javascript = emitted("export let f: (Int) -> Unit = Prelude.ignore\n");
-    expect(javascript).toContain('import { ignore } from "./Prelude.js";');
+    expect(javascript).toContain('import { ignore } from "./Hex/Prelude.js";');
   });
 });
 
@@ -360,6 +369,7 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit +
           'export let ignore(value: Int): Unit =\n' +
           '    Debug.log("user ignore ran")\n' +
@@ -379,6 +389,7 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
     const lines = await written(async () => {
       const module = await runProject(
         [["/main.hex",
+          "module Main\n\n" +
           audit +
           'export let ignore(value: Int): Unit =\n' +
           '    Debug.log("user ignore ran")\n' +
@@ -397,11 +408,12 @@ describe("occlusion: the erasure is keyed on the binding (Modules §5.4)", () =>
       const module = await runProject(
         [
           ["/mine.hex",
-            'export let ignore(value: Int): Unit =\n' +
+            "module Mine\n\n" + 'export let ignore(value: Int): Unit =\n' +
             '    Debug.log("imported ignore ran")\n'],
           ["/main.hex",
+            "module Main\n\n" +
             audit +
-            'import Mine from "./mine"\n' +
+            'import Mine\n' +
             'export let go(): Int =\n' +
             '    Mine.ignore(audit("imported"))\n' +
             '    1\n'],

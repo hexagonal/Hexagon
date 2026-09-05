@@ -47,7 +47,7 @@ function messages(files: readonly (readonly [string, string])[]): readonly strin
 /** A user constraint, exported, reached only through a module alias. */
 const DESCRIBE = [
   "/describe.hex",
-  "export constraint Describe<a> =\n    describe(value: a): String\n",
+  "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a): String\n",
 ] as const;
 
 describe("the ground head, end to end", () => {
@@ -59,7 +59,7 @@ describe("the ground head, end to end", () => {
     const files = [
       DESCRIBE,
       ["/main.hex",
-        'import D from "./describe"\n' +
+        "module Main\n\n" + 'import Describe as D\n' +
         "export record Box = {n: Int}\n" +
         "honor D.Describe<Box> =\n    describe(value) = \"box ${value.n}\"\n" +
         "export fun label<a: D.Describe>(x: a): String = D.describe(x)\n" +
@@ -78,13 +78,13 @@ describe("the ground head, end to end", () => {
     const files = [
       DESCRIBE,
       ["/home.hex",
-        'import H from "./describe"\n' +
+        "module Home\n\n" + 'import Describe as H\n' +
         "export record Crate = {n: Int}\n" +
         "honor H.Describe<Crate> =\n    describe(value) = \"crate ${value.n}\"\n" +
         "export fun crate(n: Int): Crate = Crate({n = n})\n"],
       ["/main.hex",
-        'import Far from "./describe"\n' +
-        'import Home from "./home"\n' +
+        "module Main\n\n" + 'import Describe as Far\n' +
+        'import Home\n' +
         "export let shown: String = Far.describe(Home.crate(5))\n"],
     ] as const;
 
@@ -102,7 +102,7 @@ describe("a parameterized head takes the qualified slot identically (§4.3)", ()
     const files = [
       DESCRIBE,
       ["/main.hex",
-        'import D from "./describe"\n' +
+        "module Main\n\n" + 'import Describe as D\n' +
         "export record Chip = {n: Int}\n" +
         "export record Twin(a) = {fst: a, snd: a}\n" +
         "honor D.Describe<Chip> =\n    describe(value) = \"chip ${value.n}\"\n" +
@@ -125,7 +125,7 @@ describe("a parameterized head takes the qualified slot identically (§4.3)", ()
     const files = [
       DESCRIBE,
       ["/main.hex",
-        'import Describe from "./describe"\n' +
+        "module Main\n\n" + 'import Describe\n' +
         "export record Plate = {n: Int}\n" +
         "export record Stack(a) = {top: a, rest: a}\n" +
         "honor Describe.Describe<Plate> =\n    describe(value) = \"plate ${value.n}\"\n" +
@@ -148,13 +148,13 @@ describe("a parameterized head takes the qualified slot identically (§4.3)", ()
 const CONSUMER_BARE = [
   DESCRIBE,
   ["/home.hex",
-    'import H from "./describe"\n' +
+    "module Home\n\n" + 'import Describe as H\n' +
     "export record Parcel = {n: Int}\n" +
     "honor H.Describe<Parcel> =\n    describe(value) = \"parcel ${value.n}\"\n" +
     "export fun parcel(n: Int): Parcel = Parcel({n = n})\n"],
   ["/main.hex",
-    'import Describe from "./describe"\n' +
-    'import Home from "./home"\n' +
+    "module Main\n\n" + 'import Describe\n' +
+    'import Home\n' +
     "export fun label<a: Describe>(x: a): String = Describe.describe(x)\n" +
     "export let shown: String = label(Home.parcel(9))\n"],
 ] as const;
@@ -170,8 +170,8 @@ describe("one declaration under either spelling", () => {
     expect(messages([
       DESCRIBE,
       ["/main.hex",
-        'import Describe from "./describe"\n' +
-        'import D from "./describe"\n' +
+        "module Main\n\n" + 'import Describe\n' +
+        'import Describe as D\n' +
         "export record Box = {n: Int}\n" +
         "honor Describe<Box> =\n    describe(value) = \"first\"\n" +
         "honor D.Describe<Box> =\n    describe(value) = \"second\"\n"],
@@ -185,8 +185,8 @@ describe("one declaration under either spelling", () => {
     expect(messages([
       DESCRIBE,
       ["/main.hex",
-        'import Describe from "./describe"\n' +
-        'import D from "./describe"\n' +
+        "module Main\n\n" + 'import Describe\n' +
+        'import Describe as D\n' +
         "export record Box = {n: Int}\n" +
         "honor D.Describe<Box> =\n    describe(value) = \"first\"\n" +
         "honor Describe<Box> =\n    describe(value) = \"second\"\n"],
@@ -204,21 +204,21 @@ describe("one declaration under either spelling", () => {
     const qualifiedHome = [
       DESCRIBE,
       ["/home.hex",
-        'import H from "./describe"\n' +
+        "module Home\n\n" + 'import Describe as H\n' +
         "export record Box = {n: Int}\n" +
         "honor H.Describe<Box> =\n    describe(value) = \"home\"\n"],
       ["/other.hex",
-        'import Describe from "./describe"\n' +
-        'import Home from "./home"\n' +
+        "module Other\n\n" + 'import Describe\n' +
+        'import Home\n' +
         "honor Describe<Home.Box> =\n    describe(value) = \"other\"\n"],
       ["/main.hex",
-        'import Other from "./other"\n' +
+        "module Main\n\n" + 'import Other\n' +
         "export let n: Int = 1\n"],
     ] as const;
     const allBare = [
       DESCRIBE,
       ["/home.hex",
-        'import Describe from "./describe"\n' +
+        "module Home\n\n" + 'import Describe\n' +
         "export record Box = {n: Int}\n" +
         "honor Describe<Box> =\n    describe(value) = \"home\"\n"],
       qualifiedHome[2],
@@ -252,23 +252,23 @@ describe("one declaration under either spelling", () => {
     const qualifiedElsewhere = [
       DESCRIBE,
       ["/home.hex",
-        'import Describe from "./describe"\n' +
+        "module Home\n\n" + 'import Describe\n' +
         "export record Box = {n: Int}\n" +
         "honor Describe<Box> =\n    describe(value) = \"home\"\n"],
       ["/other.hex",
-        'import D from "./describe"\n' +
-        'import Home from "./home"\n' +
+        "module Other\n\n" + 'import Describe as D\n' +
+        'import Home\n' +
         "honor D.Describe<Home.Box> =\n    describe(value) = \"other\"\n"],
       ["/main.hex",
-        'import Other from "./other"\n' +
+        "module Main\n\n" + 'import Other\n' +
         "export let n: Int = 1\n"],
     ] as const;
     const allBare = [
       DESCRIBE,
       qualifiedElsewhere[1],
       ["/other.hex",
-        'import Describe from "./describe"\n' +
-        'import Home from "./home"\n' +
+        "module Other\n\n" + 'import Describe\n' +
+        'import Home\n' +
         "honor Describe<Home.Box> =\n    describe(value) = \"other\"\n"],
       qualifiedElsewhere[3],
     ] as const;
@@ -308,14 +308,14 @@ describe("the stranded door-builder the blessing preserves", () => {
   // spelling at all.
   const SCALE = [
     "/scale.hex",
-    "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
+    "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n",
   ] as const;
 
   test("widens, `= widened`, and a qualified head, end to end", async () => {
     const files = [
       SCALE,
       ["/main.hex",
-        'import D from "./scale"\n' +
+        "module Main\n\n" + 'import Scale as D\n' +
         "export record Matrix = {n: Float}\n" +
         "widens D.scale(value: Matrix, factor: Float): Matrix = " +
         "Matrix({n = value.n * factor})\n" +
@@ -343,7 +343,7 @@ describe("the stranded door-builder the blessing preserves", () => {
     const qualified = messages([
       SCALE,
       ["/main.hex",
-        'import D from "./scale"\n' +
+        "module Main\n\n" + 'import Scale as D\n' +
         "export record Matrix = {n: Float}\n" +
         "widens D.scale(value: Matrix, factor: Float): Matrix = " +
         "Matrix({n = value.n * factor})\n" +
@@ -353,7 +353,7 @@ describe("the stranded door-builder the blessing preserves", () => {
     const bare = messages([
       SCALE,
       ["/main.hex",
-        'import Scale from "./scale"\n' +
+        "module Main\n\n" + 'import Scale\n' +
         "export record Matrix = {n: Float}\n" +
         "widens Scale.scale(value: Matrix, factor: Float): Matrix = " +
         "Matrix({n = value.n * factor})\n" +
@@ -378,7 +378,7 @@ describe("`= derive` under a qualified head", () => {
     expect(messages([
       DESCRIBE,
       ["/main.hex",
-        'import D from "./describe"\n' +
+        "module Main\n\n" + 'import Describe as D\n' +
         "export record Box = {n: Int}\n" +
         "honor D.Describe<Box> = derive\n"],
     ])).toEqual([
@@ -393,7 +393,7 @@ describe("`= derive` under a qualified head", () => {
     expect(messages([
       DESCRIBE,
       ["/main.hex",
-        'import Describe from "./describe"\n' +
+        "module Main\n\n" + 'import Describe\n' +
         "export record Box = {n: Int}\n" +
         "honor Describe<Box> = derive\n"],
     ])).toEqual([
@@ -415,7 +415,7 @@ describe("error paths, as the compiler reports them today", () => {
     expect(messages([
       DESCRIBE,
       ["/main.hex",
-        'import D from "./describe"\n' +
+        "module Main\n\n" + 'import Describe as D\n' +
         "export record Box = {n: Int}\n" +
         "honor D.NotThere<Box> =\n    describe(value) = \"x\"\n"],
     ])).toEqual(["unknown constraint `D.NotThere`"]);
@@ -428,10 +428,10 @@ describe("error paths, as the compiler reports them today", () => {
     // `D.Marker` exists on the other side.
     expect(messages([
       ["/describe.hex",
-        "export constraint Describe<a> =\n    describe(value: a): String\n" +
+        "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a): String\n" +
         "export record Marker = {n: Int}\n"],
       ["/main.hex",
-        'import D from "./describe"\n' +
+        "module Main\n\n" + 'import Describe as D\n' +
         "export record Box = {n: Int}\n" +
         "honor D.Marker<Box> =\n    describe(value) = \"x\"\n"],
     ])).toEqual(["unknown constraint `D.Marker`"]);
@@ -444,7 +444,7 @@ describe("error paths, as the compiler reports them today", () => {
     expect(messages([
       DESCRIBE,
       ["/main.hex",
-        "export record Box = {n: Int}\n" +
+        "module Main\n\n" + "export record Box = {n: Int}\n" +
         "honor Q.Describe<Box> =\n    describe(value) = \"x\"\n"],
     ])).toEqual(["unknown constraint `Q.Describe`"]);
   });
@@ -457,7 +457,7 @@ describe("error paths, as the compiler reports them today", () => {
     expect(messages([
       DESCRIBE,
       ["/main.hex",
-        'import D from "./describe"\n' +
+        "module Main\n\n" + 'import Describe as D\n' +
         "export record Box = {n: Int}\n" +
         "honor D.NotThere<Box> = derive\n"],
     ])).toEqual([

@@ -49,7 +49,7 @@ function diagnose(
 ): readonly { readonly message: string }[] {
   const files = [
     ...extras.map(([path, text], index) => new Source.File(Source.fileId(index + 1), path, text)),
-    new Source.File(Source.fileId(0), "/main.hex", source),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
   ];
   return compileProject(files).diagnostics;
 }
@@ -61,7 +61,7 @@ async function run(
 ): Promise<Record<string, unknown>> {
   const files = [
     ...extras.map(([path, text], index) => new Source.File(Source.fileId(index + 1), path, text)),
-    new Source.File(Source.fileId(0), "/main.hex", source),
+    new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source),
   ];
   const project = compileProject(files);
   // The project-wide bag, not just the entry's: a broken *extra* must fail here.
@@ -85,9 +85,9 @@ describe("harness honesty (poison test)", () => {
     const poison =
       "export let plus(left: Int, right: Int): Int = \"not an Int\"\n";
     const entry =
-      'import Poison from "./Poison"\n' +
+      'import Poison\n' +
       "export let ok: Int = 1\n";
-    const diagnostics = diagnose(entry, [["/Poison.hex", poison]]);
+    const diagnostics = diagnose(entry, [["/Poison.hex", "module Poison\n\n" + poison]]);
     expect(diagnostics).not.toEqual([]);
   });
 
@@ -95,17 +95,17 @@ describe("harness honesty (poison test)", () => {
     const poison =
       "export let plus(left: Int, right: Int): Int = \"not an Int\"\n";
     const entry =
-      'import Poison from "./Poison"\n' +
+      'import Poison\n' +
       "export let ok: Int = 1\n";
-    await expect(run(entry, [["/Poison.hex", poison]])).rejects.toThrow();
+    await expect(run(entry, [["/Poison.hex", "module Poison\n\n" + poison]])).rejects.toThrow();
   });
 
   test("the same harness passes a project whose non-entry module is sound", async () => {
     const sound = "export let plus(left: Int, right: Int): Int = left + right\n";
     const entry =
-      'import Sound from "./Sound"\n' +
+      'import Sound\n' +
       "export let three: Int = Sound.plus(1, 2)\n";
-    const m = await run(entry, [["/Sound.hex", sound]]);
+    const m = await run(entry, [["/Sound.hex", "module Sound\n\n" + sound]]);
     expect(m.three).toBe(3);
   });
 });

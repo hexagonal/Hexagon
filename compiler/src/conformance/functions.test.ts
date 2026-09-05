@@ -81,6 +81,7 @@ describe("Functions specification conformance", () => {
     // the emitted evidence plumbing is where a typecheck-only test would miss a
     // regression.
     const m = await run(
+      "module Main\n\n" +
       "fun double<a: Num>(x: a): a = x + x\n" +
         "fun useInt(): Int = double(21)\n" +
         "fun useFloat(): Float = double(1.5)\n" +
@@ -96,7 +97,7 @@ describe("Functions specification conformance", () => {
 // declaration, so a module assembled by calling the passes directly cannot type
 // a condition, a guard, a comparison, or a logic operator.
 function checkSource(text: string): Typed.Module {
-  return compileMain(text).modules.find(({ source }) => source.path === "/main.hex")!.typed;
+  return compileMain("module Main\n\n" + text).modules.find(({ source }) => source.path === "/main.hex")!.typed;
 }
 
 const run = runMain;

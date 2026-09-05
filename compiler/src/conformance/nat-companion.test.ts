@@ -26,14 +26,14 @@ import { compileFiles, compileMain, projectDiagnostics, runMain } from "../suppo
 
 /** `/main.hex`'s emitted JavaScript, which must have compiled cleanly. */
 function emitted(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
 /** `stdlib/Nat.hex`'s emitted JavaScript, as the prelude compiled it. */
 function companion(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules
     .find(({ source: file }) => file.path.endsWith("/Nat.hex"))!.javascript.text;
@@ -56,7 +56,7 @@ function threw(run: () => unknown): unknown {
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Nat = countt(1)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Nat = countt(1)\n"))
       .toEqual(["unknown name `countt`"]);
   });
 });
@@ -64,6 +64,8 @@ describe("the control: diagnostics are project-level, so prove the probe can fai
 describe("the four spellings are one implementation", () => {
   test("`rem` agrees qualified, after a dot, and under a bound", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let qualified: Nat = Nat.rem(17, 5)",
       "let seventeen: Nat = 17",
       "let five: Nat = 5",
@@ -95,6 +97,8 @@ describe("Division & Remainder §2 at a type with no negatives", () => {
    */
   test("`div` is `quot` and `mod` is `rem`, everywhere they are defined", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let agree(left: Nat, right: Nat): Bool =",
       "    Nat.div(left, right) == Nat.quot(left, right)",
       "    and Nat.mod(left, right) == Nat.rem(left, right)",
@@ -116,6 +120,8 @@ describe("Division & Remainder §2 at a type with no negatives", () => {
   /** §2's identity holds here too, trivially but checkably. */
   test("`div(l, r) * r + mod(l, r) == l`", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let holds(left: Nat, right: Nat): Bool =",
       "    Nat.div(left, right) * right + Nat.mod(left, right) == left",
       "export let identities: Vector(Bool) = [holds(9, 4), holds(0, 3), holds(8, 8)]",
@@ -137,6 +143,8 @@ describe("the guards name `Nat`, which they never did before", () => {
    */
   test("each member throws `DivideByZeroError` naming `Nat` and itself", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let byDiv(): Nat = Nat.div(1, 0)",
       "export let byMod(): Nat = Nat.mod(2, 0)",
       "export let byQuot(): Nat = Nat.quot(3, 0)",
@@ -147,7 +155,7 @@ describe("the guards name `Nat`, which they never did before", () => {
     const messages = ["Div", "Mod", "Quot", "Rem"].map((member) => {
       const error = threw(exports[`by${member}`] as () => unknown) as Error;
       expect(error.name).toBe("DivideByZeroError");
-      expect((error as Error & { $hex?: string }).$hex).toBe("Integral");
+      expect((error as Error & { $hex?: string }).$hex).toBe("Hex.Integral");
       return error.message;
     });
 
@@ -162,6 +170,8 @@ describe("the guards name `Nat`, which they never did before", () => {
   /** And `Int`'s messages still say `Int`, so the two are not one message again. */
   test("the same operations at `Int` still name `Int`", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let natSide(): Nat = Nat.mod(7, 0)",
       "export let intSide(): Int = Int.mod(7, 0)",
       "",
@@ -177,6 +187,8 @@ describe("the guards name `Nat`, which they never did before", () => {
 describe("`gcd` needs no absolute value here", () => {
   test("`gcd` absorbs zero and finds the divisor", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export let divisors: Vector(Nat) = [",
       "    Nat.gcd(0, 0), Nat.gcd(12, 0), Nat.gcd(0, 12),",
       "    Nat.gcd(12, 18), Nat.gcd(17, 5), Nat.gcd(48, 18)]",
@@ -204,7 +216,7 @@ describe("`Pow<Nat>` carries the guard the `Int` exponent made reachable (#541)"
       "export let big: Nat = 3 ** 5",
       "",
     ].join("\n");
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
     const text = emitted(source);
 
     expect(exports["eight"]).toBe(8);
@@ -220,6 +232,8 @@ describe("`Pow<Nat>` carries the guard the `Int` exponent made reachable (#541)"
     // one it has: `Nat`'s algebra runs out exactly where `Int`'s does, and says
     // so with the message the whole integer family shares.
     const exports = await runMain([
+      "module Main",
+      "",
       "let one: Nat = 1",
       "let negative: Int = -1",
       "export let boom(): Nat = one ** negative",
@@ -256,7 +270,7 @@ describe("`Nat` honors no `Signed`", () => {
    */
   test("subtraction and negation at `Nat` are refused", () => {
     expect(diagnostics([
-      ["/main.hex", "export let gap(a: Nat, b: Nat): Nat = a - b\n"],
+      ["/main.hex", "module Main\n\n" + "export let gap(a: Nat, b: Nat): Nat = a - b\n"],
     ])).toContain(
       "type `Nat` has no `Signed` instance; its only legal homes are the module declaring " +
         "`Signed` and `Nat`'s prelude companion module, both outside project source, so " +
@@ -265,7 +279,7 @@ describe("`Nat` honors no `Signed`", () => {
         "result (`let difference: Int = …`)",
     );
     expect(diagnostics([
-      ["/main.hex", "export let flipped(a: Nat): Nat = -a\n"],
+      ["/main.hex", "module Main\n\n" + "export let flipped(a: Nat): Nat = -a\n"],
     ])).toContain(
       "type `Nat` has no `Signed` instance; its only legal homes are the module declaring " +
         "`Signed` and `Nat`'s prelude companion module, both outside project source, so " +
@@ -278,6 +292,8 @@ describe("`Nat` honors no `Signed`", () => {
   /** But `Num`, `Ord`, `Eq`, `Show`, `Hash`, `Pow`, and `Integral` all answer. */
   test("everything `Nat` does honor still works", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let a: Nat = 30",
       "let b: Nat = 12",
       "export let sum: Nat = a + b",
@@ -311,6 +327,8 @@ describe("Primitive Types §1's checked boundary conversion", () => {
    */
   test("`fromInt` answers `Some` for the non-negative and `None` below zero", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let described(value: Int): String =",
       "    match Nat.fromInt(value)",
       "        Some(count) => \"count ${count}\"",
@@ -327,6 +345,8 @@ describe("Primitive Types §1's checked boundary conversion", () => {
   /** The result is genuinely an `Option(Nat)`, and its payload a genuine `Nat`. */
   test("the answer's payload is a `Nat` a `Nat`-typed binding accepts", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "let orZero(result: Option(Nat)): Nat =",
       "    match result",
       "        Some(count) => count",
@@ -377,7 +397,7 @@ describe("`Nat` widens, and its literals erase", () => {
       "export let asBig: BigInt = toBig(8)",
       "",
     ].join("\n");
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
     const text = emitted(source);
 
     expect(exports["asInt"]).toBe(8);
@@ -418,7 +438,7 @@ describe("the wired `Nat` row is gone, not dormant", () => {
     expect(text).not.toContain("__int");
     expect(text).not.toContain("__nat");
     expect(text).not.toContain("__checkedPower");
-    expect(text).toContain('from "./Nat.js"');
+    expect(text).toContain('from "./Hex/Nat.js"');
   });
 
   /**
@@ -427,6 +447,8 @@ describe("the wired `Nat` row is gone, not dormant", () => {
    */
   test("a record deriving over a `Nat` field hashes lawfully", async () => {
     const exports = await runMain([
+      "module Main",
+      "",
       "export record Page derives (Eq, Hash) = {number: Nat, size: Nat}",
       "let first = Page({number = 1, size = 50})",
       "let alsoFirst = Page({number = 1, size = 50})",
@@ -455,7 +477,7 @@ describe("the wired `Nat` row is gone, not dormant", () => {
    */
   test("a hand-written `honor Hash<Nat>` in user source is still refused", () => {
     expect(diagnostics([
-      ["/main.hex", "honor Hash<Nat> =\n    hash(value) = value * 31\n"],
+      ["/main.hex", "module Main\n\n" + "honor Hash<Nat> =\n    hash(value) = value * 31\n"],
     ])).toContain(
       "`Hash` instances must be derived, and this subject has no declaration " +
         "that could carry a `derives` clause",

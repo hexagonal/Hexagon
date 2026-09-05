@@ -39,7 +39,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
     // §8's first dialect: there is nothing to extend, so the repair is to write
     // the clause. `Show` has no base, so nothing is named alongside it.
     expect(messagesOf([
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "export union Colour = Red | Green",
         "",
         "export fun go(c: Colour): String = show(c)",
@@ -47,7 +47,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ].join("\n")],
     ])).toEqual([
       "type `Colour` has no `Show` instance; it could only be declared in " +
-        "`./main.hex` (declares `Colour`) or the module declaring `Show`" +
+        "module `Main` (declares `Colour`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Colour`",
     ]);
   });
@@ -56,7 +56,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
     // §8's second dialect. `Eq` is present *and derived*, so `Ord`'s base is
     // satisfied and `Ord` is named alone.
     expect(messagesOf([
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "export record Point derives Eq = {n: Int}",
         "",
         "export fun go(p: Point, q: Point): Ordering = Ord.compare(p, q)",
@@ -64,7 +64,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ].join("\n")],
     ])).toEqual([
       "type `Point` has no `Ord` instance; it could only be declared in " +
-        "`./main.hex` (declares `Point`) or the module declaring `Ord`" +
+        "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `Ord` to the `derives` list of `Point`",
     ]);
   });
@@ -75,7 +75,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
     // so the whole writable list is offered — and every base of the derivable
     // four is itself derivable, so there always is one.
     expect(messagesOf([
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "export record Point = {n: Int}",
         "",
         "export fun go(p: Point, q: Point): Ordering = Ord.compare(p, q)",
@@ -83,7 +83,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ].join("\n")],
     ])).toEqual([
       "type `Point` has no `Ord` instance; it could only be declared in " +
-        "`./main.hex` (declares `Point`) or the module declaring `Ord`" +
+        "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `derives (Eq, Ord)` to the declaration of `Point`",
     ]);
   });
@@ -92,7 +92,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
     // The cell the two dialects would be easiest to get half right in: the list
     // exists, and what it carries leaves the base absent all the same.
     expect(messagesOf([
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "export record Point derives Show = {n: Int}",
         "",
         "export fun go(p: Point, q: Point): Ordering = Ord.compare(p, q)",
@@ -100,7 +100,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ].join("\n")],
     ])).toEqual([
       "type `Point` has no `Ord` instance; it could only be declared in " +
-        "`./main.hex` (declares `Point`) or the module declaring `Ord`" +
+        "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `(Eq, Ord)` to the `derives` list of `Point`",
     ]);
   });
@@ -112,7 +112,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
     // module already has. (`Hash` is the one constraint for which the
     // provenance of that `Eq` matters — see the wrapper-key case below.)
     expect(messagesOf([
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "export record Point = {n: Int}",
         "",
         "honor Eq<Point> =",
@@ -123,7 +123,7 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
       ].join("\n")],
     ])).toEqual([
       "type `Point` has no `Ord` instance; it could only be declared in " +
-        "`./main.hex` (declares `Point`) or the module declaring `Ord`" +
+        "module `Main` (declares `Point`) or the module declaring `Ord`" +
         "; add `derives Ord` to the declaration of `Point`",
     ]);
   });
@@ -132,10 +132,10 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
     // §7.6's own reason for letting the append go pathless, pinned as the
     // negative it is: the subject's home appears exactly once in the report.
     const [message] = messagesOf([
-      ["/widget.hex", "export record Widget = {size: Int}\n"],
-      ["/main.hex", [
+      ["/widget.hex", "module Widget\n\n" + "export record Widget = {size: Int}\n"],
+      ["/main.hex", "module Main\n\n" + [
         // Rule 3's companion fallback (Modules §3.2, #762): same-spelled alias.
-        "import Widget from \"./widget\"",
+        "import Widget",
         "",
         "export fun go(w: Widget): String = show(w)",
         "",
@@ -144,44 +144,41 @@ describe("appended: `Eq`, `Ord`, `Show` keep the clause and gain the fixit", () 
 
     expect(message).toBe(
       "type `Widget` has no `Show` instance; it could only be declared in " +
-        "`./widget.hex` (declares `Widget`) or the module declaring `Show`" +
+        "module `Widget` (declares `Widget`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Widget`",
     );
-    expect(message?.split("./widget.hex").length).toBe(2);
+    expect(message?.split("module `Widget`").length).toBe(2);
   });
 });
 
 describe("replacing: `Hash` offers only the seat the checker would accept", () => {
   test("no list, no `Eq` — the base-complete repair, with its path", () => {
-    expect(projectDiagnostics(
-      "record Point = {n: Int}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "record Point = {n: Int}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
-        "in `./main.hex`",
+        "in module `Main`",
     );
   });
 
   test("a list already there, `Eq` derived — `Hash` alone joins it", () => {
-    expect(projectDiagnostics(
-      "record Point derives Eq = {n: Int}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "record Point derives Eq = {n: Int}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
-        "in `./main.hex`",
+        "in module `Main`",
     );
   });
 
   test("a list already there and `Eq` absent — the base joins it too", () => {
-    expect(projectDiagnostics(
-      "record Point derives Show = {n: Int}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "record Point derives Show = {n: Int}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `(Eq, Hash)` to `Point`'s `derives` list " +
-        "in `./main.hex`",
+        "in module `Main`",
     );
   });
 
@@ -193,22 +190,20 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     // answer the provenance one. A checker that read provenance off the
     // declaration's `derives` list would call this `Eq` hand-written and print
     // the wrapper-key report.
-    expect(projectDiagnostics(
-      "record Point = {n: Int}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "record Point = {n: Int}\n" +
         "honor Eq<Point> = derive\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     )).toContain(
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives Hash` on the declaration of `Point` " +
-        "in `./main.hex`",
+        "in module `Main`",
     );
   });
 
   test("the clause is gone, not merely followed", () => {
     // The whole of James's point 1, as a negative: the two-home template
     // invites a hand-written honor, and neither home would accept one.
-    const messages = projectDiagnostics(
-      "record Point = {n: Int}\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "record Point = {n: Int}\n" +
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))\n",
     ).join("\n");
 
@@ -220,9 +215,9 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     // The replacing sentence carries a path of its own, so which path it is has
     // to be pinned somewhere the two files differ.
     expect(messagesOf([
-      ["/point.hex", "export record Point = {n: Int}\n"],
-      ["/main.hex", [
-        "import Point from \"./point\"",
+      ["/point.hex", "module Point\n\n" + "export record Point = {n: Int}\n"],
+      ["/main.hex", "module Main\n\n" + [
+        "import Point",
         "",
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))",
         "",
@@ -230,7 +225,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     ])).toEqual([
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is `derives (Eq, Hash)` on the declaration of `Point` " +
-        "in `./point.hex`",
+        "in module `Point`",
     ]);
   });
 
@@ -238,8 +233,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     // Collections Part 2 §4.3 bars the derivation itself here, so there is no
     // repair through this type's own instances at all: the report states the
     // positive requirement and §4.5's sanctioned route, self-containedly.
-    expect(projectDiagnostics(
-      "record Weird = {s: String}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "record Weird = {s: String}\n" +
         "honor Eq<Weird> =\n" +
         "    equals(left, right) = left.s == right.s\n" +
         "export let bad: Set(Weird) = Set.add(Set.empty, Weird({s = \"K\"}))\n",
@@ -255,8 +249,7 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
     // one, which is the single thing §7.6 rules out by name. The words
     // `derives Hash` do appear — in the requirement the report states — so what
     // is pinned is the absence of the offer, not of the spelling.
-    const messages = projectDiagnostics(
-      "record Weird = {s: String}\n" +
+    const messages = projectDiagnostics("module Main\n\n" + "record Weird = {s: String}\n" +
         "honor Eq<Weird> =\n" +
         "    equals(left, right) = left.s == right.s\n" +
         "export let bad: Set(Weird) = Set.add(Set.empty, Weird({s = \"K\"}))\n",
@@ -282,9 +275,9 @@ describe("replacing: `Hash` offers only the seat the checker would accept", () =
 describe("`Eq`'s provenance travels with the instance, not with the importer", () => {
   test("a derived `Eq` upstream gets the repair, at the declaring module's path", () => {
     expect(messagesOf([
-      ["/point.hex", "export record Point derives Eq = {n: Int}\n"],
-      ["/main.hex", [
-        "import Point from \"./point\"",
+      ["/point.hex", "module Point\n\n" + "export record Point derives Eq = {n: Int}\n"],
+      ["/main.hex", "module Main\n\n" + [
+        "import Point",
         "",
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))",
         "",
@@ -292,7 +285,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
     ])).toEqual([
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
-        "in `./point.hex`",
+        "in module `Point`",
     ]);
   });
 
@@ -301,15 +294,15 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
     // accident is easy — a hard-coded `false` passes this one — so the pair is
     // what makes the pin worth having.
     expect(messagesOf([
-      ["/point.hex", [
+      ["/point.hex", "module Point\n\n" + [
         "export record Point = {n: Int}",
         "",
         "honor Eq<Point> =",
         "    equals(left, right) = left.n == right.n",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Point from \"./point\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Point",
         "",
         "export let bad: Set(Point) = Set.add(Set.empty, Point({n = 1}))",
         "",
@@ -324,17 +317,17 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
   test("two hops do not launder the flag", () => {
     // `./middle.hex` carries the instance through without declaring it, and a
     // transit module re-exports the dictionary, not the declaration. The
-    // provenance is `./point.hex`'s word at both hops, and so is the path.
+    // provenance is module `Point`'s word at both hops, and so is the seat.
     expect(messagesOf([
-      ["/point.hex", "export record Point derives (Eq, Show) = {n: Int}\n"],
-      ["/middle.hex", [
-        "import Point from \"./point\"",
+      ["/point.hex", "module Point\n\n" + "export record Point derives (Eq, Show) = {n: Int}\n"],
+      ["/middle.hex", "module Middle\n\n" + [
+        "import Point",
         "",
         "export fun make(n: Int): Point = Point({n = n})",
         "",
       ].join("\n")],
-      ["/main.hex", [
-        "import Middle from \"./middle\"",
+      ["/main.hex", "module Main\n\n" + [
+        "import Middle",
         "",
         "export fun go(): Int = Set.size(Set.add(Set.empty, Middle.make(1)))",
         "",
@@ -342,7 +335,7 @@ describe("`Eq`'s provenance travels with the instance, not with the importer", (
     ])).toEqual([
       "type `Point` has no `Hash` instance; `Hash` instances must be derived, " +
         "so the only repair is adding `Hash` to `Point`'s `derives` list " +
-        "in `./point.hex`",
+        "in module `Point`",
     ]);
   });
 });
@@ -352,7 +345,7 @@ describe("the gate: what draws no fixit at all", () => {
     // `Num` has no derivable form (Constraints §4.5's four, and no more), so
     // the clause stands alone exactly as it did before #644.
     expect(messagesOf([
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "export record Box = {value: Float}",
         "honor Pow<Box> =",
         "    pow(value, exponent) = value",
@@ -360,7 +353,7 @@ describe("the gate: what draws no fixit at all", () => {
       ].join("\n")],
     ])).toEqual([
       "type `Box` has no `Num` instance; it could only be declared in " +
-        "`./main.hex` (declares `Box`) or the module declaring `Num`",
+        "module `Main` (declares `Box`) or the module declaring `Num`",
     ]);
   });
 
@@ -373,16 +366,16 @@ describe("the gate: what draws no fixit at all", () => {
     // is written by identity because that ban is the only thing standing
     // between the two readings, not because a program can tell them apart.
     expect(messagesOf([
-      ["/render.hex", [
+      ["/render.hex", "module Render\n\n" + [
         "export constraint Render<a> =",
         "    render(subject: a): String",
         "",
       ].join("\n")],
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         // A constraint's members are reached through the alias or the dot
         // (Modules §3.2, #762) — the bare `render` is nothing now, so the
         // member is called qualified.
-        "import Render from \"./render\"",
+        "import Render",
         "",
         "export record Panel = {width: Int}",
         "",
@@ -391,7 +384,7 @@ describe("the gate: what draws no fixit at all", () => {
       ].join("\n")],
     ])).toEqual([
       "type `Panel` has no `Render` instance; it could only be declared in " +
-        "`./main.hex` (declares `Panel`) or `./render.hex` (declares `Render`)",
+        "module `Main` (declares `Panel`) or module `Render` (declares `Render`)",
     ]);
   });
 
@@ -402,7 +395,7 @@ describe("the gate: what draws no fixit at all", () => {
     // pair is what stands, and offering `derives Ord` beside it would name a
     // file no reader may edit.
     expect(messagesOf([
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "export fun go(m: Option(Int), n: Option(Int)): Ordering = Ord.compare(m, n)",
         "",
       ].join("\n")],
@@ -418,7 +411,7 @@ describe("the gate: what draws no fixit at all", () => {
     // Constraints §5.3's fixed companion home, and no `derives` seat anywhere:
     // the closed-pair clause stands alone — with Method Syntax §9 row 15's
     // rider after it, which is a repair rather than a home (#808).
-    expect(projectDiagnostics("export fun gap(a: Nat, b: Nat): Nat = a - b\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export fun gap(a: Nat, b: Nat): Nat = a - b\n")).toEqual([
       "type `Nat` has no `Signed` instance; its only legal homes are the module " +
         "declaring `Signed` and `Nat`'s prelude companion module, both outside project " +
         "source, so this pair's honored set is closed — change the type, or go through " +
@@ -448,7 +441,7 @@ describe("the gate: what draws no fixit at all", () => {
    */
   test("a function subject is answered before the composition is reached", () => {
     expect(messagesOf([
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "export fun go(p: ((Int) -> Int)): String = show(p)",
         "",
       ].join("\n")],
@@ -457,7 +450,7 @@ describe("the gate: what draws no fixit at all", () => {
 
   test("a structural subject's nominal component is what the fixit names", () => {
     expect(messagesOf([
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "export record Odd = {n: Int}",
         "",
         "export fun go(p: (Int, Odd)): String = show(p)",
@@ -465,7 +458,7 @@ describe("the gate: what draws no fixit at all", () => {
       ].join("\n")],
     ])).toEqual([
       "type `Odd` has no `Show` instance; it could only be declared in " +
-        "`./main.hex` (declares `Odd`) or the module declaring `Show`" +
+        "module `Main` (declares `Odd`) or the module declaring `Show`" +
         "; add `derives Show` to the declaration of `Odd`",
     ]);
   });

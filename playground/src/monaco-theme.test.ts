@@ -12,7 +12,6 @@ import { vs, vs_dark } from "monaco-editor/esm/vs/editor/standalone/common/theme
 import hexagonGrammarSource from "../../editors/vscode/syntaxes/hexagon.tmLanguage.json?raw";
 import javascriptGrammarSource from "tm-grammars/grammars/javascript.json?raw";
 import typescriptGrammarSource from "tm-grammars/grammars/typescript.json?raw";
-import playgroundModuleGrammarSource from "./playground-module.tmLanguage.json?raw";
 import {
   darkPalette,
   generatedFamilies,
@@ -128,10 +127,13 @@ const fallsThroughToForeground = [
   "switch-statement.expr",
 ];
 
-const hexagonScopes = (): string[] => [
-  ...grammarScopes(hexagonGrammarSource),
-  ...grammarScopes(playgroundModuleGrammarSource),
-];
+/**
+ * One grammar since #829: the Playground's `module X` notation and the
+ * language's own header are one form (Modules §2.1), so the injection that
+ * used to add scopes of its own is retired and the shared grammar's scopes are
+ * the whole set the theme must paint.
+ */
+const hexagonScopes = (): string[] => [...grammarScopes(hexagonGrammarSource)];
 
 const generatedScopes = (): string[] => [
   ...new Set([

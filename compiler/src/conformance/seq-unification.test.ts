@@ -99,11 +99,11 @@ async function run(
 }
 
 function main(source: string): Promise<Record<string, unknown>> {
-  return run([["/main.hex", source]]);
+  return run([["/main.hex", "module Main\n\n" + source]]);
 }
 
 function diagnostics(source: string): readonly string[] {
-  return compileProject([new Source.File(Source.fileId(0), "/main.hex", source)])
+  return compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)])
     .diagnostics.map((diagnostic) => diagnostic.message);
 }
 
@@ -304,7 +304,7 @@ describe("the boundary face (FFI Part 3)", () => {
       new Source.File(
         Source.fileId(0),
         "/main.hex",
-        "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
+        "module Main\n\n" + "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
       ),
     ]);
     expect(project.diagnostics).toEqual([]);
@@ -333,7 +333,7 @@ describe("the boundary face (FFI Part 3)", () => {
       new Source.File(
         Source.fileId(0),
         "/main.hex",
-        "export let total(values: Seq(Int)): Int = Seq.fold(values, 0, (a, b) => a + b)\n" +
+        "module Main\n\n" + "export let total(values: Seq(Int)): Int = Seq.fold(values, 0, (a, b) => a + b)\n" +
         "export let upTo(count: Int): Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), count)\n",
       ),
     ]);
@@ -451,7 +451,7 @@ describe("the boundary face (FFI Part 3)", () => {
       new Source.File(
         Source.fileId(0),
         "/main.hex",
-        "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
+        "module Main\n\n" + "export let counted: Seq(Int) = Seq.take(Seq.iterate(1, x => x + 1), 3)\n",
       ),
     ]);
     const compiled = project.modules.find((module) => module.source.path === "/main.hex")!;
@@ -466,7 +466,7 @@ describe("the boundary face (FFI Part 3)", () => {
     // Directly observable, so observed rather than read off the emitted text.
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "    fun other(): Seq(Int)\n" +
         "\n" +
@@ -506,7 +506,7 @@ describe("the boundary face (FFI Part 3)", () => {
       new Source.File(
         Source.fileId(0),
         "/main.hex",
-        "extern from \"./numbers.js\"\n" +
+        "module Main\n\n" + "extern from \"./numbers.js\"\n" +
         "    export fun counter(): Seq(Int)\n" +
         "\n" +
         "export let first: Option(Int) =\n" +
@@ -534,7 +534,7 @@ describe("the boundary face (FFI Part 3)", () => {
       new Source.File(
         Source.fileId(0),
         "/main.hex",
-        "extern from \"./numbers.js\"\n" +
+        "module Main\n\n" + "extern from \"./numbers.js\"\n" +
         "    fun consume(values: Seq(Int)): Int\n" +
         "\n" +
         "export let out: Int = consume!(Seq.singleton(1))\n",
@@ -551,7 +551,7 @@ describe("the boundary face (FFI Part 3)", () => {
   test("a foreign function receives a Hexagon Seq as a working iterable", async () => {
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun consume(values: Seq(Int)): Int\n" +
         "\n" +
         "export let out: Int = consume!(Seq.take(Seq.iterate(1, x => x + 1), 4))\n"]],
@@ -574,7 +574,7 @@ describe("the boundary face (FFI Part 3)", () => {
     // persistence regime on a trip that changed nothing.
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun echo(values: Seq(Int)): Seq(Int)\n" +
         "\n" +
         "let sent: Seq(Int) = Seq.singleton(1)\n" +
@@ -592,7 +592,7 @@ describe("the boundary face (FFI Part 3)", () => {
     // genuine `Seq` gets its own adapter and its own spine.
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "\n" +
         "export let firstPass: Vector(Int) = Vector.fromSeq(counter!())\n" +
@@ -621,7 +621,7 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
   test("a truthy non-boolean `done` terminates, as native iteration does", async () => {
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "\n" +
         "export let collected: Vector(Int) = Vector.fromSeq(counter!())\n"]],
@@ -645,7 +645,7 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
   test("`value` is not read when the step is done", async () => {
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "    fun valueReads(): Int\n" +
         "\n" +
@@ -676,7 +676,7 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
   test("a malformed iterator result is a TypeError, as native iteration gives", async () => {
     await expect(run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "\n" +
         "export let collected: Vector(Int) = Vector.fromSeq(counter!())\n"]],
@@ -695,7 +695,7 @@ describe("the inbound adapter's protocol access order (FFI Part 3 §7.2)", () =>
     // foreign computation to discover what kind of iterable is held.
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "    fun acquisitions(): Int\n" +
         "\n" +
@@ -741,7 +741,7 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
   }> {
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "    fun touches(): Int\n" +
         "\n" +
@@ -888,7 +888,7 @@ describe("the inbound adapter memoizes a forcing failure (FFI Part 3 §7.1)", ()
   test("a failure does not poison the positions already forced before it", async () => {
     const exports = await run(
       [["/main.hex",
-        "extern from \"numbers\"\n" +
+        "module Main\n\n" + "extern from \"numbers\"\n" +
         "    fun counter(): Seq(Int)\n" +
         "    fun touches(): Int\n" +
         "\n" +
@@ -1101,7 +1101,7 @@ describe("the memoizing spine reclaims an unreachable prefix (FFI Part 3 §5)", 
   test("an inbound adapter's prefix is collected once the cursor has passed it", async () => {
     const exports = await run(
       [["/main.hex",
-        "extern from \"boxes\"\n" +
+        "module Main\n\n" + "extern from \"boxes\"\n" +
         "    fun boxes(count: Int): Seq((Int, Int))\n" +
         "\n" +
         "export let build(count: Int): Seq((Int, Int)) = boxes!(count)\n" +
@@ -1211,7 +1211,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
       "  try { outcome = 'OK:' + JSON.stringify(fn()); }",
       // Recorded the way §7.4 says a program recognizes it — the brand and the
       // `name`, never the message, which is a non-normative rendering.
-      "  catch (error) { outcome = 'ERR:' + (error.$hex === 'Seq') + ':' + error.name; }",
+      "  catch (error) { outcome = 'ERR:' + (error.$hex === 'Hex.Seq') + ':' + error.name; }",
       "}",
       reenterBody,
       sourceBody,
@@ -1248,7 +1248,7 @@ describe("forcing is not reentrant (FFI Part 3 §7.3)", () => {
     handOut: () => Iterable<number>;
   }> {
     const exports = await run(
-      [["/main.hex", selfObserving]],
+      [["/main.hex", "module Main\n\n" + selfObserving]],
       { probe: probeModule(sourceBody, reenterBody) },
     );
     (exports["armIt"] as (ignored: number) => void)(0);

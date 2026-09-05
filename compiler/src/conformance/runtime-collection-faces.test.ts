@@ -6,6 +6,7 @@ import {
   Source,
   type CompiledProject,
 } from "../index";
+import { derivedModuleName } from "../passes/parser/parser.js";
 import { typeScriptErrors } from "../support/typescript-check.js";
 
 /**
@@ -26,10 +27,22 @@ import { typeScriptErrors } from "../support/typescript-check.js";
  * point of the carve-out is that a sweep does not take it with the rest.
  */
 
+/**
+ * Every source below is headerless by habit (it predates #829's module
+ * header). This mints the header a helper owes its callers (residue class 1)
+ * — the name the file's basename derives, exactly as the compiler's own
+ * fixit would (Modules §2.1) — unless the text already carries one (a source
+ * exercising the header itself writes `module …` explicitly).
+ */
+function withHeader(path: string, text: string): string {
+  if (/^module\s/u.test(text)) return text;
+  return `module ${derivedModuleName(path)}\n\n${text}`;
+}
+
 function project(files: Readonly<Record<string, string>>): CompiledProject {
   const compiled = compileProject(
     Object.entries(files).map(([path, text], index) =>
-      new Source.File(Source.fileId(index), path, text)
+      new Source.File(Source.fileId(index), path, withHeader(path, text))
     ),
   );
   expect(compiled.diagnostics).toEqual([]);
@@ -155,7 +168,7 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
 
   test("the import leads the file, ahead of the module's own imports", () => {
     const compiled = project({
-      "/src/main.hex": "import Other from \"./other\"\n" +
+      "/src/main.hex": "import Other\n" +
         "export let seat(x: Other.Row): Vector(Int) = Other.rows\n",
       "/src/other.hex": "export record Row = { n: Int }\nexport let rows: Vector(Int) = [1]\n",
     });
@@ -164,7 +177,7 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
     // runtime import precedes it because that one is the compiler's.
     expect(declarationsOf(compiled, "/src/main.hex")).toBe(
       'import type * as Hex from "./hex.js";\n' +
-        'import type * as Other from "./other.js";\n' +
+        'import type * as Other from "./Other.js";\n' +
         "export declare const seat: (x: Other.Row) => Hex.Vector<number>;\n",
     );
   });
@@ -176,7 +189,7 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   // §14.3 names as legitimately changed text.
   test("a namespace import no face qualifies through contributes no line", () => {
     const compiled = project({
-      "/src/main.hex": "import Other from \"./other\"\n" +
+      "/src/main.hex": "import Other\n" +
         "export let rows: Vector(Int) = Other.rows\n",
       "/src/other.hex": "export let rows: Vector(Int) = [1]\n",
     });
@@ -197,13 +210,13 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   // The face below does, so the collision is real and the generated alias moves.
   test("a source namespace import aliased `Hex` pushes the generated alias to `Hex_1`", () => {
     const compiled = project({
-      "/src/main.hex": "import Hex from \"./other\"\n" +
+      "/src/main.hex": "import Other as Hex\n" +
         "export let seat(x: Hex.Row): Vector(Int) = Hex.rows\n",
       "/src/other.hex": "export record Row = { n: Int }\nexport let rows: Vector(Int) = [1]\n",
     });
     expect(declarationsOf(compiled, "/src/main.hex")).toBe(
       'import type * as Hex_1 from "./hex.js";\n' +
-        'import type * as Hex from "./other.js";\n' +
+        'import type * as Hex from "./Other.js";\n' +
         "export declare const seat: (x: Hex.Row) => Hex_1.Vector<number>;\n",
     );
   });
@@ -213,7 +226,7 @@ describe("one type-only import of the runtime declaration module (obligation 2)"
   // `.d.ts` contests nothing in it, so the generated alias keeps `Hex`.
   test("a source alias `Hex` no face qualifies through contests nothing", () => {
     const compiled = project({
-      "/src/main.hex": "import Hex from \"./other\"\n" +
+      "/src/main.hex": "import Other as Hex\n" +
         "export let rows: Vector(Int) = Hex.rows\n",
       "/src/other.hex": "export let rows: Vector(Int) = [1]\n",
     });
@@ -248,7 +261,7 @@ describe("the program-scoped runtime declaration module (obligation 3)", () => {
   test("its content is exactly §8.3's four interfaces", () => {
     expect(project({ "/src/main.hex": ALL_FOUR_FACES }).runtimeDeclarations).toEqual({
       kind: "RuntimeDeclarations",
-      path: "/src/hex.d.ts",
+      path: "/hex.d.ts",
       text: 'export interface Vector<a> extends Iterable<a> { readonly "~hex": "Vector"; }\n' +
         'export interface Set<a> extends Iterable<a> { readonly "~hex": "Set"; }\n' +
         'export interface Map<k, v> extends Iterable<[k, v]> { readonly "~hex": "Map"; }\n' +
@@ -261,33 +274,40 @@ describe("the program-scoped runtime declaration module (obligation 3)", () => {
       .toBeUndefined();
   });
 
-  test("it sits at the source common root, and importers path-adjust to it", () => {
+  // #829 obsoletes the source-directory-driven premise this test used to carry
+  // (nesting the *source* under `/src/deep/deeper` moved the artefact and the
+  // path-adjustment): layout is now purely the declared name laid out as a path
+  // (Packages §6), so nesting comes from a **dotted module name**, never from
+  // where the file happens to sit. Rewritten at the same seat — the runtime
+  // module sits at the output root, and each importer path-adjusts by its own
+  // declared-name depth.
+  test("it sits at the output root, and importers path-adjust by declared-name depth", () => {
     const compiled = project({
-      "/src/main.hex": "export let rows: Vector(Int) = [1]\n",
-      "/src/deep/inner.hex": "export let more: Vector(String) = [\"a\"]\n",
-      "/src/deep/deeper/most.hex": "export let most: Vector(Bool) = [True]\n",
+      "/main.hex": "export let rows: Vector(Int) = [1]\n",
+      "/inner.hex": "module Deep.Inner\n\nexport let more: Vector(String) = [\"a\"]\n",
+      "/most.hex": "module Deep.Deeper.Most\n\nexport let most: Vector(Bool) = [True]\n",
     });
-    expect(compiled.runtimeDeclarations?.path).toBe("/src/hex.d.ts");
-    expect(declarationsOf(compiled, "/src/main.hex"))
+    expect(compiled.runtimeDeclarations?.path).toBe("/hex.d.ts");
+    expect(declarationsOf(compiled, "/main.hex"))
       .toContain('from "./hex.js";');
-    expect(declarationsOf(compiled, "/src/deep/inner.hex"))
+    expect(declarationsOf(compiled, "/inner.hex"))
       .toContain('from "../hex.js";');
-    expect(declarationsOf(compiled, "/src/deep/deeper/most.hex"))
+    expect(declarationsOf(compiled, "/most.hex"))
       .toContain('from "../../hex.js";');
   });
 
-  // §8.3 records this as a price rather than a property: the common root is the
-  // longest shared prefix over *all* sources, so a distant file shortens it and
-  // the artefact moves. The prelude modules already inject at that same root
-  // and already move the same way, which is why the ruling accepts it — but
-  // "accepted" is only checkable if the behaviour is pinned.
-  test("adding a distant source moves the root, the artefact, and every specifier", () => {
+  // The mirror of the retired "moves the root" test: #829 fixes the runtime
+  // artefact at the output root (Packages §6) independent of any source path —
+  // "a source file's name and place appear nowhere in the output" — so a source
+  // sitting far away does not shorten a "common root" (that concept is gone)
+  // and does not move the artefact or any specifier.
+  test("a source at a distant path does not move the root, the artefact, or any specifier", () => {
     const compiled = project({
       "/src/main.hex": "export let rows: Vector(Int) = [1]\n",
       "/tools/aside.hex": "export let n: Int = 1\n",
     });
     expect(compiled.runtimeDeclarations?.path).toBe("/hex.d.ts");
-    expect(declarationsOf(compiled, "/src/main.hex")).toContain('from "../hex.js";');
+    expect(declarationsOf(compiled, "/src/main.hex")).toContain('from "./hex.js";');
   });
 
   test("a user module claiming the name at the root wins; the generated file moves", () => {
@@ -295,7 +315,7 @@ describe("the program-scoped runtime declaration module (obligation 3)", () => {
       "/src/hex.hex": "export let n: Int = 1\n",
       "/src/main.hex": "export let rows: Vector(Int) = [1]\n",
     });
-    expect(compiled.runtimeDeclarations?.path).toBe("/src/hex1.d.ts");
+    expect(compiled.runtimeDeclarations?.path).toBe("/hex1.d.ts");
     expect(declarationsOf(compiled, "/src/main.hex")).toContain('from "./hex1.js";');
     // Only the generated file moves. The user module keeps its own emission.
     expect(declarationsOf(compiled, "/src/hex.hex")).toBe("export declare const n: number;\n");
@@ -306,15 +326,21 @@ describe("the program-scoped runtime declaration module (obligation 3)", () => {
       "/src/Hex.hex": "export let n: Int = 1\n",
       "/src/main.hex": "export let rows: Vector(Int) = [1]\n",
     });
-    expect(compiled.runtimeDeclarations?.path).toBe("/src/hex1.d.ts");
+    expect(compiled.runtimeDeclarations?.path).toBe("/hex1.d.ts");
   });
 
-  test("a same-named module in another directory does not collide", () => {
+  // #829 obsoletes the source-directory premise (a same-named module used to
+  // dodge the collision by sitting in another *source* directory): the probe
+  // now reads emitted filenames, laid out from the declared name alone
+  // (Packages §6), so only a **dotted** name — one that lays out under its own
+  // directory rather than at the root — avoids the collision, whatever
+  // directory its source sits in.
+  test("a same-named module dodges the collision by declared nesting, not source directory", () => {
     const compiled = project({
-      "/src/deep/hex.hex": "export let n: Int = 1\n",
+      "/src/deep/hex.hex": "module Deep.Hex\n\nexport let n: Int = 1\n",
       "/src/main.hex": "export let rows: Vector(Int) = [1]\n",
     });
-    expect(compiled.runtimeDeclarations?.path).toBe("/src/hex.d.ts");
+    expect(compiled.runtimeDeclarations?.path).toBe("/hex.d.ts");
   });
 });
 
@@ -390,19 +416,22 @@ describe("tsc accepts the emitted program (obligation 5)", () => {
   // rather than through a substring match. `tsc` resolving `"../hex.js"` from
   // a nested declaration file is the whole content of that rule, and a program
   // whose every module sits at the root — which is what every other run here
-  // uses — exercises none of it.
+  // uses — exercises none of it. #829 moves nesting from the *source*
+  // directory to the **declared name**: `Deep.Inner`/`Deep.Deeper.Most` lay
+  // out under `Deep/` and `Deep/Deeper/` (Packages §6), so the virtual `tsc`
+  // filenames below mirror that declared-name layout, not the source paths.
   test("a multi-directory program resolves its path-adjusted specifiers", async () => {
     const compiled = project({
-      "/src/main.hex": "export let rows: Vector(Int) = [1]\n",
-      "/src/deep/inner.hex": "export let more: Map(String, Int) = Map.empty\n",
-      "/src/deep/deeper/most.hex": "export let most: Set(Int) = Set.empty\n",
+      "/main.hex": "export let rows: Vector(Int) = [1]\n",
+      "/inner.hex": "module Deep.Inner\n\nexport let more: Map(String, Int) = Map.empty\n",
+      "/most.hex": "module Deep.Deeper.Most\n\nexport let most: Set(Int) = Set.empty\n",
     });
     expect(
       await typeScriptErrors({
         "hex.d.ts": compiled.runtimeDeclarations?.text ?? "",
-        "main.d.ts": declarationsOf(compiled, "/src/main.hex"),
-        "deep/inner.d.ts": declarationsOf(compiled, "/src/deep/inner.hex"),
-        "deep/deeper/most.d.ts": declarationsOf(compiled, "/src/deep/deeper/most.hex"),
+        "main.d.ts": declarationsOf(compiled, "/main.hex"),
+        "Deep/Inner.d.ts": declarationsOf(compiled, "/inner.hex"),
+        "Deep/Deeper/Most.d.ts": declarationsOf(compiled, "/most.hex"),
       }),
     ).toEqual([]);
   });
@@ -412,7 +441,7 @@ describe("tsc accepts the emitted program (obligation 5)", () => {
       "/src/hex.hex": "export let n: Int = 1\n",
       "/src/main.hex": "export let rows: Vector(Int) = [1]\n",
     });
-    expect(compiled.runtimeDeclarations?.path).toBe("/src/hex1.d.ts");
+    expect(compiled.runtimeDeclarations?.path).toBe("/hex1.d.ts");
     expect(
       await typeScriptErrors({
         "hex1.d.ts": compiled.runtimeDeclarations?.text ?? "",

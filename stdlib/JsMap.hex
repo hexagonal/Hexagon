@@ -1,3 +1,5 @@
+module JsMap
+
 // The public companion of the borrowed foreign `JsMap(k, v)` (FFI Part 10).
 //
 // `JsMap(k, v)` is compiler-owned: no `.hex` file declares it, because a value

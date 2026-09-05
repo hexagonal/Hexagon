@@ -35,8 +35,7 @@ function hoveredType(source: string, needle: string): string | undefined {
 
 describe("§2 the protocol", () => {
   it("pulls one element at a time, and the pull is spent", async () => {
-    const exports = await runMain(
-      `let source: Stream(Int) = ${script(3)}\n` +
+    const exports = await runMain("module Main\n\n" + `let source: Stream(Int) = ${script(3)}\n` +
       "export let pulls(ignored: Int): Vector(Int) =\n" +
       "    var seen = Vector.empty\n" +
       "    var pulling = True\n" +
@@ -54,8 +53,7 @@ describe("§2 the protocol", () => {
   });
 
   it("keeps answering `None` once exhausted", async () => {
-    const exports = await runMain(
-      `let source: Stream(Int) = ${script(1)}\n` +
+    const exports = await runMain("module Main\n\n" + `let source: Stream(Int) = ${script(1)}\n` +
       "export let drained(ignored: Int): Vector(Int) =\n" +
       "    Vector.append(\n" +
       "        Vector.append(Stream.collect!(source, 5), Stream.collect!(source, 5) |> Vector.length),\n" +
@@ -70,23 +68,20 @@ describe("§2 the protocol", () => {
 
 describe("§4.2 derived streams", () => {
   it("maps each element as it is pulled", async () => {
-    const exports = await runMain(
-      `export let doubled: Vector(Int) = Stream.collect!(Stream.map(${script(4)}, x => x * 2), 4)\n`,
+    const exports = await runMain("module Main\n\n" + `export let doubled: Vector(Int) = Stream.collect!(Stream.map(${script(4)}, x => x * 2), 4)\n`,
     );
     expect([...exports["doubled"] as readonly number[]]).toEqual([2, 4, 6, 8]);
   });
 
   it("filters, discarding what `keep` refuses", async () => {
-    const exports = await runMain(
-      "export let evens: Vector(Int) =\n" +
+    const exports = await runMain("module Main\n\n" + "export let evens: Vector(Int) =\n" +
       `    Stream.collect!(Stream.filter(${script(10)}, x => Integral.rem(x, 2) == 0), 3)\n`,
     );
     expect([...exports["evens"] as readonly number[]]).toEqual([2, 4, 6]);
   });
 
   it("shares the source's cursor — pulling the derivation advances it", async () => {
-    const exports = await runMain(
-      `let source: Stream(Int) = ${script(6)}\n` +
+    const exports = await runMain("module Main\n\n" + `let source: Stream(Int) = ${script(6)}\n` +
       "let doubled: Stream(Int) = Stream.map(source, x => x * 2)\n" +
       "export let interleaved(ignored: Int): (Vector(Int), Vector(Int)) =\n" +
       "    let viaDerived: Vector(Int) = Stream.collect!(doubled, 2)\n" +
@@ -104,8 +99,7 @@ describe("§4.2 derived streams", () => {
 
 describe("§4.3 `fromSeq` — the injection door", () => {
   it("drives a pure sequence one step per pull", async () => {
-    const exports = await runMain(
-      `export let sample: Vector(Int) = Stream.collect!(${script(3)}, 3)\n`,
+    const exports = await runMain("module Main\n\n" + `export let sample: Vector(Int) = Stream.collect!(${script(3)}, 3)\n`,
     );
     expect([...exports["sample"] as readonly number[]]).toEqual([1, 2, 3]);
   });
@@ -113,8 +107,7 @@ describe("§4.3 `fromSeq` — the injection door", () => {
   it("stands a script in for an ambient source, which is the teaching point", async () => {
     // A consumer written against `Stream(a)` never learns where its elements
     // came from, so a `Seq` script is a clock in a test.
-    const exports = await runMain(
-      "export let total(source: Stream(Int)): Int = Stream.fold!(source, 0, (a, b) => a + b)\n" +
+    const exports = await runMain("module Main\n\n" + "export let total(source: Stream(Int)): Int = Stream.fold!(source, 0, (a, b) => a + b)\n" +
       `export let ofScript: Int = total!(${script(4)})\n`,
     );
     expect(exports["ofScript"]).toBe(10);
@@ -123,16 +116,14 @@ describe("§4.3 `fromSeq` — the injection door", () => {
   it("is a bare call: building the cursor touches nothing", () => {
     // The row's declared face is pure (`spec/intrinsics.md` §4.2 as #355
     // amended it), and the impurity lives in the record field's arrow instead.
-    expect(projectDiagnostics(
-      `export let source: Stream(Int) = ${script(2)}\n`,
+    expect(projectDiagnostics("module Main\n\n" + `export let source: Stream(Int) = ${script(2)}\n`,
     )).toEqual([]);
   });
 });
 
 describe("§4.4 consumers", () => {
   it("collects at most `count`, and fewer when the stream ends first", async () => {
-    const exports = await runMain(
-      `export let short: Vector(Int) = Stream.collect!(${script(2)}, 5)\n` +
+    const exports = await runMain("module Main\n\n" + `export let short: Vector(Int) = Stream.collect!(${script(2)}, 5)\n` +
       `export let exact: Vector(Int) = Stream.collect!(${script(5)}, 5)\n`,
     );
     expect([...exports["short"] as readonly number[]]).toEqual([1, 2]);
@@ -140,8 +131,7 @@ describe("§4.4 consumers", () => {
   });
 
   it("collects nothing at a `count` of zero or less, on `Seq.take`'s convention", async () => {
-    const exports = await runMain(
-      `export let none: Vector(Int) = Stream.collect!(${script(3)}, 0)\n` +
+    const exports = await runMain("module Main\n\n" + `export let none: Vector(Int) = Stream.collect!(${script(3)}, 0)\n` +
       `export let negative: Vector(Int) = Stream.collect!(${script(3)}, -2)\n`,
     );
     expect([...exports["none"] as readonly number[]]).toEqual([]);
@@ -149,8 +139,7 @@ describe("§4.4 consumers", () => {
   });
 
   it("folds to exhaustion", async () => {
-    const exports = await runMain(
-      `export let sum: Int = Stream.fold!(${script(4)}, 0, (a, b) => a + b)\n`,
+    const exports = await runMain("module Main\n\n" + `export let sum: Int = Stream.fold!(${script(4)}, 0, (a, b) => a + b)\n`,
     );
     expect(exports["sum"]).toBe(10);
   });
@@ -160,8 +149,7 @@ describe("§4.4 consumers", () => {
     // from inside the action (Statements §6.2 — the fence that makes a `->`
     // face a fact), so the count is not reachable from Hexagon at all. What is
     // reachable is the stream afterwards, and it is spent to the last element.
-    const exports = await runMain(
-      `let source: Stream(Int) = ${script(3)}\n` +
+    const exports = await runMain("module Main\n\n" + `let source: Stream(Int) = ${script(3)}\n` +
       "export let leftover(ignored: Int): Vector(Int) =\n" +
       "    Stream.forEach!(source, value => ())\n" +
       "    Stream.collect!(source, 5)\n",
@@ -170,8 +158,7 @@ describe("§4.4 consumers", () => {
   });
 
   it("finds the first match and stops there", async () => {
-    const exports = await runMain(
-      `let source: Stream(Int) = ${script(9)}\n` +
+    const exports = await runMain("module Main\n\n" + `let source: Stream(Int) = ${script(9)}\n` +
       "export let probe(ignored: Int): Vector(Int) =\n" +
       "    match Stream.find!(source, x => x > 2)\n" +
       "        None => Vector.empty\n" +
@@ -184,8 +171,7 @@ describe("§4.4 consumers", () => {
   });
 
   it("answers `None` from `find` when the stream ends first", async () => {
-    const exports = await runMain(
-      `export let missing: Bool = match Stream.find!(${script(3)}, x => x > 99)\n` +
+    const exports = await runMain("module Main\n\n" + `export let missing: Bool = match Stream.find!(${script(3)}, x => x > 99)\n` +
       "    None => True\n" +
       "    Some(_) => False\n",
     );
@@ -208,8 +194,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
   });
 
   it("takes a bare `Stream.map` in an ordinary body", () => {
-    expect(projectDiagnostics(
-      "export let go(source: Stream(Int)): Stream(Int) = Stream.map(source, x => x + 1)\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let go(source: Stream(Int)): Stream(Int) = Stream.map(source, x => x + 1)\n",
     )).toEqual([]);
   });
 
@@ -218,6 +203,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
     // signature offers an inlet, so a call whose colour is still undetermined
     // is a conduit rather than pure-pinned.
     const body = (mark: string): string =>
+      "module Main\n\n" +
       "export let wire(source: Stream(Int), step: Int ->? Int): Stream(Int) =\n" +
       `    Stream.map${mark}(source, step)\n`;
     expect(projectDiagnostics(body(""))).toEqual([
@@ -229,6 +215,7 @@ describe("§4 the faces: wiring is silent, consumption is spelled", () => {
 
   it("demands `!` at every consumer, and takes nothing else", () => {
     const call = (name: string, mark: string, rest: string, result: string): string =>
+      "module Main\n\n" +
       `export let go(source: Stream(Int)): ${result} =\n    ${name}${mark}(source${rest})\n`;
     for (const [name, rest, result] of [
       ["Stream.collect", ", 1", "Vector(Int)"],
@@ -254,8 +241,7 @@ describe("§4.5 what the surface refuses", () => {
     // `toSeq` is a constraint member and members are pure (Effects §5), so a
     // `Stream` cannot honor `Iterable` — and the refusal is the ordinary one,
     // not a bespoke report.
-    expect(projectDiagnostics(
-      "export let go(source: Stream(Int)): Unit =\n    for x in source\n        ()\n",
+    expect(projectDiagnostics("module Main\n\n" + "export let go(source: Stream(Int)): Unit =\n    for x in source\n        ()\n",
     )).toEqual([
       "type `Stream(Int)` has no `Iterable` instance; its only legal homes are the module " +
         "declaring `Iterable` and the prelude module declaring `Stream`, both outside " +
@@ -266,8 +252,7 @@ describe("§4.5 what the surface refuses", () => {
 
   it("has no `take`, `drop`, `memoize`, `toSeq`, `any`, `all` or `length`", () => {
     for (const absent of ["take", "drop", "memoize", "toSeq", "any", "all", "length"]) {
-      expect(projectDiagnostics(
-        `export let go(source: Stream(Int)): Int =\n    Stream.${absent}!(source)\n    0\n`,
+      expect(projectDiagnostics("module Main\n\n" + `export let go(source: Stream(Int)): Int =\n    Stream.${absent}!(source)\n    0\n`,
       )).toContainEqual(expect.stringContaining("Stream"));
     }
   });
@@ -282,7 +267,7 @@ describe("§2.5 the field's arrow is the impure constant", () => {
   function withStream(mutated: string): readonly string[] {
     return compileFiles([
       ["/Stream.hex", mutated],
-      ["/main.hex", "export let x: Int = 1\n"],
+      ["/main.hex", "module Main\n\n" + "export let x: Int = 1\n"],
     ]).diagnostics.map(({ message }) => message);
   }
 

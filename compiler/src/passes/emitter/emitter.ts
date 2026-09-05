@@ -34,6 +34,26 @@ import {
   type SpecializationCollision,
   type SpecializableItem,
 } from "./specializations.js";
+import { fullModuleName, STANDARD_LIBRARY } from "../../packages.js";
+
+/**
+ * The `$hex` brands the runtime helpers stamp, and the one the virtual `JsError`
+ * is recognized by — a standard-library module's **full name** (Packages §2.3),
+ * which is what `compileProject` hands the resolver as a module's `identity`
+ * and every declaration of that module carries.
+ *
+ * Spelled through `fullModuleName` rather than written out, so the package
+ * segment has one seat rather than ten: a helper inlined into a user's module
+ * raises `Hex.Vector`'s `IndexError`, and a `Vector.IndexError(…)` arm written
+ * anywhere tests the same string the declaration carries. The two halves being
+ * computed from one expression is what keeps them from drifting apart again —
+ * the #829 defect class, where a brand written bare survived the move to full
+ * names on one side of a comparison only.
+ */
+const HEX_VECTOR = fullModuleName(STANDARD_LIBRARY, "Vector");
+const HEX_MAP = fullModuleName(STANDARD_LIBRARY, "Map");
+const HEX_SEQ = fullModuleName(STANDARD_LIBRARY, "Seq");
+const HEX_JS_ERROR = fullModuleName(STANDARD_LIBRARY, "JsError");
 
 /**
  * Every operation the emitted program performs on a `Vector(a)` by calling the
@@ -540,7 +560,7 @@ function mintedImportLocals(module: Core.Module): readonly string[] {
  * side refuses it (§3.1, #762) and §11.2 spells the emitted shape. The source
  * line this plan renames the local of is `import Point`.
  *
- * Modules §5.2 makes `import Point from "./point"` beside a declared
+ * Modules §5.2 makes `import Point` beside a declared
  * `Point` legal and load-bearing — it is the companion idiom — and the checker
  * reports nothing, so the two Hexagon namespaces must reach JavaScript as two
  * bindings. §11.2 already says whose problem that is: "emitted-name collisions
@@ -1304,16 +1324,21 @@ interface PreludeIds {
  *
  * Exceptions §7.1 fixes runtime identity as the **(module, name) pair**, and
  * this is that pair. `owner` is the declaring module's brand, stamped at the
- * declaration site from how the module is *compiled* — an injected module brands
- * its canonical injected name (`moduleBrandIdentity`) — so `owner === "JsError"`
- * says "this declaration is in the prelude's `JsError.hex`", which no user module
- * can say by choosing a name. A user's own `exception JsError` in `errors.hex`
- * brands `"errors"` and fails here.
+ * declaration site from how the module is *compiled* — the module's **full
+ * name** (Packages §2.3), an injected module's being `Hex.` and its declared
+ * name — so `owner === HEX_JS_ERROR` says "this declaration is the standard
+ * library's `JsError`", which no project module can say by choosing a name: a
+ * user's own `exception JsError` in `module Errors` brands `"Errors"`, and even
+ * a user's `module JsError` brands `"JsError"` bare, or `"Acme.JsError"` under a
+ * package name, and fails here. That the package segment is what separates them
+ * is exactly why this reads `HEX_JS_ERROR` and not a written-out string: the
+ * brand and this test are computed from one expression (the #829 defect class,
+ * where the two drifted apart and every foreign throw went uncaught).
  *
- * The one file that does brand `"JsError"` without being `stdlib/JsError.hex` is
- * a project file that *is* it: `injectEmbedded` captures an injected module at
- * whichever project file carries its **basename**, wherever that file sits —
- * `sub/JsError.hex` included, not only a file at the injection path. That is the
+ * The one module that brands `Hex.JsError` without being the embedded
+ * `stdlib/JsError.hex` is a project file that *is* it: `gatherModules` seats a
+ * project file at an injected module's seat when it carries that **basename**
+ * and declares that **name**, wherever the file sits. That is the
  * stdlib-developing-itself path and the same seat, so the predicate is right
  * either way; the capture rule is stated exactly because it is wider than it
  * reads (the #745 class).
@@ -1325,7 +1350,7 @@ interface PreludeIds {
  * instead (`PreludeIds.jsError`), which is the sharper key where it exists.
  */
 function isVirtualJsError(item: Typed.ExceptionItem): boolean {
-  return item.owner === "JsError" && item.binding.name === "JsError";
+  return item.owner === HEX_JS_ERROR && item.binding.name === "JsError";
 }
 
 /**
@@ -2607,7 +2632,7 @@ function qualifyingAliases(
  * **Where the alias is contested, the alias yields the bare spelling to the
  * declaration** (FFI Part 7 §2.4; Modules §11.2).
  *
- * Modules §5.2 makes `import Point from "./point"` beside a declared
+ * Modules §5.2 makes `import Point` beside a declared
  * `Point` legal — it is the companion idiom, not an accident — so rung 3's
  * `Point.Point` can meet a top-level `Point` this same file emits. The
  * declaration is, or may become, the module's public face; the alias is internal
@@ -8790,7 +8815,7 @@ class JavaScriptEmitter {
    * The `specifier` is reported for **both**, which is the half that is not
    * cosmetic. A synthesized import whose every name went to an edition emits no
    * term line at all, so this is the only record that `Debug.js` has to be
-   * written beside an emitted `import { logString } from "./Debug.js"` — defect
+   * written beside an emitted `import { logString } from "./Hex/Debug.js"` — defect
    * 8's shape. A source-written import's edge is already readable from the tree;
    * reporting it too costs a duplicate in a set and keeps the channel's meaning
    * "what this file imports editions from" rather than "what the other rule
@@ -11917,22 +11942,24 @@ function renderHelper(
     // policy of its own, which is exactly why its `get`/`set` are documented as
     // caller-checked.
     //
-    // **The brand is `"Vector"`, a literal, and belongs to the declaring module
-    // rather than to the one this helper is emitted into** (Exceptions §7.1,
-    // #488). A bounds check inlined into `client/report.hex` still raises
-    // `Vector`'s `IndexError`, and a catch arm written `Vector.IndexError(…)`
-    // anywhere tests `"Vector"`; branding the emitting module would put every
-    // such arm permanently past it. The literal is safe because an injected
-    // module brands its **canonical injected name** wherever in a project its
-    // file sits, so `stdlib/Vector.hex` and an embedded `Vector.hex` agree.
+    // **The brand is `HEX_VECTOR`, and belongs to the declaring module rather
+    // than to the one this helper is emitted into** (Exceptions §7.1, #488). A
+    // bounds check inlined into a user's `Report` still raises `Vector`'s
+    // `IndexError`, and a catch arm written `Vector.IndexError(…)` anywhere
+    // tests the same string; branding the emitting module would put every such
+    // arm permanently past it. A fixed brand is safe because an injected module
+    // brands its **canonical injected name** wherever in a project its file
+    // sits, so `stdlib/Vector.hex` and a project's own `Vector.hex` agree — and
+    // since #829 that name is the module's *full* name, `Hex.Vector`, which is
+    // why the constant is computed rather than written out.
     // `SliceError` below, `mapIndex`'s `KeyError` and `seqFromIterable`'s
-    // `ReentrancyError` are the same rule at `"Vector"`, `"Map"` and `"Seq"`.
+    // `ReentrancyError` are the same rule at `HEX_VECTOR`, `HEX_MAP`, `HEX_SEQ`.
     case "vectorIndex":
       return [
         `function ${name}(__values, __index) {`,
         `  const __size = ${runtimeName("size")}(__values);`,
         `  if (__index < 1 || __index > __size) { const __error = new ${spell("RangeError")}` +
-        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("get")}(__values, __index - 1);`,
         "}",
       ];
@@ -11956,7 +11983,7 @@ function renderHelper(
         `function ${name}(__values, __index) {`,
         "  const __size = __values.length;",
         `  if (__index < 1 || __index > __size) { const __error = new ${spell("RangeError")}` +
-        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
         "  return __values[__index - 1];",
         "}",
       ];
@@ -11966,7 +11993,7 @@ function renderHelper(
         `  const __size = ${runtimeName("size")}(__values);`,
         "  const __position = __index < 0 ? __size + __index + 1 : __index;",
         `  if (__position < 1 || __position > __size) { const __error = new ${spell("RangeError")}` +
-        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("get")}(__values, __position - 1);`,
         "}",
       ];
@@ -12061,7 +12088,7 @@ function renderHelper(
         `  const __error = new ${spell("Error")}` + "(`no value for key ${" + spell("String") +
         "(__key)}`);",
         '  __error.name = "KeyError";',
-        '  __error.$hex = "Map";',
+        `  __error.$hex = ${JSON.stringify(HEX_MAP)};`,
         "  throw __error;",
         "}",
       ];
@@ -12163,7 +12190,7 @@ function renderHelper(
         `function ${name}(__values, __index, __value) {`,
         `  const __size = ${runtimeName("size")}(__values);`,
         `  if (__index < 1 || __index > __size) { const __error = new ${spell("RangeError")}` +
-        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __size; throw __error; }",
+        "(`index ${__index} out of bounds for size ${__size}`); __error.name = \"IndexError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __size; throw __error; }",
         `  return ${runtimeName("set")}(__values, __index - 1, __value);`,
         "}",
       ];
@@ -12174,7 +12201,7 @@ function renderHelper(
       return [
         `function ${name}(__values, __range) {`,
         `  if (__range.descending) { const __error = new ${spell("RangeError")}` +
-        "(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = \"Vector\"; __error.start = __range.start; __error.end = __range.end; throw __error; }",
+        "(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.start = __range.start; __error.end = __range.end; throw __error; }",
         `  return ${runtimeName("window")}(__values, __range.start - 1, __range.end);`,
         "}",
       ];
@@ -12194,7 +12221,7 @@ function renderHelper(
         `  if (__index < 1 || __index > __points.length) { const __error = new ${
           spell("RangeError")
         }` +
-        "(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexError\"; __error.$hex = \"Vector\"; __error.index = __index; __error.size = __points.length; throw __error; }",
+        "(`index ${__index} out of bounds for size ${__points.length}`); __error.name = \"IndexError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.index = __index; __error.size = __points.length; throw __error; }",
         "  return __points[__index - 1];",
         "}",
       ];
@@ -12202,7 +12229,7 @@ function renderHelper(
       return [
         `function ${name}(__text, __range) {`,
         `  if (__range.descending) { const __error = new ${spell("RangeError")}` +
-        "(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = \"Vector\"; __error.start = __range.start; __error.end = __range.end; throw __error; }",
+        "(\"a slice window cannot descend\"); __error.name = \"SliceError\"; __error.$hex = " + JSON.stringify(HEX_VECTOR) + "; __error.start = __range.start; __error.end = __range.end; throw __error; }",
         `  return ${spell("Array")}.from(__text).slice(${spell("Math")}.max(0, __range.start - 1), ${
           spell("Math")
         }.max(0, __range.end)).join("");`,
@@ -12335,7 +12362,7 @@ function renderHelper(
       // Constructed inline as Exceptions §7.1's representation rather than by
       // calling `Seq.hex`'s constructor, exactly as the emitted `IndexError` and
       // `SliceError` are: exception identity is the (module, name) pair — `name`
-      // under the declaring module's `$hex` brand, `"Seq"` here (#488) — chosen
+      // under the declaring module's `$hex` brand, `HEX_SEQ` here (#488) — chosen
       // over prototype identity precisely so that every module's copy of this
       // helper and the one `.hex` declaration coincide on one nominal exception. Fresh per refusal (§7.3 of Exceptions), so the stack points
       // at the reentrant pull. The message is a diagnostic rendering and is
@@ -12379,7 +12406,7 @@ function renderHelper(
         "          if (__forcing) {",
         `            throw ${spell("Object")}.assign(new ${
           spell("Error")
-        }("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: "Seq", name: "ReentrancyError" });`,
+        }("Seq position is already being forced: a sequence position cannot depend on its own value"), { $hex: ${JSON.stringify(HEX_SEQ)}, name: "ReentrancyError" });`,
         "          }",
         "          __forcing = true;",
         "          try {",

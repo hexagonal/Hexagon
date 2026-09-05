@@ -39,7 +39,7 @@ import { compileMain, projectDiagnostics, runMain } from "../support/test-projec
  */
 
 /** A module that throws a declared exception, or does not, on demand. */
-const preamble = "exception Boom(line: Int, message: String)\n" +
+const preamble = "module Main\n\n" + "exception Boom(line: Int, message: String)\n" +
   "exception Late(message: String)\n" +
   "let source(fail: Bool): Option(Int) =\n" +
   "    if fail then throw(Boom(3, \"scrutinee\")) else Some(7)\n";
@@ -394,8 +394,7 @@ describe("the cannot-throw judgment (§5.4; Pattern Matching §7.2)", () => {
     // calling this module's own `fromNat`, which is pure and may still throw:
     // its totality is a documented law of `Num`, not a checked property. The
     // judgment declines rather than lean on it.
-    expect(projectDiagnostics(
-      "exception Boom(line: Int, message: String)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "exception Boom(line: Int, message: String)\n" +
         "union Ratio = Whole(Int) | Part(Int, Int)\n" +
         "honor Num<Ratio> =\n" +
         "    add(left, right) = left\n" +
@@ -522,7 +521,7 @@ describe("attachment: line-initial match heads only (§5.4, §9)", () => {
    */
   describe("a member block's own loop asks the same question", () => {
     const survives = (source: string): readonly string[] => {
-      const project = compileMain(source);
+      const project = compileMain("module Main\n\n" + source);
       const main = project.modules.find(({ source: file }) => file.path === "/main.hex")!;
       // The declaration after the offending block still compiled and emitted:
       // the report is local, not a cascade that eats the rest of the file.
@@ -681,7 +680,7 @@ describe("emission (§7.4's narrowed `try`)", () => {
         "  try {",
         "    __scrutinee = source(fail);",
         "  } catch (__error) {",
-        "    if (__error != null && __error.$hex === \"main\" && __error.name === \"Boom\") {",
+        "    if (__error != null && __error.$hex === \"Main\" && __error.name === \"Boom\") {",
         "      const line = __error.line;",
         "      return line;",
         "    }",
@@ -781,7 +780,7 @@ describe("the foreign branch, where `JsError` sits (§6, §7.4)", () => {
     source: string,
     foreign: Readonly<Record<string, string>>,
   ): Promise<Record<string, unknown>> {
-    const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+    const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     runTag += 1;
     const url = (text: string): string =>

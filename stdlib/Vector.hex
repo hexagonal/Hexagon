@@ -1,3 +1,5 @@
+module Vector
+
 // The public Vector companion over the compiler's representation core.
 
 (** Raised when an asserted index addresses no element, from `values[index]`,

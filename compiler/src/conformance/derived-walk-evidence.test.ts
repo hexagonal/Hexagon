@@ -55,7 +55,7 @@ import { compileMain, runMain } from "../support/test-project.js";
 
 /** One module's emitted JavaScript, with the project's diagnostics asserted empty. */
 function javascript(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
@@ -87,7 +87,7 @@ describe("the `Set` and `Map` component seats read the recorded path", () => {
     // `setEquals` takes the element's *whole* `Hash` dictionary, so the path is
     // visible in the argument rather than buried under a member read.
     expect(javascript(source)).toContain("__setEquals(__Wide_a.Hash, x, y)");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.unordered).toBe(true);
     expect(module.different).toBe(false);
   });
@@ -109,7 +109,7 @@ describe("the `Set` and `Map` component seats read the recorded path", () => {
     // `setHash`.
     expect(emitted).toContain("__setEquals(__Wide_a.Hash,");
     expect(emitted).toContain("__setHash(__Wide_a.Hash,");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     // One member, not two: equal sets must hash and compare equal through the
     // reached dictionary, which is the membership question `Set.size` answers.
     expect(module.sameTwice).toBe(1);
@@ -130,7 +130,7 @@ describe("the `Set` and `Map` component seats read the recorded path", () => {
     // The key's `Hash` through the path; the value's `Eq` is `Int`'s own
     // instance and must be untouched.
     expect(javascript(source)).toContain("__mapEquals(__Wide_a.Hash, __Eq_Int, x, y)");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.regrouped).toBe(true);
     expect(module.rekeyed).toBe(false);
   });
@@ -151,7 +151,7 @@ describe("the `Set` and `Map` component seats read the recorded path", () => {
     // path in the file, and the one `#equalityDictionary`'s name-probe — `Eq`,
     // else `Hash.Eq` — could not spell at all.
     expect(javascript(source)).toContain("__mapEquals(__Hash_Int, __Wide_a.Hash.Eq, x, y)");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.agreeing).toBe(true);
     expect(module.differing).toBe(false);
   });
@@ -174,7 +174,7 @@ describe("the `Set` and `Map` component seats read the recorded path", () => {
     // selection resolved to, never a second entailment walk.
     expect(emitted).toContain("__mapEquals(__Wide_a.Hash, __Wide_a.Hash.Eq,");
     expect(emitted).toContain("__mapHash(__Wide_a.Hash, __Wide_a.Hash, __value)");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.oneEntry).toBe(1);
     expect(module.twoEntries).toBe(2);
   });
@@ -193,7 +193,7 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
       "export let identical: Bool = both(head, twin)\n" +
       "export let headsApart: Bool = both(head, other)\n";
     expect(javascript(source)).toContain("__Wide_a.Hash.Eq.equals(__left[0], __right[0])");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.identical).toBe(true);
     expect(module.headsApart).toBe(false);
   });
@@ -219,7 +219,7 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
     ].join("\n");
     // `Ord` is `Sorted`'s own declared base, so the path is one slot: `ord`.
     expect(javascript(source)).toContain("__Sorted_a.Ord.compare(__left[0], __right[0])");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.byTail).toBe(true);
     expect(module.byHead).toBe(false);
   });
@@ -241,7 +241,7 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
       "",
     ].join("\n");
     expect(javascript(source)).toContain("__Pretty_a.Show.show(__value[0])");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.shown).toBe("(4, 5)");
   });
 
@@ -261,7 +261,7 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
     // Both members of the dictionary `Set.add` receives, each through the path.
     expect(emitted).toContain("__Wide_a.Hash.hash(__value[0])");
     expect(emitted).toContain("__Wide_a.Hash.Eq.equals(__left[0], __right[0])");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.repeated).toBe(1);
     expect(module.separate).toBe(2);
   });
@@ -286,7 +286,7 @@ describe("the walk dispatchers read a variable component's recorded evidence", (
     // whose head reaches `__Wide_a` by the same path at every depth.
     expect(emitted).toContain("__Wide_a.Hash.hash(__value[0])");
     expect(emitted).toContain("__Wide_a.Hash.Eq.equals(__left[0], __right[0])");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.merged).toBe(1);
     expect(module.split).toBe(2);
   });
@@ -339,7 +339,7 @@ describe("a planner edition's `Map` value, the seat #669's repair cured first", 
     // The consumer is bound at `String`, so the assertions below run *through*
     // one of the cured editions rather than through the generic body.
     expect(emitted).toContain("alikeString(held, copy)");
-    const module = await runMain(source);
+    const module = await runMain("module Main\n\n" + source);
     expect(module.agreeing).toBe(true);
     expect(module.differing).toBe(false);
   });
@@ -384,7 +384,7 @@ describe("a direct binder emits exactly what it always did", () => {
       "",
     ].join("\n");
     expect(javascript(ordered)).toContain("__Ord_a.compare(__left[0], __right[0])");
-    expect((await runMain(ordered)).rising).toBe(true);
+    expect((await runMain("module Main\n\n" + ordered)).rising).toBe(true);
 
     const described = [
       "let describe<a: Show>(x: (a, Int)): String =",
@@ -396,6 +396,6 @@ describe("a direct binder emits exactly what it always did", () => {
       "",
     ].join("\n");
     expect(javascript(described)).toContain("__Show_a.show(__value[0])");
-    expect((await runMain(described)).text).toBe("(6, 7)");
+    expect((await runMain("module Main\n\n" + described)).text).toBe("(6, 7)");
   });
 });

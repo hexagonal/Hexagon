@@ -42,14 +42,23 @@ import * as Typed from "../syntax/typed/index.js";
 import { lex } from "../passes/lexer/lexer.js";
 import { applyLayout } from "../passes/layout/layout.js";
 import { codePointBefore, isIdentifierContinue } from "../support/identifiers.js";
+import { importInsertionOffset, insertedLine } from "../support/import-placement.js";
 import {
   compileProject,
-  resolveSpecifier,
   specifierFor,
   type CompiledModule,
   type ProjectOptions,
 } from "../project.js";
 import { moduleInterface } from "../passes/resolver/resolver.js";
+import { displayModuleName, moduleImportLine } from "../packages.js";
+
+/** One module that exports a spelling, as `exportersOf` answers (Modules §5.1). */
+export interface ModuleExporter {
+  /** The source file the module was written in, for the `#texts` filter. */
+  readonly path: string;
+  /** Its full name (Packages §2.3) — what the offered import line names. */
+  readonly name: string;
+}
 import {
   collectOccurrences,
   targetKey,
@@ -634,13 +643,22 @@ export class AnalysisSession {
     for (const diagnostic of asked) {
       for (const fix of diagnostic.fixes ?? []) {
         const edits = locate(analysis, fix.edits);
-        if (edits !== undefined) actions.push({ title: fix.message, diagnostic, edits });
+        // Every fix a diagnostic carries is a repair for that diagnostic, so
+        // the family is settled here rather than at each seat that writes one.
+        if (edits !== undefined) {
+          actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits });
+        }
       }
       const repair = diagnostic.importModuleRepair;
       if (repair === undefined) continue;
       const spelling = `${repair.namespace}:${repair.name}`;
       if (offered.has(spelling)) continue;
       offered.add(spelling);
+      // The compiler tier already wrote this line, and it came through `fixes`
+      // above (§5.1's applied-edit obligation, #829): the workspace tier's one
+      // question — *which module* — is answered, and a second offer would write
+      // the import twice.
+      if (repair.applied === true) continue;
       const insert = this.#importModuleAction(analysis, normalized, diagnostic);
       if (insert !== undefined) actions.push(insert);
     }
@@ -710,6 +728,14 @@ export class AnalysisSession {
    * compiler could not know is *which module* — a question about the workspace,
    * which is exactly what a session holds and a batch compile does not.
    *
+   * Which is why the tier is **skipped** where the compiler did know: a
+   * type-not-module refusal that reached the type's home names the module in
+   * its message and now carries the line as an applied edit of its own (§5.1,
+   * §10's row; the marker's `applied`). Nothing here could improve on that, and
+   * offering a second lightbulb would write the import twice. What is left for
+   * this tier is the arm §10 leaves it — "a spelling no reached module exports
+   * → the workspace tier names the candidates".
+   *
    * The inventory rule is the family's own, followed here as it is in every
    * message that names repairs: **one** exporter is the case worth acting on,
    * and the edit is offered applied. Several make the choice the author's, so
@@ -726,9 +752,9 @@ export class AnalysisSession {
    * defensive: `compileProject` returns every module the program *reached*, and
    * a program that reaches `Prelude.hex` — one mention of a prelude name does
    * it — puts a compiler-injected module in the inventory. Offering it would
-   * write `import Ordering from "./Prelude"` into the user's source,
+   * write `import Prelude as Ordering` into the user's source,
    * which repairs nothing (`` module `Ordering` does not export `rank` ``) and
-   * emits `import * as Ordering from "./Prelude.js"` into their JavaScript.
+   * emits `import * as Ordering from "./Hex/Prelude.js"` into their JavaScript.
    * Injected sources are not what the user wrote (`isInjectedModule`'s own
    * rule), and nothing here may hand one to them to type.
    *
@@ -747,7 +773,7 @@ export class AnalysisSession {
     if (repair === undefined || text === undefined) return undefined;
     const exporters = analysis
       .exportersOf(repair.name, repair.namespace)
-      .filter((exporter) => exporter !== path && this.#texts.has(exporter));
+      .filter((exporter) => exporter.path !== path && this.#texts.has(exporter.path));
     if (exporters.length === 0) return undefined;
     const title = `import \`${repair.name}\``;
     if (exporters.length > 1) {
@@ -758,16 +784,40 @@ export class AnalysisSession {
         edits: [],
         disabled: `${exporters.length} modules export a ${repair.namespace} ` +
           `\`${repair.name}\`: ` +
-          exporters.map((exporter) => `\`${specifierFor(path, exporter)}\``).join(", ") +
+          exporters
+            .map((exporter) => `\`${displayModuleName(exporter.name, this.#options.packageName)}\``)
+            .join(", ") +
           " — write the import for the one you mean",
       };
     }
-    const specifier = specifierFor(path, exporters[0]!);
-    const offset = importInsertionOffset(
+    // #829: a module import names a module and carries no path, so the line is
+    // complete as written — the workspace tier's remaining job is *which*
+    // module, not where its file sits.
+    //
+    // The alias is the **refused spelling**, and carrying it is what makes the
+    // edit a repair rather than a gesture at one (#577): the caret is on a bare
+    // `Scale`, and only `import Metric as Scale` makes that bare name resolve —
+    // through §5.1 rule 2's companion fallback, whose door is the alias.
+    // `moduleImportLine` drops the clause where the module's declared name is
+    // already the spelling, so the companion idiom's line stays `import Scale`.
+    // The **project's** package name, where the manifest declared one: this
+    // file is one of the project's own modules, and Packages §3.3 refuses a
+    // package qualifying its own module — `import Acme.Lib` inside `Acme` is a
+    // line the compiler rejects, so the segment §3.2 elides is elided here.
+    const importLine = moduleImportLine(
+      exporters[0]!.name,
+      repair.name,
+      this.#options.packageName,
+    );
+    // No placement in a headerless file (`importInsertionOffset`): the line has
+    // no module to sit in, and the seat it would take is the one the parser's
+    // own "every file declares its module" repair writes at.
+    const offset = insertionOffsetOf(
       analysis.resolvedOf(path),
       text,
       diagnostic.primary.start.offset,
     );
+    if (offset === undefined) return undefined;
     const file = new Source.File(this.#fileIds.get(path)!, path, text);
     return {
       title,
@@ -776,7 +826,10 @@ export class AnalysisSession {
       edits: [{
         path,
         span: file.span(offset, offset),
-        replacement: `import ${repair.name} from ${JSON.stringify(specifier)}\n`,
+        // A whole line (`insertedLine`), as the compiler tier writes it: one
+        // rule for the line, one rule for how it ends, and one rule for the
+        // file whose last line ends with nothing.
+        replacement: insertedLine(text, offset, importLine),
       }],
     };
   }
@@ -814,7 +867,7 @@ export class AnalysisSession {
         laidOut,
         diagnostics,
         offset,
-        fileOfSpecifier: (specifier) => analysis.fileIdOf(resolveSpecifier(path, specifier)),
+        fileOfModule: (moduleName) => analysis.fileIdOfModule(moduleName),
       });
     };
   }
@@ -1005,13 +1058,53 @@ export class AnalysisSession {
       .map(({ target }) => target);
     const mentions: RenameEdit[] = [];
     const seen = new Set<string>();
+    // A name with **no definition occurrence anywhere the session can see** has
+    // no declaration to rename. The pre-registered constraints are the case
+    // that reaches it in practice (Constraints §5.1.1): `Eq`, `Ord`, `Show` and
+    // `Hash` are declared in Hexagon — `stdlib/Eq.hex` and its siblings, each
+    // an `export constraint` — *and* known to the checker, which is what lets a
+    // project name them without importing anything and why a compile that never
+    // loaded their module still resolves every mention. What the refusal
+    // reports is the second fact: nothing here holds their declaration, so
+    // rewriting the mentions would detach every instance from a declaration
+    // this session cannot move.
+    //
     // Asked of every spelling, not only the one under the cursor. An alias's
     // declaration is spelled differently *by definition* — that is what makes it
     // an alias — so testing the filtered set would report `import {two as deux}`
     // as having no declaration and refuse a rename that is perfectly ordinary.
-    const declared = targets.some((target) =>
-      analysis.byTarget(target).some(({ role }) => role === "definition")
-    );
+    //
+    // And asked **before** the mention walk, because the walk's own refusal
+    // needs the answer: with no definition occurrence there is no declaring
+    // module, and the not-owned sentence below would have only a *mentioner* to
+    // name — the fault Modules §1 and §10's row exist to forbid ("a module that
+    // merely mentions the name is never the one named"). A checker-known
+    // constraint reached that arm and was told it is declared in
+    // `Hex.Ordering`, whose `derives (Eq, Show)` is one mention of the word.
+    const definition = this.#definitionOf(analysis, targets);
+    if (definition === undefined) {
+      return {
+        refused: `\`${name}\` is built into the compiler, so it has no declaration to rename`,
+      };
+    }
+    // The declaring module, worked out **here** rather than at the seat that
+    // prints it: it is a fact about the declaration, and nothing the walk finds
+    // can change it. Settled outside the loop, the refusal below has no
+    // occurrence-derived module name within reach to print — which is the fault
+    // §10's row forbids, kept as an absence rather than as a rule the loop has
+    // to remember.
+    //
+    // By its **full name** (Packages §2.3), which is the one place a report
+    // spells `Hex.` rather than dropping it (§7.6): the sentence says the module
+    // is not the project's, and the package segment is what says whose it is.
+    //
+    // No path fallback beside it: §10's row says the declaring **module** is
+    // named, "never its file", and every compiled module has a full name, so a
+    // fallback to a path could only ever print the spelling the row forbids.
+    // `undefined` is closed at the seat with the occurrence's own path, which is
+    // reachable only if a module were ever compiled without a name — nothing
+    // `compileProject` can do.
+    const declaring = analysis.fullModuleNameOf(definition);
     for (const target of targets) {
       for (const occurrence of analysis.byTarget(target)) {
         // An alias gives one identity two spellings. `import {Shade as Other}`
@@ -1024,9 +1117,31 @@ export class AnalysisSession {
         const owner = analysis.pathOf(occurrence.span.fileId);
         if (owner === undefined) continue;
         if (!this.#texts.has(owner)) {
+          // The **module**, never the path (Modules §1): the file this
+          // declaration sits in may be one the host synthesized — the standard
+          // library's own source arrives that way — and a sentence naming it
+          // would send the reader to a path nothing in their project has.
+          //
+          // And the **declaring** module, never merely a mentioning one: the
+          // occurrence stopped at here is whichever came first, and a mention
+          // is as likely as the definition — `Ordering.hex`'s `derives (Eq,
+          // Show)` mentions `compare`, and naming `Ordering` would send the
+          // reader to a module that does not declare it (§1, §10). Which is why
+          // the name printed is `declaring`, settled above from the definition,
+          // and not anything this loop reached.
+          //
+          // With `{project, Hex}` the two can never disagree, and that is a
+          // fact about the injected set rather than about this walk: an
+          // injected module sees the injected modules before it and only those
+          // (Modules §5.5, `weaveInjected`), so no module outside the workspace
+          // can mention a name whose declaration is compiled after it. The
+          // disagreement becomes reachable the moment a real dependency package
+          // is in the program, where one dependency's module may mention
+          // another's — which is why this reads the definition even though no
+          // program this slice compiles could tell the difference.
           return {
-            refused:
-              `\`${name}\` is declared in \`${owner}\`, which this project does not own`,
+            refused: `\`${name}\` is declared in module \`${declaring ?? owner}\`, ` +
+              "which this project does not own",
           };
         }
         const key = `${owner}@${occurrence.span.start.offset}:${occurrence.span.end.offset}`;
@@ -1034,12 +1149,6 @@ export class AnalysisSession {
         seen.add(key);
         mentions.push({ path: owner, span: occurrence.span });
       }
-    }
-    // `Eq`, `Ord`, `Show` and `Hash` are known to the checker rather than
-    // declared in Hexagon, so every mention of one is a reference and there is
-    // nothing to rewrite. Renaming them would silently detach every instance.
-    if (!declared) {
-      return { refused: `\`${name}\` is built into the compiler, so it has no declaration to rename` };
     }
     const derived = this.#derivedMentions(analysis, normalized, targets);
     return {
@@ -1049,6 +1158,37 @@ export class AnalysisSession {
       mentions,
       ...(derived.length === 0 ? {} : { derived }),
     };
+  }
+
+  /**
+   * The file the **definition** of these targets sits in — what a report
+   * naming the declaring module reads (Modules §1, §10).
+   *
+   * The occurrence index holds definitions and references alike, and a module
+   * that merely mentions a name is never the one that declares it; asking for
+   * the definition is the whole difference between naming `Hex.Ord` and naming
+   * whichever prelude module happens to `derives` from it first.
+   *
+   * The **spelling** is not filtered, unlike the mention walk's: an alias is
+   * one identity under two spellings, and the declaration an alias aliases is
+   * spelled differently by definition — filtering would lose exactly the
+   * declaring module the caller asked for.
+   *
+   * The `undefined` arm is **not** defensive: it is the built-in constraints'
+   * own answer, and its caller takes the built-in refusal there rather than
+   * falling back to whichever file the walk reached first. A fallback is
+   * exactly what would name a mentioner (Modules §1).
+   */
+  #definitionOf(
+    analysis: Analysis,
+    targets: readonly Target[],
+  ): Source.FileId | undefined {
+    for (const target of targets) {
+      for (const occurrence of analysis.byTarget(target)) {
+        if (occurrence.role === "definition") return occurrence.span.fileId;
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -1298,9 +1438,20 @@ class Analysis {
   readonly #typesByPath = new Map<string, Map<string, TypeOccurrence>>();
   readonly #typedByPath = new Map<string, Typed.Module>();
   readonly #fileIdsByPath: ReadonlyMap<string, Source.FileId>;
+  /**
+   * Each compiled module's file, by its **full name** (Packages §2.3) — how a
+   * query reaches the declaring file of a module an import *names*.
+   *
+   * The name and not the specifier: since #829 an import's `specifier` is the
+   * JavaScript path the edge emits (Modules §11.2), and no source file sits at
+   * it, so a lookup through it answers nothing for every import there is.
+   */
+  readonly #fileIdsByModuleName: ReadonlyMap<string, Source.FileId>;
+  /** The full name each compiled file declares — `fileIdsByModuleName` inverted. */
+  readonly #moduleNamesByFileId: ReadonlyMap<number, string>;
   /** The project's modules, for the export inventory built on demand below. */
   readonly #modules: readonly CompiledModule[];
-  #exporters: Map<string, readonly string[]> | undefined;
+  #exporters: Map<string, readonly ModuleExporter[]> | undefined;
   /** Gathered once for the whole project — see `collectSymbolFacts`. */
   readonly symbolFacts: ReadonlyMap<number, SymbolFacts>;
   /** Attached documentation, indexed for lookup by name and by position. */
@@ -1318,6 +1469,12 @@ class Analysis {
       project.modules.map((module) => [module.source.path, module.source.id]),
     );
     this.#fileIdsByPath = fileIdsByPath;
+    this.#fileIdsByModuleName = new Map(
+      project.modules.map((module) => [module.name, module.source.id]),
+    );
+    this.#moduleNamesByFileId = new Map(
+      project.modules.map((module) => [Number(module.source.id), module.name]),
+    );
     this.#modules = project.modules;
     for (const module of project.modules) {
       const path = module.source.path;
@@ -1375,6 +1532,35 @@ class Analysis {
     return this.#fileIdsByPath.get(path);
   }
 
+  /** The file a module of this full name was compiled from (Packages §2.3). */
+  fileIdOfModule(moduleName: string): Source.FileId | undefined {
+    return this.#fileIdsByModuleName.get(moduleName);
+  }
+
+  /**
+   * The module a file declares, **as a reader knows it** (Modules §7.6) — for
+   * the reports that have to name where a declaration lives, which name a
+   * module and never a path (§1).
+   */
+  moduleNameOf(fileId: Source.FileId): string | undefined {
+    const full = this.#moduleNamesByFileId.get(Number(fileId));
+    return full === undefined ? undefined : displayModuleName(full);
+  }
+
+  /**
+   * The module a file declares, by its **full name** (Packages §2.3) — the
+   * spelling a report naming a module *the project does not own* uses (Modules
+   * §10's rename row).
+   *
+   * The bare spelling above is what a reader who can reach the module knows it
+   * by; this one is for the report that says they cannot. `Hex.Ord` names the
+   * package and the module in one, which is what a reader asking why their
+   * rename was refused needs, and what a bare `Ord` would leave them to guess.
+   */
+  fullModuleNameOf(fileId: Source.FileId): string | undefined {
+    return this.#moduleNamesByFileId.get(Number(fileId));
+  }
+
   /**
    * Which of the project's modules **export** a type or constraint of this
    * spelling, in path order (#577's workspace tier).
@@ -1396,19 +1582,20 @@ class Analysis {
    * needs it, and a workspace's whole export surface is not worth computing for
    * the hovers and completions that make up nearly every request.
    */
-  exportersOf(name: string, namespace: "type" | "constraint"): readonly string[] {
+  exportersOf(name: string, namespace: "type" | "constraint"): readonly ModuleExporter[] {
     if (this.#exporters === undefined) {
-      const exporters = new Map<string, string[]>();
+      const exporters = new Map<string, ModuleExporter[]>();
       for (const module of this.#modules) {
         const iface = moduleInterface(module.resolved);
         const seen = new Set<string>();
+        const entry = { path: module.source.path, name: module.name };
         const record = (namespaceKey: string, spelling: string): void => {
           const key = `${namespaceKey}:${spelling}`;
           if (seen.has(key)) return;
           seen.add(key);
           const bucket = exporters.get(key);
-          if (bucket === undefined) exporters.set(key, [module.source.path]);
-          else bucket.push(module.source.path);
+          if (bucket === undefined) exporters.set(key, [entry]);
+          else bucket.push(entry);
         };
         for (const spelling of iface.unions.keys()) record("type", spelling);
         for (const spelling of iface.records.keys()) record("type", spelling);
@@ -1416,7 +1603,9 @@ class Analysis {
         for (const spelling of iface.externTypes.keys()) record("type", spelling);
         for (const spelling of iface.constraints.keys()) record("constraint", spelling);
       }
-      for (const bucket of exporters.values()) bucket.sort();
+      for (const bucket of exporters.values()) {
+        bucket.sort((left, right) => left.name.localeCompare(right.name));
+      }
       this.#exporters = exporters;
     }
     return this.#exporters.get(`${namespace}:${name}`) ?? [];
@@ -1595,58 +1784,25 @@ function locate(
 }
 
 /**
- * Where an inserted import line goes in a file that already has text
- * in it (Modules §5.1's "placed so the file stays well-formed and any
- * term-position use sits below it", #577).
- *
- * Two placements, and the second is the one that needs saying. **After the last
- * import line above the use** is the natural one — the new alias joins the ones
- * already there, and §3's top-down half is satisfied by construction, since the
- * imports considered are only those the use is already below. **The top of the
- * file** is the fallback, and it is chosen rather than settled for: an insert at
- * offset zero is above every declaration, so it can split nothing — in
- * particular it can never come between a doc comment and the declaration the
- * comment documents, which is the one placement that would change what the file
- * means rather than merely how it reads (`spec/doc-comments.md` §2.1: a doc
- * comment attaches to what *immediately* follows it).
- *
- * Synthesized imports are not lines: the resolver writes one for the prelude
- * names a module used (Modules §5.5, §6.4), and it has no text to sit under.
- *
- * **"Any term-position use" is read locally — the use being repaired.** The
- * universal reading is available and is deliberately not taken. It differs only
- * where imports are *interleaved* between declarations and two refused uses of
- * one spelling straddle one: repairing the lower use seats the alias below the
- * upper one, which then draws its own declared-later error rather than being
- * fixed by the same edit. Three reasons for the local reading. It is what the
- * author asked for — the caret is on one use, and an edit that jumped above an
- * import line the author wrote between two declarations would be reordering
- * their file, not adding to it. It never makes a file worse: the upper use was
- * already refused and is now refused with a fixit of its own. And the shape is
- * reachable only through interleaved imports, which the top-down half of §3
- * exists to make legible rather than to encourage. The universal reading is
- * satisfied anyway wherever a request covers both uses, because `codeActions`
- * dedupes to the *first* refusal of a spelling and so places the line above the
- * earliest one.
+ * `importInsertionOffset` asked of a resolved module — the workspace tier's
+ * half of Modules §5.1's placement rule, which `support/import-placement.ts`
+ * states once for both tiers.
  */
-function importInsertionOffset(
+function insertionOffsetOf(
   resolved: Resolved.Module | undefined,
   text: string,
   before: number,
-): number {
-  let offset = 0;
-  for (const item of resolved?.items ?? []) {
-    if (item.kind !== "Import" || item.synthesized) continue;
-    if (item.span.end.offset > before) continue;
-    offset = Math.max(offset, pastLineEnd(text, item.span.end.offset));
-  }
-  return offset;
-}
-
-/** The offset just past the line break that ends the line `offset` is on. */
-function pastLineEnd(text: string, offset: number): number {
-  const index = text.indexOf("\n", offset);
-  return index === -1 ? text.length : index + 1;
+): number | undefined {
+  return importInsertionOffset(
+    {
+      header: resolved?.header,
+      imports: (resolved?.items ?? []).flatMap((item) =>
+        item.kind === "Import" && !item.synthesized ? [item.span] : []
+      ),
+    },
+    text,
+    before,
+  );
 }
 
 /** Applies edits back to front, so an earlier one cannot move a later one. */
@@ -1783,11 +1939,15 @@ function diagnosticTally(
  */
 function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
   const compared = (
-    { runtimePaths, ...rest }: SessionOptions,
+    { runtimePaths, packageName, dependencies, ...rest }: SessionOptions,
   ): readonly string[] => {
     const exhaustive: Record<string, never> = rest;
     void exhaustive;
-    return [...[...(runtimePaths ?? [])].sort()];
+    return [
+      `name:${packageName ?? ""}`,
+      ...[...(dependencies ?? [])].sort().map((name) => `dependency:${name}`),
+      ...[...(runtimePaths ?? [])].sort(),
+    ];
   };
   const [before, after] = [compared(left), compared(right)];
   return before.length === after.length && before.every((path, at) => path === after[at]);

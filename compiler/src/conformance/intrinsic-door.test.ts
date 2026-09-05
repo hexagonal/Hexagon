@@ -28,7 +28,7 @@ function diagnostics(
 
 /** One user module. The prelude is injected around it. */
 function main(source: string): readonly string[] {
-  return diagnostics([["/main.hex", source]]);
+  return diagnostics([["/main.hex", "module Main\n\n" + source]]);
 }
 
 const DOOR =
@@ -65,8 +65,8 @@ describe("the gate (§5)", () => {
    */
   test("the same text at a prelude injection path is legal", () => {
     expect(diagnostics([
-      ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Debug.hex", DOOR],
+      ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
+      ["/Debug.hex", "module Debug\n\n" + DOOR],
     ])).toEqual([]);
   });
 
@@ -86,7 +86,7 @@ describe("the gate (§5)", () => {
    */
   test("a refused block emits no lowering, no import, and no reserved specifier", () => {
     const project = compileProject([
-      new Source.File(Source.fileId(0), "/main.hex", DOOR),
+      new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + DOOR),
     ]);
     expect(project.diagnostics).toHaveLength(1);
     const javascript = project.modules
@@ -103,9 +103,9 @@ describe("the gate (§5)", () => {
   /** §5.1: `"hex:intrinsic"` is the scheme's only v1 member. */
   test("another `hex:` member is refused even in privileged source", () => {
     expect(diagnostics([
-      ["/main.hex", "export let ok: Int = 1\n"],
+      ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
       ["/Debug.hex",
-        'extern from "hex:magic"\n' +
+        "module Debug\n\n" + 'extern from "hex:magic"\n' +
         "    export fun seqMemoize as memoized<a>(source: Seq(a)): Seq(a)\n"],
     ])).toEqual([
       "`hex:magic` is not a reserved boundary; `hex:intrinsic` is the scheme's only member",
@@ -126,8 +126,8 @@ describe("the gate (§5)", () => {
       "`extern import` naming your module",
     ]);
     expect(diagnostics([
-      ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Debug.hex", 'extern import "hex:intrinsic"\n'],
+      ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
+      ["/Debug.hex", "module Debug\n\n" + 'extern import "hex:intrinsic"\n'],
     ])).toEqual([
       "the intrinsic door has no foreign module to import; " +
       'declare the operations you need in an `extern from "hex:intrinsic"` block',
@@ -139,8 +139,8 @@ describe("verification replaces trust (§4.2)", () => {
   /** Privileged source, so the gate passes and verification is what speaks. */
   function privileged(block: string): readonly string[] {
     return diagnostics([
-      ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Debug.hex", block],
+      ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
+      ["/Debug.hex", "module Debug\n\n" + block],
     ]);
   }
 
@@ -225,8 +225,8 @@ describe("verification replaces trust (§4.2)", () => {
 describe("what the block admits (§3.3)", () => {
   function privileged(block: string): readonly string[] {
     return diagnostics([
-      ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Debug.hex", block],
+      ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
+      ["/Debug.hex", "module Debug\n\n" + block],
     ]);
   }
 
@@ -320,8 +320,8 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
 
   test("an intrinsic declaration may be generic", () => {
     expect(diagnostics([
-      ["/main.hex", "export let ok: Int = 1\n"],
-      ["/Debug.hex", DOOR],
+      ["/main.hex", "module Main\n\n" + "export let ok: Int = 1\n"],
+      ["/Debug.hex", "module Debug\n\n" + DOOR],
     ])).toEqual([]);
   });
 
@@ -337,12 +337,12 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
     const constrained = 'extern from "hex:intrinsic"\n' +
       "    fun hashTrieNodeSingleton as one<a: Hash>(value: a): Node(a)\n";
     expect(diagnostics(
-      [["/Runtime.hex", `${constrained}export let ok: Int = Node.get(one(1), 0)\n`]],
+      [["/Runtime.hex", "module Runtime\n\n" + `${constrained}export let ok: Int = Node.get(one(1), 0)\n`]],
       { runtimePaths: ["/Runtime.hex"] },
     )).toEqual([]);
     expect(diagnostics(
       [["/Runtime.hex",
-        "record Weird = {s: String}\n" +
+        "module Runtime\n\n" + "record Weird = {s: String}\n" +
         `${constrained}export let bad: Int = Node.get(one(Weird({s = "K"})), 0).s\n`]],
       { runtimePaths: ["/Runtime.hex"] },
     ).join("\n")).toContain("type `Weird` has no `Hash` instance");
@@ -364,10 +364,10 @@ describe("genericity is granted inside the boundary only (§3.4)", () => {
   test("a result-only type variable generalizes, so consumers instantiate it independently", () => {
     expect(diagnostics([
       ["/main.hex",
-        "export let asInt: Int = Debug.produce(1)\n" +
+        "module Main\n\n" + "export let asInt: Int = Debug.produce(1)\n" +
         "export let asText: String = Debug.produce(2)\n"],
       ["/Debug.hex",
-        'extern from "hex:intrinsic"\n' +
+        "module Debug\n\n" + 'extern from "hex:intrinsic"\n' +
         "    export fun seqMemoize as produce<a>(source: Int): a\n"],
     ])).toEqual([]);
   });

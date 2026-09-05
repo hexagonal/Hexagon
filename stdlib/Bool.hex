@@ -1,3 +1,5 @@
+module Bool
+
 // The boolean type. Constructor order `False | True` is normative: it is what makes
 // the derived `Ord` order `False < True`.
 export union Bool derives (Eq, Ord, Show, Hash) =

@@ -56,7 +56,13 @@ export function compileFiles(
   );
 }
 
-/** Compiles one module as `/main.hex`, prelude included. */
+/**
+ * Compiles one module as `/main.hex`, prelude included.
+ *
+ * The source declares its own module (Modules §2.1) — this helper mints no
+ * header, so a harness that omits one meets the same refusal a user's file
+ * does, and the header a harness writes is the one the compiler reads.
+ */
 export function compileMain(source: string): CompiledProject {
   return compileFiles([["/main.hex", source]]);
 }
@@ -106,18 +112,31 @@ export async function runProject(
     );
   }
   for (const module of project.modules) {
+    // Keyed and linked by the module's **address** — its full name laid out as
+    // a path (Packages §6) — because that is what the emitted specifiers name
+    // since #829; a source file's own name and place appear nowhere in the
+    // emitted graph.
     const text = options.transform === undefined
       ? module.javascript.text
       : options.transform(module.source.path, module.javascript.text);
-    const linked = link(text, module.source.path, moduleUrls);
+    const linked = link(text, module.path, moduleUrls);
     moduleUrls.set(
-      module.source.path,
+      module.path,
       `data:text/javascript;charset=utf-8,${encodeURIComponent(linked)}`,
     );
   }
-  // By path, never `modules[0]`: the prelude members share the project.
-  const entry = options.entry ?? "/main.hex";
-  return (await import(/* @vite-ignore */ moduleUrls.get(entry)!)) as Record<
+  // By module, never `modules[0]`: the prelude members share the project. The
+  // entry is named the way a compiler host names a root — by module name
+  // (Modules §8.3) — with a source path still accepted, since a harness that
+  // has one file in mind may name its file.
+  const entry = options.entry ?? "Main";
+  const root = project.modules.find(({ name, path, source }) =>
+    name === entry || path === entry || source.path === entry
+  );
+  if (root === undefined) {
+    throw new Error(`no module \`${entry}\` in the compiled project`);
+  }
+  return (await import(/* @vite-ignore */ moduleUrls.get(root.path)!)) as Record<
     string,
     unknown
   >;

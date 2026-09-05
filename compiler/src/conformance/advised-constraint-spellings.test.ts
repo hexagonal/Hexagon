@@ -64,7 +64,7 @@ const HEFT_LIB = [
 
 /** Reaches `useHeft` without bringing an alias to `/lib.hex` along with it. */
 const HEFT_MID = [
-  "import Lib from \"./lib.hex\"",
+  "import Lib",
   "export let useHeft<a: Lib.Heft>(n: a): a = Lib.useHeft(n)",
   "",
 ].join("\n");
@@ -84,12 +84,12 @@ const DESCRIBE_TWO = [
 ].join("\n");
 /** The same second-hop shape, one per declaring module. */
 const DESCRIBE_ONE_MID = [
-  "import Lib1 from \"./lib1.hex\"",
+  "import Lib1",
   "export let useOne<a: Lib1.Describe>(v: a): a = Lib1.useOne(v)",
   "",
 ].join("\n");
 const DESCRIBE_TWO_MID = [
-  "import Lib2 from \"./lib2.hex\"",
+  "import Lib2",
   "export let useTwo<a: Lib2.Describe>(v: a): a = Lib2.useTwo(v)",
   "",
 ].join("\n");
@@ -121,28 +121,28 @@ describe("the completeness advice spells each constraint by its own declaration"
     // genuine `Ord` binder — for a constraint whose bases are empty. Both
     // halves of the advice were wrong: the list, and the word naming it.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
+        "module Main\n\n" + 'import Mid\n' +
         "constraint Heft<a: Ord> =\n    other(value: a): a\n" +
         "export let caller(n, m, stop: Bool) = " +
         "if stop then n <= m else Mid.useHeft(n) <= Mid.useHeft(m)\n"],
     ])).toEqual([
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`, and this module " +
-      "binds another `Heft`; `import Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in module `Lib`, and this module " +
+      "binds another `Heft`; `import Lib` and spell it `Lib.Heft`",
     ]);
   });
 
   test("and that advice is one the next compile accepts", () => {
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
-        'import Lib from "./lib"\n' +
+        "module Main\n\n" + 'import Mid\n' +
+        'import Lib\n' +
         "constraint Heft<a: Ord> =\n    other(value: a): a\n" +
         "export let caller<a: (Ord, Lib.Heft)>(n: a, m: a, stop: Bool): Bool =\n" +
         "    if stop then n <= m else Mid.useHeft(n) <= Mid.useHeft(m)\n"],
@@ -157,9 +157,9 @@ describe("the completeness advice spells each constraint by its own declaration"
     // `Heft`, matching the constraint it names, and nothing local occupies
     // that spelling.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
       ["/main.hex",
-        'import Heft from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib as Heft\n' +
         "export let caller(n, m, stop: Bool) = " +
         "if stop then n <= m else Heft.useHeft(n) <= Heft.useHeft(m)\n"],
     ])).toEqual([
@@ -177,9 +177,9 @@ describe("the completeness advice spells each constraint by its own declaration"
     // the *ordinary* shape: any call through `L.useHeft` already carries the
     // alias that reaches `L.Heft`.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
       ["/main.hex",
-        'import L from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib as L\n' +
         "export let caller(n, m, stop: Bool) = " +
         "if stop then n <= m else L.useHeft(n) <= L.useHeft(m)\n"],
     ])).toEqual([
@@ -194,9 +194,9 @@ describe("the completeness advice spells each constraint by its own declaration"
     // here is another declaration; tier 2 answers, and no route is minted for a
     // module this file already has an alias for.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
       ["/main.hex",
-        'import L from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib as L\n' +
         "constraint Heft<a: Ord> =\n    other(value: a): a\n" +
         "export let caller(n, m, stop: Bool) = " +
         "if stop then n <= m else L.useHeft(n) <= L.useHeft(m)\n"],
@@ -213,10 +213,10 @@ describe("the completeness advice spells each constraint by its own declaration"
     // between compiles would be a diff in every reader's error log. The
     // resolver lists aliases in source order and the first entry wins.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
       ["/main.hex",
-        'import Second from "./lib.hex"\n' +
-        'import Zeroth from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib as Second\n' +
+        'import Lib as Zeroth\n' +
         "export let caller(n, m, stop: Bool) = " +
         "if stop then n <= m else Second.useHeft(n) <= Second.useHeft(m)\n"],
     ])).toEqual([
@@ -232,17 +232,17 @@ describe("the completeness advice spells each constraint by its own declaration"
     // and the bare word here is `unknown constraint \`Heft\``. The clause
     // states the shadowing half only where there is a shadow to state.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
+        "module Main\n\n" + 'import Mid\n' +
         "export let caller(n, m, stop: Bool) = " +
         "if stop then n <= m else Mid.useHeft(n) <= Mid.useHeft(m)\n"],
     ])).toEqual([
       INCOMPLETE_CALLER,
       "exported function `caller` must declare every constraint in its signature; " +
-      "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`; " +
-      "`import Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in module `Lib`; " +
+      "`import Lib` and spell it `Lib.Heft`",
     ]);
   });
 });
@@ -254,35 +254,35 @@ describe("two declarations sharing a word are two binders (#716)", () => {
 
   test("neither spellable here: both route, one clause per declaring module", () => {
     expect(graphDiagnostics([
-      ["/lib1.hex", DESCRIBE_ONE],
-      ["/lib2.hex", DESCRIBE_TWO],
-      ["/mid1.hex", DESCRIBE_ONE_MID],
-      ["/mid2.hex", DESCRIBE_TWO_MID],
+      ["/lib1.hex", "module Lib1\n\n" + DESCRIBE_ONE],
+      ["/lib2.hex", "module Lib2\n\n" + DESCRIBE_TWO],
+      ["/mid1.hex", "module Mid1\n\n" + DESCRIBE_ONE_MID],
+      ["/mid2.hex", "module Mid2\n\n" + DESCRIBE_TWO_MID],
       ["/main.hex",
-        'import Mid1 from "./mid1.hex"\n' +
-        'import Mid2 from "./mid2.hex"\n' +
+        "module Main\n\n" + 'import Mid1\n' +
+        'import Mid2\n' +
         "export let both(v) = Mid1.useOne(v) + Mid2.useTwo(v)\n"],
     ])).toEqual([
       INCOMPLETE_BOTH,
       "exported function `both` must declare every constraint in its signature; " +
-      "write `<a: (Lib1.Describe, Lib2.Describe)>` — `Describe` is declared in `./lib1`; " +
-      "`import Lib1 from \"./lib1\"` and spell it `Lib1.Describe`" +
-      " — `Describe` is declared in `./lib2`; " +
-      "`import Lib2 from \"./lib2\"` and spell it `Lib2.Describe`",
+      "write `<a: (Lib1.Describe, Lib2.Describe)>` — `Describe` is declared in module `Lib1`; " +
+      "`import Lib1` and spell it `Lib1.Describe`" +
+      " — `Describe` is declared in module `Lib2`; " +
+      "`import Lib2` and spell it `Lib2.Describe`",
     ]);
   });
 
   test("and the pair of edits it offers compiles", () => {
     expect(graphDiagnostics([
-      ["/lib1.hex", DESCRIBE_ONE],
-      ["/lib2.hex", DESCRIBE_TWO],
-      ["/mid1.hex", DESCRIBE_ONE_MID],
-      ["/mid2.hex", DESCRIBE_TWO_MID],
+      ["/lib1.hex", "module Lib1\n\n" + DESCRIBE_ONE],
+      ["/lib2.hex", "module Lib2\n\n" + DESCRIBE_TWO],
+      ["/mid1.hex", "module Mid1\n\n" + DESCRIBE_ONE_MID],
+      ["/mid2.hex", "module Mid2\n\n" + DESCRIBE_TWO_MID],
       ["/main.hex",
-        'import Mid1 from "./mid1.hex"\n' +
-        'import Mid2 from "./mid2.hex"\n' +
-        'import Lib1 from "./lib1"\n' +
-        'import Lib2 from "./lib2"\n' +
+        "module Main\n\n" + 'import Mid1\n' +
+        'import Mid2\n' +
+        'import Lib1\n' +
+        'import Lib2\n' +
         "export let both<a: (Lib1.Describe, Lib2.Describe)>(v: a): a = " +
         "Mid1.useOne(v) + Mid2.useTwo(v)\n"],
     ])).toEqual([]);
@@ -296,87 +296,91 @@ describe("two declarations sharing a word are two binders (#716)", () => {
     // fallback supplies the already-spelled word: an alias literally named
     // `Describe` reaches `/lib1.hex`'s declaration bare.
     expect(graphDiagnostics([
-      ["/lib1.hex", DESCRIBE_ONE],
-      ["/lib2.hex", DESCRIBE_TWO],
-      ["/mid2.hex", DESCRIBE_TWO_MID],
+      ["/lib1.hex", "module Lib1\n\n" + DESCRIBE_ONE],
+      ["/lib2.hex", "module Lib2\n\n" + DESCRIBE_TWO],
+      ["/mid2.hex", "module Mid2\n\n" + DESCRIBE_TWO_MID],
       ["/main.hex",
-        'import Describe from "./lib1.hex"\n' +
-        'import Mid2 from "./mid2.hex"\n' +
+        "module Main\n\n" + 'import Lib1 as Describe\n' +
+        'import Mid2\n' +
         "export let both(v) = Describe.useOne(v) + Mid2.useTwo(v)\n"],
     ])).toEqual([
       INCOMPLETE_BOTH,
       "exported function `both` must declare every constraint in its signature; " +
-      "write `<a: (Describe, Lib2.Describe)>` — `Describe` is declared in `./lib2`, " +
+      "write `<a: (Describe, Lib2.Describe)>` — `Describe` is declared in module `Lib2`, " +
       "and this module binds another `Describe`; " +
-      "`import Lib2 from \"./lib2\"` and spell it `Lib2.Describe`",
+      "`import Lib2` and spell it `Lib2.Describe`",
     ]);
   });
 
   test("and that mixed binder compiles too", () => {
     expect(graphDiagnostics([
-      ["/lib1.hex", DESCRIBE_ONE],
-      ["/lib2.hex", DESCRIBE_TWO],
-      ["/mid2.hex", DESCRIBE_TWO_MID],
+      ["/lib1.hex", "module Lib1\n\n" + DESCRIBE_ONE],
+      ["/lib2.hex", "module Lib2\n\n" + DESCRIBE_TWO],
+      ["/mid2.hex", "module Mid2\n\n" + DESCRIBE_TWO_MID],
       ["/main.hex",
-        'import Describe from "./lib1.hex"\n' +
-        'import Mid2 from "./mid2.hex"\n' +
-        'import Lib2 from "./lib2"\n' +
+        "module Main\n\n" + 'import Lib1 as Describe\n' +
+        'import Mid2\n' +
+        'import Lib2\n' +
         "export let both<a: (Describe, Lib2.Describe)>(v: a): a = " +
         "Describe.useOne(v) + Mid2.useTwo(v)\n"],
     ])).toEqual([]);
   });
 
-  test("two declaring modules with one basename mint distinct aliases", () => {
+  test("two declaring modules with one last segment mint distinct aliases", () => {
     // "The aliases one message binds are chosen mutually distinct, as well as
     // distinct from every spelling in scope, so the advised edits compose."
-    // Both files are named `lib.hex`, so the second alias takes the suffix the
-    // module-route repair already mints for a taken spelling.
+    // Two modules of one name in one package is refused outright (§2.2), so
+    // the same-basename premise this test used to reach for is gone; a
+    // dotted name's *last segment* colliding is #829's surviving route to
+    // the same shape — `A.Lib` and `B.Lib` both default to the alias `Lib`,
+    // and the second mint takes the suffix the module-route repair already
+    // mints for a taken spelling.
     expect(graphDiagnostics([
-      ["/a/lib.hex", DESCRIBE_ONE],
-      ["/b/lib.hex", DESCRIBE_TWO],
-      ["/mid1.hex", [
-        "import Lib from \"./a/lib.hex\"",
+      ["/a/lib.hex", "module A.Lib\n\n" + DESCRIBE_ONE],
+      ["/b/lib.hex", "module B.Lib\n\n" + DESCRIBE_TWO],
+      ["/mid1.hex", "module Mid1\n\n" + [
+        "import A.Lib",
         "export let useOne<a: Lib.Describe>(v: a): a = Lib.useOne(v)",
         "",
       ].join("\n")],
-      ["/mid2.hex", [
-        "import Lib from \"./b/lib.hex\"",
+      ["/mid2.hex", "module Mid2\n\n" + [
+        "import B.Lib",
         "export let useTwo<a: Lib.Describe>(v: a): a = Lib.useTwo(v)",
         "",
       ].join("\n")],
       ["/main.hex",
-        'import Mid1 from "./mid1.hex"\n' +
-        'import Mid2 from "./mid2.hex"\n' +
+        "module Main\n\n" + 'import Mid1\n' +
+        'import Mid2\n' +
         "export let both(v) = Mid1.useOne(v) + Mid2.useTwo(v)\n"],
     ])).toEqual([
       INCOMPLETE_BOTH,
       "exported function `both` must declare every constraint in its signature; " +
-      "write `<a: (Lib.Describe, Lib_1.Describe)>` — `Describe` is declared in `./a/lib`; " +
-      "`import Lib from \"./a/lib\"` and spell it `Lib.Describe`" +
-      " — `Describe` is declared in `./b/lib`; " +
-      "`import Lib_1 from \"./b/lib\"` and spell it `Lib_1.Describe`",
+      "write `<a: (Lib.Describe, Lib_1.Describe)>` — `Describe` is declared in module `A.Lib`; " +
+      "`import A.Lib` and spell it `Lib.Describe`" +
+      " — `Describe` is declared in module `B.Lib`; " +
+      "`import B.Lib as Lib_1` and spell it `Lib_1.Describe`",
     ]);
   });
 
   test("and the two aliases the one message minted compile side by side", () => {
     expect(graphDiagnostics([
-      ["/a/lib.hex", DESCRIBE_ONE],
-      ["/b/lib.hex", DESCRIBE_TWO],
-      ["/mid1.hex", [
-        "import Lib from \"./a/lib.hex\"",
+      ["/a/lib.hex", "module A.Lib\n\n" + DESCRIBE_ONE],
+      ["/b/lib.hex", "module B.Lib\n\n" + DESCRIBE_TWO],
+      ["/mid1.hex", "module Mid1\n\n" + [
+        "import A.Lib",
         "export let useOne<a: Lib.Describe>(v: a): a = Lib.useOne(v)",
         "",
       ].join("\n")],
-      ["/mid2.hex", [
-        "import Lib from \"./b/lib.hex\"",
+      ["/mid2.hex", "module Mid2\n\n" + [
+        "import B.Lib",
         "export let useTwo<a: Lib.Describe>(v: a): a = Lib.useTwo(v)",
         "",
       ].join("\n")],
       ["/main.hex",
-        'import Mid1 from "./mid1.hex"\n' +
-        'import Mid2 from "./mid2.hex"\n' +
-        'import Lib from "./a/lib"\n' +
-        'import Lib_1 from "./b/lib"\n' +
+        "module Main\n\n" + 'import Mid1\n' +
+        'import Mid2\n' +
+        'import A.Lib\n' +
+        'import B.Lib as Lib_1\n' +
         "export let both<a: (Lib.Describe, Lib_1.Describe)>(v: a): a = " +
         "Mid1.useOne(v) + Mid2.useTwo(v)\n"],
     ])).toEqual([]);
@@ -390,16 +394,16 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     // message could not say so — "`a` is declared to honor `Heft`, but the body
     // requires `Heft`; write `<a: Heft>`", which is the text already written.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
+        "module Main\n\n" + 'import Mid\n' +
         "constraint Heft<a> =\n    other(value: a): a\n" +
         "let g<a: Heft>(x: a): a = Mid.useHeft(x)\n" + KEEP],
     ])).toEqual([
       "`a` is declared to honor this module's `Heft`, but the body requires " +
-      "the `Heft` declared in `./lib.hex`; write `<a: (Heft, Lib.Heft)>` — " +
-      "`import Lib from \"./lib\"` and spell it `Lib.Heft`, " +
+      "the `Heft` declared in module `Lib`; write `<a: (Heft, Lib.Heft)>` — " +
+      "`import Lib` and spell it `Lib.Heft`, " +
       "or remove the constraint annotation to let it be inferred",
     ]);
   });
@@ -409,11 +413,11 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     // line and the widened binder — and *nothing else*. A discharge that also
     // rewrote the body would prove only that some program compiles.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
-        'import Lib from "./lib"\n' +
+        "module Main\n\n" + 'import Mid\n' +
+        'import Lib\n' +
         "constraint Heft<a> =\n    other(value: a): a\n" +
         "let g<a: (Heft, Lib.Heft)>(x: a): a = Mid.useHeft(x)\n" + KEEP],
     ])).toEqual([]);
@@ -421,8 +425,7 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
 
   test("no collision, no qualification: the message is the one it always was", () => {
     // Qualification is the collision's resolution, never the default (§5.1.1).
-    expect(projectDiagnostics(
-      "let g<a: Eq>(x: a, y: a): Bool = x <= y\n" + KEEP,
+    expect(projectDiagnostics("module Main\n\n" + "let g<a: Eq>(x: a, y: a): Bool = x <= y\n" + KEEP,
     )).toEqual([
       "`a` is declared to honor `Eq`, but the body requires `Ord`; " +
       "write `<a: Ord>`, or remove the constraint annotation to let it be inferred",
@@ -434,15 +437,15 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     // clause keeps its "declared in" half — the elision licence is spent only
     // where the collision qualification already spent it.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
+        "module Main\n\n" + 'import Mid\n' +
         "let g<a: Ord>(x: a): a = Mid.useHeft(x)\n" + KEEP],
     ])).toEqual([
       "`a` is declared to honor `Ord`, but the body requires `Heft`; " +
-      "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`; " +
-      "`import Lib from \"./lib\"` and spell it `Lib.Heft`, " +
+      "write `<a: (Ord, Lib.Heft)>` — `Heft` is declared in module `Lib`; " +
+      "`import Lib` and spell it `Lib.Heft`, " +
       "or remove the constraint annotation to let it be inferred",
     ]);
   });
@@ -451,10 +454,10 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     // §7.3 refuses a per-member binder, so the widen respells to the head — and
     // carries the route clause exactly as the fused arm does.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
+        "module Main\n\n" + 'import Mid\n' +
         "constraint Heft<a> =\n    other(value: a): a\n" +
         "fun<a: Heft>\n" +
         "    left(x: a, n: Int): a =\n" +
@@ -462,19 +465,19 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
         "    right(x: a, n: Int): a = Mid.useHeft(x)\n" + KEEP],
     ])).toEqual([
       "`a` is declared to honor this module's `Heft` on the block head, but `right`'s " +
-      "body requires the `Heft` declared in `./lib.hex`; widen the head: " +
-      "`fun<a: (Heft, Lib.Heft)>` — `import Lib from \"./lib\"` and spell it " +
+      "body requires the `Heft` declared in module `Lib`; widen the head: " +
+      "`fun<a: (Heft, Lib.Heft)>` — `import Lib` and spell it " +
       "`Lib.Heft`, or remove the head's constraint to let it be inferred",
     ]);
   });
 
   test("and the widened head compiles", () => {
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
-        'import Lib from "./lib"\n' +
+        "module Main\n\n" + 'import Mid\n' +
+        'import Lib\n' +
         "constraint Heft<a> =\n    other(value: a): a\n" +
         "fun<a: (Heft, Lib.Heft)>\n" +
         "    left(x: a, n: Int): a =\n" +
@@ -488,10 +491,10 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     // has no "let it be inferred" tail. The clause follows the seat rather than
     // splitting the binder from the header it goes on.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
+        "module Main\n\n" + 'import Mid\n' +
         "constraint Heft<a> =\n    other(value: a): a\n" +
         "record Box(a) = { value: a }\n" +
         "constraint Wrapped<b> =\n    wrapped(value: b): b\n" +
@@ -499,8 +502,8 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
         "    wrapped(box) = Box({ value = Mid.useHeft(box.value) })\n" + KEEP],
     ])).toEqual([
       "`a` is declared to honor this module's `Heft`, but the body requires " +
-      "the `Heft` declared in `./lib.hex`; write `<a: (Heft, Lib.Heft)>` on the " +
-      "`honor` header — `import Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "the `Heft` declared in module `Lib`; write `<a: (Heft, Lib.Heft)>` on the " +
+      "`honor` header — `import Lib` and spell it `Lib.Heft`",
     ]);
   });
 
@@ -511,28 +514,28 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     // does to a binder: the demand is spelled by what resolves here, and the
     // route clause rides the same message.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
+        "module Main\n\n" + 'import Mid\n' +
         "constraint Labelled<a: Ord> =\n" +
         "    label(value: a): a\n" +
         "    shown(value: a): a = Mid.useHeft(value)\n" + KEEP],
     ])).toEqual([
       "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its base " +
       "constraints, but it requires `Heft`; add `Heft` as a base constraint — write " +
-      "`constraint Labelled<a: (Ord, Lib.Heft)>` — `Heft` is declared in `./lib`; " +
-      "`import Lib from \"./lib\"` and spell it `Lib.Heft`",
+      "`constraint Labelled<a: (Ord, Lib.Heft)>` — `Heft` is declared in module `Lib`; " +
+      "`import Lib` and spell it `Lib.Heft`",
     ]);
   });
 
   test("and the base list it advises compiles verbatim", () => {
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
-        'import Lib from "./lib"\n' +
+        "module Main\n\n" + 'import Mid\n' +
+        'import Lib\n' +
         "constraint Labelled<a: (Ord, Lib.Heft)> =\n" +
         "    label(value: a): a\n" +
         "    shown(value: a): a = Mid.useHeft(value)\n" + KEEP],
@@ -545,29 +548,29 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     // itself as a base. The clause takes the qualification the sentence has
     // just minted, and the reader can tell the two `Heft`s apart in both halves.
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
+        "module Main\n\n" + 'import Mid\n' +
         "constraint Heft<a: Ord> =\n" +
         "    other(value: a): a\n" +
         "    shown(value: a): a = Mid.useHeft(value)\n" + KEEP],
     ])).toEqual([
       "`a` is `Heft`'s subject, so the body reaches only `Heft` and its base " +
-      "constraints, but it requires the `Heft` declared in `./lib.hex`; add the " +
-      "`Heft` declared in `./lib.hex` as a base constraint — write " +
-      "`constraint Heft<a: (Ord, Lib.Heft)>` — `import Lib from \"./lib\"` " +
+      "constraints, but it requires the `Heft` declared in module `Lib`; add the " +
+      "`Heft` declared in module `Lib` as a base constraint — write " +
+      "`constraint Heft<a: (Ord, Lib.Heft)>` — `import Lib` " +
       "and spell it `Lib.Heft`",
     ]);
   });
 
   test("and that self-named base list compiles verbatim too", () => {
     expect(graphDiagnostics([
-      ["/lib.hex", HEFT_LIB],
-      ["/mid.hex", HEFT_MID],
+      ["/lib.hex", "module Lib\n\n" + HEFT_LIB],
+      ["/mid.hex", "module Mid\n\n" + HEFT_MID],
       ["/main.hex",
-        'import Mid from "./mid.hex"\n' +
-        'import Lib from "./lib"\n' +
+        "module Main\n\n" + 'import Mid\n' +
+        'import Lib\n' +
         "constraint Heft<a: (Ord, Lib.Heft)> =\n" +
         "    other(value: a): a\n" +
         "    shown(value: a): a = Mid.useHeft(value)\n" + KEEP],
@@ -580,22 +583,22 @@ describe("the refusal family qualifies by home, and only on a collision", () => 
     // second `Describe` here was silently dropped — a constraint no other
     // report in the file names.
     expect(graphDiagnostics([
-      ["/lib1.hex", DESCRIBE_ONE],
-      ["/lib2.hex", DESCRIBE_TWO],
-      ["/mid1.hex", DESCRIBE_ONE_MID],
-      ["/mid2.hex", DESCRIBE_TWO_MID],
+      ["/lib1.hex", "module Lib1\n\n" + DESCRIBE_ONE],
+      ["/lib2.hex", "module Lib2\n\n" + DESCRIBE_TWO],
+      ["/mid1.hex", "module Mid1\n\n" + DESCRIBE_ONE_MID],
+      ["/mid2.hex", "module Mid2\n\n" + DESCRIBE_TWO_MID],
       ["/main.hex",
-        'import Mid1 from "./mid1.hex"\n' +
-        'import Mid2 from "./mid2.hex"\n' +
+        "module Main\n\n" + 'import Mid1\n' +
+        'import Mid2\n' +
         "let g<a: Ord>(x: a): a = Mid1.useOne(Mid2.useTwo(x))\n" + KEEP],
     ])).toEqual([
       "`a` is declared to honor `Ord`, but the body requires `Describe`; " +
-      "write `<a: (Ord, Lib1.Describe)>` — `Describe` is declared in `./lib1`; " +
-      "`import Lib1 from \"./lib1\"` and spell it `Lib1.Describe`, " +
+      "write `<a: (Ord, Lib1.Describe)>` — `Describe` is declared in module `Lib1`; " +
+      "`import Lib1` and spell it `Lib1.Describe`, " +
       "or remove the constraint annotation to let it be inferred",
       "`a` is declared to honor `Ord`, but the body requires `Describe`; " +
-      "write `<a: (Ord, Lib2.Describe)>` — `Describe` is declared in `./lib2`; " +
-      "`import Lib2 from \"./lib2\"` and spell it `Lib2.Describe`, " +
+      "write `<a: (Ord, Lib2.Describe)>` — `Describe` is declared in module `Lib2`; " +
+      "`import Lib2` and spell it `Lib2.Describe`, " +
       "or remove the constraint annotation to let it be inferred",
     ]);
   });
@@ -613,16 +616,16 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
     // to its home, so no spelling exists here and no import can make one. A
     // rewrite would be an advised repair the next compile refuses.
     expect(graphDiagnostics([
-      ["/lib.hex", GATE_LIB],
+      ["/lib.hex", "module Lib\n\n" + GATE_LIB],
       ["/main.hex",
-        'import Lib from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib\n' +
         "export let g(x) = Lib.use(x)\n"],
     ])).toEqual([
       "exported function `g` requires a complete signature; add type for parameter `x` and a return type",
-      "exported function `g` requires the constraint `Gate`, declared in `./lib.hex` " +
+      "exported function `g` requires the constraint `Gate`, declared in module `Lib` " +
       "and not exported; a complete signature cannot be written here — use the " +
       "constrained operation at a concrete type, keep `g` private, or export `Gate` " +
-      "from `./lib.hex`",
+      "from `Lib`",
     ]);
   });
 
@@ -633,9 +636,9 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
     // would advise the author to call the very thing being refused, so the seat
     // states the constrained operation and guesses at no name.
     const messages = graphDiagnostics([
-      ["/lib.hex", GATE_LIB],
+      ["/lib.hex", "module Lib\n\n" + GATE_LIB],
       ["/main.hex",
-        'import Lib from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib\n' +
         "fun\n" +
         "    left(x, n: Int) = if n <= 0 then Lib.use(x) else right(x, n - 1)\n" +
         "    export right(x, n: Int) = left(x, n - 1)\n"],
@@ -644,10 +647,10 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
     // deleted branch really did print "call `left` at a concrete type" here.
     expect(messages).toEqual([
       "exported function `right` requires a complete signature; add type for parameter `x` and a return type",
-      "exported function `right` requires the constraint `Gate`, declared in `./lib.hex` " +
+      "exported function `right` requires the constraint `Gate`, declared in module `Lib` " +
       "and not exported; a complete signature cannot be written here — use the " +
       "constrained operation at a concrete type, keep `right` private, or export " +
-      "`Gate` from `./lib.hex`",
+      "`Gate` from `Lib`",
     ]);
     // The fence: no message in the report reaches for the sibling's name.
     expect(messages.filter((message) => message.includes("`left`"))).toEqual([]);
@@ -655,15 +658,15 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
 
   test("and the exits it names are real: the concrete call, and the private keep", () => {
     expect(graphDiagnostics([
-      ["/lib.hex", GATE_LIB],
+      ["/lib.hex", "module Lib\n\n" + GATE_LIB],
       ["/main.hex",
-        'import Lib from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib\n' +
         "export let g(x: Int): Int = Lib.use(x)\n"],
     ])).toEqual([]);
     expect(graphDiagnostics([
-      ["/lib.hex", GATE_LIB],
+      ["/lib.hex", "module Lib\n\n" + GATE_LIB],
       ["/main.hex",
-        'import Lib from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib\n' +
         "let g(x) = Lib.use(x)\nexport let answer: Int = g(1)\n"],
     ])).toEqual([]);
   });
@@ -673,13 +676,13 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
     // own exit, which is the one that works: inference carries what no binder
     // here can spell.
     expect(graphDiagnostics([
-      ["/lib.hex", GATE_LIB],
+      ["/lib.hex", "module Lib\n\n" + GATE_LIB],
       ["/main.hex",
-        'import Lib from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib\n' +
         "let g<a: Ord>(x: a): a = Lib.use(x)\n" + KEEP],
     ])).toEqual([
       "`a` is declared to honor `Ord`, but the body requires the constraint `Gate`, " +
-      "declared in `./lib.hex` and not exported; no constraint list here can name it " +
+      "declared in module `Lib` and not exported; no constraint list here can name it " +
       "— remove the constraint annotation to let it be inferred",
     ]);
   });
@@ -688,24 +691,24 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
     // The subject arm's own fourth tier: the rewrite it would otherwise merge
     // into the base list cannot be spelled, so the message stops at the gate.
     expect(graphDiagnostics([
-      ["/lib.hex", GATE_LIB],
+      ["/lib.hex", "module Lib\n\n" + GATE_LIB],
       ["/main.hex",
-        'import Lib from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib\n' +
         "constraint Labelled<a: Ord> =\n" +
         "    label(value: a): a\n" +
         "    shown(value: a): a = Lib.use(value)\n" + KEEP],
     ])).toEqual([
       "`a` is `Labelled`'s subject, so the body reaches only `Labelled` and its base " +
-      "constraints, but it requires the constraint `Gate`, declared in `./lib.hex` and " +
+      "constraints, but it requires the constraint `Gate`, declared in module `Lib` and " +
       "not exported; no constraint list here can name it",
     ]);
   });
 
   test("and taking that exit compiles", () => {
     expect(graphDiagnostics([
-      ["/lib.hex", GATE_LIB],
+      ["/lib.hex", "module Lib\n\n" + GATE_LIB],
       ["/main.hex",
-        'import Lib from "./lib.hex"\n' +
+        "module Main\n\n" + 'import Lib\n' +
         "let g(x) = Lib.use(x)\nexport let answer: Int = g(1)\n"],
     ])).toEqual([]);
   });
@@ -713,8 +716,7 @@ describe("the fourth tier: no spelling, no route, no rewrite", () => {
   test("the home module still spells its own private constraint", () => {
     // The gate is unnameable *elsewhere*; where it is declared it is an
     // ordinary word, and the advice is the ordinary one.
-    expect(projectDiagnostics(
-      "constraint Gate<a> =\n    gate(value: a): a\n" +
+    expect(projectDiagnostics("module Main\n\n" + "constraint Gate<a> =\n    gate(value: a): a\n" +
         "export let g(x) = gate(x)\n",
     )).toEqual([
       "exported function `g` requires a complete signature; add type for parameter `x` and a return type",

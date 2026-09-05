@@ -45,8 +45,7 @@ const rider = "cannot match on a value of abstract type; the parameter's " +
 
 describe("the supplying seats (§4.3)", () => {
   test("an annotated `let` right-hand side", () => {
-    expect(projectDiagnostics(
-      "let sign: (Int) -> String = match\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let sign: (Int) -> String = match\n" +
         guardOnly("    ") +
         "export let a: String = sign(3)\n",
     )).toEqual([]);
@@ -56,8 +55,7 @@ describe("the supplying seats (§4.3)", () => {
     // §4.1's annotated right-hand side, spelled with a header: the written
     // return type is what the seat wrote around the body, so it supplies the
     // body exactly as a binding annotation supplies its value.
-    expect(projectDiagnostics(
-      "let make(flag: Bool): (Int) -> String = match\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let make(flag: Bool): (Int) -> String = match\n" +
         guardOnly("    ") +
         "export let a: String = make(True)(3)\n",
     )).toEqual([]);
@@ -67,8 +65,7 @@ describe("the supplying seats (§4.3)", () => {
     // §5.4's convention is what makes the left-to-right order *pay*: the
     // subject resolves `Seq.map`'s instantiation, and only then is the
     // callback's expectation read — concrete, `Int`.
-    const exports = await runMain(
-      "let xs: Seq(Int) = [1, -2].toSeq()\n" +
+    const exports = await runMain("module Main\n\n" + "let xs: Seq(Int) = [1, -2].toSeq()\n" +
         "export let ys: Vector(String) = Vector.fromSeq(Seq.map(xs, match\n" +
         guardOnly("    ") +
         "))\n",
@@ -82,8 +79,7 @@ describe("the supplying seats (§4.3)", () => {
     // the dot, so the goal resolves *before* the arguments are elaborated and
     // the resolved member's signature supplies them. This adds expectations
     // without reordering elaboration — §11.3's rejection is untouched.
-    expect(projectDiagnostics(
-      "let xs: Seq(Int) = [1, -2].toSeq()\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let xs: Seq(Int) = [1, -2].toSeq()\n" +
         "export let ys: Seq(String) = xs.map(match\n" +
         guardOnly("    ") +
         ")\n",
@@ -91,8 +87,7 @@ describe("the supplying seats (§4.3)", () => {
   });
 
   test("an ascription", () => {
-    expect(projectDiagnostics(
-      "let sign = (match\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let sign = (match\n" +
         guardOnly("    ") +
         ": (Int) -> String)\n" +
         "export let a: String = sign(3)\n",
@@ -107,8 +102,7 @@ describe("the supplying seats (§4.3)", () => {
    * now the ban's own refusal, and there is nothing left at the seat to supply.
    */
   test("the annotated `var`/`:=` seat is gone with the function-typed `var`", () => {
-    expect(projectDiagnostics(
-      "export let run(): String =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let run(): String =\n" +
         "    var sign: (Int) -> String = match\n" +
         guardOnly("        ") +
         "    sign(3)\n",
@@ -123,8 +117,7 @@ describe("the supplying seats (§4.3)", () => {
     // existed — that half is Constraints §4.1's, not #513's. What #513 adds is
     // the body: its expected type is the declaration's result with the subject
     // substituted, so a match function standing there lands.
-    expect(projectDiagnostics(
-      "export constraint Pick<a> =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export constraint Pick<a> =\n" +
         "    pick(value: a): (Int) -> String\n" +
         "honor Pick<Int> =\n" +
         "    pick(value) = match\n" +
@@ -138,8 +131,7 @@ describe("the supplying seats (§4.3)", () => {
     // Constraints §4.1 already stated member typing as checking rather than
     // inference; #513 is the one mechanism that makes the sentence reach a
     // member's lambda parameters before its body is inferred.
-    expect(projectDiagnostics(
-      "export constraint Sign<a> =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export constraint Sign<a> =\n" +
         "    sign(value: a): String\n" +
         "honor Sign<Int> =\n" +
         "    sign(value) = match value\n" +
@@ -152,8 +144,7 @@ describe("the supplying seats (§4.3)", () => {
 
 describe("the forwarding forms (§4.3)", () => {
   const conducts = (body: string): readonly string[] =>
-    projectDiagnostics(
-      "let flag: Bool = True\n" +
+    projectDiagnostics("module Main\n\n" + "let flag: Bool = True\n" +
         `let sign: (Int) -> String =\n${body}` +
         "export let a: String = sign(3)\n",
     );
@@ -164,8 +155,7 @@ describe("the forwarding forms (§4.3)", () => {
     // binding's value before the checker ever sees them, so a `let`-seat group
     // would exercise nothing. Everywhere else the parentheses are a real node,
     // and §3.1's forwarding is what carries the expectation through them.
-    expect(projectDiagnostics(
-      "let apply(transform: (Int) -> String, value: Int): String = transform(value)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let apply(transform: (Int) -> String, value: Int): String = transform(value)\n" +
         "export let a: String = apply((match\n" +
         guardOnly("    ") +
         "), 3)\n",
@@ -205,8 +195,7 @@ describe("the forwarding forms (§4.3)", () => {
   });
 
   test("a `try`'s body block, and its catch arm bodies", () => {
-    expect(projectDiagnostics(
-      "exception Boom(reason: String)\n" +
+    expect(projectDiagnostics("module Main\n\n" + "exception Boom(reason: String)\n" +
         "let sign: (Int) -> String =\n" +
         "    try\n" +
         "        match\n" +
@@ -233,7 +222,7 @@ describe("the forwarding forms (§4.3)", () => {
 
     const oneSided = (body: string): readonly string[] =>
       projectDiagnostics(
-        other +
+        "module Main\n\n" + other +
           "let flag: Bool = True\n" +
           `let sign: (Int) -> String =\n${body}` +
           "export let a: String = sign(3)\n",
@@ -278,8 +267,7 @@ describe("the forwarding forms (§4.3)", () => {
     });
 
     test("`try` — the lambda in only the body", () => {
-      expect(projectDiagnostics(
-        "exception Boom(reason: String)\n" +
+      expect(projectDiagnostics("module Main\n\n" + "exception Boom(reason: String)\n" +
           other +
           "let sign: (Int) -> String =\n" +
           "    try\n" +
@@ -295,8 +283,7 @@ describe("the forwarding forms (§4.3)", () => {
       // Catch arms occupy two seats with one grammar (Pattern Matching §6.2),
       // and the clause on a `match` is the second. Its arm bodies are value
       // paths of the construct exactly as `try`'s are, so they forward too.
-      expect(projectDiagnostics(
-        "exception Boom(reason: String)\n" +
+      expect(projectDiagnostics("module Main\n\n" + "exception Boom(reason: String)\n" +
           other +
           "let risky(flag: Bool): Bool = if flag then throw(Boom(\"x\")) else True\n" +
           "let flag: Bool = True\n" +
@@ -312,8 +299,7 @@ describe("the forwarding forms (§4.3)", () => {
     });
 
     test("`try` — the lambda in only a catch arm body", () => {
-      expect(projectDiagnostics(
-        "exception Boom(reason: String)\n" +
+      expect(projectDiagnostics("module Main\n\n" + "exception Boom(reason: String)\n" +
           other +
           "let sign: (Int) -> String =\n" +
           "    try\n" +
@@ -331,8 +317,7 @@ describe("the forwarding forms (§4.3)", () => {
     // literal's components synthesize exactly as before, so the match function
     // sees a variable and takes §6.1's refusal with the rider — even though the
     // annotation one line up spells its parameter type.
-    expect(projectDiagnostics(
-      "let pair: ((Int) -> String, Int) = (match\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let pair: ((Int) -> String, Int) = (match\n" +
         guardOnly("    ") +
         ", 1)\n",
     )).toEqual([rider]);
@@ -342,7 +327,7 @@ describe("the forwarding forms (§4.3)", () => {
 describe("the decline paths (§4.3)", () => {
   test("arity mismatch yields the seat's ordinary error, with no propagation artifact", () => {
     // Silent means silent: no diagnostic names propagation, in either outcome.
-    const diagnostics = projectDiagnostics("let f: (Int, Int) -> String = x => \"a\"\n");
+    const diagnostics = projectDiagnostics("module Main\n\n" + "let f: (Int, Int) -> String = x => \"a\"\n");
     expect(diagnostics).toEqual(["function arity mismatch: 2 and 1"]);
     for (const message of diagnostics) {
       expect(message).not.toMatch(/expected type|propagat/iu);
@@ -354,8 +339,7 @@ describe("the decline paths (§4.3)", () => {
     // the arguments synthesize, and the arms see a variable. Evidence arriving
     // later resolves the dispatch identically but cannot hand expectations to
     // arguments already checked.
-    expect(projectDiagnostics(
-      "fun go(v) = v.map(match\n" + guardOnly("    ") + ")\n",
+    expect(projectDiagnostics("module Main\n\n" + "fun go(v) = v.map(match\n" + guardOnly("    ") + ")\n",
     )).toEqual([rider]);
   });
 
@@ -374,15 +358,15 @@ describe("the decline paths (§4.3)", () => {
       guardOnly("    ") +
       ", xs)\n";
 
-    expect(projectDiagnostics(generic + call)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + generic + call)).toEqual([]);
     // The same shape at concrete parameter types supplies as it always did.
-    expect(projectDiagnostics(concrete + call)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + concrete + call)).toEqual([]);
   });
 
   test("a bare unannotated binding still refuses, with the rider", () => {
     // No seat, and defaulting does not rescue a dispatch that fired
     // mid-inference.
-    expect(projectDiagnostics("let f = match\n" + guardOnly("    "))).toEqual([rider]);
+    expect(projectDiagnostics("module Main\n\n" + "let f = match\n" + guardOnly("    "))).toEqual([rider]);
   });
 });
 
@@ -393,11 +377,9 @@ describe("the ordering pin (§4.3)", () => {
     // body runs at `Float`; the header spelling compiles identically. `Float`
     // erases to the same representation, so both emit the `Int` addition's JS —
     // `expected-type-lift.test.ts` value-checks the emission.
-    expect(projectDiagnostics(
-      "let g: (Int) -> Float = x => x + x\nexport let a: Float = g(1)\n",
+    expect(projectDiagnostics("module Main\n\n" + "let g: (Int) -> Float = x => x + x\nexport let a: Float = g(1)\n",
     )).toEqual([]);
-    expect(projectDiagnostics(
-      "let g = (x: Int): Float => x + x\nexport let a: Float = g(1)\n",
+    expect(projectDiagnostics("module Main\n\n" + "let g = (x: Int): Float => x + x\nexport let a: Float = g(1)\n",
     )).toEqual([]);
   });
 
@@ -412,7 +394,7 @@ describe("the ordering pin (§4.3)", () => {
       "let combine(label: (Int) -> String, total: Float): String = label(0)\n" +
       "fun race(p) = combine(x => useFloat(p), p + one)\n" +
       "export let a: String = race(1.5)\n";
-    expect(projectDiagnostics(source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
     expect(schemeOf(source, "race")).toMatchObject({
       parameters: [{ kind: "Primitive", name: "Float" }],
       result: { kind: "Primitive", name: "String" },
@@ -432,6 +414,7 @@ describe("the ordering pin (§4.3)", () => {
     // meets. The named-function spelling of the same call is the control — it
     // defers nothing, checks nothing early, and has always reported once.
     const call = (callbacks: string): string =>
+      "module Main\n\n" +
       "let g(a1: a, m1: (Int) -> String, m2: (Int) -> String, a2: a): String = \"x\"\n" +
       "let n: Int = 1\n" +
       "let sign: (Int) -> String = match\n" +
@@ -465,7 +448,7 @@ describe("the ordering pin (§4.3)", () => {
       "export let a: String = flavour(1)\n";
 
     for (const source of [plain, matched]) {
-      expect(projectDiagnostics(source)).toEqual([]);
+      expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
       expect(schemeOf(source, "flavour")).toMatchObject({
         parameters: [{ kind: "Primitive", name: "Int" }],
       });
@@ -479,16 +462,14 @@ describe("the pipe seat supplies (#517)", () => {
     // lambda literal, so the argument elaborates first and the callee lands the
     // function type it builds. Both spellings of §6.7 are served alike, and
     // they agree — the desugar-equality pin, now succeeding together.
-    const written = projectDiagnostics(
-      "let classify: (Int) -> String = value =>\n" +
+    const written = projectDiagnostics("module Main\n\n" + "let classify: (Int) -> String = value =>\n" +
         "    value |> (v =>\n" +
         "        match v\n" +
         "            n when n > 0 => \"positive\"\n" +
         "            _ => \"other\")\n" +
         "export let a: String = classify(3)\n",
     );
-    const desugared = projectDiagnostics(
-      "let classify: (Int) -> String = value =>\n" +
+    const desugared = projectDiagnostics("module Main\n\n" + "let classify: (Int) -> String = value =>\n" +
         "    value |> match\n" +
         "        n when n > 0 => \"positive\"\n" +
         "        _ => \"other\"\n" +
@@ -499,8 +480,7 @@ describe("the pipe seat supplies (#517)", () => {
   });
 
   test("the annotated-`let` rewrite is still a working pipe spelling", () => {
-    expect(projectDiagnostics(
-      "let classify: (Int) -> String = match\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let classify: (Int) -> String = match\n" +
         "    n when n > 0 => \"positive\"\n" +
         "    _ => \"other\"\n" +
         "export let a: String = 3 |> classify\n",
@@ -508,8 +488,7 @@ describe("the pipe seat supplies (#517)", () => {
   });
 
   test("a literal-heavy pipe match compiles exactly as it does without propagation", () => {
-    expect(projectDiagnostics(
-      "export fun classify(value: Int): String = value |> match\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun classify(value: Int): String = value |> match\n" +
         "    0 => \"zero\"\n" +
         "    _ => \"other\"\n",
     )).toEqual([]);
@@ -520,8 +499,7 @@ describe("Pattern Matching §6.1's refusal, reduced and re-worded", () => {
   test("a declared type variable keeps the constraint-operations advice, and names itself", () => {
     // Determined, and abstract by declaration. The name was missing from the
     // shipped report; §6.1 has always quoted it.
-    expect(projectDiagnostics(
-      "export let describe<a: Show>(value: a): String = match value\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export let describe<a: Show>(value: a): String = match value\n" +
         "    _ => \"x\"\n",
     )).toEqual([
       "cannot match on a value of abstract type `a`; " +
@@ -533,8 +511,7 @@ describe("Pattern Matching §6.1's refusal, reduced and re-worded", () => {
     // The specimen a supplying seat can now hand to the dispatch. §6.1 admits
     // any scrutinee but its two permanent exclusions; §2.5 bans the Float
     // *literal pattern* alone.
-    const exports = await runMain(
-      "let f: (Float) -> String = match\n" +
+    const exports = await runMain("module Main\n\n" + "let f: (Float) -> String = match\n" +
         "    n when n < 0.5 => \"small\"\n" +
         "    _ => \"big\"\n" +
         "export let a: String = f(0.25)\n" +
@@ -543,21 +520,18 @@ describe("Pattern Matching §6.1's refusal, reduced and re-worded", () => {
     expect([exports["a"], exports["b"]]).toEqual(["small", "big"]);
 
     // Guards contribute nothing to exhaustiveness (§7.1), here as everywhere.
-    expect(projectDiagnostics(
-      "let f: (Float) -> String = match\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let f: (Float) -> String = match\n" +
         "    n when n < 0.5 => \"small\"\n",
     )).toEqual(["match is missing cases: `_`"]);
 
     // And §2.5's ban stands: `Int` and `String` are the literal-pattern types,
     // so an integer literal against a `Float` scrutinee is the ordinary
     // mismatch, and a `Float` literal never parses as a pattern at all.
-    expect(projectDiagnostics(
-      "let f: (Float) -> String = match\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let f: (Float) -> String = match\n" +
         "    0 => \"zero\"\n" +
         "    _ => \"other\"\n",
     )).toEqual(["type mismatch: expected Float, found Int"]);
-    expect(projectDiagnostics(
-      "let f: (Float) -> String = match\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let f: (Float) -> String = match\n" +
         "    1.5 => \"one and a half\"\n" +
         "    _ => \"other\"\n",
     )).toContain(
@@ -570,7 +544,7 @@ describe("monotonicity spot-checks (§4.3)", () => {
   test("a callback lambda infers what it always did", () => {
     const source = "let xs: Seq(Int) = [1, 2].toSeq()\n" +
       "export let ys: Seq(Int) = Seq.map(xs, x => x + 1)\n";
-    expect(projectDiagnostics(source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
   });
 
   test("a row-polymorphic bare parameter is untouched", () => {
@@ -579,7 +553,7 @@ describe("monotonicity spot-checks (§4.3)", () => {
     const source = "export fun getX(p: {x: Int, ...a}): Int = p.x\n" +
       "fun apply(r) = r.callback(3)\n" +
       "export let used: Int = apply({callback = (n: Int) => n})\n";
-    expect(projectDiagnostics(source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
   });
 
   test("a sibling argument still establishes an earlier one's type", () => {
@@ -590,7 +564,7 @@ describe("monotonicity spot-checks (§4.3)", () => {
       "let one: Int = 1\n" +
       "fun f(p) = g(p, p + one)\n" +
       "export let r: String = f(2)\n";
-    expect(projectDiagnostics(source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
     expect(schemeOf(source, "f")).toMatchObject({
       parameters: [{ kind: "Primitive", name: "Int" }],
     });
@@ -608,7 +582,7 @@ describe("monotonicity spot-checks (§4.3)", () => {
       "let g(a: Float, b: (Int) -> String): String = b(0)\n" +
       "fun f(p) = g(p, x => useInt(p))\n" +
       "export let r: String = f(2)\n";
-    expect(projectDiagnostics(source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
     expect(schemeOf(source, "f")).toMatchObject({
       parameters: [{ kind: "Primitive", name: "Int" }],
     });
@@ -617,13 +591,13 @@ describe("monotonicity spot-checks (§4.3)", () => {
   test("the generalized scheme of a polymorphic binding is unchanged", () => {
     const source = "export fun identity(value: a): a = value\n" +
       "export let apply(transform: (a) -> b, value: a): b = transform(value)\n";
-    expect(projectDiagnostics(source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
     expect(schemeOf(source, "apply")).toMatchObject({ kind: "Function" });
   });
 });
 
 function schemeOf(source: string, name: string): unknown {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   const main = project.modules.find(({ source: file }) => file.path === "/main.hex")!;
   const found = main.typed.symbols.find((candidate) => candidate.name === name);
   if (found === undefined) throw new Error(`expected symbol ${name}`);

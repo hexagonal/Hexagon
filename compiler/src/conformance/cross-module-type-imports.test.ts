@@ -42,7 +42,7 @@ function declarationSet(
 ): Record<string, string> {
   const files: Record<string, string> = {};
   for (const module of compiled.modules) {
-    const name = module.source.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts");
+    const name = module.path.replace(/^\//u, "").replace(/\.hex$/u, ".d.ts");
     files[name] = module.declarations.text;
   }
   return files;
@@ -57,17 +57,17 @@ function emitted(compiled: ReturnType<typeof project>, basename: string) {
 
 describe("prelude-supplied types are imported by the faces that reach them", () => {
   test("`Seq.d.ts` compiles — the filed acceptance (#227)", async () => {
-    const compiled = project([["/main.hex", "export let e: Seq(Int) = Seq.empty\n"]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + "export let e: Seq(Int) = Seq.empty\n"]]);
     const files = declarationSet(compiled);
 
-    expect(files["Seq.d.ts"]).toContain('import type { Option } from "./Option.js";');
+    expect(files["Hex/Seq.d.ts"]).toContain('import type { Option } from "./Option.js";');
     expect(await typeScriptErrors(files)).toEqual([]);
   });
 
   test("a user module imports each prelude type from its own owning member", async () => {
     const compiled = project([[
       "/main.hex",
-      "export let o: Option(Int) = None\n" +
+      "module Main\n\n" + "export let o: Option(Int) = None\n" +
         "export let g(a: Ordering, b: Ordering): Bool = a == b\n",
     ]]);
     const text = emitted(compiled, "/main.hex").declarations.text;
@@ -76,11 +76,11 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
     // declares it: `Ordering` is `Ordering.hex`'s (#742 rehomed it there from
     // `Prelude.hex`, so its constructors have a module to be spelled through),
     // `Option` is `Option.hex`'s.
-    expect(text).toContain('import type { Ordering } from "./Ordering.js";');
-    expect(text).toContain('import type { Option } from "./Option.js";');
+    expect(text).toContain('import type { Ordering } from "./Hex/Ordering.js";');
+    expect(text).toContain('import type { Option } from "./Hex/Option.js";');
     // Inventory order — the normative prelude order — not first-use order,
     // which the source above deliberately reverses.
-    expect(text.indexOf("./Ordering.js")).toBeLessThan(text.indexOf("./Option.js"));
+    expect(text.indexOf("./Hex/Ordering.js")).toBeLessThan(text.indexOf("./Hex/Option.js"));
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
@@ -92,7 +92,7 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
     // all; the member's real source is extended rather than replaced, so this
     // pins the rule and not a transcription of `Prelude.hex`.
     const compiled = project([
-      ["/main.hex", "export let pick(p: Pair, h: Handle): Handle = h\n"],
+      ["/main.hex", "module Main\n\n" + "export let pick(p: Pair, h: Handle): Handle = h\n"],
       [
         "/Prelude.hex",
         `${PRELUDE_SOURCES["Prelude.hex"]!}\n` +
@@ -104,8 +104,8 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
 
     // One statement per type, not per module — two types from one member is two
     // statements, which is ordinary ESM.
-    expect(text).toContain('import type { Pair } from "./Prelude.js";');
-    expect(text).toContain('import type { Handle } from "./Prelude.js";');
+    expect(text).toContain('import type { Pair } from "./Hex/Prelude.js";');
+    expect(text).toContain('import type { Handle } from "./Hex/Prelude.js";');
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
@@ -116,14 +116,14 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
     // three with no JavaScript counterpart. The specimen below touches no
     // `Option` term at all, so nothing else would pull `Option.hex` in and the
     // `.d.ts` would import from a file that was never written.
-    const compiled = project([["/main.hex", "export let f(o: Option(Int)): Option(Int) = o\n"]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + "export let f(o: Option(Int)): Option(Int) = o\n"]]);
 
-    expect(compiled.modules.map(({ source }) => source.path)).toContain("/Option.hex");
+    expect(compiled.modules.map(({ source }) => source.path)).toContain("/Hex/Option.hex");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
   test("a prelude type in scope but named by no face is not imported", () => {
-    const compiled = project([["/main.hex", "export let n: Int = 1\n"]]);
+    const compiled = project([["/main.hex", "module Main\n\n" + "export let n: Int = 1\n"]]);
 
     expect(emitted(compiled, "/main.hex").declarations.text).not.toContain("import type");
   });
@@ -131,7 +131,7 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
   test("the pinned faces import nothing — `Bool` and `Seq` are not nominal here", () => {
     const compiled = project([[
       "/main.hex",
-      "export let ok: Bool = True\nexport let s: Seq(Int) = Seq.empty\n",
+      "module Main\n\n" + "export let ok: Bool = True\nexport let s: Seq(Int) = Seq.empty\n",
     ]]);
     const text = emitted(compiled, "/main.hex").declarations.text;
 
@@ -152,8 +152,8 @@ describe("a source-written import owns every name it binds", () => {
   // different — and already covered — shape (see "placement" below).
   test("a term+type name keeps its `.d.ts` type row, and its JavaScript module import", async () => {
     const compiled = project([
-      ["/lib.hex", "export record Point = {x: Float, y: Float}\n"],
-      ["/app.hex", 'import Point from "./lib"\nexport let mk(): Point = Point.Point({x = 1.0, y = 2.0})\n'],
+      ["/lib.hex", "module Lib\n\n" + "export record Point = {x: Float, y: Float}\n"],
+      ["/app.hex", "module App\n\n" + 'import Lib as Point\nexport let mk(): Point = Point.Point({x = 1.0, y = 2.0})\n'],
     ]);
     const app = emitted(compiled, "/app.hex");
 
@@ -164,15 +164,15 @@ describe("a source-written import owns every name it binds", () => {
     // since a rule-3-resolved bare term that is actually called crashes at
     // runtime today — a confirmed emission bug, irrelevant here since this test
     // only inspects text — but qualifying keeps the specimen unambiguous.
-    expect(app.declarations.text).toContain('import type { Point } from "./lib.js";');
-    expect(app.javascript.text).toContain('import * as Point from "./lib.js";');
+    expect(app.declarations.text).toContain('import type { Point } from "./Lib.js";');
+    expect(app.javascript.text).toContain('import * as Point from "./Lib.js";');
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
   });
 
   test("a pure-term import still contributes no declaration row", () => {
     const compiled = project([
-      ["/lib.hex", "export let one: Int = 1\n"],
-      ["/app.hex", 'import Lib from "./lib"\nlet one = Lib.one\nexport let two: Int = one + one\n'],
+      ["/lib.hex", "module Lib\n\n" + "export let one: Int = 1\n"],
+      ["/app.hex", "module App\n\n" + 'import Lib\nlet one = Lib.one\nexport let two: Int = one + one\n'],
     ]);
 
     expect(emitted(compiled, "/app.hex").declarations.text).toBe(
@@ -192,7 +192,7 @@ describe("a source-written import owns every name it binds", () => {
   test("an explicit import of a prelude type binds it once, not twice", async () => {
     const compiled = project([[
       "/main.hex",
-      'import Option from "./Option"\nexport let o: Option(Int) = None\n',
+      "module Main\n\n" + 'import Option\nexport let o: Option(Int) = None\n',
     ]]);
     const text = emitted(compiled, "/main.hex").declarations.text;
 
@@ -214,10 +214,10 @@ describe("a source-written import owns every name it binds", () => {
 describe("placement", () => {
   test("the runtime import, then §2.4's lines, then the module's own items", async () => {
     const compiled = project([
-      ["/lib.hex", "export union Color = Red | Green\n"],
+      ["/lib.hex", "module Lib\n\n" + "export union Color = Red | Green\n"],
       [
         "/main.hex",
-        'import Color from "./lib"\n' +
+        "module Main\n\n" + 'import Lib as Color\n' +
           "export let f(c: Color, v: Vector(Int)): Option(Int) = None\n",
       ],
     ]);
@@ -228,8 +228,8 @@ describe("placement", () => {
     // level — so the order is pinned by the text.
     expect(text).toBe(
       'import type * as Hex from "./hex.js";\n' +
-        'import type { Option } from "./Option.js";\n' +
-        'import type { Color } from "./lib.js";\n' +
+        'import type { Option } from "./Hex/Option.js";\n' +
+        'import type { Color } from "./Lib.js";\n' +
         "export declare const f: (c: Color, v: Hex.Vector<number>) => Option<number>;\n",
     );
     expect(await typeScriptErrors({
@@ -246,7 +246,7 @@ describe("the generated local is probed, and only it moves", () => {
   test("an exported constructor sharing a prelude type's name forces `Option_1`", async () => {
     const compiled = project([[
       "/main.hex",
-      "export union MyU = Option(Int) | Nother\nexport let o: Option(Int) = None\n",
+      "module Main\n\n" + "export union MyU = Option(Int) | Nother\nexport let o: Option(Int) = None\n",
     ]]);
     const text = emitted(compiled, "/main.hex").declarations.text;
 
@@ -254,7 +254,7 @@ describe("the generated local is probed, and only it moves", () => {
     // identifier (§3–§4), so it collides with a prelude type's name on its own.
     // The constructor is a user name and keeps its spelling; only the generated
     // local moves (Part 1 §10).
-    expect(text).toContain('import type { Option as Option_1 } from "./Option.js";');
+    expect(text).toContain('import type { Option as Option_1 } from "./Hex/Option.js";');
     expect(text).toContain("export declare const Option: (item1: number) => MyU;");
     expect(text).toContain("export declare const o: Option_1<number>;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -263,7 +263,7 @@ describe("the generated local is probed, and only it moves", () => {
   test("an occluding declaration beside a qualified face of the occluded identity", async () => {
     const compiled = project([[
       "/main.hex",
-      "export union Ordering = Asc | Desc\n" +
+      "module Main\n\n" + "export union Ordering = Asc | Desc\n" +
         "export let f(x: Ordering.Ordering): Int = 0\n",
     ]]);
     const text = emitted(compiled, "/main.hex").declarations.text;
@@ -273,7 +273,7 @@ describe("the generated local is probed, and only it moves", () => {
     // of its own, which a type declaration does not occlude — so the occluded
     // identity does reach an exported face. Both types then live in one file:
     // the module's own under the bare name, the prelude's under a probed local.
-    expect(text).toContain('import type { Ordering as Ordering_1 } from "./Ordering.js";');
+    expect(text).toContain('import type { Ordering as Ordering_1 } from "./Hex/Ordering.js";');
     expect(text).toContain('export type Ordering = { tag: "Asc" } | { tag: "Desc" };');
     expect(text).toContain("export declare const f: (x: Ordering_1) => number;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -281,10 +281,10 @@ describe("the generated local is probed, and only it moves", () => {
 
   test("a namespace alias spelling a prelude type's name forces `Option_1`", async () => {
     const compiled = project([
-      ["/lib.hex", "export record Row = {n: Int}\nexport let one: Int = 1\n"],
+      ["/lib.hex", "module Lib\n\n" + "export record Row = {n: Int}\nexport let one: Int = 1\n"],
       [
         "/main.hex",
-        'import Option from "./lib"\n' +
+        "module Main\n\n" + 'import Lib as Option\n' +
           "export let o: Option(Int) = None\nexport let r(x: Option.Row): Int = 1\n",
       ],
     ]);
@@ -299,8 +299,8 @@ describe("the generated local is probed, and only it moves", () => {
     // The alias is spoken for **because a face qualifies through it**: that is
     // what puts its line in the file. Without the `Option.Row` seat below the
     // line is not written and the alias contests nothing — the case beneath.
-    expect(text).toContain('import type { Option as Option_1 } from "./Option.js";');
-    expect(text).toContain('import type * as Option from "./lib.js";');
+    expect(text).toContain('import type { Option as Option_1 } from "./Hex/Option.js";');
+    expect(text).toContain('import type * as Option from "./Lib.js";');
     expect(text).toContain("export declare const o: Option_1<number>;");
     expect(text).toContain("export declare const r: (x: Option.Row) => number;");
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -308,8 +308,8 @@ describe("the generated local is probed, and only it moves", () => {
 
   test("a gated alias moves nothing — the probe counts what the file carries", async () => {
     const compiled = project([
-      ["/lib.hex", "export let one: Int = 1\n"],
-      ["/main.hex", 'import Option from "./lib"\nexport let o: Option(Int) = None\n'],
+      ["/lib.hex", "module Lib\n\n" + "export let one: Int = 1\n"],
+      ["/main.hex", "module Main\n\n" + 'import Lib as Option\nexport let o: Option(Int) = None\n'],
     ]);
     const text = emitted(compiled, "/main.hex").declarations.text;
 
@@ -318,7 +318,7 @@ describe("the generated local is probed, and only it moves", () => {
     // a minted local aside for a name the reader cannot find — the failure the
     // rung order exists to avoid.
     expect(text).toBe(
-      'import type { Option } from "./Option.js";\n' +
+      'import type { Option } from "./Hex/Option.js";\n' +
         "export declare const o: Option<number>;\n",
     );
     expect(await typeScriptErrors(declarationSet(compiled))).toEqual([]);
@@ -329,7 +329,7 @@ describe("what the rule does not reach", () => {
   test("an occluding declaration renders and exports its own type, bare", async () => {
     const compiled = project([[
       "/main.hex",
-      "export union Ordering = Asc | Desc\nexport let pick(o: Ordering): Ordering = o\n",
+      "module Main\n\n" + "export union Ordering = Asc | Desc\nexport let pick(o: Ordering): Ordering = o\n",
     ]]);
     const text = emitted(compiled, "/main.hex").declarations.text;
 

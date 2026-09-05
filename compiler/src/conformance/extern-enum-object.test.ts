@@ -99,18 +99,25 @@ async function run(
   if (runtimeGlobals !== undefined) {
     moduleUrls.set(runtimeGlobals.path.replace(/\.js$/u, ".hex"), url(runtimeGlobals.text));
   }
+  // Keyed and linked by the module's **address** — its full name laid out as a
+  // path (Packages §6) — since that, not the source file's own path, is what
+  // every emitted specifier is computed from (Modules §11.2, #829).
   for (const module of project.modules) {
     moduleUrls.set(
-      module.source.path,
-      url(link(module.javascript.text, module.source.path, moduleUrls, foreignUrls)),
+      module.path,
+      url(link(module.javascript.text, module.path, moduleUrls, foreignUrls)),
     );
   }
-  return (await import(/* @vite-ignore */ moduleUrls.get(entry)!)) as Record<string, unknown>;
+  const root = project.modules.find(({ name, path, source }) =>
+    name === entry || path === entry || source.path === entry
+  );
+  if (root === undefined) throw new Error(`no module \`${entry}\` in the compiled project`);
+  return (await import(/* @vite-ignore */ moduleUrls.get(root.path)!)) as Record<string, unknown>;
 }
 
 /** The emitted JavaScript of a one-module program that must compile clean. */
 function javascript(source: string): string {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!
     .javascript.text;
@@ -118,7 +125,7 @@ function javascript(source: string): string {
 
 /** The emitted `.d.ts` text of a one-module program that must compile clean. */
 function declarations(source: string): string {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!
     .declarations.text;
@@ -138,7 +145,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
   test("a numeric enum object's reverse-map properties are ignored", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "keys"\n' +
+        "module Main\n\n" + 'extern from "keys"\n' +
           "    export enum Key as Direction = Up | Down\n" +
           "\n" +
           "export let up: JsValue = toJsDirection(Up)\n" +
@@ -164,7 +171,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
   test("string members whose values differ from the local names", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "d"\n' +
+        "module Main\n\n" + 'extern from "d"\n' +
           "    export enum Direction = UP as Up | DOWN as Down\n" +
           "\n" +
           "export let describe(d: Direction): String =\n" +
@@ -189,7 +196,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
   test("symbol, singleton and `NaN` members match by identity", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "kinds"\n' +
+        "module Main\n\n" + 'extern from "kinds"\n' +
           "    export enum Kind derives (Eq) = S | O | N\n" +
           "\n" +
           "export let name(k: Kind): String =\n" +
@@ -245,7 +252,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
   test("a getter runs exactly once", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "counter"\n' +
+        "module Main\n\n" + 'extern from "counter"\n' +
           "    export enum Counter as Tag = A | B\n" +
           "    fun reads(): Int\n" +
           "\n" +
@@ -276,7 +283,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
   test("mutating the property afterwards does not move the constructor", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "mut"\n' +
+        "module Main\n\n" + 'extern from "mut"\n' +
           "    export enum Mut as M = X | Y\n" +
           "    fun mutate(): Unit\n" +
           "\n" +
@@ -312,7 +319,7 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
   test("a declared member the object lacks is captured as `undefined`", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "partial"\n' +
+        "module Main\n\n" + 'extern from "partial"\n' +
           "    export enum Partial as P = Here | Absent\n" +
           "\n" +
           "export let missing: JsValue = toJsP(Absent)\n" +
@@ -346,8 +353,8 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
       "export let up: JsValue = toJsDirection(Up)\n";
     // No compile-time check: the absence is the foreign package's fact, and the
     // compiler has not read it.
-    expect(projectDiagnostics(source)).toEqual([]);
-    await expect(run([["/main.hex", source]], { erased: "export {};\n" }))
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
+    await expect(run([["/main.hex", "module Main\n\n" + source]], { erased: "export {};\n" }))
       .rejects.toThrow(/does not provide an export named 'Direction'/u);
   });
 
@@ -369,12 +376,12 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
       "\n" +
       "export let up: JsValue = toJsDirection(Up)\n" +
       "export let down: JsValue = toJsDirection(Down)\n";
-    expect(projectDiagnostics(source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
     for (const value of ["5", '"hi"', "function Direction() {}"]) {
       const exported = value.startsWith("function")
         ? `export ${value}\n`
         : `export const Direction = ${value};\n`;
-      const exports = await run([["/main.hex", source]], { notAnObject: exported });
+      const exports = await run([["/main.hex", "module Main\n\n" + source]], { notAnObject: exported });
       expect(exports["up"]).toBeUndefined();
       expect(exports["down"]).toBeUndefined();
     }
@@ -396,10 +403,10 @@ describe("the foreign contract (§3, §9 tests 1–4)", () => {
       "    export enum Direction = Up | Down\n" +
       "\n" +
       "export let up: JsValue = toJsDirection(Up)\n";
-    expect(projectDiagnostics(source)).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + source)).toEqual([]);
     for (const value of ["undefined", "null"]) {
       const failure = run(
-        [["/main.hex", source]],
+        [["/main.hex", "module Main\n\n" + source]],
         { nullish: `export const Direction = ${value};\n` },
       );
       await expect(failure).rejects.toThrow(
@@ -515,7 +522,7 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
       "    match d\n" +
       "        Up => 1\n" +
       "        Down => 2\n";
-    expect(projectDiagnostics(missing)).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + missing)).toEqual([
       "match is missing cases: `Left`",
     ]);
     const repeated = 'extern from "d"\n' +
@@ -526,7 +533,7 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
       "        Up => 1\n" +
       "        Down => 2\n" +
       "        Up => 3\n";
-    expect(projectDiagnostics(repeated)).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + repeated)).toEqual([
       "this case is unreachable; `Up` is already handled above",
     ]);
   });
@@ -540,7 +547,7 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
   test("an out-of-set value reaching an exhaustive match throws", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "d"\n' +
+        "module Main\n\n" + 'extern from "d"\n' +
           "    export enum Direction = Up | Down\n" +
           "\n" +
           "export let way(d: Direction): String =\n" +
@@ -565,10 +572,10 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
     const exports = await run(
       [
         ["/bindings.hex",
-          'extern from "d"\n' +
+          "module Bindings\n\n" + 'extern from "d"\n' +
             "    export enum Direction = Up | Down\n"],
         ["/main.hex",
-          'import Bindings from "./bindings"\n' +
+          "module Main\n\n" + 'import Bindings\n' +
             "\n" +
             "export let way(d: Bindings.Direction): String =\n" +
             "    match d\n" +
@@ -585,9 +592,9 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
   /** The import that door owes, and the module edge it reports. */
   test("a match abroad imports the member bindings it names", () => {
     const project = compileFiles([
-      ["/bindings.hex", 'extern from "d"\n    export enum Direction = Up | Down\n'],
+      ["/bindings.hex", "module Bindings\n\n" + 'extern from "d"\n    export enum Direction = Up | Down\n'],
       ["/main.hex",
-        'import Bindings from "./bindings"\n' +
+        "module Main\n\n" + 'import Bindings\n' +
           "\n" +
           "export let way(d: Bindings.Direction): String =\n" +
           "    match d\n" +
@@ -597,9 +604,9 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
     expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
     expect(main.javascript.text).toContain(
-      'import { Down as __Down, Up as __Up } from "./bindings.js";',
+      'import { Down as __Down, Up as __Up } from "./Bindings.js";',
     );
-    expect(main.javascript.enumMemberImports).toEqual(["./bindings"]);
+    expect(main.javascript.enumMemberImports).toEqual(["./Bindings"]);
     // A module that only *names* the type owes nothing.
     const bindings = project.modules.find(({ source }) => source.path === "/bindings.hex")!;
     expect(bindings.javascript.enumMemberImports).toEqual([]);
@@ -610,8 +617,7 @@ describe("crossing and matching (§4, §5.1, §9 tests 5–6)", () => {
    * values remain distinct nominal types." Two blocks, one module.
    */
   test("two enums over the same foreign names stay distinct", () => {
-    expect(projectDiagnostics(
-      'extern from "a"\n' +
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "a"\n' +
         "    enum Direction as Left = Up | Down\n" +
         'extern from "b"\n' +
         "    enum Direction as Right = Up as RUp | Down as RDown\n" +
@@ -646,7 +652,7 @@ describe("the generated conversions (§5.2, §9 tests 7–8)", () => {
   test("`fromJsT` answers `Some` for every member and `None` otherwise", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "d"\n' +
+        "module Main\n\n" + 'extern from "d"\n' +
           "    export enum Direction = Up | Down\n" +
           "\n" +
           "export let read(v: JsValue): String =\n" +
@@ -674,7 +680,7 @@ describe("the generated conversions (§5.2, §9 tests 7–8)", () => {
   test("aliased foreign values are not refused, and `fromJsT` answers the first", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "aliased"\n' +
+        "module Main\n\n" + 'extern from "aliased"\n' +
           "    export enum Aliased as A = FIRST as One | SECOND as Two\n" +
           "\n" +
           "export let read(v: JsValue): String =\n" +
@@ -694,7 +700,7 @@ describe("the generated conversions (§5.2, §9 tests 7–8)", () => {
   test("`toJsT` preserves primitive value and object identity", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "kinds"\n' +
+        "module Main\n\n" + 'extern from "kinds"\n' +
           "    export enum Kind = Text | Only\n" +
           "    let raw: JsValue\n" +
           "\n" +
@@ -739,7 +745,7 @@ describe("derivation (§6, §9 test 9)", () => {
   test("`Ord` follows declaration order, not value order", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "sizes"\n' +
+        "module Main\n\n" + 'extern from "sizes"\n' +
           "    export enum Size derives (Eq, Ord, Show, Hash) = Big | Small\n" +
           "\n" +
           "export let order(): String = show(Ord.compare(Big, Small))\n" +
@@ -759,7 +765,7 @@ describe("derivation (§6, §9 test 9)", () => {
   test("`Show` gives the local constructor name", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "d"\n' +
+        "module Main\n\n" + 'extern from "d"\n' +
           "    export enum Direction derives (Eq, Show) = UP as Up | SIDEWAYS as Side\n" +
           "\n" +
           "export let names(): String = show(Up) ++ show(Side)\n"]],
@@ -779,7 +785,7 @@ describe("derivation (§6, §9 test 9)", () => {
   test("`Hash` hashes the declaration index and agrees with `Eq`", async () => {
     const exports = await run(
       [["/main.hex",
-        'extern from "two"\n' +
+        "module Main\n\n" + 'extern from "two"\n' +
           "    export enum Size derives (Eq, Hash) = Big | Small\n" +
           "    export enum Mood derives (Eq, Hash) = Glad | Sad\n" +
           "\n" +
@@ -824,9 +830,9 @@ describe("derivation (§6, §9 test 9)", () => {
     const exports = await run(
       [
         ["/bindings.hex",
-          'extern from "d"\n    export enum Direction derives (Eq, Show) = Up | Down\n'],
+          "module Bindings\n\n" + 'extern from "d"\n    export enum Direction derives (Eq, Show) = Up | Down\n'],
         ["/main.hex",
-          'import Bindings from "./bindings"\n' +
+          "module Main\n\n" + 'import Bindings\n' +
             "export let shown(): String = show(Bindings.Down)\n" +
             "export let equal(): Bool = Bindings.Up == Bindings.Up\n"],
       ],
@@ -877,11 +883,11 @@ describe("the surfaces (§7, §9 test 10)", () => {
         "    export enum Size = Big | Small\n",
     );
     const option = "export type Option<a> = { tag: \"Some\"; value: a } | { tag: \"None\" };\n";
-    expect(await typeScriptErrors({ "main.d.ts": face, "Option.d.ts": option })).toEqual([]);
+    expect(await typeScriptErrors({ "main.d.ts": face, "Hex/Option.d.ts": option })).toEqual([]);
     expect(
       await typeScriptErrors({
         "main.d.ts": face,
-        "Option.d.ts": option,
+        "Hex/Option.d.ts": option,
         "consumer.ts": 'import { Up, toJsDirection, fromJsDirection } from "./main.js";\n' +
           "export const raw: unknown = toJsDirection(Up);\n" +
           "export const back = fromJsDirection(raw);\n",
@@ -889,7 +895,7 @@ describe("the surfaces (§7, §9 test 10)", () => {
     ).toEqual([]);
     const errors = await typeScriptErrors({
       "main.d.ts": face,
-      "Option.d.ts": option,
+      "Hex/Option.d.ts": option,
       "consumer.ts": 'import { Big, toJsDirection } from "./main.js";\n' +
         "toJsDirection(Big);\n" +
         'toJsDirection("ARROW_UP");\n',
@@ -962,15 +968,14 @@ describe("`Nullable` over an object-reading enum", () => {
    * distinct from `T`.
    */
   test("`Nullable` is an ordinary wrapper, and does not collapse", async () => {
-    expect(projectDiagnostics(
-      'extern from "d"\n' +
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n' +
         "    enum Direction = Up | Down\n" +
         "\n" +
         "let f(x: Nullable(Direction)): Direction = x\n",
     )).toEqual(["type mismatch: expected Direction, found Nullable(Direction)"]);
     const exports = await run(
       [["/main.hex",
-        'extern from "d"\n' +
+        "module Main\n\n" + 'extern from "d"\n' +
           "    export enum Direction = Up | Down\n" +
           "    fun echo(v: Nullable(Direction)): Nullable(Direction)\n" +
           "\n" +
@@ -989,8 +994,7 @@ describe("`Nullable` over an object-reading enum", () => {
 describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
   /** §2.1: "The body permits nullary members only." */
   test("a payload member is refused", () => {
-    expect(projectDiagnostics(
-      'extern from "d"\n    enum Direction = Up(Int) | Down\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    enum Direction = Up(Int) | Down\n',
     )).toEqual([
       "foreign enums contain stable values only; use `extern type` plus " +
       "explicit operations for structured foreign values",
@@ -999,8 +1003,7 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
 
   /** §2.1: "Foreign enum declarations are monomorphic." */
   test("a type-parameter list is refused", () => {
-    expect(projectDiagnostics(
-      'extern from "d"\n    enum Direction(a) = Up | Down\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    enum Direction(a) = Up | Down\n',
     )).toEqual([
       "a foreign enum is monomorphic; `extern enum` takes no type parameters",
     ]);
@@ -1013,34 +1016,32 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
    * aliased and the two names coincide.
    */
   test("a repeated foreign member is refused", () => {
-    expect(projectDiagnostics(
-      'extern from "d"\n    enum Direction = UP as Up | UP as Also\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    enum Direction = UP as Up | UP as Also\n',
     )).toEqual(["`UP` is read twice; a foreign enum reads each member once"]);
     const source = 'extern from "d"\n    enum Direction = Up | Up as Second\n';
-    expect(projectDiagnostics(source))
+    expect(projectDiagnostics("module Main\n\n" + source))
       .toEqual(["`Up` is read twice; a foreign enum reads each member once"]);
     // The label is what names the first origin once the message has stopped
     // naming it, so it is pinned rather than left to the message's shape: it
     // points at the first member, inside the block, and gives its constructor.
-    const [diagnostic] = compileFiles([["/main.hex", source]]).diagnostics;
+    const prefixed = "module Main\n\n" + source;
+    const [diagnostic] = compileFiles([["/main.hex", prefixed]]).diagnostics;
     expect(diagnostic?.labels?.map(({ message }) => message))
       .toEqual(["first read here, as `Up`"]);
     const label = diagnostic!.labels![0]!.span;
-    expect(source.slice(label.start.offset, label.end.offset)).toBe("Up");
+    expect(prefixed.slice(label.start.offset, label.end.offset)).toBe("Up");
     expect(label.start.offset).toBeLessThan(diagnostic!.primary.start.offset);
   });
 
   /** §2.2: "…or local constructor is a compile error" — the union's own rule. */
   test("a repeated local constructor is refused", () => {
-    expect(projectDiagnostics(
-      'extern from "d"\n    enum Direction = UP as Up | DOWN as Up\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    enum Direction = UP as Up | DOWN as Up\n',
     )).toEqual(["duplicate constructor `Up`"]);
   });
 
   /** §2.2: "Local constructor names must be uppercase-start." */
   test("a lowercase foreign member with no alias is refused", () => {
-    expect(projectDiagnostics(
-      'extern from "d"\n    enum Direction = up | down\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    enum Direction = up | down\n',
     )).toEqual([
       "`up` names a foreign property; give it a constructor name: `up as Up`",
     ]);
@@ -1048,8 +1049,7 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
 
   /** The head's own half of the same rule. */
   test("a lowercase foreign type name with no alias is refused", () => {
-    expect(projectDiagnostics(
-      'extern from "d"\n    enum key = Up | Down\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    enum key = Up | Down\n',
     )).toEqual([
       "foreign type `key` needs an uppercase-start local alias; write `enum key as Key`",
     ]);
@@ -1070,14 +1070,12 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
     const refusal = "an `extern from` block reads members, never writes them — a literal " +
       'enum is the module-scope form `extern enum T = "up" as Up`';
     for (const member of ['"up"', "0", "-1", "1.5", "true", "false", "null", "undefined"]) {
-      expect(projectDiagnostics(
-        `extern from "d"\n    enum Direction = ${member} as Up | DOWN as Down\n`,
+      expect(projectDiagnostics("module Main\n\n" + `extern from "d"\n    enum Direction = ${member} as Up | DOWN as Down\n`,
       )).toEqual([refusal]);
     }
     // And in a later member position as well as the first, since the loop that
     // reads members asks the question once per member.
-    expect(projectDiagnostics(
-      'extern from "d"\n    enum Direction = UP as Up | null as Missing\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    enum Direction = UP as Up | null as Missing\n',
     )).toEqual([refusal]);
   });
 
@@ -1098,7 +1096,7 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
 
   /** A head with no members at all. */
   test("a declaration with no members is refused", () => {
-    expect(projectDiagnostics('extern from "d"\n    enum Direction =\n'))
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    enum Direction =\n'))
       .toEqual(["a foreign enum needs at least one member"]);
   });
 
@@ -1107,7 +1105,7 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
    * unchanged: `enum` is the only word the gate learned.
    */
   test("`class` keeps its refusal", () => {
-    expect(projectDiagnostics('extern from "d"\n    class Widget\n'))
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    class Widget\n'))
       .toEqual(["extern `class` declarations belong to a later FFI slice"]);
   });
 
@@ -1116,13 +1114,12 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
    * binding is a hard compile error naming both origins."
    */
   test("a conversion-name collision is a hard error", () => {
-    expect(projectDiagnostics(
-      'extern from "d"\n' +
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n' +
         "    enum Direction = Up | Down\n" +
         "\n" +
         "let fromJsDirection(v: Int): Int = v\n",
     )).toEqual([
-      "`fromJsDirection` is already bound (line 2); `extern enum Direction` generates " +
+      "`fromJsDirection` is already bound (line 4); `extern enum Direction` generates " +
       "it (Foreign Enums §5.2) — rename the enum type, or the other declaration.",
     ]);
   });
@@ -1133,11 +1130,9 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
    * `type` row draws.
    */
   test("`default` and the purity claims are refused on an enum row", () => {
-    expect(projectDiagnostics(
-      'extern from "d"\n    default enum Direction = Up | Down\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    default enum Direction = Up | Down\n',
     )).toEqual(["`default` applies to foreign functions and values, not types"]);
-    expect(projectDiagnostics(
-      'extern from "d"\n    pure enum Direction = Up | Down\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    pure enum Direction = Up | Down\n',
     )).toEqual([
       "`pure` claims a function's face, and a type has none — the claim belongs " +
       "on an extern `fun`",
@@ -1151,11 +1146,9 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
    * different property.
    */
   test("a reserved `__` foreign name is exempt when aliased and refused when not", () => {
-    expect(projectDiagnostics(
-      'extern from "d"\n    enum __Key as Direction = __UP as Up\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    enum __Key as Direction = __UP as Up\n',
     )).toEqual([]);
-    expect(projectDiagnostics(
-      'extern from "d"\n    enum Direction = __UP\n',
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    enum Direction = __UP\n',
     )).toEqual([
       "foreign member `__UP` uses the reserved `__` prefix; bind it with an alias: " +
       "`__UP as UP`",
@@ -1164,7 +1157,7 @@ describe("diagnostics (§2.1, §2.2, §9 test 11)", () => {
 
   /** The block's own sentence names its four rows. */
   test("an unknown row still names what a block contains", () => {
-    expect(projectDiagnostics('extern from "d"\n    42\n'))
+    expect(projectDiagnostics("module Main\n\n" + 'extern from "d"\n    42\n'))
       .toEqual(["extern blocks contain `fun`, `let`, `type`, or `enum` declarations"]);
   });
 });

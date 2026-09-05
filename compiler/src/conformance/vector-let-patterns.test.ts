@@ -30,7 +30,7 @@ import { compileFiles, projectDiagnostics, runMain } from "../support/test-proje
 
 /** `/main.hex`'s emitted JavaScript for a one-module program that compiles clean. */
 function mainJavaScript(source: string): string {
-  const project = compileFiles([["/main.hex", source]]);
+  const project = compileFiles([["/main.hex", "module Main\n\n" + source]]);
   expect(project.diagnostics).toEqual([]);
   const module = project.modules.find(({ source: file }) => file.path === "/main.hex");
   if (module === undefined) throw new Error("/main.hex was not emitted");
@@ -49,8 +49,7 @@ describe("§3.4's verdicts, at the position that could not reach them", () => {
    * nothing to say.
    */
   test("`let [...all] = xs` is accepted", () => {
-    expect(projectDiagnostics(
-      "let xs: Vector(Int) = [1, 2, 3]\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let xs: Vector(Int) = [1, 2, 3]\n" +
         "let [...all] = xs\n" +
         "export let size: Int = Vector.length(all)\n",
     )).toEqual([]);
@@ -64,8 +63,7 @@ describe("§3.4's verdicts, at the position that could not reach them", () => {
    * loop-head and lambda seats were already answering it.
    */
   test("`let [x, ...rest] = xs` draws the gate with the `[]` witness", () => {
-    expect(projectDiagnostics(
-      "let xs: Vector(Int) = [1, 2, 3]\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let xs: Vector(Int) = [1, 2, 3]\n" +
         "let [x, ...rest] = xs\n" +
         "export let first: Int = x\n",
     )).toEqual(["this pattern can fail: `[]`; use `match`"]);
@@ -73,13 +71,11 @@ describe("§3.4's verdicts, at the position that could not reach them", () => {
 
   /** Every other length-fixing form is refused the same way, witness and all. */
   test("a fixed-length pattern and the empty pattern are both refused", () => {
-    expect(projectDiagnostics(
-      "let xs: Vector(Int) = [1, 2]\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let xs: Vector(Int) = [1, 2]\n" +
         "let [a, b] = xs\n" +
         "export let sum: Int = a + b\n",
     )).toEqual(["this pattern can fail: `[]`; use `match`"]);
-    expect(projectDiagnostics(
-      "let xs: Vector(Int) = [1, 2]\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let xs: Vector(Int) = [1, 2]\n" +
         "let [] = xs\n" +
         "export let ok: Int = 1\n",
     )).toEqual(["this pattern can fail: `[_]`; use `match`"]);
@@ -87,13 +83,11 @@ describe("§3.4's verdicts, at the position that could not reach them", () => {
 
   /** §3.2: the rest binder's type is `Vector(t)`, inferred at this seat too. */
   test("the rest binder gets `Vector(t)` under inference", () => {
-    expect(projectDiagnostics(
-      "let xs: Vector(String) = [\"a\"]\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let xs: Vector(String) = [\"a\"]\n" +
         "let [...all] = xs\n" +
         "export let copy: Vector(String) = all\n",
     )).toEqual([]);
-    expect(projectDiagnostics(
-      "let xs: Vector(String) = [\"a\"]\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let xs: Vector(String) = [\"a\"]\n" +
         "let [...all] = xs\n" +
         "export let wrong: Int = all\n",
     )).toEqual(["type mismatch: expected Int, found Vector(String)"]);
@@ -225,8 +219,7 @@ describe("every route into `let`-pattern emission binds what the pattern says", 
    * an assertion, which is how they were checked to fail before the fix.
    */
   test("the direct binding, the parser's new route", async () => {
-    const main = await runMain(
-      "let xs: Vector(Int) = [1, 2, 3]\n" +
+    const main = await runMain("module Main\n\n" + "let xs: Vector(Int) = [1, 2, 3]\n" +
         "let [...all] = xs\n" +
         "export let copy: Vector(Int) = all\n",
     );
@@ -234,24 +227,21 @@ describe("every route into `let`-pattern emission binds what the pattern says", 
   });
 
   test("a pattern parameter, which lowers to this same item", async () => {
-    const main = await runMain(
-      "fun identity([...all]: Vector(Int)): Vector(Int) = all\n" +
+    const main = await runMain("module Main\n\n" + "fun identity([...all]: Vector(Int)): Vector(Int) = all\n" +
         "export let copy: Vector(Int) = identity([4, 5, 6])\n",
     );
     expect(elements(main["copy"])).toEqual([4, 5, 6]);
   });
 
   test("a lambda parameter", async () => {
-    const main = await runMain(
-      "let size: (Vector(Int)) -> Int = ([...all]) => Vector.length(all)\n" +
+    const main = await runMain("module Main\n\n" + "let size: (Vector(Int)) -> Int = ([...all]) => Vector.length(all)\n" +
         "export let n: Int = size([7, 8])\n",
     );
     expect(main["n"]).toBe(2);
   });
 
   test("a vector nested in a record pattern", async () => {
-    const main = await runMain(
-      "let basket: {label: String, items: Vector(Int)} = " +
+    const main = await runMain("module Main\n\n" + "let basket: {label: String, items: Vector(Int)} = " +
         "{label = \"b\", items = [1, 2]}\n" +
         "let {label, items = [...all]} = basket\n" +
         "export let name: String = label\n" +
@@ -262,8 +252,7 @@ describe("every route into `let`-pattern emission binds what the pattern says", 
   });
 
   test("a vector nested in a tuple pattern", async () => {
-    const main = await runMain(
-      "let p: (Int, Vector(Int)) = (1, [2, 3])\n" +
+    const main = await runMain("module Main\n\n" + "let p: (Int, Vector(Int)) = (1, [2, 3])\n" +
         "let (a, [...all]) = p\n" +
         "export let head: Int = a\n" +
         "export let copy: Vector(Int) = all\n",
@@ -274,8 +263,7 @@ describe("every route into `let`-pattern emission binds what the pattern says", 
 
   /** A nominal record's constructor pattern erases (#591), and the leaf still binds. */
   test("a vector under a nominal record constructor pattern", async () => {
-    const main = await runMain(
-      "record Basket = {items: Vector(Int)}\n" +
+    const main = await runMain("module Main\n\n" + "record Basket = {items: Vector(Int)}\n" +
         "let basket: Basket = Basket({items = [9]})\n" +
         "let Basket({items = [...all]}) = basket\n" +
         "export let copy: Vector(Int) = all\n",
@@ -285,8 +273,7 @@ describe("every route into `let`-pattern emission binds what the pattern says", 
 
   /** An as-pattern names the whole value; the vector under it still binds. */
   test("an as-pattern over a vector binds both names", async () => {
-    const main = await runMain(
-      "let xs: Vector(Int) = [1, 2]\n" +
+    const main = await runMain("module Main\n\n" + "let xs: Vector(Int) = [1, 2]\n" +
         "let [...all] as whole = xs\n" +
         "export let copy: Vector(Int) = all\n" +
         "export let same: Vector(Int) = whole\n",
@@ -297,8 +284,7 @@ describe("every route into `let`-pattern emission binds what the pattern says", 
 
   /** Inside a function body, where the item is a block item rather than a module one. */
   test("a block-level binding", async () => {
-    const main = await runMain(
-      "export fun size(xs: Vector(Int)): Int =\n" +
+    const main = await runMain("module Main\n\n" + "export fun size(xs: Vector(Int)): Int =\n" +
         "    let [...all] = xs\n" +
         "    Vector.length(all)\n" +
         "export let n: Int = size([1, 2, 3, 4])\n",
@@ -311,8 +297,7 @@ describe("every route into `let`-pattern emission binds what the pattern says", 
    * trie operation rather than a one-node special case (§4).
    */
   test("the slice is a real trie slice at scale", async () => {
-    const main = await runMain(
-      "fun build(n: Int): Vector(Int) =\n" +
+    const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
         "        acc := acc.append(i)\n" +
@@ -333,13 +318,12 @@ describe("the binders are sequential (Statements §5.4)", () => {
    * (Collections Part 3 §3, Statements §5.4).
    */
   test("a rest binder may not reuse a name already bound in the block", () => {
-    expect(projectDiagnostics(
-      "let all: Int = 1\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let all: Int = 1\n" +
         "let xs: Vector(Int) = [1, 2]\n" +
         "let [...all] = xs\n" +
         "export let n: Int = 2\n",
     )).toEqual([
-      "`all` is already bound (line 1); Hexagon does not allow rebinding — choose a different name.",
+      "`all` is already bound (line 3); Hexagon does not allow rebinding — choose a different name.",
     ]);
   });
 
@@ -350,13 +334,11 @@ describe("the binders are sequential (Statements §5.4)", () => {
    * the incidental proof that the shadow is what the source means.
    */
   test("a rest binder may shadow a prelude name, and then means the binding", async () => {
-    expect(projectDiagnostics(
-      "let xs: Vector(Int) = [1, 2, 3]\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let xs: Vector(Int) = [1, 2, 3]\n" +
         "let [...all] = xs\n" +
         "export let n: Int = Vector.length(all)\n",
     )).toEqual([]);
-    const main = await runMain(
-      "let xs: Vector(Int) = [1, 2, 3]\n" +
+    const main = await runMain("module Main\n\n" + "let xs: Vector(Int) = [1, 2, 3]\n" +
         "let [...all] = xs\n" +
         "export let copy: Vector(Int) = all\n",
     );
@@ -370,8 +352,7 @@ describe("the binders are sequential (Statements §5.4)", () => {
    * other sequential one.
    */
   test("the shadowed prelude name is occluded for the whole scope", () => {
-    expect(projectDiagnostics(
-      "let xs: Vector(Int) = [1, 2, 3]\n" +
+    expect(projectDiagnostics("module Main\n\n" + "let xs: Vector(Int) = [1, 2, 3]\n" +
         "let positive: Bool = all(xs.toSeq(), x => x > 0)\n" +
         "let [...all] = xs\n" +
         "export let flag: Bool = positive\n",

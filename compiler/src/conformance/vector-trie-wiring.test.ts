@@ -43,7 +43,7 @@ function emitted(files: readonly (readonly [string, string])[], path: string): s
 
 /** `/main.hex`'s emitted JavaScript for a one-module program. */
 function mainJavaScript(source: string): string {
-  return emitted([["/main.hex", source]], "/main.hex");
+  return emitted([["/main.hex", "module Main\n\n" + source]], "/main.hex");
 }
 
 /** Every source path a project emits, in dependency order. */
@@ -91,7 +91,7 @@ describe("the runtime module's two-sided contract", () => {
   );
 
   test("the emitted runtime module exports exactly the inventory", () => {
-    const javascript = emitted([["/main.hex", "export let v: Vector(Int) = [1]\n"]], "/VectorTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/VectorTrie.hex");
     expect(javascript).toContain(`export { ${VECTOR_RUNTIME_OPERATIONS.join(", ")} };`);
   });
 
@@ -112,7 +112,7 @@ describe("the runtime module's two-sided contract", () => {
    * one, and `Vector.js` above all must not appear.
    */
   test("the emitted runtime module imports only modules seated before it", () => {
-    const javascript = emitted([["/main.hex", "export let v: Vector(Int) = [1]\n"]], "/VectorTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/VectorTrie.hex");
     const specifiers = [...javascript.matchAll(/^\s*import\b[^;\n]*?from\s+"([^"]+)";/gmu)]
       .map((match) => match[1]!);
 
@@ -130,8 +130,8 @@ describe("the runtime module's two-sided contract", () => {
   /** A file in the injection seat that is not the trie is reported, not emitted broken. */
   test("a foreign file at the injection path is refused rather than mis-exported", () => {
     const project = compileFiles([
-      ["/main.hex", "export let v: Vector(Int) = [1]\n"],
-      ["/VectorTrie.hex", "let unrelated: Int = 1\n"],
+      ["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"],
+      ["/VectorTrie.hex", "module VectorTrie\n\n" + "let unrelated: Int = 1\n"],
     ]);
     // The message names the basename since #370 generalized the wiring: two
     // runtime modules share this check, so "the vector runtime" no longer
@@ -152,26 +152,26 @@ describe("the import surface", () => {
    * program that never names it, which the trie's arrival must not change.
    */
   test("no vector, no trie runtime", () => {
-    const files = [["/main.hex", "export let n: Int = 1 + 2\n"]] as const;
+    const files = [["/main.hex", "module Main\n\n" + "export let n: Int = 1 + 2\n"]] as const;
     expect(emittedPaths(files)).toEqual(["/main.hex"]);
     expect(mainJavaScript("export let n: Int = 1 + 2\n")).not.toContain("VectorTrie");
   });
 
   test("a literal alone carries the trie and not the companion", () => {
-    const files = [["/main.hex", "export let v: Vector(Int) = [1, 2, 3]\n"]] as const;
+    const files = [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1, 2, 3]\n"]] as const;
     // The trie brings its own dependencies with it since #344: its index
     // arithmetic is `Integral<Int>`'s members at `stdlib/Int.hex`, and that
     // companion in turn names `Pow.hex`'s and `Integral.hex`'s exceptions and
     // `Option.hex`'s answer for the checked family. `Vector.hex` is still
     // absent, which is what this case is about.
     expect(emittedPaths(files)).toEqual([
-      "/Pow.hex", "/Integral.hex", "/Option.hex", "/Int.hex", "/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/VectorTrie.hex", "/main.hex",
     ]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(
-      'import { empty as __trieEmpty, append as __trieAppend } from "./VectorTrie.js";',
+      'import { empty as __trieEmpty, append as __trieAppend } from "./Hex/VectorTrie.js";',
     );
-    expect(javascript).not.toContain('from "./Vector.js"');
+    expect(javascript).not.toContain('from "./Hex/Vector.js"');
   });
 
   /** The import names only what the module reached, in inventory order. */
@@ -181,7 +181,7 @@ describe("the import surface", () => {
     );
     expect(javascript).toContain(
       'import { empty as __trieEmpty, size as __trieSize, ' +
-        'get as __trieGet, append as __trieAppend } from "./VectorTrie.js";',
+        'get as __trieGet, append as __trieAppend } from "./Hex/VectorTrie.js";',
     );
   });
 });
@@ -259,8 +259,7 @@ describe("§3.6 pattern emission", () => {
 
   /** The behaviour those shapes have to produce, at sizes that cross the branch factor. */
   test("every pattern form destructures a real trie", async () => {
-    const main = await runMain(
-      "fun build(n: Int): Vector(Int) =\n" +
+    const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
         "        acc := acc.append(i)\n" +
@@ -306,8 +305,7 @@ describe("the representation contract", () => {
    * twice yields the same elements, because a trie is persistent.
    */
   test("a crossed vector iterates, spreads, and replays", async () => {
-    const main = await runMain(
-      "fun build(n: Int): Vector(Int) =\n" +
+    const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
         "        acc := acc.append(i)\n" +
@@ -333,8 +331,7 @@ describe("the representation contract", () => {
   });
 
   test("every vector value carries the traversal method itself", async () => {
-    const main = await runMain(
-      "export let literal: Vector(Int) = [1]\n" +
+    const main = await runMain("module Main\n\n" + "export let literal: Vector(Int) = [1]\n" +
         "export let blank: Vector(Int) = []\n" +
         "export let grown: Vector(Int) = [1].append(2)\n" +
         "export let fronted: Vector(Int) = [1].prepend(0)\n" +
@@ -359,7 +356,7 @@ describe("the representation contract", () => {
    * a vector-typed export renders through.
    */
   test("the `.d.ts` face is the branded runtime `Vector`", () => {
-    const project = compileFiles([["/main.hex", "export let v: Vector(Int) = [1]\n"]]);
+    const project = compileFiles([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]]);
     const main = project.modules.find(({ source }) => source.path === "/main.hex")!;
     expect(main.declarations.text).toContain("Hex.Vector<number>");
     expect(project.runtimeDeclarations?.text).toContain(
@@ -382,8 +379,7 @@ describe("§4/§7 complexity", () => {
    * to be live before its silence means anything.
    */
   test("length answers without traversing", async () => {
-    const main = await runMain(
-      "fun build(n: Int): Vector(Int) =\n" +
+    const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
         "        acc := acc.append(i)\n" +
@@ -432,8 +428,7 @@ describe("§4/§7 complexity", () => {
    * tree, and identity means what it says.
    */
   test("append shares the tree it did not touch, and an end slice shares both", async () => {
-    const main = await runMain(
-      "fun build(n: Int): Vector(Int) =\n" +
+    const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
         "        acc := acc.append(i)\n" +
@@ -446,7 +441,7 @@ describe("§4/§7 complexity", () => {
     const trie = (name: string) => main[name] as { root: unknown; tail: unknown };
     // The base is deep enough to have a tree of its own.
     expect(trie("base").root).not.toBe(
-      (await runMain("export let blank: Vector(Int) = []\n"))["blank"],
+      (await runMain("module Main\n\n" + "export let blank: Vector(Int) = []\n"))["blank"],
     );
     // An append into a non-full tail leaves the tree alone…
     expect(trie("grown").root).toBe(trie("base").root);
@@ -466,8 +461,7 @@ describe("§4/§7 complexity", () => {
 
   /** One shared empty, since a `TrieVector` is immutable and two are alike. */
   test("every empty vector is the same value", async () => {
-    const main = await runMain(
-      "export let a: Vector(Int) = []\n" +
+    const main = await runMain("module Main\n\n" + "export let a: Vector(Int) = []\n" +
         "export let b: Vector(String) = []\n" +
         "export let c: Vector(Int) = Vector.empty\n" +
         "export let d: Vector(Int) = [1, 2][5..9]\n",
@@ -484,7 +478,7 @@ describe("§4/§7 complexity", () => {
    * O(n log32 n) on every loop a program writes.
    */
   test("the emitted iterator descends per node rather than per element", () => {
-    const javascript = emitted([["/main.hex", "export let v: Vector(Int) = [1]\n"]], "/VectorTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/VectorTrie.hex");
     expect(javascript).toContain("function* __vectorIterate() {");
     expect(javascript).toContain("nodeRun(this, __index)");
     expect(javascript).toContain("__index += __run;");
@@ -535,11 +529,11 @@ describe("§4/§7 complexity", () => {
     // dictionary for the index arithmetic, so a bare `data:` URL for this one
     // module cannot resolve its own imports.
     return (await runProject(
-      [["/main.hex", "export let v: Vector(Int) = [1]\n"]],
+      [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]],
       {
-        entry: "/VectorTrie.hex",
+        entry: "/Hex/VectorTrie.hex",
         transform: (path, javascript) => {
-          if (path !== "/VectorTrie.hex") return javascript;
+          if (path !== "/Hex/VectorTrie.hex") return javascript;
           // Exactly one definition, so the rename below cannot leave a call
           // site reaching an uncounted implementation.
           expect(javascript.split(definition)).toHaveLength(2);
@@ -686,8 +680,8 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
    */
   test("the trie every vector is built on is covariant in its element", () => {
     const shipped = varianceIn(
-      [["/main.hex", "export let v: Vector(Int) = [1]\n"]],
-      "/VectorTrie.hex",
+      [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]],
+      "/Hex/VectorTrie.hex",
     );
     expect(shipped.diagnostics).toEqual([]);
     // §6.3's derivation, as the checker computes it: `a` reaches `TrieVector`
@@ -704,8 +698,8 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
   /** The row and the representation, side by side — which is all "verified" means. */
   test("the claim table's `Vector` row is what the representation computes", () => {
     const shipped = varianceIn(
-      [["/main.hex", "export let v: Vector(Int) = [1]\n"]],
-      "/VectorTrie.hex",
+      [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]],
+      "/Hex/VectorTrie.hex",
     );
     expect(COMPILER_CLAIMS.get("Vector")).toEqual(["co"]);
     expect(shipped.trieVector.map(({ computed }) => computed))
@@ -756,8 +750,7 @@ describe("§5 indexed access over the trie", () => {
     ["at, past the start from the end", "values.at(-4)", -4, 3],
     ["set, past the end", "values.set(9, 0).length()", 9, 3],
   ])("%s", async (_label, expression, index, size) => {
-    const main = await runMain(
-      "let values: Vector(Int) = [10, 20, 30]\n" +
+    const main = await runMain("module Main\n\n" + "let values: Vector(Int) = [10, 20, 30]\n" +
         `export fun boom(ignored: Int): Int = ${expression}\n`,
     );
     let thrown: unknown;
@@ -768,7 +761,7 @@ describe("§5 indexed access over the trie", () => {
     }
     expect(thrown).toMatchObject({
       name: "IndexError",
-      $hex: "Vector",
+      $hex: "Hex.Vector",
       index,
       size,
       message: `index ${index} out of bounds for size ${size}`,
@@ -777,8 +770,7 @@ describe("§5 indexed access over the trie", () => {
 
   /** Deep in a height-3 trie, where a bounds check over a size field could drift. */
   test("the payload's size is the trie's own, at every depth", async () => {
-    const main = await runMain(
-      "fun build(n: Int): Vector(Int) =\n" +
+    const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
         "        acc := acc.append(i)\n" +
@@ -796,8 +788,7 @@ describe("§5 indexed access over the trie", () => {
 
 describe("§6 slicing over the trie", () => {
   test("magnitude clamps and direction throws", async () => {
-    const main = await runMain(
-      "let values: Vector(Int) = [10, 20, 30]\n" +
+    const main = await runMain("module Main\n\n" + "let values: Vector(Int) = [10, 20, 30]\n" +
         "export let inside: Vector(Int) = values[2..3]\n" +
         "export let past: Vector(Int) = values[2..99]\n" +
         "export let outside: Vector(Int) = values[5..9]\n" +
@@ -844,8 +835,7 @@ describe("§6 slicing over the trie", () => {
   });
 
   test("windows of a large trie clamp at both ends", async () => {
-    const main = await runMain(
-      "fun build(n: Int): Vector(Int) =\n" +
+    const main = await runMain("module Main\n\n" + "fun build(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
         "        acc := acc.append(i)\n" +
@@ -876,8 +866,7 @@ describe("§8 instances over the trie", () => {
    * elements would show.
    */
   test("equality, order, show, and hash agree across construction routes", async () => {
-    const main = await runMain(
-      "fun ups(n: Int): Vector(Int) =\n" +
+    const main = await runMain("module Main\n\n" + "fun ups(n: Int): Vector(Int) =\n" +
         "    var acc: Vector(Int) = []\n" +
         "    for i in 1..n\n" +
         "        acc := acc.append(i)\n" +
@@ -923,8 +912,7 @@ describe("§8 instances over the trie", () => {
 
   /** `++` is the trie's own `concat`, so the left operand's trie is not copied. */
   test("concat grows out of the left operand", async () => {
-    const main = await runMain(
-      "export let left: Vector(Int) = [1, 2, 3]\n" +
+    const main = await runMain("module Main\n\n" + "export let left: Vector(Int) = [1, 2, 3]\n" +
         "export let joined: Vector(Int) = left ++ [4]\n" +
         "export let withNothing: Vector(Int) = left ++ []\n",
     );
@@ -935,8 +923,7 @@ describe("§8 instances over the trie", () => {
 
   /** The `Map`/`Set` consumers take a vector whole, through the contract. */
   test("Map and Set build from a vector without knowing it is a trie", async () => {
-    const main = await runMain(
-      "let table: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
+    const main = await runMain("module Main\n\n" + "let table: Map(Int, String) = Map.fromVector([(1, \"one\"), (2, \"two\")])\n" +
         "let members: Set(Int) = Set.fromVector([3, 1, 2, 1])\n" +
         "export let looked: String = table[2]\n" +
         "export let held: Bool = Map.containsKey(table, 1)\n" +
@@ -969,8 +956,7 @@ describe("§9 strings did not follow the vector", () => {
   });
 
   test("string indexing and slicing behave exactly as before", async () => {
-    const main = await runMain(
-      'let s: String = "héllo"\n' +
+    const main = await runMain("module Main\n\n" + 'let s: String = "héllo"\n' +
         "export let second: String = s[2]\n" +
         "export let window: String = s[2..4]\n" +
         "export let clamped: String = s[2..99]\n" +
@@ -985,7 +971,7 @@ describe("§9 strings did not follow the vector", () => {
     } catch (error) {
       thrown = error;
     }
-    expect(thrown).toMatchObject({ name: "IndexError", $hex: "Vector", index: 9, size: 5 });
+    expect(thrown).toMatchObject({ name: "IndexError", $hex: "Hex.Vector", index: 9, size: 5 });
   });
 });
 
@@ -993,12 +979,12 @@ describe("the trie runtime is reached from wherever a module sits", () => {
   /** A module in a subdirectory spells the specifier relative to itself. */
   test("a nested module reaches up to the injected root", async () => {
     const files = [
-      ["/src/deep/leaf.hex", "export let values: Vector(Int) = [1, 2]\n"],
-      ["/src/main.hex", 'import Leaf from "./deep/leaf"\n' +
+      ["/src/deep/leaf.hex", "module Leaf\n\n" + "export let values: Vector(Int) = [1, 2]\n"],
+      ["/src/main.hex", "module Main\n\n" + 'import Leaf\n' +
         "export let total: Int = Leaf.values.length()\n"],
     ] as const;
     const javascript = emitted(files, "/src/deep/leaf.hex");
-    expect(javascript).toContain('from "../VectorTrie.js"');
+    expect(javascript).toContain('from "./Hex/VectorTrie.js"');
     expect(await runProject(files, { entry: "/src/main.hex" })).toMatchObject({ total: 2 });
   });
 });

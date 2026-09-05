@@ -34,6 +34,8 @@ import { compileFiles, projectDiagnostics, runProject } from "../support/test-pr
 /** The declaring module: a user constraint with one widenable seat. */
 function scaleModule(tag: string): string {
   return [
+    "module Scale",
+    "",
     `// scale ${tag}`,
     "export constraint Scale<a> =",
     "    scale(value: a, factor: Int): a",
@@ -51,7 +53,7 @@ function scaleModule(tag: string): string {
  * reaching the `Float` seat through Numeric Literals §5.1's exact conversion,
  * inserted by the seat rather than written anywhere.
  *
- * The declaration sits on **line 7** of every module this builds, which is the
+ * The declaration sits on **line 9** of every module this builds, which is the
  * line the refusals below name.
  */
 function matrixModule(
@@ -60,8 +62,10 @@ function matrixModule(
   ...extra: readonly string[]
 ): string {
   return [
+    "module Matrix",
+    "",
     `// matrix ${tag}`,
-    "import Scale from \"./scale\"",
+    "import Scale",
     "",
     "export record Matrix = {n: Float}",
     "",
@@ -99,7 +103,7 @@ function verdict(tag: string, door: string, ...extra: readonly string[]): readon
 
 describe("the control: the harness reports a failure rather than passing it", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Int = noSuchName\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Int = noSuchName\n"))
       .toEqual(["unknown name `noSuchName`"]);
   });
 });
@@ -112,10 +116,10 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
     const exports = await runProject([
       ["/scale.hex", scaleModule("three faces")],
       ["/matrix.hex", matrixModule("three faces", DOOR)],
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "// consumer, three faces",
-        "import Matrix from \"./matrix\"",
-        "import Scale from \"./scale\"",
+        "import Matrix",
+        "import Scale",
         "",
         "let m: Matrix.Matrix = Matrix.Matrix({n = 4.0})",
         "export let qualified: Float = Matrix.scale(m, 2.5).n",
@@ -138,10 +142,10 @@ describe("the law at a namespace-imported user constraint (Modules §5.3)", () =
     const javascript = emitted([
       ["/scale.hex", scaleModule("routes")],
       ["/matrix.hex", matrixModule("routes", DOOR)],
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "// consumer, routes",
-        "import Matrix from \"./matrix\"",
-        "import Scale from \"./scale\"",
+        "import Matrix",
+        "import Scale",
         "",
         "let m: Matrix.Matrix = Matrix.Matrix({n = 4.0})",
         "export let dotted: Float = m.scale(2.5).n",
@@ -173,7 +177,7 @@ describe("`honor` may stand above the declaration it accounts for (§4.7)", () =
   function blockFirst(tag: string): string {
     return [
       `// matrix ${tag}`,
-      "import Scale from \"./scale\"",
+      "import Scale",
       "",
       "export record Matrix = {n: Float}",
       "",
@@ -188,7 +192,7 @@ describe("`honor` may stand above the declaration it accounts for (§4.7)", () =
   test("the block above its declaration compiles, and both faces answer", async () => {
     const exports = await runProject([
       ["/scale.hex", scaleModule("block first")],
-      ["/matrix.hex", [
+      ["/matrix.hex", "module Matrix\n\n" + [
         blockFirst("block first"),
         "let two: Int = 2",
         "export let wider: Float = scale(Matrix({n = 4.0}), 0.5).n",
@@ -211,7 +215,7 @@ describe("`honor` may stand above the declaration it accounts for (§4.7)", () =
     // is checked: the seat is emitted and the polymorphic route reads it.
     const javascript = emitted([
       ["/scale.hex", scaleModule("block first route")],
-      ["/matrix.hex", [
+      ["/matrix.hex", "module Matrix\n\n" + [
         blockFirst("block first route"),
         "export let restricted: Float = Scale.scaledTwice(Matrix({n = 4.0})).n",
         "",
@@ -293,9 +297,9 @@ describe("what the law refuses at the same reach (Constraints §4.7)", () => {
     // earns is the mechanical rewrite into the declaration.
     expect(compileFiles([
       ["/scale.hex", scaleModule("export rewrite")],
-      ["/matrix.hex", [
+      ["/matrix.hex", "module Matrix\n\n" + [
         "// export rewrite",
-        "import Scale from \"./scale\"",
+        "import Scale",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -308,7 +312,7 @@ describe("what the law refuses at the same reach (Constraints §4.7)", () => {
       ].join("\n")],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "the `Scale.Scale<Matrix>` instance binds `scale`, which is already bound " +
-        "(line 6); a member's wider face is declared, not exported — write " +
+        "(line 8); a member's wider face is declared, not exported — write " +
         "`widens Scale.scale(…)` and account for the member with " +
         "`scale = widened`.",
     ]);
@@ -332,7 +336,7 @@ describe("where the law is never consulted (Modules §5.3)", () => {
     // Not the exemption's business at all: the spelling is already an ordinary
     // binding — the declaration's exported bare face — so the prior refusal
     // stands unamended, in the plain rebinding form with no law named.
-    const diagnostics = compileFiles([["/main.hex", [
+    const diagnostics = compileFiles([["/main.hex", "module Main\n\n" + [
       "// declaring module carve",
       "export constraint Scale<a> =",
       "    scale(value: a, factor: Int): a",
@@ -348,7 +352,7 @@ describe("where the law is never consulted (Modules §5.3)", () => {
     ].join("\n")]]).diagnostics.map(({ message }) => message);
 
     expect(diagnostics).toEqual([
-      "`scale` is already bound (line 3); Hexagon does not allow rebinding — " +
+      "`scale` is already bound (line 5); Hexagon does not allow rebinding — " +
         "choose a different name.",
     ]);
   });
@@ -360,9 +364,9 @@ describe("where the law is never consulted (Modules §5.3)", () => {
     // machinery anywhere in the message.
     const diagnostics = compileFiles([
       ["/scale.hex", scaleModule("ordinary import")],
-      ["/matrix.hex", [
+      ["/matrix.hex", "module Matrix\n\n" + [
         "// ordinary import",
-        "import Scale from \"./scale\"",
+        "import Scale",
         "",
         "let scaledTwice = Scale.scaledTwice",
         "",
@@ -372,7 +376,7 @@ describe("where the law is never consulted (Modules §5.3)", () => {
     ]).diagnostics.map(({ message }) => message);
 
     expect(diagnostics).toEqual([
-      "`scaledTwice` is already bound (line 4); Hexagon does not allow " +
+      "`scaledTwice` is already bound (line 6); Hexagon does not allow " +
         "rebinding — choose a different name.",
     ]);
   });

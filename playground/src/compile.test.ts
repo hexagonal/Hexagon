@@ -20,7 +20,7 @@ describe("compileSource", () => {
     // prepends `import Vector`: the members arrive named, through the same
     // channel `Seq`'s `take`/`iterate` arrive on, and the calls are bare.
     expect(response.javascript).toContain(
-      'import { fromSeq, append, set, at, get } from "./stdlib/Vector.js";',
+      'import { fromSeq, append, set, at, get } from "./Hex/Vector.js";',
     );
     expect(response.javascript).not.toContain("import * as Vector");
     expect(response.javascript).toContain("append(numbers, 40)");
@@ -28,7 +28,7 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("at(updated, -1)");
     expect(response.javascript).toContain("get(updated, 5)");
     const vectorModule = response.executionModules.find(({ path }) =>
-      path === "/stdlib/Vector.hex"
+      path === "/Hex/Vector.hex"
     );
     expect(vectorModule?.javascript).not.toContain(
       "const __persistentCollections",
@@ -156,7 +156,7 @@ describe("compileSource", () => {
     expect(thrown).toMatchObject({
       name: "IndexError",
       message: "index -3 out of bounds for size 2",
-      $hex: "Vector",
+      $hex: "Hex.Vector",
       index: -3,
       size: 2,
     });
@@ -225,18 +225,24 @@ describe("compileSource", () => {
     // `/String.hex` rode in behind it while #419's widened `log<a: Show>` made
     // the site carry `Show<String>`, and left again at #440: a line written at
     // `String` reaches `logString` and needs no companion dictionary at all.
+    // Every path here is a module's **layout** path (Packages §6) — its full
+    // name laid out — and not the file the buffer or the host supplied it
+    // under: `Hex`'s modules sit under `Hex/`, and the project's own at the
+    // root by their declared names. The two hosted copies are where that shows
+    // most plainly: `/stdlib/Option.hex` is seated as `Hex.Option` and
+    // `/stdlib/Rat.hex`, which is no prelude member, as the project's `Rat`.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
-      "/Pow.hex",
-      "/Ordering.hex",
-      "/Integral.hex",
-      "/stdlib/Option.hex",
-      "/Int.hex",
-      "/Float.hex",
-      "/BigInt.hex",
-      "/Debug.hex",
-      "/stdlib/Rat.hex",
+      "/Hex/Pow.hex",
+      "/Hex/Ordering.hex",
+      "/Hex/Integral.hex",
+      "/Hex/Option.hex",
+      "/Hex/Int.hex",
+      "/Hex/Float.hex",
+      "/Hex/BigInt.hex",
+      "/Hex/Debug.hex",
+      "/Rat.hex",
       "/Mगणित.hex",
-      "/main.hex",
+      "/Main.hex",
     ]);
   });
 
@@ -256,6 +262,38 @@ describe("compileSource", () => {
       startOffset: source.indexOf("missing"),
       endOffset: source.indexOf("missing") + "missing".length,
     });
+  });
+
+  /**
+   * The minted header takes the block's **first item's** indent, not its first
+   * non-blank line's (#836 review N2). A comment is not an item — layout takes
+   * no baseline from one — so a comment less indented than the body it
+   * introduces used to put the header off the block's own baseline and turn
+   * every item below it into a continuation line.
+   */
+  test("a comment above an indented body does not move the minted header", () => {
+    const source =
+      "module Geo\n" +
+      "(* a note *)\n" +
+      "    export let a: Int = 1\n" +
+      "end module Geo\n" +
+      "Debug.log(\"${Geo.a}\")\n";
+
+    expect(compileSource(7, source)).toMatchObject({ kind: "compile-success", diagnostics: [] });
+  });
+
+  test("a tab-indented body mints a header of spaces, drawing no tab refusal", () => {
+    const source =
+      "module Geo\n" +
+      "\texport let a: Int = 1\n" +
+      "end module Geo\n" +
+      "Debug.log(\"${Geo.a}\")\n";
+    const response = compileSource(7, source);
+
+    // The body's own tab is still the lexer's to refuse; what must not happen
+    // is a *second* refusal against text the minted header introduced.
+    if (response.kind !== "compile-failure") return;
+    expect(response.diagnostics.filter(({ message }) => message.includes("tabs"))).toHaveLength(1);
   });
 
   test("previews private bindings through JavaScript and TypeScript emission", () => {
@@ -537,7 +575,7 @@ describe("compileSource", () => {
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.diagnostics).toEqual([]);
-    expect(response.javascript).toContain('import * as Rat from "./stdlib/Rat.js";');
+    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
     expect(response.javascript).toContain(
       "const fiveSixths = __Num_Rat.add(half, third);",
     );
@@ -549,10 +587,10 @@ describe("compileSource", () => {
     expect(response.javascript).toContain("tenTwelfths, fiveSixths");
     expect(response.javascript).not.toContain("opaque record Rat");
     expect(response.executionModules.map(({ path }) => path)).toContain(
-      "/stdlib/Rat.hex",
+      "/Rat.hex",
     );
     const ratModule = response.executionModules.find(({ path }) =>
-      path === "/stdlib/Rat.hex"
+      path === "/Rat.hex"
     );
     expect(ratModule?.javascript).toContain('bottom === 0n');
     expect(ratModule?.javascript).toContain('reducedBottom < 0n');
@@ -561,7 +599,7 @@ describe("compileSource", () => {
     // observable — name, message, `$hex` — is pinned by the executed test
     // below, which is where it belongs.
     expect(ratModule?.javascript).toContain("DivideByZeroError(\"Rat.create: bottom is zero\")");
-    expect(ratModule?.javascript).toContain('from "../Integral.js"');
+    expect(ratModule?.javascript).toContain('from "./Hex/Integral.js"');
     expect(ratModule?.javascript).toContain(
       "const __Frac_Rat = { Signed: __Signed_Rat, divide:",
     );
@@ -637,7 +675,7 @@ describe("compileSource", () => {
     expect(thrown).toMatchObject({
       name: "DivideByZeroError",
       message: "Rat.divide: divisor is zero",
-      $hex: "Integral",
+      $hex: "Hex.Integral",
     });
   });
 
@@ -649,8 +687,8 @@ describe("compileSource", () => {
     // #429's complaint: a one-line program opened with three import lines it
     // never asked for — a `Rat` namespace, the eight-instance inventory a
     // non-prelude import carries, and a `Vector` namespace that did nothing.
-    expect(response.javascript).not.toContain("./stdlib/Rat.js");
-    expect(response.javascript).not.toContain("./stdlib/Vector.js");
+    expect(response.javascript).not.toContain("./Rat.js");
+    expect(response.javascript).not.toContain("./Hex/Vector.js");
     expect(response.javascript).not.toContain("__Eq_Rat");
   });
 
@@ -663,7 +701,7 @@ describe("compileSource", () => {
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
     expect(response.javascript).toContain(
-      'import * as Rat from "./stdlib/Rat.js";',
+      'import * as Rat from "./Rat.js";',
     );
     expect(response.javascript).toContain("Rat.reciprocal(third)");
   });
@@ -682,7 +720,7 @@ describe("compileSource", () => {
     // it is gone and nothing here reads any differently. The lift is what makes
     // the whole tree `Rat` arithmetic rather than an `Int` division converted
     // after the damage.
-    expect(response.javascript).toContain('import * as Rat from "./stdlib/Rat.js";');
+    expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
     expect(response.javascript).toContain("__Frac_Rat.divide(__Num_Rat.multiply(");
     expect(response.javascript).not.toContain("/ 9");
     expect(response.types).toContainEqual(expect.objectContaining({
@@ -712,7 +750,7 @@ describe("compileSource", () => {
   test("compiles a buffer that writes the equipment import itself", () => {
     const response = compileSource(
       20,
-      "import Rat from \"./stdlib/Rat\"\n" +
+      "import Rat\n" +
         "let half = Rat.create(1, 2)\n" +
         "Debug.log(\"${half}\")\n",
     );
@@ -723,7 +761,7 @@ describe("compileSource", () => {
     // program compiles as the ordinary Hexagon file it already was.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain('from "./stdlib/Rat.js"');
+    expect(response.javascript).toContain('from "./Rat.js"');
   });
 
   test("compiles the alias import in every shape the grammar allows it", () => {
@@ -732,8 +770,8 @@ describe("compileSource", () => {
     // spelling does, and each drew the collision back when the equipment read
     // the buffer's lines instead of its tokens.
     const shapes = [
-      "import (* the exact one *) Rat from \"./stdlib/Rat\"\n",
-      "import\n    Rat from \"./stdlib/Rat\"\n",
+      "import (* the exact one *) Rat\n",
+      "import\n    Rat\n",
     ];
 
     for (const head of shapes) {
@@ -755,7 +793,7 @@ describe("compileSource", () => {
       "module Helper\n" +
         "    export let twice(n: Int): Int = n * 2\n" +
         "end module Helper\n" +
-        "import Rat from \"./Helper\"\n" +
+        "import Helper as Rat\n" +
         "Debug.log(\"${Rat.twice(3)}\")\n",
     );
 
@@ -763,13 +801,13 @@ describe("compileSource", () => {
     // keyed on the alias: `Rat` here is `/Helper.hex`, and it answers.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).not.toContain("./stdlib/Rat.js");
+    expect(response.javascript).not.toContain("./Rat.js");
   });
 
   test("compiles a buffer whose own import is the companion's, both faces used", () => {
     const response = compileSource(
       22,
-      "import Rat from \"./stdlib/Rat\"\n" +
+      "import Rat\n" +
         "let half: Rat = Rat.create(1, 2)\n" +
         "Debug.log(\"${half}\")\n",
     );
@@ -780,7 +818,7 @@ describe("compileSource", () => {
     // through §5.1 rule 2's companion fallback, and the qualified `Rat.create`.
     expect(response).toMatchObject({ kind: "compile-success", diagnostics: [] });
     if (response.kind !== "compile-success") return;
-    expect(response.javascript).toContain('from "./stdlib/Rat.js"');
+    expect(response.javascript).toContain('from "./Rat.js"');
   });
 
   test("lets a workspace Rat module occlude the fundamental companion", () => {
@@ -799,10 +837,16 @@ describe("compileSource", () => {
     // module with no importer is not emitted.
     expect(response.executionModules.map(({ path }) => path)).toEqual([
       "/Rat.hex",
-      "/main.hex",
+      "/Main.hex",
     ]);
+    // And the `Rat` the entry imports is the block's own — one module named
+    // `Rat` in the program, emitted at the project root by its declared name,
+    // with the hosted copy never compiled. Its `create` is the buffer's
+    // identity function, not the stdlib's exact constructor.
     expect(response.javascript).toContain('import * as Rat from "./Rat.js";');
-    expect(response.javascript).not.toContain("./stdlib/Rat.js");
+    const rat = response.executionModules.find(({ path }) => path === "/Rat.hex");
+    expect(rat?.javascript).toContain("const create = value => value;");
+    expect(rat?.javascript).not.toContain("bottom");
   });
 
   test("returns exact binding spans for editor hovers", () => {

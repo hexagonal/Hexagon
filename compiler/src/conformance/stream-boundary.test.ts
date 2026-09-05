@@ -69,7 +69,7 @@ async function run(
   source: string,
   foreign: Readonly<Record<string, string>>,
 ): Promise<Record<string, unknown>> {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   runTag += 1;
   const url = (text: string): string =>
@@ -313,6 +313,13 @@ describe("§14.1 the absences: nothing is manufactured, memoized, or strengthene
    * nothing, and this is the strongest form of that claim: the value a
    * `JsError(e)` arm binds is the source's own `Error`, message and all — no
    * `$hex`, no payload slot, nothing the shim put there.
+   *
+   * The arm reaches that value only because the door is recognized as virtual:
+   * `isVirtualJsError` asks whether the declaration is the standard library's
+   * `JsError` (Exceptions §6.2, #509), and since #829 it asks with the module's
+   * **full** name. Answered with the pre-#829 bare one it says no, the arm
+   * emits a domestic brand test, and every foreign throw walks past it
+   * uncaught — which is what this test would then see.
    */
   test("that throw arrives at a `JsError(e)` arm as the source's own value", async () => {
     const exports = await run(

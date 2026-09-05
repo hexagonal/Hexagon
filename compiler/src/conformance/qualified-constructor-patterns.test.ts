@@ -30,16 +30,14 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
   test("a whole `Ordering` match spelled qualified is exhaustive and runs", async () => {
     // No `_` arm and no missing-case diagnostic: the three qualified patterns
     // cover `Ordering` because they resolve to its three constructors.
-    expect(projectDiagnostics(
-      "export fun ordering(a: Int, b: Int): String =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun ordering(a: Int, b: Int): String =\n" +
       "    match Ord.compare(a, b)\n" +
       "        Ordering.Less => \"lt\"\n" +
       "        Ordering.Equal => \"eq\"\n" +
       "        Ordering.Greater => \"gt\"\n",
     )).toEqual([]);
 
-    const exports = await runMain(
-      "export fun qualified(a: Int, b: Int): String =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun qualified(a: Int, b: Int): String =\n" +
       "    match Ord.compare(a, b)\n" +
       "        Ordering.Less => \"lt\"\n" +
       "        Ordering.Equal => \"eq\"\n" +
@@ -53,8 +51,7 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
   });
 
   test("one missing case is still reported, named by the constructor", () => {
-    expect(projectDiagnostics(
-      "export fun partial(a: Int, b: Int): String =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun partial(a: Int, b: Int): String =\n" +
       "    match Ord.compare(a, b)\n" +
       "        Ordering.Less => \"lt\"\n" +
       "        Ordering.Equal => \"eq\"\n",
@@ -72,15 +69,13 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
    * different reason: #763's door.
    */
   test("an open union still mixes qualified and bare arms, one pattern each", async () => {
-    expect(projectDiagnostics(
-      "export fun mixed(o: Option(Int)): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun mixed(o: Option(Int)): Int =\n" +
       "    match o\n" +
       "        Option.Some(v) => v\n" +
       "        None => 0\n",
     )).toEqual([]);
 
-    const exports = await runMain(
-      "export fun mixedArms(o: Option(Int)): Int =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun mixedArms(o: Option(Int)): Int =\n" +
       "    match o\n" +
       "        Option.Some(v) => v\n" +
       "        None => 0\n" +
@@ -97,16 +92,14 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
     // determined at the top of a `match`, so the door reaches `Equal` and
     // `Greater` exactly as it reaches an imported union's constructors. One
     // pattern, two spellings — mixing them draws nothing.
-    expect(projectDiagnostics(
-      "export fun mixed(a: Int, b: Int): String =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun mixed(a: Int, b: Int): String =\n" +
       "    match Ord.compare(a, b)\n" +
       "        Ordering.Less => \"lt\"\n" +
       "        Equal => \"eq\"\n" +
       "        Greater => \"gt\"\n",
     )).toEqual([]);
 
-    const exports = await runMain(
-      "export fun mixedArms(a: Int, b: Int): String =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun mixedArms(a: Int, b: Int): String =\n" +
       "    match Ord.compare(a, b)\n" +
       "        Ordering.Less => \"lt\"\n" +
       "        Equal => \"eq\"\n" +
@@ -122,8 +115,7 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
     // The sharpest statement of the identity claim: a reachability check that
     // compared spellings would see two different patterns here. `Option` is the
     // union that can still be written both ways (#742).
-    expect(projectDiagnostics(
-      "export fun twice(o: Option(Int)): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun twice(o: Option(Int)): Int =\n" +
       "    match o\n" +
       "        Option.Some(v) => v\n" +
       "        Some(w) => w\n" +
@@ -132,8 +124,7 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
   });
 
   test("a payload binds through the qualified form", async () => {
-    const exports = await runMain(
-      "export fun unwrap(o: Option(Int)): Int =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun unwrap(o: Option(Int)): Int =\n" +
       "    match o\n" +
       "        Option.Some(v) => v + 1\n" +
       "        Option.None => 0\n" +
@@ -146,8 +137,7 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
   });
 
   test("`Bool.True` and `Bool.False` are ordinary constructor patterns (#147)", async () => {
-    const exports = await runMain(
-      "export fun word(b: Bool): String =\n" +
+    const exports = await runMain("module Main\n\n" + "export fun word(b: Bool): String =\n" +
       "    match b\n" +
       "        Bool.True => \"yes\"\n" +
       "        Bool.False => \"no\"\n" +
@@ -163,9 +153,9 @@ describe("a prelude module's own name qualifies its constructors in patterns", (
 describe("a module alias qualifies an imported union's constructors in patterns", () => {
   test("`Lib.Circle(r)` matches and binds", async () => {
     expect(compileFiles([
-      ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun measure(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r\n" +
@@ -173,9 +163,9 @@ describe("a module alias qualifies an imported union's constructors in patterns"
     ]).diagnostics.map(({ message }) => message)).toEqual([]);
 
     const exports = await runProject([
-      ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun size(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r * 2.0\n" +
@@ -191,9 +181,9 @@ describe("a module alias qualifies an imported union's constructors in patterns"
   test("an alias-spelled match is exhaustive without a wildcard", () => {
     // Same identity claim through the other qualifier.
     expect(compileFiles([
-      ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun only(s: Lib.Shape): Float =\n" +
         "    match s\n" +
         "        Lib.Circle(r) => r\n"],
@@ -229,8 +219,7 @@ describe("the hatch #466 depends on: an occluding module still reaches the prelu
     // The whole reason qualified patterns had to be implemented for #466. The
     // bare spellings are the module's own union here; `Prelude.` reaches past
     // the reservation to what the prelude declared.
-    const exports = await runMain(
-      "export union Direction = Less | Greater\n" +
+    const exports = await runMain("module Main\n\n" + "export union Direction = Less | Greater\n" +
       "export fun mine(d: Direction): String =\n" +
       "    match d\n" +
       "        Less => \"down\"\n" +
@@ -252,8 +241,7 @@ describe("the hatch #466 depends on: an occluding module still reaches the prelu
     // `text` on the resolved pattern is the constructor's own name, which is
     // what emission turns into the tag test. A qualified pattern that carried
     // `Ordering.Less` would compile to a case no value ever equals.
-    const javascript = compileMain(
-      "export union Direction = Less | Greater\n" +
+    const javascript = compileMain("module Main\n\n" + "export union Direction = Less | Greater\n" +
       "export fun theirs(a: Int, b: Int): String =\n" +
       "    match Ord.compare(a, b)\n" +
       "        Ordering.Less => \"lt\"\n" +
@@ -302,10 +290,10 @@ describe("catch arms take the same form, and now reach as far", () => {
   // it here.
   const catchArm = (arm: string): readonly string[] =>
     compileFiles([
-      ["/lib.hex", "export exception Boom(code: Int)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export exception Boom(code: Int)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
-        "import Boom from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
+        "import Lib as Boom\n" +
         "export fun f(): Int =\n" +
         "    try\n" +
         "        throw(Boom(3))\n" +
@@ -322,8 +310,7 @@ describe("catch arms take the same form, and now reach as far", () => {
     // The half constructor occlusion actually needs: the module's own
     // declaration, occluding `Vector.IndexError`, caught by the bare name that
     // occlusion made its own.
-    const exports = await runMain(
-      "export exception IndexError(code: Int)\n" +
+    const exports = await runMain("module Main\n\n" + "export exception IndexError(code: Int)\n" +
       "export fun caught(): Int =\n" +
       "    try\n" +
       "        throw(IndexError(4))\n" +
@@ -338,8 +325,7 @@ describe("catch arms take the same form, and now reach as far", () => {
 
 describe("what a qualified constructor pattern refuses", () => {
   test("an unknown qualifier is the same report a type annotation gets", () => {
-    expect(projectDiagnostics(
-      "export fun f(o: Option(Int)): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(o: Option(Int)): Int =\n" +
       "    match o\n" +
       "        Nope.Some(v) => v\n" +
       "        _ => 0\n",
@@ -347,8 +333,7 @@ describe("what a qualified constructor pattern refuses", () => {
   });
 
   test("a name the module does not export is the same report value position gets", () => {
-    expect(projectDiagnostics(
-      "export fun f(o: Option(Int)): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(o: Option(Int)): Int =\n" +
       "    match o\n" +
       "        Option.Blah(v) => v\n" +
       "        _ => 0\n",
@@ -373,25 +358,25 @@ describe("what a qualified constructor pattern refuses", () => {
     // the resolver as the closed door it is.
     const arity = "constructor pattern `Point` expects 1 arguments, got 2";
     expect(compileFiles([
-      ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
+      ["/lib.hex", "module Lib\n\n" + "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun f(p: Lib.Point): Int =\n" +
         "    match p\n" +
         "        Lib.Point(a, b) => a\n"],
     ]).diagnostics.map(({ message }) => message)).toContain(arity);
     expect(compileFiles([
-      ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
+      ["/lib.hex", "module Lib\n\n" + "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
-        "import Point from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib as Point\n" +
         "export fun f(p: Point): Int =\n" +
         "    match p\n" +
         "        Point(a, b) => a\n"],
     ]).diagnostics.map(({ message }) => message)).toContain(arity);
     expect(compileFiles([
-      ["/lib.hex", "export record Point = { x: Int, y: Int }\n"],
+      ["/lib.hex", "module Lib\n\n" + "export record Point = { x: Int, y: Int }\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun f(p: Lib.Point): Int =\n" +
         "    match p\n" +
         "        Lib.Point({x}) => x\n"],
@@ -404,18 +389,18 @@ describe("what a qualified constructor pattern refuses", () => {
     // rather than inventing a pattern-only wording for the same near miss.
     const message = "module `Lib` does not export `Shape`";
     expect(compileFiles([
-      ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export fun f(s: Lib.Shape): Int =\n" +
         "    match s\n" +
         "        Lib.Shape(r) => 1\n" +
         "        _ => 0\n"],
     ]).diagnostics.map(({ message: text }) => text)).toContain(message);
     expect(compileFiles([
-      ["/lib.hex", "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
+      ["/lib.hex", "module Lib\n\n" + "export union Shape = Circle(radius: Float) | Square(side: Float)\n"],
       ["/main.hex",
-        "import Lib from \"./lib\"\n" +
+        "module Main\n\n" + "import Lib\n" +
         "export let s: Int = Lib.Shape\n"],
     ]).diagnostics.map(({ message: text }) => text)).toContain(message);
   });
@@ -424,8 +409,7 @@ describe("what a qualified constructor pattern refuses", () => {
     // The grammar extension is exactly one dot and an uppercase name after it,
     // so nothing that parsed before parses differently: this is a nullary
     // constructor pattern whose arm body happens to start with a field access.
-    expect(projectDiagnostics(
-      "export fun f(o: Option({x: Int})): Int =\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export fun f(o: Option({x: Int})): Int =\n" +
       "    match o\n" +
       "        Some(r) => r.x\n" +
       "        None => 0\n",

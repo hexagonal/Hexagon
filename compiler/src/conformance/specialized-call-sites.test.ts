@@ -53,6 +53,25 @@ function emitted(
 }
 
 /**
+ * Resolves a relative specifier against the **importing module's own address**
+ * — its full name laid out as a path (Modules §11.1) — since that, not the
+ * source file's path, is what every emitted specifier is computed from
+ * (Modules §11.2, #829).
+ */
+function resolveModulePath(importerPath: string, specifier: string): string | undefined {
+  if (!specifier.startsWith("./") && !specifier.startsWith("../")) return undefined;
+  const directory = importerPath.slice(0, Math.max(0, importerPath.lastIndexOf("/")));
+  const parts: string[] = [];
+  for (const part of `${directory}/${specifier}`.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") parts.pop();
+    else parts.push(part);
+  }
+  const path = `/${parts.join("/")}`;
+  return path.endsWith(".js") ? `${path.slice(0, -3)}.hex` : path;
+}
+
+/**
  * Relative imports in the emitted JavaScript naming a module the project did not
  * emit — defect 8's general form. Empty is the only acceptable value.
  */
@@ -60,13 +79,13 @@ function danglingImports(
   files: readonly (readonly [string, string])[],
 ): readonly string[] {
   const project = compileFiles(files);
-  const paths = new Set(project.modules.map(({ source }) => source.path));
+  const paths = new Set(project.modules.map(({ path }) => path));
   return project.modules.flatMap((module) =>
     [...module.javascript.text.matchAll(/from\s+"(\.[^"]+)"/gu)].flatMap((match) => {
       const specifier = match[1];
       if (specifier === undefined) return [];
-      const target = `${specifier.replace(/\.js$/u, "")}.hex`.replace(/^\.\//u, "/");
-      return paths.has(target) ? [] : [`${module.source.path} -> ${specifier}`];
+      const target = resolveModulePath(module.path, specifier);
+      return target !== undefined && paths.has(target) ? [] : [`${module.path} -> ${specifier}`];
     })
   );
 }
@@ -99,9 +118,9 @@ const SHOW_PAIR =
 
 describe("a concrete call to a prelude constrained export", () => {
   test("reaches the `String` edition and asks for no evidence", () => {
-    const javascript = emitted([["/main.hex", 'Debug.log("hello")\n']]);
+    const javascript = emitted([["/main.hex", "module Main\n\n" + 'Debug.log("hello")\n']]);
 
-    expect(javascript).toContain('import { logString } from "./Debug.js";');
+    expect(javascript).toContain('import { logString } from "./Hex/Debug.js";');
     expect(javascript).toContain('logString("hello");');
     // The two things the edition replaces: the generic edition's aliased import
     // and the dictionary it would have been handed.
@@ -112,11 +131,11 @@ describe("a concrete call to a prelude constrained export", () => {
   test("reaches the `Int` edition, and through a nested call too", () => {
     const javascript = emitted([[
       "/main.hex",
-      'Debug.log(Debug.trace("n", 7))\n',
+      "module Main\n\n" + 'Debug.log(Debug.trace("n", 7))\n',
     ]]);
 
     expect(javascript).toContain(
-      'import { logInt, traceInt } from "./Debug.js";',
+      'import { logInt, traceInt } from "./Hex/Debug.js";',
     );
     expect(javascript).toContain('logInt(traceInt("n", 7));');
     expect(javascript).not.toContain("__Show_Int");
@@ -143,10 +162,10 @@ describe("a concrete call to a prelude constrained export", () => {
   test("a constraint member forwarder has no edition, at any type", () => {
     const javascript = emitted([[
       "/main.hex",
-      "export let rendered: String = show(42)\n",
+      "module Main\n\n" + "export let rendered: String = show(42)\n",
     ]]);
 
-    expect(javascript).toContain('import { __Show_Int_show as show } from "./Int.js";');
+    expect(javascript).toContain('import { __Show_Int_show as show } from "./Hex/Int.js";');
     expect(javascript).toContain("const rendered = show(42);");
     expect(javascript).not.toContain("showInt");
   });
@@ -159,10 +178,10 @@ describe("a concrete call to a prelude constrained export", () => {
   test("a polymorphic member call keeps the forwarder and its evidence", () => {
     const javascript = emitted([[
       "/main.hex",
-      "export let render<a: Show>(value: a): String = show(value)\n",
+      "module Main\n\n" + "export let render<a: Show>(value: a): String = show(value)\n",
     ]]);
 
-    expect(javascript).toContain('import { __show as show } from "./Show.js";');
+    expect(javascript).toContain('import { __show as show } from "./Hex/Show.js";');
     expect(javascript).toContain("const render = (value, __Show_a) => show(value, __Show_a);");
     expect(javascript).not.toContain("showInt");
   });
@@ -174,13 +193,13 @@ describe("a concrete call to a prelude constrained export", () => {
    * nothing while the file still imports `logString` from `Debug.js`.
    */
   test("keeps the module it imports the edition from in the emitted graph", () => {
-    expect(danglingImports([["/main.hex", 'Debug.log("hello")\nDebug.log(1)\n']])).toEqual([]);
+    expect(danglingImports([["/main.hex", "module Main\n\n" + 'Debug.log("hello")\nDebug.log(1)\n']])).toEqual([]);
   });
 
   test("runs, and the write reaches the sink", async () => {
     const lines = await written(() =>
       runProject(
-        [["/main.hex", 'Debug.log("through the edition")\nexport let ok: Int = 1\n']],
+        [["/main.hex", "module Main\n\n" + 'Debug.log("through the edition")\nexport let ok: Int = 1\n']],
         { transform: distinct("specialized call sites: prelude edition") },
       )
     );
@@ -192,10 +211,10 @@ describe("a concrete call to a prelude constrained export", () => {
 describe("a concrete call across a source-written import", () => {
   test("reaches the edition while the source's own import line stays", () => {
     const javascript = emitted([
-      ["/math.hex", "export let plus<a: Num>(x: a, y: a): a = x + y\n"],
+      ["/math.hex", "module Math\n\n" + "export let plus<a: Num>(x: a, y: a): a = x + y\n"],
       [
         "/main.hex",
-        'import Math from "./math"\nexport let answer: Int = Math.plus(20, 22)\n',
+        "module Main\n\n" + 'import Math\nexport let answer: Int = Math.plus(20, 22)\n',
       ],
     ]);
 
@@ -205,11 +224,11 @@ describe("a concrete call across a source-written import", () => {
     // the generic name and the edition beside it, and no *third* line repeats
     // either. `__plus` rides bare, unaliased, because nothing in the source
     // binds the local name `plus` any more — only `Math` is bound.
-    expect(javascript).toContain('import * as Math from "./math.js";');
-    expect(javascript).toContain('import { __plus, plusInt } from "./math.js";');
+    expect(javascript).toContain('import * as Math from "./Math.js";');
+    expect(javascript).toContain('import { __plus, plusInt } from "./Math.js";');
     expect(javascript).toContain("const answer = plusInt(20, 22);");
     expect(javascript).not.toContain("__Num_Int");
-    expect(importLines(javascript).filter((line) => line.includes('"./math.js"')))
+    expect(importLines(javascript).filter((line) => line.includes('"./Math.js"')))
       .toHaveLength(2);
   });
 
@@ -221,36 +240,36 @@ describe("a concrete call across a source-written import", () => {
    */
   test("keeps both lines where the source wrote the import", () => {
     const javascript = emitted([
-      ["/math.hex", "export let plus<a: Num>(x: a, y: a): a = x + y\n"],
+      ["/math.hex", "module Math\n\n" + "export let plus<a: Num>(x: a, y: a): a = x + y\n"],
       [
         "/main.hex",
-        "let before: Int = 1\n" +
-          'import Math from "./math"\n' +
+        "module Main\n\n" + "let before: Int = 1\n" +
+          'import Math\n' +
           "export let answer: Int = Math.plus(before, 41)\n",
       ],
     ]);
 
     expect(javascript.indexOf("const before = 1;")).toBeLessThan(
-      javascript.indexOf('import * as Math from "./math.js";'),
+      javascript.indexOf('import * as Math from "./Math.js";'),
     );
-    expect(javascript.indexOf('import * as Math from "./math.js";')).toBeLessThan(
-      javascript.indexOf('import { __plus, plusInt } from "./math.js";'),
+    expect(javascript.indexOf('import * as Math from "./Math.js";')).toBeLessThan(
+      javascript.indexOf('import { __plus, plusInt } from "./Math.js";'),
     );
   });
 
   test("names each variable's assignment in declaration order", () => {
     const javascript = emitted([
-      ["/pair.hex", SHOW_PAIR],
+      ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
         "/main.hex",
-        'import Pair from "./pair"\n' +
+        "module Main\n\n" + 'import Pair\n' +
           'export let answer: String = Pair.pair(1, "x")\n',
       ],
     ]);
 
-    expect(javascript).toContain('import * as Pair from "./pair.js";');
+    expect(javascript).toContain('import * as Pair from "./Pair.js";');
     expect(javascript).toContain(
-      'import { __pair, pairIntString } from "./pair.js";',
+      'import { __pair, pairIntString } from "./Pair.js";',
     );
     expect(javascript).toContain('const answer = pairIntString(1, "x");');
   });
@@ -258,10 +277,10 @@ describe("a concrete call across a source-written import", () => {
   test("computes what the generic edition would have", async () => {
     const exports = await runProject(
       [
-        ["/pair.hex", SHOW_PAIR],
+        ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
         [
           "/main.hex",
-          'import Pair from "./pair"\n' +
+          "module Main\n\n" + 'import Pair\n' +
             'export let answer: String = Pair.pair(1, "x")\n',
         ],
       ],
@@ -275,10 +294,10 @@ describe("a concrete call across a source-written import", () => {
 describe("everything else keeps its trailing evidence", () => {
   test("a variable still in play carries the dictionary", () => {
     const javascript = emitted([
-      ["/pair.hex", SHOW_PAIR],
+      ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
         "/main.hex",
-        'import Pair from "./pair"\n' +
+        "module Main\n\n" + 'import Pair\n' +
           "export let half<b: Show>(y: b): String = Pair.pair(1, y)\n",
       ],
     ]);
@@ -303,13 +322,13 @@ describe("everything else keeps its trailing evidence", () => {
     const javascript = emitted([
       [
         "/point.hex",
-        "export record Point = {x: Int}\n" +
+        "module Point\n\n" + "export record Point = {x: Int}\n" +
           "honor Show<Point> =\n" +
           "    show(value) = \"Point\"\n",
       ],
       [
         "/main.hex",
-        'import Point from "./point"\n' +
+        "module Main\n\n" + 'import Point\n' +
           "export let answer: String = show(Point({x = 1}))\n",
       ],
     ]);
@@ -329,12 +348,12 @@ describe("everything else keeps its trailing evidence", () => {
     const files = [
       [
         "/alias.hex",
-        "export let describe<a: Show>(x: a): String = show(x)\n" +
+        "module Alias\n\n" + "export let describe<a: Show>(x: a): String = show(x)\n" +
           "export let alias<a: Show>: (a) -> String = describe\n",
       ],
       [
         "/main.hex",
-        'import Alias from "./alias"\nexport let answer: String = Alias.alias(4)\n',
+        "module Main\n\n" + 'import Alias\nexport let answer: String = Alias.alias(4)\n',
       ],
     ] as const;
     const javascript = emitted(files);
@@ -355,13 +374,13 @@ describe("an edition's public name reaching a module that binds it", () => {
   test("claims a reserved local, leaving the source's binding alone", () => {
     const javascript = emitted([[
       "/main.hex",
-      "let logString(x: String): String = x\n" +
+      "module Main\n\n" + "let logString(x: String): String = x\n" +
         'Debug.log("direct")\n' +
         'Debug.log(logString("through"))\n',
     ]]);
 
     expect(javascript).toContain(
-      'import { logString as __logString } from "./Debug.js";',
+      'import { logString as __logString } from "./Hex/Debug.js";',
     );
     expect(javascript).toContain("const logString = x => x;");
     expect(javascript).toContain('__logString("direct");');
@@ -373,7 +392,7 @@ describe("an edition's public name reaching a module that binds it", () => {
       runProject(
         [[
           "/main.hex",
-          "let logString(x: String): String = x\n" +
+          "module Main\n\n" + "let logString(x: String): String = x\n" +
             'Debug.log(logString("shadowed"))\n' +
             "export let ok: Int = 1\n",
         ]],
@@ -399,7 +418,7 @@ describe("the two fundamentals that name no primitive", () => {
   test("a same-module callee reaches its `Bool` and `Unit` editions", () => {
     const javascript = emitted([[
       "/main.hex",
-      "export let describe<a: Show>(x: a): String = show(x)\n" +
+      "module Main\n\n" + "export let describe<a: Show>(x: a): String = show(x)\n" +
         "export let ofBool: String = describe(True)\n" +
         "export let ofUnit: String = describe(())\n",
     ]]);
@@ -409,9 +428,9 @@ describe("the two fundamentals that name no primitive", () => {
   });
 
   test("an imported callee reaches them, and asks for no dictionary", () => {
-    const javascript = emitted([["/main.hex", "Debug.log(True)\nDebug.log(())\n"]]);
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "Debug.log(True)\nDebug.log(())\n"]]);
 
-    expect(javascript).toContain('import { logBool, logUnit } from "./Debug.js";');
+    expect(javascript).toContain('import { logBool, logUnit } from "./Hex/Debug.js";');
     expect(javascript).toContain("logBool(true);");
     expect(javascript).toContain("logUnit(undefined);");
     // The two things the editions replace, and the second is the point the
@@ -422,32 +441,32 @@ describe("the two fundamentals that name no primitive", () => {
   });
 
   test("keeps the modules the editions come from in the emitted graph", () => {
-    expect(danglingImports([["/main.hex", "Debug.log(True)\nDebug.log(())\n"]])).toEqual([]);
+    expect(danglingImports([["/main.hex", "module Main\n\n" + "Debug.log(True)\nDebug.log(())\n"]])).toEqual([]);
   });
 
   test("`Bool` is one assignment among several across a boundary", () => {
     const javascript = emitted([
-      ["/pair.hex", SHOW_PAIR],
+      ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
         "/main.hex",
-        'import Pair from "./pair"\n' +
+        "module Main\n\n" + 'import Pair\n' +
           "export let answer: String = Pair.pair(1, True)\n",
       ],
     ]);
 
-    expect(javascript).toContain('import * as Pair from "./pair.js";');
+    expect(javascript).toContain('import * as Pair from "./Pair.js";');
     expect(javascript).toContain(
-      'import { __pair, pairIntBool } from "./pair.js";',
+      'import { __pair, pairIntBool } from "./Pair.js";',
     );
     expect(javascript).toContain("const answer = pairIntBool(1, true);");
   });
 
   test("a variable still in play keeps the dictionary the `Bool` one rode with", () => {
     const javascript = emitted([
-      ["/pair.hex", SHOW_PAIR],
+      ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
         "/main.hex",
-        'import Pair from "./pair"\n' +
+        "module Main\n\n" + 'import Pair\n' +
           "export let half<b: Show>(y: b): String = Pair.pair(True, y)\n",
       ],
     ]);
@@ -472,10 +491,10 @@ describe("the two fundamentals that name no primitive", () => {
 
   test("the editions compute what the generic edition would have", async () => {
     const files = [
-      ["/pair.hex", SHOW_PAIR],
+      ["/pair.hex", "module Pair\n\n" + SHOW_PAIR],
       [
         "/main.hex",
-        'import Pair from "./pair"\n' +
+        "module Main\n\n" + 'import Pair\n' +
           "export let answer: String = Pair.pair(True, ())\n",
       ],
     ] as const;
@@ -499,7 +518,7 @@ describe("the two fundamentals that name no primitive", () => {
    */
   test("the `Bool` edition renders `Show<Bool>`, not the host's boolean", async () => {
     const files = [
-      ["/main.hex", "Debug.log(True)\nDebug.log(())\nexport let ok: Int = 1\n"],
+      ["/main.hex", "module Main\n\n" + "Debug.log(True)\nDebug.log(())\nexport let ok: Int = 1\n"],
     ] as const;
 
     expect(emitted(files)).toContain("logBool(true);");
@@ -555,7 +574,7 @@ describe("a declared constraint's `Bool` edition", () => {
   test("a same-module ground call reaches it, with no dictionary left over", () => {
     const javascript = emitted([[
       "/main.hex",
-      `${DESCRIBE}export let atBool: String = tell(True)\n`,
+      "module Main\n\n" + `${DESCRIBE}export let atBool: String = tell(True)\n`,
     ]]);
 
     expect(javascript).toContain("const atBool = tellBool(true);");
@@ -570,7 +589,7 @@ describe("a declared constraint's `Bool` edition", () => {
       "/main.hex",
       // Annotated, because a literal cannot default under a constraint the
       // defaulting rule does not hold (Numeric Literals §4).
-      `${DESCRIBE}let one: Int = 1\nexport let atInt: String = tell(one)\n`,
+      "module Main\n\n" + `${DESCRIBE}let one: Int = 1\nexport let atInt: String = tell(one)\n`,
     ]]);
 
     // Routed before this rider and routed after, through the primitive tag
@@ -580,18 +599,18 @@ describe("a declared constraint's `Bool` edition", () => {
 
   test("an imported callee reaches it, and its module is emitted", () => {
     const files = [
-      ["/describe.hex", DESCRIBE],
+      ["/describe.hex", "module Describe\n\n" + DESCRIBE],
       [
         "/main.hex",
-        'import Describe from "./describe"\n' +
+        "module Main\n\n" + 'import Describe\n' +
           "export let atBool: String = Describe.tell(True)\n",
       ],
     ] as const;
     const javascript = emitted(files);
 
-    expect(importLines(javascript)).toContain('import * as Describe from "./describe.js";');
+    expect(importLines(javascript)).toContain('import * as Describe from "./Describe.js";');
     expect(importLines(javascript)).toContain(
-      'import { __tell, tellBool } from "./describe.js";',
+      'import { __tell, tellBool } from "./Describe.js";',
     );
     expect(javascript).toContain("const atBool = tellBool(true);");
     expect(danglingImports(files)).toEqual([]);
@@ -601,7 +620,7 @@ describe("a declared constraint's `Bool` edition", () => {
     const files = [
       [
         "/main.hex",
-        `${DESCRIBE}export let atBool: String = tell(True)\n` +
+        "module Main\n\n" + `${DESCRIBE}export let atBool: String = tell(True)\n` +
           "export let atOther: String = tell(False)\n",
       ],
     ] as const;
@@ -620,7 +639,7 @@ describe("a declared constraint's `Bool` edition", () => {
   test("a variable still in play keeps the dictionary", () => {
     const javascript = emitted([[
       "/main.hex",
-      `${DESCRIBE}export let held<b: Describe>(y: b): String = tell(y)\n`,
+      "module Main\n\n" + `${DESCRIBE}export let held<b: Describe>(y: b): String = tell(y)\n`,
     ]]);
 
     // Row 18's boundary: recognition is per variable, and this one is not
@@ -638,7 +657,7 @@ describe("a declared constraint's `Bool` edition", () => {
   test("a nominal subject has no edition to reach", () => {
     const javascript = emitted([[
       "/main.hex",
-      `${DESCRIBE}record Point = {x: Int}\n` +
+      "module Main\n\n" + `${DESCRIBE}record Point = {x: Int}\n` +
         "honor Describe<Point> =\n" +
         "    describe(p) = \"point\"\n" +
         "export let atPoint: String = tell(Point({x = 1}))\n",
@@ -655,7 +674,7 @@ describe("a declared constraint's `Bool` edition", () => {
   test("another union is not the pin, and a factory is not a subject", () => {
     const javascript = emitted([[
       "/main.hex",
-      `${DESCRIBE}union Colour = Red | Green\n` +
+      "module Main\n\n" + `${DESCRIBE}union Colour = Red | Green\n` +
         "honor Describe<Colour> =\n" +
         "    describe(c) = \"colour\"\n" +
         "union Box(a) = Packed(a)\n" +
@@ -690,7 +709,7 @@ describe("a declared constraint's `Bool` edition", () => {
   test("an unexported callee mints nothing, so nothing routes", () => {
     const javascript = emitted([[
       "/main.hex",
-      `${DESCRIBE.replace("export fun tell", "fun tell")}` +
+      "module Main\n\n" + `${DESCRIBE.replace("export fun tell", "fun tell")}` +
         "export let atBool: String = tell(True)\n",
     ]]);
 
@@ -701,7 +720,7 @@ describe("a declared constraint's `Bool` edition", () => {
   test("`Unit` has no counterpart, because the call cannot be written", () => {
     const compiled = compileFiles([[
       "/main.hex",
-      `${DESCRIBE}export let atUnit: String = tell(())\n`,
+      "module Main\n\n" + `${DESCRIBE}export let atUnit: String = tell(())\n`,
     ]]);
 
     // Constraints §5.4 refuses `honor Describe<Unit>`, so there is no instance

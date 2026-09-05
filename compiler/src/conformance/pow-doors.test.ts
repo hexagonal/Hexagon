@@ -42,7 +42,7 @@ function threw(run: () => unknown): unknown {
 
 /** `/main.hex`'s emitted JavaScript, with the project asserted clean. */
 function emitted(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!
     .javascript.text;
@@ -50,7 +50,7 @@ function emitted(source: string): string {
 
 describe("the control: the harness reports a failure rather than passing it", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Int = noSuchName\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Int = noSuchName\n"))
       .toEqual(["unknown name `noSuchName`"]);
   });
 });
@@ -60,8 +60,7 @@ describe("`Float.pow` — the analytic power (Operators §6.3.1)", () => {
     // Not transcribed from the implementation: the claim is that the door *is*
     // the host's `**` on doubles, so the host's own `Math.sqrt` is the oracle
     // for the square root and `Math.cbrt` for the cube root.
-    const exports = await runMain(
-      "// Float door\n" +
+    const exports = await runMain("module Main\n\n" + "// Float door\n" +
       "export let root: Float = Float.pow(2.0, 0.5)\n" +
       "export let cube: Float = Float.pow(27.0, 1.0 / 3.0)\n" +
       "export let negativeExponent: Float = Float.pow(2.0, -0.5)\n" +
@@ -75,8 +74,7 @@ describe("`Float.pow` — the analytic power (Operators §6.3.1)", () => {
   });
 
   test("the `NaN` edges are the host's, unaltered — the door never guards", async () => {
-    const exports = await runMain(
-      "// Float door edges\n" +
+    const exports = await runMain("module Main\n\n" + "// Float door edges\n" +
       "export let rootOfNegative: Float = Float.pow(-1.0, 0.5)\n" +
       "export let oneToNan: Float = Float.pow(1.0, Float.nan)\n" +
       "export let nanToZero: Float = Float.pow(Float.nan, 0.0)\n" +
@@ -99,8 +97,7 @@ describe("`Float.pow` — the analytic power (Operators §6.3.1)", () => {
     // Since #546 this is true *by construction* — the member is the door called
     // at the member's seats, derived rather than written — so the pin measures
     // that the derivation actually runs, on the whole shared domain.
-    const exports = await runMain(
-      "// Float agreement\n" +
+    const exports = await runMain("module Main\n\n" + "// Float agreement\n" +
       "let three: Int = 3\n" +
       "export let operator: Float = 2.0 ** three\n" +
       "export let door: Float = Float.pow(2.0, 3.0)\n" +
@@ -118,8 +115,7 @@ describe("`BigInt.pow` — the exact power past `Int`'s range (Operators §6.3.1
   test("the ordinary case, and the thin domain the door exists for", async () => {
     // `1n`, `-1n`, and `0n` answer at any non-negative exponent, which is where
     // an exponent past `Int`'s range is *defined* rather than merely large.
-    const exports = await runMain(
-      "// BigInt door\n" +
+    const exports = await runMain("module Main\n\n" + "// BigInt door\n" +
       "let huge: BigInt = 2n ** 64\n" +
       "export let eight: BigInt = BigInt.pow(2n, 3n)\n" +
       "export let unit: BigInt = BigInt.pow(1n, huge)\n" +
@@ -141,8 +137,7 @@ describe("`BigInt.pow` — the exact power past `Int`'s range (Operators §6.3.1
   test("a negative exponent throws `NegativeExponentError`, exactly as `**` does", async () => {
     // One guard, in one body: the member reaches it by being that body
     // restricted (§4.7), so the two faces cannot drift apart.
-    const exports = await runMain(
-      "// BigInt door guard\n" +
+    const exports = await runMain("module Main\n\n" + "// BigInt door guard\n" +
       "export let boom(): BigInt = BigInt.pow(2n, -1n)\n" +
       "export let operatorBoom(): BigInt = 2n ** -1\n",
     );
@@ -151,7 +146,7 @@ describe("`BigInt.pow` — the exact power past `Int`'s range (Operators §6.3.1
       expect(threw(exports[name] as () => unknown)).toMatchObject({
         name: "NegativeExponentError",
         message: "an integer exponent cannot be negative",
-        $hex: "Pow",
+        $hex: "Hex.Pow",
       });
     }
   });
@@ -165,7 +160,7 @@ describe("`BigInt.pow` — the exact power past `Int`'s range (Operators §6.3.1
     const source = "// BigInt member conversion\n" +
       "let ten: Int = 10\n" +
       "export let powered: BigInt = 2n ** ten\n";
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
 
     expect(exports["powered"]).toBe(1024n);
     // The call site hands the plain `Int` across; the conversion is inside the
@@ -179,8 +174,7 @@ describe("qualifiable, not bare: the one-exporter guarantee (Modules §5.3)", ()
     // Two companions widen a `pow`, and neither is an exporter for §5.5's
     // arithmetic — so the one route a consumer's qualified spelling can take is
     // the declaring constraint's, which is what the refusal below names too.
-    const exports = await runMain(
-      "// bare pow\n" +
+    const exports = await runMain("module Main\n\n" + "// bare pow\n" +
       "let raise<a: Pow>(base: a, exponent: Int): a = Pow.pow(base, exponent)\n" +
       "export let polymorphic: Int = raise(2, 10)\n" +
       "export let atInt: Int = Pow.pow(3, 4)\n" +
@@ -200,8 +194,7 @@ describe("qualifiable, not bare: the one-exporter guarantee (Modules §5.3)", ()
     // The single-exporter guarantee is not only about compiling: the member's
     // own spelling and the two doors are three different bindings that all have
     // to survive into one emitted module, under names that do not collide.
-    const exports = await runMain(
-      "// three spellings\n" +
+    const exports = await runMain("module Main\n\n" + "// three spellings\n" +
       "export let bare: Int = Pow.pow(2, 5)\n" +
       "export let floatDoor: Float = Float.pow(2.0, 0.5)\n" +
       "export let bigDoor: BigInt = BigInt.pow(2n, 3n)\n",
@@ -216,15 +209,14 @@ describe("qualifiable, not bare: the one-exporter guarantee (Modules §5.3)", ()
     // The visibility rule under test, read through §10's refusal: a `widens`
     // binding is qualifiable and not an exporter, so `Float` and `BigInt` do
     // not appear among the routes even though both spell a `pow`.
-    expect(projectDiagnostics("export let n: Int = pow(2, 5)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let n: Int = pow(2, 5)\n"))
       .toEqual(["no bare `pow`; write `(2).pow(5)` or `Pow.pow(2, 5)`"]);
   });
 
   test("a local name of the door's spelling is an ordinary binding", () => {
     // It inherits the member's visibility rule whole: reached qualified and
     // through the dot, never as a bare name a consumer binds.
-    const diagnostics = projectDiagnostics(
-      "let shadow(value: Float, exponent: Float): Float = Float.pow(value, exponent)\n" +
+    const diagnostics = projectDiagnostics("module Main\n\n" + "let shadow(value: Float, exponent: Float): Float = Float.pow(value, exponent)\n" +
       "export let r: Float = shadow(2.0, 0.5)\n",
     );
 
@@ -250,8 +242,7 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
     // Not the §6 two-source refusal: the `widens` binding and the member it
     // supplies are one operation wearing two widths, so the dot resolves to the
     // widest face.
-    const exports = await runMain(
-      "// dot calls\n" +
+    const exports = await runMain("module Main\n\n" + "// dot calls\n" +
       "let two: Float = 2.0\n" +
       "let big: BigInt = 2n\n" +
       "export let root: Float = two.pow(0.5)\n" +
@@ -272,7 +263,7 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
     );
 
     expect(javascript).toContain('pow as __prelude_pow');
-    expect(javascript).toContain('from "./Float.js"');
+    expect(javascript).toContain('from "./Hex/Float.js"');
     expect(javascript).not.toContain("__Pow_Float");
   });
 
@@ -283,16 +274,16 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
     // claimants have to live in different modules now, because within one the
     // export would be the unconditional rebinding error (§4.6, #546).
     const diagnostics = compileFiles([
-      ["/gauge.hex", [
+      ["/gauge.hex", "module Gauge\n\n" + [
         "// gauge",
         "export record Gauge = {reading: Int}",
         "",
         "export let describe(value: Gauge, extra: Int): String = \"g\"",
         "",
       ].join("\n")],
-      ["/quiet.hex", [
+      ["/quiet.hex", "module Quiet\n\n" + [
         "// quiet",
-        "import Gauge from \"./gauge\"",
+        "import Gauge",
         "",
         "export constraint Quiet<a> =",
         "    describe(value: a): String",
@@ -301,10 +292,10 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
         "    describe(value) = \"quiet\"",
         "",
       ].join("\n")],
-      ["/main.hex", [
+      ["/main.hex", "module Main\n\n" + [
         "// rivals",
-        "import Gauge from \"./gauge\"",
-        "import Quiet from \"./quiet\"",
+        "import Gauge",
+        "import Quiet",
         "",
         "export let r: String = Gauge.Gauge({reading = 1}).describe(2)",
         "",
@@ -325,8 +316,8 @@ describe("the dot call reaches the door as one claimant (Method Syntax §6.1)", 
  * widen — `Show` and `Eq` have none, so nothing there could generalise — and
  * its `Int` exponent reaches `Float` through §5.1's exact conversion.
  *
- * The module below puts the door on **line 8** and the `Pow<Box>` block on line
- * 10, which are the lines the refusals name.
+ * The module below puts the door on **line 10** and the `Pow<Box>` block on
+ * line 12, which are the lines the refusals name.
  */
 describe("the `widens` declaration at a user nominal (Constraints §4.7)", () => {
   const box = [
@@ -345,6 +336,8 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
   /** The module, with `head` standing where the `widens` declaration goes. */
   function module(head: string, ...extra: readonly string[]): string {
     return [
+      "module Main",
+      "",
       box,
       head,
       "",
@@ -394,12 +387,18 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
     // derived member. At a *shared-domain* argument (an `Int` exponent, which
     // both faces accept) the two answers are identical by construction, so only
     // the emitted route can say which one answered.
-    const javascript = emitted(module(
+    // `module()` writes its own header (it is also handed to `verdict` and
+    // `projectDiagnostics`, which take a raw source), so this goes through
+    // `compileMain` directly rather than `emitted`, which would double it.
+    const project = compileMain(module(
       DOOR,
       "let two: Int = 2",
       "export let shared: Float = pow(Box({value = 3.0}), two).value",
       "",
     ));
+    expect(project.diagnostics.map(({ message }) => message)).toEqual([]);
+    const javascript = project.modules.find(({ source }) => source.path === "/main.hex")!
+      .javascript.text;
 
     expect(javascript).toContain("const shared = pow({ value: 3.0 }, two).value;");
     // The instance's member seat exists; no bare use calls it.
@@ -459,6 +458,8 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
         "parameters, this declaration 1",
     ]);
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "widens Show.show(value: Box, extra: Int): String = \"box\"",
@@ -480,7 +481,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
         "Box({value = Float.pow(value.value, exponent)})",
       "",
     )).toEqual([
-      "the `Pow<Box>` instance binds `pow`, which is already bound (line 8); a " +
+      "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); a " +
         "member's wider face is declared, not exported — write `widens " +
         "Pow.pow(…)` and account for the member with `pow = widened`.",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
@@ -493,7 +494,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
       "export let pow(value: Box, exponent: Int): Box = value",
       "",
     )).toEqual([
-      "the `Pow<Box>` instance binds `pow`, which is already bound (line 8); " +
+      "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); " +
         "Hexagon does not allow rebinding — choose a different name.",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",
@@ -505,7 +506,7 @@ describe("the `widens` declaration at a user nominal (Constraints §4.7)", () =>
       "let pow(value: Box, exponent: Float): Box = value",
       "",
     )).toEqual([
-      "the `Pow<Box>` instance binds `pow`, which is already bound (line 8); " +
+      "the `Pow<Box>` instance binds `pow`, which is already bound (line 10); " +
         "Hexagon does not allow rebinding — choose a different name.",
       "`pow = widened` accounts for a `widens Pow.pow` declaration this module " +
         "does not contain",
@@ -529,6 +530,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
 
   test("a `widened` line with no matching declaration is refused, naming it", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       box,
       "honor Pow<Box> =",
       "    pow = widened",
@@ -545,16 +548,16 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // absence. Shown over a two-member constraint, so the block still has a
     // line to write and the missing one is visibly the widened member's.
     expect(compileFiles([
-      ["/scale.hex", [
+      ["/scale.hex", "module Scale\n\n" + [
         "// scale",
         "export constraint Scale<a> =",
         "    scale(value: a, factor: Int): a",
         "    label(value: a): String",
         "",
       ].join("\n")],
-      ["/matrix.hex", [
+      ["/matrix.hex", "module Matrix\n\n" + [
         "// matrix",
-        "import Scale from \"./scale\"",
+        "import Scale",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -567,13 +570,15 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       ].join("\n")],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "this instance does not account for `scale`, which this module's `widens` " +
-        "declaration supplies (line 6) — write `scale = widened` in the block",
+        "declaration supplies (line 8) — write `scale = widened` in the block",
       "instance is missing required member `scale`",
     ]);
   });
 
   test("a member written beside a `widens` of it is refused as a rival", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       box,
       DOOR,
       "",
@@ -581,7 +586,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "    pow(value, exponent) = value",
       "",
     ].join("\n"))).toEqual([
-      "`pow` is supplied by this module's `widens` declaration (line 8); a " +
+      "`pow` is supplied by this module's `widens` declaration (line 10); a " +
         "member written beside it would be a second implementation — account " +
         "for it with `pow = widened`",
     ]);
@@ -595,6 +600,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // neither declaration can take; one operation has one written body, and one
     // of the two has to go.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       box,
       DOOR,
       "",
@@ -604,7 +611,7 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "    pow = widened",
       "",
     ].join("\n"))).toEqual([
-      "`pow` is already bound (line 8); one operation has one written body, " +
+      "`pow` is already bound (line 10); one operation has one written body, " +
         "and a `widens` declaration's name is derived from the member it names " +
         "— there is no other name for either to take, so one of the two " +
         "declarations must go.",
@@ -616,6 +623,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // declaration loses — and the repair points at the binding, which is the
     // only one of the two with a spelling its author chose.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       box,
       "let pow: Int = 2",
       "",
@@ -625,14 +634,16 @@ describe("the manifest and the head (Constraints §4.7)", () => {
       "    pow = widened",
       "",
     ].join("\n"))).toContain(
-      "`pow` is already bound (line 8); a `widens` declaration's name is " +
+      "`pow` is already bound (line 10); a `widens` declaration's name is " +
         "derived from the member it names and cannot be chosen — rename the " +
-        "binding on line 8, or drop this declaration.",
+        "binding on line 10, or drop this declaration.",
     );
   });
 
   test("a head naming a member this module does not honor is refused at the head", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "widens Show.show(value: Box, extra: Int): String = \"box\"",
@@ -644,6 +655,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
 
   test("a head naming no member at all is refused at the head", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "widens Float.nan(value: Box, extra: Int): Box = value",
@@ -661,6 +674,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // leads instead, and what follows it is true rather than a knock-on: this
     // module really does not contain a `widens Pow.pow`.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "honor Num<Box> =",
@@ -687,6 +702,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // Refused rather than silently attached — the author wrote documentation
     // that nothing would ever show.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       box,
       DOOR,
       "",
@@ -704,15 +721,15 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // can catch the message hardcoding one: it quotes the line it actually
     // found, not the line the two standing doors happen to write.
     expect(compileFiles([
-      ["/scale.hex", [
+      ["/scale.hex", "module Scale\n\n" + [
         "// scale",
         "export constraint Scale<a> =",
         "    scale(value: a, factor: Int): a",
         "",
       ].join("\n")],
-      ["/matrix.hex", [
+      ["/matrix.hex", "module Matrix\n\n" + [
         "// matrix",
-        "import Scale from \"./scale\"",
+        "import Scale",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -735,6 +752,8 @@ describe("the manifest and the head (Constraints §4.7)", () => {
     // The reach doctrine self-enforcing: qualification is module aliases only,
     // so where no alias is in scope the head has no spelling (§4.6, §2.2).
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "widens Nowhere.pow(value: Box, exponent: Float): Box = value",
@@ -782,10 +801,10 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
     // defaulted member it stands as the override." The block writes the
     // required member and accounts for the defaulted one.
     const exports = await runProject([
-      ["/scale.hex", scale],
-      ["/matrix.hex", [
+      ["/scale.hex", "module Scale\n\n" + scale],
+      ["/matrix.hex", "module Matrix\n\n" + [
         "// matrix, defaulted member widened",
-        "import Scale from \"./scale\"",
+        "import Scale",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -815,10 +834,10 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
     // meaning of a defaulted member's absence is "inherit the default", never
     // the missing-member error. Exactly one diagnostic, and it is this one.
     expect(compileFiles([
-      ["/scale.hex", scale],
-      ["/matrix.hex", [
+      ["/scale.hex", "module Scale\n\n" + scale],
+      ["/matrix.hex", "module Matrix\n\n" + [
         "// matrix, defaulted member unaccounted",
-        "import Scale from \"./scale\"",
+        "import Scale",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -831,7 +850,7 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
       ].join("\n")],
     ]).diagnostics.map(({ message }) => message)).toEqual([
       "this instance does not account for `scaleBy`, which this module's " +
-        "`widens` declaration supplies (line 6) — write `scaleBy = widened` in " +
+        "`widens` declaration supplies (line 8) — write `scaleBy = widened` in " +
         "the block",
     ]);
   });
@@ -842,10 +861,10 @@ describe("what the supply route serves, beyond one required member (§4.7)", () 
     // once." Both remaining seats go `Int` to `Float` here, and the member is
     // still the one body restricted at both of them.
     const exports = await runProject([
-      ["/blend.hex", blend],
-      ["/matrix.hex", [
+      ["/blend.hex", "module Blend\n\n" + blend],
+      ["/matrix.hex", "module Matrix\n\n" + [
         "// matrix, two seats widened",
-        "import Blend from \"./blend\"",
+        "import Blend",
         "",
         "export record Matrix = {n: Float}",
         "",
@@ -883,8 +902,10 @@ describe("several same-spelled members: widen all of them or none (§4.7)", () =
 
   function boxModule(...tail: readonly string[]): string {
     return [
+      "module Box",
+      "",
       "// box",
-      "import Mul from \"./mul\"",
+      "import Mul",
       "",
       "export record Box = {value: Float}",
       "",
@@ -899,7 +920,7 @@ describe("several same-spelled members: widen all of them or none (§4.7)", () =
 
   function verdict(...tail: readonly string[]): readonly string[] {
     return compileFiles([
-      ["/mul.hex", mul],
+      ["/mul.hex", "module Mul\n\n" + mul],
       ["/box.hex", boxModule(...tail)],
     ]).diagnostics.map(({ message }) => message);
   }
@@ -927,7 +948,7 @@ describe("several same-spelled members: widen all of them or none (§4.7)", () =
     // `Mul.cubed` reaches its member genuinely polymorphically, from the
     // declaring side, so nothing here can be answered by the door by accident.
     const exports = await runProject([
-      ["/mul.hex", mul],
+      ["/mul.hex", "module Mul\n\n" + mul],
       ["/box.hex", boxModule(
         "widens Pow.pow, Mul.pow(value: Box, exponent: Float): Box =",
         "    Box({value = Float.pow(value.value, exponent)})",
@@ -954,6 +975,8 @@ describe("several same-spelled members: widen all of them or none (§4.7)", () =
 describe("where a `widens` declaration may stand (Declarations Preamble §7.1)", () => {
   test("inside a function body it joins the declarations-live-at-module-level family", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export let f(): Int =",
       "    widens Pow.pow(value: Int, exponent: Int): Int = value",
       "    1",
@@ -963,6 +986,8 @@ describe("where a `widens` declaration may stand (Declarations Preamble §7.1)",
 
   test("`export widens` is refused in the form's own words", () => {
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "export widens Pow.pow(value: Box, exponent: Float): Box = value",
@@ -976,8 +1001,7 @@ describe("where a `widens` declaration may stand (Declarations Preamble §7.1)",
   test("`widens` and `widened` stay ordinary names everywhere else", async () => {
     // Contextual, not reserved (Lexer §4.2): both spellings are still binders,
     // parameters, and fields.
-    const exports = await runMain(
-      "// contextual\n" +
+    const exports = await runMain("module Main\n\n" + "// contextual\n" +
       "let widens: Int = 2\n" +
       "let widened(widens: Int): Int = widens + 1\n" +
       "export let r: Int = widened(widens)\n",
@@ -989,14 +1013,14 @@ describe("where a `widens` declaration may stand (Declarations Preamble §7.1)",
 
 describe("the mandatory fixit at the exponent seat (Operators §6.3, #545)", () => {
   test("a `Float` exponent names `Float.pow`", () => {
-    expect(projectDiagnostics("export let r: Float = 2.0 ** 0.5\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Float = 2.0 ** 0.5\n")).toEqual([
       "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, " +
         "use `Float.pow(value, exponent)`",
     ]);
   });
 
   test("a `BigInt` exponent names `BigInt.pow` — `2n ** 3n` is the target case", () => {
-    expect(projectDiagnostics("export let r: BigInt = 2n ** 3n\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let r: BigInt = 2n ** 3n\n")).toEqual([
       "the exponent of `**` is an `Int`; for a `BigInt` exponent, use " +
         "`BigInt.pow(value, exponent)`",
     ]);
@@ -1006,6 +1030,8 @@ describe("the mandatory fixit at the exponent seat (Operators §6.3, #545)", () 
     // The two stdlib doors are instances of the lookup, not its content: the
     // fixit reads the registry of `widens` declarations at the value's type.
     expect(projectDiagnostics([
+      "module Main",
+      "",
       "export record Box = {value: Float}",
       "",
       "honor Num<Box> =",
@@ -1028,8 +1054,7 @@ describe("the mandatory fixit at the exponent seat (Operators §6.3, #545)", () 
   });
 
   test("a type with no door takes the plain seat error, with no door named", () => {
-    const diagnostics = projectDiagnostics(
-      "export let r: Int = 2 ** \"three\"\n",
+    const diagnostics = projectDiagnostics("module Main\n\n" + "export let r: Int = 2 ** \"three\"\n",
     );
 
     expect(diagnostics).toEqual(["type mismatch: expected Int, found String"]);
@@ -1041,14 +1066,12 @@ describe("the mandatory fixit at the exponent seat (Operators §6.3, #545)", () 
     // the claim is *true*: the door named takes this base. The pin is the offer
     // and the proof that it compiles, in one test, because a fixit that does not
     // is worse than none.
-    expect(projectDiagnostics(
-      "let n: Nat = 2\nexport let r: Nat = n ** 0.5\n",
+    expect(projectDiagnostics("module Main\n\n" + "let n: Nat = 2\nexport let r: Nat = n ** 0.5\n",
     )).toEqual([
       "the exponent of `**` is an `Int`; for a fractional exponent at `Float`, " +
         "use `Float.pow(value, exponent)`",
     ]);
-    expect(projectDiagnostics(
-      "let n: Nat = 2\nexport let r: Float = Float.pow(n, 0.5)\n",
+    expect(projectDiagnostics("module Main\n\n" + "let n: Nat = 2\nexport let r: Float = Float.pow(n, 0.5)\n",
     )).toEqual([]);
   });
 
@@ -1056,8 +1079,7 @@ describe("the mandatory fixit at the exponent seat (Operators §6.3, #545)", () 
     // The gate on the branch above, and #545's own reason kept: `Rat` reaches
     // neither door's value seat, so `Float.pow(rat, 0.5)` would not typecheck
     // and no offer is made. (`rat-pow.test.ts` pins the `Rat` side in full.)
-    expect(projectDiagnostics(
-      "export record Weight = {kilos: Int}\n" +
+    expect(projectDiagnostics("module Main\n\n" + "export record Weight = {kilos: Int}\n" +
       "\n" +
       "honor Num<Weight> =\n" +
       "    add(left, right) = Weight({kilos = left.kilos + right.kilos})\n" +
@@ -1074,8 +1096,7 @@ describe("the mandatory fixit at the exponent seat (Operators §6.3, #545)", () 
   test("a `Nat` exponent widens into the seat rather than erroring", async () => {
     // §5.1's exact conversion applies *into* the exponent seat like any other
     // written-`Int` seat, so the one numeric type below `Int` is not a break.
-    const exports = await runMain(
-      "// Nat exponent\n" +
+    const exports = await runMain("module Main\n\n" + "// Nat exponent\n" +
       "let count: Nat = 3\n" +
       "export let r: Int = 2 ** count\n",
     );

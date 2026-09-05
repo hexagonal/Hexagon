@@ -18,7 +18,7 @@ import { describe, expect, test } from "vitest";
 import { compileProject, Source } from "../index";
 
 function compile(source: string) {
-  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", source)]);
+  const project = compileProject([new Source.File(Source.fileId(0), "/main.hex", "module Main\n\n" + source)]);
   const module = project.modules.find(({ source: file }) => file.path === "/main.hex");
   return {
     diagnostics: project.diagnostics.map(({ message }) => message),

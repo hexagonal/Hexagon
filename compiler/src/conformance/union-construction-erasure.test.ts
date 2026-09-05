@@ -55,7 +55,7 @@ function occurrences(text: string, needle: string): number {
 
 const SHAPE = [
   "/shape.hex",
-  "export union Shape =\n" +
+  "module Shape\n\n" + "export union Shape =\n" +
   "    | Circle(radius: Float)\n" +
   "    | Rect(width: Float, height: Float)\n" +
   "    | Point\n",
@@ -63,7 +63,7 @@ const SHAPE = [
 
 const TREE = [
   "/tree.hex",
-  "export union Tree = Node(Int, Int, Int) | Leaf\n",
+  "module Tree\n\n" + "export union Tree = Node(Int, Int, Int) | Leaf\n",
 ] as const;
 
 describe("§6.1's literal, at the home seat", () => {
@@ -72,8 +72,8 @@ describe("§6.1's literal, at the home seat", () => {
       SHAPE,
       TREE,
       ["/main.hex",
-        'import Shape from "./shape"\n' +
-        'import Tree from "./tree"\n' +
+        "module Main\n\n" + 'import Shape\n' +
+        'import Tree\n' +
         "export let one: Shape.Shape = Shape.Circle(2.0)\n" +
         "export let two: Shape.Shape = Shape.Rect(3.0, 4.0)\n" +
         "export let three: Tree.Tree = Tree.Node(1, 2, 3)\n"],
@@ -91,7 +91,7 @@ describe("§6.1's literal, at the home seat", () => {
     // without either one restating the rule.
     expect(emitted([[
       "/main.hex",
-      "union Shape = Circle(radius: Float)\n" +
+      "module Main\n\n" + "union Shape = Circle(radius: Float)\n" +
       "let radius: Float = 5.0\n" +
       "export let one: Float = radius\n" +
       "fun make(): Shape = Circle(radius)\n" +
@@ -102,14 +102,14 @@ describe("§6.1's literal, at the home seat", () => {
   test("a nullary constructor of a mixed union is still the shared constant", async () => {
     const javascript = emitted([[
       "/main.hex",
-      "export union Shape = Circle(radius: Float) | Point\n" +
+      "module Main\n\n" + "export union Shape = Circle(radius: Float) | Point\n" +
       "export let flat: Shape = Point\n",
     ]]);
     expect(javascript).toContain('const Point = { tag: "Point" };');
     expect(javascript).toContain("const flat = Point;");
     const main = await runProject([[
       "/main.hex",
-      "export union Shape = Circle(radius: Float) | Point\n" +
+      "module Main\n\n" + "export union Shape = Circle(radius: Float) | Point\n" +
       "export let flat: Shape = Point\n",
     ]] as never);
     expect(main["flat"]).toEqual({ tag: "Point" });
@@ -118,16 +118,16 @@ describe("§6.1's literal, at the home seat", () => {
   test("a generic nullary constructor is still the one shared constant", () => {
     const javascript = emitted([[
       "/main.hex",
-      "export let nothing: Option(Int) = None\n",
+      "module Main\n\n" + "export let nothing: Option(Int) = None\n",
     ]]);
-    expect(javascript).toContain('import { None } from "./Option.js";');
+    expect(javascript).toContain('import { None } from "./Hex/Option.js";');
     expect(javascript).toContain("const nothing = None;");
   });
 
   test("an all-nullary constructor is read, not erased; `Bool` keeps its pin", () => {
     const javascript = emitted([[
       "/main.hex",
-      "export union Colour = Red | Green | Blue\n" +
+      "module Main\n\n" + "export union Colour = Red | Green | Blue\n" +
       "export let c: Colour = Red\n" +
       "export let yes: Bool = True\n",
     ]]);
@@ -147,7 +147,7 @@ describe("the same literal abroad, and through rule 3", () => {
     const javascript = emitted([
       SHAPE,
       ["/main.hex",
-        'import Shape from "./shape"\n' +
+        "module Main\n\n" + 'import Shape\n' +
         "export let one: Shape.Shape = Shape.Circle(2.0)\n" +
         "export let flat: Shape.Shape = Shape.Point\n"],
     ]);
@@ -161,14 +161,14 @@ describe("the same literal abroad, and through rule 3", () => {
     // the reference names the alias's qualified local, and calling it at run
     // time builds the same value the literal does.
     const files = [
-      ["/tag.hex", "export union Tag = Tag(n: Int) | Other\n"],
+      ["/tag.hex", "module Tag\n\n" + "export union Tag = Tag(n: Int) | Other\n"],
       ["/main.hex",
-        'import Tag from "./tag"\n' +
+        "module Main\n\n" + 'import Tag\n' +
         "export let t: Tag.Tag = Tag(7)\n" +
         "export let mk: (Int) -> Tag.Tag = Tag\n"],
     ] as const;
     const javascript = emitted(files);
-    expect(javascript).toContain('import * as Tag from "./tag.js";');
+    expect(javascript).toContain('import * as Tag from "./Tag.js";');
     expect(javascript).toContain('const t = { tag: "Tag", n: 7 };');
     expect(javascript).toContain("const mk = Tag.Tag;");
     expect(javascript).not.toContain("Tag(7)");
@@ -202,7 +202,7 @@ describe("the seats an object literal needs handling at", () => {
       "export let field: Holder = Holder({shape = Circle(5.0)})\n" +
       "export let same: Bool = Circle(6.0) == Circle(6.0)\n" +
       "export let differ: Bool = Circle(6.0) == Point\n";
-    const javascript = emitted([["/main.hex", source]]);
+    const javascript = emitted([["/main.hex", "module Main\n\n" + source]]);
 
     // The arrow body: a concise body starting with `{` is a block to
     // JavaScript, so the literal is parenthesized — the same repair a record
@@ -216,7 +216,7 @@ describe("the seats an object literal needs handling at", () => {
     expect(javascript).toContain('scrutinizeOne({ tag: "Circle", radius: 4.0 })');
     expect(javascript).toContain('const field = { shape: { tag: "Circle", radius: 5.0 } };');
 
-    const main = await runProject([["/main.hex", source]] as never);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]] as never);
     expect(main["statement"]).toBeTypeOf("function");
     expect((main["statement"] as () => number)()).toBe(7);
     expect((main["scrutinee"] as () => number)()).toBe(3.0);
@@ -230,10 +230,10 @@ describe("the seats an object literal needs handling at", () => {
 
   test("nested constructions erase recursively", async () => {
     const source = "export let deep: Option(Option(Int)) = Some(Some(1))\n";
-    expect(emitted([["/main.hex", source]])).toContain(
+    expect(emitted([["/main.hex", "module Main\n\n" + source]])).toContain(
       'const deep = { tag: "Some", value: { tag: "Some", value: 1 } };',
     );
-    const main = await runProject([["/main.hex", source]] as never);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]] as never);
     expect(main["deep"]).toEqual({ tag: "Some", value: { tag: "Some", value: 1 } });
   });
 });
@@ -242,7 +242,7 @@ describe("the two demand sites, and nothing else", () => {
   test("a private constructor only ever applied materialises no function", () => {
     const javascript = emitted([[
       "/main.hex",
-      "union Shape = Circle(radius: Float) | Point\n" +
+      "module Main\n\n" + "union Shape = Circle(radius: Float) | Point\n" +
       "export fun area(): Float =\n" +
       "    match Circle(2.0)\n" +
       "        Circle(r) => r\n" +
@@ -265,19 +265,19 @@ describe("the two demand sites, and nothing else", () => {
       "    match Seq.next(mapped)\n" +
       "        Some((s, _)) => s == direct\n" +
       "        None => False\n";
-    const javascript = emitted([["/main.hex", source]]);
+    const javascript = emitted([["/main.hex", "module Main\n\n" + source]]);
     expect(occurrences(javascript, "const Circle = ")).toBe(1);
     expect(javascript).toContain('const Circle = radius => ({ tag: "Circle", radius });');
     expect(javascript).toContain('const direct = { tag: "Circle", radius: 2.0 };');
 
-    const main = await runProject([["/main.hex", source]] as never);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]] as never);
     expect(main["agree"]).toBe(true);
   });
 
   test("a record constructor reads the same way, on both sides", () => {
     const applied = emitted([[
       "/main.hex",
-      "record Point = {x: Float, y: Float}\n" +
+      "module Main\n\n" + "record Point = {x: Float, y: Float}\n" +
       "export let n: Float = Point({x = 1.0, y = 2.0}).x\n",
     ]]);
     expect(applied).not.toContain("const Point = __record => __record;");
@@ -285,7 +285,7 @@ describe("the two demand sites, and nothing else", () => {
 
     const referenced = emitted([[
       "/main.hex",
-      "record Point = {x: Float, y: Float}\n" +
+      "module Main\n\n" + "record Point = {x: Float, y: Float}\n" +
       "fun build(make: ({x: Float, y: Float}) -> Point): Point = make({x = 1.0, y = 2.0})\n" +
       "export let n: Float = build(Point).x\n",
     ]]);
@@ -296,14 +296,14 @@ describe("the two demand sites, and nothing else", () => {
     const source =
       "export union Shape = Circle(radius: Float) | Point\n" +
       "export let inside: Shape = Circle(2.0)\n";
-    const javascript = emitted([["/main.hex", source]]);
+    const javascript = emitted([["/main.hex", "module Main\n\n" + source]]);
     // The export materialises the function and publishes it; the module's own
     // application still erases (FFI Part 7 §4, §12.2).
     expect(javascript).toContain('const Circle = radius => ({ tag: "Circle", radius });');
     expect(javascript).toContain("export { Circle };");
     expect(javascript).toContain('const inside = { tag: "Circle", radius: 2.0 };');
     // And the published function is a real ESM export a consumer can call.
-    const main = await runProject([["/main.hex", source]] as never);
+    const main = await runProject([["/main.hex", "module Main\n\n" + source]] as never);
     expect((main["Circle"] as (r: number) => unknown)(2.0))
       .toEqual({ tag: "Circle", radius: 2.0 });
     expect(main["inside"]).toEqual({ tag: "Circle", radius: 2.0 });
@@ -312,7 +312,7 @@ describe("the two demand sites, and nothing else", () => {
   test("an exported record's constructor is materialised the same way", () => {
     const javascript = emitted([[
       "/main.hex",
-      "export record Point = {x: Float, y: Float}\n" +
+      "module Main\n\n" + "export record Point = {x: Float, y: Float}\n" +
       "export let p: Point = Point({x = 1.0, y = 2.0})\n",
     ]]);
     expect(javascript).toContain("const Point = __record => __record;");
@@ -323,7 +323,7 @@ describe("the two demand sites, and nothing else", () => {
   test("`opaque union` exports the type alone and materialises nothing", () => {
     const files = [[
       "/main.hex",
-      "opaque union Shape = Circle(radius: Float) | Point\n" +
+      "module Main\n\n" + "opaque union Shape = Circle(radius: Float) | Point\n" +
       "export fun radius(s: Shape): Float =\n" +
       "    match s\n" +
       "        Circle(r) => r\n" +
@@ -377,7 +377,7 @@ describe("the two passes agree", () => {
       "export let one: Shape = Circle(2.0)\n" +
       "export let two: (Float) -> Shape = Circle\n" +
       "export let three: Holder = Holder({shape = Point})\n";
-    const module = compileFiles([["/main.hex", source]] as never)
+    const module = compileFiles([["/main.hex", "module Main\n\n" + source]] as never)
       .modules.find(({ source: file }) => file.path === "/main.hex")!;
 
     const onePass = module.javascript.text;
@@ -421,7 +421,7 @@ describe("a declaration that emits nothing shapes none of the page", () => {
     // what keeps `previousSpan` on a line the output contains.
     expect(emitted([[
       "/main.hex",
-      "// first block, about the declaration below\n" +
+      "module Main\n\n" + "// first block, about the declaration below\n" +
       "union Shape = Circle(radius: Float) | Rect(width: Float, height: Float)\n" +
       "\n" +
       "// second block, about something else entirely\n" +
@@ -447,7 +447,7 @@ describe("a declaration that emits nothing shapes none of the page", () => {
     // standard library removes several hundred blank lines.
     const javascript = emitted([[
       "/main.hex",
-      "export let before: Int = 1\n\n\n\n" +
+      "module Main\n\n" + "export let before: Int = 1\n\n\n\n" +
       "union Shape = Circle(radius: Float) | Rect(width: Float, height: Float)\n\n\n\n" +
       "export let mid: Int = 2\n\n\n\n" +
       "export let after: Int = 3\n\n\n\n" +
@@ -464,7 +464,7 @@ describe("a declaration that emits nothing shapes none of the page", () => {
   test("a vanished record leaves exactly one blank line too", () => {
     expect(emitted([[
       "/main.hex",
-      "export let before: Int = 1\n\n\n\n" +
+      "module Main\n\n" + "export let before: Int = 1\n\n\n\n" +
       "record Box = {n: Int}\n\n\n\n" +
       "export let after: Int = Box({n = 2}).n\n",
     ]])).toContain("const before = 1;\n\nconst after = { n: 2 }.n;");
@@ -479,7 +479,7 @@ describe("a declaration that emits nothing shapes none of the page", () => {
     // blank lines of it.
     expect(emitted([[
       "/main.hex",
-      "export let before: Int = 1\n\n\n\n" +
+      "module Main\n\n" + "export let before: Int = 1\n\n\n\n" +
       "type Alias = Int\n\n\n\n" +
       "export let after: Alias = 2\n",
     ]])).toContain("const before = 1;\n\nconst after = 2;");
@@ -500,7 +500,7 @@ describe("a declaration that emits nothing shapes none of the page", () => {
     // no honor in it and keeps all three blank lines the source wrote.
     const javascript = emitted([[
       "/main.hex",
-      "constraint Small<a> =\n" +
+      "module Main\n\n" + "constraint Small<a> =\n" +
       "    small(value: a): Bool\n\n" +
       "export let before: Int = 1\n\n\n\n" +
       "honor Small<Int> =\n" +
@@ -518,7 +518,7 @@ describe("the `.d.ts` face is unchanged by any of it", () => {
   test("an exported union still declares every constructor", () => {
     expect(declarations([[
       "/main.hex",
-      "export union Shape = Circle(radius: Float) | Point\n",
+      "module Main\n\n" + "export union Shape = Circle(radius: Float) | Point\n",
     ]])).toBe(
       'export type Shape = { tag: "Circle"; radius: number } | { tag: "Point" };\n' +
       "export declare const Circle: (radius: number) => Shape;\n" +

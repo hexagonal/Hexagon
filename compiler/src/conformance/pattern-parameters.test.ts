@@ -22,14 +22,14 @@ import { emitDeclarations, emitJavaScript } from "../passes/emitter/emitter.js";
 // Through the whole project, prelude included: since #147 `Bool` is a prelude
 // declaration, so a probe module compiled on its own cannot name it.
 function diagnostics(source: string): string[] {
-  return [...compileMain(source).diagnostics.map(({ message }) => message)];
+  return [...compileMain("module Main\n\n" + source).diagnostics.map(({ message }) => message)];
 }
 
 /** Where a `duplicate parameter` diagnostic puts its two markers, as source offsets. */
 function duplicateParameterSpans(
   source: string,
 ): { readonly primary: number; readonly label: number } | undefined {
-  const file = new Source.File(Source.fileId(0), "/probe.hex", source);
+  const file = new Source.File(Source.fileId(0), "/probe.hex", "module Probe\n\n" + source);
   const found = resolve(parse(applyLayout(lex(file))), {}).diagnostics.find(
     ({ message }) => message.startsWith("duplicate parameter"),
   );
@@ -46,12 +46,12 @@ function renderedParameterNames(source: string): string[] {
 }
 
 function declarations(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.declarations.text;
 }
 
-const run = runMain;
+const run = (source: string): Promise<Record<string, unknown>> => runMain("module Main\n\n" + source);
 
 // Proves this file's harness can observe a failure.
 test("the harness reports a broken module rather than passing it", () => {
@@ -391,13 +391,13 @@ describe("pattern parameters are head binders", () => {
 describe("pattern parameters are still binders you cannot collide with", () => {
   test("§5.2 a later `let` in the body may not rebind a pattern parameter", () => {
     expect(diagnostics("fun f({x}) =\n    let x = 2\n    x\n")).toContain(
-      "`x` is already bound (line 1); Hexagon does not allow rebinding — choose a different name.",
+      "`x` is already bound (line 3); Hexagon does not allow rebinding — choose a different name.",
     );
   });
 
   test("§5.2 exactly as it may not rebind a plain one", () => {
     expect(diagnostics("fun f(x) =\n    let x = 2\n    x\n")).toContain(
-      "`x` is already bound (line 1); Hexagon does not allow rebinding — choose a different name.",
+      "`x` is already bound (line 3); Hexagon does not allow rebinding — choose a different name.",
     );
   });
 
@@ -417,9 +417,9 @@ describe("pattern parameters are still binders you cannot collide with", () => {
   describe("the duplicate-parameter pair is reported in source order", () => {
     for (
       const [source, first, second] of [
-        ["fun f(p, {p}) = p\n", 6, 10],
-        ["fun f({p}, p) = p\n", 7, 11],
-        ["fun f(p, p) = p\n", 6, 9],
+        ["fun f(p, {p}) = p\n", 20, 24],
+        ["fun f({p}, p) = p\n", 21, 25],
+        ["fun f(p, p) = p\n", 20, 23],
       ] as const
     ) {
       test(`§5.1 rule 3 \`${source.trim()}\``, () => {

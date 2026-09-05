@@ -23,7 +23,8 @@ import {
  * inherits from the grammar for free. Scope-level assertions are not repeated here:
  * `editors/vscode/src/grammar.test.ts` owns those, and after #161 it owns them for both
  * editors. What this file is for is the bridge — that a scope survives the trip into
- * Monaco intact, and that the Playground-only injection loads.
+ * Monaco intact, over the one grammar both editors now load (#829 retired the
+ * Playground-only injection).
  */
 
 const require = createRequire(import.meta.url);
@@ -321,7 +322,9 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
   });
 
   test("contextual keywords are painted in their positions", async () => {
-    expect(await tokenOf('import {a} from "./m"', "from")).toBe("keyword.other.from.hexagon");
+    // `from` only after `extern` since #829 — the Hexagon `import` carries none
+    // (Lexer §4.2), so a `from` in the refused JavaScript head is a plain name.
+    expect(await tokenOf('extern from "./m"', "from")).toBe("keyword.other.from.hexagon");
     expect(await tokenOf("let q = {p with x = 3}", "with")).toBe("keyword.other.with.hexagon");
     expect(await tokenOf("match e\n    | N(x) when x > 0 => x", "when")).toBe(
       "keyword.other.when.hexagon",
@@ -333,15 +336,15 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
     expect(await tokenOf("let r = {with = 3}", "with")).toBe(term);
   });
 
-  test("the import head paints its keyword and its alias (#762)", async () => {
-    // The head has one word of its own since #762: `module` left the import
-    // grammar with the form that carried it, so the alias stands immediately
-    // after the keyword and is painted as the namespace it names.
-    expect(await tokenOf('import Geo from "./geometry"', "import")).toBe(
+  test("the import head paints its keyword and its alias (#762, #829)", async () => {
+    // The head has one word of its own since #762 and no path since #829: the
+    // module name stands immediately after the keyword, the alias after `as`,
+    // and no `from` appears at all.
+    expect(await tokenOf("import Geometry as Geo", "import")).toBe(
       "keyword.control.import.hexagon",
     );
-    expect(await tokenOf('import Geo from "./geometry"', "from")).toBe(
-      "keyword.other.from.hexagon",
+    expect(await tokenOf("import Geometry as Geo", "as")).toBe(
+      "keyword.other.as.hexagon",
     );
   });
 
@@ -369,9 +372,11 @@ describe("what Playground gains by inheriting the grammar (#145)", () => {
   });
 });
 
-describe("the Playground-only module notation (injection)", () => {
-  // `module X` / `end module X` create a virtual file and are not `.hex` syntax, so
-  // they live in playground-module.tmLanguage.json rather than in the shared grammar.
+describe("the Playground's module notation, painted by the shared grammar (#829)", () => {
+  // `module X` / `end module X` create a virtual file *and* are `.hex` syntax
+  // now (Modules §2.1), so the injection that used to paint them is retired and
+  // the shared grammar's own header rules answer here. One grammar, and the two
+  // editors agree about the line by construction.
   const source = [
     "module Numbers",
     "export let answer: Int = 21",
@@ -380,8 +385,10 @@ describe("the Playground-only module notation (injection)", () => {
   ].join("\n");
 
   test("both headers are painted, name included", async () => {
-    expect(await tokenOf(source, "module")).toBe(control);
-    expect(await tokenOf(source, "end module")).toBe(control);
+    // `end` and `module` are two captures of one rule rather than one run: they
+    // take the same scope, and neither word means anything without the other.
+    expect(await tokenOf(source, "module")).toBe(storage);
+    expect(await allTokensFor(source, "end")).toEqual([storage]);
     expect(await allTokensFor(source, "Numbers")).toEqual([namespace, namespace, namespace]);
   });
 
@@ -403,27 +410,32 @@ describe("the Playground-only module notation (injection)", () => {
 
   test("the header owns `module` outright now the import head has let it go (#762)", async () => {
     // The Playground-shaped hazard #565's grammar rider guarded against is
-    // gone: the shared grammar no longer paints `module` at all, so the
-    // injection's header rule is the word's only claimant and cannot reach for
-    // an import's line — which begins with `import`, never at column zero with
-    // the word.
-    const source = ['import Geo from "./geometry"', "module Numbers"].join("\n");
-    expect(await allTokensFor(source, "module")).toEqual([control]);
+    // gone: the import head carries no `module` word, so the header rule is the
+    // word's only claimant and cannot reach for an import's line — which begins
+    // with `import`, never at column zero with the word.
+    const source = ['import Geometry as Geo', "module Numbers"].join("\n");
+    expect(await allTokensFor(source, "module")).toEqual([storage]);
     expect(await allTokensFor(source, "Numbers")).toEqual([namespace]);
   });
 
-  test("recognizes every header the host recognizes, valid name or not", async () => {
-    // workspace-source.ts takes any non-blank run as the name and opens the module
-    // even while reporting a diagnostic, so a header the host acts on must not be
-    // painted as ordinary code. The host's diagnostic is what flags the bad name.
-    for (const name of ["foo", "_X", "N.M", "Numbers extra"]) {
-      expect(`${name}: ${await tokenOf(`module ${name}`, "module")}`).toBe(
-        `${name}: ${control}`,
-      );
-      expect(`${name}: ${await tokenOf(`module ${name}`, name)}`).toBe(
-        `${name}: ${namespace}`,
+  test("a name the language refuses paints as ordinary code, not as a header", async () => {
+    // The retired injection took any non-blank run as the name, so `module foo`
+    // looked like a header the language accepts. It is not (§2.1's casing
+    // refusal, and the rest are not names at all): the grammar leaves the line
+    // alone and the host's own squiggle says why, which is the report §2.1
+    // owes it. The Playground still opens the virtual file — that is the host's
+    // recovery, not the language's blessing.
+    for (const name of ["foo", "_X"]) {
+      expect(`${name}: ${await tokenOf(`module ${name}`, "module")}`).not.toBe(
+        `${name}: ${storage}`,
       );
     }
+  });
+
+  test("a dotted name is one namespace name, as the language spells it", async () => {
+    // §2.3: the segments of a dotted module name are not modules, so the name
+    // is painted whole rather than as a qualifier and a type.
+    expect(await tokenOf("module Render.Geometry", "Render.Geometry")).toBe(namespace);
   });
 });
 

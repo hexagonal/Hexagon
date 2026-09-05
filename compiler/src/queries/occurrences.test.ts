@@ -47,6 +47,9 @@ function render(
  */
 const IDENTIFIER = /^[\p{ID_Start}$_][\p{ID_Continue}$_\u200C\u200D]*$/u;
 
+/** Every `index()` call below wraps its `/main.hex` source with this header. */
+const HEADER = "module Main\n\n";
+
 describe("collectOccurrences", () => {
   test("a span never covers more than the identifier", () => {
     const source = [
@@ -61,15 +64,15 @@ describe("collectOccurrences", () => {
       "let paint(b: Box(Colour)): Colour = b.item",
       "",
     ].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     for (const occurrence of own) {
-      const text = source.slice(occurrence.span.start.offset, occurrence.span.end.offset);
+      const text = (HEADER + source).slice(occurrence.span.start.offset, occurrence.span.end.offset);
       expect(text, `${occurrence.role} ${targetKey(occurrence.target)}`).toMatch(IDENTIFIER);
     }
     // `Box(Colour)` is a single annotation span; the index has to see the head
     // name and the argument as two separate occurrences.
-    expect(render(own, source, (o) => o.role === "reference")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.role === "reference")).toEqual([
       'reference record "Box"',
       'reference union "Colour"',
       'reference union "Colour"',
@@ -86,10 +89,10 @@ describe("collectOccurrences", () => {
       "let one = Box({item = 1})",
       "",
     ].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     const boxes = own.filter((occurrence) => occurrence.name === "Box");
-    expect(render(boxes, source)).toEqual([
+    expect(render(boxes, HEADER + source)).toEqual([
       'definition record "Box"',
       'definition value "Box"',
       'reference value "Box"',
@@ -105,7 +108,7 @@ describe("collectOccurrences", () => {
   test("references reach across modules by shared identity", () => {
     const helper = ["export union Colour =", "    | Red", "    | Green", ""].join("\n");
     const main = [
-      'import Helper from "./helper"',
+      'import Helper',
       "",
       "let pick(c: Helper.Colour): Helper.Colour =",
       "    match c",
@@ -113,7 +116,7 @@ describe("collectOccurrences", () => {
       "        other => other",
       "",
     ].join("\n");
-    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
+    const { occurrences } = index([["/helper.hex", "module Helper\n\n" + helper], ["/main.hex", "module Main\n\n" + main]]);
     const helperOwn = occurrences.get("/helper.hex")!;
     const mainOwn = occurrences.get("/main.hex")!;
 
@@ -124,7 +127,7 @@ describe("collectOccurrences", () => {
     // The declaring module publishes the definition and the importer publishes
     // only its own uses, so the two lists compose into the full reference set
     // without either module reporting a span it does not own.
-    expect(render(mainOwn, main, (o) => targetKey(o.target) === colour)).toEqual([
+    expect(render(mainOwn, HEADER + main, (o) => targetKey(o.target) === colour)).toEqual([
       'reference union "Colour"',
       'reference union "Colour"',
     ]);
@@ -134,7 +137,7 @@ describe("collectOccurrences", () => {
     // pattern and the qualified expression are both references here, and the
     // definition stays in the declaring module.
     const red = mainOwn.filter((occurrence) => occurrence.name === "Red");
-    expect(render(red, main)).toEqual([
+    expect(render(red, HEADER + main)).toEqual([
       'reference value "Red"',
       'reference value "Red"',
     ]);
@@ -159,16 +162,16 @@ describe("collectOccurrences", () => {
       "let describe<a: Show2>(value: a): String = show2(value)",
       "",
     ].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
-    expect(render(own, source, (o) => o.target.kind === "constraint")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.target.kind === "constraint")).toEqual([
       'definition constraint "Show2"',
       'reference constraint "Show2"',
       'reference constraint "Show2"',
     ]);
     // The constraint members are ordinary value symbols, so a constraint's
     // declaration and its members are separate identities at separate spans.
-    expect(render(own, source, (o) => o.name === "show2")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.name === "show2")).toEqual([
       'definition value "show2"',
       'reference value "show2"',
     ]);
@@ -176,15 +179,15 @@ describe("collectOccurrences", () => {
 
   test("`derives` is a constraint reference, not a self-reference", () => {
     const source = ["union Colour derives (Eq, Show) =", "    | Red", "    | Green", ""].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     // The resolver turns each `derives` entry into a synthesized `honor` whose
     // every span is the union declaration's. Publishing that would make `Colour`
     // a reference to itself, so the union must appear exactly once.
-    expect(render(own, source, (o) => o.name === "Colour")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.name === "Colour")).toEqual([
       'definition union "Colour"',
     ]);
-    expect(render(own, source, (o) => o.target.kind === "constraint")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.target.kind === "constraint")).toEqual([
       'reference constraint "Eq"',
       'reference constraint "Show"',
     ]);
@@ -197,9 +200,9 @@ describe("collectOccurrences", () => {
       "    fun widen(value: Widget): Widget",
       "",
     ].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
-    expect(render(own, source, (o) => o.target.kind === "extern-type")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.target.kind === "extern-type")).toEqual([
       'definition extern-type "Widget"',
       'reference extern-type "Widget"',
       'reference extern-type "Widget"',
@@ -214,7 +217,7 @@ describe("collectOccurrences", () => {
 
   test("the prelude's injected imports are not occurrences", () => {
     const source = "let flag = Some(1)\n";
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
     // Every module carries the prelude's imports, whose names span the whole
     // module. Left in, `Some`, `None`, `True` and `False` would each claim the
@@ -222,8 +225,8 @@ describe("collectOccurrences", () => {
     const wholeFile = own.filter(
       (occurrence) => occurrence.span.end.offset - occurrence.span.start.offset > 16,
     );
-    expect(render(wholeFile, source)).toEqual([]);
-    expect(render(own, source, (o) => o.name === "Some")).toEqual(['reference value "Some"']);
+    expect(render(wholeFile, HEADER + source)).toEqual([]);
+    expect(render(own, HEADER + source, (o) => o.name === "Some")).toEqual(['reference value "Some"']);
   });
 
   test("a non-ASCII name is one identifier, not its ASCII prefix", () => {
@@ -239,30 +242,36 @@ describe("collectOccurrences", () => {
       "let unwrapδ(b: TRésultat(Int)): Int = b.item",
       "",
     ].join("\n");
-    const { occurrences } = index([["/main.hex", source]]);
+    const { occurrences } = index([["/main.hex", "module Main\n\n" + source]]);
     const own = occurrences.get("/main.hex")!;
-    expect(render(own, source, (o) => o.name === "TRésultat")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.name === "TRésultat")).toEqual([
       'definition record "TRésultat"',
       'definition value "TRésultat"',
       'reference record "TRésultat"',
     ]);
-    expect(render(own, source, (o) => o.name === "unwrapδ")).toEqual([
+    expect(render(own, HEADER + source, (o) => o.name === "unwrapδ")).toEqual([
       'definition value "unwrapδ"',
     ]);
   });
 
-  test("an import publishes nothing, having no names of its own", () => {
+  test("an import publishes the module it names and nothing smaller", () => {
     const helper = "export let two: Int = 2\n";
-    const main = ['import H from "./helper"', "", "let four: Int = H.two + H.two", ""].join("\n");
-    const { occurrences } = index([["/helper.hex", helper], ["/main.hex", main]]);
+    const main = ['import Helper as H', "", "let four: Int = H.two + H.two", ""].join("\n");
+    const { occurrences } = index([["/helper.hex", "module Helper\n\n" + helper], ["/main.hex", "module Main\n\n" + main]]);
     const own = occurrences.get("/main.hex")!;
     // An import binds a module and nothing smaller (Modules §3, #762): the one
-    // name on the line is the alias, which is a module and no term or type. The
-    // resolver expands it into one entry per reachable member, each carrying the
-    // whole import statement as its span; publishing those would put a member on
-    // top of the `import` keyword and the specifier string.
-    expect(render(own, main, (o) => o.span.start.line === 0)).toEqual([]);
-    expect(render(own, main, (o) => o.span.start.line === 2)).toEqual([
+    // name on the line is the module's, and it is a module and no term or type.
+    // The resolver expands it into one entry per reachable member, each carrying
+    // the whole import statement as its span; publishing those would put a
+    // member on top of the `import` keyword and the module name.
+    //
+    // The module itself *is* published (#829) — the reference go-to-definition
+    // follows to the header of `module Helper` — and its span is the written
+    // name alone, not the statement.
+    expect(render(own, HEADER + main, (o) => o.span.start.line === 2)).toEqual([
+      'reference module "Helper"',
+    ]);
+    expect(render(own, HEADER + main, (o) => o.span.start.line === 4)).toEqual([
       'definition value "four"',
       'reference value "two"',
       'reference value "two"',
@@ -275,13 +284,17 @@ describe("collectOccurrences", () => {
     // a specifier resolved to be indexed, and the type's occurrences are the
     // annotations that mention it.
     const helper = ["export union Shade =", "    | Pale", "    | Deep", ""].join("\n");
-    const main = ['import H from "./helper"', "", "let q(y: H.Shade): H.Shade = y", ""].join("\n");
-    const project = compileFiles([["/helper.hex", helper], ["/main.hex", main]]);
+    const main = ['import Helper as H', "", "let q(y: H.Shade): H.Shade = y", ""].join("\n");
+    const project = compileFiles([["/helper.hex", "module Helper\n\n" + helper], ["/main.hex", "module Main\n\n" + main]]);
     expect(project.diagnostics).toEqual([]);
     const module = project.modules.find(({ source }) => source.path === "/main.hex")!;
     const own = collectOccurrences(module);
-    expect(render(own, main, (o) => o.span.start.line === 0)).toEqual([]);
-    expect(render(own, main, (o) => o.span.start.line === 2)).toEqual([
+    // The module the line names is published, and no *type* is: `Shade` is
+    // reached at its mentions below, never at the import.
+    expect(render(own, HEADER + main, (o) => o.span.start.line === 2)).toEqual([
+      'reference module "Helper"',
+    ]);
+    expect(render(own, HEADER + main, (o) => o.span.start.line === 4)).toEqual([
       'definition value "q"',
       'definition value "y"',
       'reference union "Shade"',
@@ -292,8 +305,8 @@ describe("collectOccurrences", () => {
 
   test("every occurrence belongs to the module that published it", () => {
     const { project, occurrences } = index([
-      ["/helper.hex", "export let two: Int = 2\n"],
-      ["/main.hex", 'import H from "./helper"\n\nlet four = H.two + H.two\n'],
+      ["/helper.hex", "module Helper\n\n" + "export let two: Int = 2\n"],
+      ["/main.hex", "module Main\n\n" + 'import Helper as H\n\nlet four = H.two + H.two\n'],
     ]);
     for (const module of project.modules) {
       for (const occurrence of occurrences.get(module.source.path) ?? []) {
@@ -312,8 +325,8 @@ describe("collectOccurrences", () => {
     // in by using it.
     const project = compileFiles([[
       "/main.hex",
-      [
-        'import S from "./Seq"',
+      "module Main\n\n" + [
+        'import Seq as S',
         "",
         "let doubled = S.map(Seq.iterate(1, (n) => n + 1), (n) => n * 2)",
         "let maybe: Option(Int) = Some(1)",
@@ -338,3 +351,4 @@ describe("collectOccurrences", () => {
     expect(total).toBeGreaterThan(100);
   });
 });
+

@@ -26,14 +26,14 @@ import { compileFiles, compileMain, projectDiagnostics, runMain } from "../suppo
 
 /** `/main.hex`'s emitted JavaScript, which must have compiled cleanly. */
 function emitted(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules.find(({ source: file }) => file.path === "/main.hex")!.javascript.text;
 }
 
 /** `stdlib/Float.hex`'s emitted JavaScript, as the prelude compiled it. */
 function companion(source: string): string {
-  const project = compileMain(source);
+  const project = compileMain("module Main\n\n" + source);
   expect(project.diagnostics).toEqual([]);
   return project.modules
     .find(({ source: file }) => file.path.endsWith("/Float.hex"))!.javascript.text;
@@ -66,7 +66,7 @@ function diagnostics(files: readonly (readonly [string, string])[]): readonly st
 
 describe("the control: diagnostics are project-level, so prove the probe can fail", () => {
   test("an unknown name is still refused", () => {
-    expect(projectDiagnostics("export let r: Float = halph(1.0)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Float = halph(1.0)\n"))
       .toEqual(["unknown name `halph`"]);
   });
 });
@@ -80,7 +80,7 @@ describe("the four spellings are one implementation", () => {
    * the one a re-homing could most easily leave pointing at the retired row.
    */
   test("`show` agrees qualified, after a dot, interpolated, and under a bound", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let qualified: String = Float.show(1.5)",
       "export let dotted: String = (1.5).show()",
       'export let interpolated: String = "${1.5}"',
@@ -101,7 +101,7 @@ describe("the four spellings are one implementation", () => {
    * describe below), and there is no operator to be a fourth.
    */
   test("`mod` agrees qualified and after a dot, on a receiver and on a literal", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let qualified: Float = Float.mod(-7.5, 3.0)",
       "let angle: Float = -7.5",
       "export let dotted: Float = angle.mod(3.0)",
@@ -123,7 +123,7 @@ describe("Primitive Types §5's equality and order, executed", () => {
    * which is what lets a `Float` key a hash table at all.
    */
   test("`NaN` equals itself and `-0.0` equals `0.0`, operator and slot alike", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let nan: Float = 0.0 / 0.0",
       "let alsoNan: Float = (1.0 / 0.0) - (1.0 / 0.0)",
       "let same<a: Eq>(left: a, right: a): Bool = Eq.equals(left, right)",
@@ -150,7 +150,7 @@ describe("Primitive Types §5's equality and order, executed", () => {
    * it is exactly the property a host comparison would not have.
    */
   test("`NaN` sorts after `+Infinity` and the zeroes compare equal", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let notANumber: Float = 0.0 / 0.0",
       "let positiveInfinity: Float = 1.0 / 0.0",
       "let negativeInfinity: Float = -1.0 / 0.0",
@@ -179,7 +179,7 @@ describe("Division & Remainder §5's family, executed", () => {
    * sign pair is here.
    */
   test("Euclidean and truncated agree only where §2's table says they do", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let euclidean: Vector(Float) = [",
       "    Float.mod(7.0, 3.0), Float.mod(-7.0, 3.0),",
       "    Float.mod(7.0, -3.0), Float.mod(-7.0, -3.0)]",
@@ -200,7 +200,7 @@ describe("Division & Remainder §5's family, executed", () => {
    * so the usual `x != x` test answers `False` here and would prove nothing.
    */
   test("a zero divisor answers `NaN` at both, and nothing throws", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let modByZero: String = show(Float.mod(1.0, 0.0))",
       "export let remByZero: String = show(Float.rem(1.0, 0.0))",
       "export let zeroByZero: String = show(Float.mod(0.0, 0.0))",
@@ -226,7 +226,7 @@ describe("Division & Remainder §5's family, executed", () => {
    * Pinned so that a future "tightening" of `mod` has to argue with this test.
    */
   test("the adjustment may round up to `abs(right)`, and that is the contract", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let tiny: Float = -1.0e-300",
       "export let atTheBoundary: Float = Float.mod(tiny, 3.0)",
       "export let withinTheBound: Bool = Float.mod(tiny, 3.0) <= 3.0",
@@ -246,7 +246,7 @@ describe("Collections Part 2 §2.3's `Hash` row, executed", () => {
    * hashes alike — which it must, because `Eq<Float>` says they are equal.
    */
   test("two independently produced `NaN`s hash equally", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let nan: Float = 0.0 / 0.0",
       "let alsoNan: Float = (1.0 / 0.0) * 0.0",
       "export let equal: Bool = nan == alsoNan",
@@ -267,7 +267,7 @@ describe("Collections Part 2 §2.3's `Hash` row, executed", () => {
    * is the law holding where a user can see it.
    */
   test("`-0.0` and `0.0` hash equally — the SameValueZero law", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let zeroesEqual: Bool = 0.0 == -0.0",
       "export let hashesAgree: Bool = Hash.hash(0.0) == Hash.hash(-0.0)",
       "let both: Set(Float) = Set.add(Set.add(Set.empty, 0.0), -0.0)",
@@ -290,7 +290,7 @@ describe("Primitive Types §7's `show`, warts included", () => {
    * language without noticing.
    */
   test("`4.0` shows as `4`, `-0.0` as `0`, and the non-finite floats by name", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let whole: String = show(4.0)",
       "export let negativeZero: String = show(-0.0)",
       "export let large: String = show(1.0e21)",
@@ -331,7 +331,7 @@ describe("`pow` and the guard that is not there", () => {
       "export let reciprocal: Float = 2.0 ** -1",
       "",
     ].join("\n");
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
 
     expect(exports["cube"]).toBe(8);
     expect(exports["reciprocal"]).toBe(0.5);
@@ -357,7 +357,7 @@ describe("the wired rows are gone, not dormant", () => {
     ].join("\n"));
 
     expect(text).not.toContain("__float");
-    expect(text).toContain('from "./Float.js"');
+    expect(text).toContain('from "./Hex/Float.js"');
     expect(text).toContain("__Ord_Float");
   });
 
@@ -376,7 +376,7 @@ describe("the wired rows are gone, not dormant", () => {
 
     expect(text).not.toContain("fromInt: __a => __a");
     expect(text).not.toContain("divide: (__a, __b) => __a / __b");
-    expect(text).toContain('__Signed_Float } from "./Float.js"');
+    expect(text).toContain('__Signed_Float } from "./Hex/Float.js"');
   });
 
   /**
@@ -386,11 +386,11 @@ describe("the wired rows are gone, not dormant", () => {
    * still says so in its own words (Integral §8).
    */
   test("`Float.div` misses as an ordinary export, and `gcd` still refuses `Float`", () => {
-    expect(projectDiagnostics("export let d: Float = Float.div(1.0, 2.0)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let d: Float = Float.div(1.0, 2.0)\n"))
       .toEqual(["module `Float` does not export `div`"]);
-    expect(projectDiagnostics("export let q: Float = Float.quot(1.0, 2.0)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let q: Float = Float.quot(1.0, 2.0)\n"))
       .toEqual(["module `Float` does not export `quot`"]);
-    expect(projectDiagnostics("export let g: Float = Integral.gcd(1.5, 2.0)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let g: Float = Integral.gcd(1.5, 2.0)\n"))
       .toEqual([
         "type `Float` has no `Integral` instance; its only legal homes are the module " +
           "declaring `Integral` and `Float`'s prelude companion module, both outside " +
@@ -407,12 +407,12 @@ describe("the wired rows are gone, not dormant", () => {
    * refusal.
    */
   test("a `div` dot call on a `Float` receiver takes the neither-error", () => {
-    expect(projectDiagnostics("export let d: Float = (1.5).div(2.0)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let d: Float = (1.5).div(2.0)\n")).toEqual([
       "`Float` has no field `div`, its companion exports no operation `div`, and " +
         "no constraint honored at `Float` has a subject-first member `div`; call " +
         "an available subject-first function explicitly",
     ]);
-    expect(projectDiagnostics("let t: Float = 7.0\nexport let m: Float = t.mod(3.0)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "let t: Float = 7.0\nexport let m: Float = t.mod(3.0)\n"))
       .toEqual([]);
   });
 });
@@ -465,7 +465,7 @@ describe("Constraints §6.1's inlining survives the move", () => {
       "export let hashed: Bool = Hash.hash(here) == Hash.hash(alsoHere)",
       "",
     ].join("\n");
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
     const text = emitted(source);
 
     expect(exports["same"]).toBe(true);
@@ -494,7 +494,7 @@ describe("the composed `fromNat`, which takes no key", () => {
       "export let zero: Float = Float.fromNat(0)",
       "",
     ].join("\n");
-    const exports = await runMain(source);
+    const exports = await runMain("module Main\n\n" + source);
 
     expect(exports["fromLiteral"]).toBe(7);
     expect(exports["fromBinding"]).toBe(5);
@@ -507,7 +507,7 @@ describe("the composed `fromNat`, which takes no key", () => {
     // its evidence. An erasure at the call site would name neither.
     expect(emitted(source)).toContain(
       'import { __Num_Float_fromNat as fromNat, __Signed_Float_fromInt as fromInt }' +
-        ' from "./Float.js";',
+        ' from "./Hex/Float.js";',
     );
     expect(emitted(source)).toContain("const fromLiteral = fromNat(7);");
   });
@@ -546,10 +546,10 @@ describe("`mod` and `rem` gained a second exporter", () => {
     // Since #742 the sentence is §5.5's refusal rather than the ambiguity one —
     // the bare layer holds neither spelling now — and it names the same two
     // homes, spelled with the arguments the program wrote.
-    expect(projectDiagnostics("export let m: Int = mod(7, 3)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let m: Int = mod(7, 3)\n")).toEqual([
       "no bare `mod`; write `(7).mod(3)`, `Integral.mod(7, 3)`, or `Float.mod(7, 3)`",
     ]);
-    expect(projectDiagnostics("export let r: Float = rem(7.0, 3.0)\n")).toEqual([
+    expect(projectDiagnostics("module Main\n\n" + "export let r: Float = rem(7.0, 3.0)\n")).toEqual([
       "no bare `rem`; write `(7.0).rem(3.0)`, `Integral.rem(7.0, 3.0)`, " +
         "or `Float.rem(7.0, 3.0)`",
     ]);
@@ -557,7 +557,7 @@ describe("`mod` and `rem` gained a second exporter", () => {
 
   /** Every unambiguous route still works, at `Int` as much as at `Float`. */
   test("the qualified and dot spellings survive at both types", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "export let floatQualified: Float = Float.mod(-11.0, 4.0)",
       "export let intQualified: Int = Integral.mod(-11, 4)",
       "export let companionQualified: Int = Int.rem(-11, 4)",
@@ -586,9 +586,9 @@ describe("`mod` and `rem` gained a second exporter", () => {
    */
   test("a module exporting its own `mod` still works", () => {
     expect(diagnostics([
-      ["/clock.hex", "export let mod(value: Int, by: Int): String = \"tick\"\n"],
+      ["/clock.hex", "module Clock\n\n" + "export let mod(value: Int, by: Int): String = \"tick\"\n"],
       ["/main.hex",
-        'import Clock from "./clock"\n' +
+        "module Main\n\n" + 'import Clock\n' +
         "let mod = Clock.mod\n" +
         "export let label: String = mod(7, 3)\n"],
     ])).toEqual([]);
@@ -603,7 +603,7 @@ describe("Numeric Literals §4's defaulting is unchanged by the new seats", () =
    * else, and `Float.hex` sitting after `Int.hex` changes no part of it.
    */
   test("an unannotated literal is still an `Int`, beside the new companions", async () => {
-    const exports = await runMain([
+    const exports = await runMain("module Main\n\n" + [
       "let x = 1",
       "export let doubled: Int = x + x",
       "export let stillInt: String = show(x + 41)",
@@ -655,8 +655,9 @@ describe("the companion's own emitted shape", () => {
       "const FloatRangeError = message => " +
         "__exception(\"FloatRangeError\", message, { message });",
     );
-    // The brand is the declaring module's path identity, so `Float.hex`'s own.
-    expect(text).toContain("__error.$hex === \"Float\"");
+    // The brand is the declaring module's full name (Packages §2.3), so the
+    // prelude's own `Hex.Float`.
+    expect(text).toContain("__error.$hex === \"Hex.Float\"");
   });
 });
 
@@ -678,8 +679,7 @@ describe("the special values and their detectors (#358)", () => {
    * that quietly emitted `0` would satisfy every spelling assertion here.
    */
   test("the constants are the IEEE specials, and negation reaches the third", async () => {
-    const exports = await runMain(
-      'export let out: String = show(Float.infinity) ++ " " ++ show(-Float.infinity)\n' +
+    const exports = await runMain("module Main\n\n" + 'export let out: String = show(Float.infinity) ++ " " ++ show(-Float.infinity)\n' +
         '    ++ " " ++ show(Float.nan)\n',
     );
 
@@ -687,8 +687,7 @@ describe("the special values and their detectors (#358)", () => {
   });
 
   test("`isNan` answers where `x != x` cannot", async () => {
-    const exports = await runMain(
-      "export let out: String =\n" +
+    const exports = await runMain("module Main\n\n" + "export let out: String =\n" +
         "    show(Float.isNan(Float.nan)) ++ show(Float.isNan(0.0 / 0.0))\n" +
         "      ++ show(Float.isNan(1.0)) ++ show(Float.isNan(Float.infinity))\n",
     );
@@ -698,8 +697,7 @@ describe("the special values and their detectors (#358)", () => {
 
   /** The dead idiom, pinned dead, so its absence stays a decision. */
   test("`x != x` is uniformly `False`, NaN included", async () => {
-    const exports = await runMain(
-      "let selfDiffers(value: Float): Bool = value != value\n" +
+    const exports = await runMain("module Main\n\n" + "let selfDiffers(value: Float): Bool = value != value\n" +
         "export let out: String =\n" +
         "    show(selfDiffers(Float.nan)) ++ show(selfDiffers(1.0))\n",
     );
@@ -708,8 +706,7 @@ describe("the special values and their detectors (#358)", () => {
   });
 
   test("`isFinite` excludes both infinities and NaN, and admits both zeroes", async () => {
-    const exports = await runMain(
-      "export let out: String =\n" +
+    const exports = await runMain("module Main\n\n" + "export let out: String =\n" +
         "    show(Float.isFinite(1.0)) ++ show(Float.isFinite(0.0))\n" +
         "      ++ show(Float.isFinite(-0.0)) ++ show(Float.isFinite(Float.infinity))\n" +
         "      ++ show(Float.isFinite(-Float.infinity)) ++ show(Float.isFinite(Float.nan))\n",
@@ -723,8 +720,7 @@ describe("the special values and their detectors (#358)", () => {
     // #742 took the bare spellings: `infinity`, `nan`, `isNan` and `isFinite`
     // are `Float.hex`'s exports and no prelude function is seeded bare. `show`
     // is the one member that is, which is why it still reads as it did.
-    const exports = await runMain(
-      "export let out: String =\n" +
+    const exports = await runMain("module Main\n\n" + "export let out: String =\n" +
         "    show(Float.infinity) ++ show(Float.isNan(Float.nan))" +
         " ++ show(Float.isFinite(2.5))\n",
     );
@@ -734,21 +730,21 @@ describe("the special values and their detectors (#358)", () => {
 
   /** And the bare spelling of each names its one home (Modules §10). */
   test("the bare spellings name `Float`", () => {
-    expect(projectDiagnostics("export let f: Float = infinity\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let f: Float = infinity\n"))
       .toEqual(["no bare `infinity`; write `Float.infinity`"]);
-    expect(projectDiagnostics("export let f: Float = nan\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let f: Float = nan\n"))
       .toEqual(["no bare `nan`; write `Float.nan`"]);
-    expect(projectDiagnostics("export let f(x: Float): Bool = isNan(x)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let f(x: Float): Bool = isNan(x)\n"))
       .toEqual(["no bare `isNan`; write `x.isNan()` or `Float.isNan(x)`"]);
-    expect(projectDiagnostics("export let f(x: Float): Bool = isFinite(x)\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let f(x: Float): Bool = isFinite(x)\n"))
       .toEqual(["no bare `isFinite`; write `x.isFinite()` or `Float.isFinite(x)`"]);
   });
 
   /** The hint the lexer has always given now names something that resolves. */
   test("the overflow fix-it's spelling compiles", () => {
     // The bad literal also derails the parse, so only the fix-it is asserted.
-    expect(projectDiagnostics("export let big: Float = 1e400\n"))
+    expect(projectDiagnostics("module Main\n\n" + "export let big: Float = 1e400\n"))
       .toContain("Float literal is too large; use `Float.infinity`");
-    expect(projectDiagnostics("export let big: Float = Float.infinity\n")).toEqual([]);
+    expect(projectDiagnostics("module Main\n\n" + "export let big: Float = Float.infinity\n")).toEqual([]);
   });
 });
