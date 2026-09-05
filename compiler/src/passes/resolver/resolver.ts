@@ -23,7 +23,11 @@ import {
 } from "../../intrinsics.js";
 import { relativeSpecifier } from "../../support/paths.js";
 import { displayModuleName, moduleImportLine } from "../../packages.js";
-import type * as Source from "../../support/source.js";
+import * as Source from "../../support/source.js";
+import {
+  importInsertionOffset,
+  type ImportPlacement,
+} from "../../support/import-placement.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 
@@ -1481,6 +1485,30 @@ class Resolver {
    * identity arithmetic and this one has to be the branded id it is compared to.
    */
   #moduleFileId = 0 as unknown as Source.FileId;
+  /**
+   * Where an `import` line this module's refusals write would go — the module's
+   * header and the import lines it already holds (Modules §5.1's placement
+   * rule, `support/import-placement.ts`).
+   *
+   * Held from the parsed tree at the top of `resolve`, because the refusal that
+   * needs it is raised deep in an expression walk: the applied edit belongs to
+   * the **module containing the use**, and in a file holding several modules
+   * (§2.2) that is this one and not the file's first.
+   */
+  #placement: ImportPlacement = { header: undefined, imports: [] };
+  /**
+   * The module's text as a `Source.File`, built at most once and only where a
+   * refusal needs a span for an insertion offset. `#text` alone cannot answer
+   * `Source.Span`, which is what an edit carries.
+   */
+  #placementFile: Source.File | undefined;
+  /**
+   * Spellings whose type-not-module refusal has already carried the import line
+   * (§5.1). One module can refuse `Meters.` at three uses, and every one of
+   * them wants the identical line: the **first** carries it, so the offer sits
+   * above the earliest refused use and taking it writes one import, not three.
+   */
+  readonly #importRepairsOffered = new Set<string>();
   #lambdaDepth = 0;
   /** Written-hole identities; see `Resolved.HoleTypeAnnotation.id`. */
   #nextHole = 0;
@@ -2198,6 +2226,14 @@ class Resolver {
   resolve(module: Parsed.Module): Resolved.Module {
     this.#fileId = Number(module.fileId);
     this.#moduleFileId = module.fileId;
+    this.#placement = {
+      header: module.name.declared ? module.name.span : undefined,
+      imports: module.items.flatMap((item) =>
+        // A refused head's recovery is a line the author wrote and the reading
+        // kept, so an inserted import still belongs below it.
+        item.kind === "Import" ? [item.span] : []
+      ),
+    };
     this.#predeclareTypes(module.items);
     // Implied type names have owner-relative identity, but failed uses outside
     // an owner still receive the knowing v1 diagnostic even before declaration.
@@ -4547,17 +4583,59 @@ class Resolver {
     // is the module's own declaration there is no import to name, and the
     // general sentence stands.
     const home = this.#typeHomeModule(name);
+    // §5.1's applied-edit obligation, at the tier that owes it (#829, James's
+    // ruling on this PR's N1): where the home **is** reached the compiler wrote
+    // the line into the message, so it writes it into an edit too, and the
+    // workspace tier — which exists to answer *which module* — adds nothing.
+    // Where no home is reached the message names none either, and the offer
+    // stays the workspace's: only an inventory can say what exports the
+    // spelling (§10's repair-family row).
+    const line = home === undefined ? undefined : moduleImportLine(home, name);
+    const insert = line === undefined
+      ? undefined
+      : this.#importInsertion(line, receiver.span, name);
     this.#diagnostics.add({
       severity: "error",
-      message: home === undefined
+      message: line === undefined
         ? `\`${name}\` is a type, not a module; import its home module ` +
           "to qualify through it"
-        : `\`${name}\` is a type, not a module; \`${moduleImportLine(home, name)}\` ` +
-          "and qualify through it",
+        : `\`${name}\` is a type, not a module; \`${line}\` and qualify through it`,
       primary: receiver.span,
-      importModuleRepair: { name, namespace: "type" },
+      importModuleRepair: { name, namespace: "type", ...(insert === undefined ? {} : { applied: true }) },
+      ...(insert === undefined ? {} : { fixes: [insert] }),
     });
     return true;
+  }
+
+  /**
+   * The applied edit one repair-family refusal carries: `line` inserted where
+   * Modules §5.1 places it — below the last import above this use, else below
+   * the module's own header (`importInsertionOffset`).
+   *
+   * `undefined` where the caller supplied no source text (a bare `resolve` in a
+   * pass-level test), which degrades to the message alone — the same
+   * degradation `#writtenArguments` takes, and never to a wrong offset. Also
+   * `undefined` for the second and later refusals of one spelling: the first
+   * carries the line, and it sits above them all.
+   */
+  #importInsertion(
+    line: string,
+    use: Source.Span,
+    spelling: string,
+  ): Diagnostics.Fix | undefined {
+    const text = this.#text;
+    if (text === undefined || this.#importRepairsOffered.has(spelling)) return undefined;
+    this.#importRepairsOffered.add(spelling);
+    const file = this.#placementFile ??
+      (this.#placementFile = new Source.File(this.#moduleFileId, this.#path ?? "", text));
+    const offset = importInsertionOffset(this.#placement, text, use.start.offset);
+    return {
+      // The **family's** title, the one the workspace tier writes at the seats
+      // it still owns (`#importModuleAction`): one repair offered under one
+      // name, whichever tier reached it.
+      message: `import \`${spelling}\``,
+      edits: [{ span: file.span(offset, offset), replacement: `${line}\n` }],
+    };
   }
 
   /**

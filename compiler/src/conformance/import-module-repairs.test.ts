@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { compileFiles } from "../support/test-project.js";
 import { resolveSpecifier, specifierFor } from "../project.js";
+import type * as Diagnostics from "../support/diagnostics.js";
 
 /**
  * Conformance for the **module-import repair family** — Modules §5.1 rule 1's
@@ -55,6 +56,34 @@ const SHAPE = [
   "module Shape\n\n" + "export union Shape = Circle(Float) | Square(Float)\n" +
     "export fun area(s: Shape): Float = 1.0\n",
 ] as const;
+
+/**
+ * A module exporting a transparent alias and a value under it — the one shape
+ * that carries a type's **home** across the border (`#typeHomeModule`), and so
+ * the one where the compiler tier can write the import line itself.
+ */
+const LIB = [
+  "/lib.hex",
+  "module Lib\n\n" + "export type Meters = Float\n" + "export let zero: Float = 0.0\n",
+] as const;
+
+/**
+ * One file's text with every edit of one diagnostic's sole fix applied — the
+ * proof that a rewrite is the repair and not a gesture at one (Declarations
+ * Preamble §1.1). Edits are applied last-first so earlier spans keep their
+ * offsets.
+ */
+function applied(text: string, diagnostic: Diagnostics.Diagnostic | undefined): string {
+  const [fix, ...rest] = diagnostic?.fixes ?? [];
+  expect(rest).toEqual([]);
+  return [...fix?.edits ?? []]
+    .sort((left, right) => right.span.start.offset - left.span.start.offset)
+    .reduce(
+      (document, { span, replacement }) =>
+        document.slice(0, span.start.offset) + replacement + document.slice(span.end.offset),
+      text,
+    );
+}
 
 /** A user constraint, unimported: the arrival state both constraint seats own. */
 const SCALE = [
@@ -148,6 +177,81 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
         "`type foo as Tfoo`",
       "unknown name `foo`",
     ]);
+  });
+
+  /**
+   * §5.1's **applied-edit obligation**, at the tier that owes it (§10's row:
+   * "*the type's home named, the applied edit carried*"; #829, ruled onto this
+   * PR).
+   *
+   * Before #829 a module import carried a path, which only a workspace could
+   * supply, so the whole family's edit sat at the LSP tier. A module import now
+   * names a module, and where the *home is reached* the compiler already spells
+   * the line in its own sentence — so it writes it as an edit too, and a batch
+   * compile carries the repair a session used to have to compute.
+   *
+   * The placement is §5.1's own: below the last import line above the use.
+   */
+  test("the home named, the applied edit carried — from the compiler's own diagnostics", () => {
+    const text = "module Main\n\n" + "import Lib\n" +
+      "type Meters = Lib.Meters\n" + "export let n: Float = Meters.zero\n";
+    const [diagnostic, ...rest] = compileFiles([LIB, ["/main.hex", text]]).diagnostics;
+    expect(diagnostic?.message).toBe(
+      "`Meters` is a type, not a module; `import Lib as Meters` and qualify through it",
+    );
+    expect(rest).toEqual([]);
+    const repaired = applied(text, diagnostic);
+    expect(repaired).toBe(
+      "module Main\n\n" + "import Lib\n" + "import Lib as Meters\n" +
+        "type Meters = Lib.Meters\n" + "export let n: Float = Meters.zero\n",
+    );
+    // The standard the family is held to: the offered line is the repair, so
+    // the file it produces draws nothing (Declarations Preamble §1.1).
+    expect(messages([LIB, ["/main.hex", repaired]])).toEqual([]);
+  });
+
+  test("the edit belongs to the module holding the use, not to the file's first", () => {
+    // A file may hold several modules (§2.2), and each is resolved on its own —
+    // so the header the fallback is measured from is *this* module's. Measuring
+    // from the file's first header would write the import into a stranger, and
+    // measuring from offset zero would write it above every header, which is
+    // "code outside a module" (§2.2) rather than a badly-placed import.
+    //
+    // The import line here sits *below* the use, so it is not one the new alias
+    // could sit under (§5.1's local reading) and the header fallback is what
+    // answers — which is the only shape in this family that reaches it, the
+    // home being known through an import in the first place.
+    const text = "module Other\n\n" + "export let a: Int = 1\n\n" +
+      "end module Other\n\n" +
+      "module Main\n\n" + "type Meters = P.Meters\n" +
+      "export let n: Float = Meters.zero\n" +
+      "import Lib as P\n";
+    const [diagnostic, ...rest] = compileFiles([LIB, ["/f.hex", text]]).diagnostics
+      .filter(({ message }) => message.includes("is a type, not a module"));
+    expect(diagnostic?.message).toBe(
+      "`Meters` is a type, not a module; `import Lib as Meters` and qualify through it",
+    );
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Other\n\n" + "export let a: Int = 1\n\n" +
+        "end module Other\n\n" +
+        "module Main\n\n" + "import Lib as Meters\n" +
+        "type Meters = P.Meters\n" +
+        "export let n: Float = Meters.zero\n" +
+        "import Lib as P\n",
+    );
+  });
+
+  test("one line for one spelling, however many uses the module refuses", () => {
+    // Three refused uses of `Meters.` want the identical line, and the first
+    // carries it — so it sits above them all and applying every fix the file
+    // reports writes one import, not three.
+    const text = "module Main\n\n" + "import Lib\n" +
+      "type Meters = Lib.Meters\n" +
+      "export let a: Float = Meters.zero\n" +
+      "export let b: Float = Meters.zero\n";
+    const reported = compileFiles([LIB, ["/main.hex", text]]).diagnostics;
+    expect(reported.map(({ fixes }) => (fixes ?? []).length)).toEqual([1, 0]);
   });
 
   test("a prelude spelling never reaches the seat — its alias is always standing", () => {
