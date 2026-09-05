@@ -459,7 +459,7 @@ Globality (§7.1) plus the orphan rule (§7.2) make discoverability a near-non-p
 
 ### 8.1 Acyclic imports
 
-An import cycle anywhere in the graph is a **hard error** naming the cycle: "import cycle: `A` → `B` → `A`." No exceptions, including type-only cycles — a cycle is a cycle. Rationale: ESM permits cycles and they are a hazard swamp (bindings observable before initialization); F# is strictly acyclic and is the lineage; acyclicity yields the deterministic load order below and means emitted ESM never exercises JS's cycle semantics. Instances being evaluation-free (Constraints §6.3) removes the one pressure that might have argued for cycles. Mutually recursive *types* live in one module (Preamble §7.2 already grants order-insensitivity within a module); the diagnostic suggests exactly that.
+An import cycle anywhere in the graph is a **hard error** naming the cycle: "import cycle: `A` → `B` → `A`." No exceptions, including type-only cycles — a cycle is a cycle, a module importing itself the one-node case. Rationale: ESM permits cycles and they are a hazard swamp (bindings observable before initialization); F# is strictly acyclic and is the lineage; acyclicity yields the deterministic load order below and means emitted ESM never exercises JS's cycle semantics. Instances being evaluation-free (Constraints §6.3) removes the one pressure that might have argued for cycles. Mutually recursive *types* live in one module (Preamble §7.2 already grants order-insensitivity within a module); the diagnostic suggests exactly that.
 
 ### 8.2 Top-level effects and load order
 
@@ -752,7 +752,7 @@ import 用户 as Geo                             -- ERROR (parse): … write imp
 import _internal.util                        -- ERROR (parse): … write import <Name> — no lawful
                                              --   name results, so the slot, never _internal.Util
 
--- (o) Headers and closers (§2.1, §2.2; the strangers' unbound alias, §5.1)
+-- (o) Headers and closers (§2.1, §2.2; the strangers' unbound alias and self-qualification, §5.1)
 -- search-params.hex, no header:
 export fun parse(s: String): Vector(String) = ...
 -- ERROR: every file declares its module; write module SearchParams (fixit inserts it)
@@ -822,8 +822,11 @@ export fun unit(): Geometry.Point = ...      -- ERROR: no module alias Geometry;
 export let two: Float = 2.0 * Geometry.scale -- ERROR: the same report in term position — the
                                              --   same edit; applying both applies one (§5.1)
 export let four: Float = Shapes.two * 2.0    -- ERROR: a module does not qualify through itself;
-                                             --   write two * 2.0 (the module's own layer holds
-                                             --   it: the applied edit drops the qualifier)
+                                             --   write two * 2.0 (bare two resolves to the module's
+                                             --   own binding here: the applied edit drops the
+                                             --   qualifier)
+export fun grow(two: Float): Float =         -- ERROR: a module does not qualify through itself —
+    Shapes.two * two                         --   no repair named: bare two here is the parameter
 -- (a third file, in a project depending on Acme:)
 module Acme.Geometry                         -- ERROR: Acme.Geometry begins with the name of the
                                              --   package Acme; a dotted module's first segment
