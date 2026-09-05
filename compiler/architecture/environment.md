@@ -62,6 +62,8 @@ Expected adapters:
 
 Other adapters may be added without changing compiler passes.
 
+**Project and package discovery is an adapter capability, and one adapter serves every Node-hosted tool.** What a program is on disk — the project directory, the files beneath it, the directories its dependencies are found in — is read by the `host/` package, which the language server and the command-line compiler share rather than each answering for itself; the compiler core receives packages as records (Packages §4.1) and never spells `node_modules`. One program per project directory: the directory holding a `hexagon.json`, a manifest nested beneath it being a project of its own (Packages §2.2), and a directory holding none a project with no manifest. An editor folder opened inside a package belongs to that package's project, and two open folders see each other only through an installed dependency; a file two programs hold has one identity, its open buffer's text reaching both, and each program keeps its own analysis and its own failures. npm's layout is the first lookup mechanism (Packages §4.1); a second is another supplier of directories, and no compiler pass changes for it.
+
 ## 5. Initial command-line environment
 
 The first `hexc` command runs under **Node.js**.
