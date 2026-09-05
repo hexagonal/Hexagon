@@ -279,6 +279,10 @@ module Acme.Parser                           -- ERROR at program check: module A
                                              --   rename the project or drop its manifest name, drop the
                                              --   dependency that brings Bolt, or combine them once
                                              --   Bolt renames its module
+
+-- (i) The runtime modules are members of Hex like any other (§2.4)
+import Hex.Runtime.VectorTrie                -- OK: binds VectorTrie, which exports nothing
+export let n: Int = VectorTrie.size          -- ERROR: module VectorTrie does not export size
 ```
 
 ---

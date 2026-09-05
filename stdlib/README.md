@@ -15,6 +15,7 @@ directory, so a program in any host reaches it by `import Rat` or
 `Hex.Runtime.HashTrie`: importable like any member of `Hex`, exporting nothing
 at the Hexagon level, their privileges keyed by the compiler's runtime list and
 never by the folder (Intrinsics §5.2).
+
 The directory is called `stdlib` and the package `Hex` on purpose: the compiler
 reads neither a directory nor a file name to learn a module's name (Modules §1),
 so a directory says what it holds and a package is what a program writes. A
