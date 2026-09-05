@@ -10,7 +10,13 @@
 
 import * as Diagnostics from "../../support/diagnostics.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
-import type * as Source from "../../support/source.js";
+import * as Source from "../../support/source.js";
+import {
+  lineStart,
+  newlineOf,
+  pastBlankLines,
+  pastLineEnd,
+} from "../../support/import-placement.js";
 import { displayParameterName, syntheticParameterName } from "../../support/synthetic.js";
 import {
   type ForeignLiteral,
@@ -390,6 +396,7 @@ export function parseFile(file: LaidOut.File, path = ""): readonly Parsed.Module
     file.tokens,
     diagnostics,
     new DocBlocks(file.tokens, file.comments, diagnostics),
+    file.text,
   ).parseFile(file.fileId, file.comments, path);
 }
 
@@ -417,6 +424,12 @@ class Parser {
    * `#sectionModules` cuts the item list at those counts.
    */
   readonly #moduleMarkers: ModuleMarker[] = [];
+  /**
+   * The file's own source text — read by one fixit and nothing else (Modules
+   * §2.2's header move; see `Lexed.File.text`). Every other decision this
+   * parser makes is over tokens and spans, and stays that way.
+   */
+  readonly #text: string;
   #index = 0;
   /**
    * Type-parameter lambdas awaiting their position check (Functions §4.2). The grammar
@@ -502,10 +515,12 @@ class Parser {
     tokens: readonly LaidOut.Token[],
     diagnostics: Diagnostics.Bag,
     docs: DocBlocks,
+    text: string,
   ) {
     this.#tokens = tokens;
     this.#diagnostics = diagnostics;
     this.#docs = docs;
+    this.#text = text;
   }
 
   /**
@@ -547,6 +562,48 @@ class Parser {
       // showed one module's share would drop the rest.
       diagnostics,
     }));
+  }
+
+  /**
+   * §2.2's fixit for an item standing above the first header: **the header
+   * moved above the item** — "*the same error, its fixit the header moved above
+   * the item*".
+   *
+   * A move, and therefore two edits: the header's line is lifted from where it
+   * stands and inserted at the top of the file. What is lifted is the whole
+   * line plus the blank run beneath it — the same run `importInsertionOffset`
+   * steps over, from the same helpers — so the text put back is the text taken
+   * out, byte for byte, and a CRLF file's line endings travel with their lines
+   * instead of being reconstructed. That is what the file's own text is carried
+   * this far for: nothing in a token stream says how many blank lines the
+   * author left under their header, and a fixit that guessed would reformat the
+   * file it was asked to repair.
+   *
+   * The insert goes at the **top of the file**, not at the stray item's own
+   * line. Above the item is what the row asks for and the top satisfies it for
+   * every item at once; a doc comment sits immediately above the declaration it
+   * documents (`spec/doc-comments.md` §2.1), so the item's line start is a
+   * position an edit must never take. The top is above every comment there is.
+   *
+   * The items above the header are folded into the module it opens, so the
+   * repaired file declares exactly the modules the refused one did — the edit
+   * moves a line and moves nothing else.
+   */
+  #headerMoveFix(
+    header: ModuleMarker,
+    fileId: Source.FileId,
+    path: string,
+  ): Diagnostics.Fix {
+    const file = new Source.File(fileId, path, this.#text);
+    const from = lineStart(this.#text, header.span.start.offset);
+    const to = pastBlankLines(this.#text, pastLineEnd(this.#text, header.span.end.offset));
+    return {
+      message: `move \`module ${header.name.text}\` above this item`,
+      edits: [
+        { span: file.span(0, 0), replacement: this.#text.slice(from, to) },
+        { span: file.span(from, to), replacement: "" },
+      ],
+    };
   }
 
   /**
@@ -594,6 +651,7 @@ class Parser {
           message: "code outside a module: a module begins with its header; move " +
             `\`module ${firstHeader.name.text}\` above this item`,
           primary: leading[0]!.span,
+          fixes: [this.#headerMoveFix(firstHeader, fileId, path)],
         });
       }
     } else {
@@ -608,7 +666,12 @@ class Parser {
         ...(derived === MODULE_NAME_SLOT ? {} : {
           fixes: [{
             message: `write \`module ${derived}\``,
-            edits: [{ span: insertAt, replacement: `module ${derived}\n\n` }],
+            edits: [{
+              span: insertAt,
+              // The file's own line ending, not `\n`: an inserted line matches the
+              // lines around it or the repair shows up as a whitespace diff.
+              replacement: `module ${derived}${newlineOf(this.#text).repeat(2)}`,
+            }],
           }],
         }),
       });
@@ -640,7 +703,7 @@ class Parser {
               message: `write \`end module ${open.name.text}\``,
               edits: [{
                 span: { fileId, start: marker.span.start, end: marker.span.start },
-                replacement: `end module ${open.name.text}\n\n`,
+                replacement: `end module ${open.name.text}${newlineOf(this.#text).repeat(2)}`,
               }],
             }],
           });
@@ -4451,6 +4514,7 @@ class Parser {
         part.tokens,
         this.#diagnostics,
         DocBlocks.none(this.#diagnostics),
+        this.#text,
       ).parseStandaloneExpression();
       return { kind: "Interpolation", expression, span: part.span };
     });

@@ -162,6 +162,19 @@ export interface Newline {
 
 export interface File {
   readonly fileId: Source.FileId;
+  /**
+   * The source this file was scanned from, carried so a later pass can quote or
+   * *rearrange* the program's own text.
+   *
+   * One thing reads it above the lexer: Modules §2.2's fixit for an item
+   * standing above the first header, which moves the header line — an edit that
+   * has to reproduce the run of whitespace it lifts, and cannot invent it from
+   * tokens and spans. The parser is otherwise text-free and stays so; this is
+   * the same narrow door `ResolveOptions.text` opens one pass later, and for
+   * the same reason (Modules §7.6: a fixit the reader cannot paste is worse
+   * than none).
+   */
+  readonly text: string;
   readonly tokens: readonly Token[];
   readonly newlines: readonly Newline[];
   readonly comments: readonly Source.Comment[];

@@ -19,6 +19,8 @@ export type Token = Lexed.Token | VirtualToken;
 
 export interface File {
   readonly fileId: Source.FileId;
+  /** The source this file was scanned from; see `Lexed.File.text`. */
+  readonly text: string;
   readonly tokens: readonly Token[];
   readonly comments: readonly Source.Comment[];
   readonly diagnostics: readonly Diagnostics.Diagnostic[];

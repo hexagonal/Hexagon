@@ -94,6 +94,71 @@ describe("§13 (o) — every file declares its module", () => {
     ]);
   });
 
+  test("and the fixit moves the header, blank run and all, to the top of the file", () => {
+    // §2.2 states the direction and the edit performs it: the header's own line
+    // is lifted from where it stands and put back above the item. The blank
+    // line the author left under it travels with it — a repair reformats
+    // nothing — and the file it produces compiles, which is the only reading of
+    // "its fixit" worth having (Declarations Preamble §1.1's Rewrite Rule).
+    const text = "let stray: Int = 1\n\nmodule Geometry\n\n" + POINT;
+    const [diagnostic, ...rest] = reports([["/f.hex", text]]);
+    expect(diagnostic?.message).toBe(
+      "code outside a module: a module begins with its header; " +
+        "move `module Geometry` above this item",
+    );
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Geometry\n\nlet stray: Int = 1\n\n" + POINT,
+    );
+    expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("the header moved is the file's first, in a file that declares several", () => {
+    // The row is about the items above the **first** header, so that is the
+    // header the edit moves — and the modules the repaired file declares are
+    // the modules the refused one declared, in the order it declared them.
+    const text = "let stray: Int = 1\n\nmodule Geometry\n\n" + POINT +
+      "\nend module Geometry\n\nmodule Shapes\n\nexport let n: Int = 1\n";
+    const [diagnostic, ...rest] = reports([["/f.hex", text]]);
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Geometry\n\nlet stray: Int = 1\n\n" + POINT +
+        "\nend module Geometry\n\nmodule Shapes\n\nexport let n: Int = 1\n",
+    );
+    expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
+    expect(compileFiles([["/f.hex", applied(text, diagnostic)]]).modules
+      .filter(({ name }) => !name.startsWith("Hex.")).map(({ name }) => name))
+      .toEqual(["Geometry", "Shapes"]);
+  });
+
+  test("a doc comment above the stray item keeps the declaration it documents", () => {
+    // The one placement that would change what the file *means*: a doc comment
+    // attaches to what immediately follows it (`spec/doc-comments.md` §2.1), so
+    // the edit goes above the comment rather than between the two. The top of
+    // the file is above every comment there is, which is why it is the seat.
+    const text = "(** The stray. *)\nlet stray: Int = 1\n\nmodule Geometry\n\n" + POINT;
+    const [diagnostic] = reports([["/f.hex", text]]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Geometry\n\n(** The stray. *)\nlet stray: Int = 1\n\n" + POINT,
+    );
+    expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("a CRLF file keeps its line endings — the lifted text is the file's own", () => {
+    // Nothing in a token stream says how a line ends. The edit slices the text
+    // it moves out of the file it is repairing, so the `\r` travels with its
+    // line instead of being reconstructed as a bare `\n` (review round 3's NB4,
+    // at the seat this round adds).
+    const text = "let stray: Int = 1\r\n\r\nmodule Geometry\r\n\r\n" +
+      "export record Point = {x: Float, y: Float}\r\n";
+    const [diagnostic] = reports([["/f.hex", text]]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Geometry\r\n\r\nlet stray: Int = 1\r\n\r\n" +
+        "export record Point = {x: Float, y: Float}\r\n",
+    );
+    expect(messages([["/f.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
   test("a second header met with one open is refused, and the fixit closes the first", () => {
     const text = `module Geometry\n${POINT}module Shapes\nexport let n: Int = 1\n`;
     const [diagnostic, ...rest] = reports([["/f.hex", text]]);

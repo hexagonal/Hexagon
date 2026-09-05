@@ -104,6 +104,7 @@ export function lex(source: Source.File): Lexed.File {
 
   return {
     fileId: source.id,
+    text: source.text,
     tokens,
     newlines: scanner.newlines,
     comments: scanner.comments,
