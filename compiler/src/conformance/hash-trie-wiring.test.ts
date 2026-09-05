@@ -31,7 +31,7 @@ import trieSource from "../../../stdlib/Runtime/HashTrie.hex?raw";
  * carries `[Symbol.iterator]`**, which is what `Hex.Map<k, v> extends
  * Iterable<[k, v]>` promises and what `for (k, v) in m`, spread, `show`, `hash`,
  * and the derived `Eq`'s left walk all reach it through. **Every other operation
- * is a call into `runtime/HashTrie.hex`**, whose export list
+ * is a call into `Hex.Runtime.HashTrie`**, whose export list
  * (`HASH_TRIE_RUNTIME_OPERATIONS`) is the complete inventory. No emitted
  * JavaScript reads a `HashTrie`'s fields beyond `.size`, and the trie algebra is
  * Hexagon.
@@ -64,7 +64,7 @@ const ONE_SET = "export let k: Int = Set.size(Set.singleton(1))\n";
 
 describe("the runtime module's two-sided contract", () => {
   /**
-   * `runtime/HashTrie.hex` exports nothing at the Hexagon level — every
+   * `Hex.Runtime.HashTrie` exports nothing at the Hexagon level — every
    * operation's type names the private `HashTrie` — so the emitter writes the
    * JavaScript export list from a fixed inventory. A name in the inventory that
    * the module does not declare would be a `SyntaxError` in generated code
@@ -105,7 +105,7 @@ describe("the runtime module's two-sided contract", () => {
   });
 
   /**
-   * The discipline `runtime/HashTrie.hex`'s header states, made checkable. The
+   * The discipline `stdlib/Runtime/HashTrie.hex`'s header states, made checkable. The
    * module sees the prelude before its seat, and a vector literal, bracket,
    * pattern or `Vector.` call written in it would make the emitted
    * `HashTrie.js` import `Vector.js`, which already imports `VectorTrie.js` —
@@ -330,7 +330,7 @@ describe("the seven door lowerings", () => {
 /**
  * The `Map(k, v)` claim, verified against the representation — the generalization
  * closure doc's §5.3 row, upgraded from written-invariant to **verified** at this
- * milestone and recomputed here on every edit to `runtime/HashTrie.hex` (its
+ * milestone and recomputed here on every edit to `stdlib/Runtime/HashTrie.hex` (its
  * §11.1 item (ix)).
  *
  * This mirrors `vector-trie-wiring.test.ts`'s §5.3 block, and for its reasons.
@@ -342,7 +342,16 @@ describe("the seven door lowerings", () => {
  * and hover read, with nothing downstream recomputing it.
  */
 describe("§5.3 the `Map(k, v)` claim, verified against the representation", () => {
-  const PROBE_PATH = "/HashProbe.hex";
+  /**
+   * The probe route: the project's **own** `HashTrie.hex` declaring
+   * `module Runtime.HashTrie`, which is adopted as the member and compiled in
+   * its real role (#829). There is no other route — the host grant that used to
+   * privilege a path went with the ruling — so the probe reads the file's own
+   * text at the member's own basename, beside a `/main.hex` whose map is what
+   * reaches it.
+   */
+  const PROBE_PATH = "/HashTrie.hex";
+  const TOUCH: readonly [string, string] = ["/main.hex", "module Main\n\n" + ONE_MAP];
 
   interface TrieVariance {
     readonly diagnostics: readonly string[];
@@ -354,12 +363,8 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
   function varianceIn(
     files: readonly (readonly [string, string])[],
     path: string,
-    runtimePaths?: readonly string[],
   ): TrieVariance {
-    const project = compileFiles(
-      files,
-      runtimePaths === undefined ? {} : { runtimePaths },
-    );
+    const project = compileFiles(files);
     const module = project.modules.find(({ source }) => source.path === path);
     if (module === undefined) throw new Error(`${path} was not compiled`);
     const record = module.typed.records.find(({ name }) => name === "HashTrie");
@@ -379,9 +384,9 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
 
   /**
    * The shipping route: the injected `/HashTrie.hex` a real map program is built
-   * on — the embedded copy from `runtime-sources.ts`, which
+   * on — the embedded copy from `stdlib-sources.ts`, which
    * `vector-trie-wiring.test.ts`'s drift guard holds equal to
-   * `runtime/HashTrie.hex`.
+   * `stdlib/Runtime/HashTrie.hex`.
    */
   test("the trie every map is built on is covariant in both parameters", () => {
     const shipped = varianceIn([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/Runtime/HashTrie.hex");
@@ -409,8 +414,8 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
    * The control, and the whole reason the two tests above are not decoration: an
    * edit to `HashTrie.hex` that puts a parameter in argument position must turn
    * them red. Both halves go through the same probe route — the file's own text
-   * compiled as a privileged runtime module at its own path — so the only
-   * difference between the readings is the one field.
+   * adopted as the runtime member — so the only difference between the readings
+   * is the one field.
    *
    * The sabotage also breaks the module outright, which is the machinery biting
    * rather than merely reporting — but reaching that here takes one line the
@@ -429,11 +434,7 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
     "let widened: HashTrie(k, v) = makeEmpty()\n";
 
   test("a `v` in argument position turns the row red", () => {
-    const baseline = varianceIn(
-      [[PROBE_PATH, `${trieSource}${EXPANSIVE}`]],
-      PROBE_PATH,
-      [PROBE_PATH],
-    );
+    const baseline = varianceIn([[PROBE_PATH, `${trieSource}${EXPANSIVE}`], TOUCH], PROBE_PATH);
     expect(baseline.diagnostics).toEqual([]);
     expect(positions(baseline.hashTrie)).toEqual([["k", "co"], ["v", "co"]]);
 
@@ -446,7 +447,7 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
       EXPANSIVE;
     expect(sabotaged).not.toBe(trieSource);
 
-    const broken = varianceIn([[PROBE_PATH, sabotaged]], PROBE_PATH, [PROBE_PATH]);
+    const broken = varianceIn([[PROBE_PATH, sabotaged], TOUCH], PROBE_PATH);
     expect(positions(broken.hashTrie)).toEqual([["k", "co"], ["v", "inv"]]);
     expect(broken.hashTrie.map(({ computed }) => computed))
       .not.toEqual(COMPILER_CLAIMS.get("Map"));
@@ -458,7 +459,7 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
  * The `Set(a)` claim, verified against the representation — the generalization
  * closure doc's §5.3 row, upgraded from **written-invariant** to verified at
  * this milestone (#373) and recomputed here on every edit to
- * `runtime/HashTrie.hex`, which is the same file `Map`'s row reads (its §11.1
+ * `stdlib/Runtime/HashTrie.hex`, which is the same file `Map`'s row reads (its §11.1
  * item (ix), as extended by the Set step).
  *
  * The block above this one is the template and its reasoning carries over
@@ -469,18 +470,16 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
  * field that puts `a` under an arrow.
  */
 describe("§5.3 the `Set(a)` claim, verified against the representation", () => {
-  const PROBE_PATH = "/SetProbe.hex";
+  /** The probe route, as the `Map` block above; `/main.hex`'s set is the reach. */
+  const PROBE_PATH = "/HashTrie.hex";
+  const TOUCH: readonly [string, string] = ["/main.hex", "module Main\n\n" + ONE_SET];
 
   /** `HashSet`'s parameter variance in the module at `path`. */
   function wrapperVarianceIn(
     files: readonly (readonly [string, string])[],
     path: string,
-    runtimePaths?: readonly string[],
   ): { readonly diagnostics: readonly string[]; readonly hashSet: readonly Typed.ParameterVariance[] } {
-    const project = compileFiles(
-      files,
-      runtimePaths === undefined ? {} : { runtimePaths },
-    );
+    const project = compileFiles(files);
     const module = project.modules.find(({ source }) => source.path === path);
     if (module === undefined) throw new Error(`${path} was not compiled`);
     const record = module.typed.records.find(({ name }) => name === "HashSet");
@@ -527,9 +526,8 @@ describe("§5.3 the `Set(a)` claim, verified against the representation", () => 
 
   test("an `a` in argument position on the wrapper turns the row red", () => {
     const baseline = wrapperVarianceIn(
-      [[PROBE_PATH, `${trieSource}${EXPANSIVE_SET}`]],
+      [[PROBE_PATH, `${trieSource}${EXPANSIVE_SET}`], TOUCH],
       PROBE_PATH,
-      [PROBE_PATH],
     );
     expect(baseline.diagnostics).toEqual([]);
     expect(positions(baseline.hashSet)).toEqual([["a", "co"]]);
@@ -546,7 +544,7 @@ describe("§5.3 the `Set(a)` claim, verified against the representation", () => 
       EXPANSIVE_SET;
     expect(sabotaged).not.toBe(trieSource);
 
-    const broken = wrapperVarianceIn([[PROBE_PATH, sabotaged]], PROBE_PATH, [PROBE_PATH]);
+    const broken = wrapperVarianceIn([[PROBE_PATH, sabotaged], TOUCH], PROBE_PATH);
     expect(positions(broken.hashSet)).toEqual([["a", "inv"]]);
     expect(broken.hashSet.map(({ computed }) => computed))
       .not.toEqual(COMPILER_CLAIMS.get("Set"));

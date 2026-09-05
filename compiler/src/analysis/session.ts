@@ -247,7 +247,9 @@ export class AnalysisSession {
    * like any other — and that file can then change while the session is open.
    * Options are therefore not fixed at construction. Changing them invalidates
    * analysis exactly as a file change does, because they can change what every
-   * answer is: `runtimePaths` decides which modules may name `Node(a)` at all.
+   * answer is: `packageName` is the first segment of every module's full name
+   * (Packages §2.3), and `dependencies` is what Modules §2.2's first-segment
+   * rule reads.
    */
   configure(options: SessionOptions): void {
     if (sameOptions(this.#options, options)) return;
@@ -2044,7 +2046,7 @@ function diagnosticTally(
 
 /**
  * Whether two option sets would compile the same way. Order within
- * `runtimePaths` is not meaningful — `compileProject` reads it as a set — so
+ * `dependencies` is not meaningful — `compileProject` reads it as a set — so
  * reordering must not throw away analysis a host is about to ask questions of.
  *
  * The destructuring is load-bearing rather than stylistic. A field added to
@@ -2056,14 +2058,13 @@ function diagnosticTally(
  */
 function sameOptions(left: SessionOptions, right: SessionOptions): boolean {
   const compared = (
-    { runtimePaths, packageName, dependencies, ...rest }: SessionOptions,
+    { packageName, dependencies, ...rest }: SessionOptions,
   ): readonly string[] => {
     const exhaustive: Record<string, never> = rest;
     void exhaustive;
     return [
       `name:${packageName ?? ""}`,
       ...[...(dependencies ?? [])].sort().map((name) => `dependency:${name}`),
-      ...[...(runtimePaths ?? [])].sort(),
     ];
   };
   const [before, after] = [compared(left), compared(right)];

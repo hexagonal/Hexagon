@@ -101,7 +101,7 @@ export interface PreludeModule {
  * sits after `Int.hex` too, because `Num<Float>`'s `fromNat` composes through
  * `Int.fromNat`, which is `Num<Int>`'s member at its own companion. Everything
  * from `Seq.hex` onward sees all three, which is what lets
- * `runtime/VectorTrie.hex`'s index arithmetic reach `Integral<Int>`.
+ * `stdlib/Runtime/VectorTrie.hex`'s index arithmetic reach `Integral<Int>`.
  *
  * `BigInt.hex` is the fourth, and it needs the most of the five. It sits after
  * every constraint declaration because it honors eight of them, after

@@ -27,7 +27,7 @@ import trieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
  * carries `[Symbol.iterator]`**, which is what `Hex.Vector<a> extends
  * Iterable<a>` promises and what `for x in`, spread, `Array.from`, `show`,
  * `hash`, and `Map.fromVector` all reach it through. **Every other operation is
- * a call into `runtime/VectorTrie.hex`**, whose export list
+ * a call into `Hex.Runtime.VectorTrie`**, whose export list
  * (`VECTOR_RUNTIME_OPERATIONS`) is the complete inventory. No emitted JavaScript
  * reads a `TrieVector`'s fields; the trie algebra is Hexagon.
  */
@@ -53,7 +53,7 @@ function emittedPaths(files: readonly (readonly [string, string])[]): readonly s
 
 describe("the runtime module's two-sided contract", () => {
   /**
-   * `runtime/VectorTrie.hex` exports nothing at the Hexagon level — every
+   * `Hex.Runtime.VectorTrie` exports nothing at the Hexagon level — every
    * operation's type names the private `TrieVector` — so the emitter writes the
    * JavaScript export list from a fixed inventory. A name in the inventory that
    * the module does not declare would be a `SyntaxError` in generated code
@@ -66,8 +66,8 @@ describe("the runtime module's two-sided contract", () => {
   });
 
   /**
-   * The compile stays filesystem-free, so `runtime/VectorTrie.hex` is embedded
-   * into `runtime-sources.ts` by `npm run generate:prelude` — and *that* copy is
+   * The compile stays filesystem-free, so `stdlib/Runtime/VectorTrie.hex` is embedded
+   * into `stdlib-sources.ts` by `npm run generate:prelude` — and *that* copy is
    * what every project's injected seat holds. The prelude set has carried this
    * guard since #147 (`prelude-mechanism.test.ts`); the runtime set arrived
    * without one, so an edit to the `.hex` file that skipped the regeneration
@@ -626,11 +626,11 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
   /**
    * The generalization closure doc (`decisions-ml-dialect-generalization-2026-08.md`
    * §5.3) carries `Vector(+a)` in the compiler-side claim table, and it carried
-   * it as a **trusted** row: `runtime/VectorTrie.hex` wrote a representation, but
+   * it as a **trusted** row: `stdlib/Runtime/VectorTrie.hex` wrote a representation, but
    * nothing wired it to the emitter, so there was no representation for §6.3 to
    * check the claim against and the row rested on argument alone. This milestone
    * is the wiring, so the row upgrades to **verified** — and §11.1 (ix) requires
-   * that it "recomputes on every `runtime/VectorTrie.hex` edit", which is what
+   * that it "recomputes on every `stdlib/Runtime/VectorTrie.hex` edit", which is what
    * this is.
    *
    * ## The variance is read, never re-derived
@@ -649,7 +649,19 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
    * (§6.2: only an opaque type's claim is what its author wrote). That is why
    * this is a verification and not a comparison of two written things.
    */
-  const PROBE_PATH = "/TrieProbe.hex";
+  /**
+   * The probe route: the project's **own** `VectorTrie.hex` declaring
+   * `module Runtime.VectorTrie`, which is adopted as the member and compiled in
+   * its real role (#829). There is no other route — the host grant that used to
+   * privilege a path went with the ruling — so the probe reads the file's own
+   * text at the member's own basename, beside a `/main.hex` whose vector is what
+   * reaches it.
+   */
+  const PROBE_PATH = "/VectorTrie.hex";
+  const TOUCH: readonly [string, string] = [
+    "/main.hex",
+    "module Main\n\n" + "export let v: Vector(Int) = [1]\n",
+  ];
 
   interface TrieVariance {
     readonly diagnostics: readonly string[];
@@ -661,12 +673,8 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
   function varianceIn(
     files: readonly (readonly [string, string])[],
     path: string,
-    runtimePaths?: readonly string[],
   ): TrieVariance {
-    const project = compileFiles(
-      files,
-      runtimePaths === undefined ? {} : { runtimePaths },
-    );
+    const project = compileFiles(files);
     const module = project.modules.find(({ source }) => source.path === path);
     if (module === undefined) throw new Error(`${path} was not compiled`);
     const record = module.typed.records.find(({ name }) => name === "TrieVector");
@@ -686,8 +694,8 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
 
   /**
    * The shipping route: the injected `/VectorTrie.hex` a real vector program is
-   * built on — the embedded copy from `runtime-sources.ts`, which the drift
-   * guard above holds equal to `runtime/VectorTrie.hex`.
+   * built on — the embedded copy from `stdlib-sources.ts`, which the drift
+   * guard above holds equal to `stdlib/Runtime/VectorTrie.hex`.
    */
   test("the trie every vector is built on is covariant in its element", () => {
     const shipped = varianceIn(
@@ -721,8 +729,8 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
    * The control, and the whole reason the two tests above are not decoration:
    * an edit to `VectorTrie.hex` that puts `a` in argument position must turn
    * them red. Both halves go through the same probe route — the file's own text
-   * compiled as a privileged runtime module at its own path — so the only
-   * difference between the readings is the one field.
+   * adopted as the runtime member — so the only difference between the readings
+   * is the one field.
    *
    * The sabotage also breaks the module outright, which is the machinery
    * biting rather than merely reporting: `let empty: TrieVector(a)` is a
@@ -730,7 +738,7 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
    * occurs invariantly. That is the failure a real edit would meet first.
    */
   test("an `a` in argument position turns the row red", () => {
-    const baseline = varianceIn([[PROBE_PATH, trieSource]], PROBE_PATH, [PROBE_PATH]);
+    const baseline = varianceIn([[PROBE_PATH, trieSource], TOUCH], PROBE_PATH);
     expect(baseline.diagnostics).toEqual([]);
     expect(positions(baseline.trieVector)).toEqual([["a", "co"]]);
 
@@ -742,7 +750,7 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
         .replaceAll("TrieVector({", "TrieVector({\n        consume = sink,");
     expect(sabotaged).not.toBe(trieSource);
 
-    const broken = varianceIn([[PROBE_PATH, sabotaged]], PROBE_PATH, [PROBE_PATH]);
+    const broken = varianceIn([[PROBE_PATH, sabotaged], TOUCH], PROBE_PATH);
     expect(positions(broken.trieVector)).toEqual([["a", "inv"]]);
     expect(broken.trieVector.map(({ computed }) => computed))
       .not.toEqual(COMPILER_CLAIMS.get("Vector"));

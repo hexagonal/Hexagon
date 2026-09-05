@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileFiles, runProject } from "../support/test-project.js";
+import trieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
 
 import * as Source from "../support/source.js";
 import { lex } from "../passes/lexer/lexer.js";
@@ -24,22 +25,55 @@ import { emitJavaScript, emitTypeScriptPreview } from "../passes/emitter/emitter
  */
 
 /**
+ * ## How a specimen becomes a privileged runtime module
+ *
+ * By being one — there is no other route since #829, and in particular no path
+ * a host can name. A project's own file at a runtime member's **basename**
+ * declaring the member's **name** is adopted as that member; everything else is
+ * an ordinary module. So a `Node` specimen here is `stdlib/Runtime/VectorTrie.hex`'s
+ * own text with the specimen appended, filed at `/VectorTrie.hex`: the trie is
+ * the module `Runtime.VectorTrie` *is*, and the specimen rides in it.
+ *
+ * Appending to the real source rather than stubbing it is not ceremony. The
+ * emitter writes this module's JavaScript export list from a fixed inventory
+ * (`VECTOR_RUNTIME_OPERATIONS`) and reports an operation the module does not
+ * declare, so a specimen alone in the seat would draw a diagnostic that has
+ * nothing to do with `Node`.
+ */
+const RUNTIME_PATH = "/VectorTrie.hex";
+
+/**
+ * One ordinary module with one vector in it, so the adopted trie is reached and
+ * emitted (a runtime module serving nothing is emitted nowhere). Nothing here is
+ * under test; it exists to be an importer.
+ */
+const TOUCH: readonly [string, string] = [
+  "/Main.hex",
+  "module Main\n\nlet sample: Vector(Int) = [1]\nexport let touched: Bool = Vector.isEmpty(sample)\n",
+];
+
+/**
  * Compiles one privileged runtime module and executes its exports. Through the
  * whole project: a runtime module still sees the prelude, and since #147 that is
  * what lets it name `Bool` at all.
  */
 async function runRuntime(source: string): Promise<Record<string, unknown>> {
   return runProject(
-    [["/runtime.hex", "module Runtime\n\n" + source]],
-    { runtimePaths: ["/runtime.hex"], entry: "/runtime.hex" },
+    [[RUNTIME_PATH, `${trieSource}\n${source}`], TOUCH],
+    { entry: RUNTIME_PATH },
   );
 }
 
-/** The diagnostic messages a source produces, resolved with the given options. */
+/**
+ * The diagnostic messages a source produces. `runtime: true` puts the specimen
+ * inside the adopted runtime member; without it the specimen is an ordinary
+ * module of the project, which is the whole of the visibility gate.
+ */
 function diagnose(source: string, options: { readonly runtime?: boolean } = {}): readonly string[] {
   return compileFiles(
-    [["/runtime.hex", "module Runtime\n\n" + source]],
-    options.runtime === true ? { runtimePaths: ["/runtime.hex"] } : {},
+    options.runtime === true
+      ? [[RUNTIME_PATH, `${trieSource}\n${source}`]]
+      : [["/Ordinary.hex", "module Ordinary\n\n" + source]],
   ).diagnostics.map(({ message }) => message);
 }
 
@@ -93,13 +127,14 @@ describe("Node intrinsic conformance", () => {
   // `stdlib/Int.hex`'s `Num<Int>` since #344, exactly as its `Bool` needed
   // `stdlib/Bool.hex` since #147.
   test("emits raw array operations and the copy-on-write helper", () => {
-    const project = compileFiles(
-      [["/runtime.hex", "module Runtime\n\n" + "export let one: Int = Node.get(Node.copy(Node.set(Node.empty(), 0, 1)), 0)\n"]],
-      { runtimePaths: ["/runtime.hex"] },
-    );
+    const project = compileFiles([
+      [RUNTIME_PATH, `${trieSource}\n` +
+        "export let one: Int = Node.get(Node.copy(Node.set(Node.empty(), 0, 1)), 0)\n"],
+      TOUCH,
+    ]);
     expect(project.diagnostics).toEqual([]);
     const text = project.modules
-      .find(({ source }) => source.path === "/runtime.hex")!.javascript.text;
+      .find(({ source }) => source.path === RUNTIME_PATH)!.javascript.text;
     expect(text).toContain("new Array(32)");
     expect(text).toMatch(/\.slice\(\)/u);
     expect(text).toMatch(/function \w*nodeSet/u);
@@ -173,16 +208,18 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
   });
 
   test("an exported union with a `Node`-typed slot is rejected", () => {
-    // The exported constructor `Leaf` would be a JS-callable function taking a
+    // The exported constructor `Pack` would be a JS-callable function taking a
     // forgeable array, and `Node(a)` would render as `Array<a>` in the `.d.ts`.
-    // The blessed shape keeps `Tree` private (see below).
+    // The blessed shape keeps the union private (see below). The names are the
+    // specimen's own rather than the trie's, because the specimen is compiled
+    // *inside* `stdlib/Runtime/VectorTrie.hex`, which declares a `Tree` already.
     const messages = diagnose(
-      "export union Tree(a) =\n" +
-        "    | Leaf(values: Node(a))\n" +
-        "    | Branch(children: Node(Tree(a)))\n",
+      "export union Bag(a) =\n" +
+        "    | Pack(values: Node(a))\n" +
+        "    | Fan(children: Node(Bag(a)))\n",
       { runtime: true },
     );
-    expect(messages.some((m) => m.includes("union `Tree`") && m.includes("no public form"))).toBe(true);
+    expect(messages.some((m) => m.includes("union `Bag`") && m.includes("no public form"))).toBe(true);
   });
 
   test("an exported exception with a `Node`-typed slot is rejected", () => {
@@ -213,16 +250,16 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
   });
 
   test("the blessed shape: private `Tree`/`Node` internals behind public-typed exports", () => {
-    // What the real trie uses — `Tree` and `Node` live entirely inside the module;
-    // the exported signatures are public-typed (here `Int`, later `Vector`-shaped).
+    // What the real trie uses — the union and `Node` live entirely inside the
+    // module; the exported signatures are public-typed (here `Int`).
     const messages = diagnose(
-      "union Tree(a) =\n" +
-        "    | Leaf(values: Node(a))\n" +
-        "    | Branch(children: Node(Tree(a)))\n" +
-        "fun leafHead(tree: Tree(Int)): Int = match tree\n" +
-        "    Leaf(values) => Node.get(values, 0)\n" +
-        "    Branch(_) => 0 - 1\n" +
-        "export fun demo(): Int = leafHead(Leaf(Node.set(Node.empty(), 0, 5)))\n",
+      "union Bag(a) =\n" +
+        "    | Pack(values: Node(a))\n" +
+        "    | Fan(children: Node(Bag(a)))\n" +
+        "fun packHead(bag: Bag(Int)): Int = match bag\n" +
+        "    Pack(values) => Node.get(values, 0)\n" +
+        "    Fan(_) => 0 - 1\n" +
+        "export fun demo(): Int = packHead(Pack(Node.set(Node.empty(), 0, 5)))\n",
       { runtime: true },
     );
     expect(messages).toEqual([]);
@@ -240,45 +277,45 @@ describe("Node intrinsic contract (leak-proof rejections)", () => {
  */
 describe("the `Node(a)` face is the mutable `Array<a>` (FFI Part 7 §14.1)", () => {
   test("Node-typed bindings preview as `Array<…>`, and reach no shipped `.d.ts`", () => {
-    const compiled = compileFiles(
-      [[
-        "/runtime.hex",
-        "module Runtime\n\n" + "let n = Node.empty()\n" +
-        "let slots: Node(Int) = Node.set(n, 0, 7)\n" +
-        "export let first: Int = Node.get(slots, 0)\n",
-      ]],
-      { runtimePaths: ["/runtime.hex"] },
-    );
+    const compiled = compileFiles([
+      [RUNTIME_PATH, `${trieSource}\n` +
+        "let anySlots = Node.empty()\n" +
+        "let intSlots: Node(Int) = Node.set(anySlots, 0, 7)\n" +
+        "export let firstSlot: Int = Node.get(intSlots, 0)\n"],
+      TOUCH,
+    ]);
     expect(compiled.diagnostics).toEqual([]);
-    const module = compiled.modules.find(({ source }) => source.path === "/runtime.hex");
-    if (module === undefined) throw new Error("no /runtime.hex in the compiled project");
-    // `n` is generalized and faces as its `never` instantiation (§14.1's third
-    // row); `slots` is the ordinary `Node(Int)`. Both spellings are mutable.
-    expect(emitTypeScriptPreview(module.core).text).toBe(
-      "declare const n: Array<never>;\n" +
-        "declare const slots: Array<number>;\n" +
-        "export declare const first: number;\n",
-    );
-    expect(module.declarations.text).toBe("export declare const first: number;\n");
+    const module = compiled.modules.find(({ source }) => source.path === RUNTIME_PATH);
+    if (module === undefined) throw new Error(`no ${RUNTIME_PATH} in the compiled project`);
+    // `anySlots` is generalized and faces as its `never` instantiation (§14.1's
+    // third row); `intSlots` is the ordinary `Node(Int)`. Both are mutable.
+    const preview = emitTypeScriptPreview(module.core).text;
+    expect(preview).toContain("declare const anySlots: Array<never>;\n");
+    expect(preview).toContain("declare const intSlots: Array<number>;\n");
+    expect(preview).toContain("export declare const firstSlot: number;\n");
+    // The shipped face carries the export and nothing `Node`-shaped: every
+    // export door above is shut, so no `Array<…>` reaches the `.d.ts` at all.
+    expect(module.declarations.text).toContain("export declare const firstSlot: number;\n");
+    expect(module.declarations.text).not.toContain("Array<");
   });
 });
 
 describe("Node annotations enable the recursive trie shape", () => {
-  test("§4 a `Tree(a) = Leaf(Node(a)) | Branch(Node(Tree(a)))` union round-trips a value", async () => {
+  test("§4 a `Bag(a) = Pack(Node(a)) | Fan(Node(Bag(a)))` union round-trips a value", async () => {
     const m = await runRuntime(
-      "union Tree(a) =\n" +
-        "    | Leaf(values: Node(a))\n" +
-        "    | Branch(children: Node(Tree(a)))\n" +
-        "fun leafValue(tree: Tree(Int), slot: Int): Int = match tree\n" +
-        "    Leaf(values) => Node.get(values, slot)\n" +
-        "    Branch(_) => 0 - 1\n" +
-        "fun buildLeaf(): Tree(Int) = Leaf(Node.set(Node.set(Node.empty(), 0, 10), 1, 20))\n" +
-        "fun buildBranch(): Tree(Int) = Branch(Node.set(Node.empty(), 0, buildLeaf()))\n" +
-        "export let leaf0: Int = leafValue(buildLeaf(), 0)\n" +
-        "export let leaf1: Int = leafValue(buildLeaf(), 1)\n" +
-        "export let nested: Int = match buildBranch()\n" +
-        "    Branch(children) => leafValue(Node.get(children, 0), 1)\n" +
-        "    Leaf(_) => 0 - 1\n",
+      "union Bag(a) =\n" +
+        "    | Pack(values: Node(a))\n" +
+        "    | Fan(children: Node(Bag(a)))\n" +
+        "fun packValue(bag: Bag(Int), slot: Int): Int = match bag\n" +
+        "    Pack(values) => Node.get(values, slot)\n" +
+        "    Fan(_) => 0 - 1\n" +
+        "fun buildPack(): Bag(Int) = Pack(Node.set(Node.set(Node.empty(), 0, 10), 1, 20))\n" +
+        "fun buildFan(): Bag(Int) = Fan(Node.set(Node.empty(), 0, buildPack()))\n" +
+        "export let leaf0: Int = packValue(buildPack(), 0)\n" +
+        "export let leaf1: Int = packValue(buildPack(), 1)\n" +
+        "export let nested: Int = match buildFan()\n" +
+        "    Fan(children) => packValue(Node.get(children, 0), 1)\n" +
+        "    Pack(_) => 0 - 1\n",
     );
     expect(m.leaf0).toBe(10);
     expect(m.leaf1).toBe(20);

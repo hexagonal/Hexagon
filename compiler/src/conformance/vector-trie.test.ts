@@ -19,31 +19,45 @@ import trieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
  * flushes and level growth at both ends are exercised. Nothing here touches
  * `Vector`'s emission, so the Vector gate stays green.
  *
- * The runtime module (`runtime/VectorTrie.hex`, loaded via `?raw`) has only
+ * The runtime module (`stdlib/Runtime/VectorTrie.hex`, loaded via `?raw`) has only
  * internal declarations; each test appends `export let` probes to its source and
  * compiles the whole as one privileged runtime module, so `Tree`/`Node` never
  * cross a boundary.
  *
- * ## Why the probe copy sits at a different path
+ * ## How the probe becomes a runtime module
  *
- * `VectorTrie.hex` is now an *injected* basename (`src/runtime-modules.ts`):
- * the compiler places its own copy at every project's root, and a project file
- * there replaces it — becoming the module every `Vector(a)` in the program is
- * built on, and one that is emitted only when something reaches it. A probe
- * copy in that seat would therefore be measured as the program's runtime rather
- * than as the module under test, and would go unemitted for want of a vector to
- * serve. The basename was never the subject; the source is, and this compiles
- * the same text under its own path beside the injected copy.
+ * There is one route and no other (#829): a project's own file at the member's
+ * **basename** declaring the member's **name** is adopted as that member, and
+ * with the seat come both privileges — `Node(a)` and the intrinsic door. So the
+ * probe is `/VectorTrie.hex` carrying `module Runtime.VectorTrie` verbatim, and
+ * it really is the runtime every `Vector(a)` in this program is built on. The
+ * host grant that used to compile a probe under a path of its own choosing is
+ * gone; a path names nothing here.
+ *
+ * That has one consequence the harness has to pay for. A runtime module is
+ * emitted only where the program reaches it, and a trie that serves no vector
+ * is reached by nothing — so the project carries `TOUCH`, one ordinary module
+ * holding one vector, whose emission is the edge that brings the trie along.
+ * The probes' exports are still read off the trie module itself.
  */
-const PROBE_PATH = "/TrieProbe.hex";
+const PROBE_PATH = "/VectorTrie.hex";
+
+/**
+ * One ordinary module with one vector in it, so the adopted trie is reached and
+ * emitted. Nothing here is under test; it exists to be an importer.
+ */
+const TOUCH: readonly [string, string] = [
+  "/Main.hex",
+  "module Main\n\nlet sample: Vector(Int) = [1]\nexport let touched: Bool = Vector.isEmpty(sample)\n",
+];
 
 async function runTrie(probes: string): Promise<Record<string, unknown>> {
-  // Through the whole project, with this file designated a runtime module: the
+  // Through the whole project, with this file adopted as the runtime module: the
   // trie's own `isEmpty` returns `Bool`, and since #147 that names a prelude
   // declaration, so a prelude-free compilation of this module no longer typechecks.
   return runProject(
-    [[PROBE_PATH, `${trieSource}\n${probes}`]],
-    { runtimePaths: [PROBE_PATH], entry: PROBE_PATH },
+    [[PROBE_PATH, `${trieSource}\n${probes}`], TOUCH],
+    { entry: PROBE_PATH },
   );
 }
 

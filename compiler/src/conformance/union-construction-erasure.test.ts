@@ -406,8 +406,8 @@ describe("a declaration that emits nothing shapes none of the page", () => {
 
   test("two comment blocks a vanished declaration stood between keep their blank line", () => {
     // The shape that fails when the skip is narrowed to declarations, reduced
-    // from the two modules it was found in — the emitted `runtime/HashTrie.js`
-    // and `runtime/VectorTrie.js`, where two unrelated comment blocks came out
+    // from the two modules it was found in — the emitted `Hex/Runtime/HashTrie.js`
+    // and `Hex/Runtime/VectorTrie.js`, where two unrelated comment blocks came out
     // welded into one.
     //
     // `a.div(b)` is what arms it. A concrete dot call registers a *candidate*
