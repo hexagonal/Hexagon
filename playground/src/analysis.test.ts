@@ -4,8 +4,18 @@ import { PlaygroundAnalysis } from "./analysis";
 import { compileSource } from "./compile";
 import type { BufferRange, PlaygroundTextEdit } from "./protocol";
 
+/**
+ * The header every buffer declares since #829 (Modules §2.1).
+ *
+ * Written into each source rather than added by a helper, because the offsets
+ * these tests assert are offsets into the text the user has — and because a
+ * Playground buffer is an ordinary `.hex` file now, header and all.
+ */
+const MAIN = "module Main\n\n";
+
 /** The source reported on the issue: a quick fix the site offered nothing for. */
-const factorial = "export fun factorial(n: Int) =\n" +
+const factorial = MAIN +
+  "export fun factorial(n: Int) =\n" +
   "    if n <= 1 then\n" +
   "        1\n" +
   "    else\n" +
@@ -67,7 +77,8 @@ describe("code actions", () => {
 
   test("files the variance offer as a refactor, since it repairs nothing", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "opaque record Box(a) = { get: () -> a }\nDebug.log(\"${1}\")\n";
+    const source = MAIN +
+      "opaque record Box(a) = { get: () -> a }\nDebug.log(\"${1}\")\n";
     const caret = source.indexOf("(a)") + 1;
 
     const [action, ...rest] = analysis.codeActions(source, {
@@ -86,10 +97,30 @@ describe("code actions", () => {
     );
   });
 
+  test("offers the header a buffer that declares no module is missing", () => {
+    const analysis = new PlaygroundAnalysis();
+    const source = 'Debug.log("hi")\n';
+
+    const [action, ...rest] = analysis.codeActions(source, {
+      startOffset: 0,
+      endOffset: 0,
+    });
+
+    // Modules §2.1's applied fixit, reaching the buffer through the ordinary
+    // path — the Playground mints nothing and the user is offered the line.
+    expect(rest).toEqual([]);
+    expect(action?.title).toBe("write `module Main`");
+    expect(applied(source, action?.edits ?? [])).toBe(
+      "module Main\n\nDebug.log(\"hi\")\n",
+    );
+    expect(compileSource(2, applied(source, action?.edits ?? [])))
+      .toMatchObject({ kind: "compile-success" });
+  });
+
   test("passes a refused repair through, carrying the reason it was refused", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "export fun m(x: Int) = [x]\nexport fun m(y) = [m(y)]\n";
-    const caret = at(source, "m", 1);
+    const source = MAIN + "export fun m(x: Int) = [x]\nexport fun m(y) = [m(y)]\n";
+    const caret = source.indexOf("m(y)") + 1;
 
     const [action, ...rest] = analysis.codeActions(source, {
       startOffset: caret,
@@ -102,16 +133,22 @@ describe("code actions", () => {
     expect(action?.disabled).toContain("`m` is already bound");
   });
 
-  test("answers a selection that ends exactly where its module block does", () => {
+  test("answers a selection that ends exactly where its module's closer does", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "module Helper\n" +
-      "    opaque record Box(a) = { get: () -> a }\n" +
+      "\n" +
+      "opaque record Box(a) = { get: () -> a }\n" +
+      "\n" +
       "end module Helper\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
       "Debug.log(\"${1}\")\n";
 
-    // That last offset is the first character of the `end module` line, and
-    // which file claims it decides whether this request is answered at all:
-    // `codeActions` drops a selection whose ends land in different files.
+    // The `end module` line is the closer of the module the selection starts
+    // in, so the whole selection is inside one module — which is what the
+    // session asks about. Before #829 that last offset belonged to the
+    // *entry's* virtual file and the request was dropped entirely.
     const actions = analysis.codeActions(source, {
       startOffset: source.indexOf("(a)") + 1,
       endOffset: source.indexOf("end module Helper"),
@@ -120,36 +157,49 @@ describe("code actions", () => {
     expect(actions.map(({ kind }) => kind)).toEqual(["refactor"]);
   });
 
-  test("answers nothing for a selection straddling two virtual files", () => {
+  test("answers about a selection running from one module into the next", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "module Helper\n" +
-      "    export fun twice(n: Int) = n * 2\n" +
+      "\n" +
+      "export fun twice(n: Int) = n * 2\n" +
+      "\n" +
       "end module Helper\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Helper\n" +
+      "\n" +
       "Debug.log(\"${Helper.twice(3)}\")\n";
 
+    // One file, so nothing is dropped for straddling one — the request is
+    // answered about every diagnostic the range touches. `twice` is an exported
+    // function with no written result type, which is the repair on offer.
     const actions = analysis.codeActions(source, {
       startOffset: at(source, "twice"),
       endOffset: source.length,
     });
 
-    expect(actions).toEqual([]);
+    expect(actions.map(({ title }) => title)).toEqual(["Infer return type"]);
   });
 
-  test("offers nothing while the workspace notation is broken", () => {
+  test("answers what it can while a module is still being typed", () => {
+    // The Playground used to refuse every request whose buffer had an unclosed
+    // `module` block, because the split into files was then a guess. There is no
+    // split: an unclosed module is a parse error like any other, the compile
+    // pane reports it, and the services answer about the text as far as it
+    // reads — which is what an editor does with every half-typed file.
     const analysis = new PlaygroundAnalysis();
-    const unclosed = `module Helper\n${factorial}`;
+    const unclosed = `module Helper\n\n${factorial}`;
 
-    expect(
-      analysis.codeActions(unclosed, { startOffset: 0, endOffset: unclosed.length }),
-    ).toEqual([]);
-    expect(analysis.hover(unclosed, at(unclosed, "factorial"))).toBeUndefined();
+    expect(analysis.hover(unclosed, at(unclosed, "factorial"))?.markdown)
+      .toContain("factorial");
   });
 });
 
 describe("hover", () => {
   test("names what the value is, the way the language server does", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "let xs = [1, 2, 3]\nDebug.log(\"${Vector.length(xs)}\")\n";
+    const source = MAIN + "let xs = [1, 2, 3]\nDebug.log(\"${Vector.length(xs)}\")\n";
 
     const hover = analysis.hover(source, at(source, "xs"));
 
@@ -159,7 +209,8 @@ describe("hover", () => {
 
   test("carries documentation, which the occurrence table never could", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "(** Doubles what it is given. *)\n" +
+    const source = MAIN +
+      "(** Doubles what it is given. *)\n" +
       "fun twice(n: Int): Int = n * 2\n" +
       "Debug.log(\"${twice(3)}\")\n";
 
@@ -170,11 +221,18 @@ describe("hover", () => {
     );
   });
 
-  test("answers inside a module block, where offsets are the block's own", () => {
+  test("answers inside a module that is not the buffer's last", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "module Helper\n" +
-      "    export fun twice(n: Int): Int = n * 2\n" +
+      "\n" +
+      "export fun twice(n: Int): Int = n * 2\n" +
+      "\n" +
       "end module Helper\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Helper\n" +
+      "\n" +
       "Debug.log(\"${Helper.twice(3)}\")\n";
 
     const hover = analysis.hover(source, at(source, "twice"));
@@ -186,20 +244,25 @@ describe("hover", () => {
 
 describe("hoverSpans", () => {
   /**
-   * Documented and undocumented positions of every kind #254 measured, inside a
-   * module block so the buffer/virtual-file mapping is exercised too — that
-   * translation is the Playground's own contribution to the answer, and the
-   * session's tests cannot see it.
+   * Documented and undocumented positions of every kind #254 measured, in a
+   * buffer declaring two modules — since #829 that is one file with two
+   * modules in it, and the gate has to answer at positions in both.
    */
   const source = [
     "module Shapes",
-    "    (** What a shape is called. *)",
-    "    export record P = {",
-    "        name: String,",
-    "        tag: String,",
-    "    }",
-    "    opaque record Box(a) = { get: () -> a }",
+    "",
+    "(** What a shape is called. *)",
+    "export record P = {",
+    "    name: String,",
+    "    tag: String,",
+    "}",
+    "",
+    "opaque record Box(a) = { get: () -> a }",
+    "",
     "end module Shapes",
+    "",
+    "module Main",
+    "",
     "let one = 1",
     "Debug.log(\"${one}\")",
     "",
@@ -257,21 +320,23 @@ describe("hoverSpans", () => {
     expect(covers(spans, undocumented)).toBe(false);
   });
 
-  test("publishes nothing while the module notation is broken", () => {
-    // The same refusal `hover` makes, and for the same reason: the split into
-    // files is a guess. A gate that kept the last good spans would open the
-    // hover over text they no longer describe.
+  test("publishes the spans of a buffer whose last module is unclosed", () => {
+    // The gate used to go dark on an unclosed block, along with `hover`. Both
+    // answer now, and they must go on agreeing: the property the suite is about
+    // is that the gate opens exactly where the hover speaks.
     const analysis = new PlaygroundAnalysis();
-    const unclosed = `module Helper\n${factorial}`;
+    const unclosed = `module Helper\n\n${factorial}`;
+    const spans = analysis.hoverSpans(unclosed);
 
-    expect(analysis.hoverSpans(unclosed)).toEqual([]);
+    expect(spans.length).toBeGreaterThan(0);
+    expect(covers(spans, at(unclosed, "factorial"))).toBe(true);
   });
 });
 
 describe("definition and references", () => {
   test("goes from a use to the declaration that binds it", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
+    const source = MAIN + "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
 
     const [definition, ...rest] = analysis.definitions(source, at(source, "twice", 1));
 
@@ -280,11 +345,18 @@ describe("definition and references", () => {
     expect(text(source, definition!)).toBe("twice");
   });
 
-  test("crosses a module block in both directions", () => {
+  test("crosses from one module of a file into another", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "module Helper\n" +
-      "    export fun twice(n: Int): Int = n * 2\n" +
+      "\n" +
+      "export fun twice(n: Int): Int = n * 2\n" +
+      "\n" +
       "end module Helper\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Helper\n" +
+      "\n" +
       "Debug.log(\"${Helper.twice(3)}\")\n";
 
     const [definition] = analysis.definitions(source, at(source, "twice", 1));
@@ -294,25 +366,33 @@ describe("definition and references", () => {
 
   test("reports every mention, at the offsets the user can see", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(twice(3))}\")\n";
+    const source = MAIN +
+      "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(twice(3))}\")\n";
 
     const found = analysis.references(source, at(source, "twice"));
 
-    expect(found).toEqual([
-      { startOffset: 4, endOffset: 9 },
-      { startOffset: 44, endOffset: 49 },
-      { startOffset: 50, endOffset: 55 },
-    ]);
+    const twice = (occurrence: number): BufferRange => ({
+      startOffset: at(source, "twice", occurrence) - 1,
+      endOffset: at(source, "twice", occurrence) - 1 + "twice".length,
+    });
+    expect(found).toEqual([twice(0), twice(1), twice(2)]);
   });
 
-  test("orders mentions by the document, not by the virtual file they came from", () => {
+  test("orders mentions by the document, not by the order they arrive in", () => {
     const analysis = new PlaygroundAnalysis();
-    // `/Zed.hex` sorts after `/main.hex`, and its block is above main's text.
-    // Passing the session's own order through would list the two uses before
-    // the declaration they sit below on screen.
+    // `Zed` is imported by the module below it, so the compile answers about
+    // `Zed` first whatever order the buffer writes them in. Passing that order
+    // through would list mentions against the way they read on screen.
     const source = "module Zed\n" +
-      "    export fun twice(n: Int): Int = n * 2\n" +
+      "\n" +
+      "export fun twice(n: Int): Int = n * 2\n" +
+      "\n" +
       "end module Zed\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Zed\n" +
+      "\n" +
       "Debug.log(\"${Zed.twice(Zed.twice(3))}\")\n";
 
     const found = analysis.references(source, at(source, "twice"));
@@ -324,9 +404,9 @@ describe("definition and references", () => {
     expect(found).toHaveLength(3);
   });
 
-  test("has nowhere to go for a name declared in a hosted library", () => {
+  test("has nowhere to go for a name declared in an injected `Hex` module", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
+    const source = MAIN + "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
 
     expect(analysis.definitions(source, at(source, "length"))).toEqual([]);
   });
@@ -335,7 +415,8 @@ describe("definition and references", () => {
 describe("rename", () => {
   test("moves every mention, in buffer coordinates", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(twice(3))}\")\n";
+    const source = MAIN +
+      "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(twice(3))}\")\n";
 
     const result = analysis.rename(source, at(source, "twice"), "double");
 
@@ -343,16 +424,23 @@ describe("rename", () => {
     if (result === undefined || "refused" in result) return;
     const renamed = applied(source, result.edits);
     expect(renamed).toBe(
-      "fun double(n: Int): Int = n * 2\nDebug.log(\"${double(double(3))}\")\n",
+      MAIN + "fun double(n: Int): Int = n * 2\nDebug.log(\"${double(double(3))}\")\n",
     );
     expect(compileSource(1, renamed)).toMatchObject({ kind: "compile-success" });
   });
 
-  test("renames across a module block, rewriting the exporting file too", () => {
+  test("renames across two modules of one buffer", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "module Helper\n" +
-      "    export fun twice(n: Int): Int = n * 2\n" +
+      "\n" +
+      "export fun twice(n: Int): Int = n * 2\n" +
+      "\n" +
       "end module Helper\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Helper\n" +
+      "\n" +
       "Debug.log(\"${Helper.twice(3)}\")\n";
 
     const result = analysis.rename(source, at(source, "twice"), "double");
@@ -360,8 +448,15 @@ describe("rename", () => {
     if (result === undefined || "refused" in result) throw new Error("expected a plan");
     expect(applied(source, result.edits)).toBe(
       "module Helper\n" +
-        "    export fun double(n: Int): Int = n * 2\n" +
+        "\n" +
+        "export fun double(n: Int): Int = n * 2\n" +
+        "\n" +
         "end module Helper\n" +
+        "\n" +
+        "module Main\n" +
+        "\n" +
+        "import Helper\n" +
+        "\n" +
         "Debug.log(\"${Helper.double(3)}\")\n",
     );
   });
@@ -381,7 +476,8 @@ describe("rename", () => {
    */
   test("writes each edit's own text, so a generated conversion follows its type", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = 'extern enum Direction = "up" as Up | "down" as Down\n' +
+    const source = MAIN +
+      'extern enum Direction = "up" as Up | "down" as Down\n' +
       "let read(v: JsValue): Option(Direction) = fromJsDirection(v)\n" +
       'Debug.log("${show(1)}")\n';
 
@@ -391,7 +487,8 @@ describe("rename", () => {
     if (result === undefined || "refused" in result) return;
     const renamed = applied(source, result.edits);
     expect(renamed).toBe(
-      'extern enum Way = "up" as Up | "down" as Down\n' +
+      MAIN +
+        'extern enum Way = "up" as Up | "down" as Down\n' +
         "let read(v: JsValue): Option(Way) = fromJsWay(v)\n" +
         'Debug.log("${show(1)}")\n',
     );
@@ -407,7 +504,8 @@ describe("rename", () => {
    */
   test("an object-reading `extern enum` analyses, and its rename carries the conversions", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = 'extern from "keyboard"\n' +
+    const source = MAIN +
+      'extern from "keyboard"\n' +
       "    enum Key as Direction = ARROW_UP as Up | ARROW_DOWN as Down\n" +
       "let read(v: JsValue): Option(Direction) = fromJsDirection(v)\n" +
       'Debug.log("${show(1)}")\n';
@@ -421,7 +519,8 @@ describe("rename", () => {
     // The foreign half is untouched: renaming the local type must not change
     // which export the block reads.
     expect(renamed).toBe(
-      'extern from "keyboard"\n' +
+      MAIN +
+        'extern from "keyboard"\n' +
         "    enum Key as Way = ARROW_UP as Up | ARROW_DOWN as Down\n" +
         "let read(v: JsValue): Option(Way) = fromJsWay(v)\n" +
         'Debug.log("${show(1)}")\n',
@@ -430,15 +529,21 @@ describe("rename", () => {
   });
 
   /**
-   * The same through the Playground's own `module` notation, which maps buffer
-   * offsets onto synthesized files — so the derived edit has to survive that
-   * mapping as well as the plan.
+   * The same across two modules of one buffer, where the declaration and the
+   * uses the rename derives sit on either side of a closer.
    */
-  test("carries a generated conversion across a module block", () => {
+  test("carries a generated conversion into the module that imports it", () => {
     const analysis = new PlaygroundAnalysis();
     const source = "module Bindings\n" +
-      '    export extern enum Direction = "up" as Up | "down" as Down\n' +
+      "\n" +
+      'export extern enum Direction = "up" as Up | "down" as Down\n' +
+      "\n" +
       "end module Bindings\n" +
+      "\n" +
+      "module Main\n" +
+      "\n" +
+      "import Bindings\n" +
+      "\n" +
       "let read(v: JsValue): Option(Bindings.Direction) = Bindings.fromJsDirection(v)\n" +
       'Debug.log("${show(1)}")\n';
 
@@ -447,16 +552,23 @@ describe("rename", () => {
     if (result === undefined || "refused" in result) throw new Error("expected a plan");
     expect(applied(source, result.edits)).toBe(
       "module Bindings\n" +
-        '    export extern enum Way = "up" as Up | "down" as Down\n' +
+        "\n" +
+        'export extern enum Way = "up" as Up | "down" as Down\n' +
+        "\n" +
         "end module Bindings\n" +
+        "\n" +
+        "module Main\n" +
+        "\n" +
+        "import Bindings\n" +
+        "\n" +
         "let read(v: JsValue): Option(Bindings.Way) = Bindings.fromJsWay(v)\n" +
         'Debug.log("${show(1)}")\n',
     );
   });
 
-  test("refuses a name whose mentions reach a hosted library", () => {
+  test("refuses a name whose mentions reach an injected `Hex` module", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
+    const source = MAIN + "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
 
     const result = analysis.rename(source, at(source, "length"), "size");
 
@@ -465,7 +577,7 @@ describe("rename", () => {
 
   test("prepares the identifier the editor should pre-fill", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
+    const source = MAIN + "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
 
     const subject = analysis.prepareRename(source, at(source, "twice", 1));
 
@@ -476,7 +588,8 @@ describe("rename", () => {
 
   test("passes the session's own prepare refusal through, wording and all", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "record Person = {name: String}\n" +
+    const source = MAIN +
+      "record Person = {name: String}\n" +
       "honor Show<Person> =\n" +
       "    show(person) = person.name\n";
 
@@ -503,7 +616,8 @@ describe("rename", () => {
 
   test("passes the session's own rename refusal through, wording and all", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "fun twice(n: Int): Int = n * 2\nlet one = 1\nDebug.log(\"${twice(one)}\")\n";
+    const source = MAIN +
+      "fun twice(n: Int): Int = n * 2\nlet one = 1\nDebug.log(\"${twice(one)}\")\n";
 
     // The rename is verified by re-analysing the project, so this reason is
     // the compiler's account of what the edit would have done. Replacing it
@@ -515,27 +629,33 @@ describe("rename", () => {
 
   test("refuses at prepare time whatever `rename` would refuse afterwards", () => {
     const analysis = new PlaygroundAnalysis();
-    const source = "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
+    const source = MAIN + "Debug.log(\"${Vector.length([1, 2, 3])}\")\n";
     const caret = at(source, "length");
 
     // The identifier itself is in the buffer, so a prepare that asked only
-    // about the subject would open the rename box on a name whose mentions
-    // reach `/stdlib/Vector.hex` — and refuse the moment the user pressed
-    // Enter.
-    expect(analysis.prepareRename(source, caret)).toEqual({
-      refused: "this would edit code the Playground does not show",
-    });
-    expect(analysis.rename(source, caret, "size")).toEqual({
-      refused: "this would edit code the Playground does not show",
-    });
+    // about the subject would open the rename box on a name declared in
+    // `Hex.Vector` — and refuse the moment the user pressed Enter.
+    //
+    // The reason is the **compiler's** since #829's Ruling B, and it says more
+    // than the Playground's own could: the Playground used to supply
+    // `stdlib/Vector.hex` as a file of the project, so the refusal could only
+    // be "this would edit code the Playground does not show" — a fact about
+    // the host. `Hex.Vector` is a module of a package this project does not
+    // own, which is a fact about the program, and #838's refusal names the
+    // declaring module. Both seats give it, which is what this test is about.
+    const refused = {
+      refused: "`length` is declared in module `Hex.Vector`, which this project does not own",
+    };
+    expect(analysis.prepareRename(source, caret)).toEqual(refused);
+    expect(analysis.rename(source, caret, "size")).toEqual(refused);
   });
 });
 
 describe("the session across requests", () => {
   test("answers about the newest source it was asked about, not the first", () => {
     const analysis = new PlaygroundAnalysis();
-    const before = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
-    const after = "fun thrice(n: Int): Int = n * 3\nDebug.log(\"${thrice(3)}\")\n";
+    const before = MAIN + "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
+    const after = MAIN + "fun thrice(n: Int): Int = n * 3\nDebug.log(\"${thrice(3)}\")\n";
 
     expect(analysis.hover(before, at(before, "twice"))?.markdown).toBe(
       "value `twice: Int -> Int`",
@@ -550,24 +670,28 @@ describe("the session across requests", () => {
     );
   });
 
-  test("forgets a module block the user deleted", () => {
+  test("forgets a module the user deleted", () => {
     const analysis = new PlaygroundAnalysis();
     const helper = "module Helper\n" +
-      "    export fun twice(n: Int): Int = n * 2\n" +
-      "end module Helper\n";
+      "\n" +
+      "export fun twice(n: Int): Int = n * 2\n" +
+      "\n" +
+      "end module Helper\n" +
+      "\n";
     const caller = "module Extra\n" +
-      '    import Helper\n' +
-      "    export fun quadruple(n: Int): Int = Helper.twice(Helper.twice(n))\n" +
-      "end module Extra\n" +
-      "Debug.log(\"${Extra.quadruple(3)}\")\n";
+      "\n" +
+      "import Helper\n" +
+      "\n" +
+      "export fun quadruple(n: Int): Int = Helper.twice(Helper.twice(n))\n";
 
     const both = `${helper}${caller}`;
     expect(analysis.hover(both, at(both, "twice", 1))?.markdown).toBe(
       "value `twice: Int -> Int`",
     );
-    // A file left behind by a missing `removeFile` would go on satisfying
-    // `Extra`'s import, so the session would answer about a module the user
-    // deleted while the compile pane reported it missing.
+    // The session is re-seated from the buffer on every request, so a module
+    // the user deleted is gone the moment the text is. Answering from the last
+    // analysis would report about a declaration the buffer no longer holds
+    // while the compile pane reported it missing.
     expect(analysis.hover(caller, at(caller, "twice"))).toBeUndefined();
   });
 });

@@ -5,7 +5,11 @@ export const temperatures: PlaygroundExample = {
   title: "The Temperature Converter, Untrapped",
   description:
     "The classic C integer-division trap, and the three ways Hexagon refuses to fall into it.",
-  source: `// The classic C trap: with integers, (f - 32) * 5 / 9 truncates 5 / 9 to 0,
+  source: `module Main
+
+import Rat
+
+// The classic C trap: with integers, (f - 32) * 5 / 9 truncates 5 / 9 to 0,
 // and every temperature "converts" to the same wrong answer — silently.
 // In Hexagon, / always means division, and the written type is the
 // arithmetic's home.

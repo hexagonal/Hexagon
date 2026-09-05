@@ -6,7 +6,7 @@ import { PRELUDE_MODULES } from "../prelude.js";
 import { RUNTIME_MODULES } from "../runtime-modules.js";
 import { VECTOR_RUNTIME_OPERATIONS } from "../passes/emitter/emitter.js";
 import type * as Typed from "../syntax/typed/index.js";
-import trieSource from "../../../runtime/VectorTrie.hex?raw";
+import trieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
 
 /**
  * Conformance for the wiring that makes a `Vector(a)` the Collections Part 3 §4
@@ -75,28 +75,28 @@ describe("the runtime module's two-sided contract", () => {
    * shipped the stale text. Written over `RUNTIME_MODULES` rather than over the
    * one basename, so a second runtime module is covered the day it lands.
    */
-  const runtimeSources = import.meta.glob("../../../runtime/*.hex", {
+  const runtimeSources = import.meta.glob("../../../stdlib/Runtime/*.hex", {
     eager: true,
     query: "?raw",
     import: "default",
   }) as Record<string, string>;
 
-  test.each(RUNTIME_MODULES.map(({ basename, source }) => [basename, source] as const))(
-    "the embedded %s is byte-identical to its runtime/ original",
-    (basename, source) => {
+  test.each(RUNTIME_MODULES.map(({ name, source }) => [name, source] as const))(
+    "the embedded %s is byte-identical to its stdlib/Runtime/ original",
+    (name, source) => {
       const entry = Object.entries(runtimeSources)
-        .find(([path]) => path.endsWith(`/${basename}`));
+        .find(([path]) => path.endsWith(`/${name.split(".").at(-1)!}.hex`));
       expect(entry?.[1]).toBe(source);
     },
   );
 
   test("the emitted runtime module exports exactly the inventory", () => {
-    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/VectorTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/Runtime/VectorTrie.hex");
     expect(javascript).toContain(`export { ${VECTOR_RUNTIME_OPERATIONS.join(", ")} };`);
   });
 
   /**
-   * The discipline `runtime/VectorTrie.hex`'s header states, made checkable.
+   * The discipline `stdlib/Runtime/VectorTrie.hex`'s header states, made checkable.
    * The module sees the whole prelude before its seat, and a vector literal,
    * bracket, pattern, or `Vector.` call written in it would make the emitted
    * `VectorTrie.js` import `Vector.js` — which already imports this one. That
@@ -112,32 +112,43 @@ describe("the runtime module's two-sided contract", () => {
    * one, and `Vector.js` above all must not appear.
    */
   test("the emitted runtime module imports only modules seated before it", () => {
-    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/VectorTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/Runtime/VectorTrie.hex");
     const specifiers = [...javascript.matchAll(/^\s*import\b[^;\n]*?from\s+"([^"]+)";/gmu)]
       .map((match) => match[1]!);
 
-    expect(specifiers).not.toContain("./Vector.js");
+    expect(specifiers).not.toContain("../Vector.js");
     // Everything it does import is a prelude member seated before its own seat
     // (`RUNTIME_MODULES`' `precedes`), so nothing it names can import it back.
+    // The trie is `Hex.Runtime.VectorTrie` since #829, so it emits one
+    // directory below its prelude siblings and every specifier it writes climbs
+    // out of `Hex/Runtime/`.
     const seatedBefore = PRELUDE_MODULES
-      .map(({ basename }) => `./${basename.replace(/\.hex$/u, ".js")}`)
-      .slice(0, PRELUDE_MODULES.findIndex(({ basename }) => basename === "Vector.hex"));
+      .map(({ name }) => `../${name}.js`)
+      .slice(0, PRELUDE_MODULES.findIndex(({ name }) => name === "Vector"));
     for (const specifier of specifiers) expect(seatedBefore).toContain(specifier);
     // And it really does import: the index arithmetic reaches its companion.
-    expect(specifiers).toContain("./Int.js");
+    expect(specifiers).toContain("../Int.js");
   });
 
-  /** A file in the injection seat that is not the trie is reported, not emitted broken. */
-  test("a foreign file at the injection path is refused rather than mis-exported", () => {
+  /**
+   * A module claiming a runtime module's **name** that is not the trie is
+   * reported, not emitted broken.
+   *
+   * Since #829 the claim is made by the header — `module Runtime.VectorTrie` —
+   * and not by a file's place: the compiler adopts a project's own file at that
+   * name, which is the stdlib-developing-itself path, and what it must not do is
+   * write the trie's export list over a module that declares none of it.
+   */
+  test("a foreign module at a runtime module's name is refused rather than mis-exported", () => {
     const project = compileFiles([
       ["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"],
-      ["/VectorTrie.hex", "module VectorTrie\n\n" + "let unrelated: Int = 1\n"],
+      ["/VectorTrie.hex", "module Runtime.VectorTrie\n\n" + "let unrelated: Int = 1\n"],
     ]);
-    // The message names the basename since #370 generalized the wiring: two
+    // The message names the module since #370 generalized the wiring: two
     // runtime modules share this check, so "the vector runtime" no longer
     // identifies which seat is wrong.
     expect(project.diagnostics.map(({ message }) => message)).toContain(
-      "this file sits at `VectorTrie.hex`'s injection path but declares " +
+      "this module is `Runtime.VectorTrie` but declares " +
         "no `empty`, `size`, `get`, `set`, `append`, `prepend`, `slice`, " +
         "`window`, `concat`, `nodeRun`",
     );
@@ -165,11 +176,11 @@ describe("the import surface", () => {
     // `Option.hex`'s answer for the checked family. `Vector.hex` is still
     // absent, which is what this case is about.
     expect(emittedPaths(files)).toEqual([
-      "/Hex/Pow.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/VectorTrie.hex", "/main.hex",
+      "/Hex/Pow.hex", "/Hex/Integral.hex", "/Hex/Option.hex", "/Hex/Int.hex", "/Hex/Runtime/VectorTrie.hex", "/main.hex",
     ]);
     const javascript = emitted(files, "/main.hex");
     expect(javascript).toContain(
-      'import { empty as __trieEmpty, append as __trieAppend } from "./Hex/VectorTrie.js";',
+      'import { empty as __trieEmpty, append as __trieAppend } from "./Hex/Runtime/VectorTrie.js";',
     );
     expect(javascript).not.toContain('from "./Hex/Vector.js"');
   });
@@ -181,7 +192,7 @@ describe("the import surface", () => {
     );
     expect(javascript).toContain(
       'import { empty as __trieEmpty, size as __trieSize, ' +
-        'get as __trieGet, append as __trieAppend } from "./Hex/VectorTrie.js";',
+        'get as __trieGet, append as __trieAppend } from "./Hex/Runtime/VectorTrie.js";',
     );
   });
 });
@@ -478,7 +489,7 @@ describe("§4/§7 complexity", () => {
    * O(n log32 n) on every loop a program writes.
    */
   test("the emitted iterator descends per node rather than per element", () => {
-    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/VectorTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]], "/Hex/Runtime/VectorTrie.hex");
     expect(javascript).toContain("function* __vectorIterate() {");
     expect(javascript).toContain("nodeRun(this, __index)");
     expect(javascript).toContain("__index += __run;");
@@ -531,9 +542,9 @@ describe("§4/§7 complexity", () => {
     return (await runProject(
       [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]],
       {
-        entry: "/Hex/VectorTrie.hex",
+        entry: "/Hex/Runtime/VectorTrie.hex",
         transform: (path, javascript) => {
-          if (path !== "/Hex/VectorTrie.hex") return javascript;
+          if (path !== "/Hex/Runtime/VectorTrie.hex") return javascript;
           // Exactly one definition, so the rename below cannot leave a call
           // site reaching an uncounted implementation.
           expect(javascript.split(definition)).toHaveLength(2);
@@ -681,7 +692,7 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
   test("the trie every vector is built on is covariant in its element", () => {
     const shipped = varianceIn(
       [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]],
-      "/Hex/VectorTrie.hex",
+      "/Hex/Runtime/VectorTrie.hex",
     );
     expect(shipped.diagnostics).toEqual([]);
     // §6.3's derivation, as the checker computes it: `a` reaches `TrieVector`
@@ -699,7 +710,7 @@ describe("§5.3 the `Vector(+a)` claim, verified against the representation", ()
   test("the claim table's `Vector` row is what the representation computes", () => {
     const shipped = varianceIn(
       [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1]\n"]],
-      "/Hex/VectorTrie.hex",
+      "/Hex/Runtime/VectorTrie.hex",
     );
     expect(COMPILER_CLAIMS.get("Vector")).toEqual(["co"]);
     expect(shipped.trieVector.map(({ computed }) => computed))
@@ -984,7 +995,7 @@ describe("the trie runtime is reached from wherever a module sits", () => {
         "export let total: Int = Leaf.values.length()\n"],
     ] as const;
     const javascript = emitted(files, "/src/deep/leaf.hex");
-    expect(javascript).toContain('from "./Hex/VectorTrie.js"');
+    expect(javascript).toContain('from "./Hex/Runtime/VectorTrie.js"');
     expect(await runProject(files, { entry: "/src/main.hex" })).toMatchObject({ total: 2 });
   });
 });

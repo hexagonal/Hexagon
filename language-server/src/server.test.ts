@@ -943,7 +943,7 @@ describe("the Hexagon language server", () => {
       // manifest happened to change.
       await mkdir(join(solo.root, "vendor"));
       const nested = join(solo.root, "vendor", "hexagon.json");
-      await writeFile(nested, JSON.stringify({ runtimePaths: [] }));
+      await writeFile(nested, JSON.stringify({ exclude: [] }));
       const uri = pathToFileURL(nested).toString();
       await solo.client.sendNotification(DidChangeWatchedFilesNotification.type, {
         changes: [{ uri, type: 1 }],

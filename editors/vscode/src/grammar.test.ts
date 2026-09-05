@@ -1778,15 +1778,30 @@ describe("the whole checked-in corpus", () => {
   // file that matters most the moment one is added — `stdlib/Bool.hex` arrived
   // with #147 and would have been missed. This is also what makes the README's
   // claim ("every `.hex` file in the repository") true rather than aspirational.
-  const sources = ["stdlib", "runtime"].flatMap((directory) =>
-    readdirSync(join(repositoryRoot, directory))
-      .filter((entry) => entry.endsWith(".hex"))
-      .sort()
-      .map((entry) => `${directory}/${entry}`)
-  );
+  // Walked, not listed at one level either: `stdlib/` grew a `Runtime/` directory
+  // when the runtime modules joined the standard library (#829), and a flat
+  // `readdirSync` would have dropped `VectorTrie.hex` and `HashTrie.hex` from the
+  // sweep silently — the same failure the paragraph above is written about, one
+  // directory down.
+  function hexUnder(directory: string, found: string[] = []): string[] {
+    for (const entry of readdirSync(join(repositoryRoot, directory), { withFileTypes: true })
+      .slice()
+      .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      const relative = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) hexUnder(relative, found);
+      else if (entry.name.endsWith(".hex")) found.push(relative);
+    }
+    return found;
+  }
+
+  const sources = hexUnder("stdlib");
 
   it("finds the corpus it is meant to be checking", () => {
     expect(sources).toContain("stdlib/Bool.hex");
+    // The nested directory, named: a flat read of `stdlib/` passes the line above
+    // and sweeps neither runtime module.
+    expect(sources).toContain("stdlib/Runtime/VectorTrie.hex");
+    expect(sources).toContain("stdlib/Runtime/HashTrie.hex");
     expect(sources.length).toBeGreaterThanOrEqual(8);
   });
 

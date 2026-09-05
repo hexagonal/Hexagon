@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { compileProject, Source } from "../index";
-import { PRELUDE_SOURCES } from "../prelude-sources.js";
+import { STDLIB_SOURCES } from "../stdlib-sources.js";
 import { typeScriptErrors } from "../support/typescript-check.js";
 
 /**
@@ -95,7 +95,7 @@ describe("prelude-supplied types are imported by the faces that reach them", () 
       ["/main.hex", "module Main\n\n" + "export let pick(p: Pair, h: Handle): Handle = h\n"],
       [
         "/Prelude.hex",
-        `${PRELUDE_SOURCES["Prelude.hex"]!}\n` +
+        `${STDLIB_SOURCES["Prelude"]!}\n` +
           "opaque record Pair = {left: Int, right: Int}\n" +
           'extern from "./shapes.js"\n    export type Handle\n',
       ],

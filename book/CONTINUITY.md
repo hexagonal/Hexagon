@@ -520,9 +520,9 @@ late pedagogy pass, not a commitment to the current order.
   `let exactCelsius(f: Int): Rat = (f - 32) * 5 / 9` — the doctrine's own specimen
   (spec/friendly-numerics.md §1) — in both the book and the Playground (#529). `Rat`
   is outside the prelude by design, so a project reaching for it writes
-  `import Rat`. The Playground injects a `Rat` import as equipment, which is why the
-  example carries no import; #831 (open) retires that equipment, after which a buffer
-  writes `import Rat` like any other module.
+  `import Rat` — and since #831 the Playground example writes that line too: the
+  equipment that injected the import is retired, and a buffer imports `Rat` like any
+  other module.
 - Primitive boundary table (seven rows, #158): `Nat`/`Int`/`Float` → `number`,
   `Bool` → `boolean` (by the Unions representation pin), `String` → `string`,
   `BigInt` → `bigint`, and `Unit` → `undefined` (`void` in TS return position; the

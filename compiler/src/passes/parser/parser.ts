@@ -429,6 +429,14 @@ class Parser {
   readonly #tokens: readonly LaidOut.Token[];
   readonly #diagnostics: Diagnostics.Bag;
   /**
+   * Every refused import head's rewrite alias, with the span it was written at
+   * (`Parsed.Module.refusedImportAliases`). The span is kept for two readers:
+   * the list is cut per module the way the comment list is — a file's modules
+   * are strangers — and §5.1's suppression is positional within a module, so a
+   * seat asks where the head stands rather than whether one exists.
+   */
+  readonly #refusedImportAliases: Parsed.RefusedImportHead[] = [];
+  /**
    * Doc-comment bookkeeping (spec/doc-comments.md §4). Declaration parsers claim
    * the block sitting before their first token; the blocks nobody claims are
    * §5's hard errors, reported when the module closes.
@@ -564,13 +572,45 @@ class Parser {
 
     const sections = this.#sectionModules(items, fileId, path, fileSpan);
     const diagnostics = this.#diagnostics.toArray();
-    return sections.map((section) => ({
+    // Comments and doc blocks are the file's, and they are **cut with the
+    // items**. Modules §11 emits one JavaScript file per module and Comments §6
+    // preserves a module's own comments in it, so a file's whole comment list
+    // handed to every section put every module's comments — and the blank runs
+    // measured against their spans, where the other modules' items stood — into
+    // every module's emission. The cut is by offset, at each section's **end**:
+    // a comment written above a file's first header belongs to the module that
+    // header opens, as the items above it do (§2.2), and a comment between one
+    // module's closer and the next module's header was written about the module
+    // it stands above.
+    //
+    // The doc list is cut by the same boundaries, for the same reason and with
+    // no emission difference today: every consumer looks a block up by its
+    // `target` — the documented declaration's own span start — so a block of
+    // another module's answers nobody. It is cut because the two lists are one
+    // fact about the file and a reader who found them cut differently would
+    // have to work out which of the two was deliberate.
+    //
+    // The **one-section** file takes the same path and gets the same lists:
+    // `sectionOf` answers `0` at every offset there, whether the `findIndex`
+    // hits or falls through to `sections.length - 1`. A short-circuit for it
+    // would be two arms that are equal by construction — a carve reading as
+    // though it meant something, which no test could ever tell apart.
+    const bounds = sections.map(({ span }) => span.end.offset);
+    const sectionOf = (offset: number): number => {
+      const index = bounds.findIndex((end) => offset < end);
+      return index === -1 ? sections.length - 1 : index;
+    };
+    return sections.map((section, index) => ({
       kind: "Module" as const,
       fileId,
+      // Partitioned by span like the comments below, so a use in one module
+      // never stands down because a *stranger* above it wrote a refused head.
+      refusedImportAliases: this.#refusedImportAliases
+        .filter(({ span }) => sectionOf(span.start.offset) === index),
       name: section.name,
       items: section.items,
-      comments,
-      docs,
+      comments: comments.filter(({ span }) => sectionOf(span.start.offset) === index),
+      docs: docs.filter(({ span }) => sectionOf(span.start.offset) === index),
       span: section.span,
       // Every module a file declares carries the file's diagnostics. The bag is
       // the file's, and a diagnostic reported inside one module's items is no
@@ -1785,6 +1825,15 @@ class Parser {
         }],
       }),
     });
+    // §5.1: the seats below this head carry no edit of their own, because this
+    // rewrite already offers the line they would write. Recorded under the
+    // alias the rewrite *binds*, which is what a use below spells.
+    if (capitalised !== undefined) {
+      this.#refusedImportAliases.push({
+        alias: alias ?? capitalised.split(".").at(-1)!,
+        span,
+      });
+    }
     this.#synchronize(itemEnds);
     return { kind: "ErrorItem", span };
   }
@@ -5838,8 +5887,8 @@ class Parser {
    * Shared with the constrained hole `_ : C` (closure doc §4.4), which reuses
    * the form wholesale rather than growing a second spelling of it.
    */
-  #parseConstraintList(): readonly Parsed.Name[] {
-    const constraints: Parsed.Name[] = [];
+  #parseConstraintList(): readonly Parsed.ConstraintReference[] {
+    const constraints: Parsed.ConstraintReference[] = [];
     if (this.#at("LeftParen")) {
       this.#advance();
       while (!this.#at("RightParen") && !this.#at("Eof")) {
@@ -5856,7 +5905,7 @@ class Parser {
     return constraints;
   }
 
-  #parseConstraintReference(message: string): Parsed.Name | undefined {
+  #parseConstraintReference(message: string): Parsed.ConstraintReference | undefined {
     const token = this.#takeName("UpperName", message);
     if (token === undefined) return undefined;
     if (!this.#at("Dot") || this.#peek(1).kind !== "UpperName") {
@@ -5867,6 +5916,18 @@ class Parser {
     return {
       text: `${token.text}.${(qualified as Lexed.NameToken).text}`,
       startClass: "upper",
+      // The two ranges Modules §5.1 rule 1 reports and repairs with, recorded
+      // here because this is the only place both tokens are in hand: the
+      // reference's own `text` has already normalized whatever stood between
+      // them (`Source.Qualification`).
+      qualification: {
+        qualifier: token.span,
+        range: {
+          fileId: token.span.fileId,
+          start: token.span.start,
+          end: qualified.span.start,
+        },
+      },
       span: spanFrom(token.span, qualified.span),
     };
   }

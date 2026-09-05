@@ -11,13 +11,13 @@ the Output tab and the execution worker's browser console.
 Supported desktop browsers load Monaco asynchronously for Hexagon editing and
 read-only generated-code models; the textarea remains live until Monaco succeeds.
 
-The Playground also supplies a deliberately small, provisional **fundamental
-stdlib** from the repository's canonical Hexagon sources. `Rat` is its first module:
-Playground programs use the real opaque type and its globally coherent instances,
-not an example-local reimplementation. “Fundamental” names the current host-supplied
-foundation, not a closed inventory; the complete boundary remains stdlib-listing and
-project-loader work. This is distinct from the compiler's **fundamental
-specializations**, which are generated monomorphic editions of generic functions.
+**The Playground hosts nothing.** The standard library is the package `Hex` in
+full and the compiler embeds it (`spec/packages.md` §2.4), so a program reaches
+`Rat` by writing `import Rat` — or `import Hex.Rat` — exactly as it would in any
+other project, and the prelude's `Option` and `Vector` are in scope with no
+import at all. Playground programs use the real opaque types and their globally
+coherent instances, not an example-local reimplementation. A buffer declaring its
+own `module Rat` occludes `Hex.Rat` silently (§3.2) and is the program's own.
 
 ## Try it
 
@@ -27,7 +27,7 @@ npm install
 npm run dev
 ```
 
-Open the local address printed by Vite. Edit `main.hex`, inspect **Errors**,
+Open the local address printed by Vite. Edit the buffer, inspect **Errors**,
 **JS**, **.d.ts**, and **Types**, then choose **Run**. The **Output** tab receives
 `log(...)` output. Top-level bindings do not need `export`: the
 `.d.ts` tab uses the compiler's inspection-only TypeScript preview while preserving
@@ -38,29 +38,53 @@ The playground opens on **JS** and begins with a commented tour of the supported
 language. Its comments and blank lines between top-level features also appear in
 the emitted JavaScript, so the first view demonstrates the readable-output doctrine.
 
-### Single-document module blocks
+### Modules and the root
 
-The playground has one host-only workspace extension for multi-module examples:
+**The buffer is one `.hex` file.** Since #829 a module is a named declaration and a
+file may hold several (`spec/modules.md` §2.1, §2.2), so the Playground hands the
+buffer to the compiler as itself and the parser does the splitting. There is no
+Playground notation left: every rule below is the language's, reported by the
+compiler at the offset the user is looking at.
 
 ```hexagon
 module Mगणित
+
 export fun जोड़(left: Int, right: Int): Int = left + right
+
 end module Mगणित
 
-log("${Mगणित.जोड़(20, 22)}")
+module Main
+
+import Mगणित
+
+Debug.log("${Mगणित.जोड़(20, 22)}")
 ```
 
-The block becomes a real virtual `Mगणित.hex` file and the remaining source receives
-the equivalent of `import module Mगणित from "./Mगणित"`. Block contents deliberately
-stay at column one: adding or removing the wrapper never requires reindentation. The
-closing name must exactly repeat the opener, blocks cannot nest, and names must be
-unique uppercase-start identifiers. Diagnostics retain their positions in the
-combined document, and **Run** executes the emitted modules with ordinary ESM
-linkage.
+- Every buffer declares its module. A buffer with no header is refused with an
+  applied fixit inserting one, and the name it offers is derived from the path the
+  Playground hands the buffer under — `module Main` (§2.1).
+- Modules sharing a file are **strangers**: the second module above sees the first
+  only because it imports it (§2.2), and the import names the module and carries no
+  path (§3.1).
+- Every module but the last is closed by `end module Name` before the next header,
+  a miscased `module foo` is refused with the rewrite that spells it, and a header
+  written inside a string is a string.
 
-This notation belongs to the playground document format, not the Hexagon language.
-Real `.hex` projects continue to use one module per file; `module` and `end` remain
-ordinary identifiers outside these exact playground delimiter lines.
+**The root is `module Main` where the buffer declares one, and otherwise the
+buffer's last module.** Hexagon has no entry function: a host selects one or more
+root modules *by name*, and running one means evaluating its emitted ESM (§8.3).
+So the Playground chooses by name first — `module Main` is the program wherever in
+the buffer it stands, which is where every example already puts it — and falls back
+to position for a buffer that names no `Main`, reading the document the way it is
+written: helpers first, the program last. Nothing consults which module holds
+top-level effects. **Run** executes the emitted modules with ordinary ESM linkage.
+
+**The fallback fails silently, and this is the failure.** A buffer that writes its
+program *above* its helper and calls neither `Main` runs the **helper**: the compile
+succeeds, the JS pane shows the helper's emission, and **Run** prints nothing, with
+no diagnostic anywhere — the helper is a legitimate program that happens to do
+nothing. Naming the program `module Main` is the repair, and is why the rule reads
+the name first.
 
 The Theme selector offers **System**, **Dark**, and **Light**. System is the default
 and follows live operating-system colour-scheme changes. The selected preference is
@@ -214,9 +238,9 @@ token-inventory change had to be made twice, and silently wasn't (#145). The cos
 consolidating is `onig.wasm`, 473 KB raw / 162 KB gzipped, on a page that already
 ships Monaco.
 
-Playground's own `module` / `end module` notation **is** `.hex` syntax since #829
-(`spec/modules.md` §2.1), so the shared grammar paints it and Playground loads no
-grammar of its own. The injection that painted the notation while the two forms were
+`module` / `end module` **is** `.hex` syntax since #829 (`spec/modules.md` §2.1), so
+the shared grammar paints it and Playground loads no grammar of its own. The
+injection that painted the Playground's own notation while the two forms were
 distinct is retired: one language, one grammar, and both editors agree about the line
 by construction. A name the language refuses — `module foo` — paints as ordinary code,
 and the host's diagnostic is what says why.
@@ -239,8 +263,8 @@ Where practical, example source should be derived from or shared with conformanc
 The curated set contains the initial `hello-world` tour plus focused recursion,
 union/match, and exact `Rat` programs. Every example is compiler-tested and
 demonstrates a top-level `log(...)` effect without requiring public exports.
-The `Rat` example exercises the canonical fundamental stdlib module through
-`half + third`, selecting its imported `Signed<Rat>` evidence.
+The `Rat` example writes `import Rat` and exercises the canonical stdlib module
+through `half + third`, selecting its imported `Signed<Rat>` evidence.
 
 ## Testing
 
@@ -283,7 +307,6 @@ playground/
     compiler-service.ts
     analysis.ts
     workspace.ts
-    workspace-source.ts
     language-services.ts
     monaco-mapping.ts
     diagnostics.ts
@@ -340,8 +363,8 @@ fresh execution worker with a two-second timeout.
   result. It is not a reason to build one now.
 - The editor buffer is not any compiled file, so every coordinate crossing the
   boundary goes through one map (`src/workspace.ts`). It refuses rather than
-  approximates: an edit landing in the synthesized import prefix, or in a hosted
-  library, is declined. `anchor` is the single documented exception, and it exists
+  approximates: an edit landing in an injected `Hex` module, which the user
+  cannot see, is declined. `anchor` is the single documented exception, and it exists
   because a diagnostic must always be shown somewhere.
 - Prose a user reads is written once and shared. `hoverMarkdown` lives in the
   compiler because both hosts render Markdown; only the wrapper is protocol. Two
@@ -363,8 +386,6 @@ fresh execution worker with a two-second timeout.
 - There is one Hexagon grammar, `editors/vscode/syntaxes/hexagon.tmLanguage.json`.
   Playground consumes it; it does not copy it and does not generate from it.
 - Playground therefore tokenizes with `vscode-textmate` over Oniguruma, not Monarch.
-- Playground-only syntax goes in a Playground-side injection, never in the shared
-  grammar, which stays the `.hex` language.
 - This makes the two editors wrong in the *same* way, which is the point. It does not
   make them right: `spec/lexer.md` §8.1's `<` and §4.2's contextual keywords are beyond
   regex by construction. The layer that cannot be wrong is semantic tokens from the

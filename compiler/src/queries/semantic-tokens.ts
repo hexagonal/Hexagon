@@ -82,6 +82,13 @@ export function collectSemanticTokens(
     // it, so it is dropped rather than trusted.
     if (span.start.line !== span.end.line) continue;
     const key = `${span.start.offset}:${span.end.offset}`;
+    // "First" is **compile order** since #829, not source order: a file may
+    // declare several modules and the project hands them over dependency-first
+    // (Modules §8.1), so the declaring module's occurrences arrive ahead of the
+    // importer's listing of them. That is the dependency this dedupe rests on —
+    // a declaration is a better classification than a mention of it, and the
+    // order is what makes the declaration first. Any reordering of
+    // `Analysis.occurrencesIn` has to change this key rather than trust it.
     if (taken.has(key)) continue;
     const type = classify(occurrence, facts);
     if (type === undefined) continue;

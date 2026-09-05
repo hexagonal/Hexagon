@@ -9,7 +9,7 @@ import {
   preRegisteredConstraintIdentity,
 } from "../../constraints.js";
 import { INTRINSIC_INVENTORY, isIntrinsicScheme } from "../../intrinsics.js";
-import { PRIMITIVE_COMPANION_BASENAMES } from "../../prelude.js";
+import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { type Documentation, throwsManifests } from "../../support/documentation.js";
 import { relativeSpecifier } from "../../support/paths.js";
 import type * as Source from "../../support/source.js";
@@ -193,11 +193,16 @@ export type RuntimeLocations = ReadonlyMap<string, RuntimeLocation>;
  * renderer keyed off `"self"` alone, so whichever module was emitting itself
  * got *the vector list* written as its export list, and the other got none.
  * Generalizing was therefore forced rather than tidy. Each channel below is the
- * same one channel it always was, now indexed by `basename`.
+ * same one channel it always was, now indexed by the module's declared name.
  */
 export interface RuntimeModuleWiring {
-  /** The injected basename (`runtime-modules.ts`), and this record's key. */
-  readonly basename: string;
+  /**
+   * The runtime module's **declared name** (`runtime-modules.ts`), and this
+   * record's key: `Runtime.VectorTrie`. A name and not a path — the language
+   * reads no path (Modules §9.2), and `compileProject` keys `runtimes` by the
+   * same string.
+   */
+  readonly name: string;
   /**
    * The operations, in the order the emitted export list and every consumer's
    * import list name them — a function of what a module uses, never of where in
@@ -239,14 +244,14 @@ export const DEFAULT_VECTOR_RUNTIME_SPECIFIER = "./VectorTrie";
 /** Every runtime module the emitter wires, in injection order. */
 export const RUNTIME_WIRINGS: readonly RuntimeModuleWiring[] = [
   {
-    basename: "VectorTrie.hex",
+    name: "Runtime.VectorTrie",
     operations: VECTOR_RUNTIME_OPERATIONS,
     localStem: "trie",
     defaultSpecifier: DEFAULT_VECTOR_RUNTIME_SPECIFIER,
     iterables: [{ record: "TrieVector", helper: "vectorIterate" }],
   },
   {
-    basename: "HashTrie.hex",
+    name: "Runtime.HashTrie",
     operations: HASH_TRIE_RUNTIME_OPERATIONS,
     localStem: "hashTrie",
     defaultSpecifier: "./HashTrie",
@@ -9190,7 +9195,7 @@ class JavaScriptEmitter {
    * types *do* cross boundaries and a user declaration can occlude the name;
    * these cannot.
    *
-   * One module may offer several (#373): `runtime/HashTrie.hex` backs both
+   * One module may offer several (#373): `Runtime.HashTrie` backs both
    * public faces, and the record's own name is what picks the helper.
    */
   #runtimeIterateHelper(type: Typed.Type): Helper | undefined {
@@ -10071,10 +10076,10 @@ class JavaScriptEmitter {
 
   #useRuntime(wiring: RuntimeModuleWiring, operation: string): string {
     if (this.#locationOf(wiring) === "self") return operation;
-    let uses = this.#runtimeUses.get(wiring.basename);
+    let uses = this.#runtimeUses.get(wiring.name);
     if (uses === undefined) {
       uses = new Map<string, string>();
-      this.#runtimeUses.set(wiring.basename, uses);
+      this.#runtimeUses.set(wiring.name, uses);
     }
     const existing = uses.get(operation);
     if (existing !== undefined) return existing;
@@ -10087,7 +10092,7 @@ class JavaScriptEmitter {
 
   /** Where this module finds `wiring`'s runtime module. */
   #locationOf(wiring: RuntimeModuleWiring): RuntimeLocation {
-    return this.#runtimes.get(wiring.basename) ??
+    return this.#runtimes.get(wiring.name) ??
       { specifier: wiring.defaultSpecifier };
   }
 
@@ -10106,7 +10111,7 @@ class JavaScriptEmitter {
   #runtimeImports(): readonly { readonly line: string; readonly specifier: string }[] {
     return RUNTIME_WIRINGS.flatMap((wiring) => {
       const location = this.#locationOf(wiring);
-      const uses = this.#runtimeUses.get(wiring.basename);
+      const uses = this.#runtimeUses.get(wiring.name);
       if (location === "self" || uses === undefined || uses.size === 0) return [];
       const items = wiring.operations.flatMap((operation) => {
         const local = uses.get(operation);
@@ -10153,7 +10158,7 @@ class JavaScriptEmitter {
       if (missing.length > 0) {
         this.#diagnostics.add({
           severity: "error",
-          message: `this file sits at \`${wiring.basename}\`'s injection path but declares ` +
+          message: `this module is \`${wiring.name}\` but declares ` +
             `no ${missing.map((operation) => `\`${operation}\``).join(", ")}`,
           primary: this.#module.span,
         });
@@ -12699,7 +12704,7 @@ const INLINED_OPERATOR_MEMBERS: readonly string[] = [
  * emitting an empty object and letting a `TypeError` report it later.
  */
 const MIGRATED_COMPANIONS: ReadonlySet<string> = new Set(
-  PRIMITIVE_COMPANION_BASENAMES.values(),
+  PRIMITIVE_COMPANION_MODULES.values(),
 );
 
 function primitiveInstance(evidence: Core.Evidence): Typed.PrimitiveName | undefined {

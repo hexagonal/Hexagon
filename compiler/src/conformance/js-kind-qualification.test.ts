@@ -416,7 +416,11 @@ describe("the extension gives the eight words back (§12's extension, #511)", ()
     expect(projectDiagnostics("module Main\n\n" + "union Shape = Circle(Float)\n" +
         "export let n: Float = Shape.area(1.0)\n",
     )).toEqual([
-      "`Shape` is a type, not a module; import its home module to qualify through it",
+      // §5.1 rule 1's own-home carve (#829's Ruling A, as #847 settled it): the
+      // type is this module's own declaration, so the repair the type branch
+      // would name is an import of the module into itself — the branch keeps
+      // its own fact and takes the own-alias row's repair instead.
+      "`Shape` is a type, not a module",
     ]);
   });
 

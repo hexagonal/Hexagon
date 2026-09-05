@@ -1633,3 +1633,209 @@ describe("hoverSpans (#254)", () => {
     expect(session.hoverSpans("/absent.hex")).toEqual([]);
   });
 });
+
+/**
+ * Every editor service, over a file that declares more than one module.
+ *
+ * A file holds as many modules as it writes (Modules §2.2), and every index the
+ * session keeps is keyed by *path*. Keeping one tree per path made a file's last
+ * module the only one with a tree: hover, definition, references, rename, the
+ * completions and the quick fixes all answered about the bottom of such a file
+ * and about nothing above it, silently — a name declared in the first module had
+ * no local occurrences at all, so every request over it came back empty.
+ *
+ * The subject below is deliberately a *local* of the first module. A name the
+ * second module imports is listed in that module's own occurrences too, so it
+ * would answer either way and prove nothing.
+ */
+describe("a file declaring several modules (Modules §2.2)", () => {
+  const SOURCE = [
+    "module Helper",
+    "",
+    "export fun twice(n: Int): Int = n * 2",
+    "",
+    "end module Helper",
+    "",
+    "module Main",
+    "",
+    "import Helper",
+    "",
+    'Debug.log("${Helper.twice(3)}")',
+    "",
+  ].join("\n");
+
+  function covers(
+    spans: readonly { start: number; end: number }[],
+    offset: number,
+  ): boolean {
+    return spans.some(({ start, end }) => offset >= start && offset <= end);
+  }
+
+  test("compiles both modules, and reports nothing", () => {
+    const { session } = sessionOf({ "/main.hex": SOURCE });
+    expect(session.diagnostics("/main.hex")).toEqual([]);
+  });
+
+  test("hovers a binder inside the module that is not the file's last", () => {
+    const { session } = sessionOf({ "/main.hex": SOURCE });
+
+    expect(session.hover("/main.hex", at(SOURCE, "n: Int"))).toMatchObject({
+      name: "n",
+      displayedType: "Int",
+    });
+    expect(session.hover("/main.hex", at(SOURCE, "n * 2"))).toMatchObject({ name: "n" });
+  });
+
+  test("goes to a definition and finds references inside the earlier module", () => {
+    const { session, texts } = sessionOf({ "/main.hex": SOURCE });
+    const use = at(SOURCE, "n * 2");
+
+    expect(show(texts, session.definitions("/main.hex", use))).toEqual(["/main.hex:n"]);
+    expect(show(texts, session.references("/main.hex", use))).toEqual([
+      "/main.hex:n",
+      "/main.hex:n",
+    ]);
+  });
+
+  test("renames inside the earlier module, moving every mention and no other", () => {
+    const { session } = sessionOf({ "/main.hex": SOURCE });
+
+    const result = session.rename("/main.hex", at(SOURCE, "n: Int"), "value");
+    expect(result).toMatchObject({ newName: "value" });
+    if (result === undefined || "refused" in result) return;
+    expect(result.edits).toHaveLength(2);
+  });
+
+  test("completes against the scope of the module the caret is in", () => {
+    const { session } = sessionOf({ "/main.hex": SOURCE });
+    const inHelper = session.completions("/main.hex", at(SOURCE, "n * 2") + 1)
+      .map(({ name }) => name);
+    const inMain = session.completions("/main.hex", at(SOURCE, "twice(3)") + 1)
+      .map(({ name }) => name);
+
+    // `Helper`'s own body sees its parameter and its own function.
+    expect(inHelper).toContain("twice");
+    expect(inHelper).toContain("n");
+    // `Main` sees `Helper`'s export only through the alias its import binds,
+    // and never `Helper`'s parameter: the two are strangers sharing a file
+    // (§2.2). Answered against `Main`'s scope — asked against `Helper`'s, the
+    // qualifier names no alias at all and nothing is offered.
+    expect(inMain).toContain("twice");
+    expect(inMain).not.toContain("n");
+  });
+
+  test("publishes hover spans for both modules, each exactly once", () => {
+    const { session } = sessionOf({ "/main.hex": SOURCE });
+    const spans = session.hoverSpans("/main.hex");
+
+    for (const needle of ["twice(n", "n: Int", "n * 2", "twice(3)"]) {
+      const offset = at(SOURCE, needle);
+      expect(session.hover("/main.hex", offset), needle).toBeDefined();
+      expect(covers(spans, offset), needle).toBe(true);
+    }
+    // The declaration of `twice` is listed by `Helper`, which declares it, and
+    // by `Main`, which imports it. One span, not two: a duplicate would publish
+    // two semantic tokens over one identifier.
+    const declaration = at(SOURCE, "twice(n");
+    expect(spans.filter(({ start }) => start === declaration)).toHaveLength(1);
+  });
+
+  test("offers a repair in either module, and writes that module's own edit", () => {
+    const source = [
+      "module Helper",
+      "",
+      "export fun twice(n: Int) = n * 2",
+      "",
+      "end module Helper",
+      "",
+      "module Main",
+      "",
+      'export fun greet(who: String) = "hello, " ++ who',
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": source });
+
+    for (const [needle, written] of [["twice", ": Int"], ["greet", ": String"]] as const) {
+      const caret = at(source, needle);
+      const actions = session.codeActions("/main.hex", { start: caret, end: caret });
+
+      expect(actions.map(({ title }) => title), needle).toEqual(["Infer return type"]);
+      expect(actions[0]?.edits.map(({ replacement }) => replacement), needle)
+        .toEqual([written]);
+    }
+  });
+
+  /**
+   * The two whole-file loops that read a module's **typed tree**, pinned here
+   * rather than only in the Playground's suite (#829 review round 1, N3).
+   *
+   * `hoverSpans`' variance and hole loop and `codeActions`' under-claim loop
+   * both walk `modulesIn`, and restricting either to the file's last module
+   * leaves the whole `compiler/src/analysis/` suite green — the occurrence
+   * index answers for every *name*, and these two answer for what has no
+   * occurrence at all. A multi-module `.hex` file in VS Code is the stated
+   * motivation for the change, so the pin belongs where the claim is.
+   */
+  const TYPED = [
+    "module Shapes",
+    "",
+    "opaque record Box(a) = { get: () -> a }",
+    "",
+    "end module Shapes",
+    "",
+    "module Main",
+    "",
+    "export let n: Int = 1",
+    "",
+  ].join("\n");
+
+  test("publishes the hover spans of a variance site in the file's first module", () => {
+    const { session } = sessionOf({ "/main.hex": TYPED });
+    const site = at(TYPED, "a) = {");
+    // A parameterized opaque type's parameter is a variance site and nothing
+    // else: no occurrence names it, so only the typed loop can reach it.
+    expect(session.hover("/main.hex", site)).toBeDefined();
+    expect(covers(session.hoverSpans("/main.hex"), site)).toBe(true);
+  });
+
+  /**
+   * `moduleAt`'s three outside-every-module offsets, and the asymmetry they
+   * produce (#829 review round 1, N4). Documented at `moduleAt`; pinned here,
+   * because "documented" without a test is a sentence that can go stale.
+   */
+  test("outside every module, occurrence queries answer and tree queries stand down", () => {
+    const closed = [
+      "module Helper",
+      "",
+      "export fun twice(n: Int): Int = n * 2",
+      "",
+      "end module Helper",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": closed });
+    // End of file, after the closer: in no module.
+    expect(session.completions("/main.hex", closed.length)).toEqual([]);
+    // A file leaving its last module open runs to EOF and completes normally,
+    // which is the asymmetry: the tidier shape is the one that loses.
+    const open = closed.replace("end module Helper\n", "");
+    const { session: unclosed } = sessionOf({ "/main.hex": open });
+    expect(unclosed.completions("/main.hex", open.length).length).toBeGreaterThan(0);
+
+    // Above the first header: the parser folds the stray item into the module
+    // the header opens, so the occurrence index holds it and hover answers —
+    // while the section's span starts at the header, so completions do not.
+    const stray = "let stray: Int = 1\n\nmodule Main\n\nexport let n: Int = 1\n";
+    const { session: strayed } = sessionOf({ "/main.hex": stray });
+    expect(strayed.hover("/main.hex", at(stray, "stray"))).toMatchObject({ name: "stray" });
+    expect(strayed.completions("/main.hex", at(stray, "stray"))).toEqual([]);
+  });
+
+  test("offers the under-claim refactor in the file's first module", () => {
+    const { session } = sessionOf({ "/main.hex": TYPED });
+    const site = at(TYPED, "a) = {");
+    const actions = session.codeActions("/main.hex", { start: site, end: site });
+    expect(actions.map(({ title }) => title.slice(0, 20)))
+      .toEqual(["Declare `Box(+a)` — "]);
+    expect(actions[0]?.kind).toBe("refactor");
+  });
+});

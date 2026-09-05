@@ -21,6 +21,34 @@ export interface Span {
   readonly end: Position;
 }
 
+/**
+ * The two ranges a **qualified reference** occupies — `Scale.Scale`, and
+ * `Scale . Scale`, which is legal spacing and normalizes to the same spelling.
+ *
+ * Recorded where both names are in hand rather than re-measured downstream, for
+ * the reason the spacing gives: the spelling a later pass holds is those eleven
+ * characters either way, and nothing in it says where the qualifier stopped.
+ *
+ * Both ranges exist because Modules §5.1 rule 1 needs them to differ. Its
+ * reports **underline the qualifier** — the name that failed to bind, which is
+ * what the reader has to look at — while its drop repair **deletes the
+ * qualifier and its dot**, leaving behind the reference the reader already
+ * wrote. One range doing both duties either underlines a trailing dot or
+ * deletes too little.
+ *
+ * It lives beside `Span` rather than in either syntax tree because both carry
+ * it: the parser writes it onto a `ConstraintReference`, the resolver copies it
+ * onto the binder, head and hole that hold one, and the checker is the pass
+ * that reads it. A second definition is how three files come to disagree about
+ * one reference.
+ */
+export interface Qualification {
+  /** The qualifier's own name: the first `Scale` of `Scale.Scale`. */
+  readonly qualifier: Span;
+  /** The qualifier, any spacing, and the dot: what rule 1's drop deletes. */
+  readonly range: Span;
+}
+
 /** Source trivia retained unchanged so text emitters can preserve comments. */
 export interface Comment {
   readonly kind: "Line" | "Block";

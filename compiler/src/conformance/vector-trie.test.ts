@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { runProject } from "../support/test-project.js";
-import trieSource from "../../../runtime/VectorTrie.hex?raw";
+import trieSource from "../../../stdlib/Runtime/VectorTrie.hex?raw";
 
 /**
  * Conformance for the `.hex` trie backing `Vector(a)` (Collections Part 3 §4),

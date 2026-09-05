@@ -20,7 +20,7 @@ export { parse } from "./passes/parser/parser.js";
 export { resolve } from "./passes/resolver/resolver.js";
 export { check } from "./passes/checker/checker.js";
 export { elaborate } from "./passes/elaborator/elaborator.js";
-export { compileProject, isInjectedModule } from "./project.js";
+export { compileProject } from "./project.js";
 // A manifest reader's two refusals (Packages §2.1). A host's `hexagon.json`
 // reader is the second place a package name is judged, and it must judge it the
 // way the compiler does — so it reads the compiler's own answer, through the

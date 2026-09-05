@@ -2,8 +2,15 @@ import { describe, expect, test } from "vitest";
 
 import { compileFiles } from "../support/test-project.js";
 import { type ProjectOptions, resolveSpecifier, specifierFor } from "../project.js";
-import { displayModuleName, moduleImportLine } from "../packages.js";
+import { displayModuleName, type ImportRepair, moduleImportLine } from "../packages.js";
+import { check } from "../passes/checker/checker.js";
+import { applyLayout } from "../passes/layout/layout.js";
+import { lex } from "../passes/lexer/lexer.js";
+import { parse } from "../passes/parser/parser.js";
+import { resolve } from "../passes/resolver/resolver.js";
 import type * as Diagnostics from "../support/diagnostics.js";
+import { ImportRepairs } from "../support/import-placement.js";
+import * as Source from "../support/source.js";
 
 /**
  * Conformance for the **module-import repair family** — Modules §5.1 rule 1's
@@ -18,12 +25,16 @@ import type * as Diagnostics from "../support/diagnostics.js";
  * have made the program work — and rule 1's sentence, promised verbatim in
  * §5.1 and §10 since the module rules were written, was implemented nowhere.
  *
- * **v1 is the failed-resolution shape and no more** (the #577 ruling). Where the
- * spelling resolves as a *term* — a record import binds its constructor, so
- * `Shape.make` is a field access on a constructor-typed head — nothing here
- * fires, and the inverted mismatch that writer meets is #642's. The suite below
- * pins both halves of that line: the messages at the seats that owe them, and
- * the untouched behaviour just past the boundary.
+ * **Rule 1's first two tests are read ahead of the term namespace** — the
+ * reporting module's own default alias, and a type of the spelling in scope
+ * (§5.1 rule 1: "`Name.` resolves in the module-alias namespace **first**"). The
+ * #577 ruling's v1 carve read the term namespace first, and a record — which
+ * declares a type *and* a constructor of one spelling — therefore never reached
+ * the row §13(o)'s own specimen is written for. What survives of the carve is
+ * the case rule 1 says nothing about: a term of the spelling that names no type
+ * and is not the module's own alias, whose `.field` is an ordinary access and
+ * whose inverted mismatch is #642's. The suite below pins both halves of that
+ * line.
  *
  * The **workspace tier** — one applied code action for all three seats, where
  * exactly one module exports the spelling — is `analysis/code-actions.test.ts`,
@@ -40,8 +51,10 @@ function messages(
 }
 
 /**
- * Rule 1's sentence where the checker has **not** reached the type's home —
- * the module's own declaration, which no import repairs (§5.1, §10).
+ * Rule 1's type-branch sentence where the pass has **not** reached the type's
+ * home: the route is stated as a rule rather than as a line, and no edit is
+ * carried — only an inventory can say which module exports the spelling, and
+ * that offer is the workspace tier's (§5.1, §10).
  */
 const TYPE_NOT_A_MODULE = "`Shape` is a type, not a module; import its home " +
   "module to qualify through it";
@@ -110,12 +123,43 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     ])).toEqual([SHAPE_HOME_NAMED]);
   });
 
-  test("the module's own type reads the same — the seat is the namespace, not the import", () => {
+  /**
+   * §5.1 rule 1's **own-home carve** (#829's Ruling A, as #847 settled it). The
+   * type is this module's own declaration, so the repair the row above would
+   * name is `import Main` written inside `module Main` — §8.1's one-node cycle.
+   * What the row takes instead is the own-alias row's *repair and condition*
+   * while **keeping its own fact**: §10 writes the two rows separately for
+   * exactly this, and the reader wrote a type's name — the sentence that says
+   * so is the one they can act on.
+   *
+   * No repair clause here: `area` is not a binding this module holds, so there
+   * is no bare spelling to drop the qualifier onto.
+   */
+  test("a type of the module's own keeps the type's fact, with the own-alias repair", () => {
     expect(messages([
       ["/main.hex",
         "module Main\n\n" + "union Shape = Circle(Float)\n" +
         "export let n: Float = Shape.area(1.0)\n"],
-    ])).toEqual([TYPE_NOT_A_MODULE]);
+    ])).toEqual(["`Shape` is a type, not a module"]);
+  });
+
+  /** And with a binding of the name, the qualifier is dropped as the edit. */
+  test("the qualifier is dropped where the module's own layer holds the spelling", () => {
+    const text = "module Main\n\n" + "union Shape = Circle(Float)\n" +
+      "let area(value: Float): Float = value\n" +
+      "export let n: Float = Shape.area(1.0)\n";
+    const [diagnostic, ...rest] = compileFiles([["/main.hex", text]]).diagnostics;
+    expect(diagnostic?.message)
+      .toBe("`Shape` is a type, not a module; write `area(1.0)`");
+    // Never `import Main`, at the message or at the edit (§8.1's one-node cycle).
+    expect(diagnostic?.message).not.toContain("import");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Main\n\n" + "union Shape = Circle(Float)\n" +
+        "let area(value: Float): Float = value\n" +
+        "export let n: Float = area(1.0)\n",
+    );
+    expect(messages([["/main.hex", applied(text, diagnostic)]])).toEqual([]);
   });
 
   test("a transparent alias is a type too, and says so under its own name", () => {
@@ -145,16 +189,20 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     ])).toEqual([SHAPE_HOME_NAMED, SHAPE_HOME_NAMED]);
   });
 
-  test("nothing of the spelling anywhere keeps the bare unknown name", () => {
-    // The sentence is conditioned on a type existing — "mentioning the type if
-    // one exists". With no type there is nothing to mention, and claiming one
-    // would be false.
+  test("nothing of the spelling anywhere is the plain unbound-alias report", () => {
+    // The type branch is conditioned on a type existing — "mentioning the type
+    // if one exists". With no type there is nothing to mention, and claiming
+    // one would be false; what is left is rule 1's own report, with no repair
+    // clause, because no module of the spelling is visible either (#829's
+    // Ruling A). Before it, the receiver decayed to ``unknown name `Chevron` ``
+    // — true of the term namespace, and silent about the namespace `Chevron.`
+    // was actually read in.
     // The specimen is a word the prelude does not use at all: since #742's
     // qualified-only default, `Shape` is `JsConversionReason`'s constructor and
-    // draws §5.5's refusal rather than the unknown name this seat is about.
+    // draws §5.5's refusal rather than the report this seat is about.
     expect(messages([
       ["/main.hex", "module Main\n\n" + "export let n: Float = Chevron.area(1.0)\n"],
-    ])).toEqual(["unknown name `Chevron`"]);
+    ])).toEqual(["no module alias `Chevron`"]);
   });
 
   test("a non-uppercase receiver is not rule 1's at all", () => {
@@ -293,15 +341,23 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
   });
 
   test("one line for one spelling, however many uses the module refuses", () => {
-    // Three refused uses of `Meters.` want the identical line, and the first
-    // carries it — so it sits above them all and applying every fix the file
-    // reports writes one import, not three.
+    // Two refused uses of `Meters.` want the identical line, computed from the
+    // first — so it sits above them both, and applying every fix the file
+    // reports writes one import, not two.
     const text = "module Main\n\n" + "import Lib\n" +
       "type Meters = Lib.Meters\n" +
       "export let a: Float = Meters.zero\n" +
       "export let b: Float = Meters.zero\n";
     const reported = compileFiles([LIB, ["/main.hex", text]]).diagnostics;
-    expect(reported.map(({ fixes }) => (fixes ?? []).length)).toEqual([1, 0]);
+    // Every seat carries it, and every seat carries the *same* one: same range,
+    // same text (§5.1, as #829 respelled the obligation). A host applying both
+    // applies one import; a reader who fixes the second gets the same repair as
+    // one who fixes the first, where before they got none at all.
+    expect(reported.map(({ fixes }) => (fixes ?? []).length)).toEqual([1, 1]);
+    const edits = reported.map(({ fixes }) => fixes![0]!.edits[0]!);
+    expect(edits[1]!.replacement).toBe(edits[0]!.replacement);
+    expect(edits[1]!.span.start.offset).toBe(edits[0]!.span.start.offset);
+    expect(applied(text, reported[1])).toBe(applied(text, reported[0]));
   });
 
   test("a prelude spelling never reaches the seat — its alias is always standing", () => {
@@ -326,25 +382,44 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     ]);
   });
 
-  test("the constructor-bound shape is untouched — v1 is failed resolution only", () => {
-    // The #577 ruling's carve-out, pinned so the boundary is visible rather than
-    // implied: a record declaration binds the constructor, `Shape` resolves as a
-    // term, and `.make` is a field access against it. The inverted mismatch that
-    // results is #642's, not this one's — what this test asserts is that nothing
-    // here reclassified it. Written against the module's *own* record since
-    // #762: a bare constructor abroad is rule 3's fallback, which puts a module
-    // alias at the spelling and so answers `Shape.` before rule 1 is asked.
-    const reported = messages([
+  test("a record's own spelling reaches rule 1, constructor or no constructor", () => {
+    // A record declares a **type and a constructor** of one spelling, and rule 1
+    // reads the module-alias namespace first at both (§5.1 rule 1). The #577 v1
+    // carve read the term namespace first and so never reached this row: the
+    // writer of §13(o)'s own specimen was handed `type mismatch: expected
+    // ({n: Int}) -> Shape, found {make: a, ...}` — a sentence about the field
+    // access the recovery built, silent about the type standing one namespace
+    // over, which is the whole content of the mistake.
+    //
+    // Written against the module's *own* record since #762: a bare constructor
+    // abroad is rule 3's fallback, which puts a module alias at the spelling and
+    // so answers `Shape.` before rule 1 is asked.
+    const text = "module Main\n\n" + "export record Shape = {n: Int}\n" +
+      "export fun make(n: Int): Shape = Shape({n = n})\n" +
+      "export let s: Shape = Shape.make(3)\n";
+    const [diagnostic, ...rest] = compileFiles([["/main.hex", text]]).diagnostics;
+    expect(diagnostic?.message).toBe("`Shape` is a type, not a module; write `make(3)`");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Main\n\n" + "export record Shape = {n: Int}\n" +
+        "export fun make(n: Int): Shape = Shape({n = n})\n" +
+        "export let s: Shape = make(3)\n",
+    );
+    expect(messages([["/main.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("the carve that remains: a term of the spelling naming no type", () => {
+    // Rule 1's first two tests are what the term namespace yields to — the
+    // module's own alias, and a type of the spelling. Where **neither** answers
+    // and a term does, the term reading stands and the #577 v1 carve with it: a
+    // nullary constructor is a value, and `.at` against one is a field access
+    // whose mismatch is #642's, not this family's.
+    expect(messages([
       ["/main.hex",
-        "module Main\n\n" + "export record Shape = {n: Int}\n" +
-        "export let s: Shape = Shape.make(3)\n"],
-    ]);
-    // The claim is that the writer is shown a *mismatch*, with the constructor
-    // on the expected side. The field's type is an unsolved variable, which
-    // #649 spells `a` rather than the allocation counter this pin used to have
-    // to match.
-    expect(reported).toEqual([
-      "type mismatch: expected ({n: Int}) -> Shape, found {make: a, ...}",
+        "module Main\n\n" + "export union Colour = Red | Green\n" +
+        "export let n: Int = Red.at\n"],
+    ])).toEqual([
+      "type mismatch: expected Colour, found {at: a, ...}",
     ]);
   });
 });
@@ -460,6 +535,88 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
     );
   });
 
+  /**
+   * §5.1's applied-edit obligation names this seat among the ones it covers —
+   * "the constraint seats whose rows Constraints §8 sends here" — and §10's row
+   * says "the applied edit from the compiler tier, one edit per module".
+   *
+   * The seat used to hand back a bare message: the placement lived in the
+   * resolver, the checker had none, and a reader who wrote `Scale.Scale` in a
+   * binder got the line to type and nothing to apply, at either tier.
+   */
+  test("an unbound qualifier at the constraint seat carries the applied edit", () => {
+    const text = "module Main\n\n" + "export fun go<a: Scale.Scale>(x: a): a = x\n";
+    const [diagnostic, ...rest] = compileFiles([SCALE, ["/main.hex", text]]).diagnostics;
+    expect(diagnostic?.message).toBe("no module alias `Scale`; `import Scale`");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Main\n\n" + "import Scale\n" + "export fun go<a: Scale.Scale>(x: a): a = x\n",
+    );
+    expect(messages([SCALE, ["/main.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("the constraint seat and a term seat of one spelling share one edit", () => {
+    // §5.1's "one edit per module, however many seats draw the report: every
+    // seat carries the same insert, the same range and the same text". The two
+    // seats are reported by two *passes* — the checker here, the resolver at the
+    // term — so the cache they mint from has to be the module's and not either
+    // pass's, or a host applying both writes two import lines.
+    //
+    // Written with an **interleaved import** between the two seats, which is the
+    // one shape where the placement differs between them: a cache per pass gives
+    // the constraint seat the offset below the header and the term seat the one
+    // below `import Other`, and a host applying both writes two lines. A cache
+    // per module gives both the same one, which is what the sentence asks for.
+    const text = "module Main\n\n" +
+      "export fun go<a: Scale.Scale>(x: a): a = x\n" +
+      "import Other\n" +
+      "export let one: Int = Scale.unit + Other.n\n";
+    const { diagnostics } = compileFiles([
+      ["/scale.hex",
+        "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n" +
+        "export let unit: Int = 1\n"],
+      ["/other.hex", "module Other\n\n" + "export let n: Int = 1\n"],
+      ["/main.hex", text],
+    ]);
+    expect(diagnostics.map(({ message }) => message)).toEqual([
+      "no module alias `Scale`; `import Scale`",
+      "no module alias `Scale`; `import Scale`",
+    ]);
+    const edits = diagnostics.map((diagnostic) => diagnostic.fixes?.[0]?.edits);
+    expect(edits[0]).toBeDefined();
+    expect(edits[1]).toEqual(edits[0]);
+    // And the line the two of them share is a program: applying it once leaves
+    // nothing to report at either seat.
+    const edit = edits[0]![0]!;
+    expect(
+      messages([
+        ["/scale.hex",
+          "module Scale\n\n" + "export constraint Scale<a> =\n    scale(value: a, factor: Int): a\n" +
+          "export let unit: Int = 1\n"],
+        ["/other.hex", "module Other\n\n" + "export let n: Int = 1\n"],
+        ["/main.hex",
+          text.slice(0, edit.span.start.offset) + edit.replacement +
+            text.slice(edit.span.end.offset)],
+      ]),
+    ).toEqual([]);
+  });
+
+  test("a refused import head above it takes the edit away, as at every other seat", () => {
+    // §5.1: "a refused import head that offers the same line by its own rewrite
+    // is that line already offered, and the seats below it carry none" — read at
+    // the constraint seat too, or a miscased head has two lightbulbs writing one
+    // import, the second into the middle of the line the first rewrites.
+    const { diagnostics } = compileFiles([
+      SCALE,
+      ["/main.hex",
+        "module Main\n\n" + "import scale\n" +
+        "export fun go<a: Scale.Scale>(x: a): a = x\n"],
+    ]);
+    const seat = diagnostics.find(({ message }) => message.startsWith("no module alias"));
+    expect(seat?.message).toBe("no module alias `Scale`; `import Scale`");
+    expect(seat?.fixes).toBeUndefined();
+  });
+
   test("a qualified head keeps the plain refusal — its repair is not an import line", () => {
     // §4.1's `Alias.Name` spelling arrives under its whole dotted name. That
     // writer already holds an alias; `import D.NotThere` names no module.
@@ -506,6 +663,341 @@ describe("the bare constraint seat (Constraints §8's row)", () => {
       "type `Box` has no `Num` instance; it could only be declared in " +
         "module `Main` (declares `Box`) or the module declaring `Num`",
     ]);
+  });
+});
+
+/**
+ * Rule 1's **type branch at the constraint seats** — §10's rows 533 and 534,
+ * at the four seats the checker owns.
+ *
+ * §5.1 rule 1 asks three questions in order, and the third is the plain
+ * unbound-alias report row 532 states with its own condition attached: "*where
+ * no module alias `Rat` is bound, `Rat` is not the reporting module's own
+ * alias, **and no type of the spelling is in scope***". The resolver's three
+ * seats asked all three. The checker's four asked the first two and then
+ * reported row 532 — with row 532's applied edit — at exactly the case its
+ * condition excludes, which is not a missing sentence but a wrong repair: with
+ * a project module of the spelling visible, the offered `import Shape` compiles
+ * and silently moves the head off the type the reader named and onto a
+ * module's constraint of the same spelling.
+ *
+ * The branch's own two rows are what belongs there instead. A type whose home
+ * is **this module** keeps the type's fact and takes the own-alias row's repair
+ * and condition (row 533) — never an import of the module into itself, §8.1's
+ * one-node cycle. A type whose home is **abroad** names that home and carries
+ * the import as the applied edit (row 534). Neither names an import of the
+ * *qualifier's* spelling, which is the whole content of the fix.
+ */
+describe("a type of the spelling at a constraint seat (§5.1 rule 1's type branch)", () => {
+  /**
+   * The four seats. Written as one function of the reference so that the
+   * matrix below is a matrix: each case says what the module declares and what
+   * the qualified reference is, and all four seats are asked the same question
+   * about it — a binder's obligation (Constraints §4.2), an `honor` head
+   * (§4.1), a constrained hole (closure doc §4.4), and a parameterized head's
+   * own prefix (§4.3).
+   */
+  const SEATS: readonly (readonly [string, (reference: string) => string])[] = [
+    ["the binder", (reference) => `export fun go<a: ${reference}>(x: a): a = x\n`],
+    ["the honor head", (reference) => `honor ${reference}<Box> =\n    describe(value) = "b"\n`],
+    ["the hole binder", (reference) => `let f(x: _ : ${reference}): Int = 1\n`],
+    [
+      "the parameterized head prefix",
+      (reference) => `honor<a: ${reference}> Own<Twin(a)> =\n    own(value) = 1\n`,
+    ],
+  ];
+
+  /**
+   * The declarations every seat needs in scope — a subject for the head, a
+   * parameterized one for §4.3's, and a local constraint for the head that is
+   * not the one under test. Rule 1 is indifferent to all of it; it is here so
+   * the four seats differ in nothing but the seat.
+   */
+  const SCAFFOLD = "export record Box = {n: Int}\n" +
+    "export record Twin(a) = {left: a, right: a}\n" +
+    "export constraint Own<a> =\n    own(value: a): Int\n";
+
+  /**
+   * Rule 1's report, of however many the fixture drew.
+   *
+   * The seats sit inside declarations that raise complaints of their own — an
+   * unresolved obligation leaves a binder unconstrained, an `honor` head whose
+   * constraint never resolved infers no members — and none of those is what
+   * this suite is about. Exactly one report of this family is expected at each
+   * seat, which is itself part of the claim.
+   */
+  function ruleOne(
+    files: readonly (readonly [string, string])[],
+  ): Diagnostics.Diagnostic {
+    const found = compileFiles(files).diagnostics.filter(({ message }) =>
+      message.includes("is a type, not a module") ||
+      message.includes("no module alias") ||
+      message.includes("does not qualify through itself")
+    );
+    expect(found.map(({ message }) => message)).toHaveLength(1);
+    return found[0]!;
+  }
+
+  /** A `module Main` of `declarations` with one seat written under them. */
+  function main(declarations: string, seat: string): readonly [string, string] {
+    return ["/main.hex", `module Main\n\n${declarations}${seat}`];
+  }
+
+  /** A module exporting a constraint *and* a type of its own name. */
+  const SHAPE_HOME = [
+    "/shape.hex",
+    "module Shape\n\n" + "export union Shape = Circle(Float)\n" +
+      "export constraint Describe<a> =\n    describe(value: a): String\n",
+  ] as const;
+
+  describe("row 533 — a type this module declares", () => {
+    for (const [seat, write] of SEATS) {
+      test(`${seat} keeps the type's fact and takes the own-alias repair`, () => {
+        // The module declares the constraint too, so the bare spelling at this
+        // use names the module's own binding and the drop is carried (§5.1's
+        // condition, one namespace over from the term seat's).
+        const declarations = SCAFFOLD + "export record Shape = {n: Int}\n" +
+          "export constraint Describe<a> =\n    describe(value: a): String\n";
+        const file = main(declarations, write("Shape.Describe"));
+        const report = ruleOne([file]);
+        expect(report.message).toBe("`Shape` is a type, not a module; write `Describe`");
+        // Never an import, at the message or at the edit: `import Main` inside
+        // `module Main` is §8.1's one-node cycle, and `import Shape` — which a
+        // visible module of the spelling would make available — is the wrong
+        // declaration.
+        expect(report.message).not.toContain("import");
+        expect(applied(file[1], report)).toBe(
+          `module Main\n\n${declarations}${write("Describe")}`,
+        );
+      });
+    }
+
+    test("a project module of the spelling changes nothing — the type still wins", () => {
+      // The review case, and the reason this is a defect rather than a gap:
+      // `import Shape` is available here, it is what row 532 would have
+      // offered, and applying it compiles. It also honours **module** `Shape`'s
+      // `Describe` at the local record instead of naming the type the reader
+      // wrote, which is why row 532 states "and no type of the spelling is in
+      // scope" as part of its own condition.
+      const declarations = SCAFFOLD + "export record Shape = {n: Int}\n";
+      const file = main(declarations, "honor Shape.Describe<Shape> =\n    describe(value) = \"s\"\n");
+      const report = ruleOne([SHAPE_HOME, file]);
+      expect(report.message).toBe("`Shape` is a type, not a module");
+      expect(report.fixes).toBeUndefined();
+      // And the edit that is not offered would have been a program: this is the
+      // measurement that makes the missing suppression a wrong repair rather
+      // than a missing one.
+      expect(
+        messages([SHAPE_HOME, ["/main.hex", file[1].replace("module Main\n\n", "module Main\n\nimport Shape\n")]]),
+      ).toEqual([]);
+    });
+
+    test("the repair clause stands down where the bare spelling is not the module's own", () => {
+      // §5.1's condition from its failing side, at the type branch: `Describe`
+      // is reached through an import, so dropping the qualifier would name
+      // another module's declaration. The fact is still the type's.
+      const report = ruleOne([
+        ["/describe.hex",
+          "module Describe\n\n" + "export constraint Describe<a> =\n    describe(value: a): String\n"],
+        main("import Describe\nexport record Point = {x: Int}\n",
+          "honor Point.Describe<Point> =\n    describe(value) = \"p\"\n"),
+      ]);
+      expect(report.message).toBe("`Point` is a type, not a module");
+      expect(report.fixes).toBeUndefined();
+    });
+  });
+
+  describe("row 534 — a type whose home is abroad", () => {
+    /**
+     * The one shape that carries a home across the border (`#typeHomeModule`):
+     * a transparent alias of this module's own whose expansion is qualified
+     * through an import. The type namespace holds `Shape`, and the module an
+     * import would reach is the one the alias points at.
+     */
+    const DECLARATIONS = "import Shape as S\n" + "type Shape = S.Shape\n" + SCAFFOLD;
+
+    for (const [seat, write] of SEATS) {
+      test(`${seat} names the home and carries the import`, () => {
+        const file = main(DECLARATIONS, write("Shape.Describe"));
+        const report = ruleOne([SHAPE_HOME, file]);
+        expect(report.message).toBe(
+          "`Shape` is a type, not a module; `import Shape` and qualify through it",
+        );
+        // The applied edit, and it is a repair: the line makes the qualifier a
+        // module alias, which is exactly what the sentence told the reader to do.
+        expect(messages([SHAPE_HOME, ["/main.hex", applied(file[1], report)]])).toEqual([]);
+      });
+    }
+
+    test("the import is the module's one edit, shared with a term seat of the spelling", () => {
+      // §5.1's "one edit per module, however many seats draw the report" holds
+      // across the branch too: the term seat is the resolver's and this one is
+      // the checker's, and both mint from the module's `ImportRepairs`.
+      const { diagnostics } = compileFiles([
+        SHAPE_HOME,
+        main(DECLARATIONS,
+          "export fun go<a: Shape.Describe>(x: a): a = x\n" +
+            "export let named: Float = Shape.area(1.0)\n"),
+      ]);
+      const edits = diagnostics
+        .filter(({ message }) => message.includes("is a type, not a module"))
+        .map(({ fixes }) => fixes?.[0]?.edits);
+      expect(edits).toHaveLength(2);
+      expect(edits[0]).toBeDefined();
+      expect(edits[1]).toEqual(edits[0]);
+    });
+
+    test("the home's own spelling is what the line names, and the alias clause carries it", () => {
+      // The shape the channel was built for, and the only one where
+      // `moduleImportLine`'s **alias** arm fires: the home is `Geometry` while
+      // the qualifier is `Shape`, so a bare `import Geometry` would leave
+      // `Shape.` unbound and the line has to realias. Every other case in this
+      // suite has `home === qualifier`, where the two arms print the same text
+      // and the arm under test is unobservable.
+      const geometry = [
+        "/geometry.hex",
+        "module Geometry\n\n" + "export union Shape = Circle(Float)\n" +
+          "export let unit: Float = 1.0\n" +
+          "export constraint Describe<a> =\n    describe(value: a): String\n",
+      ] as const;
+      const text = "module Main\n\n" + "import Geometry as G\n" + "type Shape = G.Shape\n" +
+        "export record Box = {n: Int}\n" +
+        "export fun go<a: Shape.Describe>(x: a): a = x\n" +
+        "export let named: Float = Shape.unit\n";
+      const { diagnostics } = compileFiles([geometry, ["/main.hex", text]]);
+      const sentence =
+        "`Shape` is a type, not a module; `import Geometry as Shape` and qualify through it";
+      // The constraint seat is the checker's and the term seat one line over is
+      // the resolver's, and the two agree to the byte — the sentence, the
+      // underlined range, and the edit's range *and* text. That agreement is
+      // the whole claim of the channel: it is the resolver's own reading of the
+      // type namespace, not a second derivation of it.
+      expect(diagnostics.map(({ message }) => message)).toEqual([sentence, sentence]);
+      const [constraintSeat, termSeat] = diagnostics;
+      expect(diagnostics.map(({ primary }) => text.slice(primary.start.offset, primary.end.offset)))
+        .toEqual(["Shape", "Shape"]);
+      const edits = constraintSeat!.fixes?.[0]?.edits;
+      expect(edits?.map(({ span, replacement }) => [span.start.offset, span.end.offset, replacement]))
+        .toEqual([[34, 34, "import Geometry as Shape\n"]]);
+      expect(termSeat!.fixes?.[0]?.edits).toEqual(edits);
+      // And the line repairs: `Shape.` becomes a module alias for `Geometry`,
+      // which is what the sentence told the reader to write.
+      expect(messages([geometry, ["/main.hex", applied(text, constraintSeat)]])).toEqual([]);
+    });
+  });
+
+  describe("row 532 — no type of the spelling, which is the row's own condition", () => {
+    for (const [seat, write] of SEATS) {
+      test(`${seat} keeps the plain report and its edit`, () => {
+        const file = main(SCAFFOLD, write("Shape.Describe"));
+        const report = ruleOne([SHAPE_HOME, file]);
+        expect(report.message).toBe("no module alias `Shape`; `import Shape`");
+        // And the edit is a repair: with no type of the spelling standing in
+        // the way, the import is exactly the line the reader needed.
+        expect(messages([SHAPE_HOME, ["/main.hex", applied(file[1], report)]])).toEqual([]);
+      });
+    }
+  });
+
+  test("the third arm has an ordinary buffer: a prelude type with no companion", () => {
+    // The arm through `compileProject`, not at the pass. A bare `module Main`
+    // holds ten prelude type spellings, and `JsConversionError` is the one that
+    // binds **no module alias of its own spelling** — §5.5 seeds a companion
+    // for the other nine, `JsConversionReason` included, and not for it. So
+    // `JsConversionError.` passes rule 1's first test, finds a type, and
+    // reaches the arm with no qualifier to have read a home off: the arm's own
+    // condition, met by the prelude the language ships.
+    const text = "module Main\n\n" + "export record Box = {n: Int}\n" +
+      'honor JsConversionError.Describe<Box> =\n    describe(value) = "b"\n';
+    const report = ruleOne([["/main.hex", text]]);
+    expect(report.message).toBe(
+      "`JsConversionError` is a type, not a module; import its home module to qualify through it",
+    );
+    // No line, and so no edit — only an inventory can say which module exports
+    // the spelling, and that offer is the workspace tier's, which is what the
+    // marker is for.
+    expect(report.fixes).toBeUndefined();
+    expect(report.importModuleRepair).toEqual({ name: "JsConversionError", namespace: "type" });
+    expect(text.slice(report.primary.start.offset, report.primary.end.offset))
+      .toBe("JsConversionError");
+  });
+
+  test("a type in scope with no home reached names no import and carries no edit", () => {
+    // The branch's third arm, and the floor the whole fix rests on: **no arm
+    // inserts an import of the qualifier's own spelling where a type of it is
+    // in scope**. The buffer above reaches the arm; this reaches it with a
+    // repair standing ready, which no buffer can arrange today — the prelude
+    // spellings that take the arm name no importable module of their own. So
+    // the namespace is handed to the checker directly, the same route the
+    // contested arm above is pinned by, and for the same reason: the arm is a
+    // function of that answer and of nothing else.
+    //
+    // Everything a repair needs is deliberately present — a module `Shape`
+    // that `import Shape` would resolve to, and the module's own edit writer —
+    // so that a report naming one would be reporting it, not failing to find it.
+    const text = "module Main\n\n" + "export fun go<a: Shape.Describe>(x: a): a = x\n";
+    const file = new Source.File(Source.fileId(0), "/main.hex", text);
+    const parsed = parse(applyLayout(lex(file)));
+    const typed = check({
+      ...resolve(parsed, { text }),
+      typeSpellings: new Map([["Shape", { own: false }]]),
+    }, {
+      importRepair: () => ({ kind: "Resolved", fullName: "Hex.Shape" }),
+      repairs: new ImportRepairs(parsed, text, "/main.hex"),
+    });
+    const report = typed.diagnostics
+      .find(({ message }) => message.includes("not a module") || message.includes("no module alias"));
+    expect(report?.message).toBe(TYPE_NOT_A_MODULE);
+    expect(report?.fixes).toBeUndefined();
+  });
+
+  describe("the report speaks about the qualifier, and underlines it", () => {
+    // §5.1's reports at these seats are about the name that failed to bind, and
+    // the resolver's three seats underline exactly that (`seat.qualifier.span`).
+    // The item's own span — the whole binder, or `honor` through the end of the
+    // head — is the span of the *obligation*, which is not what failed.
+    function underlined(files: readonly (readonly [string, string])[], text: string): string {
+      const report = ruleOne(files);
+      return text.slice(report.primary.start.offset, report.primary.end.offset);
+    }
+
+    for (const [seat, write] of SEATS) {
+      test(`${seat} underlines the qualifier alone`, () => {
+        const file = main(SCAFFOLD, write("Shape.Describe"));
+        expect(underlined([SHAPE_HOME, file], file[1])).toBe("Shape");
+      });
+    }
+
+    test("spacing inside the reference does not widen it", () => {
+      const file = main(SCAFFOLD, "export fun go<a: Shape . Describe>(x: a): a = x\n");
+      expect(underlined([SHAPE_HOME, file], file[1])).toBe("Shape");
+    });
+
+    test("a constraint that merely failed to resolve keeps the item's span", () => {
+      // The move is rule 1's, not the seat's: where the qualifier *binds*, the
+      // spelling really is an unknown constraint of a known module, and the
+      // reader has to look at the whole obligation.
+      const text = "module Main\n\n" + 'import Shape as S\n' +
+        "export fun go<a: S.NotThere>(x: a): a = x\n";
+      const [report] = compileFiles([SHAPE_HOME, ["/main.hex", text]]).diagnostics;
+      expect(report?.message).toBe("unknown constraint `S.NotThere`");
+      expect(text.slice(report!.primary.start.offset, report!.primary.end.offset))
+        .toBe("a: S.NotThere");
+    });
+  });
+
+  test("a prelude companion binds the alias, and rule 1 never reaches the type", () => {
+    // Rule 1 reads the module-alias namespace **first**, and §5.5 puts the
+    // prelude's companions in it — so `Option.` is a module here, and the
+    // refusal is the one a known module's missing constraint draws. Reading
+    // only the module's written imports made `Option` bind nothing, which sent
+    // the seat down to a later test: before the type branch, the plain report
+    // offering `import Option` for a module already in scope.
+    expect(messages([
+      ["/main.hex",
+        "module Main\n\n" + "export record Box = {n: Int}\n" +
+        "honor Option.Describe<Box> =\n    describe(value) = \"b\"\n"],
+    ])).toEqual(["unknown constraint `Option.Describe`"]);
   });
 });
 
@@ -637,5 +1129,280 @@ describe("the resolving package's own segment (Packages §3.3)", () => {
     expect(displayModuleName("Acme.Lib")).toBe("Acme.Lib");
     expect(moduleImportLine("Acme.Metric", "Scale", "Acme")).toBe("import Metric as Scale");
     expect(moduleImportLine("Bolt.Metric", "Scale", "Acme")).toBe("import Bolt.Metric as Scale");
+  });
+});
+
+/**
+ * §5.1 rule 1's **first test**: the reporting module's own default alias — its
+ * declared name's last segment (Modules §3.1).
+ *
+ * No alias binds a module's own name inside it, so a module cannot qualify
+ * through itself, and the seat is tested ahead of every branch below for two
+ * reasons that meet here. The companion idiom puts a same-spelled *type* in
+ * scope in exactly this module, so the type branch would fire on the ordinary
+ * case; and the repair every branch below names is an import, which written
+ * here is `import Point` inside `module Point` — §8.1's one-node cycle.
+ */
+describe("a module does not qualify through itself (§5.1 rule 1, §3.1)", () => {
+  test("the qualifier is dropped, and the message quotes the call's own arguments", () => {
+    const text = "module Point\n\n" +
+      "export let make(x: Float, y: Float): Float = x + y\n" +
+      "export let one: Float = Point.make(1.0, 0.0)\n";
+    const [diagnostic, ...rest] = compileFiles([["/point.hex", text]]).diagnostics;
+    expect(diagnostic?.message)
+      .toBe("a module does not qualify through itself; write `make(1.0, 0.0)`");
+    // Never `import Point`, at the message or at the edit.
+    expect(diagnostic?.message).not.toContain("import");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Point\n\n" +
+        "export let make(x: Float, y: Float): Float = x + y\n" +
+        "export let one: Float = make(1.0, 0.0)\n",
+    );
+    expect(messages([["/point.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("a head binder holding the spelling takes the sentence and no repair", () => {
+    // §5.1: the edit is carried only where the bare spelling, read *at that
+    // use*, names the module's own binding. Here `two` is the parameter, so
+    // dropping the qualifier would silently name it — a repair that changes
+    // what the program means is worse than no repair.
+    const [diagnostic, ...rest] = compileFiles([["/shapes.hex",
+      "module Shapes\n\n" +
+      "export let two: Float = 2.0\n" +
+      "export fun grow(two: Float): Float = Shapes.two * two\n",
+    ]]).diagnostics;
+    expect(diagnostic?.message).toBe("a module does not qualify through itself");
+    expect(diagnostic?.fixes).toBeUndefined();
+    expect(rest).toEqual([]);
+  });
+
+  test("the module's own layer, and not the prelude's, is what the repair reads", () => {
+    // `show` is a prelude name in bare scope, and this module declares none of
+    // its own — so there is nothing here to drop the qualifier onto, and the
+    // sentence stands alone rather than rewriting to a prelude spelling.
+    const [diagnostic, ...rest] = compileFiles([["/point.hex",
+      "module Point\n\n" + 'export let one: String = Point.show(1)\n',
+    ]]).diagnostics;
+    expect(diagnostic?.message).toBe("a module does not qualify through itself");
+    expect(diagnostic?.fixes).toBeUndefined();
+    expect(rest).toEqual([]);
+  });
+
+  test("the seat is the declared name's **last segment**", () => {
+    // `module Render.Geometry`'s default alias is `Geometry` (§3.1), so that is
+    // the spelling this rule tests — and `Render.` is not it.
+    expect(messages([["/geo.hex",
+      "module Render.Geometry\n\n" +
+      "export let scale: Float = 1.0\n" +
+      "export let twice: Float = Geometry.scale * 2.0\n",
+    ]])).toEqual(["a module does not qualify through itself; write `scale`"]);
+  });
+
+  test("it holds in type position too, and drops the qualifier there", () => {
+    const text = "module Point\n\n" + "export type Meters = Float\n" +
+      "export let one: Point.Meters = 1.0\n";
+    const [diagnostic, ...rest] = compileFiles([["/point.hex", text]]).diagnostics;
+    expect(diagnostic?.message)
+      .toBe("a module does not qualify through itself; write `Meters`");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Point\n\n" + "export type Meters = Float\n" +
+        "export let one: Meters = 1.0\n",
+    );
+  });
+
+  test("the constraint seat takes the same sentence, the same repair and the same edit", () => {
+    // §5.1 names this seat among the ones the obligation covers ("the
+    // constraint seats whose rows Constraints §8 sends here"), and §10's row
+    // 531 says the drop is carried "*at any seat*". The seats below are the
+    // checker's, not the resolver's — a binder's obligation and an `honor` head
+    // are resolved there — so a report that stopped at the sentence here would
+    // be rule 1 implemented at three of its four seats.
+    const text = "module Scale\n\n" +
+      "export constraint Scale<a> =\n    s(x: a): a\n" +
+      "export fun go<a: Scale.Scale>(x: a): a = x\n";
+    const [diagnostic, ...rest] = compileFiles([["/scale.hex", text]]).diagnostics;
+    expect(diagnostic?.message).toBe("a module does not qualify through itself; write `Scale`");
+    // Never `import Scale` inside `module Scale` — §8.1's one-node cycle.
+    expect(diagnostic?.message).not.toContain("import");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Scale\n\n" +
+        "export constraint Scale<a> =\n    s(x: a): a\n" +
+        "export fun go<a: Scale>(x: a): a = x\n",
+    );
+    // The dropped form is a program, which is what makes the drop the repair
+    // §5.1 owes rather than a second way of writing the complaint.
+    expect(messages([["/scale.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("— and the drop reads the module's OWN constraint layer, not everything in scope", () => {
+    // The condition, from its failing side: `#constraintNames` holds every
+    // spelling the module can name, imports included, and that is not what §5.1
+    // asks about. `Scale` here is reached through an import, so the bare
+    // spelling at this use names another module's declaration and the sentence
+    // stands alone.
+    const [diagnostic, ...rest] = compileFiles([
+      SCALE,
+      ["/other.hex",
+        "module Other\n\n" + "import Scale\n" +
+        "export fun go<a: Other.Scale>(x: a): a = x\n"],
+    ]).diagnostics;
+    expect(diagnostic?.message).toBe("a module does not qualify through itself");
+    expect(diagnostic?.fixes).toBeUndefined();
+    expect(rest).toEqual([]);
+  });
+
+  test("the edit deletes the qualification as written, spacing and all", () => {
+    // `Scale . Scale` normalizes to the same eleven characters in the resolved
+    // spelling, so an edit measured from the *text* would leave `. Scale`
+    // behind. The range travels from the parser instead, which is the only
+    // reader that saw both names.
+    const text = "module Scale\n\n" +
+      "export constraint Scale<a> =\n    s(x: a): a\n" +
+      "export fun go<a: Scale . Scale>(x: a): a = x\n";
+    const [diagnostic] = compileFiles([["/scale.hex", text]]).diagnostics;
+    expect(applied(text, diagnostic)).toBe(
+      "module Scale\n\n" +
+        "export constraint Scale<a> =\n    s(x: a): a\n" +
+        "export fun go<a: Scale>(x: a): a = x\n",
+    );
+  });
+
+  test("an import may still bind the spelling to another module", () => {
+    // §3.1: `import Render.Point` inside `module Point` collides with nothing,
+    // and `Point.` then means what it imports — so this rule fires only where
+    // *nothing* binds the alias.
+    expect(messages([
+      ["/render.hex", "module Render.Point\n\n" + "export let origin: Float = 0.0\n"],
+      ["/point.hex",
+        "module Point\n\n" + "import Render.Point\n" +
+        "export let zero: Float = Point.origin\n"],
+    ])).toEqual([]);
+  });
+});
+
+/**
+ * §5.1's refused-head suppression, read **positionally**: "a refused import
+ * head that offers the same line by its own rewrite is that line already
+ * offered, and **the seats below it** carry none".
+ *
+ * *Below it* is the whole condition. A use above the head is not a seat the
+ * head repairs — the alias its rewrite binds would sit under that use, where
+ * §3's top-down half refuses it again — so the head offers that reader nothing
+ * and the seat owes them its own line. Membership alone reads the sentence as
+ * "anywhere in the module", which takes the repair away from a seat for a
+ * reason nothing on the reader's screen states.
+ */
+describe("a refused head suppresses the seats below it, and only those", () => {
+  /** A module with a plain function, reached only by an import line. */
+  const GEOMETRY = [
+    "/geometry.hex",
+    "module Geometry\n\n" + "export fun area(r: Float): Float = r * r\n",
+  ] as const;
+
+  test("a use above the head keeps its edit; the same use below loses it", () => {
+    const above = "module Main\n\n" +
+      "export let a: Float = Geometry.area(2.0)\n" + "import geometry\n";
+    const below = "module Main\n\n" +
+      "import geometry\n" + "export let a: Float = Geometry.area(2.0)\n";
+    const seatOf = (text: string) =>
+      compileFiles([GEOMETRY, ["/main.hex", text]]).diagnostics
+        .find(({ message }) => message.startsWith("no module alias"));
+
+    // Same message either way — the line is named at both, because it is the
+    // line either reader needs.
+    expect(seatOf(above)?.message).toBe("no module alias `Geometry`; `import Geometry`");
+    expect(seatOf(below)?.message).toBe("no module alias `Geometry`; `import Geometry`");
+
+    expect(seatOf(below)?.fixes).toBeUndefined();
+    // And the edit the upper seat keeps lands above itself, which is the whole
+    // reason it is owed one: the head's own rewrite would bind the alias below.
+    expect(applied(above, seatOf(above))).toBe(
+      "module Main\n\n" + "import Geometry\n" +
+        "export let a: Float = Geometry.area(2.0)\n" + "import geometry\n",
+    );
+  });
+
+  test("the constraint seat reads the head the same way, from either side", () => {
+    // The two passes must agree about one module's heads: the suppression lives
+    // on the `ImportRepairs` they share, so this is the checker asking the same
+    // question the resolver asked above.
+    const above = "module Main\n\n" +
+      "export fun go<a: Scale.Scale>(x: a): a = x\n" + "import scale\n";
+    const below = "module Main\n\n" +
+      "import scale\n" + "export fun go<a: Scale.Scale>(x: a): a = x\n";
+    const seatOf = (text: string) =>
+      compileFiles([SCALE, ["/main.hex", text]]).diagnostics
+        .find(({ message }) => message.startsWith("no module alias"));
+
+    expect(seatOf(below)?.fixes).toBeUndefined();
+    expect(applied(above, seatOf(above))).toBe(
+      "module Main\n\n" + "import Scale\n" +
+        "export fun go<a: Scale.Scale>(x: a): a = x\n" + "import scale\n",
+    );
+  });
+});
+
+/**
+ * §5.1 rule 1's **contested** repair clause (Packages §3.3), at the pass.
+ *
+ * Two visible packages have to provide the written name and the resolving one
+ * must provide neither, and the package set is `{project, Hex}` until the host
+ * slice that reads installed packages lands — so no program that can be written
+ * today reaches this arm through `compileProject`. It is reached here instead,
+ * by handing `resolve` the answer `resolveModuleName` will hand it the day a
+ * dependency is in the set: the arm is a function of that answer and of nothing
+ * else, so this is the whole of what there is to pin.
+ */
+describe("a contested spelling names every full one, and offers no edit", () => {
+  function reportOf(repair: ImportRepair | undefined): Diagnostics.Diagnostic {
+    const text = "module Main\n\n" + "export let n: Float = Geometry.area(2.0)\n";
+    const file = new Source.File(Source.fileId(0), "/main.hex", text);
+    const resolved = resolve(parse(applyLayout(lex(file))), {
+      text,
+      ...(repair === undefined ? {} : { importRepair: () => repair }),
+    });
+    const [only, ...rest] = resolved.diagnostics;
+    expect(rest).toEqual([]);
+    return only!;
+  }
+
+  test("every provider is named, in the order the resolution gave them", () => {
+    const report = reportOf({
+      kind: "Contested",
+      fullNames: ["Acme.Geometry", "Hex.Geometry"],
+    });
+    expect(report.message).toBe(
+      "no module alias `Geometry`; `import Acme.Geometry` or `import Hex.Geometry`",
+    );
+    // No edit: the compiler cannot choose, and a repair that picked one would be
+    // the rank Packages §3.3 refuses to make.
+    expect(report.fixes).toBeUndefined();
+  });
+
+  test("three providers are three spellings, none elided", () => {
+    expect(
+      reportOf({
+        kind: "Contested",
+        fullNames: ["Acme.Geometry", "Bolt.Geometry", "Hex.Geometry"],
+      }).message,
+    ).toBe(
+      "no module alias `Geometry`; `import Acme.Geometry`, `import Bolt.Geometry`, " +
+        "or `import Hex.Geometry`",
+    );
+  });
+
+  test("the resolving arm names one line and carries the edit", () => {
+    const report = reportOf({ kind: "Resolved", fullName: "Hex.Geometry" });
+    expect(report.message).toBe("no module alias `Geometry`; `import Geometry`");
+    expect(report.fixes?.[0]?.edits[0]?.replacement).toBe("import Geometry\n");
+  });
+
+  test("no answer at all is the report with no repair clause", () => {
+    const report = reportOf(undefined);
+    expect(report.message).toBe("no module alias `Geometry`");
+    expect(report.fixes).toBeUndefined();
   });
 });

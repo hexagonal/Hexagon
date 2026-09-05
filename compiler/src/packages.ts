@@ -144,6 +144,19 @@ export function moduleImportLine(
     : `import ${name} as ${alias}`;
 }
 
+/**
+ * How `import <written>` would resolve for a module, as Modules §5.1 rule 1's
+ * repair clause asks it (#829's Ruling A).
+ *
+ * A narrowing of `ModuleResolution` to the two answers a *refusal* can act on:
+ * the import that would work, or the full spellings a contest leaves the reader
+ * to choose between. Every other outcome is "nothing to repair", which the
+ * report says by leaving its repair clause off.
+ */
+export type ImportRepair =
+  | { readonly kind: "Resolved"; readonly fullName: string }
+  | { readonly kind: "Contested"; readonly fullNames: readonly string[] };
+
 /** How a written module name failed to resolve (Packages §3.3, §7). */
 export type ModuleResolution =
   | { readonly kind: "Resolved"; readonly module: ProgramModule }

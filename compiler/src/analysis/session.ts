@@ -425,7 +425,7 @@ export class AnalysisSession {
    */
   #varianceHover(analysis: Analysis, path: string, offset: number): Hover | undefined {
     const fileId = this.#fileIds.get(path);
-    const typed = analysis.typedOf(path);
+    const typed = analysis.moduleAt(path, offset)?.typed;
     if (fileId === undefined || typed === undefined) return undefined;
     const site = siteAt(typed, fileId, offset);
     if (site === undefined) return undefined;
@@ -446,7 +446,7 @@ export class AnalysisSession {
    */
   #holeHover(analysis: Analysis, path: string, offset: number): Hover | undefined {
     const fileId = this.#fileIds.get(path);
-    const typed = analysis.typedOf(path);
+    const typed = analysis.moduleAt(path, offset)?.typed;
     if (fileId === undefined || typed === undefined) return undefined;
     const hole = typed.typeHoles.find(({ span }) =>
       span.fileId === fileId &&
@@ -549,11 +549,13 @@ export class AnalysisSession {
     const fileId = this.#fileIds.get(normalized);
     if (fileId !== undefined) {
       // Each branch carries the guard its answer carries — `#varianceHover` and
-      // `#holeHover` need the typed tree, `#documentedName` needs the text it
+      // `#holeHover` need a typed tree, `#documentedName` needs the text it
       // slices the name out of — rather than one guard covering both, so a file
-      // the session holds only half of gates exactly where it would answer.
-      const typed = analysis.typedOf(normalized);
-      if (typed !== undefined) {
+      // the session holds only half of gates exactly where it would answer. The
+      // typed half runs over **every** module the file declares (Modules §2.2),
+      // since a variance site or a hole in any of them is a position the hover
+      // answers at.
+      for (const { typed } of analysis.modulesIn(normalized)) {
         for (const site of parameterSites(typed, fileId)) spans.push(offsetsOf(site.span));
         for (const hole of typed.typeHoles) {
           if (hole.span.fileId === fileId) spans.push(offsetsOf(hole.span));
@@ -599,7 +601,9 @@ export class AnalysisSession {
     const text = this.#texts.get(normalized);
     if (text === undefined) return [];
     const analysis = this.#analyze();
-    const resolved = analysis.resolvedOf(normalized);
+    // The module the caret is inside (Modules §2.2): what may be written here is
+    // that module's scope, and a file's other modules are strangers to it.
+    const resolved = analysis.moduleAt(normalized, offset)?.resolved;
     if (resolved === undefined) return [];
     return collectCompletions({
       text,
@@ -640,14 +644,28 @@ export class AnalysisSession {
     // one seated above the earliest refused use, and therefore above all of
     // them (see `importInsertionOffset` on the local reading of §5.1).
     const offered = new Set<string>();
+    // The same dedupe one tier down, for the fixes the **compiler** wrote.
+    // Since #829 every seat of one refused spelling carries the same insert —
+    // same range, same text (Modules §5.1's one edit per module) — so a range
+    // covering two of them holds two identical repairs, and offering both would
+    // put two indistinguishable lightbulbs on one line. Keyed by the edit
+    // rather than by the title, because two repairs sharing a title and
+    // differing in what they write are two repairs.
+    const written = new Set<string>();
     for (const diagnostic of asked) {
       for (const fix of diagnostic.fixes ?? []) {
         const edits = locate(analysis, fix.edits);
         // Every fix a diagnostic carries is a repair for that diagnostic, so
         // the family is settled here rather than at each seat that writes one.
-        if (edits !== undefined) {
-          actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits });
-        }
+        if (edits === undefined) continue;
+        const key = `${fix.message}\u0000${
+          edits.map(({ path, span, replacement }) =>
+            `${path}:${span.start.offset}:${span.end.offset}:${replacement}`
+          ).join("\u0000")
+        }`;
+        if (written.has(key)) continue;
+        written.add(key);
+        actions.push({ title: fix.message, diagnostic, kind: "quickfix", edits });
       }
       const repair = diagnostic.importModuleRepair;
       if (repair === undefined) continue;
@@ -694,24 +712,25 @@ export class AnalysisSession {
     // machinery, so applying it is one keystroke and cannot be wrong: the claim
     // being offered is exactly the one verification would accept.
     const fileId = this.#fileIds.get(normalized);
-    const typed = analysis.typedOf(normalized);
-    if (fileId !== undefined && typed !== undefined) {
-      for (
-        const site of underClaims(
-          typed,
-          fileId,
-          (span) => touches(span, range),
-        )
-      ) {
-        actions.push({
-          title: underClaimTitle(site),
-          kind: "refactor",
-          edits: [{
-            path: normalized,
-            span: site.span,
-            replacement: `${site.parameter.computed === "co" ? "+" : "-"}${site.parameter.name}`,
-          }],
-        });
+    if (fileId !== undefined) {
+      for (const { typed } of analysis.modulesIn(normalized)) {
+        for (
+          const site of underClaims(
+            typed,
+            fileId,
+            (span) => touches(span, range),
+          )
+        ) {
+          actions.push({
+            title: underClaimTitle(site),
+            kind: "refactor",
+            edits: [{
+              path: normalized,
+              span: site.span,
+              replacement: `${site.parameter.computed === "co" ? "+" : "-"}${site.parameter.name}`,
+            }],
+          });
+        }
       }
     }
     return actions;
@@ -746,17 +765,17 @@ export class AnalysisSession {
    * never comes.
    *
    * **A candidate is a file the workspace supplied.** `#texts` is exactly that
-   * set, and testing membership in it is the filter — not `isInjectedModule`,
-   * which classifies by *basename* and would drop a user's own `/lib/Prelude.hex`
-   * along with the compiler's. The distinction is load-bearing rather than
-   * defensive: `compileProject` returns every module the program *reached*, and
+   * set, and testing membership in it is the filter — not a classification by
+   * *basename*, which would drop a user's own `/lib/Prelude.hex` along with the
+   * compiler's. The distinction is load-bearing rather than defensive:
+   * `compileProject` returns every module the program *reached*, and
    * a program that reaches `Prelude.hex` — one mention of a prelude name does
    * it — puts a compiler-injected module in the inventory. Offering it would
    * write `import Prelude as Ordering` into the user's source,
    * which repairs nothing (`` module `Ordering` does not export `rank` ``) and
    * emits `import * as Ordering from "./Hex/Prelude.js"` into their JavaScript.
-   * Injected sources are not what the user wrote (`isInjectedModule`'s own
-   * rule), and nothing here may hand one to them to type.
+   * Injected sources are not what the user wrote, and nothing here may hand one
+   * to them to type.
    *
    * The module being edited is never its own candidate either. A module cannot
    * import itself, and a spelling it exports *and* fails to resolve is a
@@ -809,11 +828,14 @@ export class AnalysisSession {
       repair.name,
       this.#options.packageName,
     );
-    // No placement in a headerless file (`importInsertionOffset`): the line has
-    // no module to sit in, and the seat it would take is the one the parser's
-    // own "every file declares its module" repair writes at.
+    // Placed inside the **refused use's own** module (Modules §2.2): a file's
+    // modules are strangers, so the line belongs under the header of the one
+    // that cannot resolve the name, never under the file's first. And no
+    // placement at all in a headerless file (`importInsertionOffset`): the line
+    // has no module to sit in, and the seat it would take is the one the
+    // parser's own "every file declares its module" repair writes at.
     const offset = insertionOffsetOf(
-      analysis.resolvedOf(path),
+      analysis.moduleAt(path, diagnostic.primary.start.offset)?.resolved,
       text,
       diagnostic.primary.start.offset,
     );
@@ -851,18 +873,21 @@ export class AnalysisSession {
   ): (offset: number) => ReturnAnnotationResult | undefined {
     const text = this.#texts.get(path);
     const fileId = this.#fileIds.get(path);
-    const resolved = analysis.resolvedOf(path);
-    const typed = analysis.typedOf(path);
     if (text === undefined || fileId === undefined) return () => undefined;
-    if (resolved === undefined || typed === undefined) return () => undefined;
     let lexed: Lexed.File | undefined;
     let laidOut: LaidOut.File | undefined;
+    // The trees are read per offset rather than once for the file: a file
+    // declares as many modules as it likes (Modules §2.2), and the declaration
+    // being annotated belongs to the one the offset is inside. The lexing below
+    // stays per *file*, which is what it was measured to be worth.
     return (offset) => {
+      const module = analysis.moduleAt(path, offset);
+      if (module === undefined) return undefined;
       lexed ??= lex(new Source.File(fileId, path, text));
       laidOut ??= applyLayout(lexed);
       return planReturnAnnotation({
-        resolved,
-        typed,
+        resolved: module.resolved,
+        typed: module.typed,
         lexed,
         laidOut,
         diagnostics,
@@ -1195,9 +1220,11 @@ export class AnalysisSession {
    * The declaration a name at this target is **generated** from, or `undefined`
    * where the author wrote the name (`Resolved.Symbol.generated`).
    *
-   * Read from the resolved module the cursor is in, which carries every symbol
-   * that module can see — imported ones included — so a use of `fromJsDirection`
-   * abroad answers as its declaring module's does.
+   * Read from the resolved modules the cursor's file declares, each of which
+   * carries every symbol it can see — imported ones included — so a use of
+   * `fromJsDirection` abroad answers as its declaring module's does. A symbol
+   * identity is minted once for the project, so whichever of a file's modules
+   * holds it holds the same answer.
    */
   #generatedOrigin(
     analysis: Analysis,
@@ -1205,8 +1232,11 @@ export class AnalysisSession {
     target: Target,
   ): string | undefined {
     if (target.kind !== "value") return undefined;
-    return analysis.resolvedOf(path)?.symbols
-      .find(({ id }) => id === target.symbol)?.generated;
+    for (const { resolved } of analysis.modulesIn(path)) {
+      const generated = resolved.symbols.find(({ id }) => id === target.symbol)?.generated;
+      if (generated !== undefined) return generated;
+    }
+    return undefined;
   }
 
   /**
@@ -1231,7 +1261,8 @@ export class AnalysisSession {
     const groups: { prefix: string; mentions: RenameEdit[] }[] = [];
     for (const target of targets) {
       if (target.kind !== "union") continue;
-      const union = analysis.resolvedOf(path)?.unions
+      const union = analysis.modulesIn(path)
+        .flatMap(({ resolved }) => resolved.unions)
         .find(({ id }) => id === target.union);
       const conversions = union?.conversions;
       if (union === undefined || conversions === undefined) continue;
@@ -1428,15 +1459,30 @@ export class AnalysisSession {
   }
 }
 
-/** One whole-project compilation, indexed for position and identity lookup. */
+/**
+ * One whole-project compilation, indexed for position and identity lookup.
+ *
+ * **A path holds as many modules as its file declares** (Modules §2.2). Every
+ * index here is therefore keyed by path and *accumulated* across the modules at
+ * it: a file's second module is not a second file, and the map that once held
+ * one tree per path silently kept the last one, so every editor service —
+ * hover, definition, references, rename, the quick fixes — answered about the
+ * bottom module of a multi-module file and about nothing above it. Only the
+ * queries that read one module's own tree need to say *which* module, and they
+ * ask `moduleAt` for the one the offset is inside.
+ */
 class Analysis {
   readonly diagnosticsByPath = new Map<string, Diagnostics.Diagnostic[]>();
   readonly #pathsByFileId = new Map<number, string>();
-  readonly #occurrencesByPath = new Map<string, readonly Occurrence[]>();
-  readonly #resolvedByPath = new Map<string, Resolved.Module>();
+  readonly #occurrencesByPath = new Map<string, Occurrence[]>();
   readonly #occurrencesByTarget = new Map<string, Occurrence[]>();
   readonly #typesByPath = new Map<string, Map<string, TypeOccurrence>>();
-  readonly #typedByPath = new Map<string, Typed.Module>();
+  /**
+   * The modules each file declares, accumulated as `record` walks
+   * `CompiledProject.modules` — which is **compile order**, dependency-first
+   * (Modules §8.1), not the order the file wrote them.
+   */
+  readonly #modulesByPath = new Map<string, CompiledModule[]>();
   readonly #fileIdsByPath: ReadonlyMap<string, Source.FileId>;
   /**
    * Each compiled module's file, by its **full name** (Packages §2.3) — how a
@@ -1476,24 +1522,36 @@ class Analysis {
       project.modules.map((module) => [Number(module.source.id), module.name]),
     );
     this.#modules = project.modules;
+    /** Occurrences already seated at a path, so a file's modules do not double them. */
+    const seated = new Map<string, Set<string>>();
     for (const module of project.modules) {
       const path = module.source.path;
       this.#pathsByFileId.set(Number(module.source.id), path);
-      this.#typedByPath.set(path, module.typed);
+      const siblings = this.#modulesByPath.get(path);
+      if (siblings === undefined) this.#modulesByPath.set(path, [module]);
+      else siblings.push(module);
       const types = collectTypeOccurrences(module.typed);
-      const occurrences = collectOccurrences(module, { typeOccurrences: types });
-      this.#occurrencesByPath.set(path, occurrences);
-      this.#resolvedByPath.set(path, module.resolved);
-      for (const occurrence of occurrences) {
-        const key = targetKey(occurrence.target);
-        const bucket = this.#occurrencesByTarget.get(key);
-        if (bucket === undefined) this.#occurrencesByTarget.set(key, [occurrence]);
+      const occurrences = this.#occurrencesByPath.get(path) ??
+        this.#occurrencesByPath.set(path, []).get(path)!;
+      const already = seated.get(path) ?? seated.set(path, new Set()).get(path)!;
+      for (const occurrence of collectOccurrences(module, { typeOccurrences: types })) {
+        // A module lists the declarations it *imported* as well as its own, and
+        // an import that stays inside one file lands on a span this file's own
+        // module already published. One seat per (identity, span, role), then:
+        // the same fact told twice is one occurrence, and a duplicate would
+        // publish two semantic tokens over one identifier.
+        const key = `${targetKey(occurrence.target)}@${spanKey(occurrence.span)}#${occurrence.role}`;
+        if (already.has(key)) continue;
+        already.add(key);
+        occurrences.push(occurrence);
+        const target = targetKey(occurrence.target);
+        const bucket = this.#occurrencesByTarget.get(target);
+        if (bucket === undefined) this.#occurrencesByTarget.set(target, [occurrence]);
         else bucket.push(occurrence);
       }
-      this.#typesByPath.set(
-        path,
-        new Map(types.map((type) => [spanKey(type.span), type])),
-      );
+      const byPath = this.#typesByPath.get(path) ??
+        this.#typesByPath.set(path, new Map()).get(path)!;
+      for (const type of types) byPath.set(spanKey(type.span), type);
     }
     // A diagnostic belongs to the file its primary span names, which is not
     // always the file being edited: a module rejects an import by pointing at
@@ -1512,19 +1570,76 @@ class Analysis {
     return this.#pathsByFileId.get(Number(fileId));
   }
 
-  /** One file's occurrences in source order, empty for a file not compiled. */
+  /**
+   * One file's occurrences, empty for a file not compiled.
+   *
+   * **Not in source order**, and no consumer asks for it: a file's modules are
+   * compiled dependency-first (Modules §8.1), so one whose second module is
+   * imported by its first hands its occurrences over in that order. Every reader
+   * either sorts — `collectSemanticTokens` for the protocol's encoding,
+   * `occurrencesAt` by span width — or does not care. A sort here would be one
+   * nothing could observe, so there is none.
+   */
   occurrencesIn(path: string): readonly Occurrence[] {
     return this.#occurrencesByPath.get(path) ?? [];
   }
 
-  /** One file's resolved tree, absent for a file that was not compiled. */
-  resolvedOf(path: string): Resolved.Module | undefined {
-    return this.#resolvedByPath.get(path);
+  /**
+   * Every module one file declares, **in compile order**; empty for a file not
+   * compiled.
+   *
+   * Compile order and not source order, for `occurrencesIn`'s reason exactly
+   * (six lines up): the project hands its modules over dependency-first, so a
+   * file whose second module is imported by its first hands them over in that
+   * order. This said "in source order" until #829's review round 1 measured it,
+   * and the two comments contradicting each other in one class is the near miss
+   * worth naming rather than the behaviour.
+   *
+   * No consumer depends on the order, which is why the correction is a
+   * correction and not a sort: `moduleAt` finds by disjoint span, the two
+   * whole-file loops in `hoverSpans` and `codeActions` visit every module, and
+   * `#generatedOrigin` and `schemeAt` take the first hit of an identity minted
+   * once. A sort here would be one nothing could observe.
+   */
+  modulesIn(path: string): readonly CompiledModule[] {
+    return this.#modulesByPath.get(path) ?? [];
   }
 
-  /** One file's typed tree, absent for a file that was not compiled. */
-  typedOf(path: string): Typed.Module | undefined {
-    return this.#typedByPath.get(path);
+  /**
+   * The module an offset is inside, or `undefined` outside every one of them.
+   *
+   * A module's span runs from its header to its closer (Modules §2.1, §2.2) and
+   * the spans in one file are disjoint, so at most one answers. The gap between
+   * a closer and the next header is in no module, and that is reported as it is
+   * rather than resolved to a neighbour: a request seated there is a request
+   * about code outside a module, which the language refuses too (§2.2).
+   *
+   * **Three offsets are outside every module**, and the asymmetry they produce
+   * is stated rather than left to be met (#829 review round 1, N4):
+   *
+   * - the gap between a closer and the next header;
+   * - an offset **above the first header**, where the parser folds stray items
+   *   into the module that header opens while the section's span still starts
+   *   at the header;
+   * - **end of file after a closed last module** — the tidier shape, and the
+   *   one more likely to be met, since a file leaving its last module open runs
+   *   to EOF and answers there.
+   *
+   * At all three, the queries that read one module's own tree stand down:
+   * `completions` offers nothing, and the workspace-tier import repair takes
+   * its headerless placement path. The queries built on the **occurrence**
+   * index — hover, definition, references, rename — answer as usual, because
+   * occurrences are accumulated per file and no occurrence needs to know which
+   * module it is in. Both halves are correct and they disagree at one offset,
+   * which is what makes it worth writing down: the position is an error state
+   * either way (§2.2 has no code outside a module), and a `moduleAt` that
+   * resolved it to a neighbour would answer completions from a stranger's
+   * scope.
+   */
+  moduleAt(path: string, offset: number): CompiledModule | undefined {
+    return this.modulesIn(path).find(({ parsed }) =>
+      offset >= parsed.span.start.offset && offset <= parsed.span.end.offset
+    );
   }
 
   /** The compiler identity of a path, for reading a span's file back. */
@@ -1620,11 +1735,13 @@ class Analysis {
    * that differ only in which variables they happened to allocate.
    */
   schemeAt(path: string, offset: number): string | undefined {
-    const typed = this.#typedByPath.get(path);
-    const symbol = typed?.symbols.find(({ bindingSpan }) =>
-      bindingSpan.fileId === typed.fileId && bindingSpan.start.offset === offset
-    );
-    return symbol === undefined ? undefined : Typed.displayScheme(symbol.scheme);
+    for (const { typed } of this.modulesIn(path)) {
+      const symbol = typed.symbols.find(({ bindingSpan }) =>
+        bindingSpan.fileId === typed.fileId && bindingSpan.start.offset === offset
+      );
+      if (symbol !== undefined) return Typed.displayScheme(symbol.scheme);
+    }
+    return undefined;
   }
 
   /**

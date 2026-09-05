@@ -30,13 +30,15 @@ import {
   STRUCTURAL_CONSTRAINTS,
 } from "../../constraints.js";
 import { isIntrinsicScheme } from "../../intrinsics.js";
-import { PRIMITIVE_COMPANION_BASENAMES } from "../../prelude.js";
+import { PRIMITIVE_COMPANION_MODULES } from "../../prelude.js";
 import { relativeSpecifier } from "../../support/paths.js";
 import {
   displayModuleName,
+  type ImportRepair,
   moduleImportLine,
   moduleNameOfLayoutPath,
 } from "../../packages.js";
+import { dropQualifierFix, type ImportRepairs } from "../../support/import-placement.js";
 import type * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
@@ -44,6 +46,37 @@ import * as Typed from "../../syntax/typed/index.js";
 
 export interface CheckOptions {
   readonly importedSchemes?: ReadonlyMap<Resolved.SymbolId, Typed.Scheme>;
+  /**
+   * How `import <written>` would resolve for this module — Modules §5.1 rule
+   * 1's repair clause, as `ResolveOptions.importRepair` supplies it to the
+   * resolver (#829's Ruling A).
+   *
+   * The constraint namespace's qualified seats are reported here rather than in
+   * the resolver (`honor Geo.Describe<Box>`, `<a: Geo.Ord>`), and rule 1 is one
+   * report at every seat, so the same question is asked with the same function.
+   */
+  readonly importRepair?: (written: string) => ImportRepair | undefined;
+  /**
+   * This module's **own default alias** — its declared name's last segment
+   * (Modules §3.1), as `Resolver` reads it off the header.
+   *
+   * Rule 1's first test at the constraint seats: `honor Point.Describe<T>`
+   * inside `module Point` is the module qualifying through itself, and the
+   * repair a plain unbound-alias report would name is an import of the module
+   * into itself (§8.1's one-node cycle).
+   */
+  readonly ownDefaultAlias?: string;
+  /**
+   * The module's applied-edit writer, **shared with the resolver** (§5.1's "one
+   * edit per module, however many seats draw the report"): the constraint seats
+   * report here, the other three report there, and a reader who wrote the
+   * spelling at both is owed one import line.
+   *
+   * A caller that supplies none — every pass-level `check` in a unit test —
+   * gets the message with no applied edit, the same degradation a missing
+   * `sourceText` takes.
+   */
+  readonly repairs?: ImportRepairs;
   /**
    * Every nominal declaration the program has resolved so far, dependencies
    * first. The variance analysis reads it and nothing else does; see
@@ -102,6 +135,19 @@ export function check(
   for (const diagnostic of module.diagnostics) diagnostics.add(diagnostic);
   return new Checker(diagnostics, options).check(module);
 }
+
+/**
+ * What a refused constraint reference contributes to its diagnostic:
+ * `#unknownConstraint`'s answer, spread by every seat over its own `severity`
+ * and `primary`.
+ *
+ * `primary` is optional and set only by Modules §5.1 rule 1's arms, which speak
+ * about the **qualifier** rather than about the obligation — see
+ * `#unknownConstraint`.
+ */
+type ConstraintRefusal =
+  & Pick<Diagnostics.Diagnostic, "message" | "importModuleRepair" | "fixes">
+  & { readonly primary?: Source.Span };
 
 type Mono =
   | Variable
@@ -1205,14 +1251,14 @@ function primitive(name: Typed.PrimitiveName): Constructor {
  * The primitives whose home module is a **fixed prelude companion** (Constraints
  * §5.3, #344 — `Int` → `Int.hex` and its four siblings).
  *
- * Read off `PRIMITIVE_COMPANION_BASENAMES` rather than re-listed, so the orphan
+ * Read off `PRIMITIVE_COMPANION_MODULES` rather than re-listed, so the orphan
  * rule's home for a primitive and the prelude's injection table cannot drift
  * apart. `Unit` and `Exn` are absent from both, and §5.3 says why for `Unit`: it
  * is the empty tuple, covered by the structural instances, with no home and none
  * needed.
  */
 const PRIMITIVE_COMPANION_HOMES: ReadonlySet<string> = new Set(
-  PRIMITIVE_COMPANION_BASENAMES.values(),
+  PRIMITIVE_COMPANION_MODULES.values(),
 );
 
 /**
@@ -2198,6 +2244,21 @@ class Checker {
   readonly #memberHeadVariables = new Map<Resolved.SymbolId, Variable[]>();
   readonly #constraintNames = new Set<string>(PRE_REGISTERED_CONSTRAINTS);
   /**
+   * The constraint names this module **declares itself** — the subset of
+   * `#constraintNames` an import did not put there, and the module's own layer
+   * in the constraint namespace (Modules §5.4).
+   *
+   * One report reads it: Modules §5.1 rule 1's own-default-alias repair, which
+   * drops the qualifier "*at each use where the bare spelling, read at that use
+   * in the namespace the seat resolves in, would resolve to the module's own
+   * binding*". At a constraint seat there is no head binder to eclipse it and
+   * no top-down law to fail — a binder's type parameters live one namespace
+   * over and constraint names are order-insensitive (§5.1) — so the condition
+   * is exactly this membership, and an *imported* spelling is not it: dropping
+   * `Scale.` there would silently name someone else's declaration.
+   */
+  readonly #ownConstraintNames = new Set<string>();
+  /**
    * What a module alias offers a bare name that failed to be a constraint
    * (Modules §10's row, constraint half).
    *
@@ -2477,6 +2538,34 @@ class Checker {
   readonly #sourceText: string | undefined;
   /** The resolving package's name; see `CheckOptions.packageName`. */
   readonly #packageName: string | undefined;
+  /** See `CheckOptions.importRepair`. */
+  readonly #importRepair: ((written: string) => ImportRepair | undefined) | undefined;
+  /** See `CheckOptions.ownDefaultAlias`. */
+  readonly #ownDefaultAlias: string | undefined;
+  /** See `CheckOptions.repairs`. */
+  readonly #repairs: ImportRepairs | undefined;
+  /**
+   * Every module alias this module binds, whatever it exports.
+   *
+   * `#aliasConstraints` is not that set: it holds only the aliases whose module
+   * exports at least one constraint, which is what its own message needs. Rule
+   * 1 asks the opposite question — whether the qualifier binds a module at all
+   * — and an alias exporting no constraint must not be read as binding nothing.
+   */
+  readonly #moduleAliases = new Set<string>();
+  /**
+   * Modules §5.1 rule 1's **type branch**, as the resolver wrote it down
+   * (`Resolved.Module.typeSpellings`).
+   *
+   * Rule 1's second test is "a type in scope of the spelling", and it is asked
+   * at every seat the alias reaches — the constraint seats included. The type
+   * namespace is the resolver's, so it arrives as a channel; without it this
+   * pass asked the module-alias namespace, found nothing, and reported "no
+   * module alias `Shape`; `import Shape`" at a seat §10's row 532 excludes by
+   * its own wording ("*and no type of the spelling is in scope*"), with an
+   * applied edit that compiles and rebinds the head to a module.
+   */
+  #typeSpellings: ReadonlyMap<string, Resolved.TypeSpelling> = new Map();
   /**
    * Whether the `let` pattern being checked is a lambda parameter's
    * destructuring (Pattern Matching §6.5) rather than a written binding. Read
@@ -2504,6 +2593,9 @@ class Checker {
     this.#programOperations = options.programOperations ?? new Map();
     this.#sourceText = options.sourceText;
     this.#packageName = options.packageName;
+    this.#importRepair = options.importRepair;
+    this.#ownDefaultAlias = options.ownDefaultAlias;
+    this.#repairs = options.repairs;
   }
 
   check(module: Resolved.Module): Typed.Module {
@@ -2524,6 +2616,18 @@ class Checker {
       this.#programNominals,
     );
     this.#seqRecord = module.preludeRecords.get("Seq");
+    this.#typeSpellings = module.typeSpellings;
+    // Modules §5.1 rule 1 reads the module-alias namespace **first**, so the
+    // set it reads has to be the whole of it. `Module.moduleAliases` is that —
+    // "modules addressable by name here, prelude companions included" — and the
+    // written `Import` items below are only its explicit half. A prelude
+    // companion missing from it fell through to a later test: before rule 1's
+    // type branch reached this pass, `honor Option.Describe<Box>` drew "no
+    // module alias `Option`; `import Option`" — an import offered for a module
+    // §5.5 already puts in scope — and after it, the type branch's sentence
+    // about the companion *type* of the spelling. Neither is what the reader
+    // wrote: module `Option` is bound and exports no such constraint.
+    for (const { alias } of module.moduleAliases) this.#moduleAliases.add(alias);
     this.#modulePath = module.path;
     this.#preludeUnionIds = new Set(module.preludeUnions.values());
     this.#preludeRecordIds = new Set(module.preludeRecords.values());
@@ -2578,6 +2682,7 @@ class Checker {
     for (const item of module.items) {
       if (item.kind === "ConstraintDeclaration") {
         this.#constraintNames.add(item.name);
+        this.#ownConstraintNames.add(item.name);
         this.#constraintIdentities.set(item.name, item.identity);
         this.#localConstraints.set(item.name, item);
         this.#constraintsByIdentity.set(item.identity, item);
@@ -2591,6 +2696,7 @@ class Checker {
       if (item.kind === "Import") {
         if (item.form.kind === "Namespace") {
           const alias = item.form.alias;
+          this.#moduleAliases.add(alias);
           const prefix = `${alias}.`;
           const exported = item.constraints
             .filter(({ local }) => local.startsWith(prefix))
@@ -2690,12 +2796,16 @@ class Checker {
         this.#instanceTypeParameters.set(item, typeParameters);
         for (const parameter of item.typeParameters) {
           const variable = typeParameters.get(parameter.name)!;
-          for (const constraint of parameter.constraints) {
+          for (const [at, constraint] of parameter.constraints.entries()) {
             if (!this.#constraintNames.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                ...this.#unknownConstraint(constraint),
                 primary: parameter.span,
+                ...this.#unknownConstraint(
+                  constraint,
+                  parameter.span,
+                  parameter.constraintQualifiers?.[at],
+                ),
               });
               continue;
             }
@@ -2956,12 +3066,16 @@ class Checker {
             // sentence about a state defaulting had just created.
             this.#quantified.add(variable.id);
             typeParameters.set(parameter.name, variable);
-            for (const constraint of parameter.constraints) {
+            for (const [at, constraint] of parameter.constraints.entries()) {
               if (!this.#constraintNames.has(constraint)) {
                 this.#diagnostics.add({
                   severity: "error",
-                  ...this.#unknownConstraint(constraint),
                   primary: parameter.span,
+                  ...this.#unknownConstraint(
+                    constraint,
+                    parameter.span,
+                    parameter.constraintQualifiers?.[at],
+                  ),
                 });
                 continue;
               }
@@ -4817,8 +4931,8 @@ class Checker {
           if (this.#checkPreludeHonor(item, level)) continue;
           this.#diagnostics.add({
             severity: "error",
-            ...this.#unknownConstraint(item.constraint),
             primary: item.span,
+            ...this.#unknownConstraint(item.constraint, item.span, item.constraintQualifier),
           });
           this.#uninferredInstanceMembers.add(item);
           continue;
@@ -5259,12 +5373,16 @@ class Checker {
       );
       into.set(parameter.name, variable);
       this.#recordDeclaredHead(variable, owner);
-      for (const constraint of parameter.constraints) {
+      for (const [at, constraint] of parameter.constraints.entries()) {
         if (!this.#constraintNames.has(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            ...this.#unknownConstraint(constraint),
             primary: parameter.span,
+            ...this.#unknownConstraint(
+              constraint,
+              parameter.span,
+              parameter.constraintQualifiers?.[at],
+            ),
           });
           continue;
         }
@@ -12815,14 +12933,40 @@ class Checker {
    * are one decision: the arm that names the module import as a repair is exactly
    * the arm whose workspace tier can apply it, and a caller free to attach one
    * without the other could put a fixit on a message that never offered it.
+   *
+   * **And the primary span, where rule 1 answers.** The item's span is right for
+   * a constraint that failed to resolve — the reader has to look at the whole
+   * obligation — and wrong for a qualifier that binds no module, where the
+   * resolver's three seats underline the qualifier alone and this one would
+   * squiggle from `honor` to the end of the head. Callers spread the result over
+   * their own `primary`, so the seat's span stands wherever rule 1 is silent.
    */
   #unknownConstraint(
     constraint: string,
-  ): Pick<Diagnostics.Diagnostic, "message" | "importModuleRepair"> {
+    span: Source.Span,
+    qualification?: Source.Qualification,
+  ): ConstraintRefusal {
     const refusal = `unknown constraint \`${constraint}\``;
     const alias = this.#aliasConstraints.get(constraint);
     if (alias === undefined) {
-      if (constraint.includes(".")) return { message: refusal };
+      if (constraint.includes(".")) {
+        // §5.1 rule 1 governs the **qualifier**, at this seat as at the other
+        // three (#829's Ruling A): where nothing binds `Q`, `honor Q.Describe`
+        // is not one constraint spelling that failed to resolve — it is a
+        // module alias that does not exist, and the reader's next move is the
+        // import line, not a search of the constraint namespace. Where the
+        // qualifier *does* bind, the spelling really is an unknown constraint
+        // of a known module and the plain refusal is what the row names.
+        const dot = constraint.indexOf(".");
+        const unbound = this.#unboundAliasRefusal(
+          constraint.slice(0, dot),
+          constraint.slice(dot + 1),
+          span,
+          qualification,
+        );
+        if (unbound !== undefined) return unbound;
+        return { message: refusal };
+      }
       return {
         message: `${refusal}; import its home module under the alias ` +
           `\`${constraint}\` for qualified access`,
@@ -12840,6 +12984,183 @@ class Checker {
       message: `${refusal}; \`${constraint}\` is a module alias — write \`${constraint}.${only}\` ` +
         `for the constraint it exports, or realias as ` +
         `\`${moduleImportLine(alias.moduleName, only, this.#packageName)}\``,
+    };
+  }
+
+  /**
+   * Modules §5.1 rule 1's report for an unbound qualifier — message, applied
+   * edit **and primary span** — or `undefined` where the qualifier binds a
+   * module and the seat's own refusal stands.
+   *
+   * §5.1 names this seat among the ones the obligation covers ("the constraint
+   * seats whose rows Constraints §8 sends here"), and §10's row says "the
+   * applied edit from the compiler tier, one edit per module". The placement
+   * this seat once lacked is `ImportRepairs`, shared with the resolver, so the
+   * edit here is the *same* edit — the same range and the same text — as the
+   * one a term or type seat of the same spelling in the same module carries.
+   *
+   * **Rule 1's three tests, in its own order**, because the rule is one report
+   * at four seats and three of them are the resolver's (`#unboundModuleAlias`):
+   *
+   * 1. **The module's own default alias** — not an import at all. `Scale.Scale`
+   *    inside `module Scale` is the module qualifying through itself, whose
+   *    repair is the qualifier dropped, off the one `dropQualifierFix`. Its
+   *    condition here is `#ownConstraintNames`, the namespace this seat
+   *    resolves in.
+   * 2. **A type of the spelling in scope** (`#typeIsNotAModuleRefusal`), whose
+   *    two rows §10 writes separately and neither of which is row 532's. This
+   *    test is the one the seat lacked: without it `honor Shape.Describe<Box>`
+   *    under a project module `Shape` and a local `record Shape` drew "no
+   *    module alias `Shape`; `import Shape`" with the import as an applied
+   *    edit — at exactly the case row 532 excludes ("*and no type of the
+   *    spelling is in scope*"), and the edit compiles, silently honouring
+   *    **module** `Shape`'s constraint instead of naming the type the reader
+   *    wrote.
+   * 3. **Otherwise** the plain report, its repair clause settled by asking
+   *    where `import Name` would resolve. The two arms that name no import
+   *    carry none, exactly as the resolver's do: a contest cannot be chosen
+   *    between (Packages §3.3), and a spelling that would resolve to nothing has
+   *    no line to write.
+   *
+   * The ranges are the parser's, not this pass's: the spelling cannot be
+   * re-measured against a source that may have written `Scale . Scale`
+   * (`Source.Qualification`).
+   */
+  #unboundAliasRefusal(
+    qualifier: string,
+    bare: string,
+    span: Source.Span,
+    qualification?: Source.Qualification,
+  ): ConstraintRefusal | undefined {
+    if (this.#moduleAliases.has(qualifier) || this.#aliasConstraints.has(qualifier)) {
+      return undefined;
+    }
+    // §5.1's reports speak about the qualifier, so they underline it, as the
+    // resolver's three seats do (`seat.qualifier.span`). The item's own span —
+    // the whole binder, or `honor` through the end of the head — is the span of
+    // the obligation, which is not what failed.
+    const primary = qualification === undefined ? {} : { primary: qualification.qualifier };
+    if (qualifier === this.#ownDefaultAlias) {
+      return {
+        ...primary,
+        ...this.#selfQualificationRefusal(
+          "a module does not qualify through itself",
+          bare,
+          qualification,
+        ),
+      };
+    }
+    const type = this.#typeSpellings.get(qualifier);
+    if (type !== undefined) {
+      return {
+        ...primary,
+        ...this.#typeIsNotAModuleRefusal(qualifier, bare, type, span, qualification),
+      };
+    }
+    const stem = `no module alias \`${qualifier}\``;
+    const repair = this.#importRepair?.(qualifier);
+    if (repair === undefined) return { ...primary, message: stem };
+    if (repair.kind === "Contested") {
+      return {
+        ...primary,
+        message: `${stem}; ${
+          repair.fullNames.map((full: string) => `\`import ${full}\``).join(" or ")
+        }`,
+      };
+    }
+    const line = moduleImportLine(repair.fullName, qualifier, this.#packageName);
+    // §5.1's "a refused import head that offers the same line by its own
+    // rewrite is that line already offered, and the seats below it carry none"
+    // — read at this seat too, or a miscased head above a constraint annotation
+    // has two lightbulbs writing one import.
+    const fix = this.#repairs?.headRewrites(qualifier, span.start.offset) === true
+      ? undefined
+      : this.#repairs?.fix(qualifier, line, span.start.offset);
+    return {
+      ...primary,
+      message: `${stem}; \`${line}\``,
+      ...(fix === undefined ? {} : { fixes: [fix] }),
+    };
+  }
+
+  /**
+   * Rule 1's **drop**, at the constraint seats: "…; write `Scale`" (§10's row
+   * 531), and §5.1's "the type branch below takes the same repair under the
+   * same condition, and keeps its own fact" — so `fact` is the caller's and
+   * only the repair is here, exactly as in the resolver
+   * (`#reportSelfQualification`).
+   *
+   * The repair is carried only where the bare spelling names the module's own
+   * binding — here, its own constraint layer. `#constraintNames` holds every
+   * spelling this module can name, imports included, and dropping the qualifier
+   * onto one of those would silently name somebody else's declaration, which is
+   * why the condition is the narrower set. §5.1: "the sentence without its
+   * repair clause where it would not".
+   */
+  #selfQualificationRefusal(
+    fact: string,
+    bare: string,
+    qualification: Source.Qualification | undefined,
+  ): ConstraintRefusal {
+    if (!this.#ownConstraintNames.has(bare)) return { message: fact };
+    return {
+      message: `${fact}; write \`${bare}\``,
+      // The clause and the edit are one decision (§5.1: the repair "carried
+      // as the applied edit"), so a seat whose qualification range never
+      // reached it names the drop and offers nothing to apply rather than
+      // guessing at a span. Every written seat carries one.
+      ...(qualification === undefined ? {} : { fixes: [dropQualifierFix(qualification.range)] }),
+    };
+  }
+
+  /**
+   * Rule 1's **second** test at the constraint seats: `Name.` where `Name` is a
+   * type, not a module (§10's rows 533 and 534) — the resolver's
+   * `#typeIsNotAModule`, one namespace over, and deliberately the same three
+   * arms in the same order.
+   *
+   * - **A home abroad** (row 534): the type's home named and the import carried
+   *   as the applied edit, off the module's shared `ImportRepairs` — so this is
+   *   the same line, the same range and the same text a term seat of the
+   *   spelling would carry.
+   * - **This module's own type** (row 533): the type's *fact* with the
+   *   own-alias row's repair and condition. Never `import Main` written inside
+   *   `module Main`, which §8.1 refuses as the one-node cycle.
+   * - **A type whose home this module never reached**: the fact, the route
+   *   stated as a rule rather than as a line, and **no edit** — only an
+   *   inventory can say which module exports the spelling, and that offer is
+   *   the workspace tier's, which is what the marker is for.
+   *
+   * No arm inserts an import of the **qualifier's own spelling**, and that is
+   * the whole point of the test: a module of that name may well exist and be
+   * importable, and `import Shape` beside a type `Shape` is a program that
+   * compiles and means something else.
+   */
+  #typeIsNotAModuleRefusal(
+    qualifier: string,
+    bare: string,
+    type: Resolved.TypeSpelling,
+    span: Source.Span,
+    qualification: Source.Qualification | undefined,
+  ): ConstraintRefusal {
+    const fact = `\`${qualifier}\` is a type, not a module`;
+    if (type.home === undefined) {
+      if (type.own) return this.#selfQualificationRefusal(fact, bare, qualification);
+      return {
+        message: `${fact}; import its home module to qualify through it`,
+        importModuleRepair: { name: qualifier, namespace: "type" },
+      };
+    }
+    const line = moduleImportLine(type.home, qualifier, this.#packageName);
+    const fix = this.#repairs?.fix(qualifier, line, span.start.offset);
+    return {
+      message: `${fact}; \`${line}\` and qualify through it`,
+      importModuleRepair: {
+        name: qualifier,
+        namespace: "type",
+        ...(fix === undefined ? {} : { applied: true }),
+      },
+      ...(fix === undefined ? {} : { fixes: [fix] }),
     };
   }
 
@@ -14867,12 +15188,16 @@ class Checker {
       // floor, accumulation continues past it, and everything downstream reads
       // the one set. Seeded inside the memo, so an alias applied at one written
       // hole raises one obligation however many positions the body has.
-      for (const constraint of annotation.constraints) {
+      for (const [at, constraint] of annotation.constraints.entries()) {
         if (!this.#constraintNames.has(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            ...this.#unknownConstraint(constraint),
             primary: annotation.span,
+            ...this.#unknownConstraint(
+              constraint,
+              annotation.span,
+              annotation.constraintQualifiers?.[at],
+            ),
           });
           continue;
         }

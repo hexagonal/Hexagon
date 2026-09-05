@@ -53,9 +53,8 @@ export const typescriptScopeName = "source.ts";
  * the injection that used to paint the notation is gone: the shared grammar
  * paints the header as it paints every declaration head, and both editors agree
  * about the line by construction rather than by two rules that nearly match. A
- * `module foo` the Playground still opens a virtual file for paints as ordinary
- * code — the host's own squiggle is what says the name is wrong, which is the
- * report §2.1 owes it.
+ * `module foo` paints as ordinary code — the host's own squiggle is what says
+ * the name is wrong, which is the report §2.1 owes it.
  *
  * The other two are VS Code's, taken from `tm-grammars` rather than vendored, and they
  * are an order of magnitude larger than Hexagon's. They load through a dynamic import,

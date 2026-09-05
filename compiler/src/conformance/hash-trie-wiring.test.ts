@@ -4,7 +4,7 @@ import { compileFiles, runMain } from "../support/test-project.js";
 import { COMPILER_CLAIMS } from "../passes/checker/variance.js";
 import { HASH_TRIE_RUNTIME_OPERATIONS } from "../passes/emitter/emitter.js";
 import type * as Typed from "../syntax/typed/index.js";
-import trieSource from "../../../runtime/HashTrie.hex?raw";
+import trieSource from "../../../stdlib/Runtime/HashTrie.hex?raw";
 
 /**
  * Conformance for the wiring that makes a `Map(k, v)` — and, since #373, a
@@ -95,7 +95,7 @@ describe("the runtime module's two-sided contract", () => {
     expect(trieSource).toMatch(/^let containsKey\b/mu);
     expect(trieSource).toMatch(/^let isEmpty\b/mu);
     expect(trieSource).toMatch(/^let representative<k: Hash>/mu);
-    const javascript = emitted([["/main.hex", "module Main\n\n" + `${ONE_MAP}${ONE_SET}`]], "/Hex/HashTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + `${ONE_MAP}${ONE_SET}`]], "/Hex/Runtime/HashTrie.hex");
     expect(javascript).toContain(
       `export { ${HASH_TRIE_RUNTIME_OPERATIONS.join(", ")} };`,
     );
@@ -113,19 +113,19 @@ describe("the runtime module's two-sided contract", () => {
    * at emission that no `Import` item records and no acyclicity check can see.
    *
    * The seat (`RUNTIME_MODULES`' `precedes`) is what keeps the rule enforceable,
-   * and it is why the seat stayed at `Vector.hex` when `Map.hex` took the last
+   * and it is why the seat stayed at `Vector` when `Map` took the last
    * prelude place: a later seat would let this module name `Vector`.
    */
   test("the emitted runtime module never imports Vector or the vector trie", () => {
-    const javascript = emitted([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/HashTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/Runtime/HashTrie.hex");
     const specifiers = [...javascript.matchAll(/^\s*import\b[^;\n]*?from\s+"([^"]+)";/gmu)]
       .map((match) => match[1]!);
-    expect(specifiers).not.toContain("./Vector.js");
+    expect(specifiers).not.toContain("../Vector.js");
     expect(specifiers).not.toContain("./VectorTrie.js");
-    expect(specifiers).not.toContain("./Map.js");
+    expect(specifiers).not.toContain("../Map.js");
     // And it really does import — an empty list would pass the checks above
     // vacuously. `Seq` is `entries`' answer.
-    expect(specifiers).toContain("./Seq.js");
+    expect(specifiers).toContain("../Seq.js");
   });
 
   /**
@@ -136,7 +136,7 @@ describe("the runtime module's two-sided contract", () => {
    * would be a second implementation of the same suspension problem.
    */
   test("every constructed trie carries the pair iterator", () => {
-    const javascript = emitted([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/HashTrie.hex");
+    const javascript = emitted([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/Runtime/HashTrie.hex");
     expect(javascript).toContain("[Symbol.iterator]: __hashTrieIterate");
     expect(javascript).toContain("function* __hashTrieIterate()");
     expect(javascript).toContain("yield* __seqToIterable(entries(this));");
@@ -160,7 +160,7 @@ describe("the import surface", () => {
   /** A vector program stays a vector program: the two runtimes are independent. */
   test("a vector alone carries no hash trie", () => {
     const files = [["/main.hex", "module Main\n\n" + "export let v: Vector(Int) = [1, 2, 3]\n"]] as const;
-    expect(emittedPaths(files)).not.toContain("/Hex/HashTrie.hex");
+    expect(emittedPaths(files)).not.toContain("/Hex/Runtime/HashTrie.hex");
     expect(emittedPaths(files)).not.toContain("/Hex/Map.hex");
     expect(emitted(files, "/main.hex")).not.toContain("HashTrie");
   });
@@ -168,7 +168,7 @@ describe("the import surface", () => {
   test("a map carries the trie and the companion", () => {
     const files = [["/main.hex", "module Main\n\n" + ONE_MAP]] as const;
     const paths = emittedPaths(files);
-    expect(paths).toContain("/Hex/HashTrie.hex");
+    expect(paths).toContain("/Hex/Runtime/HashTrie.hex");
     expect(paths).toContain("/Hex/Map.hex");
     // The companion is what `/main.hex` names; the trie is reached only from it.
     expect(emitted(files, "/main.hex")).toContain('from "./Hex/Map.js"');
@@ -196,7 +196,7 @@ describe("the import surface", () => {
             `${operation} as __hashTrie${operation[0]!.toUpperCase()}${operation.slice(1)}`
           )
           .join(", ")
-      } } from "./HashTrie.js";`;
+      } } from "./Runtime/HashTrie.js";`;
 
     const mapOperations = HASH_TRIE_RUNTIME_OPERATIONS.slice(0, 7);
     const setOperations = HASH_TRIE_RUNTIME_OPERATIONS.slice(7);
@@ -229,7 +229,7 @@ describe("the import surface", () => {
         "export let head: String = m[1]\n",
     );
     expect(javascript).toContain(
-      'import { get as __hashTrieGet } from "./Hex/HashTrie.js";',
+      'import { get as __hashTrieGet } from "./Hex/Runtime/HashTrie.js";',
     );
   });
 
@@ -249,7 +249,7 @@ describe("the import surface", () => {
     // source path: `Inner` emits at the output root regardless of its file's
     // nesting, and the prelude sits under `Hex/` there too — one directory down.
     expect(javascript).toContain('from "./Hex/Map.js"');
-    expect(emitted(files, "/Hex/Map.hex")).toContain('from "./HashTrie.js"');
+    expect(emitted(files, "/Hex/Map.hex")).toContain('from "./Runtime/HashTrie.js"');
   });
 });
 
@@ -384,7 +384,7 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
    * `runtime/HashTrie.hex`.
    */
   test("the trie every map is built on is covariant in both parameters", () => {
-    const shipped = varianceIn([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/HashTrie.hex");
+    const shipped = varianceIn([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/Runtime/HashTrie.hex");
     expect(shipped.diagnostics).toEqual([]);
     // §6.3's derivation, as the checker computes it: `k` and `v` reach
     // `HashTrie` through `root: Root(k, v)`, whose arms hold them in
@@ -399,7 +399,7 @@ describe("§5.3 the `Map(k, v)` claim, verified against the representation", () 
 
   /** The row and the representation, side by side — which is all "verified" means. */
   test("the claim table's `Map` row is what the representation computes", () => {
-    const shipped = varianceIn([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/HashTrie.hex");
+    const shipped = varianceIn([["/main.hex", "module Main\n\n" + ONE_MAP]], "/Hex/Runtime/HashTrie.hex");
     expect(COMPILER_CLAIMS.get("Map")).toEqual(["co", "co"]);
     expect(shipped.hashTrie.map(({ computed }) => computed))
       .toEqual(COMPILER_CLAIMS.get("Map"));
@@ -495,7 +495,7 @@ describe("§5.3 the `Set(a)` claim, verified against the representation", () => 
     variance.map(({ name, computed }) => [name, computed]);
 
   test("the wrapper every set is built on is covariant in its one parameter", () => {
-    const shipped = wrapperVarianceIn([["/main.hex", "module Main\n\n" + ONE_SET]], "/Hex/HashTrie.hex");
+    const shipped = wrapperVarianceIn([["/main.hex", "module Main\n\n" + ONE_SET]], "/Hex/Runtime/HashTrie.hex");
     expect(shipped.diagnostics).toEqual([]);
     expect(positions(shipped.hashSet)).toEqual([["a", "co"]]);
     // Transparent and unsigilled, so this *is* what every consumer reads.
@@ -504,7 +504,7 @@ describe("§5.3 the `Set(a)` claim, verified against the representation", () => 
 
   /** The row and the representation, side by side — all "verified" means. */
   test("the claim table's `Set` row is what the representation computes", () => {
-    const shipped = wrapperVarianceIn([["/main.hex", "module Main\n\n" + ONE_SET]], "/Hex/HashTrie.hex");
+    const shipped = wrapperVarianceIn([["/main.hex", "module Main\n\n" + ONE_SET]], "/Hex/Runtime/HashTrie.hex");
     expect(COMPILER_CLAIMS.get("Set")).toEqual(["co"]);
     expect(shipped.hashSet.map(({ computed }) => computed))
       .toEqual(COMPILER_CLAIMS.get("Set"));

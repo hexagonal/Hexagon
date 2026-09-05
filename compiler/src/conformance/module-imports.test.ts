@@ -14,6 +14,16 @@ import { compileFiles, runProject } from "../support/test-project.js";
  * have to, and every test below reads one side of that line.
  */
 
+/**
+ * The eight heads below are eight whole compiles, prelude included, so this one
+ * test's cost tracks the standard library's size — and #829 put the whole of it
+ * in every compilation. It sits at ~5.6s under the full suite's parallel load
+ * against vitest's 5s default and passes comfortably alone, which is the
+ * signature of a budget rather than a regression; `playground/src/examples`
+ * documents the same signature and the same fix.
+ */
+const PIPELINE_TIMEOUT = 30_000;
+
 /** Every message the project reported, in order. */
 function messages(files: readonly (readonly [string, string])[]): readonly string[] {
   return compileFiles(files).diagnostics.map(({ message }) => message);
@@ -583,7 +593,7 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
       // produces draws nothing at all.
       expect(soleFixApplied(written)).toBe(repaired);
     }
-  });
+  }, PIPELINE_TIMEOUT);
 
   test("a written alias no alias could be is dropped, not printed back", () => {
     // Upper-casing `用户` is a no-op, so there is no alias to keep — and the
@@ -703,8 +713,22 @@ describe("§13 (n) — the refused heads, each with its rewrite", () => {
         "export let n: Float = Geometry.area(2.0)\n"],
     ])).toEqual([
       "a module name is uppercase-start; write `import Geometry`",
-      "unknown name `Geometry`",
+      "no module alias `Geometry`; `import Geometry`",
     ]);
+    // The use names the line and carries **no applied edit**: the head above it
+    // already offers that line by its own rewrite (§5.1), and two lightbulbs
+    // writing one import — one of them into the middle of the line the other
+    // rewrites — is not a repair.
+    expect(
+      compileFiles([
+        GEOMETRY,
+        ["/main.hex",
+          "module Main\n\n" + "import geometry\n" +
+          "export let n: Float = Geometry.area(2.0)\n"],
+      ]).diagnostics
+        .filter(({ message }) => message.startsWith("no module alias"))
+        .map(({ fixes }) => fixes),
+    ).toEqual([undefined]);
     expect(messages([
       GEOMETRY,
       ["/main.hex",

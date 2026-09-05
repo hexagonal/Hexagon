@@ -22,13 +22,9 @@ import {
   nearestIntrinsicKey,
 } from "../../intrinsics.js";
 import { relativeSpecifier } from "../../support/paths.js";
-import { displayModuleName, moduleImportLine } from "../../packages.js";
+import { displayModuleName, type ImportRepair, moduleImportLine } from "../../packages.js";
 import * as Source from "../../support/source.js";
-import {
-  importInsertionOffset,
-  insertedLine,
-  type ImportPlacement,
-} from "../../support/import-placement.js";
+import { dropQualifierFix, ImportRepairs } from "../../support/import-placement.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 
@@ -388,6 +384,35 @@ function annotationCompanion(annotation: Resolved.TypeAnnotation): string | unde
  * not be the same operation. The receiver carries whatever parentheses that
  * costs; the argument list never does.
  */
+/**
+ * One seat a qualified spelling `Name.member` can be written at, as Modules
+ * §5.1 rule 1's report reads it — **of the three this pass owns**.
+ *
+ * They differ in exactly two things — which namespace the bare spelling would
+ * be read in, and whether a call's own arguments are available to quote — so
+ * the report takes them as data rather than as three callers of three shapes.
+ *
+ * §5.1 names a fourth, the constraint seats Constraints §8 sends here, and they
+ * are **not** here: a binder's obligation and an `honor` head are the checker's
+ * to resolve, and it draws the same report from `#unboundAliasRefusal`, off the
+ * `ImportRepairs` this pass shares with it and the drop-fix writer both passes
+ * call. A `kind: "constraint"` in this union would be a seat nothing can
+ * construct — a branch reading as though it meant something, which is the shape
+ * a reader trusts and no test can falsify.
+ */
+interface AliasSeat {
+  readonly kind: "term" | "type" | "pattern";
+  /** The qualifier: the name before the dot, and what the report speaks about. */
+  readonly qualifier: Parsed.Name;
+  /** The name after the dot, and what a dropped qualifier would leave behind. */
+  readonly bare: string;
+  readonly bareSpan: Source.Span;
+  /** Term and pattern seats: the scope the bare spelling would be read in. */
+  readonly scope?: Scope;
+  /** Term seat: the call this access is the callee of, for the repair's words. */
+  readonly call?: Parsed.CallExpr;
+}
+
 interface WrittenArguments {
   /** Each argument's source text, for the qualified spellings' argument lists. */
   readonly texts: readonly string[];
@@ -612,6 +637,27 @@ export interface ModuleImport {
 
 export interface ResolveOptions {
   readonly imports?: ReadonlyMap<string, ModuleImport>;
+  /**
+   * How `import <written>` would resolve for this module, asked at a refusal
+   * rather than at an import (Modules §5.1 rule 1's repair clause; Packages §3).
+   *
+   * A function, because the question is about a spelling the module never wrote:
+   * `imports` holds what it did write, and the whole program's module set —
+   * which only `compileProject` has — is what says whether `import Rat` would
+   * answer, be contested, or reach nothing. A caller that supplies none gets the
+   * report without its repair clause, which is the same answer the third case
+   * gives and is always true.
+   */
+  readonly importRepair?: (written: string) => ImportRepair | undefined;
+  /**
+   * The module's applied-edit writer, **shared with the checker** so the four
+   * seats of Modules §5.1 rule 1 offer one import line between them (§5.1's
+   * "one edit per module, however many seats draw the report"). A caller that
+   * supplies none — every pass-level `resolve` in a unit test — gets a writer
+   * of this module's own, which is the same edits with no one to share them
+   * with.
+   */
+  readonly repairs?: ImportRepairs;
   readonly symbolBase?: number;
   readonly unionBase?: number;
   readonly recordBase?: number;
@@ -1504,29 +1550,22 @@ class Resolver {
    */
   #moduleFileId = 0 as unknown as Source.FileId;
   /**
-   * Where an `import` line this module's refusals write would go — the module's
-   * header and the import lines it already holds (Modules §5.1's placement
-   * rule, `support/import-placement.ts`).
+   * Where an `import` line this module's refusals write would go, and the line
+   * each refused spelling has already been given (Modules §5.1's placement rule
+   * and its one-edit-per-module obligation, `support/import-placement.ts`).
    *
-   * Held from the parsed tree at the top of `resolve`, because the refusal that
-   * needs it is raised deep in an expression walk: the applied edit belongs to
-   * the **module containing the use**, and in a file holding several modules
-   * (§2.2) that is this one and not the file's first.
+   * **Shared with the checker**, which draws the same report at the constraint
+   * seats Constraints §8 sends to §5.1 (`ImportRepairs`): one module, one cache,
+   * so a reader who wrote `Scale.Scale` in a binder and `Scale.create` in the
+   * body below it is offered one import line and not two.
+   *
+   * Built from the parsed tree at the top of `resolve` where the caller supplied
+   * none, because the refusal that needs it is raised deep in an expression
+   * walk: the applied edit belongs to the **module containing the use**, and in
+   * a file holding several modules (§2.2) that is this one and not the file's
+   * first.
    */
-  #placement: ImportPlacement = { header: undefined, imports: [] };
-  /**
-   * The module's text as a `Source.File`, built at most once and only where a
-   * refusal needs a span for an insertion offset. `#text` alone cannot answer
-   * `Source.Span`, which is what an edit carries.
-   */
-  #placementFile: Source.File | undefined;
-  /**
-   * Spellings whose type-not-module refusal has already carried the import line
-   * (§5.1). One module can refuse `Meters.` at three uses, and every one of
-   * them wants the identical line: the **first** carries it, so the offer sits
-   * above the earliest refused use and taking it writes one import, not three.
-   */
-  readonly #importRepairsOffered = new Set<string>();
+  #repairs: ImportRepairs | undefined;
   #lambdaDepth = 0;
   /** Written-hole identities; see `Resolved.HoleTypeAnnotation.id`. */
   #nextHole = 0;
@@ -1534,10 +1573,35 @@ class Resolver {
   #nextUnion: number;
   #nextRecord: number;
   #nextExternType: number;
+  readonly #importRepair: ((written: string) => ImportRepair | undefined) | undefined;
+  /**
+   * This module's **own default alias** — its declared name's last segment
+   * (Modules §3.1): `Point` in `module Point`, `Geometry` in `module
+   * Render.Geometry`.
+   *
+   * Read at rule 1's first test, ahead of every other branch: no alias binds a
+   * module's own name inside it, so `Point.make(...)` written in `module Point`
+   * is not an unknown alias to be repaired by importing anything — it is the
+   * module qualifying through itself, and the repair is the qualifier dropped
+   * (§5.1 rule 1, §3.1).
+   */
+  #ownDefaultAlias: string | undefined;
+  /**
+   * The type names **this module declares** — not the type namespace, which
+   * also holds imported and prelude types.
+   *
+   * One report reads it: rule 1's type branch takes the self-qualification
+   * carve where the type's home is the reporting module, because the repair it
+   * would otherwise name is an import of the module into itself (§5.1 rule 1;
+   * §8.1's one-node cycle).
+   */
+  readonly #ownTypeNames = new Set<string>();
 
   constructor(diagnostics: Diagnostics.Bag, options: ResolveOptions) {
     this.#diagnostics = diagnostics;
     this.#imports = options.imports ?? new Map();
+    this.#importRepair = options.importRepair;
+    this.#repairs = options.repairs;
     this.#runtime = options.runtime ?? false;
     this.#privileged = options.privileged ?? false;
     this.#companionPrimitive = options.companionPrimitive;
@@ -2245,14 +2309,10 @@ class Resolver {
   resolve(module: Parsed.Module): Resolved.Module {
     this.#fileId = Number(module.fileId);
     this.#moduleFileId = module.fileId;
-    this.#placement = {
-      header: module.name.declared ? module.name.span : undefined,
-      imports: module.items.flatMap((item) =>
-        // A refused head's recovery is a line the author wrote and the reading
-        // kept, so an inserted import still belongs below it.
-        item.kind === "Import" ? [item.span] : []
-      ),
-    };
+    // The caller's where it has one (`compileProject`, which hands the same one
+    // to the checker); this module's own otherwise, which is what a pass-level
+    // `resolve` in a unit test gets.
+    this.#repairs ??= new ImportRepairs(module, this.#text, this.#path);
     this.#predeclareTypes(module.items);
     // Implied type names have owner-relative identity, but failed uses outside
     // an owner still receive the knowing v1 diagnostic even before declaration.
@@ -2270,6 +2330,7 @@ class Resolver {
     // order-insensitive (Modules §3), and the names it must lose a collision to
     // are the module's own — the declarations above and the constraint names
     // just collected.
+    this.#ownDefaultAlias = module.name.text.split(".").at(-1);
     this.#predeclareImports(module.items);
     // The prelude layer was seeded before there was a module to measure, so it
     // is given its region now. It governs the whole file — that is what
@@ -2342,6 +2403,7 @@ class Resolver {
       preludeTypeImports: this.#preludeTypeImports.map((entry) => ({ ...entry })),
       visibleConstraints: [...this.#visibleConstraints.values()],
       visibleExceptions: [...this.#visibleExceptions.values()],
+      typeSpellings: this.#typeSpellingChannel(),
       externTypes: this.#externTypes,
       comments: module.comments,
       docs: module.docs,
@@ -2399,6 +2461,7 @@ class Resolver {
         continue;
       }
       claimed.set(itemName.text, itemName.span);
+      this.#ownTypeNames.add(itemName.text);
       if (item.kind === "TypeAlias") {
         this.#typeAliases.set(item.name.text, item);
         this.#writtenTypeAliases.set(item.name.text, item);
@@ -3020,6 +3083,9 @@ class Resolver {
                 typeParameters: declaration.typeParameters.map((parameter) => ({
                   name: parameter.name.text,
                   constraints: parameter.constraints.map(({ text }) => text),
+                  constraintQualifiers: parameter.constraints.map(
+                    ({ qualification }) => qualification,
+                  ),
                   span: parameter.span,
                 })),
               }),
@@ -3127,10 +3193,16 @@ class Resolver {
         return {
           kind: "Honor",
           constraint: item.constraint.text,
+          ...(item.constraint.qualification === undefined
+            ? {}
+            : { constraintQualifier: item.constraint.qualification }),
           constraintIdentity: this.#constraintIdentity(item.constraint.text),
           typeParameters: item.typeParameters.map((parameter) => ({
             name: parameter.name.text,
             constraints: parameter.constraints.map(({ text }) => text),
+            constraintQualifiers: parameter.constraints.map(
+              ({ qualification }) => qualification,
+            ),
             // Resolved here, where the head was written: a consumer of this
             // instance has no spelling for the constraint of its own (#762).
             constraintIdentities: parameter.constraints.map(({ text }) =>
@@ -3525,6 +3597,9 @@ class Resolver {
                         typeParameters: item.block.typeParameters.map((parameter) => ({
                           name: parameter.name.text,
                           constraints: parameter.constraints.map(({ text }) => text),
+                          constraintQualifiers: parameter.constraints.map(
+                            ({ qualification }) => qualification,
+                          ),
                           span: parameter.span,
                         })),
                       }),
@@ -3873,10 +3948,41 @@ class Resolver {
               span: expression.span,
             };
           }
-          // No module alias answered, so rule 1's own sentence gets its turn
-          // before the receiver decays to an unknown name (#577).
-          if (this.#typeIsNotAModule(expression.receiver, scope)) {
-            return { kind: "ErrorExpr", span: expression.span };
+          // No module alias answered, so rule 1 gets its turn before the
+          // receiver decays to an unknown name (#577, respelled by #829's
+          // Ruling A). The three tests run in `#unboundModuleAlias`' order —
+          // the module's own alias, then the type branch, then the plain
+          // report.
+          //
+          // **Rule 1's first two tests are asked ahead of the term namespace**,
+          // which the #577 v1 carve read second (#829: "`Name.` resolves in the
+          // module-alias namespace **first**"). A record declares a type *and*
+          // a constructor of one spelling, so `Point.make(…)` inside `module
+          // Geometry` — §13(o)'s own specimen for the own-home row — has a term
+          // to resolve and never reached the row written for it: the reader was
+          // handed `type mismatch: expected (…) -> Point, found {make: a, …}`,
+          // a sentence about the compiler's recovery rather than about the
+          // mistake. Where **neither** test answers, the v1 carve stands: a
+          // spelling that resolves as a term and names no type is somebody
+          // else's, and "declared later" is the truer sentence where it
+          // applies, so both are asked first.
+          const seat: AliasSeat = {
+            kind: "term",
+            qualifier: expression.receiver.name,
+            bare: expression.field.text,
+            bareSpan: expression.field.span,
+            scope,
+            ...(this.#calleeOf?.callee === expression ? { call: this.#calleeOf } : {}),
+          };
+          if (
+            expression.receiver.name.startClass === "upper" &&
+            this.#findLaterDeclaration(expression.receiver.name.text) === undefined &&
+            (this.#ownAliasOrType(expression.receiver.name.text) ||
+              this.#lookupTerm(expression.receiver.name.text, scope) === undefined)
+          ) {
+            if (this.#unboundModuleAlias(seat)) {
+              return { kind: "ErrorExpr", span: expression.span };
+            }
           }
         }
         return {
@@ -3955,10 +4061,14 @@ class Resolver {
     if (this.#reportUnreachedAlias(qualifier, name, "constructor")) return undefined;
     const module = this.#namedModule(qualifier.text);
     if (module === undefined) {
-      this.#diagnostics.add({
-        severity: "error",
-        message: `unknown module alias \`${qualifier.text}\``,
-        primary: qualifier.span,
+      // §5.1 rule 1, in pattern position: the same report the term, type and
+      // constraint seats draw, with the same repair (#829's Ruling A).
+      this.#unboundModuleAlias({
+        kind: "pattern",
+        qualifier,
+        bare: name.text,
+        bareSpan: name.span,
+        ...(this.#moduleScope === undefined ? {} : { scope: this.#moduleScope }),
       });
       return undefined;
     }
@@ -4558,6 +4668,164 @@ class Resolver {
   }
 
   /**
+   * Modules §5.1 rule 1, at **every seat the alias reaches** — term, type,
+   * constraint, and pattern (#829, James's Ruling A).
+   *
+   * `Name.` resolves in the module-alias namespace first, and where nothing
+   * there answers the reader is owed the same sentence wherever they wrote it.
+   * Before this the type seat drew ``unknown module alias `Geometry` `` and the
+   * term seat drew ``unknown name `Geometry` `` — true of the term namespace,
+   * and silent about the module the writer meant, which is the whole content of
+   * the mistake. One rule, one report, three tests in this order:
+   *
+   * 1. **The module's own default alias.** A module does not qualify through
+   *    itself (§3.1), so this is tested ahead of everything below: `Point.make`
+   *    inside `module Point` must not draw the type-not-module report — the
+   *    companion idiom puts a same-spelled type in scope in exactly that module
+   *    — and must never offer `import Point`, which §8.1 refuses as the
+   *    one-node cycle. The repair is the qualifier dropped.
+   * 2. **A type of the spelling in scope**, whose home is another module: the
+   *    type-not-module branch (`#typeIsNotAModule`), which names the home and
+   *    carries the import. A type this module declares **itself** keeps that
+   *    branch's own fact — "`Point` is a type, not a module" — and takes test
+   *    1's repair and condition rather than an import of the module into
+   *    itself. §10 writes the two rows separately for exactly that: the reader
+   *    wrote a type's name, and the sentence that says so is the one they can
+   *    act on.
+   * 3. **Otherwise** the plain report, whose repair clause is settled by asking
+   *    where `import Name` would resolve.
+   *
+   * Answers `true` having reported, so every caller has nothing to add.
+   */
+  #unboundModuleAlias(seat: AliasSeat): boolean {
+    const name = seat.qualifier.text;
+    if (seat.qualifier.startClass !== "upper") return false;
+    if (name === this.#ownDefaultAlias) {
+      this.#reportSelfQualification(seat, "a module does not qualify through itself");
+      return true;
+    }
+    if (this.#typeIsNotAModule(seat)) return true;
+    this.#reportUnboundAlias(seat);
+    return true;
+  }
+
+  /**
+   * Rule 1's first test: "a module does not qualify through itself; write
+   * `make(1.0, 0.0)`".
+   *
+   * The repair is **carried only where the bare spelling means what the
+   * qualified one meant** — where it resolves, at this use and in this seat's
+   * namespace, to the module's own binding, with no head binder eclipsing it
+   * (Statements §5). Where a parameter, a match binder or a loop variable holds
+   * the spelling the sentence stands alone: dropping the qualifier there would
+   * silently name the binder, and a repair that changes what a program means is
+   * worse than no repair. It never drops to a prelude name either, for the same
+   * reason one namespace up.
+   *
+   * **The fact is the caller's, the repair is this seat's.** §10 spends two
+   * rows on the pair on purpose: the module's own default alias says "a module
+   * does not qualify through itself", and a *type* of the reporting module's
+   * own keeps the type branch's own fact — "`Point` is a type, not a module" —
+   * because that is what the reader wrote and what the module holds. Only the
+   * repair and its condition are shared, so only they live here (§5.1 rule 1:
+   * "The type branch below takes the same repair under the same condition, and
+   * keeps its own fact").
+   */
+  #reportSelfQualification(seat: AliasSeat, fact: string): void {
+    const rewrite = this.#selfQualifiedRewrite(seat);
+    this.#diagnostics.add({
+      severity: "error",
+      message: rewrite === undefined ? fact : `${fact}; write \`${rewrite}\``,
+      primary: seat.qualifier.span,
+      ...(rewrite === undefined ? {} : {
+        fixes: [dropQualifierFix({
+          fileId: seat.qualifier.span.fileId,
+          start: seat.qualifier.span.start,
+          end: seat.bareSpan.start,
+        })],
+      }),
+    });
+  }
+
+  /**
+   * The use with its qualifier dropped, as the message quotes it — or
+   * `undefined` where the bare spelling does not name the module's own binding
+   * at this use, which is the seat's whole test.
+   *
+   * A call carries **its own written arguments** (§5.5's "the message invents
+   * no identifier the program does not contain"), read from the module's text
+   * by span so that nothing is normalized into a line the reader cannot find.
+   */
+  #selfQualifiedRewrite(seat: AliasSeat): string | undefined {
+    if (!this.#bareNamesOwnBinding(seat)) return undefined;
+    const call = seat.call;
+    const text = this.#text;
+    if (call === undefined || text === undefined) return seat.bare;
+    const written = call.arguments.map((argument) =>
+      text.slice(argument.span.start.offset, argument.span.end.offset)
+    );
+    // An argument spanning lines would put a newline inside a diagnostic, and a
+    // rewrite the reader has to reflow is not one.
+    if (written.some((argument) => argument.includes("\n"))) return seat.bare;
+    return `${seat.bare}(${written.join(", ")})`;
+  }
+
+  /** Whether the bare spelling, read at this use, names this module's own binding. */
+  #bareNamesOwnBinding(seat: AliasSeat): boolean {
+    if (seat.kind === "type") return this.#ownTypeNames.has(seat.bare);
+    const own = this.#moduleScope?.lookupLocal(seat.bare);
+    if (own === undefined) return false;
+    // The head binder test, and the prelude one with it: `lookup` answers with
+    // whatever is nearest at this use, so it differs from the module's own
+    // binding exactly where something eclipses it.
+    return seat.scope !== undefined && seat.scope.lookup(seat.bare) === own;
+  }
+
+  /**
+   * Rule 1's plain report: ``no module alias `Rat`; `import Rat` ``.
+   *
+   * The repair clause is settled by §2.3's own tests, in order — where `import
+   * Rat` would resolve (the resolving package's own module first, then the one
+   * visible package bearing the name) the import is named and the applied edit
+   * carried; where it would be contested every full spelling is named and no
+   * edit is offered, because the compiler cannot choose; where it would resolve
+   * to nothing the same report stands without its repair clause, no module
+   * invented.
+   */
+  #reportUnboundAlias(seat: AliasSeat): void {
+    const spelling = seat.qualifier.text;
+    const repair = this.#importRepair?.(spelling);
+    const stem = `no module alias \`${spelling}\``;
+    if (repair === undefined) {
+      this.#diagnostics.add({ severity: "error", message: stem, primary: seat.qualifier.span });
+      return;
+    }
+    if (repair.kind === "Contested") {
+      // Packages §3.3: two visible packages provide the name, and a report that
+      // picked one would be the rank the spec refuses to make.
+      this.#diagnostics.add({
+        severity: "error",
+        message: `${stem}; ${
+          conjoin(repair.fullNames.map((name) => `\`import ${name}\``), "or")
+        }`,
+        primary: seat.qualifier.span,
+      });
+      return;
+    }
+    const line = moduleImportLine(repair.fullName, spelling, this.#packageName);
+    const insert =
+      this.#repairs?.headRewrites(spelling, seat.qualifier.span.start.offset) === true
+        ? undefined
+        : this.#importInsertion(line, seat.qualifier.span, spelling);
+    this.#diagnostics.add({
+      severity: "error",
+      message: `${stem}; \`${line}\``,
+      primary: seat.qualifier.span,
+      ...(insert === undefined ? {} : { fixes: [insert] }),
+    });
+  }
+
+  /**
    * Modules §5.1 rule 1's own sentence, at the one seat that owes it (#577).
    *
    * `Name.` resolves in the module-alias namespace first; where nothing there
@@ -4567,41 +4835,46 @@ class Resolver {
    * `unknown name` — true of the term namespace, and silent about the type
    * standing one namespace over, which is the whole content of the mistake.
    *
-   * The check is the **failed-resolution** half of the family and no more (the
-   * #577 ruling's v1 scope): a spelling that resolves as a term is somebody
-   * else's — a record import binds its constructor, so `Shape.make` is a field
-   * access on a constructor-typed head, and its inverted mismatch is #642's.
-   * The order refusal is read first for the same reason it is read first
-   * in `#resolveName`: "declared later" is the truer sentence where it applies,
-   * and this one would be a false classification of a name that resolves fine
-   * one line down.
+   * **A type of the spelling is enough**, whether or not a term of it also
+   * resolves. The #577 ruling's v1 scope read the term namespace first, and a
+   * record — which declares a type *and* a constructor of one spelling — never
+   * reached this branch at all: `Point.make(…)` in §13(o)'s own specimen decayed
+   * to a field access on the constructor and the writer was handed `type
+   * mismatch: expected (…) -> Point, found {make: a, …}`, a sentence about the
+   * recovery and not about the mistake. What survives of the carve is the case
+   * rule 1 says nothing about — a term of the spelling naming no type, whose
+   * `.field` is an ordinary access and whose inverted mismatch is #642's — and
+   * that test lives at the call site, which is where the term namespace is.
    *
-   * The type namespace is read through the same four maps every annotation
-   * reads (`#resolveTypeAnnotation`), so an imported type, a prelude type, an
-   * alias and an extern type all count — the message's repair is the same for
-   * each, and "a type exists" is exactly what rule 1 conditions on. Rule 1's
-   * own "uppercase immediately followed by `.`" is asked separately rather than
-   * inferred from those maps: a `type foo` in an `extern` block is refused for
-   * its lowercase alias and still registered, and a second sentence classifying
-   * it would be a report about the compiler's recovery rather than the source.
+   * The order refusal is read ahead of both, for the reason it is read first in
+   * `#resolveName`: "declared later" is the truer sentence where it applies, and
+   * this one would be a false classification of a name that resolves fine one
+   * line down.
+   *
+   * `#typeNamespaceHolds` says what "a type of the spelling" reads.
    */
-  #typeIsNotAModule(receiver: Parsed.NameExpr, scope: Scope): boolean {
-    const name = receiver.name.text;
-    if (
-      receiver.name.startClass !== "upper" ||
-      this.#lookupTerm(name, scope) !== undefined ||
-      this.#findLaterDeclaration(name) !== undefined ||
-      !(this.#unionNames.has(name) || this.#recordNames.has(name) ||
-        this.#typeAliases.has(name) || this.#externTypeNames.has(name))
-    ) {
-      return false;
-    }
+  #typeIsNotAModule(seat: AliasSeat): boolean {
+    const name = seat.qualifier.text;
+    if (!this.#typeNamespaceHolds(name)) return false;
     // Modules §5.1/§10, as #829 respelled them: "*the type's home named*". The
     // checker knows the home wherever the type reached this module through a
-    // module alias, which is the shape the row is written for; where the type
-    // is the module's own declaration there is no import to name, and the
-    // general sentence stands.
+    // module alias, which is the shape the row is written for.
     const home = this.#typeHomeModule(name);
+    // §5.1 rule 1's carve, where the type's home is **this** module: the repair
+    // the branch below would name is `import Geometry` written inside `module
+    // Geometry`, which §8.1 refuses as the one-node cycle. So the branch keeps
+    // its **own fact** — the reader wrote a type's name and the module holds
+    // one — and takes the own-alias row's repair and condition instead of an
+    // import (§10's two rows, written separately for exactly this distinction).
+    //
+    // Both halves are asked, and the second is not redundant: a `type Shape =
+    // S.Shape` is *declared* here and homed abroad — the alias is this module's
+    // own declaration, and the type it names is somebody else's — so the row
+    // below still names `S`'s module, which is the one an import would reach.
+    if (home === undefined && this.#ownTypeNames.has(name)) {
+      this.#reportSelfQualification(seat, `\`${name}\` is a type, not a module`);
+      return true;
+    }
     // §5.1's applied-edit obligation, at the tier that owes it (#829, James's
     // ruling on this PR's N1): where the home **is** reached the compiler wrote
     // the line into the message, so it writes it into an edit too, and the
@@ -4614,14 +4887,14 @@ class Resolver {
       : moduleImportLine(home, name, this.#packageName);
     const insert = line === undefined
       ? undefined
-      : this.#importInsertion(line, receiver.span, name);
+      : this.#importInsertion(line, seat.qualifier.span, name);
     this.#diagnostics.add({
       severity: "error",
       message: line === undefined
         ? `\`${name}\` is a type, not a module; import its home module ` +
           "to qualify through it"
         : `\`${name}\` is a type, not a module; \`${line}\` and qualify through it`,
-      primary: receiver.span,
+      primary: seat.qualifier.span,
       importModuleRepair: { name, namespace: "type", ...(insert === undefined ? {} : { applied: true }) },
       ...(insert === undefined ? {} : { fixes: [insert] }),
     });
@@ -4629,41 +4902,81 @@ class Resolver {
   }
 
   /**
-   * The applied edit one repair-family refusal carries: `line` inserted where
-   * Modules §5.1 places it — below the last import above this use, else below
-   * the module's own header (`importInsertionOffset`).
+   * Whether the **type namespace** holds `name`, read through the same four
+   * maps every annotation reads (`#resolveTypeAnnotation`) — so an imported
+   * type, a prelude type, an alias and an extern type all count. The message's
+   * repair is the same for each, and "a type exists" is exactly what rule 1's
+   * second test conditions on.
    *
-   * `undefined` where the caller supplied no source text (a bare `resolve` in a
-   * pass-level test), which degrades to the message alone — the same
-   * degradation `#writtenArguments` takes, and never to a wrong offset. Also
-   * `undefined` for the second and later refusals of one spelling: the first
-   * carries the line, and it sits above them all — and for a file with no
-   * header, where the placement declines rather than take the offset the header
-   * repair is already writing at.
+   * Rule 1's own "uppercase immediately followed by `.`" is asked separately
+   * rather than inferred from those maps: a `type foo` in an `extern` block is
+   * refused for its lowercase alias and still registered, and a second sentence
+   * classifying it would be a report about the compiler's recovery rather than
+   * the source.
+   */
+  #typeNamespaceHolds(name: string): boolean {
+    return this.#unionNames.has(name) || this.#recordNames.has(name) ||
+      this.#typeAliases.has(name) || this.#externTypeNames.has(name);
+  }
+
+  /**
+   * Whether rule 1's **first two tests** answer for `name` — the reporting
+   * module's own default alias, or a type of the spelling in scope.
+   *
+   * The term seat asks it before consulting the term namespace, because a
+   * record's declaration puts a type and a constructor of one spelling in play
+   * and rule 1 reads the module-alias namespace first at both (§5.1 rule 1;
+   * §13(o)'s `Point.make(…)` inside `module Geometry`).
+   */
+  #ownAliasOrType(name: string): boolean {
+    return name === this.#ownDefaultAlias || this.#typeNamespaceHolds(name);
+  }
+
+  /**
+   * `Module.typeSpellings`: rule 1's type branch, written down for the pass
+   * that reports the **constraint** seats.
+   *
+   * The three questions are the three this file already asks at its own seats —
+   * `#typeNamespaceHolds`, `#ownTypeNames`, `#typeHomeModule` — so the channel
+   * is those three read once each per spelling rather than a second reading of
+   * the four maps. The checker cannot ask them itself: they are this pass's,
+   * and this pass has returned by the time a binder's obligation is checked.
+   *
+   * Built at the end and equal to what any seat saw during resolution: the four
+   * maps are complete before a body is walked (`#predeclareTypes` runs first,
+   * and the import and prelude layers are seeded before it), so no seat can
+   * have been reported against a smaller namespace than this one.
+   */
+  #typeSpellingChannel(): ReadonlyMap<string, Resolved.TypeSpelling> {
+    const spellings = new Map<string, Resolved.TypeSpelling>();
+    const names = [
+      ...this.#unionNames.keys(),
+      ...this.#recordNames.keys(),
+      ...this.#typeAliases.keys(),
+      ...this.#externTypeNames.keys(),
+    ];
+    for (const name of names) {
+      if (spellings.has(name)) continue;
+      const home = this.#typeHomeModule(name);
+      spellings.set(name, {
+        own: this.#ownTypeNames.has(name),
+        ...(home === undefined ? {} : { home }),
+      });
+    }
+    return spellings;
+  }
+
+  /**
+   * The applied edit one repair-family refusal carries — `ImportRepairs.fix`,
+   * which is where the placement and the one-edit-per-module cache live, shared
+   * with the checker so the constraint seats draw the identical edit.
    */
   #importInsertion(
     line: string,
     use: Source.Span,
     spelling: string,
   ): Diagnostics.Fix | undefined {
-    const text = this.#text;
-    if (text === undefined || this.#importRepairsOffered.has(spelling)) return undefined;
-    this.#importRepairsOffered.add(spelling);
-    const file = this.#placementFile ??
-      (this.#placementFile = new Source.File(this.#moduleFileId, this.#path ?? "", text));
-    const offset = importInsertionOffset(this.#placement, text, use.start.offset);
-    if (offset === undefined) return undefined;
-    return {
-      // The **family's** title, the one the workspace tier writes at the seats
-      // it still owns (`#importModuleAction`): one repair offered under one
-      // name, whichever tier reached it.
-      message: `import \`${spelling}\``,
-      // The line written as a whole line (`insertedLine`), not spliced in: it
-      // ends the way its neighbours do, or the repair carries a whitespace diff
-      // into a CRLF file, and it opens with a break where the offset is the end
-      // of a file whose last line has none, or the repair welds two lines.
-      edits: [{ span: file.span(offset, offset), replacement: insertedLine(text, offset, line) }],
-    };
+    return this.#repairs?.fix(spelling, line, use.start.offset);
   }
 
   /**
@@ -4923,6 +5236,9 @@ class Resolver {
             typeParameters: expression.typeParameters.map((parameter) => ({
               name: parameter.name.text,
               constraints: parameter.constraints.map(({ text }) => text),
+              constraintQualifiers: parameter.constraints.map(
+                ({ qualification }) => qualification,
+              ),
               span: parameter.span,
             })),
           }),
@@ -4989,6 +5305,9 @@ class Resolver {
         kind: "Hole",
         id: this.#nextHole++,
         constraints: annotation.constraints.map(({ text }) => text),
+        constraintQualifiers: annotation.constraints.map(
+          ({ qualification }) => qualification,
+        ),
         span: annotation.span,
       };
     }
@@ -5007,10 +5326,15 @@ class Resolver {
     if (annotation.qualifier !== undefined) {
       const imported = this.#namedModule(annotation.qualifier.text);
       if (imported === undefined) {
-        this.#diagnostics.add({
-          severity: "error",
-          message: `unknown module alias \`${annotation.qualifier.text}\``,
-          primary: annotation.qualifier.span,
+        // §5.1 rule 1, in type position — the seat §13(o)'s golden is written
+        // at, and since #829's Ruling A the same report the other three draw.
+        this.#unboundModuleAlias({
+          kind: "type",
+          qualifier: annotation.qualifier,
+          bare: name,
+          bareSpan: annotation.kind === "AppliedType"
+            ? annotation.constructor.span
+            : annotation.name.span,
         });
         return { kind: "ErrorType", span: annotation.span };
       }

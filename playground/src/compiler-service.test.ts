@@ -2,7 +2,8 @@ import { describe, expect, test } from "vitest";
 
 import { createCompilerService, type EditorAnalysis } from "./compiler-service";
 
-const source = "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
+const source = "module Main\n\n" +
+  "fun twice(n: Int): Int = n * 2\nDebug.log(\"${twice(3)}\")\n";
 const caret = source.indexOf("twice") + 1;
 
 describe("createCompilerService", () => {
@@ -23,7 +24,10 @@ describe("createCompilerService", () => {
       // The declaration's own name. The point here is that the request is
       // answered in this shape at all; what the session finds is pinned in
       // `analysis.test.ts`, against `hover` itself.
-      ranges: expect.arrayContaining([{ startOffset: 4, endOffset: 9 }]),
+      ranges: expect.arrayContaining([{
+        startOffset: source.indexOf("twice"),
+        endOffset: source.indexOf("twice") + "twice".length,
+      }]),
     });
     expect(
       service.handle({ kind: "code-actions", ...asked, startOffset: 0, endOffset: 0 }),
@@ -32,7 +36,10 @@ describe("createCompilerService", () => {
       kind: "definition",
       id: 9,
       version: 4,
-      ranges: [{ startOffset: 4, endOffset: 9 }],
+      ranges: [{
+        startOffset: source.indexOf("twice"),
+        endOffset: source.indexOf("twice") + "twice".length,
+      }],
     });
     expect(service.handle({ kind: "references", ...asked, offset: caret })).toMatchObject({
       kind: "references",
@@ -74,7 +81,7 @@ describe("createCompilerService", () => {
       version: 1,
     });
     expect(
-      service.handle({ kind: "compile", version: 2, source: "let = = =\n" }),
+      service.handle({ kind: "compile", version: 2, source: "module Main\n\nlet = = =\n" }),
     ).toMatchObject({ kind: "compile-failure", version: 2 });
   });
 

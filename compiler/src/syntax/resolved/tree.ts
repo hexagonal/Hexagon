@@ -211,6 +211,35 @@ export interface TypeQualifier {
   readonly member: string;
 }
 
+/**
+ * One spelling in the type namespace, as Modules §5.1 rule 1's type branch has
+ * to read it — see `Module.typeSpellings`.
+ *
+ * §10 spends two rows on the branch, and these are the two fields that tell
+ * them apart. A type whose **home is this module** keeps the type's fact and
+ * takes the own-alias row's repair, because the import the other row would name
+ * is `import Geometry` written inside `module Geometry` — §8.1's one-node
+ * cycle. A type whose home is **abroad** names that home and carries the import
+ * as an applied edit.
+ *
+ * Both are recorded, and `own` does not decide the row on its own: a
+ * `type Meters = P.Meters` is declared here like any other item, so it *is*
+ * `own`, and it is `home` being defined — the module an import could reach —
+ * that sends it to the second row rather than the first.
+ */
+export interface TypeSpelling {
+  /** Whether this module declares the type itself — §10's own-type row. */
+  readonly own: boolean;
+  /**
+   * The type's home module, by full name, where the resolver reached one: the
+   * module an `import` would name. Absent for this module's own declarations
+   * and for every type whose route here carried no qualifier to read a home
+   * off, where the report names no import and the offer stays the workspace
+   * tier's.
+   */
+  readonly home?: string;
+}
+
 export interface UnionTypeAnnotation {
   readonly kind: "Union";
   readonly union: UnionId;
@@ -262,6 +291,18 @@ export interface HoleTypeAnnotation {
    * substitution makes share the seed exactly as they share the id.
    */
   readonly constraints: readonly string[];
+  /**
+   * Where each name in `constraints` wrote its module qualifier — the `Geo` and
+   * the `Geo.` of `Geo.Ord` (`Source.Qualification`), and `undefined` at a bare
+   * spelling. Positional with `constraints`, and absent altogether on a
+   * **synthesized** binder, which has no written spelling of any kind.
+   *
+   * Modules §5.1 rule 1 underlines the first range and deletes the second, and
+   * the checker owns the constraint seats, so both have to reach it from the
+   * parser: the spelling alone cannot be re-measured against the source,
+   * `Geo . Ord` being legal spacing.
+   */
+  readonly constraintQualifiers?: readonly (Source.Qualification | undefined)[];
   readonly span: Source.Span;
 }
 
@@ -536,6 +577,26 @@ export interface Module {
    * than a widening of what is in scope.
    */
   readonly visibleExceptions: readonly ExceptionItem[];
+  /**
+   * Every spelling the **type namespace** holds here, and the two facts Modules
+   * §5.1 rule 1's type branch decides on: whether this module declares the type
+   * itself, and the type's home module where the resolver reached one
+   * (`TypeSpelling`).
+   *
+   * A channel rather than a lookup because the pass that can answer has
+   * finished by the time the second asker arrives. Rule 1 governs `Name.` at
+   * four seats, and the **constraint** seats are the checker's — a binder's
+   * obligation, an `honor` head, a constrained hole, a parameterized head's own
+   * prefix. Without this the checker could not ask the question at all, and so
+   * reported row 532's "no module alias `Shape`; `import Shape`" — with the
+   * import as an applied edit — at exactly the case §10 excludes by its own
+   * wording, where the edit compiles and silently rebinds the head to a module
+   * of the spelling instead of naming the type the reader wrote.
+   *
+   * Metadata, never scope: nothing resolves through it, and an entry no seat
+   * reaches is inert.
+   */
+  readonly typeSpellings: ReadonlyMap<string, TypeSpelling>;
   readonly externTypes: readonly ExternTypeDeclaration[];
   readonly comments: readonly Source.Comment[];
   /**
@@ -1425,6 +1486,13 @@ export interface HonorItem {
   readonly kind: "Honor";
   readonly constraint: string;
   /**
+   * Where the head wrote its module qualifier — the `Geo` and the `Geo.` of
+   * `honor Geo.Ord<Box>` — absent on a bare head and on a `derives` line's
+   * synthesized one. See `TypeParameter.constraintQualifiers` for why the
+   * ranges travel rather than being re-measured from `constraint`.
+   */
+  readonly constraintQualifier?: Source.Qualification;
+  /**
    * The identity of the constraint declaration this instance answers, resolved
    * at the `honor` site (§5.1.1). `constraint` is the spelling the source used
    * and what diagnostics print; this is what coherence compares, so an
@@ -1682,6 +1750,18 @@ export interface LambdaExpr {
 export interface TypeParameter {
   readonly name: string;
   readonly constraints: readonly string[];
+  /**
+   * Where each name in `constraints` wrote its module qualifier — the `Geo` and
+   * the `Geo.` of `Geo.Ord` (`Source.Qualification`), and `undefined` at a bare
+   * spelling. Positional with `constraints`, and absent altogether on a
+   * **synthesized** binder, which has no written spelling of any kind.
+   *
+   * Modules §5.1 rule 1 underlines the first range and deletes the second, and
+   * the checker owns the constraint seats, so both have to reach it from the
+   * parser: the spelling alone cannot be re-measured against the source,
+   * `Geo . Ord` being legal spacing.
+   */
+  readonly constraintQualifiers?: readonly (Source.Qualification | undefined)[];
   /**
    * The identity each name in `constraints` resolved to **here** (Constraints
    * §5.1.1), positionally.

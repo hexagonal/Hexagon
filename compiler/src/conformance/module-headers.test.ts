@@ -327,14 +327,173 @@ describe("§13 (o) — every file declares its module", () => {
   });
 
   test("two modules sharing a file are strangers: neither's names are in scope", () => {
+    // §13(o)'s golden, and rule 1's **one report at every seat** (#829's Ruling
+    // A): the type seat and the term seat of one line draw the same sentence
+    // with the same repair, where before they drew ``unknown module alias
+    // `Geometry` `` and ``unknown name `Geometry` `` — two descriptions of one
+    // mistake, one of them silent about the module the writer meant.
     expect(messages([[
       "/f.hex",
       `module Geometry\n${POINT}end module Geometry\n` +
       "module Shapes\nexport fun unit(): Geometry.Point = Geometry.Point({x = 1.0, y = 2.0})\n",
     ]])).toEqual([
-      "unknown module alias `Geometry`",
-      "unknown name `Geometry`",
+      "no module alias `Geometry`; `import Geometry`",
+      "no module alias `Geometry`; `import Geometry`",
     ]);
+  });
+
+  test("the strangers' repair is one edit, and it makes the file compile", () => {
+    // The applied edit §5.1 obliges, at the seat the review met it: the line is
+    // placed below `module Shapes`' own header — not the file's first — and
+    // both seats carry the identical insert, so applying either repairs the
+    // module whole.
+    const text = `module Geometry\n${POINT}end module Geometry\n` +
+      "module Shapes\nexport fun unit(): Geometry.Point = Geometry.Point({x = 1.0, y = 2.0})\n";
+    const reported = compileFiles([["/f.hex", text]]).diagnostics;
+    const fixes = reported.map(({ fixes: each }) => each![0]!);
+    expect(fixes.map(({ message }) => message)).toEqual(["import `Geometry`", "import `Geometry`"]);
+    const repaired = `module Geometry\n${POINT}end module Geometry\n` +
+      "module Shapes\nimport Geometry\n" +
+      "export fun unit(): Geometry.Point = Geometry.Point({x = 1.0, y = 2.0})\n";
+    for (const fix of fixes) {
+      const edit = fix.edits[0]!;
+      expect(
+        text.slice(0, edit.span.start.offset) + edit.replacement +
+          text.slice(edit.span.end.offset),
+      ).toBe(repaired);
+    }
+    expect(messages([["/f.hex", repaired]])).toEqual([]);
+  });
+
+  /**
+   * §13(o)'s own second file, run verbatim: `module Geometry` declaring an
+   * `export record Point`, a use of `Point.make` above the declaration of
+   * `make` and another below it, then `module Shapes` qualifying through the
+   * stranger above it and through itself.
+   *
+   * The record is what makes the specimen worth running: a record declares a
+   * type **and** a constructor of one spelling, so before this the two
+   * `Point.make` lines never reached rule 1 at all — the resolver read `Point.`
+   * as a field access on the constructor and the writer was handed `type
+   * mismatch: expected ({x: Float, y: Float}) -> Point, found {make: a, ...}`.
+   */
+  test("§13(o)'s own-type carve and self-qualification, over a record", () => {
+    const text = "module Geometry\n" + POINT +
+      "export let scale: Float = 1.0\n" +
+      "export let p: Point = Point.make(1.0, 1.0)\n" +
+      "export fun make(x: Float, y: Float): Point = Point({x = x, y = y})\n" +
+      "export let o: Point = Point.make(0.0, 0.0)\n" +
+      "end module Geometry\n" +
+      "module Shapes\n" +
+      "export let two: Float = 2.0 * Geometry.scale\n" +
+      "export let four: Float = Shapes.two * 2.0\n" +
+      "export fun grow(two: Float): Float = Shapes.two * two\n";
+    const reported = reports([["/f.hex", text]]);
+    expect(reported.map(({ message }) => message)).toEqual([
+      // `p` sits above `make`, and a `let`'s right-hand side sees no
+      // declaration below it (Functions §7.2), so no repair is named.
+      "`Point` is a type, not a module",
+      // `o` sits below it, so the bare spelling names the module's own binding
+      // and the qualifier is dropped — never `import Geometry` into itself.
+      "`Point` is a type, not a module; write `make(0.0, 0.0)`",
+      "no module alias `Geometry`; `import Geometry`",
+      // §5.1's normative example drops the qualifier from the **reference**;
+      // §13(o)'s golden quotes the enclosing expression ("write two * 2.0"),
+      // which is the wider quotation the rider settles. Implemented as §5.1
+      // writes it.
+      "a module does not qualify through itself; write `two`",
+      // `two` here is `grow`'s parameter, which eclipses the module's own
+      // binding, so the sentence stands alone.
+      "a module does not qualify through itself",
+    ]);
+    expect(reported[0]?.fixes).toBeUndefined();
+    expect(reported[4]?.fixes).toBeUndefined();
+    // And every named repair is one a reader can apply. Applying the three that
+    // name one leaves exactly the two that named none — which is the point of
+    // withholding them: neither `p`'s drop nor `grow`'s would have compiled.
+    const repaired = "module Geometry\n" + POINT +
+      "export let scale: Float = 1.0\n" +
+      "export let p: Point = Point.make(1.0, 1.0)\n" +
+      "export fun make(x: Float, y: Float): Point = Point({x = x, y = y})\n" +
+      "export let o: Point = make(0.0, 0.0)\n" +
+      "end module Geometry\n" +
+      "module Shapes\n" +
+      "import Geometry\n" +
+      "export let two: Float = 2.0 * Geometry.scale\n" +
+      "export let four: Float = two * 2.0\n" +
+      "export fun grow(two: Float): Float = Shapes.two * two\n";
+    expect(messages([["/f.hex", repaired]])).toEqual([
+      "`Point` is a type, not a module",
+      "a module does not qualify through itself",
+    ]);
+    // The withheld drops, taken anyway, are the programs the condition refuses
+    // to write: `p`'s names a declaration it does not yet see, and `grow`'s
+    // names the parameter.
+    expect(messages([["/f.hex", repaired.replace("Point.make(1.0, 1.0)", "make(1.0, 1.0)")]]))
+      .toContain(
+        "`make` is declared later in this block; declarations are read " +
+          "top-down — move its declaration above this use",
+      );
+  });
+
+  /**
+   * The refused-head suppression is read **per module**, not per file (§5.1's
+   * "a refused import head that offers the same line by its own rewrite … the
+   * seats below it carry none" — the seats *below it*, in the module it stands
+   * in). A stranger above a module is a stranger for this rule too: without the
+   * partition, a bad head in one module silently takes the repair away from a
+   * use in the next, and the reader is left with a sentence and nothing to
+   * apply for a reason nothing on their screen states.
+   */
+  test("a refused head takes the edit only from the module it stands in", () => {
+    const text = "module First\n" + "import geometry\n" + "end module First\n" +
+      "module Second\n" + "export let two: Float = 2.0 * Geometry.scale\n";
+    const reported = reports([
+      ["/g.hex", "module Geometry\n\nexport let scale: Float = 1.0\n"],
+      ["/f.hex", text],
+    ]);
+    const seat = reported.find(({ message }) => message.startsWith("no module alias"));
+    expect(seat?.message).toBe("no module alias `Geometry`; `import Geometry`");
+    const edit = seat?.fixes?.[0]?.edits[0];
+    expect(edit).toBeDefined();
+    // Below `module Second`'s own header, not `module First`'s.
+    expect(
+      text.slice(0, edit!.span.start.offset) + edit!.replacement +
+        text.slice(edit!.span.end.offset),
+    ).toBe(
+      "module First\n" + "import geometry\n" + "end module First\n" +
+        "module Second\n" + "import Geometry\n" +
+        "export let two: Float = 2.0 * Geometry.scale\n",
+    );
+  });
+
+  /**
+   * The notation is the **language's**, so its markers are read by the lexer
+   * and are trivia or text wherever the lexer says they are — a fact the
+   * Playground's retired splitter scanned lines to approximate, and got wrong
+   * in both directions (#831). Pinned here because the splitter's own tests for
+   * it went with it, and this is the seat that owes them.
+   */
+  test("a `module` header inside a string is a string, and a commented-out import is a comment", () => {
+    const text = "module Main\n\n" +
+      'export let banner: String = "module Helper\\nend module Helper\\n"\n' +
+      "// import Geometry\n" +
+      "(* import Geometry *)\n" +
+      "export let n: Int = 1\n";
+    // One module, not three: the file declares exactly the header it wrote.
+    const project = compileFiles([["/f.hex", text]]);
+    expect(project.diagnostics).toEqual([]);
+    expect(project.modules.map(({ path }) => path)).toEqual(["/Main.hex"]);
+    // And the commented-out import binds nothing, which is the other half: a
+    // use of `Geometry` below it draws §5.1 rule 1's report, not a resolution.
+    expect(messages([[
+      "/g.hex",
+      "module Geometry\n\nexport let scale: Float = 1.0\n",
+    ], [
+      "/f.hex",
+      "module Main\n\n// import Geometry\n" +
+      "export let n: Float = Geometry.scale\n",
+    ]])).toEqual(["no module alias `Geometry`; `import Geometry`"]);
   });
 
   test("a header below the top level is refused, the name uppercase-start", () => {
@@ -504,6 +663,67 @@ describe("§13 (o) — the miscased header (#838)", () => {
         "unknown name `module`",
         "expected a newline or `;` between block items",
       ]);
+  });
+});
+
+describe("§2.2 / Comments §6 — a file's comments are cut with its modules", () => {
+  /**
+   * Modules §11 emits one JavaScript file per module, and Comments §6 preserves
+   * a module's comments in it. A file holding several modules therefore has to
+   * cut the comment list at the same places it cuts the item list: the parser
+   * handed every section the whole file's `comments`, so each emitted module
+   * carried every other module's comments — and, because the blank-line rhythm
+   * is measured between the entries' spans, a run of blank lines where the
+   * other module's items stood.
+   *
+   * The cut is by offset at each section's end: a comment above the file's
+   * first header belongs to the module that header opens, as the items above it
+   * do; a comment between a closer and the next header belongs to the module it
+   * stands above.
+   */
+  test("each module's emitted JavaScript carries its own comments and no others", () => {
+    const project = compileFiles([["/f.hex",
+      "// above the first header\n" +
+      "module Numbers\n" +
+      "\n" +
+      "// Numbers own line\n" +
+      "export let answer: Int = 21\n" +
+      "\n" +
+      "end module Numbers\n" +
+      "\n" +
+      "// written above the second header\n" +
+      "module Main\n" +
+      "\n" +
+      "// Main own line\n" +
+      "export let doubled: Int = 42\n",
+    ]]);
+    expect(project.diagnostics).toEqual([]);
+    const javascript = (name: string): string =>
+      project.modules.find((module) => module.name === name)!.javascript.text;
+
+    expect(javascript("Numbers")).toContain("// above the first header");
+    expect(javascript("Numbers")).toContain("// Numbers own line");
+    expect(javascript("Numbers")).not.toContain("// written above the second header");
+    expect(javascript("Numbers")).not.toContain("// Main own line");
+
+    expect(javascript("Main")).toContain("// written above the second header");
+    expect(javascript("Main")).toContain("// Main own line");
+    expect(javascript("Main")).not.toContain("// above the first header");
+    expect(javascript("Main")).not.toContain("// Numbers own line");
+
+    // The blank-run half of the same defect, pinned byte for byte: each file
+    // held the *other* module's comment and a run of blank lines where the
+    // other module's items stood. What is left is the two modules' own text,
+    // and the same shape in both — the one blank the source wrote, plus the
+    // line the header stood on, which emission has no line for.
+    expect(javascript("Numbers")).toBe(
+      "// above the first header\n\n\n// Numbers own line\n" +
+        "const answer = 21;\nexport { answer };\n",
+    );
+    expect(javascript("Main")).toBe(
+      "// written above the second header\n\n\n// Main own line\n" +
+        "const doubled = 42;\nexport { doubled };\n",
+    );
   });
 });
 

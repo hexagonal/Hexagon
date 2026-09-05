@@ -329,7 +329,7 @@ describe("what a qualified constructor pattern refuses", () => {
       "    match o\n" +
       "        Nope.Some(v) => v\n" +
       "        _ => 0\n",
-    )).toContain("unknown module alias `Nope`");
+    )).toContain("no module alias `Nope`");
   });
 
   test("a name the module does not export is the same report value position gets", () => {

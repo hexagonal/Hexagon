@@ -148,17 +148,28 @@ describe("the workspace walk", () => {
     expect(workspace.session.hover(workspace.session.paths[0]!, HEADER.length + 4)?.name).toBe("renamed");
   });
 
-  test("`runtimePaths` privileges a module, and nothing else does", async () => {
+  /**
+   * Runtime privilege, at the seat `runtimePaths` used to hold (#829).
+   *
+   * `Node(a)` is the hidden fixed-32 trie node: it resolves only inside a
+   * privileged runtime module, which is what made the Hexagon repository greet
+   * everyone with 38 errors that were not errors. The manifest answered it with
+   * a per-file grant; the standard library is now the package `Hex` in full and
+   * the two runtime modules are members of it, so the privilege follows **the
+   * name the header declares** and no manifest is consulted at all.
+   *
+   * Two files, one letter apart in what matters: `module Runtime.VectorTrie` is
+   * the member the compiler seats and privileges, and `module Trie` is an
+   * ordinary module of the project that may not name `Node`. Private in both,
+   * because the checker separately forbids `Node` from crossing an exported
+   * signature — privilege lets a module *name* it, not publish it.
+   */
+  test("a module declaring a runtime member's name is privileged, and nothing else is", async () => {
     const path = await makeRoot();
-    // `Node(a)` is the hidden trie node: it resolves only inside a privileged
-    // runtime module. Without a manifest the server has no way to know which
-    // files those are, which is what made the Hexagon repository greet everyone
-    // with 38 errors that are not errors.
-    // Private, because the checker separately forbids `Node` from crossing an
-    // exported signature — privilege lets a module *name* it, not publish it.
-    const runtime = "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n";
-    await writeFile(join(path, "trie.hex"), runtime);
-
+    await writeFile(
+      join(path, "trie.hex"),
+      "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n",
+    );
     const plain = await scan(path);
     const unprivileged = plain.workspace.session.allDiagnostics().get(
       plain.workspace.session.paths[0]!,
@@ -166,14 +177,19 @@ describe("the workspace walk", () => {
     expect(unprivileged.length).toBeGreaterThan(0);
     expect(unprivileged.some(({ message }) => message.includes("Node"))).toBe(true);
 
+    await rm(join(path, "trie.hex"));
     await writeFile(
-      join(path, MANIFEST_NAME),
-      JSON.stringify({ runtimePaths: ["trie.hex"] }),
+      join(path, "VectorTrie.hex"),
+      "module Runtime.VectorTrie\n\n" + "let size(node: Node(Int)): Int = 0\n",
     );
     const privileged = await scan(path);
     expect(privileged.workspace.session.allDiagnostics().get(
       privileged.workspace.session.paths[0]!,
     )).toEqual([]);
+    // Analysed, not merely quiet: a file dropped from the session reports
+    // nothing either, and that would pass the line above for the wrong reason.
+    expect(privileged.workspace.session.paths.map((each) => each.split("/").at(-1)))
+      .toEqual(["VectorTrie.hex"]);
   });
 
   /**
@@ -540,110 +556,6 @@ describe("the workspace walk", () => {
     expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
 
-  test("a runtime module the walk never saw is still privileged", async () => {
-    const path = await makeRoot();
-    await mkdir(join(path, "runtime"));
-    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
-    await writeFile(
-      join(path, MANIFEST_NAME),
-      JSON.stringify({ runtimePaths: ["runtime/Trie.hex"] }),
-    );
-    const { workspace } = await scan(path);
-
-    // Created after the scan — a branch switch, or the user — and delivered by
-    // the watcher. The manifest named it before it existed, so privilege has to
-    // survive the file arriving late.
-    const runtime = join(path, "runtime", "Trie.hex");
-    await writeFile(runtime, "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n");
-    await workspace.refreshFromDisk(pathToFileURL(runtime).toString());
-    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
-  });
-
-  test("an unsaved runtime module is privileged under the name as written", async () => {
-    const path = await makeRoot();
-    await mkdir(join(path, "runtime"));
-    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
-    await writeFile(
-      join(path, MANIFEST_NAME),
-      JSON.stringify({ runtimePaths: ["runtime/Trie.hex"] }),
-    );
-    const { workspace } = await scan(path);
-
-    // A module that exists only as a buffer: the manifest names it and the walk
-    // never saw it, so there is no recorded spelling to reuse. Nor is there a
-    // file to resolve — an absent path resolves to itself — which is the case
-    // the manifest's own unresolvable name is kept for, so that identity still
-    // has something to match on.
-    await workspace.openDocument({
-      uri: workspace.uris.toUri(join(path, "runtime", "Trie.hex")),
-      getText: () => "module Trie\n\nlet size(node: Node(Int)): Int = 0\n",
-    } as never);
-    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
-  });
-
-  test("an open runtime module keeps its privilege across a manifest reload", async () => {
-    const path = await makeRoot();
-    await mkdir(join(path, "runtime"));
-    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
-    await writeFile(join(path, MANIFEST_NAME), JSON.stringify({}));
-    const { workspace } = await scan(path);
-
-    // The module is created after the server started, so the first walk never
-    // recorded a spelling for it, and it is open, so no later walk will either.
-    const runtime = join(path, "runtime", "T.hex");
-    const buffer = "module T\n\n" + "let size(node: Node(Int)): Int = 0\n";
-    await writeFile(runtime, buffer);
-    await workspace.openDocument({
-      uri: workspace.uris.toUri(runtime),
-      getText: () => buffer,
-    } as never);
-
-    // Granting the privilege is the point of the file, and every grant is
-    // rebuilt from scratch here — so a reload has to be able to reach a module
-    // that identity alone cannot name. `#grantIfRuntime` cannot help: it answers
-    // from `#pathOf`, which caches, so it fires once per URI and never again.
-    await writeFile(
-      join(path, MANIFEST_NAME),
-      JSON.stringify({ runtimePaths: ["runtime/T.hex"] }),
-    );
-    await workspace.setRoots([path], () => {});
-    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
-    // Still analysed, not merely quiet: a file dropped from the session also
-    // reports nothing, and that would pass the assertion above for the wrong
-    // reason entirely.
-    expect(
-      workspace.session.hover(
-        workspace.uris.toPath(workspace.uris.toUri(runtime)),
-        buffer.indexOf("size"),
-      )?.name,
-    ).toBe("size");
-  });
-
-  test("a late runtime module is privileged under the name its route gave it", async () => {
-    const base = await makeRoot();
-    const path = join(base, "project");
-    await mkdir(join(base, "external", "runtime"), { recursive: true });
-    await mkdir(path);
-    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
-    await symlink(join(base, "external", "runtime"), join(path, "rt-link"), "dir");
-    await writeFile(
-      join(path, MANIFEST_NAME),
-      JSON.stringify({ runtimePaths: ["../external/runtime/Trie.hex"] }),
-    );
-    const { workspace } = await scan(path);
-
-    // The walk never saw this file, so there is no recorded spelling to reuse —
-    // and the route it arrives by names it through the link, which the manifest
-    // does not mention. Identity is the resolved path, the one thing the two
-    // spellings agree on.
-    await writeFile(
-      join(base, "external", "runtime", "Trie.hex"),
-      "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n",
-    );
-    await workspace.refreshFromDisk(pathToFileURL(join(path, "rt-link", "Trie.hex")).toString());
-    expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
-  });
-
   test("excluding a link does not delete the file it points at", async () => {
     const path = await makeRoot();
     await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
@@ -678,30 +590,31 @@ describe("the workspace walk", () => {
     expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
 
-  test("a runtime module keeps its privilege under the name the walk chose", async () => {
+  /**
+   * The hazard class the path-keyed grant carried, gone with it.
+   *
+   * The real directory is outside the root, so the walk can only reach the file
+   * through the link and always keys it under the link's spelling. When
+   * privilege was matched by exact path equality, a manifest naming the file's
+   * own path lost it entirely and `unknown generic type `Node`` came back with
+   * nothing to explain it — which is why four tests stood here pinning the
+   * grant under each name a file can be reached by. A declared name is the same
+   * under every spelling, so the whole class has one case now.
+   */
+  test("a runtime member is privileged under whatever name the walk chose", async () => {
     const base = await makeRoot();
     const path = join(base, "project");
     await mkdir(join(base, "external", "runtime"), { recursive: true });
     await mkdir(path);
-    // Private, because the checker separately forbids `Node` from crossing an
-    // exported signature — privilege lets a module *name* it, not publish it.
-    const runtime = "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n";
-    await writeFile(join(base, "external", "runtime", "Trie.hex"), runtime);
-    // The real directory is outside the root, so the walk can only reach the
-    // file through the link and always keys it under the link's spelling. The
-    // compiler matches `runtimePaths` by exact equality against that key, so a
-    // manifest naming the file's own path loses the privilege entirely, and
-    // `unknown generic type `Node`` — the whole reason this file exists — comes
-    // back with nothing to explain it. Placing it outside also makes that
-    // certain rather than a matter of which name `readdir` returned first.
-    await symlink(join(base, "external", "runtime"), join(path, "rt-link"), "dir");
     await writeFile(
-      join(path, MANIFEST_NAME),
-      JSON.stringify({ runtimePaths: ["../external/runtime/Trie.hex"] }),
+      join(base, "external", "runtime", "VectorTrie.hex"),
+      "module Runtime.VectorTrie\n\n" + "let size(node: Node(Int)): Int = 0\n",
     );
+    await symlink(join(base, "external", "runtime"), join(path, "rt-link"), "dir");
 
     const { workspace } = await scan(path);
-    expect(workspace.session.paths.map((p) => p.split("/").at(-1))).toEqual(["Trie.hex"]);
+    expect(workspace.session.paths.map((each) => each.split("/").at(-1)))
+      .toEqual(["VectorTrie.hex"]);
     expect([...workspace.session.allDiagnostics().values()].flat()).toEqual([]);
   });
 
