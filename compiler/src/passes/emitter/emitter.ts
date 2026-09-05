@@ -10136,7 +10136,7 @@ class JavaScriptEmitter {
    * emitted module's own export list, written here.
    *
    * An operation the module does not declare is reported rather than exported.
-   * Injection prefers a project's own file at the basename (the rule the
+   * Injection prefers a project's own file at the basename declaring the member's name (the rule the
    * shipped-source sweep compiles `stdlib/Runtime/VectorTrie.hex` in its real role
    * by), so a project can put an unrelated file in this seat; without the check
    * the result is a `SyntaxError` in generated JavaScript with no diagnostic
