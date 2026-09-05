@@ -365,6 +365,35 @@ describe("§13 (o) — every file declares its module", () => {
     expect(messages([["/f.hex", repaired]])).toEqual([]);
   });
 
+  /**
+   * The notation is the **language's**, so its markers are read by the lexer
+   * and are trivia or text wherever the lexer says they are — a fact the
+   * Playground's retired splitter scanned lines to approximate, and got wrong
+   * in both directions (#831). Pinned here because the splitter's own tests for
+   * it went with it, and this is the seat that owes them.
+   */
+  test("a `module` header inside a string is a string, and a commented-out import is a comment", () => {
+    const text = "module Main\n\n" +
+      'export let banner: String = "module Helper\\nend module Helper\\n"\n' +
+      "// import Geometry\n" +
+      "(* import Geometry *)\n" +
+      "export let n: Int = 1\n";
+    // One module, not three: the file declares exactly the header it wrote.
+    const project = compileFiles([["/f.hex", text]]);
+    expect(project.diagnostics).toEqual([]);
+    expect(project.modules.map(({ path }) => path)).toEqual(["/Main.hex"]);
+    // And the commented-out import binds nothing, which is the other half: a
+    // use of `Geometry` below it draws §5.1 rule 1's report, not a resolution.
+    expect(messages([[
+      "/g.hex",
+      "module Geometry\n\nexport let scale: Float = 1.0\n",
+    ], [
+      "/f.hex",
+      "module Main\n\n// import Geometry\n" +
+      "export let n: Float = Geometry.scale\n",
+    ]])).toEqual(["no module alias `Geometry`; `import Geometry`"]);
+  });
+
   test("a header below the top level is refused, the name uppercase-start", () => {
     expect(messages([[
       "/f.hex",

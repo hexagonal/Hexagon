@@ -1477,7 +1477,11 @@ class Analysis {
   readonly #occurrencesByPath = new Map<string, Occurrence[]>();
   readonly #occurrencesByTarget = new Map<string, Occurrence[]>();
   readonly #typesByPath = new Map<string, Map<string, TypeOccurrence>>();
-  /** The modules each file declares, in the order the file declares them. */
+  /**
+   * The modules each file declares, accumulated as `record` walks
+   * `CompiledProject.modules` — which is **compile order**, dependency-first
+   * (Modules §8.1), not the order the file wrote them.
+   */
   readonly #modulesByPath = new Map<string, CompiledModule[]>();
   readonly #fileIdsByPath: ReadonlyMap<string, Source.FileId>;
   /**
@@ -1580,19 +1584,57 @@ class Analysis {
     return this.#occurrencesByPath.get(path) ?? [];
   }
 
-  /** Every module one file declares, in source order; empty for a file not compiled. */
+  /**
+   * Every module one file declares, **in compile order**; empty for a file not
+   * compiled.
+   *
+   * Compile order and not source order, for `occurrencesIn`'s reason exactly
+   * (six lines up): the project hands its modules over dependency-first, so a
+   * file whose second module is imported by its first hands them over in that
+   * order. This said "in source order" until #829's review round 1 measured it,
+   * and the two comments contradicting each other in one class is the near miss
+   * worth naming rather than the behaviour.
+   *
+   * No consumer depends on the order, which is why the correction is a
+   * correction and not a sort: `moduleAt` finds by disjoint span, the two
+   * whole-file loops in `hoverSpans` and `codeActions` visit every module, and
+   * `#generatedOrigin` and `schemeAt` take the first hit of an identity minted
+   * once. A sort here would be one nothing could observe.
+   */
   modulesIn(path: string): readonly CompiledModule[] {
     return this.#modulesByPath.get(path) ?? [];
   }
 
   /**
-   * The module an offset is inside, or `undefined` between two of them.
+   * The module an offset is inside, or `undefined` outside every one of them.
    *
    * A module's span runs from its header to its closer (Modules §2.1, §2.2) and
    * the spans in one file are disjoint, so at most one answers. The gap between
    * a closer and the next header is in no module, and that is reported as it is
    * rather than resolved to a neighbour: a request seated there is a request
    * about code outside a module, which the language refuses too (§2.2).
+   *
+   * **Three offsets are outside every module**, and the asymmetry they produce
+   * is stated rather than left to be met (#829 review round 1, N4):
+   *
+   * - the gap between a closer and the next header;
+   * - an offset **above the first header**, where the parser folds stray items
+   *   into the module that header opens while the section's span still starts
+   *   at the header;
+   * - **end of file after a closed last module** — the tidier shape, and the
+   *   one more likely to be met, since a file leaving its last module open runs
+   *   to EOF and answers there.
+   *
+   * At all three, the queries that read one module's own tree stand down:
+   * `completions` offers nothing, and the workspace-tier import repair takes
+   * its headerless placement path. The queries built on the **occurrence**
+   * index — hover, definition, references, rename — answer as usual, because
+   * occurrences are accumulated per file and no occurrence needs to know which
+   * module it is in. Both halves are correct and they disagree at one offset,
+   * which is what makes it worth writing down: the position is an error state
+   * either way (§2.2 has no code outside a module), and a `moduleAt` that
+   * resolved it to a neighbour would answer completions from a stranger's
+   * scope.
    */
   moduleAt(path: string, offset: number): CompiledModule | undefined {
     return this.modulesIn(path).find(({ parsed }) =>

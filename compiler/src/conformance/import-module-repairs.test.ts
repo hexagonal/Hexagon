@@ -2,8 +2,13 @@ import { describe, expect, test } from "vitest";
 
 import { compileFiles } from "../support/test-project.js";
 import { type ProjectOptions, resolveSpecifier, specifierFor } from "../project.js";
-import { displayModuleName, moduleImportLine } from "../packages.js";
+import { displayModuleName, type ImportRepair, moduleImportLine } from "../packages.js";
+import { applyLayout } from "../passes/layout/layout.js";
+import { lex } from "../passes/lexer/lexer.js";
+import { parse } from "../passes/parser/parser.js";
+import { resolve } from "../passes/resolver/resolver.js";
 import type * as Diagnostics from "../support/diagnostics.js";
+import * as Source from "../support/source.js";
 
 /**
  * Conformance for the **module-import repair family** — Modules §5.1 rule 1's
@@ -676,5 +681,67 @@ describe("the resolving package's own segment (Packages §3.3)", () => {
     expect(displayModuleName("Acme.Lib")).toBe("Acme.Lib");
     expect(moduleImportLine("Acme.Metric", "Scale", "Acme")).toBe("import Metric as Scale");
     expect(moduleImportLine("Bolt.Metric", "Scale", "Acme")).toBe("import Bolt.Metric as Scale");
+  });
+});
+
+/**
+ * §5.1 rule 1's **contested** repair clause (Packages §3.3), at the pass.
+ *
+ * Two visible packages have to provide the written name and the resolving one
+ * must provide neither, and the package set is `{project, Hex}` until the host
+ * slice that reads installed packages lands — so no program that can be written
+ * today reaches this arm through `compileProject`. It is reached here instead,
+ * by handing `resolve` the answer `resolveModuleName` will hand it the day a
+ * dependency is in the set: the arm is a function of that answer and of nothing
+ * else, so this is the whole of what there is to pin.
+ */
+describe("a contested spelling names every full one, and offers no edit", () => {
+  function reportOf(repair: ImportRepair | undefined): Diagnostics.Diagnostic {
+    const text = "module Main\n\n" + "export let n: Float = Geometry.area(2.0)\n";
+    const file = new Source.File(Source.fileId(0), "/main.hex", text);
+    const resolved = resolve(parse(applyLayout(lex(file))), {
+      text,
+      ...(repair === undefined ? {} : { importRepair: () => repair }),
+    });
+    const [only, ...rest] = resolved.diagnostics;
+    expect(rest).toEqual([]);
+    return only!;
+  }
+
+  test("every provider is named, in the order the resolution gave them", () => {
+    const report = reportOf({
+      kind: "Contested",
+      fullNames: ["Acme.Geometry", "Hex.Geometry"],
+    });
+    expect(report.message).toBe(
+      "no module alias `Geometry`; `import Acme.Geometry` or `import Hex.Geometry`",
+    );
+    // No edit: the compiler cannot choose, and a repair that picked one would be
+    // the rank Packages §3.3 refuses to make.
+    expect(report.fixes).toBeUndefined();
+  });
+
+  test("three providers are three spellings, none elided", () => {
+    expect(
+      reportOf({
+        kind: "Contested",
+        fullNames: ["Acme.Geometry", "Bolt.Geometry", "Hex.Geometry"],
+      }).message,
+    ).toBe(
+      "no module alias `Geometry`; `import Acme.Geometry`, `import Bolt.Geometry`, " +
+        "or `import Hex.Geometry`",
+    );
+  });
+
+  test("the resolving arm names one line and carries the edit", () => {
+    const report = reportOf({ kind: "Resolved", fullName: "Hex.Geometry" });
+    expect(report.message).toBe("no module alias `Geometry`; `import Geometry`");
+    expect(report.fixes?.[0]?.edits[0]?.replacement).toBe("import Geometry\n");
+  });
+
+  test("no answer at all is the report with no repair clause", () => {
+    const report = reportOf(undefined);
+    expect(report.message).toBe("no module alias `Geometry`");
+    expect(report.fixes).toBeUndefined();
   });
 });

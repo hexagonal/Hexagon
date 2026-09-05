@@ -1764,4 +1764,78 @@ describe("a file declaring several modules (Modules §2.2)", () => {
         .toEqual([written]);
     }
   });
+
+  /**
+   * The two whole-file loops that read a module's **typed tree**, pinned here
+   * rather than only in the Playground's suite (#829 review round 1, N3).
+   *
+   * `hoverSpans`' variance and hole loop and `codeActions`' under-claim loop
+   * both walk `modulesIn`, and restricting either to the file's last module
+   * leaves the whole `compiler/src/analysis/` suite green — the occurrence
+   * index answers for every *name*, and these two answer for what has no
+   * occurrence at all. A multi-module `.hex` file in VS Code is the stated
+   * motivation for the change, so the pin belongs where the claim is.
+   */
+  const TYPED = [
+    "module Shapes",
+    "",
+    "opaque record Box(a) = { get: () -> a }",
+    "",
+    "end module Shapes",
+    "",
+    "module Main",
+    "",
+    "export let n: Int = 1",
+    "",
+  ].join("\n");
+
+  test("publishes the hover spans of a variance site in the file's first module", () => {
+    const { session } = sessionOf({ "/main.hex": TYPED });
+    const site = at(TYPED, "a) = {");
+    // A parameterized opaque type's parameter is a variance site and nothing
+    // else: no occurrence names it, so only the typed loop can reach it.
+    expect(session.hover("/main.hex", site)).toBeDefined();
+    expect(covers(session.hoverSpans("/main.hex"), site)).toBe(true);
+  });
+
+  /**
+   * `moduleAt`'s three outside-every-module offsets, and the asymmetry they
+   * produce (#829 review round 1, N4). Documented at `moduleAt`; pinned here,
+   * because "documented" without a test is a sentence that can go stale.
+   */
+  test("outside every module, occurrence queries answer and tree queries stand down", () => {
+    const closed = [
+      "module Helper",
+      "",
+      "export fun twice(n: Int): Int = n * 2",
+      "",
+      "end module Helper",
+      "",
+    ].join("\n");
+    const { session } = sessionOf({ "/main.hex": closed });
+    // End of file, after the closer: in no module.
+    expect(session.completions("/main.hex", closed.length)).toEqual([]);
+    // A file leaving its last module open runs to EOF and completes normally,
+    // which is the asymmetry: the tidier shape is the one that loses.
+    const open = closed.replace("end module Helper\n", "");
+    const { session: unclosed } = sessionOf({ "/main.hex": open });
+    expect(unclosed.completions("/main.hex", open.length).length).toBeGreaterThan(0);
+
+    // Above the first header: the parser folds the stray item into the module
+    // the header opens, so the occurrence index holds it and hover answers —
+    // while the section's span starts at the header, so completions do not.
+    const stray = "let stray: Int = 1\n\nmodule Main\n\nexport let n: Int = 1\n";
+    const { session: strayed } = sessionOf({ "/main.hex": stray });
+    expect(strayed.hover("/main.hex", at(stray, "stray"))).toMatchObject({ name: "stray" });
+    expect(strayed.completions("/main.hex", at(stray, "stray"))).toEqual([]);
+  });
+
+  test("offers the under-claim refactor in the file's first module", () => {
+    const { session } = sessionOf({ "/main.hex": TYPED });
+    const site = at(TYPED, "a) = {");
+    const actions = session.codeActions("/main.hex", { start: site, end: site });
+    expect(actions.map(({ title }) => title.slice(0, 20)))
+      .toEqual(["Declare `Box(+a)` — "]);
+    expect(actions[0]?.kind).toBe("refactor");
+  });
 });
