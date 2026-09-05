@@ -129,7 +129,8 @@ and it looks each package's `dependencies` up from that package's own
 directory the way Node finds a package — its `node_modules`, then each directory
 above, the nearest copy answering — resolving each package reached in turn, outward
 from the project, into an acyclic set: the packages *in the program*. A copy farther up
-than the one that answered is never read, and a package nobody lists is never sought. A
+than the one that answered does not answer that package's lookup, and a package nobody
+lists enters no program. A
 `dependencies` cycle is refused and named, as an import cycle is. A program holds one
 copy of each package name, the project counted, and refuses to build when two of its
 packages reach two copies — the nested duplicate npm installs when two packages want
