@@ -97,13 +97,13 @@ if (__trieSize(xs) >= 2) {
 }
 ```
 
-Fixed-length patterns emit `size === n`; rest-carrying emit `size >= k`; anonymous rests emit no slice. (The operations are `stdlib/Runtime/VectorTrie.hex`'s, imported under the `__trie*` stem — a vector value carries no methods beyond its iterator — and they are the 0-based internals; the 1-based↔0-based offset is an emission fact, invisible at the source level. The pinned content of this section is the structure — length test, indexed reads, rest slice — not the import spelling.)
+Fixed-length patterns emit `size === n`; rest-carrying emit `size >= k`; anonymous rests emit no slice. (The operations are `Hex.Runtime.VectorTrie`'s, imported under the `__trie*` stem — a vector value carries no methods beyond its iterator — and they are the 0-based internals; the 1-based↔0-based offset is an emission fact, invisible at the source level. The pinned content of this section is the structure — length test, indexed reads, rest slice — not the import spelling.)
 
 ---
 
 ## 4. Representation, complexity, and the pinned slice row
 
-`Vector(a)` is the Part 1 §2 persistent 32-way bit-partitioned trie deque, implemented by `stdlib/Runtime/VectorTrie.hex` in Hexagon over the fixed-32 `Node` intrinsic and emitted with every program that uses a vector. Immutable.js is lineage and influence for this structure; Hexagon owns its runtime — nothing here is defined by reference to another library's behaviour. This doc **extends the pinned complexity table** with the row Part 1 left open:
+`Vector(a)` is the Part 1 §2 persistent 32-way bit-partitioned trie deque, implemented by `Hex.Runtime.VectorTrie` (`stdlib/Runtime/VectorTrie.hex`) in Hexagon over the fixed-32 `Node` intrinsic and emitted with every program that uses a vector. Immutable.js is lineage and influence for this structure; Hexagon owns its runtime — nothing here is defined by reference to another library's behaviour. This doc **extends the pinned complexity table** with the row Part 1 left open:
 
 | Operation | Bound |
 |---|---|

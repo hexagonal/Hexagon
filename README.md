@@ -23,8 +23,8 @@ hovers, and read-only generated JavaScript and declaration models. The Fundament
 Specializations example infers one `Signed`-polymorphic function; its JS view can hide
 the generated family, show the complete module, or inspect each concrete edition and
 its byte size.
-The exact-fractions example uses the canonical `stdlib/Rat.hex` module supplied by
-the Playground's deliberately provisional fundamental stdlib, including ordinary
+The exact-fractions example imports `Rat`, the standard library's `Hex.Rat`,
+embedded in the compiler with the rest of the library, including ordinary
 `half + third` dispatch through `Signed<Rat>`.
 
 One subject-first function, three equally static ways to call it:
