@@ -430,10 +430,12 @@ class Parser {
   readonly #diagnostics: Diagnostics.Bag;
   /**
    * Every refused import head's rewrite alias, with the span it was written at
-   * (`Parsed.Module.refusedImportAliases`). The span is kept so the list can be
-   * cut per module the way the comment list is: a file's modules are strangers.
+   * (`Parsed.Module.refusedImportAliases`). The span is kept for two readers:
+   * the list is cut per module the way the comment list is — a file's modules
+   * are strangers — and §5.1's suppression is positional within a module, so a
+   * seat asks where the head stands rather than whether one exists.
    */
-  readonly #refusedImportAliases: { readonly alias: string; readonly span: Source.Span }[] = [];
+  readonly #refusedImportAliases: Parsed.RefusedImportHead[] = [];
   /**
    * Doc-comment bookkeeping (spec/doc-comments.md §4). Declaration parsers claim
    * the block sitting before their first token; the blocks nobody claims are
@@ -587,6 +589,12 @@ class Parser {
     // another module's answers nobody. It is cut because the two lists are one
     // fact about the file and a reader who found them cut differently would
     // have to work out which of the two was deliberate.
+    //
+    // The **one-section** file takes the same path and gets the same lists:
+    // `sectionOf` answers `0` at every offset there, whether the `findIndex`
+    // hits or falls through to `sections.length - 1`. A short-circuit for it
+    // would be two arms that are equal by construction — a carve reading as
+    // though it meant something, which no test could ever tell apart.
     const bounds = sections.map(({ span }) => span.end.offset);
     const sectionOf = (offset: number): number => {
       const index = bounds.findIndex((end) => offset < end);
@@ -598,16 +606,11 @@ class Parser {
       // Partitioned by span like the comments below, so a use in one module
       // never stands down because a *stranger* above it wrote a refused head.
       refusedImportAliases: this.#refusedImportAliases
-        .filter(({ span }) => sectionOf(span.start.offset) === index)
-        .map(({ alias }) => alias),
+        .filter(({ span }) => sectionOf(span.start.offset) === index),
       name: section.name,
       items: section.items,
-      comments: sections.length === 1
-        ? comments
-        : comments.filter(({ span }) => sectionOf(span.start.offset) === index),
-      docs: sections.length === 1
-        ? docs
-        : docs.filter(({ span }) => sectionOf(span.start.offset) === index),
+      comments: comments.filter(({ span }) => sectionOf(span.start.offset) === index),
+      docs: docs.filter(({ span }) => sectionOf(span.start.offset) === index),
       span: section.span,
       // Every module a file declares carries the file's diagnostics. The bag is
       // the file's, and a diagnostic reported inside one module's items is no
@@ -5884,8 +5887,8 @@ class Parser {
    * Shared with the constrained hole `_ : C` (closure doc §4.4), which reuses
    * the form wholesale rather than growing a second spelling of it.
    */
-  #parseConstraintList(): readonly Parsed.Name[] {
-    const constraints: Parsed.Name[] = [];
+  #parseConstraintList(): readonly Parsed.ConstraintReference[] {
+    const constraints: Parsed.ConstraintReference[] = [];
     if (this.#at("LeftParen")) {
       this.#advance();
       while (!this.#at("RightParen") && !this.#at("Eof")) {
@@ -5902,7 +5905,7 @@ class Parser {
     return constraints;
   }
 
-  #parseConstraintReference(message: string): Parsed.Name | undefined {
+  #parseConstraintReference(message: string): Parsed.ConstraintReference | undefined {
     const token = this.#takeName("UpperName", message);
     if (token === undefined) return undefined;
     if (!this.#at("Dot") || this.#peek(1).kind !== "UpperName") {
@@ -5913,6 +5916,14 @@ class Parser {
     return {
       text: `${token.text}.${(qualified as Lexed.NameToken).text}`,
       startClass: "upper",
+      // The range Modules §5.1 rule 1's drop deletes, recorded here because
+      // this is the only place both tokens are in hand: the reference's own
+      // `text` has already normalized whatever stood between them.
+      qualification: {
+        fileId: token.span.fileId,
+        start: token.span.start,
+        end: qualified.span.start,
+      },
       span: spanFrom(token.span, qualified.span),
     };
   }

@@ -262,6 +262,18 @@ export interface HoleTypeAnnotation {
    * substitution makes share the seed exactly as they share the id.
    */
   readonly constraints: readonly string[];
+  /**
+   * Where each name in `constraints` wrote its module qualifier — the `Geo.`
+   * of `Geo.Ord`, and `undefined` at a bare spelling. Positional with
+   * `constraints`, and absent altogether on a **synthesized** binder, which has
+   * no written spelling of any kind.
+   *
+   * Modules §5.1 rule 1's own-alias repair is a deletion of exactly this range
+   * (`Scale.Scale` inside `module Scale`), and the checker owns the constraint
+   * seats, so the range has to reach it from the parser: the spelling alone
+   * cannot be re-measured against the source, `Geo . Ord` being legal spacing.
+   */
+  readonly constraintQualifiers?: readonly (Source.Span | undefined)[];
   readonly span: Source.Span;
 }
 
@@ -1425,6 +1437,13 @@ export interface HonorItem {
   readonly kind: "Honor";
   readonly constraint: string;
   /**
+   * Where the head wrote its module qualifier — the `Geo.` of
+   * `honor Geo.Ord<Box>` — absent on a bare head and on a `derives` line's
+   * synthesized one. See `TypeParameter.constraintQualifiers` for why the
+   * range travels rather than being re-measured from `constraint`.
+   */
+  readonly constraintQualifier?: Source.Span;
+  /**
    * The identity of the constraint declaration this instance answers, resolved
    * at the `honor` site (§5.1.1). `constraint` is the spelling the source used
    * and what diagnostics print; this is what coherence compares, so an
@@ -1682,6 +1701,18 @@ export interface LambdaExpr {
 export interface TypeParameter {
   readonly name: string;
   readonly constraints: readonly string[];
+  /**
+   * Where each name in `constraints` wrote its module qualifier — the `Geo.`
+   * of `Geo.Ord`, and `undefined` at a bare spelling. Positional with
+   * `constraints`, and absent altogether on a **synthesized** binder, which has
+   * no written spelling of any kind.
+   *
+   * Modules §5.1 rule 1's own-alias repair is a deletion of exactly this range
+   * (`Scale.Scale` inside `module Scale`), and the checker owns the constraint
+   * seats, so the range has to reach it from the parser: the spelling alone
+   * cannot be re-measured against the source, `Geo . Ord` being legal spacing.
+   */
+  readonly constraintQualifiers?: readonly (Source.Span | undefined)[];
   /**
    * The identity each name in `constraints` resolved to **here** (Constraints
    * §5.1.1), positionally.

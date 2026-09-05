@@ -24,7 +24,7 @@ import {
 import { relativeSpecifier } from "../../support/paths.js";
 import { displayModuleName, type ImportRepair, moduleImportLine } from "../../packages.js";
 import * as Source from "../../support/source.js";
-import { ImportRepairs } from "../../support/import-placement.js";
+import { dropQualifierFix, ImportRepairs } from "../../support/import-placement.js";
 import * as Parsed from "../../syntax/parsed/index.js";
 import * as Resolved from "../../syntax/resolved/index.js";
 
@@ -386,15 +386,22 @@ function annotationCompanion(annotation: Resolved.TypeAnnotation): string | unde
  */
 /**
  * One seat a qualified spelling `Name.member` can be written at, as Modules
- * §5.1 rule 1's report reads it.
+ * §5.1 rule 1's report reads it — **of the three this pass owns**.
  *
- * The four seats differ in exactly two things — which namespace the bare
- * spelling would be read in, and whether a call's own arguments are available
- * to quote — so the report takes them as data rather than as four callers of
- * four shapes.
+ * They differ in exactly two things — which namespace the bare spelling would
+ * be read in, and whether a call's own arguments are available to quote — so
+ * the report takes them as data rather than as three callers of three shapes.
+ *
+ * §5.1 names a fourth, the constraint seats Constraints §8 sends here, and they
+ * are **not** here: a binder's obligation and an `honor` head are the checker's
+ * to resolve, and it draws the same report from `#unboundAliasRefusal`, off the
+ * `ImportRepairs` this pass shares with it and the drop-fix writer both passes
+ * call. A `kind: "constraint"` in this union would be a seat nothing can
+ * construct — a branch reading as though it meant something, which is the shape
+ * a reader trusts and no test can falsify.
  */
 interface AliasSeat {
-  readonly kind: "term" | "type" | "constraint" | "pattern";
+  readonly kind: "term" | "type" | "pattern";
   /** The qualifier: the name before the dot, and what the report speaks about. */
   readonly qualifier: Parsed.Name;
   /** The name after the dot, and what a dropped qualifier would leave behind. */
@@ -1589,8 +1596,6 @@ class Resolver {
    * §8.1's one-node cycle).
    */
   readonly #ownTypeNames = new Set<string>();
-  /** The constraint names this module declares, read for `#ownTypeNames`' reason. */
-  readonly #ownConstraintNames = new Set<string>();
 
   constructor(diagnostics: Diagnostics.Bag, options: ResolveOptions) {
     this.#diagnostics = diagnostics;
@@ -3077,6 +3082,9 @@ class Resolver {
                 typeParameters: declaration.typeParameters.map((parameter) => ({
                   name: parameter.name.text,
                   constraints: parameter.constraints.map(({ text }) => text),
+                  constraintQualifiers: parameter.constraints.map(
+                    ({ qualification }) => qualification,
+                  ),
                   span: parameter.span,
                 })),
               }),
@@ -3103,7 +3111,6 @@ class Resolver {
           });
         }
         this.#constraintNames.add(item.name.text);
-        this.#ownConstraintNames.add(item.name.text);
         const typeParameters = new Set([item.subject.text]);
         const impliedTypes = new Set(item.impliedTypes.map(({ name }) => name.text));
         const impliedContext = { owner: item.name.text, names: impliedTypes };
@@ -3185,10 +3192,16 @@ class Resolver {
         return {
           kind: "Honor",
           constraint: item.constraint.text,
+          ...(item.constraint.qualification === undefined
+            ? {}
+            : { constraintQualifier: item.constraint.qualification }),
           constraintIdentity: this.#constraintIdentity(item.constraint.text),
           typeParameters: item.typeParameters.map((parameter) => ({
             name: parameter.name.text,
             constraints: parameter.constraints.map(({ text }) => text),
+            constraintQualifiers: parameter.constraints.map(
+              ({ qualification }) => qualification,
+            ),
             // Resolved here, where the head was written: a consumer of this
             // instance has no spelling for the constraint of its own (#762).
             constraintIdentities: parameter.constraints.map(({ text }) =>
@@ -3583,6 +3596,9 @@ class Resolver {
                         typeParameters: item.block.typeParameters.map((parameter) => ({
                           name: parameter.name.text,
                           constraints: parameter.constraints.map(({ text }) => text),
+                          constraintQualifiers: parameter.constraints.map(
+                            ({ qualification }) => qualification,
+                          ),
                           span: parameter.span,
                         })),
                       }),
@@ -4721,17 +4737,11 @@ class Resolver {
       message: rewrite === undefined ? fact : `${fact}; write \`${rewrite}\``,
       primary: seat.qualifier.span,
       ...(rewrite === undefined ? {} : {
-        fixes: [{
-          message: "drop the qualifier",
-          edits: [{
-            span: {
-              fileId: seat.qualifier.span.fileId,
-              start: seat.qualifier.span.start,
-              end: seat.bareSpan.start,
-            },
-            replacement: "",
-          }],
-        }],
+        fixes: [dropQualifierFix({
+          fileId: seat.qualifier.span.fileId,
+          start: seat.qualifier.span.start,
+          end: seat.bareSpan.start,
+        })],
       }),
     });
   }
@@ -4762,7 +4772,6 @@ class Resolver {
   /** Whether the bare spelling, read at this use, names this module's own binding. */
   #bareNamesOwnBinding(seat: AliasSeat): boolean {
     if (seat.kind === "type") return this.#ownTypeNames.has(seat.bare);
-    if (seat.kind === "constraint") return this.#ownConstraintNames.has(seat.bare);
     const own = this.#moduleScope?.lookupLocal(seat.bare);
     if (own === undefined) return false;
     // The head binder test, and the prelude one with it: `lookup` answers with
@@ -4803,9 +4812,10 @@ class Resolver {
       return;
     }
     const line = moduleImportLine(repair.fullName, spelling, this.#packageName);
-    const insert = this.#repairs?.headRewrites(spelling) === true
-      ? undefined
-      : this.#importInsertion(line, seat.qualifier.span, spelling);
+    const insert =
+      this.#repairs?.headRewrites(spelling, seat.qualifier.span.start.offset) === true
+        ? undefined
+        : this.#importInsertion(line, seat.qualifier.span, spelling);
     this.#diagnostics.add({
       severity: "error",
       message: `${stem}; \`${line}\``,
@@ -5191,6 +5201,9 @@ class Resolver {
             typeParameters: expression.typeParameters.map((parameter) => ({
               name: parameter.name.text,
               constraints: parameter.constraints.map(({ text }) => text),
+              constraintQualifiers: parameter.constraints.map(
+                ({ qualification }) => qualification,
+              ),
               span: parameter.span,
             })),
           }),
@@ -5257,6 +5270,9 @@ class Resolver {
         kind: "Hole",
         id: this.#nextHole++,
         constraints: annotation.constraints.map(({ text }) => text),
+        constraintQualifiers: annotation.constraints.map(
+          ({ qualification }) => qualification,
+        ),
         span: annotation.span,
       };
     }

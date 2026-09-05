@@ -464,13 +464,46 @@ describe("error paths, as the compiler reports them today", () => {
   });
 
   test("a module does not qualify through itself at the honor head either", () => {
-    expect(messages([
+    // Modules §5.1 rule 1's **first** test, at a seat the resolver does not
+    // own. The head names this module's own constraint through this module's
+    // own default alias (§3.1), so the report is neither an unknown constraint
+    // nor an import — `import Describe` inside `module Describe` is §8.1's
+    // one-node cycle — but the qualifier dropped, carried "*as the applied edit
+    // at each use where the bare spelling … would resolve to the module's own
+    // binding*". It does here: the module declares `Describe`.
+    const text = "module Describe\n\n" +
+      "export constraint Describe<a> =\n    describe(value: a): String\n" +
+      "export record Box = {n: Int}\n" +
+      "honor Describe.Describe<Box> =\n    describe(value) = \"x\"\n";
+    const [report, ...rest] = compileFiles([["/main.hex", text]]).diagnostics;
+    expect(rest).toEqual([]);
+    expect(report?.message).toBe("a module does not qualify through itself; write `Describe`");
+    // And the edit is a repair, not a gesture at one: applying it leaves a
+    // program the compiler accepts.
+    const edit = report?.fixes?.[0]?.edits[0];
+    expect(edit).toBeDefined();
+    const repaired = text.slice(0, edit!.span.start.offset) + edit!.replacement +
+      text.slice(edit!.span.end.offset);
+    expect(repaired).toBe(text.replace("honor Describe.Describe<Box>", "honor Describe<Box>"));
+    expect(messages([["/main.hex", repaired]])).toEqual([]);
+  });
+
+  test("— and the sentence stands alone where the bare spelling is not the module's own", () => {
+    // The condition, from its failing side. `Other` is the module's own default
+    // alias, but nothing it declares is spelled `Describe`: the constraint is
+    // reached through an import, so dropping the qualifier would silently name
+    // *that* declaration rather than repairing a self-qualification. §5.1: "the
+    // sentence without its repair clause where it would not".
+    const [report, ...rest] = compileFiles([
+      DESCRIBE,
       ["/main.hex",
-        "module Describe\n\n" +
-        "export constraint Describe<a> =\n    describe(value: a): String\n" +
+        "module Other\n\n" + "import Describe\n" +
         "export record Box = {n: Int}\n" +
-        "honor Describe.Describe<Box> =\n    describe(value) = \"x\"\n"],
-    ])).toEqual(["a module does not qualify through itself"]);
+        "honor Other.Describe<Box> =\n    describe(value) = \"x\"\n"],
+    ]).diagnostics;
+    expect(rest).toEqual([]);
+    expect(report?.message).toBe("a module does not qualify through itself");
+    expect(report?.fixes).toBeUndefined();
   });
 
   test("`= derive` is judged before the head is resolved", () => {

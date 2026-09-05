@@ -255,7 +255,13 @@ describe("the runtime modules are members of `Hex`, privileged by name", () => {
  * set this guards grows on its own.
  */
 describe("drift guard: the embedded library matches stdlib/", () => {
-  const stdlibSources = import.meta.glob("../../../stdlib/*.hex", {
+  // `stdlib/**` and not `stdlib/*`: the library's members are named, not
+  // placed, so a nested one is an ordinary member of it (Ruling C put the two
+  // runtime modules under `stdlib/Runtime/` on exactly that reading). A
+  // one-level sweep would not fail on such a member — it would simply not find
+  // its original, and the guard would compare nothing. The corpus assertion
+  // below is what makes that non-vacuous.
+  const stdlibSources = import.meta.glob("../../../stdlib/**/*.hex", {
     eager: true,
     query: "?raw",
     import: "default",
@@ -263,6 +269,17 @@ describe("drift guard: the embedded library matches stdlib/", () => {
 
   test("the list is not empty, so the guard below is not vacuous", () => {
     expect(LIBRARY_MODULES.length).toBeGreaterThan(0);
+  });
+
+  test("the sweep finds the corpus it is meant to be checking, nested files included", () => {
+    // The guard reads whatever this glob returns, so the glob's own reach is
+    // the guard's reach. Named here because the library has no nested member
+    // *today*: without this line a one-level sweep passes, and the day one
+    // lands it would go on passing while comparing it against nothing.
+    const paths = Object.keys(stdlibSources);
+    expect(paths).toContain("../../../stdlib/Rat.hex");
+    expect(paths).toContain("../../../stdlib/Runtime/VectorTrie.hex");
+    expect(paths).toContain("../../../stdlib/Runtime/HashTrie.hex");
   });
 
   test.each(LIBRARY_MODULES.map(({ name, source }) => [name, source] as const))(

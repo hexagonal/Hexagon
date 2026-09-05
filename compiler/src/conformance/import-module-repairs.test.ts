@@ -873,6 +873,64 @@ describe("a module does not qualify through itself (§5.1 rule 1, §3.1)", () =>
     );
   });
 
+  test("the constraint seat takes the same sentence, the same repair and the same edit", () => {
+    // §5.1 names this seat among the ones the obligation covers ("the
+    // constraint seats whose rows Constraints §8 sends here"), and §10's row
+    // 531 says the drop is carried "*at any seat*". The seats below are the
+    // checker's, not the resolver's — a binder's obligation and an `honor` head
+    // are resolved there — so a report that stopped at the sentence here would
+    // be rule 1 implemented at three of its four seats.
+    const text = "module Scale\n\n" +
+      "export constraint Scale<a> =\n    s(x: a): a\n" +
+      "export fun go<a: Scale.Scale>(x: a): a = x\n";
+    const [diagnostic, ...rest] = compileFiles([["/scale.hex", text]]).diagnostics;
+    expect(diagnostic?.message).toBe("a module does not qualify through itself; write `Scale`");
+    // Never `import Scale` inside `module Scale` — §8.1's one-node cycle.
+    expect(diagnostic?.message).not.toContain("import");
+    expect(rest).toEqual([]);
+    expect(applied(text, diagnostic)).toBe(
+      "module Scale\n\n" +
+        "export constraint Scale<a> =\n    s(x: a): a\n" +
+        "export fun go<a: Scale>(x: a): a = x\n",
+    );
+    // The dropped form is a program, which is what makes the drop the repair
+    // §5.1 owes rather than a second way of writing the complaint.
+    expect(messages([["/scale.hex", applied(text, diagnostic)]])).toEqual([]);
+  });
+
+  test("— and the drop reads the module's OWN constraint layer, not everything in scope", () => {
+    // The condition, from its failing side: `#constraintNames` holds every
+    // spelling the module can name, imports included, and that is not what §5.1
+    // asks about. `Scale` here is reached through an import, so the bare
+    // spelling at this use names another module's declaration and the sentence
+    // stands alone.
+    const [diagnostic, ...rest] = compileFiles([
+      SCALE,
+      ["/other.hex",
+        "module Other\n\n" + "import Scale\n" +
+        "export fun go<a: Other.Scale>(x: a): a = x\n"],
+    ]).diagnostics;
+    expect(diagnostic?.message).toBe("a module does not qualify through itself");
+    expect(diagnostic?.fixes).toBeUndefined();
+    expect(rest).toEqual([]);
+  });
+
+  test("the edit deletes the qualification as written, spacing and all", () => {
+    // `Scale . Scale` normalizes to the same eleven characters in the resolved
+    // spelling, so an edit measured from the *text* would leave `. Scale`
+    // behind. The range travels from the parser instead, which is the only
+    // reader that saw both names.
+    const text = "module Scale\n\n" +
+      "export constraint Scale<a> =\n    s(x: a): a\n" +
+      "export fun go<a: Scale . Scale>(x: a): a = x\n";
+    const [diagnostic] = compileFiles([["/scale.hex", text]]).diagnostics;
+    expect(applied(text, diagnostic)).toBe(
+      "module Scale\n\n" +
+        "export constraint Scale<a> =\n    s(x: a): a\n" +
+        "export fun go<a: Scale>(x: a): a = x\n",
+    );
+  });
+
   test("an import may still bind the spelling to another module", () => {
     // §3.1: `import Render.Point` inside `module Point` collides with nothing,
     // and `Point.` then means what it imports — so this rule fires only where
@@ -883,6 +941,68 @@ describe("a module does not qualify through itself (§5.1 rule 1, §3.1)", () =>
         "module Point\n\n" + "import Render.Point\n" +
         "export let zero: Float = Point.origin\n"],
     ])).toEqual([]);
+  });
+});
+
+/**
+ * §5.1's refused-head suppression, read **positionally**: "a refused import
+ * head that offers the same line by its own rewrite is that line already
+ * offered, and **the seats below it** carry none".
+ *
+ * *Below it* is the whole condition. A use above the head is not a seat the
+ * head repairs — the alias its rewrite binds would sit under that use, where
+ * §3's top-down half refuses it again — so the head offers that reader nothing
+ * and the seat owes them its own line. Membership alone reads the sentence as
+ * "anywhere in the module", which takes the repair away from a seat for a
+ * reason nothing on the reader's screen states.
+ */
+describe("a refused head suppresses the seats below it, and only those", () => {
+  /** A module with a plain function, reached only by an import line. */
+  const GEOMETRY = [
+    "/geometry.hex",
+    "module Geometry\n\n" + "export fun area(r: Float): Float = r * r\n",
+  ] as const;
+
+  test("a use above the head keeps its edit; the same use below loses it", () => {
+    const above = "module Main\n\n" +
+      "export let a: Float = Geometry.area(2.0)\n" + "import geometry\n";
+    const below = "module Main\n\n" +
+      "import geometry\n" + "export let a: Float = Geometry.area(2.0)\n";
+    const seatOf = (text: string) =>
+      compileFiles([GEOMETRY, ["/main.hex", text]]).diagnostics
+        .find(({ message }) => message.startsWith("no module alias"));
+
+    // Same message either way — the line is named at both, because it is the
+    // line either reader needs.
+    expect(seatOf(above)?.message).toBe("no module alias `Geometry`; `import Geometry`");
+    expect(seatOf(below)?.message).toBe("no module alias `Geometry`; `import Geometry`");
+
+    expect(seatOf(below)?.fixes).toBeUndefined();
+    // And the edit the upper seat keeps lands above itself, which is the whole
+    // reason it is owed one: the head's own rewrite would bind the alias below.
+    expect(applied(above, seatOf(above))).toBe(
+      "module Main\n\n" + "import Geometry\n" +
+        "export let a: Float = Geometry.area(2.0)\n" + "import geometry\n",
+    );
+  });
+
+  test("the constraint seat reads the head the same way, from either side", () => {
+    // The two passes must agree about one module's heads: the suppression lives
+    // on the `ImportRepairs` they share, so this is the checker asking the same
+    // question the resolver asked above.
+    const above = "module Main\n\n" +
+      "export fun go<a: Scale.Scale>(x: a): a = x\n" + "import scale\n";
+    const below = "module Main\n\n" +
+      "import scale\n" + "export fun go<a: Scale.Scale>(x: a): a = x\n";
+    const seatOf = (text: string) =>
+      compileFiles([SCALE, ["/main.hex", text]]).diagnostics
+        .find(({ message }) => message.startsWith("no module alias"));
+
+    expect(seatOf(below)?.fixes).toBeUndefined();
+    expect(applied(above, seatOf(above))).toBe(
+      "module Main\n\n" + "import Scale\n" +
+        "export fun go<a: Scale.Scale>(x: a): a = x\n" + "import scale\n",
+    );
   });
 });
 

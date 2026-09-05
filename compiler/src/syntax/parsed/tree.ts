@@ -28,6 +28,15 @@ export interface ModuleName {
   readonly declared: boolean;
 }
 
+/**
+ * A refused import head, as `Module.refusedImportAliases` records it: the alias
+ * the head's own rewrite would bind, and where the head stands.
+ */
+export interface RefusedImportHead {
+  readonly alias: string;
+  readonly span: Source.Span;
+}
+
 export interface Module {
   readonly kind: "Module";
   readonly fileId: Source.FileId;
@@ -42,8 +51,12 @@ export interface Module {
    * none" (§5.1). Nothing else can say which line that is: the head is gone
    * from the tree by the time the resolver walks it, and the rewrite's spelling
    * is the parser's own derivation.
+   *
+   * The head's **span** travels with the alias because §5.1's suppression is
+   * positional — *the seats below it* — so a seat has to be able to ask where
+   * the head stands, not merely whether one exists.
    */
-  readonly refusedImportAliases: readonly string[];
+  readonly refusedImportAliases: readonly RefusedImportHead[];
   /** This module's declared name (Modules §2.1) — its identity (§1). */
   readonly name: ModuleName;
   readonly items: readonly Item[];
@@ -370,7 +383,7 @@ export interface ConstraintMember {
 
 export interface HonorItem {
   readonly kind: "Honor";
-  readonly constraint: Name;
+  readonly constraint: ConstraintReference;
   readonly typeParameters: readonly TypeParameter[];
   readonly subject: TypeAnnotation;
   readonly derived: boolean;
@@ -442,6 +455,26 @@ export interface Name {
   readonly text: string;
   readonly startClass: "non-upper" | "upper";
   readonly span: Source.Span;
+}
+
+/**
+ * A constraint reference as written — `Ord`, or `Geo.Ord` (Modules §3.3) — a
+ * `Name` whose `text` carries the whole spelling, dot included, which is what
+ * the resolver keys the module-alias lookup on.
+ *
+ * The one thing the spelling does **not** carry is where the qualifier stops,
+ * and Modules §5.1 rule 1's repair is exactly a deletion of it: `Scale.Scale`
+ * inside `module Scale` is reported with the qualifier dropped as the applied
+ * edit. The text cannot be re-measured for that, because `Geo . Ord` is legal
+ * spacing and normalizes to the same eleven characters — so the range the drop
+ * deletes is recorded here, by the one place that saw both tokens.
+ */
+export interface ConstraintReference extends Name {
+  /**
+   * The qualifier and its dot — the `Geo.` of `Geo.Ord` — or `undefined` where
+   * the reference is bare and there is nothing to drop.
+   */
+  readonly qualification?: Source.Span;
 }
 
 export type Pattern =
@@ -614,7 +647,7 @@ export interface HoleType {
    * only type operand that admits the suffix; the list itself is Functions
    * §4.2's, parsed by the sub-grammar binder lists use.
    */
-  readonly constraints: readonly Name[];
+  readonly constraints: readonly ConstraintReference[];
   readonly span: Source.Span;
 }
 
@@ -849,7 +882,7 @@ export interface ParameterDestructuring {
 
 export interface TypeParameter {
   readonly name: Name;
-  readonly constraints: readonly Name[];
+  readonly constraints: readonly ConstraintReference[];
   readonly span: Source.Span;
 }
 

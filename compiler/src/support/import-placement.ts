@@ -175,6 +175,28 @@ export function insertedLine(text: string, offset: number, line: string): string
   return `${opening}${line}${closing}`;
 }
 
+/**
+ * Modules §5.1 rule 1's **other** applied edit: the qualifier dropped.
+ *
+ * "A module does not qualify through itself; write `make(1.0, 0.0)`" — and
+ * `` `Point` is a type, not a module; write `make(0.0, 0.0)` `` — repair by
+ * deleting the qualification and nothing else, so what is left is the reference
+ * the reader already wrote. `qualification` is the range that goes: the
+ * qualifier and its dot, measured where the two names were parsed.
+ *
+ * One writer, for the reason the module doc gives, and here the two readers are
+ * two *passes* rather than two tiers: the resolver reports this family at the
+ * term, type and pattern seats, the checker at the constraint seats Constraints
+ * §8 sends here, and a reader who wrote the same mistake in a binder and in a
+ * body is owed the same repair under the same words at both.
+ */
+export function dropQualifierFix(qualification: Source.Span): Diagnostics.Fix {
+  return {
+    message: "drop the qualifier",
+    edits: [{ span: qualification, replacement: "" }],
+  };
+}
+
 /** The offset the line `offset` sits on begins at. */
 export function lineStart(text: string, offset: number): number {
   return offset <= 0 ? 0 : text.lastIndexOf("\n", offset - 1) + 1;
@@ -218,7 +240,7 @@ export class ImportRepairs {
   readonly #text: string | undefined;
   readonly #file: Source.File | undefined;
   readonly #offered = new Map<string, Diagnostics.Fix>();
-  readonly #headRewritten: ReadonlySet<string>;
+  readonly #headRewritten: readonly Parsed.RefusedImportHead[];
 
   constructor(module: Parsed.Module, text: string | undefined, path: string | undefined) {
     this.#placement = {
@@ -233,18 +255,30 @@ export class ImportRepairs {
     this.#file = text === undefined
       ? undefined
       : new Source.File(module.fileId, path ?? "", text);
-    this.#headRewritten = new Set(module.refusedImportAliases);
+    this.#headRewritten = module.refusedImportAliases;
   }
 
   /**
    * §5.1's "a refused import head that offers the same line by its own rewrite
-   * is that line already offered, and the seats below it carry none" — a
+   * is that line already offered, and **the seats below it** carry none" — a
    * miscased head (`import geometry`) is refused at parse with `import
    * Geometry` as its own applied edit, so a seat below it names the line and
    * writes none, or two lightbulbs write one import.
+   *
+   * **Below it** is the whole condition and is read positionally. A use that
+   * stands *above* the head keeps its edit, and has to: the head's own rewrite
+   * would bind the alias underneath that use, where §3's top-down half refuses
+   * it again, so the line the head offers is not the line that use needs. What
+   * that use needs is an import above itself, which is exactly what `fix`
+   * places (`importInsertionOffset` considers only import lines the use is
+   * already below, and falls back to the header). Membership alone would take
+   * the repair away from a seat the head cannot repair, for a reason nothing on
+   * the reader's screen states.
    */
-  headRewrites(spelling: string): boolean {
-    return this.#headRewritten.has(spelling);
+  headRewrites(spelling: string, use: number): boolean {
+    return this.#headRewritten.some(({ alias, span }) =>
+      alias === spelling && span.start.offset < use
+    );
   }
 
   /**

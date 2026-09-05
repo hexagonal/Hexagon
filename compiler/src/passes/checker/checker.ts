@@ -38,7 +38,7 @@ import {
   moduleImportLine,
   moduleNameOfLayoutPath,
 } from "../../packages.js";
-import type { ImportRepairs } from "../../support/import-placement.js";
+import { dropQualifierFix, type ImportRepairs } from "../../support/import-placement.js";
 import type * as Source from "../../support/source.js";
 import { displayParameterName } from "../../support/synthetic.js";
 import * as Resolved from "../../syntax/resolved/index.js";
@@ -2231,6 +2231,21 @@ class Checker {
   readonly #memberHeadVariables = new Map<Resolved.SymbolId, Variable[]>();
   readonly #constraintNames = new Set<string>(PRE_REGISTERED_CONSTRAINTS);
   /**
+   * The constraint names this module **declares itself** — the subset of
+   * `#constraintNames` an import did not put there, and the module's own layer
+   * in the constraint namespace (Modules §5.4).
+   *
+   * One report reads it: Modules §5.1 rule 1's own-default-alias repair, which
+   * drops the qualifier "*at each use where the bare spelling, read at that use
+   * in the namespace the seat resolves in, would resolve to the module's own
+   * binding*". At a constraint seat there is no head binder to eclipse it and
+   * no top-down law to fail — a binder's type parameters live one namespace
+   * over and constraint names are order-insensitive (§5.1) — so the condition
+   * is exactly this membership, and an *imported* spelling is not it: dropping
+   * `Scale.` there would silently name someone else's declaration.
+   */
+  readonly #ownConstraintNames = new Set<string>();
+  /**
    * What a module alias offers a bare name that failed to be a constraint
    * (Modules §10's row, constraint half).
    *
@@ -2629,6 +2644,7 @@ class Checker {
     for (const item of module.items) {
       if (item.kind === "ConstraintDeclaration") {
         this.#constraintNames.add(item.name);
+        this.#ownConstraintNames.add(item.name);
         this.#constraintIdentities.set(item.name, item.identity);
         this.#localConstraints.set(item.name, item);
         this.#constraintsByIdentity.set(item.identity, item);
@@ -2742,11 +2758,15 @@ class Checker {
         this.#instanceTypeParameters.set(item, typeParameters);
         for (const parameter of item.typeParameters) {
           const variable = typeParameters.get(parameter.name)!;
-          for (const constraint of parameter.constraints) {
+          for (const [at, constraint] of parameter.constraints.entries()) {
             if (!this.#constraintNames.has(constraint)) {
               this.#diagnostics.add({
                 severity: "error",
-                ...this.#unknownConstraint(constraint, parameter.span),
+                ...this.#unknownConstraint(
+                  constraint,
+                  parameter.span,
+                  parameter.constraintQualifiers?.[at],
+                ),
                 primary: parameter.span,
               });
               continue;
@@ -3008,11 +3028,15 @@ class Checker {
             // sentence about a state defaulting had just created.
             this.#quantified.add(variable.id);
             typeParameters.set(parameter.name, variable);
-            for (const constraint of parameter.constraints) {
+            for (const [at, constraint] of parameter.constraints.entries()) {
               if (!this.#constraintNames.has(constraint)) {
                 this.#diagnostics.add({
                   severity: "error",
-                  ...this.#unknownConstraint(constraint, parameter.span),
+                  ...this.#unknownConstraint(
+                    constraint,
+                    parameter.span,
+                    parameter.constraintQualifiers?.[at],
+                  ),
                   primary: parameter.span,
                 });
                 continue;
@@ -4869,7 +4893,7 @@ class Checker {
           if (this.#checkPreludeHonor(item, level)) continue;
           this.#diagnostics.add({
             severity: "error",
-            ...this.#unknownConstraint(item.constraint, item.span),
+            ...this.#unknownConstraint(item.constraint, item.span, item.constraintQualifier),
             primary: item.span,
           });
           this.#uninferredInstanceMembers.add(item);
@@ -5311,11 +5335,15 @@ class Checker {
       );
       into.set(parameter.name, variable);
       this.#recordDeclaredHead(variable, owner);
-      for (const constraint of parameter.constraints) {
+      for (const [at, constraint] of parameter.constraints.entries()) {
         if (!this.#constraintNames.has(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            ...this.#unknownConstraint(constraint, parameter.span),
+            ...this.#unknownConstraint(
+              constraint,
+              parameter.span,
+              parameter.constraintQualifiers?.[at],
+            ),
             primary: parameter.span,
           });
           continue;
@@ -12871,6 +12899,7 @@ class Checker {
   #unknownConstraint(
     constraint: string,
     span: Source.Span,
+    qualification?: Source.Span,
   ): Pick<Diagnostics.Diagnostic, "message" | "importModuleRepair" | "fixes"> {
     const refusal = `unknown constraint \`${constraint}\``;
     const alias = this.#aliasConstraints.get(constraint);
@@ -12883,8 +12912,13 @@ class Checker {
         // import line, not a search of the constraint namespace. Where the
         // qualifier *does* bind, the spelling really is an unknown constraint
         // of a known module and the plain refusal is what the row names.
-        const qualifier = constraint.slice(0, constraint.indexOf("."));
-        const unbound = this.#unboundAliasRefusal(qualifier, span);
+        const dot = constraint.indexOf(".");
+        const unbound = this.#unboundAliasRefusal(
+          constraint.slice(0, dot),
+          constraint.slice(dot + 1),
+          span,
+          qualification,
+        );
         if (unbound !== undefined) return unbound;
         return { message: refusal };
       }
@@ -12923,16 +12957,36 @@ class Checker {
    * The two arms that name no import carry none, exactly as the resolver's do:
    * a contest cannot be chosen between (Packages §3.3), and a spelling that
    * would resolve to nothing has no line to write.
+   *
+   * **Rule 1's first test is asked here too**, and it is not an import at all:
+   * `Scale.Scale` inside `module Scale` is the module qualifying through
+   * itself, whose repair is the qualifier dropped — the same sentence, the same
+   * condition and the same edit the resolver writes at its three seats, off the
+   * one `dropQualifierFix`. Its condition is `#ownConstraintNames`; the range
+   * it deletes is `qualification`, which travels from the parser because the
+   * spelling cannot be re-measured against a source that may have written
+   * `Scale . Scale`.
    */
   #unboundAliasRefusal(
     qualifier: string,
+    bare: string,
     span: Source.Span,
+    qualification?: Source.Span,
   ): Pick<Diagnostics.Diagnostic, "message" | "fixes"> | undefined {
     if (this.#moduleAliases.has(qualifier) || this.#aliasConstraints.has(qualifier)) {
       return undefined;
     }
     if (qualifier === this.#ownDefaultAlias) {
-      return { message: "a module does not qualify through itself" };
+      const fact = "a module does not qualify through itself";
+      if (!this.#ownConstraintNames.has(bare)) return { message: fact };
+      return {
+        message: `${fact}; write \`${bare}\``,
+        // The clause and the edit are one decision (§5.1: the repair "carried
+        // as the applied edit"), so a seat whose qualification range never
+        // reached it names the drop and offers nothing to apply rather than
+        // guessing at a span. Every written seat carries one.
+        ...(qualification === undefined ? {} : { fixes: [dropQualifierFix(qualification)] }),
+      };
     }
     const stem = `no module alias \`${qualifier}\``;
     const repair = this.#importRepair?.(qualifier);
@@ -12949,7 +13003,7 @@ class Checker {
     // rewrite is that line already offered, and the seats below it carry none"
     // — read at this seat too, or a miscased head above a constraint annotation
     // has two lightbulbs writing one import.
-    const fix = this.#repairs?.headRewrites(qualifier) === true
+    const fix = this.#repairs?.headRewrites(qualifier, span.start.offset) === true
       ? undefined
       : this.#repairs?.fix(qualifier, line, span.start.offset);
     return {
@@ -14982,11 +15036,15 @@ class Checker {
       // floor, accumulation continues past it, and everything downstream reads
       // the one set. Seeded inside the memo, so an alias applied at one written
       // hole raises one obligation however many positions the body has.
-      for (const constraint of annotation.constraints) {
+      for (const [at, constraint] of annotation.constraints.entries()) {
         if (!this.#constraintNames.has(constraint)) {
           this.#diagnostics.add({
             severity: "error",
-            ...this.#unknownConstraint(constraint, annotation.span),
+            ...this.#unknownConstraint(
+              constraint,
+              annotation.span,
+              annotation.constraintQualifiers?.[at],
+            ),
             primary: annotation.span,
           });
           continue;
