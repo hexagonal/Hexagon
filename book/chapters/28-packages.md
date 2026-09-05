@@ -124,8 +124,8 @@ root holds `hexagon.json` and the `.hex` source. Versions, version ranges, and t
 lockfile are npm's; Hexagon designs none of them. The npm name of the package —
 `@acme/geometry`, say — is not read by the language and need not resemble the Hexagon
 name. What npm names is a distribution; what Hexagon names is a namespace. The
-compiler learns which installed packages are Hexagon packages by reading their
-manifests, and it looks each package's `dependencies` up from that package's own
+compiler learns which packages are Hexagon packages from the manifests it meets,
+and it looks each package's `dependencies` up from that package's own
 directory the way Node finds a package — its `node_modules`, then each directory
 above, the nearest copy answering — resolving each package reached in turn, outward
 from the project, into an acyclic set: the packages *in the program*. A copy farther up
