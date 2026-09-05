@@ -57,7 +57,7 @@ const HEX_JS_ERROR = fullModuleName(STANDARD_LIBRARY, "JsError");
 
 /**
  * Every operation the emitted program performs on a `Vector(a)` by calling the
- * trie runtime, and the name it is exported under from `runtime/VectorTrie.hex`.
+ * trie runtime, and the name it is exported under from `Hex.Runtime.VectorTrie`.
  *
  * This is the *whole* of what the emitter knows about how a vector is built and
  * read. Collections Part 3 §4's trie is Hexagon source over the `Node`
@@ -102,7 +102,7 @@ export type VectorRuntimeOperation = (typeof VECTOR_RUNTIME_OPERATIONS)[number];
 /**
  * Every operation the emitted program performs on a `Map(k, v)` or a `Set(a)` by
  * calling the hash-trie runtime, and the name it is exported under from
- * `runtime/HashTrie.hex` (#370, #373).
+ * `Hex.Runtime.HashTrie` (#370, #373).
  *
  * Read `VECTOR_RUNTIME_OPERATIONS`' block for what a list like this is and why
  * it is fixed rather than derived; everything there applies here verbatim, with
@@ -227,7 +227,7 @@ export interface RuntimeModuleWiring {
    * module no public `Iterable` type is built from.
    *
    * A *list* rather than the single pair this was, because one runtime module
-   * can back two public faces (#373): `runtime/HashTrie.hex` builds both
+   * can back two public faces (#373): `stdlib/Runtime/HashTrie.hex` builds both
    * `HashTrie`, which is what a `Map(k, v)` is and yields `[k, v]`, and
    * `HashSet`, which is what a `Set(a)` is and yields elements. One record
    * carries one iterator, so two faces need two records and two helpers.
@@ -9666,7 +9666,7 @@ class JavaScriptEmitter {
       // Hexagon body for it would elaborate through the slot being defined.
       case "floatFromInt":
         return "__a => __a";
-      // `runtime/HashTrie.hex`'s three groups (#365). The placement mix and the
+      // `stdlib/Runtime/HashTrie.hex`'s three groups (#365). The placement mix and the
       // popcount reach for helpers — one holds the per-process seed, the other a
       // SWAR word whose four statements no arrow expression can hold; the rest
       // are bare arrows, because each really is one JavaScript operator.
@@ -9703,7 +9703,7 @@ class JavaScriptEmitter {
         return "(__a, __b) => [...__a.slice(0, __b), ...__a.slice(__b + 1)]";
       // `stdlib/Map.hex`'s seven (#370), and the first family whose lowerings
       // are **another Hexagon module's compiled operations**: each aliases the
-      // matching export of `runtime/HashTrie.hex`'s emitted module, which is the
+      // matching export of `Hex.Runtime.HashTrie`'s emitted module, which is the
       // wiring that module's header promised. Nothing is adapted on the way
       // through — a `Map(k, v)` *is* a `HashTrie(k, v)`, and the two faces agree
       // because the same compiler wrote both.
@@ -10128,7 +10128,7 @@ class JavaScriptEmitter {
   /**
    * The runtime module's JavaScript export list.
    *
-   * `runtime/VectorTrie.hex` exports nothing at the Hexagon level and cannot:
+   * `Hex.Runtime.VectorTrie` exports nothing at the Hexagon level and cannot:
    * every operation's type names the private `TrieVector`, and the checker
    * refuses to export a binding that exposes a private type. That refusal is
    * the feature — it is what makes the trie unreachable by any Hexagon
@@ -10137,7 +10137,7 @@ class JavaScriptEmitter {
    *
    * An operation the module does not declare is reported rather than exported.
    * Injection prefers a project's own file at the basename (the rule the
-   * shipped-source sweep compiles `runtime/VectorTrie.hex` in its real role
+   * shipped-source sweep compiles `stdlib/Runtime/VectorTrie.hex` in its real role
    * by), so a project can put an unrelated file in this seat; without the check
    * the result is a `SyntaxError` in generated JavaScript with no diagnostic
    * anywhere, which is the worst way to learn it.

@@ -3,7 +3,7 @@ module Runtime.HashTrie
 // The persistent hash array mapped trie that `Map(k, v)` and `Set(a)` are built
 // on (Collections Part 4 §2.1), written over the hidden fixed-32 `Node`
 // intrinsic and the bit-algebra rows the intrinsic door supplies. This is a
-// runtime-internal module in `runtime/VectorTrie.hex`'s exact sense: it is
+// runtime-internal module in `Hex.Runtime.VectorTrie`'s exact sense: it is
 // compiled only as a privileged runtime module, and `Tree`, `Node`, and
 // `HashTrie` never cross a module boundary — the public face is `Map(k, v)` and
 // `Set(a)`, and the emitter is what will wire the two together.

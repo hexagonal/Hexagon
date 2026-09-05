@@ -664,37 +664,37 @@ describe("AnalysisSession", () => {
   test("options can be set after the session is open, and change the answers", () => {
     // A host learns what kind of project it has by reading a file *in* the
     // project, so the configuration arrives after the session does — and can
-    // then change while it is open.
-    const source = "module Trie\n\n" + "let size(node: Node(Int)): Int = 0\n";
+    // then change while it is open. The observable here is the project's own
+    // package name: a module whose first segment is it is lawful while the
+    // project has no name and refused the moment it declares one (Modules §2.2,
+    // Packages §2.5).
+    const source = "module Acme.Geometry\n\n" + "let value: Int = 1\n";
     const session = new AnalysisSession();
-    session.setFile("/trie.hex", source);
-    expect(session.diagnostics("/trie.hex").map(({ message }) => message)).toContain(
-      "unknown generic type `Node`",
-    );
+    session.setFile("/geo.hex", source);
+    expect(session.diagnostics("/geo.hex")).toEqual([]);
 
     const before = session.version;
-    session.configure({ runtimePaths: ["/trie.hex"] });
+    session.configure({ packageName: "Acme" });
     expect(session.version).toBeGreaterThan(before);
-    expect(session.diagnostics("/trie.hex")).toEqual([]);
+    expect(session.diagnostics("/geo.hex").length).toBeGreaterThan(0);
 
-    // `Node` is not merely accepted now; it is understood.
-    expect(session.hover("/trie.hex", at(source, "node"))?.displayedType).toBe("Node(Int)");
-
-    // Withdrawing the privilege has to withdraw the answer too.
+    // Withdrawing the name has to withdraw the refusal too.
     session.configure({});
-    expect(session.diagnostics("/trie.hex").length).toBeGreaterThan(0);
+    expect(session.diagnostics("/geo.hex")).toEqual([]);
+    // Analysed, not merely quiet.
+    expect(session.hover("/geo.hex", at(source, "value"))?.name).toBe("value");
   });
 
   test("reconfiguring with the same options keeps the analysis", () => {
-    const session = new AnalysisSession({ runtimePaths: ["/a.hex", "/b.hex"] });
+    const session = new AnalysisSession({ dependencies: ["Acme", "Bolt"] });
     session.setFile("/main.hex", "let value: Int = 1\n");
     const settled = session.version;
-    session.configure({ runtimePaths: ["/a.hex", "/b.hex"] });
+    session.configure({ dependencies: ["Acme", "Bolt"] });
     expect(session.version).toBe(settled);
     // Order is not meaningful — `compileProject` reads the list as a set — so a
     // host that rebuilds it in a different order must not discard analysis it is
     // about to ask questions of.
-    session.configure({ runtimePaths: ["/b.hex", "/a.hex"] });
+    session.configure({ dependencies: ["Bolt", "Acme"] });
     expect(session.version).toBe(settled);
   });
 

@@ -141,15 +141,19 @@ export interface CompiledProject {
   readonly diagnostics: readonly Diagnostics.Diagnostic[];
 }
 
+/**
+ * What a host may tell the compiler about a project.
+ *
+ * Both fields are the *language's* — a manifest's `name` and `dependencies`
+ * (Packages §2.1, §2.5). Nothing here grants a privilege. A **runtime** module —
+ * the one that may spell `Node(a)` and open `spec/intrinsics.md` §5.2's
+ * intrinsic door — is a member of the list `runtime-modules.ts` holds, keyed by
+ * declared name; a project takes that role by supplying a file at the member's
+ * basename declaring the member's name, and by no other route. There was once a
+ * `runtimePaths` field here that opened both doors for any path a host cared to
+ * name (#829): the privilege is the module's, not the file's place, so it went.
+ */
 export interface ProjectOptions {
-  /**
-   * Paths compiled as privileged **runtime** modules — the ones allowed to spell
-   * `Node(a)` (`resolve`'s `runtime` flag). Separate from prelude privilege,
-   * which follows the injection path. A runtime module still sees the prelude,
-   * which is what lets it name `Bool` at all since #147 made `Bool` a prelude
-   * declaration rather than a primitive.
-   */
-  readonly runtimePaths?: readonly string[];
   /**
    * The project's manifest `name` (Packages §2.5), where it has one. A project
    * that is never published needs none: its own modules are addressed by their
@@ -185,7 +189,6 @@ export function compileProject(
   files: readonly Source.File[],
   options: ProjectOptions = {},
 ): CompiledProject {
-  const runtimePaths = new Set((options.runtimePaths ?? []).map(normalizePath));
   const diagnostics = new Diagnostics.Bag();
   const projectPackage: ProgramPackage = {
     name: options.packageName,
@@ -517,24 +520,22 @@ export function compileProject(
       recordBase: isInjected ? preludeRecordBase : recordBase,
       externTypeBase: isInjected ? preludeExternTypeBase : externTypeBase,
       // Standard-library privilege — the intrinsic door's gate
-      // (`spec/intrinsics.md` §5.2). It follows the *path*, so a project
-      // supplying its own file at an injection path is privileged in it: the
-      // stdlib-developing-itself path, carrying the same trust model as the
-      // `Node` runtime flag precedent.
+      // (`spec/intrinsics.md` §5.2). It follows **membership**, never a path:
+      // this module is a member of the injected list, either because the
+      // compiler supplied it or because a project supplied the file that *is*
+      // it (the adoption rule above — the stdlib-developing-itself route, and
+      // the one route by which a project's own text takes the door).
       //
       // Two seats hold it. Prelude membership is the first. The **runtime
-      // module set** is the second (§5.2's runtime bullet, #365) — by either
-      // route it arrives by, injection at the basename or the host's
-      // `runtimePaths` grant, which is the same disjunction the `runtime` flag
-      // below is computed from and for the same reason. A runtime module is
-      // already trusted enough to spell `Node`; the door lets its new operations
-      // arrive as declared, key-verified rows instead of as growth in the
-      // non-declared guard family.
+      // module set** is the second (§5.2's runtime bullet, #365): a runtime
+      // module is already trusted enough to spell `Node`, and the door lets its
+      // new operations arrive as declared, key-verified rows instead of as
+      // growth in the non-declared guard family.
       //
       // The two privileges stay **separate flags**, not one merged notion:
       // `runtime` puts a name in scope and `privileged` opens a declaration
       // form, and a prelude member holds the second without the first.
-      privileged: isPrelude || isRuntimeModule || runtimePaths.has(unit.source.path),
+      privileged: isPrelude || isRuntimeModule,
       // A primitive's home module is its fixed prelude companion (Constraints
       // §5.3), and nothing in the module's text can say so — a primitive has no
       // declaration. Like the privilege above, the fact follows the *path*.
@@ -546,10 +547,9 @@ export function compileProject(
         }
         : {}),
       // The `Node(a)` privilege is the other one, and a runtime module holds it
-      // by being one. A host may still grant it by path (`hexagon.json`), which
-      // is how `runtime/VectorTrie.hex` compiles under its own repository path
-      // rather than at the injection basename.
-      ...(isRuntimeModule || runtimePaths.has(unit.source.path) ? { runtime: true } : {}),
+      // by being one — which is how `stdlib/Runtime/VectorTrie.hex` compiles in
+      // its real role, whether the compiler supplied it or the project did.
+      ...(isRuntimeModule ? { runtime: true } : {}),
       ...(preludeImports.length === 0 ? {} : { prelude: preludeImports }),
     });
     if (isInjected) {

@@ -16724,7 +16724,7 @@ class Checker {
       // That is `spec/intrinsics.md` §3.4's argument for genericity, applied to
       // the same premise — and the door is reachable only from privileged
       // source, which for `Node` means a runtime module: nowhere else can even
-      // spell the type. `runtime/HashTrie.hex`'s packed-storage rows are the
+      // spell the type. `stdlib/Runtime/HashTrie.hex`'s packed-storage rows are the
       // first to take it.
       if (item.kind === "ExternBlock" && !item.intrinsic) {
         for (const declaration of item.declarations) {

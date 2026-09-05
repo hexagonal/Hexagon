@@ -45,17 +45,40 @@ function diagnostics(
 }
 
 /**
- * The same, for a project one of whose modules holds the runtime grant
- * (intrinsics §5.2) — the only place the hidden `Node` spelling answers, and so
- * the only place its ordering against the companion fallback is observable.
+ * The same, for a project that supplies a **runtime member's own file** — the
+ * only place the hidden `Node` spelling answers, and so the only place its
+ * ordering against the companion fallback is observable.
+ *
+ * A file is that member by sitting at its basename and declaring its name
+ * (#829); no host grant privileges a path any more. The body is written out
+ * here rather than read from `stdlib/Runtime/VectorTrie.hex` because the
+ * specimen aliases something *as* `Node`, and the shipped trie's own text is
+ * `Node.empty()`/`Node.get` throughout — the alias would take every one of
+ * them. `RUNTIME_OPERATIONS` is the export inventory the emitter reports a
+ * member for failing to declare (`VECTOR_RUNTIME_OPERATIONS`), so a member has
+ * to carry the names whatever else it says.
  */
-function grantedDiagnostics(
-  files: readonly (readonly [string, string])[],
-  runtimePaths: readonly string[],
+const RUNTIME_OPERATIONS = "let empty: Int = 0\n" +
+  "fun size(x: Int): Int = 0\n" +
+  "fun get(x: Int): Int = 0\n" +
+  "fun set(x: Int): Int = 0\n" +
+  "fun append(x: Int): Int = 0\n" +
+  "fun prepend(x: Int): Int = 0\n" +
+  "fun slice(x: Int): Int = 0\n" +
+  "fun window(x: Int): Int = 0\n" +
+  "fun concat(x: Int): Int = 0\n" +
+  "fun nodeRun(x: Int): Int = 0\n";
+
+function memberDiagnostics(
+  source: string,
+  extras: readonly (readonly [string, string])[] = [],
 ): readonly string[] {
+  const files = [
+    ["/VectorTrie.hex", `module Runtime.VectorTrie\n${source}`] as const,
+    ...extras,
+  ];
   return compileProject(
     files.map(([path, text], index) => new Source.File(Source.fileId(index), path, text)),
-    { runtimePaths },
   ).diagnostics.map((diagnostic) => diagnostic.message);
 }
 
@@ -330,27 +353,40 @@ describe("the companion fallback outranks the boundary intrinsics", () => {
 
   test("`Node` — the same pair, inside the one module where the spelling answers", () => {
     // Rule 2 carves the exception at `Node` only for a runtime-privileged
-    // module, and shipped runtime source holds no import lines: a project file
-    // at an injection path may, which is exactly this shape.
-    expect(grantedDiagnostics([
-      ["/mynode.hex", "module Mynode\n\n" + "export record Node(a) = { item: a }\n"],
-      ["/rt.hex",
-        "module Rt\n\n" + 'import Mynode as Node\n' +
-        "fun item(n: Node(Int)): Int = n.item\n" +
-        "export let answer: Int = item(Node.Node({ item = 1 }))\n"],
-    ], ["/rt.hex"])).toEqual([]);
-    expect(grantedDiagnostics([
-      ["/mynode.hex", "module Mynode\n\n" + "export fun count(): Int = 1\n"],
-      ["/rt.hex",
-        "module Rt\n\n" + 'import Mynode as Node\n' +
-        // The annotation is the whole assertion: with no `Node` type behind the
-        // alias the hidden intrinsic answers it, and without the intrinsic
-        // there would be no type at all ("unknown generic type `Node`"). The
-        // *term* spelling `Node.` is rule 1's, not rule 2's — an explicit alias
-        // takes it, which it always did.
-        "fun size(n: Node(Int)): Int = 1\n" +
-        "export let answer: Int = Node.count()\n"],
-    ], ["/rt.hex"])).toEqual([]);
+    // module, and shipped runtime source holds no import lines: a project
+    // supplying the member's own file may, which is exactly this shape.
+    // `Option` is a prelude member seated before this one, so it is in reach.
+    const alias = "import Option as Node\n\n" + RUNTIME_OPERATIONS +
+      // The annotation is the whole assertion: with no `Node` type behind the
+      // alias the hidden intrinsic answers it, and without the intrinsic there
+      // would be no type at all ("unknown generic type `Node`"). The *term*
+      // spelling `Node.` is rule 1's, not rule 2's — an explicit alias takes it,
+      // which it always did.
+      "fun sized(n: Node(Int)): Int = 1\n";
+    expect(memberDiagnostics(alias + "export let answer: Option(Int) = Node.Some(1)\n"))
+      .toEqual([]);
+    // And the type really is the intrinsic rather than the aliased module's own:
+    // the alias's value handed to that annotation is a mismatch naming both.
+    expect(memberDiagnostics(alias + "export let bad: Int = sized(Node.Some(1))\n").join("\n"))
+      .toContain("expected Node(Int)");
+  });
+
+  /**
+   * The other half of the pair the retired host grant used to reach, and the
+   * reason it is gone rather than moved.
+   *
+   * That specimen put a **project** module's exported `Node` type behind the
+   * alias, and it needed an ordinary project module to hold the runtime
+   * privilege — which is what `runtimePaths` handed out and what #829 retired.
+   * Privilege is membership now, and a member sees the injected modules before
+   * it and nothing else (Modules §5.5), so a project module is not there to be
+   * aliased. The refusal is the seat rule's, not the door's.
+   */
+  test("a runtime member cannot reach a project module, so it cannot alias one", () => {
+    expect(memberDiagnostics(
+      "import Mynode as Node\n\n" + RUNTIME_OPERATIONS + "fun item(n: Node(Int)): Int = 1\n",
+      [["/mynode.hex", "module Mynode\n\n" + "export record Node(a) = { item: a }\n"]],
+    )).toContain("no module `Mynode`");
   });
 
   test("the intrinsics that are not boundary types keep answering first", () => {

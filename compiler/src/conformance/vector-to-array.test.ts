@@ -316,7 +316,7 @@ describe("fresh: a new array every call, and never the vector's own storage (§9
   /**
    * **What the write tests are for.** They are *not* aimed at a lowering that
    * hands the trie's tail back: a `TrieVector`'s tail is a fixed 32-wide `Node`
-   * (`runtime/VectorTrie.hex`), not a right-sized array, so returning it fails
+   * (`stdlib/Runtime/VectorTrie.hex`), not a right-sized array, so returning it fails
    * on length and on the empty slots long before any write. The lowerings these
    * kill are the ones whose *values* are already right — a cached result reused
    * across calls, or a `slice`-style view onto shared storage. The vector is

@@ -43,7 +43,7 @@ emitted one (Packages §6).
 - `Vector.hex`, `Map.hex`, and `Set.hex` own the public collection companions,
   each declaring its representation-sensitive operations through the intrinsic
   door (`spec/intrinsics.md` §3.2) onto the injected runtime tries
-  (`runtime/VectorTrie.hex`, `runtime/HashTrie.hex`); everything above those
+  (`stdlib/Runtime/VectorTrie.hex`, `stdlib/Runtime/HashTrie.hex`); everything above those
   declarations is ordinary Hexagon. `Vector.hex` carries one door row that is
   not one of Collections Part 3 §7's seven: `toArray`, FFI Part 2 §9's outbound
   conversion, which §9.1's obligation 2 places at this door and in this file —

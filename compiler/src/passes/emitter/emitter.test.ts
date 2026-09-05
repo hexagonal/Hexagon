@@ -178,7 +178,7 @@ describe("emitJavaScript", () => {
    * `Set`'s hand-written JavaScript HAMT; `Map`'s half retired at its milestone
    * (#370) and `Set`'s at this one, and the helper, its selector, and the
    * checker rows that typed both went with them. Both companions are Hexagon
-   * source over `runtime/HashTrie.hex` now.
+   * source over `stdlib/Runtime/HashTrie.hex` now.
    *
    * Pinned as an absence *and* as a presence, because an absence alone would
    * pass if the operations had merely stopped being reached: the same module
