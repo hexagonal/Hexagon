@@ -253,10 +253,11 @@ describe("the type seat (Modules §5.1 rule 1)", () => {
     // was meant to follow — "code outside a module" (§2.2), which is not what
     // §5.1's "placed so the file stays well-formed" allows. The placement
     // declines instead; once the header repair lands, this answers normally.
-    // The import sits *below* the use, so no line above it anchors the edit and
-    // the header fallback is the one that would answer — the shape that reaches
-    // offset zero. An import the use is already below places as it always did:
-    // that offset is never zero, so nothing collides there.
+    //
+    // The import sits *below* the use, which is what reaches the header
+    // fallback at all: an import the use is already below anchors the edit at
+    // an offset that is never zero, so nothing collides there and that shape
+    // places as it always did.
     const text = "type Meters = P.Meters\n" +
       "export let n: Float = Meters.zero\n" + "import Lib as P\n";
     const reported = compileFiles([LIB, ["/main.hex", text]]).diagnostics;
