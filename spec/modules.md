@@ -816,7 +816,7 @@ export record Point = {x: Float, y: Float}
 export let scale: Float = 1.0
 export let p: Point = Point.make(1.0, 1.0)   -- ERROR: Point is a type, not a module — no repair
                                              --   named: the use does not yet see make below it —
-                                             --   only a fun block's members do (Functions §7.2-§7.3)
+                                             --   only a fun block's members do (Functions §7.2–§7.3)
 export fun make(x: Float, y: Float): Point = Point({x = x, y = y})
 export let o: Point = Point.make(0.0, 0.0)   -- ERROR: Point is a type, not a module; write
                                              --   make(0.0, 0.0) (the module's own type: the drop,

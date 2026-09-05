@@ -151,7 +151,7 @@ Modules §11 owns emission; packages add the layout. The program's output root h
 
 | Situation | Error / hint |
 |---|---|
-| Bare module name two visible packages provide | "`Geometry` is provided by `Acme` and `Hex`; write `import Acme.Geometry` or `import Hex.Geometry`" (§3.3) — in `dependencies` order, then `Hex` |
+| Bare module name two or more visible packages provide | "`Geometry` is provided by `Acme` and `Hex`; write `import Acme.Geometry` or `import Hex.Geometry`" (§3.3) — in `dependencies` order, then `Hex` |
 | A dotted import resolving to nothing whose first segment names an installed Hexagon package the resolving package does not list | "`Bolt` is not a dependency of this package; add `"Bolt"` to `dependencies` in `hexagon.json`" — applied edit where the host can write the manifest; where a module of any package in the program, imported or not, is declared under that first segment, the unknown-module report fires instead and no edit is offered (§3.3, §3.4) |
 | A package qualifying its own module (`import MyApp.Geometry` inside `MyApp`) | unknown module — hint: "a package's own modules are imported by their declared names: `import Geometry`" (§3.3; §2.5) |
 | `dependencies` names a Hexagon package no installed package declares | "no installed package declares `\"name\": \"Bolt\"`; install it, or check the name in its `hexagon.json`" (§2.1) |
