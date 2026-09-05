@@ -37,7 +37,7 @@ A package is the directory holding a `hexagon.json`, and the file names it:
 
 ### 2.2 A package's modules
 
-Every `.hex` file beneath the manifest's directory belongs to the package — `node_modules`, the host's output directory, and any directory holding a `hexagon.json` of its own excluded: a nested manifest is a package of its own (§2.1), the ordinary shape of a workspace, and its files belong to it alone, so no file ever has two full names. Each declares its module or modules (Modules §2.1–§2.2), and module names are unique within the package, compared case-insensitively (Modules §2.2). The tooling discovers the files; nothing in the language names one. A package is free to lay its sources out as its dotted names suggest — `module Render.Geometry` at `Render/Geometry.hex` — which serves a reader and nothing else: the compiler reads no path (Modules §1; §8.5 refuses the rule this habit resembles), a module named otherwise than its directory is not a module misplaced, and the one layout the language does prescribe is the emitted one (§6), where dotted names are directories.
+Every `.hex` file beneath the manifest's directory belongs to the package — `node_modules`, the host's output directory, and any directory holding a `hexagon.json` of its own excluded: a nested manifest is a package of its own (§2.1), the ordinary shape of a workspace, and its files belong to it alone, so no file ever has two full names. Each declares its module or modules (Modules §2.1–§2.2), and module names are unique within the package, compared case-insensitively (Modules §2.2). The tooling discovers the files; nothing in the language names one. A package is free to lay its sources out as its dotted names suggest — `module Render.Geometry` at `Render/Geometry.hex` — which serves a reader and nothing else: the compiler reads no path to learn a name (Modules §1; §8.5 refuses the rule this habit resembles), a module named otherwise than its directory is not a module misplaced, and the one layout the language does prescribe is the emitted one (§6), where dotted names are directories.
 
 ### 2.3 Full names
 
@@ -289,8 +289,8 @@ module Acme.Parser                           -- ERROR at program check: module A
 |---|---|
 | A package is a named set of modules shipped as source; the manifest is `hexagon.json` (`name`, `dependencies`); `name` is one uppercase-start identifier; `Hex` reserved | §1, §2.1 |
 | Modules are discovered beneath the manifest; no module list; full name = `Package.Declared`; a package never spells its own name in source | §2.2–§2.3 |
-| The standard library is the package `Hex`; the prelude is in scope without import; `import Hex.Option as Opt` is a second alias; its source is kept in `stdlib/`, the directory saying what it holds | §2.4 |
 | A package may mirror dotted names as directories, which the language does not read; the emitted layout is the prescribed one | §2.2, §6 |
+| The standard library is the package `Hex`; the prelude is in scope without import; `import Hex.Option as Opt` is a second alias; its source is kept in `stdlib/`, the directory saying what it holds | §2.4 |
 | The project is the root package, unnamed unless published, and never qualifies itself | §2.5 |
 | Visible set = own modules + prelude + direct dependencies, per package; transitive dependencies invisible to import though present in the program | §3.1 |
 | The resolving package's own module wins silently (Modules §5.4 one level up); a contest between packages is refused naming every full spelling (Modules §5.5 one level up); never ranked; a dotted spelling has one reading and a package never qualifies its own modules, resting on Modules §2.2's program-wide first-segment rule | §3.2–§3.3 |
