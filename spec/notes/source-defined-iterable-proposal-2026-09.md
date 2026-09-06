@@ -3,7 +3,8 @@
 **Status:** Proposed, non-normative; 2026-09-07. This note requests specification
 adoption and subsequent implementation. It claims neither has landed.
 **Sequence:** Follow the effects arc. Foreign collection instances depend on
-their adopted snapshot contracts and conforming implementations.
+separate adoption and implementation of the snapshot direction agreed in
+discussion; today's normative FFI specifications still describe borrowed views.
 
 ## 1. Principle
 
@@ -69,8 +70,8 @@ Apply the same ownership rule across the existing provided-instance inventory:
 | `String` | `String.hex`; existing Unicode codepoint traversal |
 | `Range` | Its canonical stdlib home; existing progression semantics |
 | `Array(a)` | `Array.hex`; traversal of the acquired stable contents |
-| `JsMap(k, v)` | `JsMap.hex`; stable entries with the adopted native-key semantics |
-| `JsSet(a)` | `JsSet.hex`; stable elements with the adopted native-equality semantics |
+| `JsMap(k, v)` | `JsMap.hex`; stable entries preserving native-key semantics |
+| `JsSet(a)` | `JsSet.hex`; stable elements preserving native-equality semantics |
 
 `Range` currently has no `stdlib/Range.hex`; establish its canonical source home
 as part of migration rather than inventing a second instance registration path.
@@ -82,13 +83,24 @@ such as `values.toSeq()` and `Vector.toSeq(values)`. Do not add a second exporte
 ordinary `toSeq` beside its `honor` member. Replace comments claiming that the
 instance must permanently remain compiler-provided.
 
+This requires a bounded extension to declaration ownership. A compiler-known
+collection's fixed canonical prelude companion must count as its legal subject
+home for source `honor` declarations. Existing companion dispatch alone does not
+grant that right: Constraints §5.3's current fixed-home carve-out covers the
+five primitives, not these seven compiler-known subjects (`Vector`, `Map`,
+`Set`, `Range`, `Array`, `JsMap`, `JsSet`). Extend the canonical-home rule to this
+inventory explicitly. A user module with a matching spelling gains no privilege;
+canonical identity and existing stdlib provenance checks determine the home.
+`Seq` and `String` retain their established home rules.
+
 ## 3. Snapshot semantics and sequencing
 
 `Map`, `Set`, and `Vector` already have pure collection semantics. Moving their
 instances into source does not require snapshots to make them pure; their
 current obstacle is the provided-instance architecture.
 
-For `Array`, `JsMap`, and `JsSet`, follow the separately adopted FFI direction:
+For `Array`, `JsMap`, and `JsSet`, follow the FFI direction agreed in discussion,
+once it is separately adopted into the normative specification and implemented:
 a Hexagon collection denotes stable contents, foreign mutation does not change
 a retained collection, and derived lazy sequences traverse those same contents.
 Snapshots establish that guarantee; source `honor` blocks expose it through the
@@ -110,8 +122,8 @@ without intrinsics. A source instance may call a private, explicitly typed
 intrinsic when accessing the representation requires it.
 
 Retain ordinary constraint resolution, implied-type checking, coherence,
-dictionary emission, and the existing standard-library privilege for declaring
-instances in canonical homes. Remove the corresponding compiler-provided
+dictionary emission, and standard-library provenance checks, with the bounded
+instance-home extension in §2. Remove the corresponding compiler-provided
 instance as each source instance becomes authoritative. Do not retain a hidden
 fallback or allow two providers for one `(constraint, subject)` instance.
 
@@ -123,6 +135,20 @@ proof that an arbitrary user instance admits a built-in lowering.
 This does not broaden implied-type inference or adopt an unrelated conversion
 feature. Generic `Iterable` uses and any Iterable-to-Seq adaptation follow their
 own adopted rules; the change here is who declares the standard instances.
+
+Two concrete dependencies must be addressed rather than hidden by the migration:
+
+- **`Seq`/`Iterable` loading:** `Iterable.hex` names `Seq` in its contract and
+  currently loads after `Seq.hex`; a `Seq` source instance cannot honor that
+  later constraint under ordinary source ordering. Adoption must specify a
+  source-loading mechanism that resolves this cycle without an invisible
+  instance-registration path. This note fixes the desired source ownership but
+  does not choose that mechanism or relax module-cycle rules implicitly.
+- **`JsMap.entries` delegation:** the current operation delegates to the provided
+  `Iterable.toSeq`. Defining the new member by calling that unchanged operation
+  would recurse. The foreign collection migration must first establish a lower
+  traversal helper or primitive over the snapshot, then make both public
+  spellings reach that traversal without a cycle.
 
 ## 5. Adoption and verification
 
