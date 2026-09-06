@@ -47,7 +47,6 @@ import {
   manifestKeyLine,
   MANIFEST_NAME,
   manifestPathOf,
-  mergedExclusions,
   messageOf,
   normalizePath,
   NOTHING_EXCLUDED,
@@ -85,6 +84,13 @@ interface HeldPackage {
   readonly directory: string;
   readonly record: ProgramPackage;
   readonly paths: Set<string>;
+  /**
+   * The package boundaries the walk met beneath it: a directory with a
+   * `hexagon.json` of its own is a package of its own, and its files are its
+   * alone (Packages §2.2). Carried so that `#adopters` can apply that bound to
+   * a file the walk never handed it.
+   */
+  readonly nested: readonly string[];
 }
 
 /** One program's whole state. */
@@ -141,8 +147,20 @@ export class Workspace {
   readonly #pathByUri = new Map<string, string>();
   /** Session path for each real path the walk resolved — see `pathFor`. */
   readonly #pathsByRealPath = new Map<string, string>();
-  /** Every project's exclusions, merged, under both the names they can wear. */
-  #exclude: Exclusions = NOTHING_EXCLUDED;
+  /**
+   * Each project's own exclusions, against the directory whose manifest wrote
+   * them, under both the names an entry can wear.
+   *
+   * **One project's `exclude` is about that project's files.** A workspace
+   * holds several programs now (D1), so a single merged set would let a
+   * parent's `exclude: ["lib/generated"]` empty the *nested* project that owns
+   * `lib/generated` and whose own manifest excludes nothing — and let one
+   * editor root's manifest reach into its sibling's. It would also disagree
+   * with the walk, which reads each project's exclusions for that project's own
+   * traversal alone, so which answer a file got would depend on whether the
+   * walk or a watcher event reached it.
+   */
+  #exclusions: readonly { readonly directory: string; readonly exclude: Exclusions }[] = [];
   /** Tail of the `setRoots` queue — see the comment there. */
   #queue: Promise<void> = Promise.resolve();
   /** The answer for a workspace with no program: a session holding nothing. */
@@ -291,9 +309,14 @@ export class Workspace {
     const discovered = await discoverPrograms(roots, onError);
     // Exclusions before any text is read, so a file a manifest excludes is
     // never put into a session and then swept out of it.
-    const all: Exclusions[] = [];
-    for (const program of discovered) all.push(await exclusionsOf(program.directory, program.manifest));
-    this.#exclude = all.length === 0 ? NOTHING_EXCLUDED : mergedExclusions(all);
+    const exclusions: { directory: string; exclude: Exclusions }[] = [];
+    for (const program of discovered) {
+      exclusions.push({
+        directory: program.directory,
+        exclude: await exclusionsOf(program.directory, program.manifest),
+      });
+    }
+    this.#exclusions = exclusions;
 
     // Sessions are kept across a rediscovery, keyed by project directory. A
     // session owns file identity — one path, one `Source.FileId`, held even
@@ -335,6 +358,7 @@ export class Workspace {
             ),
           },
           paths,
+          nested: dependency.nested,
         });
       }
       for (const path of own) held.add(path);
@@ -467,7 +491,34 @@ export class Workspace {
    * directory reappears under a link's spelling with all its diagnostics.
    */
   #isExcluded(path: string): boolean {
-    return excludes(this.#exclude, path, this.#realPathOfPath.get(path));
+    return excludes(this.#exclusionsFor(path), path, this.#realPathOfPath.get(path));
+  }
+
+  /**
+   * The exclusions that decide about a path: the **deepest** project containing
+   * it, and no other.
+   *
+   * The deepest, because a nested manifest is a project of its own and the file
+   * beneath it is that project's: its `exclude` is the one about this file, and
+   * its parent's is about the parent's own sources. A path no project contains
+   * — a hoisted dependency beside two editor roots — is excluded by nobody,
+   * which is also what its own package's walk decided.
+   */
+  #exclusionsFor(path: string): Exclusions {
+    const realPath = this.#realPathOfPath.get(path);
+    let deepest: { readonly directory: string; readonly exclude: Exclusions } | undefined;
+    for (const scoped of this.#exclusions) {
+      // Under either name the file can be reached by, for the reason
+      // `#isExcluded` matches under both: a link is a second name for a file,
+      // and the project it lies in can be reachable under only one of them.
+      const holds = within(scoped.directory, path)
+        || (realPath !== undefined && within(scoped.directory, realPath));
+      if (!holds) continue;
+      if (deepest === undefined || scoped.directory.length > deepest.directory.length) {
+        deepest = scoped;
+      }
+    }
+    return deepest?.exclude ?? NOTHING_EXCLUDED;
   }
 
   /** Takes over a file's contents from the editor, unsaved edits included. */
@@ -609,40 +660,49 @@ export class Workspace {
   }
 
   /**
-   * The programs a file no program holds yet belongs to.
+   * The programs a file no program holds yet belongs to, and what each of them
+   * takes it as.
    *
-   * A file beneath a package of some program's closure joins that package: it
-   * is that dependency's source, in every program whose closure holds it.
+   * Asked **per program**, because one file is two things at once often enough
+   * to be ordinary: a package a user opens as an editor root is that program's
+   * own source and its neighbour's dependency in the same moment (D1). Owning
+   * comes first — the enclosing project directory takes the file as its own
+   * source, the **deepest** one, since a nested manifest is a project of its
+   * own and lies inside its parent — and every *other* program whose closure
+   * holds the file's package takes it as that package's source, which is what
+   * makes a newly created file compile in all of them without a rediscovery.
+   * A program that never owns the file and never holds its package does not
+   * adopt it at all.
    *
-   * Otherwise the enclosing project directory owns it — the **deepest** one,
-   * since a nested manifest is a project of its own (D1) and lies inside its
-   * parent — and only where the file is somewhere that project's own walk would
-   * have gone. `node_modules`, the host's output directory and the rest of
-   * `files.ts`'s skipped names bound a package's files (Packages §2.2), and
-   * this door has to apply that bound too: an installed package nobody listed
-   * in `dependencies` sits under the project's `node_modules` unreachable by
-   * the closure, and adopting one of its files here would compile a
-   * dependency's module under the *project's* package name and silently answer
-   * the very import Packages §7's not-a-dependency report exists to refuse.
+   * Both routes apply the walk's bounds, because a door that seats what the
+   * walk left out makes the walk's answer advisory. A package's files are the
+   * `.hex` beneath its manifest with `node_modules`, this host's output
+   * directories, and every directory holding a `hexagon.json` of its own
+   * excluded (Packages §2.2), so:
    *
-   * So a file under a skipped directory of the project that encloses it belongs
-   * to no program at all, and stays out of every session until a `dependencies`
-   * entry brings its package in and a rediscovery seats it as that package's.
+   * - a file under a skipped directory joins nothing. An installed package
+   *   nobody listed in `dependencies` sits under a `node_modules` no closure
+   *   reaches, and adopting one of its files would compile its module under
+   *   the enclosing package's name and silently answer the very import
+   *   Packages §7's not-a-dependency report exists to refuse;
+   * - a file beneath a nested manifest joins nothing here either — it is that
+   *   package's, and that package is in no closure yet;
+   * - and the package a file does join is the **deepest** one containing it.
+   *   npm nests one install inside another, so two packages of one closure can
+   *   both contain a file; giving it to both gives one file two full names —
+   *   `Acme.Lib` and `Bolt.Lib` — and Modules §2.2 then reports a module
+   *   declared twice, naming two files under `node_modules` that the reader
+   *   did not write and cannot correct.
+   *
+   * So a file the bounds put outside every package belongs to no program at
+   * all, and stays out of every session until the package that owns it enters
+   * some closure and a rediscovery seats it as that package's source.
    */
   #adopters(path: string): readonly Program[] {
-    const withinPackage = this.#programs.filter((program) =>
-      program.packages.some((dependency) => within(dependency.directory, path))
-    );
-    if (withinPackage.length > 0) {
-      for (const program of withinPackage) {
-        for (const dependency of program.packages) {
-          if (!within(dependency.directory, path)) continue;
-          dependency.paths.add(path);
-          this.#reconfigure(program);
-        }
-      }
-      return withinPackage;
-    }
+    // The project whose own walk would have reached the file. The bound is
+    // asked of the deepest one and never falls back to a shallower project: a
+    // file inside a package is that package's alone, so a project that cannot
+    // reach it does not get it by being further away.
     let owner: Program | undefined;
     for (const program of this.#programs) {
       if (!within(program.directory, path)) continue;
@@ -650,10 +710,45 @@ export class Workspace {
         owner = program;
       }
     }
-    if (owner === undefined) return [];
-    if (crossesSkippedDirectory(owner.directory, path)) return [];
-    owner.own.add(path);
-    return [owner];
+    if (owner !== undefined && crossesSkippedDirectory(owner.directory, path)) owner = undefined;
+    const adopted: Program[] = [];
+    for (const program of this.#programs) {
+      if (program === owner) {
+        program.own.add(path);
+        adopted.push(program);
+        continue;
+      }
+      const holder = this.#packageHolding(program, path);
+      if (holder === undefined) continue;
+      holder.paths.add(path);
+      // Once for the program, not once per package of it: a package's file list
+      // is an option, `configure` replaces the whole set, and one file joins
+      // exactly one package.
+      this.#reconfigure(program);
+      adopted.push(program);
+    }
+    return adopted;
+  }
+
+  /**
+   * The package of this program's closure whose source `path` would be, or
+   * nothing where §2.2's bounds put it outside every one of them.
+   */
+  #packageHolding(program: Program, path: string): HeldPackage | undefined {
+    let holder: HeldPackage | undefined;
+    for (const dependency of program.packages) {
+      if (!within(dependency.directory, path)) continue;
+      if (holder === undefined || dependency.directory.length > holder.directory.length) {
+        holder = dependency;
+      }
+    }
+    if (holder === undefined) return undefined;
+    if (crossesSkippedDirectory(holder.directory, path)) return undefined;
+    // A `hexagon.json` beneath the package ends the package there. The walk
+    // reports the boundaries it stopped at, so this asks what the walk saw
+    // rather than looking for manifests of its own and disagreeing with it.
+    if (holder.nested.some((boundary) => within(boundary, path))) return undefined;
+    return holder;
   }
 
   /**

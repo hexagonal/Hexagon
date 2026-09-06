@@ -70,6 +70,18 @@ export interface DiscoveredPackage {
   readonly record: ProgramPackage;
   /** Its own `.hex` files, beneath its manifest and within its bounds (§2.2). */
   readonly files: readonly FoundFile[];
+  /**
+   * The canonical directories beneath it that hold a `hexagon.json` of their
+   * own — §2.2's third exclusion, carried rather than dropped.
+   *
+   * A boundary is a fact about the *directory*, not about the files that were
+   * there when the walk ran: a host that seats a file the walk never handed it
+   * has to refuse one beneath a boundary, or a package vendored inside a
+   * dependency gets compiled under the dependency's name. The walk is the only
+   * thing that knows where the boundaries are, so it says so here rather than
+   * letting each door look for manifests of its own and disagree.
+   */
+  readonly nested: readonly string[];
   readonly isProject: boolean;
 }
 
@@ -221,6 +233,7 @@ export async function discoverProgram(
           installed,
         },
         files: files.files,
+        nested: files.nested,
         isProject: false,
       });
       await resolveEntries(next);
@@ -346,14 +359,6 @@ async function resolvedContainer(entry: string): Promise<string> {
   const container = entry.slice(0, at);
   const resolved = normalizePath(await realPathOf(container));
   return `${resolved}${entry.slice(at)}`;
-}
-
-/** Merges several roots' exclusions, for a host that holds more than one. */
-export function mergedExclusions(all: readonly Exclusions[]): Exclusions {
-  return {
-    literal: all.flatMap(({ literal }) => literal),
-    real: all.flatMap(({ real }) => real),
-  };
 }
 
 /**

@@ -120,6 +120,16 @@ the same bound or the walk's answer is only advisory: a `.hex` under a project's
 `node_modules` would otherwise join the project as its *own* source, compiling a
 dependency's module under the project's package name.
 
+§2.2's third exclusion travels the same way. A directory holding a
+`hexagon.json` of its own ends the package there, and only the walk knows where
+those boundaries are — so it says so, as `Walked.nested` and then as
+`Program.nested` and `DiscoveredPackage.nested`, and a door refuses a file
+beneath one rather than hunting for manifests of its own and disagreeing about
+where a package stops. With all three exclusions asked at every door, what is
+left of "no file ever has two full names" is the second way a file can get two:
+two packages of one closure containing it, which is npm's ordinary nested
+install, and which the **deepest** containing package answers.
+
 ## Tests
 
 `vitest`, against **real directories**: real `node_modules` trees, real

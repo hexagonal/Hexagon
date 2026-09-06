@@ -465,6 +465,14 @@ its own edge cases, and prefixes answer every case that motivated this. Entries
 are resolved against the manifest's own directory, which is the only reading
 that survives the project being checked out somewhere else.
 
+The field reaches **that project's own files and no other program's**. A
+workspace holds one program per project directory, so a manifest that names a
+path inside a nested project, or inside a sibling root, is naming files that
+project's own manifest answers for; the walk already reads it that way, each
+project walked with its own exclusions, and every door the server seats a file
+by asks the same question the walk asked. Keeping a file out of a nested
+project is therefore an entry in *its* `hexagon.json`.
+
 None of this could be inferred. Treating `examples/` as excluded because of its
 name would be the same mistake as inferring meaning from a name anywhere else in
 this compiler — a project has to say so. Nothing else is in the file: no build

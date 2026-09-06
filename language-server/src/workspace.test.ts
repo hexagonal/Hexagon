@@ -382,7 +382,17 @@ describe("the workspace walk", () => {
     expect(workspace.session.paths).toHaveLength(2);
   });
 
-  test("one root's exclusion does not depend on the order roots are walked", async () => {
+  /**
+   * `exclude` is a field of a manifest, and a manifest describes one package:
+   * the entries in it are about that project's own files and reach no other
+   * program's (Packages §2.1, D1). A workspace holds several programs now, and
+   * the walk already reads it this way — each project is walked with its own
+   * manifest's exclusions — so a door that consulted every manifest at once
+   * would answer differently from the walk about the same file, and which
+   * answer a reader got would depend on whether the walk or a watcher event
+   * reached it first.
+   */
+  test("one root's exclusion does not reach another root's files", async () => {
     const path = await makeRoot();
     const a = join(path, "a");
     const b = join(path, "b");
@@ -391,12 +401,9 @@ describe("the workspace walk", () => {
     await writeFile(join(a, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
     await writeFile(join(a, "gen", "g.hex"), "module G\n\n" + "let generated: Int = 2\n");
     await writeFile(join(b, "other.hex"), "module Other\n\n" + "let other: Int = 3\n");
-    // B's manifest excludes a directory under A. Reading every manifest before
-    // any walk is what makes that hold whichever order the roots arrive in: the
-    // walk already knows B's exclusion when it descends A, so `g.hex` is never
-    // added in the first place. The trailing sweep would catch it too, but it
-    // never has to here — deleting the sweep's exclusion branch leaves this test
-    // green, which is why the claim belongs to the read order and not to it.
+    // B's manifest names a directory under A. A's own manifest excludes
+    // nothing, so A keeps every file it has, and B — which the entry cannot
+    // reach either, since nothing of B's lies there — keeps its own.
     await writeFile(join(b, MANIFEST_NAME), JSON.stringify({ exclude: [join(a, "gen")] }));
 
     const forwards = new Workspace();
@@ -409,13 +416,54 @@ describe("the workspace walk", () => {
       w.programs.flatMap(({ session }) => session.paths)
         .map((p) => p.split("/").at(-1))
         .sort();
-    expect(names(forwards)).toEqual(["main.hex", "other.hex"]);
-    expect(names(backwards)).toEqual(["main.hex", "other.hex"]);
+    // And the answer does not depend on the order the roots arrive in, which is
+    // what every manifest being read before any walk buys.
+    expect(names(forwards)).toEqual(["g.hex", "main.hex", "other.hex"]);
+    expect(names(backwards)).toEqual(["g.hex", "main.hex", "other.hex"]);
 
-    // And reloading must not delete a file one root excludes and no later walk
-    // restores — a sweep after every root would strand it until a restart.
+    // Stable across a reload: the trailing sweep asks the same question the
+    // walk did, so nothing is added by one and taken away by the other.
     await forwards.setRoots([a, b], () => {});
-    expect(names(forwards)).toEqual(["main.hex", "other.hex"]);
+    expect(names(forwards)).toEqual(["g.hex", "main.hex", "other.hex"]);
+  });
+
+  /**
+   * The nested case, which is the one a user meets: a project inside a project
+   * (D1). The parent's `exclude` is about the parent's sources, and the nested
+   * project's files are the nested project's — its own manifest is where its
+   * own `exclude` goes.
+   */
+  test("a parent project's `exclude` does not empty the nested project it names", async () => {
+    const path = await makeRoot();
+    const nested = join(path, "packages", "geometry");
+    await mkdir(join(nested, "generated"), { recursive: true });
+    await writeFile(
+      join(path, MANIFEST_NAME),
+      JSON.stringify({ exclude: [join(nested, "generated")] }),
+    );
+    await writeFile(join(path, "main.hex"), "module Main\n\n" + "let value: Int = 1\n");
+    await writeFile(join(nested, MANIFEST_NAME), JSON.stringify({ name: "Geometry" }));
+    await writeFile(join(nested, "shape.hex"), "module Shape\n\n" + "let sides: Int = 4\n");
+    await writeFile(
+      join(nested, "generated", "table.hex"),
+      "module Table\n\n" + "let size: Int = 2\n",
+    );
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    const held = workspace.programs
+      .flatMap(({ session }) => session.paths)
+      .map((p) => p.split("/").at(-1))
+      .sort();
+    expect(held).toEqual(["main.hex", "shape.hex", "table.hex"]);
+    // Its own program holds it, and holds it as project source: the file is
+    // `Geometry.Table`, not something the parent excluded on its behalf.
+    const table = workspace.pathFor(
+      pathToFileURL(join(nested, "generated", "table.hex")).toString(),
+    );
+    expect(workspace.programFor(table)!.directory.endsWith("/geometry")).toBe(true);
+    expect(workspace.isExcludedUri(pathToFileURL(join(nested, "generated", "table.hex")).toString()))
+      .toBe(false);
   });
 
   test("a file deleted from disk is gone after a rescan, with no watcher event", async () => {
@@ -929,6 +977,153 @@ describe("programs, and a file two of them hold", () => {
     await workspace.refreshFromDisk(uri);
     expect(workspace.programs[0]!.owns(workspace.pathFor(uri))).toBe(true);
   });
+
+  /**
+   * npm's ordinary nested install: `App` lists `Acme`, `Acme` lists `Bolt`, and
+   * `Bolt` is installed under `Acme`'s own `node_modules` because the two
+   * versions of it could not be hoisted together. Both packages are in the
+   * closure, and `Acme`'s directory **contains** `Bolt`'s, so a file under
+   * `Bolt` is inside two packages at once.
+   *
+   * The deepest is the one it belongs to (Packages §2.2, "its files belong to
+   * it alone, so no file ever has two full names"). Giving it to both compiles
+   * one file twice, as `Acme.Lib` and as `Bolt.Lib`, and Modules §2.2's
+   * duplicate rule then fires on the collision with the real `Acme.Lib` —
+   * naming two files under `node_modules` that the reader did not write and
+   * cannot correct.
+   */
+  test("a file created under a nested closure package joins it, not the package around it", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, MANIFEST_NAME), manifest({ name: "App", dependencies: ["Acme"] }));
+    await writeFile(join(path, "main.hex"), "module Main\n\nimport Acme.Lib\n\nlet n: Int = Lib.one\n");
+    const acme = join(path, "node_modules", "acme");
+    const bolt = join(acme, "node_modules", "bolt");
+    await mkdir(bolt, { recursive: true });
+    await writeFile(join(acme, MANIFEST_NAME), manifest({ name: "Acme", dependencies: ["Bolt"] }));
+    await writeFile(
+      join(acme, "lib.hex"),
+      "module Lib\n\nimport Bolt.Fresh\n\nexport let one: Int = Fresh.three\n",
+    );
+    await writeFile(join(bolt, MANIFEST_NAME), manifest({ name: "Bolt" }));
+    await writeFile(join(bolt, "tool.hex"), "module Tool\n\nexport let two: Int = 2\n");
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    const lib = workspace.pathFor(pathToFileURL(join(acme, "lib.hex")).toString());
+    expect(workspace.session.diagnostics(lib).map(({ message }) => message))
+      .toContain("no module `Bolt.Fresh`");
+
+    // Two files, because the two halves of the rule are separate facts: one has
+    // a name only `Bolt` can supply, the other a name `Acme` already has.
+    const fresh = join(bolt, "fresh.hex");
+    await writeFile(fresh, "module Fresh\n\nexport let three: Int = 3\n");
+    await workspace.refreshFromDisk(pathToFileURL(fresh).toString());
+    const collide = join(bolt, "lib.hex");
+    await writeFile(collide, "module Lib\n\nexport let four: Int = 4\n");
+    await workspace.refreshFromDisk(pathToFileURL(collide).toString());
+
+    // It joined `Bolt`: `Acme`'s own import of `Bolt.Fresh` now resolves.
+    expect(workspace.session.diagnostics(lib)).toEqual([]);
+    // And it did not also join `Acme`, which is what a duplicate would say.
+    const everything = [...workspace.allDiagnostics().values()]
+      .flat()
+      .map(({ diagnostic }) => diagnostic.message);
+    expect(everything).toEqual([]);
+    for (const created of [fresh, collide]) {
+      const key = workspace.pathFor(pathToFileURL(created).toString());
+      expect(workspace.programs[0]!.holds(key)).toBe(true);
+      expect(workspace.programs[0]!.owns(key)).toBe(false);
+    }
+  });
+
+  /**
+   * §2.2's bounds are the package's, not only the project's: a dependency's
+   * `dist/` is no more its source than a project's is. Two doors reach a file
+   * the walk left out — a watcher event, and an editor opening it — and the
+   * third row here needs no watcher at all: the file is already on disk when
+   * the workspace opens, and one go-to-file compiles it as `Acme.Gen`.
+   */
+  test("a file under a dependency's own skipped directories is nobody's source", async () => {
+    const consumer = async (): Promise<{ path: string; acme: string; workspace: Workspace }> => {
+      const path = await makeRoot();
+      await writeFile(join(path, MANIFEST_NAME), manifest({ dependencies: ["Acme"] }));
+      await writeFile(
+        join(path, "main.hex"),
+        "module Main\n\nimport Acme.Gen\n\nlet value: Int = Gen.made\n",
+      );
+      const acme = join(path, "node_modules", "acme");
+      await mkdir(join(acme, "dist"), { recursive: true });
+      await mkdir(join(acme, "node_modules", "unlisted"), { recursive: true });
+      await writeFile(join(acme, MANIFEST_NAME), manifest({ name: "Acme" }));
+      await writeFile(join(acme, "lib.hex"), "module Lib\n\nexport let one: Int = 1\n");
+      await writeFile(
+        join(acme, "node_modules", "unlisted", MANIFEST_NAME),
+        manifest({ name: "Unlisted" }),
+      );
+      const workspace = new Workspace();
+      await workspace.setRoots([path], () => {});
+      return { path, acme, workspace };
+    };
+    const refused = (workspace: Workspace, path: string): readonly string[] =>
+      workspace.session
+        .diagnostics(workspace.pathFor(pathToFileURL(join(path, "main.hex")).toString()))
+        .map(({ message }) => message);
+
+    for (const [where, touch] of [
+      ["dist", "watcher"],
+      ["dist", "open"],
+      [join("node_modules", "unlisted"), "watcher"],
+    ] as const) {
+      const { path, acme, workspace } = await consumer();
+      expect(refused(workspace, path)).toContain("no module `Acme.Gen`");
+      const generated = join(acme, where, "gen.hex");
+      const text = "module Gen\n\nexport let made: Int = 9\n";
+      await writeFile(generated, text);
+      const uri = pathToFileURL(generated).toString();
+      if (touch === "watcher") {
+        await workspace.refreshFromDisk(uri);
+      } else {
+        await workspace.openDocument({ uri, getText: () => text } as never);
+      }
+      const key = workspace.pathFor(uri);
+      expect(workspace.programs[0]!.holds(key)).toBe(false);
+      expect(workspace.programs[0]!.owns(key)).toBe(false);
+      // The refusal Packages §7 exists to draw still stands.
+      expect(refused(workspace, path)).toContain("no module `Acme.Gen`");
+    }
+  });
+
+  /**
+   * §2.2's third exclusion, inside a dependency: a `hexagon.json` of its own
+   * makes `vendor` a package of its own, and no closure of this program reaches
+   * it. Adopting a file from it would compile `Vendored`'s module as `Acme`'s.
+   */
+  test("a file beneath a manifest of its own inside a dependency is not the dependency's", async () => {
+    const path = await makeRoot();
+    await writeFile(join(path, MANIFEST_NAME), manifest({ dependencies: ["Acme"] }));
+    await writeFile(
+      join(path, "main.hex"),
+      "module Main\n\nimport Acme.Gen\n\nlet value: Int = Gen.made\n",
+    );
+    const acme = join(path, "node_modules", "acme");
+    await mkdir(join(acme, "vendor"), { recursive: true });
+    await writeFile(join(acme, MANIFEST_NAME), manifest({ name: "Acme" }));
+    await writeFile(join(acme, "lib.hex"), "module Lib\n\nexport let one: Int = 1\n");
+    await writeFile(join(acme, "vendor", MANIFEST_NAME), manifest({ name: "Vendored" }));
+
+    const workspace = new Workspace();
+    await workspace.setRoots([path], () => {});
+    const main = workspace.pathFor(pathToFileURL(join(path, "main.hex")).toString());
+    const before = workspace.session.diagnostics(main).map(({ message }) => message);
+    expect(before).toContain("no module `Acme.Gen`");
+
+    const added = join(acme, "vendor", "gen.hex");
+    await writeFile(added, "module Gen\n\nexport let made: Int = 9\n");
+    await workspace.refreshFromDisk(pathToFileURL(added).toString());
+    expect(workspace.programs[0]!.holds(workspace.pathFor(pathToFileURL(added).toString())))
+      .toBe(false);
+    expect(workspace.session.diagnostics(main).map(({ message }) => message)).toEqual(before);
+  });
 });
 
 /**
@@ -959,5 +1154,47 @@ describe("a file one program owns and another holds", () => {
     // The author of `acme/geometry.hex` edits `acme`, so `acme`'s program is
     // the one whose repairs and renames they can act on.
     expect(workspace.programFor(key)!.directory.endsWith("/acme")).toBe(true);
+  });
+
+  /**
+   * And the same for a file created **after** discovery, which is the one a
+   * user meets: they add a module to their own package while its consumer is
+   * open beside it. Answering with the consumer would take the file's own
+   * project's repairs away — `projectManifestOf` is `undefined` for a program
+   * that holds the file only as a dependency's source, so Packages §7's
+   * not-a-dependency quick fix would be withheld in exactly the project whose
+   * manifest it should edit.
+   */
+  test("a file created in a package that is also a root joins the program that owns it", async () => {
+    const path = await makeRoot();
+    await mkdir(join(path, "app", "node_modules"), { recursive: true });
+    await mkdir(join(path, "acme"), { recursive: true });
+    await writeFile(join(path, "app", MANIFEST_NAME), manifest({ dependencies: ["Acme"] }));
+    await writeFile(join(path, "app", "main.hex"), "module Main\n\nimport Acme.Geometry\n");
+    await writeFile(join(path, "acme", MANIFEST_NAME), manifest({ name: "Acme" }));
+    await writeFile(
+      join(path, "acme", "geometry.hex"),
+      "module Geometry\n\nexport let width: Int = 3\n",
+    );
+    await symlink(join(path, "acme"), join(path, "app", "node_modules", "acme"), "dir");
+
+    const workspace = new Workspace();
+    await workspace.setRoots([join(path, "app"), join(path, "acme")], () => {});
+    const added = join(path, "acme", "extra.hex");
+    await writeFile(added, "module Extra\n\nexport let depth: Int = 4\n");
+    await workspace.refreshFromDisk(pathToFileURL(added).toString());
+    const key = workspace.pathFor(pathToFileURL(added).toString());
+
+    // Both programs have it — `app` compiles it as `Acme.Extra` — and the one
+    // that owns it answers.
+    expect(workspace.programs.filter((program) => program.holds(key))).toHaveLength(2);
+    expect(workspace.programs.filter((program) => program.owns(key))).toHaveLength(1);
+    expect(workspace.programFor(key)!.directory.endsWith("/acme")).toBe(true);
+    expect(workspace.projectManifestOf(key)?.path).toBe(
+      workspace.pathFor(pathToFileURL(join(path, "acme", MANIFEST_NAME)).toString()),
+    );
+    for (const program of workspace.programs) {
+      expect(program.session.diagnostics(key)).toEqual([]);
+    }
   });
 });

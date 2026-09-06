@@ -530,6 +530,27 @@ describe("§2.2 / §2.5 — what a project holds, and where one begins", () => {
   });
 
   /**
+   * A boundary inside a **dependency** is carried the same way. A host seats
+   * files the walk never handed it — a watcher event, an editor opening one —
+   * so it has to be able to ask where the package it is about stops, and the
+   * walk is the only thing that knows.
+   */
+  test("a dependency carries the boundaries beneath it, not only the files above them", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/lib.hex": "module Lib\n",
+      "node_modules/acme/vendor/hexagon.json": manifest({ name: "Vendored" }),
+      "node_modules/acme/vendor/thing.hex": "module Thing\n",
+    });
+    const program = await discover(root);
+    const acme = program.packages[0]!;
+    expect(acme.files.map(({ path }) => path)).toEqual([`${root}/node_modules/acme/lib.hex`]);
+    expect(acme.nested).toEqual([`${root}/node_modules/acme/vendor`]);
+  });
+
+  /**
    * An absolute `exclude` entry pasted in the spelling the user's own shell
    * shows them — `/var/folders/…` where the walk says `/private/var/folders/…`
    * — still matches. `exclude` failing silently is the one failure this field

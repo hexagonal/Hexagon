@@ -124,18 +124,25 @@ export async function realPathOf(path: string): Promise<string> {
  * and keeps publishing diagnostics until the next rediscovery. The climb costs
  * one `realpath` per missing level, is made once per URI and remembered, and
  * ends at the root at the latest. A path with no existing ancestor at all —
- * only a root that is not there — answers with itself.
+ * only a root that is not there — answers with its own name, in the one
+ * spelling this function ever answers in.
  */
 export function settledPathSync(path: string): string {
   try {
-    return realpathSync(path);
+    // Normalized here as well as on the climb below. One function answering in
+    // two spellings is the hazard this file exists to remove: on Windows
+    // `realpathSync` hands back back-slashes while the climb rebuilds its
+    // answer with forward ones, so a caller that did not normalize what it got
+    // would hold one file under two names depending on nothing more than
+    // whether the file was there.
+    return normalizePath(realpathSync(path));
   } catch {
     const normalized = normalizePath(path);
     const tail: string[] = [];
     let at: string | undefined = normalized;
     while (at !== undefined) {
       const parent: string | undefined = parentDirectoryOf(at);
-      if (parent === undefined) return path;
+      if (parent === undefined) return normalized;
       tail.unshift(at.slice(parent.endsWith("/") ? parent.length : parent.length + 1));
       try {
         const resolved = normalizePath(realpathSync(parent));
@@ -144,7 +151,7 @@ export function settledPathSync(path: string): string {
         at = parent;
       }
     }
-    return path;
+    return normalized;
   }
 }
 
