@@ -307,7 +307,7 @@ loophole.
   everything they dispatch to is pure — the prelude's members, which all write `->`;
   a constraint of your own declares each member's arrow as a contract its instances
   are compared against; and
-- effects enter through user-written externs, each row writing its own arrow — `->!`
+- effects enter through user-written externs, each declaration writing its own arrow — `->!`
   when in doubt, `->` as a trusted claim that it never touches the world, `->?` when it
   is exactly as effectful as the callbacks it is handed — believed, never checked; and
 - the standard library's own exception is the debug probe — `Debug.log` and `Debug.trace`, from

@@ -375,8 +375,8 @@ late pedagogy pass, not a commitment to the current order.
   excluded), the arrow trio `->` / `->?` / `->!` and the call trichotomy bare / `!` /
   `?` as one alphabet, glued marks, the linked signature and its inlet, face
   enforcement in both directions, the four unmarkable call forms and the purity they
-  demand, the extern door with `->` on the declaration as the trusted claim, and erasure — colours
-  never reach the emitted JavaScript.
+  demand, the extern door with `->` on the declaration as the trusted claim, and
+  erasure — colours never reach the emitted JavaScript.
 - Introduces `extern from` blocks ahead of the JavaScript chapters, deliberately and
   lightly: effects need the world's door on stage, and the full boundary treatment
   stays deferred.

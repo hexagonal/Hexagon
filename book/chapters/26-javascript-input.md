@@ -293,8 +293,7 @@ Hexagon calls `Url.create(text)`, `Url.canParse(text)`, `Url.toString!(url)`, an
 `Url.hostname!(url)`. JavaScript receives `new URL(text)`, a static receiver call, an
 instance receiver call, and a property read respectively. A constructor writes and
 checks the class's own type after its arrow; `create` writes `->` because constructing a
-`URL` touches nothing, where a constructor that opened a connection would write `->!`,
-as `createClient` did above.
+`URL` touches nothing, where a constructor that opened a connection would write `->!`.
 
 `class`, `new`, `method`, `get`, and `set` describe the foreign calling convention.
 They do not introduce inheritance, subclassing, overriding, implicit receivers, or a
