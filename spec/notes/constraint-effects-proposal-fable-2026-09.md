@@ -135,6 +135,43 @@ must not change required source marks. Member references remain unmarked and
 carry the interface's callable type; a separately exposed ordinary helper can
 retain its more precise inferred type.
 
+### `widens` preserves the interface effect
+
+There is no `widens` exception to this rule. If the supplied constraint member
+permits effects, calls to its `widens` implementation require `!`, including
+direct qualified and dot calls, even when the body is pure. References to the
+widened binding likewise expose that interface effect. Knowing the concrete
+implementation does not grant a purer callable contract.
+
+The body's effect is still inferred, then checked for compatibility. A
+`widens` header continues to use `: Result` when a result annotation is written;
+it need not repeat the member's effect. Separate the body's inferred behaviour
+from the effect exposed by the binding. The public argument seats remain wider,
+but the public invocation effect comes from the constraint contract.
+
+This deliberately qualifies the existing generalisation law in Constraints
+§4.7, Modules §5.3, and Method Syntax §6.1: exposing the operation's widest
+argument face does not expose a more precise implementation effect. Those
+specifications must be revised together; this is an intended semantic ruling,
+not an implementation detail to resolve by inference.
+
+The rationale is minimal churn under a stable interface:
+
+| Body change under an effectful member contract | Agreed public effect | Rejected inferred-effect exception |
+|---|---|---|
+| Pure to effectful | Calls remain `!` | Direct calls change from bare to `!` |
+| Effectful to pure | Calls remain `!` | Direct calls change from `!` to bare |
+
+Under the rejected exception, changes can propagate through callers' inferred
+effects as well. Under this agreement, changing an implementation within the
+interface's allowance does not change those callers' effect classification.
+The cost is intentional: a pure implementation behind an effectful member
+cannot be used as pure through that member or its widened binding. A separately
+named ordinary helper may expose a pure operation when that is part of the
+author's intended API; the compiler does not expose one automatically.
+
+### Meaning of the call marks
+
 The readings are:
 
 - Bare: invocation is statically guaranteed pure.
@@ -322,12 +359,19 @@ Before promoting this proposal:
    face, including known instances, aliases, defaults, recursive member calls,
    derived implementations, and exported semantic interfaces. Any adaptation
    must preserve invocation timing and multiplicity.
+   Include direct `widens` calls and references: their wider argument types must
+   retain the interface effect even for pure bodies. Specify compatibility for
+   a single `widens` binding supplying multiple member contracts; conflicting
+   effect contracts must not silently select a public effect or restore the
+   rejected inferred-effect exception.
 3. Validate the inference correction on immediate versus deferred callback calls,
    `compose`, Stream construction, recursive groups, and expected-type propagation.
 4. Add conformance cases for the constant compatibility table; linked members
    accepting both callback effects on the same instance; rejection of independent
    I/O under a linked outer contract; rejection of pure-only callback acceptance;
-   and stable call marks through generic and concrete member access.
+   and stable call marks through generic and concrete member access. Include
+   pure/effectful body changes beneath an unchanged effectful `widens` contract:
+   qualified calls, dot calls, and aliases must retain `!` in both versions.
 5. Validate extern parsing and displayed faces for all three arrows on functions,
    receiver/static members, and constructors; retain `Unit` setter and enclosing
    class result checks. Test omission diagnostics, modifier migration, linked
