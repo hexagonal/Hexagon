@@ -13,6 +13,8 @@
  * is safe; one that half-succeeds is the one that ships.
  */
 
+import { titlecase, uppercase } from "../passes/lexer/unicode-17.js";
+
 export const IDENTIFIER_START = "[\\p{ID_Start}$_]";
 export const IDENTIFIER_CONTINUE = "[\\p{ID_Continue}$_\\u200C\\u200D]";
 
@@ -31,6 +33,58 @@ export function isIdentifierStart(character: string): boolean {
 
 export function isIdentifierContinue(character: string): boolean {
   return ONE_CONTINUE.test(character);
+}
+
+/**
+ * Lexer §3.1's `UpperName` start, over the lexer's **own** tables.
+ *
+ * `uppercase` and `titlecase` are the generated Unicode 17.0.0 tables the lexer
+ * scans names with, imported rather than restated: §3.1 requires the compiler to
+ * ship these tables and not inherit a host's Unicode version, and a second
+ * spelling of the class is a second answer to "does this name begin uppercase"
+ * that drifts a release at a time. `[A-Z]` is the copy that has already been
+ * written twice and is wrong in the same quiet way the header above describes —
+ * it agrees with the lexer on `Acme` and disagrees on `Résultat`.
+ *
+ * The class is `Uppercase = Yes` **or** `General_Category = Lt`, both halves,
+ * because that is the whole of §3.1's rule: `ǅurđević` is an `UpperName` though
+ * `ǅ` has `Uppercase = No`.
+ *
+ * The tables are surrogate-pair alternations and must be composed **without**
+ * the `u` flag, which is why this is anchored by composition rather than shared
+ * with `IDENTIFIER`'s `\p{…}` fragments — those are embedded into `u`-flagged
+ * patterns by the query seats and the two cannot be one regex.
+ *
+ * The shipped tables answer the **casing** half only. `isUpperName`'s other half
+ * is `IDENTIFIER`, whose `\p{ID_Start}`/`\p{ID_Continue}` are the *host's*
+ * tables, where the lexer scans its own `idStart`/`idContinue`. The two are
+ * identical on Node 24's Unicode 17.0, measured over every non-surrogate code
+ * point; composing `IDENTIFIER` from the shipped tables as well is #863.
+ */
+const UPPER_NAME_START = new RegExp(`^(?:${uppercase.source}|${titlecase.source})$`);
+
+/**
+ * The first code point of `text`, or `undefined` where `text` is empty.
+ *
+ * Where the first character is astral, `text[0]` and `charAt(0)` answer with
+ * half a surrogate pair, and half a pair has no Unicode property worth testing:
+ * `𝐀bc` comes back as not uppercase-start, and upper-casing that half rebuilds
+ * the name unchanged rather than raising its first letter.
+ */
+export function firstCodePoint(text: string): string | undefined {
+  const codePoint = text.codePointAt(0);
+  return codePoint === undefined ? undefined : String.fromCodePoint(codePoint);
+}
+
+/** Whether `text` begins with an `UpperName`'s first codepoint (Lexer §3.1). */
+export function beginsUpperName(text: string): boolean {
+  const first = firstCodePoint(text);
+  return first !== undefined && UPPER_NAME_START.test(first);
+}
+
+/** Whether `text` is a whole `UpperName` and nothing else (Lexer §3.1). */
+export function isUpperName(text: string): boolean {
+  return IDENTIFIER.test(text) && beginsUpperName(text);
 }
 
 /**
