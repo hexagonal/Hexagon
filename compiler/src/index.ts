@@ -26,7 +26,21 @@ export { compileProject } from "./project.js";
 // way the compiler does — so it reads the compiler's own answer, through the
 // entry point every other cross-package import goes through.
 export { dependencyRefusal, packageNameRefusal } from "./packages.js";
-export type { CompiledModule, CompiledProject } from "./project.js";
+// The package set's validation (Packages §4.1, §4.3). A host discovers the
+// directories and hands the edges in as records; what the closure *is* — one
+// copy per name, acyclic, the project's name unclaimed — is decided here, so
+// that a second discovery mechanism changes a host and no rule (D2).
+export { validatePackageSet } from "./packages.js";
+export type {
+  PackageProblem,
+  PackageRecord,
+  PackageSet,
+  PackageSetMember,
+  ProgramPackage,
+  ResolvedEdge,
+  UnreadableManifest,
+} from "./packages.js";
+export type { CompiledModule, CompiledProject, ProjectOptions, ProjectPackage } from "./project.js";
 export type { RuntimeLocation, RuntimeLocations } from "./passes/emitter/emitter.js";
 export {
   collectTypeOccurrences,
@@ -48,6 +62,7 @@ export {
   type RenameResult,
   type RenameSubject,
   type SessionOptions,
+  type SessionPackage,
 } from "./analysis/session.js";
 export { hoverMarkdown } from "./analysis/hover-text.js";
 export {

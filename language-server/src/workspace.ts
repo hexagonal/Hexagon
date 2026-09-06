@@ -20,24 +20,26 @@
  * the host's job, and it stops here.
  */
 
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import { AnalysisSession } from "../../compiler/src/index.js";
 import { fileSystemPath, UriPaths } from "./positions.js";
 import {
   comparablePath,
-  isExcluded,
+  excludes,
+  messageOf,
+  exclusionsOf,
+  hexagonFilesUnder,
+  mergedExclusions,
+  nothingSeen,
+  NOTHING_EXCLUDED,
   readManifest,
+  realPathOf,
+  type Exclusions,
   type Manifest,
   type ManifestResult,
-} from "./manifest.js";
-
-const HEXAGON_EXTENSION = ".hex";
-
-/** Directories never worth walking, whatever a workspace root contains. */
-const SKIPPED_DIRECTORIES = new Set([".git", "node_modules", "dist", "coverage", ".vscode"]);
+} from "../../host/src/index.js";
 
 export class Workspace {
   readonly session = new AnalysisSession();
@@ -122,13 +124,14 @@ export class Workspace {
     // per-root memory would compile it twice, under two names, reporting every
     // declaration in it as a duplicate of itself and publishing each of its
     // diagnostics against both paths.
-    const seen: Seen = { directories: new Set(), files: new Set() };
+    const seen = nothingSeen();
     for (const root of roots) {
-      for (const { path: found, realPath } of await hexagonFilesUnder(root, this.#exclude, seen, onError)) {
+      const found = await hexagonFilesUnder(root, this.#exclude, seen, onError);
+      for (const { path: file, realPath } of found.files) {
         // Route the disk path through the URI mapping rather than handing it to
         // the session directly, so a file discovered here and the same file
         // opened later are one entry under one spelling.
-        const uri = pathToFileURL(found).toString();
+        const uri = pathToFileURL(file).toString();
         const path = this.uris.toPath(uri);
         // By path, not by URI: a client opens a buffer under its own spelling,
         // and matching the string means every rescan clobbers that buffer with
@@ -143,7 +146,7 @@ export class Workspace {
           continue;
         }
         try {
-          const text = await readFile(found, "utf8");
+          const text = await readFile(file, "utf8");
           // Asked again on the other side of the read, immediately before the
           // write it guards. `openDocument` is not serialized behind this scan,
           // so the file can be opened while the read is in flight — and the
@@ -157,7 +160,7 @@ export class Workspace {
           walked.add(path);
           added += 1;
         } catch (error) {
-          onError(`could not read ${found}: ${messageOf(error)}`);
+          onError(`could not read ${file}: ${messageOf(error)}`);
         }
       }
     }
@@ -208,18 +211,11 @@ export class Workspace {
    * to rewrite.
    */
   async #applyExclusions(): Promise<void> {
-    const literal: string[] = [];
-    const real: string[] = [];
+    const all: Exclusions[] = [];
     for (const [root, manifest] of this.#manifests) {
-      const rootPath = comparablePath(root);
-      const realRoot = comparablePath(await realPathOf(root));
-      for (const entry of manifest.exclude) {
-        const written = comparablePath(entry);
-        literal.push(written);
-        real.push(rebase(written, rootPath, realRoot));
-      }
+      all.push(await exclusionsOf(root, manifest));
     }
-    this.#exclude = { literal, real };
+    this.#exclude = all.length === 0 ? NOTHING_EXCLUDED : mergedExclusions(all);
   }
 
   /**
@@ -378,162 +374,4 @@ export class Workspace {
     this.#realPathOfPath.set(path, realPath);
     return path;
   }
-}
-
-/** A discovered file, with the identity that makes two names for it one file. */
-interface FoundFile {
-  readonly path: string;
-  readonly realPath: string;
-}
-
-/**
- * The merged exclusions, held under both names a path can be reached by.
- *
- * A symlink means one file has two names, and `exclude` matches names. Keeping
- * only one spelling makes the check depend on which name the walk happened to
- * arrive by, which is the sort of thing that works everywhere the author tested
- * and nowhere else.
- */
-interface Exclusions {
-  /** As written in the manifest, resolved against it but not through links. */
-  readonly literal: readonly string[];
-  /** The same entries under the root's *resolved* name, links below it intact. */
-  readonly real: readonly string[];
-}
-
-/**
- * An entry re-expressed under the root's resolved name, so that it can be
- * compared with a resolved file path.
- *
- * Only the prefix moves. What the user wrote below the root is left alone,
- * because that is the part they meant as a name — see `#applyExclusions`.
- */
-function rebase(entry: string, rootPath: string, realRoot: string): string {
-  if (rootPath === realRoot) return entry;
-  if (entry === rootPath) return realRoot;
-  const prefix = rootPath.endsWith("/") ? rootPath : `${rootPath}/`;
-  return entry.startsWith(prefix) ? realRoot + entry.slice(rootPath.length) : entry;
-}
-
-const NOTHING_EXCLUDED: Exclusions = { literal: [], real: [] };
-
-/** Whether a path is excluded under either of the two names it can have. */
-function excludes(
-  exclude: Exclusions,
-  path: string,
-  realPath: string | undefined,
-): boolean {
-  if (exclude.literal.length === 0) return false;
-  if (isExcluded(path, exclude.literal)) return true;
-  return realPath !== undefined && isExcluded(realPath, exclude.real);
-}
-
-/**
- * What a walk has already been to, by resolved path.
- *
- * Following symlinks means the tree is a graph: `ln -s . loop` makes a
- * directory contain itself, and a walk with no memory descends it until the
- * path length stops it, turning one file into dozens of modules that all shadow
- * each other. Identity has to be the resolved path, since two links to one
- * place are two names for it — and the same for files, where compiling one
- * twice reports every declaration in it as a duplicate of itself.
- *
- * Shared across roots rather than restarted at each, because two roots can
- * reach one file and the duplicate does not care which walk found it.
- */
-interface Seen {
-  readonly directories: Set<string>;
-  readonly files: Set<string>;
-}
-
-async function hexagonFilesUnder(
-  root: string,
-  exclude: Exclusions,
-  seen: Seen,
-  onError: (message: string) => void,
-): Promise<readonly FoundFile[]> {
-  const found: FoundFile[] = [];
-  const pending = [root];
-  const walked = seen.directories;
-  const collected = seen.files;
-  for (let directory = pending.pop(); directory !== undefined; directory = pending.pop()) {
-    const directoryIdentity = await realPathOf(directory);
-    // Excluded under the name it resolves to, not only the name it was reached
-    // by. `gen -> generated` beside an excluded `generated/` is one directory
-    // with two names, and the walk follows links on purpose, so checking the
-    // literal path alone lets every file in it back into the project under a
-    // spelling the manifest never mentions. Free here: the resolution is
-    // already paid for by cycle detection. The root itself is kept out of this
-    // by `readManifest`, which refuses an `exclude` entry covering it under
-    // either of the root's names — the resolved one included, since that is the
-    // one a user pastes.
-    //
-    // Before the cycle check claims the identity, not after: an excluded link
-    // would otherwise mark its target as already walked, and the target — a
-    // real directory under its own name — would be skipped as though it had
-    // been visited, taking every module in it out of the project.
-    if (excludes(exclude, directory, directoryIdentity)) continue;
-    if (walked.has(directoryIdentity)) continue;
-    walked.add(directoryIdentity);
-    let entries;
-    try {
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch (error) {
-      onError(`could not list ${directory}: ${messageOf(error)}`);
-      continue;
-    }
-    for (const entry of entries) {
-      const path = join(directory, entry.name);
-      // A symlink reports as neither a file nor a directory, so a workspace that
-      // links its source tree in — a common monorepo layout — would otherwise
-      // get no language support at all, silently. `stat` follows the link to ask
-      // what it actually points at.
-      const kind = entry.isSymbolicLink() ? await resolvedKind(path) : entryKind(entry);
-      if (kind === "directory") {
-        if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
-        pending.push(path);
-      } else if (kind === "file" && entry.name.endsWith(HEXAGON_EXTENSION)) {
-        const realPath = await realPathOf(path);
-        // Excluded before deduplicated, not after. An excluded name that is a
-        // link would otherwise claim its target's identity on the way out, and
-        // the target — a legitimate file under its own name, reached later in
-        // the same walk — would be dropped as a duplicate of something that is
-        // not in the project at all.
-        if (excludes(exclude, path, realPath)) continue;
-        if (collected.has(realPath)) continue;
-        collected.add(realPath);
-        found.push({ path, realPath });
-      }
-    }
-  }
-  return found;
-}
-
-/** A path's identity for cycle detection; the path itself if it cannot resolve. */
-async function realPathOf(path: string): Promise<string> {
-  try {
-    return await realpath(path);
-  } catch {
-    return path;
-  }
-}
-
-type EntryKind = "file" | "directory" | "other";
-
-function entryKind(entry: { isFile(): boolean; isDirectory(): boolean }): EntryKind {
-  if (entry.isDirectory()) return "directory";
-  return entry.isFile() ? "file" : "other";
-}
-
-/** What a symlink points at, or `other` when it dangles or cannot be read. */
-async function resolvedKind(path: string): Promise<EntryKind> {
-  try {
-    return entryKind(await stat(path));
-  } catch {
-    return "other";
-  }
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

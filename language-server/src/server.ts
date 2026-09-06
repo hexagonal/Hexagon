@@ -68,7 +68,7 @@ import {
 } from "./code-actions.js";
 import { offsetOfPosition, rangeOfSpan } from "./positions.js";
 import { Workspace } from "./workspace.js";
-import { MANIFEST_NAME, type ManifestResult } from "./manifest.js";
+import { MANIFEST_NAME, type ManifestResult } from "../../host/src/index.js";
 import { LEGEND, encodeSemanticTokens } from "./semantic-tokens.js";
 
 /**

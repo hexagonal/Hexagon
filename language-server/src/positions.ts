@@ -22,6 +22,7 @@
  */
 
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { normalizePath } from "../../host/src/index.js";
 import type { Position, Range } from "vscode-languageserver";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import type { Source } from "../../compiler/src/index.js";
@@ -97,20 +98,12 @@ export function fileSystemPath(uri: string): string {
 /**
  * The session's own spelling: `/`-separated, `.` and `..` resolved.
  *
- * Exported because everything that compares a path has to agree with it. A
- * second, nearly-identical normalizer is the shape of bug this file exists to
- * prevent: two spellings of one file become two files, and the disagreement
- * shows up only on the path shape the author did not have — a UNC share, a
- * drive letter — where it then fails silently.
+ * Re-exported from the host rather than written twice. Everything that compares
+ * a path has to agree with it, and the host's walk, the manifest's `exclude`,
+ * and this server's session all do; a second, nearly-identical normalizer is
+ * the shape of bug this file exists to prevent — two spellings of one file
+ * become two files, and the disagreement shows up only on the path shape the
+ * author did not have, a UNC share, a drive letter, where it then fails
+ * silently.
  */
-export function normalizePath(path: string): string {
-  const forward = path.replaceAll("\\", "/");
-  const absolute = forward.startsWith("/");
-  const parts: string[] = [];
-  for (const part of forward.split("/")) {
-    if (part === "" || part === ".") continue;
-    if (part === "..") parts.pop();
-    else parts.push(part);
-  }
-  return `${absolute ? "/" : ""}${parts.join("/")}`;
-}
+export { normalizePath };

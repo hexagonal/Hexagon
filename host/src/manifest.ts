@@ -46,10 +46,10 @@
  * a host comes to accept a name the compiler refuses.
  */
 
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { dependencyRefusal, packageNameRefusal } from "../../compiler/src/index.js";
-import { normalizePath } from "./positions.js";
+import { normalizePath, realPathOf } from "./paths.js";
 
 export const MANIFEST_NAME = "hexagon.json";
 
@@ -85,6 +85,16 @@ export interface Manifest {
    * motivated this without inventing one.
    */
   readonly exclude: readonly string[];
+  /**
+   * The npm version of the package sitting at this directory, where its
+   * `package.json` declares one (Packages §4.2, §4.3).
+   *
+   * Read from `package.json` and never from `hexagon.json`: versions are npm's,
+   * this spec designs none, and §4.3's installed-twice report is the one place
+   * a version is printed — "the version where the npm manifest declares one".
+   * Absent leaves the report naming the directory alone.
+   */
+  readonly version: string | undefined;
 }
 
 /** A problem with the manifest itself, reported against the manifest file. */
@@ -109,9 +119,26 @@ export interface ManifestResult {
   readonly problems: readonly ManifestProblem[];
   /** False when the root has no manifest at all, which is not a problem. */
   readonly present: boolean;
+  /**
+   * False where a manifest **exists** and could not be read as a JSON object.
+   *
+   * The lookup needs the two apart (Packages §4.1). A manifest it cannot read is
+   * "a candidate for no name" that is *named* in the unresolvable-name report of
+   * the lookup that scanned it; one that reads and declares no name this spec
+   * accepts is a candidate for no name that is **named nowhere**, "nothing about
+   * it is broken". Telling them apart by looking for a parse message in
+   * `problems` would make a sentence a reader sees into an interface a pass
+   * depends on.
+   */
+  readonly readable: boolean;
+  /**
+   * The manifest's own text, so a report seated at one of its keys can be
+   * placed on the right line. Empty where the file is absent.
+   */
+  readonly text: string;
 }
 
-const EMPTY: Manifest = { name: undefined, dependencies: [], exclude: [] };
+const EMPTY: Manifest = { name: undefined, dependencies: [], exclude: [], version: undefined };
 
 /**
  * Reads the manifest at a workspace root.
@@ -127,7 +154,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
   try {
     text = await readFile(path, "utf8");
   } catch {
-    return { manifest: EMPTY, problems: [], present: false };
+    return { manifest: EMPTY, problems: [], present: false, readable: false, text: "" };
   }
 
   let parsed: unknown;
@@ -139,6 +166,8 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
     return {
       manifest: EMPTY,
       present: true,
+      readable: false,
+      text,
       problems: [{
         message: `${MANIFEST_NAME} is not valid JSON: ${
           error instanceof Error ? error.message : String(error)
@@ -150,23 +179,13 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
   }
 
   const problems: ManifestProblem[] = [];
-  // Anchored to a key *position* — `"key"` followed by a colon — so a value that
-  // happens to spell another key's name does not steal the report.
-  const lineOf = (key: string): number => {
-    // Escaped, because unknown keys are user-typed and land in a regex: a
-    // bracket in a misspelling — `"exclude["` — is otherwise a syntax error
-    // thrown from the very report meant to explain it, and the throw takes
-    // language support down with the manifest, the one thing a broken manifest
-    // must never do.
-    const literal = key.replace(/[$()*+.?[\\\]^{|}]/gu, "\\$&");
-    const pattern = new RegExp(`^\\s*"${literal}"\\s*:`, "u");
-    const at = text.split("\n").findIndex((line) => pattern.test(line));
-    return at < 0 ? 0 : at;
-  };
+  const lineOf = (key: string): number => manifestKeyLine(text, key);
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     return {
       manifest: EMPTY,
       present: true,
+      readable: false,
+      text,
       problems: [{
         message: `${MANIFEST_NAME} must contain a JSON object`,
         line: 0,
@@ -241,7 +260,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       if (refusal !== undefined) {
         problems.push({
           message: refusal,
-          line: lineOf("dependencies"),
+          line: manifestKeyLine(text, "dependencies", entry),
           severity: "error",
         });
         continue;
@@ -288,7 +307,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
           message:
             `${MANIFEST_NAME} \`exclude\` entry ${JSON.stringify(entry)} covers the workspace ` +
             "root, which would exclude the whole project",
-          line: lineOf(key),
+          line: manifestKeyLine(text, key, entry),
           severity: "error",
         });
         continue;
@@ -305,7 +324,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
           message:
             `${MANIFEST_NAME} \`${key}\` entry ${JSON.stringify(entry)} matches no file or ` +
             "directory, so it has no effect (check the spelling, including its case)",
-          line: lineOf(key),
+          line: manifestKeyLine(text, key, entry),
           severity: "warning",
         });
       }
@@ -321,10 +340,73 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       name: readName(),
       dependencies: readDependencies(),
       exclude: await readPaths("exclude"),
+      version: await readVersion(rootPath),
     },
     problems,
     present: true,
+    readable: true,
+    text,
   };
+}
+
+/**
+ * The npm version of the package at this directory, from its `package.json`.
+ *
+ * Silent about every failure, and deliberately: a missing, unreadable, or
+ * malformed `package.json` beside a lawful `hexagon.json` is a package with no
+ * version to print, which §4.3's report already has a shape for. This reader
+ * answers what a package *is*; npm's file is not its to validate, and a report
+ * about it would be a report about a field this spec designs none of (§4.2).
+ */
+async function readVersion(rootPath: string): Promise<string | undefined> {
+  let text: string;
+  try {
+    text = await readFile(join(rootPath, "package.json"), "utf8");
+  } catch {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(text.replace(/^\uFEFF/u, ""));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const version = (parsed as Record<string, unknown>)["version"];
+    return typeof version === "string" ? version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The zero-based line a manifest key sits on, and the line its `entry` sits on
+ * where one is named.
+ *
+ * Anchored to a key *position* — `"key"` followed by a colon — so a value that
+ * happens to spell another key's name does not steal the report. An `entry` is
+ * then sought at or below that line, which is what puts a `dependencies` report
+ * on the entry a reader has to edit rather than on the field's own line.
+ *
+ * Exported because a report the *package set* draws (Packages §7) is seated at
+ * a manifest and a key, and the manifest it names is often not the one being
+ * read — a dependency's own `hexagon.json` under `node_modules` (D3).
+ */
+export function manifestKeyLine(text: string, key: string, entry?: string): number {
+  const lines = text.split("\n");
+  const at = lines.findIndex((line) => keyPattern(key).test(line));
+  if (at < 0) return 0;
+  if (entry === undefined) return at;
+  const quoted = JSON.stringify(entry);
+  const within = lines.findIndex((line, index) => index >= at && line.includes(quoted));
+  return within < 0 ? at : within;
+}
+
+/**
+ * Escaped, because unknown keys are user-typed and land in a regex: a bracket in
+ * a misspelling — `"exclude["` — is otherwise a syntax error thrown from the
+ * very report meant to explain it, and the throw takes language support down
+ * with the manifest, the one thing a broken manifest must never do.
+ */
+function keyPattern(key: string): RegExp {
+  const literal = key.replace(/[$()*+.?[\\\]^{|}]/gu, "\\$&");
+  return new RegExp(`^\\s*"${literal}"\\s*:`, "u");
 }
 
 /**
@@ -425,11 +507,3 @@ async function coversRoot(resolved: string, rootPath: string): Promise<boolean> 
   return isExcluded(await realPathOf(rootPath), [resolved]);
 }
 
-/** A path with every link followed, or the path itself if it cannot resolve. */
-async function realPathOf(path: string): Promise<string> {
-  try {
-    return await realpath(path);
-  } catch {
-    return path;
-  }
-}

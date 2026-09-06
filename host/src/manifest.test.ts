@@ -363,7 +363,10 @@ describe("readManifest: the package's name and its dependencies (Packages §2.1)
     expect(result.manifest.dependencies).toEqual(["Bolt"]);
     expect(result.problems.map(({ message }) => message)).toEqual([
       "`Hex` is every package's dependency; remove the entry",
-      "`tiny-json` is not a Hexagon package: bind it with `extern from \"tiny-json\"`",
+      "`\"tiny-json\"` is not a package name; `dependencies` expects a Hexagon " +
+        "package name, as the dependency's `hexagon.json` declares it — for a " +
+        "JavaScript dependency, declare it in `package.json` and bind it with " +
+        "`extern from \"tiny-json\"`",
       "a package name is one uppercase-start identifier: write `\"Acme\"`" +
       " — a module's name is where dots belong",
     ]);

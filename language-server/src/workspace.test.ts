@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
-import { MANIFEST_NAME } from "./manifest.js";
+import { MANIFEST_NAME } from "../../host/src/index.js";
 import { Workspace } from "./workspace.js";
 
 let root = "";

@@ -76,7 +76,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
-const { MANIFEST_NAME } = await import("./manifest.js");
+const { MANIFEST_NAME } = await import("../../host/src/index.js");
 const { Workspace } = await import("./workspace.js");
 
 let root = "";

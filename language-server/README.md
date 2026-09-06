@@ -50,7 +50,6 @@ language-server/
     main.ts            process entry point and transport selection
     server.ts          lifecycle, capabilities, document sync, request dispatch
     workspace.ts       the file set: open buffers, disk, and precedence between them
-    manifest.ts        `hexagon.json`: what the project says it is
     positions.ts       the single LSP-to-compiler coordinate boundary
     diagnostics.ts     conversion of compiler diagnostics to the protocol's shape
     semantic-tokens.ts the legend, and the protocol's relative token encoding
@@ -66,7 +65,7 @@ There is no `connection.ts`: `vscode-languageserver` owns JSON-RPC framing and l
 
 Protocol adapters stay thin. A handler asks the compiler service a semantic question and converts the answer to LSP structures; when one looks like it is about to decide something about Hexagon, the decision belongs in `compiler/src/analysis` instead.
 
-Two rules keep the process honest. Nothing may write to stdout except protocol messages — a stray `console.log` corrupts the stream and the client disconnects with no useful error — so the server logs through `connection.console`. And the workspace module is the only part that touches a filesystem, because the compiler is deliberately free of one.
+Two rules keep the process honest. Nothing may write to stdout except protocol messages — a stray `console.log` corrupts the stream and the client disconnects with no useful error — so the server logs through `connection.console`. And the host package and the workspace module are the only parts that touch a filesystem, because the compiler is deliberately free of one — `host/` answers what a program *is* on disk (the project directory, its files, where its dependencies are found), which the language server shares with every other Node-hosted tool rather than answering for itself.
 
 ## Compiler service
 
