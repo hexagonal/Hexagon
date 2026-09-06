@@ -25,7 +25,7 @@
 
 ```
 constraint Hash<a: Eq> =
-    hash(x: a): Int
+    hash(x: a) -> Int
 ```
 
 - `Eq` is the base constraint: `Hash` extends `Eq`, per the standard left-to-right reading (Constraints §1/§2.1). Every type honoring `Hash` has an `Eq` instance, and a function constrained `<a: Hash>` may use `equals` on `a`.
@@ -158,7 +158,7 @@ The sanctioned v1 answer to "I need non-structural key equality" is a **wrapper 
 ```
 constraint Iterable<c> =
     type Item
-    toSeq(xs: c): Seq(Item)
+    toSeq(xs: c) -> Seq(Item)
 ```
 
 - A **type member** line is the keyword `type` followed by an uppercase-start name, on its own layout line (VSEP/`;` per Lexer & Layout), among the ordinary function members. No `=`, no parameters, no obligations (`type Item: Show` is v2 — §11).
@@ -246,7 +246,7 @@ Enforcement point: type-name resolution. Outside its owner's bodies the implied 
 ```
 constraint Iterable<c> =
     type Item
-    toSeq(xs: c): Seq(Item)
+    toSeq(xs: c) -> Seq(Item)
 ```
 
 **The declaring module is `stdlib/Iterable.hex`**, seated after `Seq.hex` — the member signature names `Seq(Item)`, and the house seating principle is after-what-it-names. The declaration above is that module's source; the Constraints §5.1.1 redeclaration ban covers the name like every pre-registered constraint's, and `Iterable.toSeq` is the member's qualified home (a constraint member is an export of its declaring module). The seat forces a consequence Part 5 §4 depends on: `Seq.hex` cannot honor `Iterable` — the name is not in scope before `Iterable.hex` seats, and the reverse ordering is a genuine cycle — which is one reason the provided rows have no source form.
@@ -405,7 +405,7 @@ let f<c: Iterable>(xs: c): Int = ...             -- ERROR: `Iterable` declares a
                                                  --   type and cannot constrain a type
                                                  --   variable; take a `Seq(a)` parameter
 constraint Countable<c: Iterable> =              -- ERROR: same rule, base constraint position
-    count(xs: c): Int
+    count(xs: c) -> Int
 
 -- (11) Reference ban (no module-level `Item` in scope)
 let g(e: Item): Int = ...                        -- ERROR: `Item` is an implied type of
@@ -418,16 +418,16 @@ let n = MkBag(v).toSeq()                         -- OK : Seq(Int)   (head constr
 -- (13) Owner-scoped identity (two user constraints, one module)
 constraint Source<c> =
     type Item
-    next(xs: c): Option(Item)                      -- Item here is Source.Item
+    next(xs: c) -> Option(Item)                     -- Item here is Source.Item
 constraint Sink<c> =
     type Item                                      -- OK: Sink.Item is a distinct implied
-    put(xs: c, x: Item): c                         --   type; the owner disambiguates
+    put(xs: c, x: Item) -> c                        --   type; the owner disambiguates
 
 -- (14) Occlusion inside an owner's body
 type Item = Int                                  -- a module-level alias, coexisting freely
 constraint Queue<c> =
     type Item                                      -- OK: no conflict with the alias
-    peek(xs: c): Option(Item)                      -- Item = Queue.Item here (occludes the alias)
+    peek(xs: c) -> Option(Item)                     -- Item = Queue.Item here (occludes the alias)
 ```
 
 *(Bare `Item` outside any owner's body still means the module-level alias where one is in scope — as after test (14)'s alias; inside `Queue`'s body it means `Queue.Item`. Standard local-wins scoping — §6, §7.3.)*

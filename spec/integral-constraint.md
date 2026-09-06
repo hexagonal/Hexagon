@@ -17,11 +17,11 @@ The motivating v1 client is `Rat`, whose top and bottom use `BigInt` — `gcd` f
 
 ```
 constraint Integral<a: (Num, Ord)> =
-    div(x: a, y: a): a       -- Euclidean quotient
-    mod(x: a, y: a): a       -- Euclidean remainder, in [0, abs(y))
-    quot(x: a, y: a): a      -- truncated quotient
-    rem(x: a, y: a): a       -- truncated remainder
-    gcd(x: a, y: a): a       -- greatest common divisor, always >= 0
+    div(x: a, y: a) -> a     -- Euclidean quotient
+    mod(x: a, y: a) -> a     -- Euclidean remainder, in [0, abs(y))
+    quot(x: a, y: a) -> a    -- truncated quotient
+    rem(x: a, y: a) -> a     -- truncated remainder
+    gcd(x: a, y: a) -> a     -- greatest common divisor, always >= 0
 ```
 
 - **Base constraints `(Num, Ord)`**: `Num` gives generic code non-negative literals via `fromNat`, and `Ord` gives comparisons. `Nat`, `Int`, and `BigInt` satisfy both. Code that also subtracts, negates, or normalizes signs states `Signed` separately; `Integral` itself does not require signedness.
