@@ -191,7 +191,7 @@ export function startServer(connection: Connection): void {
       // `pathToFileURL` does not — and matching the string would mean a manifest
       // edit on Windows silently never reloaded anything, while falling through
       // would read a JSON file into a session as Hexagon source.
-      if (basename(workspace.uris.toPath(change.uri)) === MANIFEST_NAME) {
+      if (basename(workspace.pathFor(change.uri)) === MANIFEST_NAME) {
         rediscover = true;
         continue;
       }
@@ -216,7 +216,7 @@ export function startServer(connection: Connection): void {
   connection.onHover(({ textDocument, position }): Hover | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
+    const path = workspace.pathFor(textDocument.uri);
     const session = workspace.sessionFor(path);
     if (session === undefined) return null;
     const hover = session.hover(path, offsetOfPosition(document, position));
@@ -227,7 +227,7 @@ export function startServer(connection: Connection): void {
   connection.onDefinition(({ textDocument, position }): Definition | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
+    const path = workspace.pathFor(textDocument.uri);
     const session = workspace.sessionFor(path);
     if (session === undefined) return null;
     const found = session.definitions(path, offsetOfPosition(document, position));
@@ -241,7 +241,7 @@ export function startServer(connection: Connection): void {
   connection.onReferences(({ textDocument, position, context }): Location[] | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
+    const path = workspace.pathFor(textDocument.uri);
     const session = workspace.sessionFor(path);
     if (session === undefined) return null;
     const found = session.references(path, offsetOfPosition(document, position), {
@@ -257,7 +257,7 @@ export function startServer(connection: Connection): void {
   connection.onCompletion(({ textDocument, position }): CompletionItem[] | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
+    const path = workspace.pathFor(textDocument.uri);
     const session = workspace.sessionFor(path);
     if (session === undefined) return null;
     const offered = session.completions(path, offsetOfPosition(document, position));
@@ -281,7 +281,7 @@ export function startServer(connection: Connection): void {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
     if (!wantsActions(context.only)) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
+    const path = workspace.pathFor(textDocument.uri);
     const session = workspace.sessionFor(path);
     if (session === undefined) return null;
     const pathOfFile = (fileId: number): string | undefined =>
@@ -308,7 +308,7 @@ export function startServer(connection: Connection): void {
     // document to convert a line/character pair, and this one does not ask about
     // a position at all. A file the session knows from the workspace scan can be
     // coloured whether or not this client has opened it.
-    const path = workspace.uris.toPath(textDocument.uri);
+    const path = workspace.pathFor(textDocument.uri);
     const session = workspace.sessionFor(path);
     if (session === undefined) return encodeSemanticTokens([]);
     return encodeSemanticTokens(session.semanticTokens(path));
@@ -321,7 +321,7 @@ export function startServer(connection: Connection): void {
   connection.onPrepareRename(({ textDocument, position }): Range | ResponseError<void> | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
+    const path = workspace.pathFor(textDocument.uri);
     const session = workspace.sessionFor(path);
     if (session === undefined) return null;
     const subject = session.prepareRename(path, offsetOfPosition(document, position));
@@ -333,7 +333,7 @@ export function startServer(connection: Connection): void {
   connection.onRenameRequest(({ textDocument, position, newName }): WorkspaceEdit | ResponseError<void> | null => {
     const document = documents.get(textDocument.uri);
     if (document === undefined) return null;
-    const path = workspace.uris.toPath(textDocument.uri);
+    const path = workspace.pathFor(textDocument.uri);
     const session = workspace.sessionFor(path);
     if (session === undefined) return null;
     const plan = session.rename(path, offsetOfPosition(document, position), newName);
@@ -443,7 +443,7 @@ function publishDiagnostics(
     // than the document's own URI. They agree for an open document, since its
     // spelling is the first one seen — but reaching past `toUri` is how the two
     // drift apart, and `published` is keyed by whatever this sends.
-    const uri = workspace.uris.toUri(workspace.uris.toPath(document.uri));
+    const uri = workspace.uris.toUri(workspace.pathFor(document.uri));
     stillReporting.add(uri);
     connection.sendDiagnostics({
       uri,
@@ -487,10 +487,14 @@ function manifestActions(
   asked: { start: number; end: number },
   createsFiles: boolean,
 ): readonly CodeAction[] {
-  const program = workspace.programs.find((held) => held.owns(path));
-  if (program === undefined) return [];
+  // One guard, in one place: `projectManifestOf` answers only for a file some
+  // program holds as its **own** source, which is the whole of the rule above.
+  // Asking it again here would be a second copy of it, and a second copy is one
+  // that can be relaxed on its own.
   const manifest = workspace.projectManifestOf(path);
   if (manifest === undefined) return [];
+  const program = workspace.programFor(path);
+  if (program === undefined) return [];
   // A manifest that is not there has to be created, which needs a client that
   // applies file operations; one that cannot is offered nothing rather than an
   // edit it would silently drop.

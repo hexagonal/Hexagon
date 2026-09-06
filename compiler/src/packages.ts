@@ -77,6 +77,17 @@ export interface PackageRecord {
   readonly installed?: ReadonlySet<string>;
   /** See `ProgramPackage.manifest`. */
   readonly manifest?: Source.Span;
+  /**
+   * Whether any `.hex` file sits beneath this package's manifest, within §2.2's
+   * bounds — the one fact §7's stage-one row reads.
+   *
+   * A host answers it, because it is a fact about files and this file reads
+   * none. Absent means "not answered", and the row is then not drawn: a harness
+   * building records by hand is making a package set, not describing a
+   * distribution, and inventing a refusal from a missing field would refuse
+   * every one of them.
+   */
+  readonly hasSource?: boolean;
 }
 
 /** A manifest a lookup scanned and could not read or found unlawful (§4.1). */
@@ -268,12 +279,10 @@ export type ModuleResolution =
   }
   | { readonly kind: "Unknown"; readonly nearMisses: readonly string[] };
 
-/** The modules of the program, indexed the two ways resolution reads them. */
+/** The modules of the program, as resolution reads them. */
 export interface ModuleIndex {
   /** Every module of every package in the program, by full name. */
   readonly byFullName: ReadonlyMap<string, ProgramModule>;
-  /** Every package in the program, by name; the project is keyed by `undefined`. */
-  readonly packages: readonly ProgramPackage[];
 }
 
 /**
@@ -284,6 +293,23 @@ export interface ModuleIndex {
  */
 export function visiblePackages(resolving: ProgramPackage): readonly (string | undefined)[] {
   return [resolving.name, STANDARD_LIBRARY, ...resolving.dependencies].filter(
+    (name, index, all) => all.indexOf(name) === index,
+  );
+}
+
+/**
+ * The same packages in the order §3.3 **prints** a contest in: "the resolving
+ * package's `dependencies` order, then `Hex`".
+ *
+ * A separate function from `visiblePackages` because the two answer different
+ * questions. Membership is a set and its order is nobody's business; a contest
+ * report is a sentence, and §7's first row fixes the order of the names in it —
+ * "`Geometry` is provided by `Acme` and `Hex`", never the other way round. The
+ * resolving package's own name is not here: §3.2 answered its own module before
+ * any contest could be gathered, so it never contests.
+ */
+function contestOrder(resolving: ProgramPackage): readonly (string | undefined)[] {
+  return [...resolving.dependencies, STANDARD_LIBRARY].filter(
     (name, index, all) => all.indexOf(name) === index,
   );
 }
@@ -341,8 +367,10 @@ export function resolveModuleName(
       if (qualified !== undefined) return { kind: "Resolved", module: qualified };
     }
   }
-  // Otherwise the spelling is a *declared* name, sought in every visible package.
-  const providers = visible.flatMap((packageName) => {
+  // Otherwise the spelling is a *declared* name, sought in every visible package
+  // — in §3.3's printing order, since two answers here are the contest refusal
+  // and the order it names them in is the spec's.
+  const providers = contestOrder(resolving).flatMap((packageName) => {
     const module = declaredIn(packageName, written);
     return module === undefined ? [] : [module];
   });
@@ -353,8 +381,17 @@ export function resolveModuleName(
     // §3.3's proviso: the manifest edit is withheld where a module of any
     // package in the program — imported or not — is declared under that
     // segment, because applying it would refuse that module (Modules §2.2).
+    //
+    // **Dotted** declared names only. Modules §2.2's first-segment rule is about
+    // a dotted name's first segment and says of the other case, plainly, that
+    // "an undotted module is untouched: `module Json` beside a dependency
+    // `Json` is the companion idiom's plainest spelling". So `module Zed`
+    // beside an installed `Zed` refuses nothing once the entry is added, and
+    // withholding the edit there would withhold it from the commonest layout
+    // there is — a package and its consumer's companion module of the same
+    // name.
     const shadowed = [...index.byFullName.values()].some(
-      ({ declaredName }) => declaredName.split(".")[0] === head,
+      ({ declaredName }) => declaredName.includes(".") && declaredName.split(".")[0] === head,
     );
     if (resolving.installed.has(head) && !visible.includes(head) && !shadowed) {
       return { kind: "NotADependency", packageName: head };
@@ -564,6 +601,21 @@ export function validatePackageSet(
       if (closure.has(answered.directory)) continue;
       closure.set(answered.directory, answered);
       reachedBy.set(answered.directory, { from: record.directory, name });
+      // §7's stage-one row, at the entry that reached the package: a package
+      // installed under a Hexagon manifest that ships none of its `.hex` is
+      // §5.2's second stage arriving early, and the ordinary cause — a
+      // `package.json` `files` list that forgot the source — leaves the reader
+      // with "no module `Acme.Tools`" and no idea why. Seated like every other
+      // row here, at the manifest carrying the entry.
+      if (answered.hasSource === false) {
+        problems.push({
+          message: `\`${name}\` ships no Hexagon source; a Hexagon package is ` +
+            "installed as source until compiled distribution exists",
+          directory: record.directory,
+          key: "dependencies",
+          entry: name,
+        });
+      }
       walk(answered);
     }
   };
@@ -813,11 +865,20 @@ export function wholeProgramFirstSegmentMessage(
     // The project's own module: renaming a package is not among its repairs.
     return `${head}${names}; rename the module, or ${dropClause(offending, context)}`;
   }
-  const shared = (context.bringers.get(offending) ?? []).filter((entry) =>
-    (context.bringers.get(declaringPackage) ?? []).includes(entry)
-  );
-  if (shared.length > 0) {
-    return `${head}${names}; ${shared.length === 1 ? "drop the dependency that brings" : "drop the dependencies that bring"} both \`${offending}\` and \`${declaringPackage}\``;
+  // "Where **one entry** brings both packages named, the two repairs collapse
+  // into one" (Modules §2.2) — one entry, and no other. The condition is that
+  // both bringer sets are the same single entry, not that they overlap: where
+  // `Acme` is brought by `Carbide` and `Chroma` and `Bolt` only by `Carbide`,
+  // dropping `Carbide` leaves `Acme` in the program and the collapsed sentence
+  // would be false. Every other overlap therefore renders each package's full
+  // bringer list with the plural repair below.
+  const bringsOffending = context.bringers.get(offending) ?? [];
+  const bringsDeclaring = context.bringers.get(declaringPackage) ?? [];
+  if (
+    bringsOffending.length === 1 && bringsDeclaring.length === 1 &&
+    bringsOffending[0] === bringsDeclaring[0]
+  ) {
+    return `${head}${names}; drop the dependency that brings both \`${offending}\` and \`${declaringPackage}\``;
   }
   const second = (context.bringers.get(declaringPackage) ?? []).length === 1
     ? `the one that brings \`${declaringPackage}\``

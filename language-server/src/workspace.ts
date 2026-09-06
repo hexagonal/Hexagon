@@ -29,14 +29,13 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
 import type { TextDocument } from "vscode-languageserver-textdocument";
 import {
   AnalysisSession,
+  Source,
   type Diagnostics,
   type ProgramPackage,
   type SessionOptions,
-  type Source,
 } from "../../compiler/src/index.js";
 import { fileSystemPath, UriPaths } from "./positions.js";
 import {
@@ -44,11 +43,13 @@ import {
   discoverPrograms,
   excludes,
   exclusionsOf,
+  manifestKeyLine,
   manifestPathOf,
   mergedExclusions,
   messageOf,
+  normalizePath,
   NOTHING_EXCLUDED,
-  realPathOf,
+  settledPathSync,
   type Exclusions,
   type SeatedProblem,
 } from "../../host/src/index.js";
@@ -136,7 +137,7 @@ export class Workspace {
    * chose. Cached because resolving is a syscall and an edit must not pay one.
    */
   readonly #pathByUri = new Map<string, string>();
-  /** Session path for each real path the walk resolved — see `#pathOf`. */
+  /** Session path for each real path the walk resolved — see `pathFor`. */
   readonly #pathsByRealPath = new Map<string, string>();
   /** Every project's exclusions, merged, under both the names they can wear. */
   #exclude: Exclusions = NOTHING_EXCLUDED;
@@ -276,6 +277,13 @@ export class Workspace {
     roots: readonly string[],
     onError: (message: string) => void,
   ): Promise<{ added: number }> {
+    // How the client spells each root, against what discovery resolves it to.
+    // Every path inside the session is the resolved one; this is the one place
+    // that knows the other spelling, and it is what sends a location back under
+    // the folder the client actually opened.
+    for (const root of roots) {
+      this.uris.rootSpelling(normalizePath(settledPathSync(root)), normalizePath(root));
+    }
     const discovered = await discoverPrograms(roots, onError);
     // Exclusions before any text is read, so a file a manifest excludes is
     // never put into a session and then swept out of it.
@@ -311,7 +319,19 @@ export class Workspace {
           held.add(path);
           added += 1;
         }
-        packages.push({ directory: dependency.directory, record: dependency.record, paths });
+        packages.push({
+          directory: dependency.directory,
+          // The manifest, seated in this session so a report can point at it
+          // (D3): Modules §2.2's whole-program refusal names a package whose
+          // only text a reader can act on is its `hexagon.json`.
+          record: {
+            ...dependency.record,
+            manifest: manifestNameSpan(
+              session.referenceFile(dependency.manifestPath, dependency.manifestText),
+            ),
+          },
+          paths,
+        });
       }
       for (const path of own) held.add(path);
       // A walk only ever adds, so anything that has *left* a program has to be
@@ -371,16 +391,22 @@ export class Workspace {
     session: AnalysisSession,
     onError: (message: string) => void,
   ): Promise<string | undefined> {
-    // Route the disk path through the URI mapping rather than handing it to the
-    // session directly, so a file discovered here and the same file opened
-    // later are one entry under one spelling.
-    const uri = pathToFileURL(file).toString();
-    const path = this.uris.toPath(uri);
-    this.#pathsByRealPath.set(realPath, path);
+    // The session's own spelling, and no URI: the walk finds files the client
+    // has never named, and inventing a URI for one here would make this
+    // server's spelling of it the one every later location comes back under
+    // (`UriPaths`).
+    const path = normalizePath(file);
+    // Normalized on the way in, because `pathFor` normalizes what it looks up
+    // with: two spellings of one resolved path are two keys, and the miss is
+    // silent. Recorded under the session path too, so exclusion can match the
+    // walked file under *both* its names without asking the filesystem again.
+    const resolved = normalizePath(realPath);
+    this.#pathsByRealPath.set(resolved, path);
+    this.#realPathOfPath.set(path, resolved);
     if (this.#isExcluded(path)) return undefined;
     // By path, not by URI: a client opens a buffer under its own spelling, and
     // matching the string means every rescan clobbers that buffer with disk text
-    // on any platform whose URIs differ from `pathToFileURL`'s.
+    // on any platform whose URIs differ from the ones this server builds.
     const buffered = this.#openPaths.has(path) ? this.#openTexts.get(path) : undefined;
     if (buffered !== undefined) {
       session.setFile(path, buffered);
@@ -403,7 +429,7 @@ export class Workspace {
 
   /** Whether this URI is excluded, for a host deciding what to tell the user. */
   isExcludedUri(uri: string): boolean {
-    return this.#isExcluded(this.#pathByUri.get(uri) ?? this.uris.toPath(uri));
+    return this.#isExcluded(this.pathFor(uri));
   }
 
   /**
@@ -420,7 +446,7 @@ export class Workspace {
   /** Takes over a file's contents from the editor, unsaved edits included. */
   async openDocument(document: TextDocument): Promise<void> {
     this.#openUris.add(document.uri);
-    const path = await this.#pathOf(document.uri);
+    const path = this.pathFor(document.uri);
     this.#openPaths.add(path);
     // Excluding a file has to hold at every way into the session, not only at
     // the walk. A walk-time-only check means opening the file, or a watcher
@@ -432,15 +458,14 @@ export class Workspace {
   }
 
   updateDocument(document: TextDocument): void {
-    // Never resolves: an edit arrives per keystroke, and the path was settled
-    // when the document opened. Until `openDocument` has settled it there is
-    // nothing safe to write to — guessing the literal path adds a second
-    // session entry whenever the settled path turns out to be another name for
-    // the file, and that duplicate then outlives the race that made it. An
-    // edit declined here is not lost: `openDocument` reads the buffer's
-    // *current* text the moment it settles.
-    const path = this.#pathByUri.get(document.uri);
-    if (path === undefined) return;
+    // Settled here like everywhere else, rather than looked up. `pathFor`
+    // answers synchronously, so an edit that arrives before its own open has
+    // been processed still reaches the one entry the file has — where guessing
+    // the URI's own path would add a second entry whenever the settled path
+    // turns out to be another name for the file, and the duplicate would
+    // outlive the race that made it, reporting every declaration in the file as
+    // a duplicate of itself.
+    const path = this.pathFor(document.uri);
     if (this.#isExcluded(path)) return;
     this.#openTexts.set(path, document.getText());
     this.#write(path, document.getText());
@@ -453,7 +478,7 @@ export class Workspace {
    */
   async closeDocument(uri: string): Promise<void> {
     this.#openUris.delete(uri);
-    const path = await this.#pathOf(uri);
+    const path = this.pathFor(uri);
     this.#openPaths.delete(path);
     this.#openTexts.delete(path);
     await this.#reloadFromDisk(uri);
@@ -466,7 +491,7 @@ export class Workspace {
   }
 
   async #reloadFromDisk(uri: string): Promise<void> {
-    const path = await this.#pathOf(uri);
+    const path = this.pathFor(uri);
     if (this.#isExcluded(path)) {
       this.#erase(path);
       return;
@@ -498,12 +523,10 @@ export class Workspace {
   async deleteFile(uri: string): Promise<void> {
     // Open documents win here too. A branch switch deletes files the editor
     // keeps open — dirty, visible, and restorable with a save — so the buffer
-    // remains the truth until the client says it closed. Dropping the file
-    // *and* its URI mapping here would do worse than lose the text: every
-    // later edit finds no settled path and is declined, so the open buffer
-    // silently loses language support until it is closed and reopened.
+    // remains the truth until the client says it closed, and its edits keep
+    // landing on the entry it already has.
     if (this.#openUris.has(uri)) return;
-    const path = await this.#pathOf(uri);
+    const path = this.pathFor(uri);
     this.#erase(path);
     this.#pathByUri.delete(uri);
   }
@@ -600,25 +623,49 @@ export class Workspace {
   }
 
   /**
-   * The session path for a URI.
+   * **The session path a URI names** — the one boundary between what a client
+   * spells and what this server holds, and the only place the two are related.
    *
-   * Normally this is just the URI's own path. The exception is a second name for
-   * a file the walk already found — a symlink beside its target — where the walk
-   * kept one name and the editor may open the other. Keying the buffer by its
-   * own URI would put one file into a session twice, and every declaration in it
-   * would then be reported as a duplicate of itself.
+   * Normally the answer is the URI's own path. The exception is a second name
+   * for a file the walk already found, and there are two ways to get one: a
+   * symlink beside its target, and — since discovery settles a project by its
+   * canonical directory — a *root* reached through a link, which on macOS is
+   * every project under a temporary directory and `/var`, and anywhere is a
+   * symlinked checkout or `$HOME`. Both make one file two names. Keying by the
+   * client's name alone would put one file into a session twice, or, where the
+   * walk got there first, find nothing at all: a request handler would then
+   * answer `null` for hover, definition, references, rename and the rest, in a
+   * workspace that looks perfectly ordinary.
    *
-   * Resolution happens against what the walk recorded rather than by rewriting
-   * the path, so a scanned file keeps the spelling the workspace uses and a file
-   * the walk never saw keeps its own.
+   * So every way in asks this — the open, the watcher, the delete, and each of
+   * the request handlers — and it is resolved against what the walk recorded
+   * rather than by rewriting the path, so a scanned file keeps the spelling the
+   * workspace uses and one the walk never saw takes its resolved name.
+   *
+   * The answer is handed to `UriPaths` as well as kept here, so the two agree
+   * from the first time a URI is seen: `uris.toPath` on a URI this has settled
+   * returns what this settled, and nothing downstream can pick up the URI's own
+   * spelling by asking the wrong one of them.
+   *
+   * Synchronous, because the request handlers are, and one `realpath` per
+   * distinct URI is the price of answering them at all; the answer is
+   * remembered, so an edit pays nothing.
    */
-  async #pathOf(uri: string): Promise<string> {
+  pathFor(uri: string): string {
     const known = this.#pathByUri.get(uri);
     if (known !== undefined) return known;
-    const literal = this.uris.toPath(uri);
-    const realPath = await realPathOf(fileSystemPath(uri));
-    const path = this.#pathsByRealPath.get(realPath) ?? literal;
+    const realPath = normalizePath(settledPathSync(fileSystemPath(uri)));
+    // The resolved spelling, where the walk has not already chosen one — never
+    // the URI's own. One spelling inside the session is the whole rule: a file
+    // the walk has not reached yet is reached under the same name the walk will
+    // give it, so a newly created file joins the program it lies in and a
+    // deleted one is erased from every program that held it.
+    const path = this.#pathsByRealPath.get(realPath) ?? realPath;
     this.#pathByUri.set(uri, path);
+    // The client's own spelling of this file, so a location the server reports
+    // goes back the way the editor asked for it even where the walk reached the
+    // file first under a resolved name.
+    this.uris.remember(uri, path);
     // Recorded even when the walk never saw this file, because the walk skips
     // what is excluded — so for exactly the files `#isExcluded` most needs to
     // resolve, this is the only place the resolution ever happens.
@@ -664,6 +711,24 @@ function identityOf(diagnostic: Diagnostics.Diagnostic): string {
     labels,
     (diagnostic.notes ?? []).join(" "),
   ].join("");
+}
+
+/**
+ * Where a manifest **declares its name**, as a span: the `"name"` line, or the
+ * file's first line where it has none.
+ *
+ * The line rather than the value, because the value is what a reader changes and
+ * the key is how they find it — and because a manifest with no `name` at all is
+ * still the file the report is sending them to.
+ */
+function manifestNameSpan(file: Source.File): Source.Span {
+  const lines = file.text.split("\n");
+  const at = manifestKeyLine(file.text, "name");
+  const start = lines.slice(0, at).reduce((offset, line) => offset + line.length + 1, 0);
+  // `\r` trimmed from the end alone: the offsets above count it, and a range
+  // that included it would highlight past the end of the line.
+  const end = start + (lines[at] ?? "").replace(/\r$/u, "").length;
+  return file.span(start, end);
 }
 
 async function readText(path: string): Promise<string | undefined> {

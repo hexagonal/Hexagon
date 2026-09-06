@@ -55,7 +55,6 @@ function module_(packageName: string | undefined, declaredName: string): Program
 function indexOf(...modules: readonly ProgramModule[]): ModuleIndex {
   return {
     byFullName: new Map(modules.map((module) => [module.fullName, module])),
-    packages: [],
   };
 }
 
@@ -158,8 +157,12 @@ describe("§3.4 — resolving one written module name", () => {
     });
   });
 
-  /** §3.3's contest, in `dependencies` order after the resolving package's own. */
-  test("a name two visible packages provide is contested, both named", () => {
+  /**
+   * §3.3 and §7's first row both fix the order: "the resolving package's
+   * `dependencies` order, then `Hex`". The resolving package's own module never
+   * contests — §3.2 answered it before this point.
+   */
+  test("a name two visible packages provide is contested, in `dependencies` order then `Hex`", () => {
     const resolution = resolveModuleName(
       "Geometry",
       project,
@@ -167,7 +170,7 @@ describe("§3.4 — resolving one written module name", () => {
     );
     expect(resolution.kind).toBe("Contested");
     expect(resolution.kind === "Contested" ? resolution.providers.map(({ fullName }) => fullName) : [])
-      .toEqual(["Hex.Geometry", "Acme.Geometry"]);
+      .toEqual(["Acme.Geometry", "Hex.Geometry"]);
   });
 
   test("a package qualifying its own module is refused, the declared name named", () => {
@@ -479,6 +482,41 @@ describe("§4.1 — the closure, assembled outward from the project", () => {
   });
 });
 
+describe("§7 — an installed package that ships no Hexagon source", () => {
+  test("the stage-one row, seated at the entry that reached the package", () => {
+    const acme: PackageRecord = {
+      ...record_("Acme", `${PROJECT_DIRECTORY}/node_modules/acme`),
+      hasSource: false,
+    };
+    const set = validatePackageSet(project_(["Acme"]), [
+      edge_(PROJECT_DIRECTORY, "Acme", [acme]),
+    ]);
+    expect(set.problems).toEqual([{
+      message: "`Acme` ships no Hexagon source; a Hexagon package is installed as " +
+        "source until compiled distribution exists",
+      directory: PROJECT_DIRECTORY,
+      key: "dependencies",
+      entry: "Acme",
+    }]);
+  });
+
+  test("a package that ships source draws nothing, and neither does an unanswered field", () => {
+    const withSource: PackageRecord = {
+      ...record_("Acme", `${PROJECT_DIRECTORY}/node_modules/acme`),
+      hasSource: true,
+    };
+    expect(messages(validatePackageSet(project_(["Acme"]), [
+      edge_(PROJECT_DIRECTORY, "Acme", [withSource]),
+    ]))).toEqual([]);
+    // A record built with no answer to the question is a package set someone
+    // assembled by hand, not a distribution: inventing a refusal from a missing
+    // field would refuse every one of them.
+    expect(messages(validatePackageSet(project_(["Acme"]), [
+      edge_(PROJECT_DIRECTORY, "Acme", [record_("Acme", `${PROJECT_DIRECTORY}/node_modules/acme`)]),
+    ]))).toEqual([]);
+  });
+});
+
 describe("§4.3 — one copy of a package per program", () => {
   /** §9 (e)'s nested duplicate, in full: two entries reach two directories. */
   test("two entries reaching two directories are refused, both named with versions", () => {
@@ -725,6 +763,50 @@ describe("Modules §2.2 — the whole-program first-segment report", () => {
         "`Carbide`); drop the dependency that brings both `Acme` and `Bolt`",
     );
     expect(message).not.toContain("combine them");
+  });
+
+  /**
+   * The collapse is "where **one entry** brings both packages named", and one
+   * only: an entry that brings both while a second still brings one of them is
+   * not an entry whose removal takes both out, so each package keeps its full
+   * bringer list and the plural repair stands.
+   */
+  test("an overlap that is not one shared entry keeps both bringer lists", () => {
+    const message = wholeProgramFirstSegmentMessage(
+      "Acme.Tools",
+      "Bolt",
+      "Acme",
+      false,
+      context(["Carbide", "Chroma"], {
+        Acme: ["Carbide", "Chroma"],
+        Bolt: ["Carbide"],
+      }),
+    );
+    expect(message).toBe(
+      "module `Acme.Tools` of package `Bolt` (brought in by `Carbide`) begins with " +
+        "the name of the package `Acme`, also in this program (brought in by " +
+        "`Carbide` and `Chroma`); drop the dependencies that bring `Acme` or the " +
+        "one that brings `Bolt`, or combine them once `Acme` is renamed or `Bolt` " +
+        "renames its module",
+    );
+  });
+
+  test("two entries each bringing both is not the collapse either", () => {
+    const message = wholeProgramFirstSegmentMessage(
+      "Acme.Tools",
+      "Bolt",
+      "Acme",
+      false,
+      context(["Carbide", "Chroma"], {
+        Acme: ["Carbide", "Chroma"],
+        Bolt: ["Carbide", "Chroma"],
+      }),
+    );
+    // Dropping *one* of them takes neither package out, so there is no single
+    // dependency to name and the sentence must not claim there is.
+    expect(message).not.toContain("brings both");
+    expect(message).toContain("drop the dependencies that bring `Acme`");
+    expect(message).toContain("the ones that bring `Bolt`");
   });
 });
 

@@ -121,8 +121,10 @@ describe("§4.1 — the nearest level answers", () => {
       "app/main.hex": "module Main\n",
       "app/node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
       "app/node_modules/acme/package.json": manifest({ version: "2.0.0" }),
+      "app/node_modules/acme/geometry.hex": "module Geometry\n",
       "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
       "node_modules/acme/package.json": manifest({ version: "1.0.0" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n",
     });
     const program = await discover(join(root, "app"));
     expect(messages(program)).toEqual([]);
@@ -139,7 +141,9 @@ describe("§4.1 — the nearest level answers", () => {
       "main.hex": "module Main\n",
       "node_modules/@acme/geometry/hexagon.json": manifest({ name: "Acme" }),
       "node_modules/@acme/geometry/package.json": manifest({ version: "2.1.0" }),
+      "node_modules/@acme/geometry/geometry.hex": "module Geometry\n",
       "node_modules/@bolt/tools/hexagon.json": manifest({ name: "Bolt", dependencies: ["Acme"] }),
+      "node_modules/@bolt/tools/tools.hex": "module Tools\n",
       "node_modules/@bolt/tools/node_modules/@acme/geometry/hexagon.json": manifest({
         name: "Acme",
       }),
@@ -193,6 +197,7 @@ describe("§4.3 — directory identity is the canonical path", () => {
       "packages/acme/hexagon.json": manifest({ name: "Acme" }),
       "packages/acme/geometry.hex": "module Geometry\n",
       "node_modules/@bolt/tools/hexagon.json": manifest({ name: "Bolt", dependencies: ["Acme"] }),
+      "node_modules/@bolt/tools/tools.hex": "module Tools\n",
     });
     await link(root, "node_modules/acme", "packages/acme");
     await link(root, "node_modules/@acme/geometry", "packages/acme");
@@ -226,6 +231,7 @@ describe("§4.3 — directory identity is the canonical path", () => {
       "app/hexagon.json": manifest({ name: "MyApp", dependencies: ["Bolt"] }),
       "app/main.hex": "module Main\n",
       "packages/bolt/hexagon.json": manifest({ name: "Bolt", dependencies: ["MyApp"] }),
+      "packages/bolt/tools.hex": "module Tools\n",
     });
     await link(root, "app/node_modules/bolt", "packages/bolt");
     await link(root, "packages/bolt/node_modules/myapp", "app");
@@ -239,7 +245,9 @@ describe("§4.3 — directory identity is the canonical path", () => {
       "hexagon.json": manifest({ name: "Acme", dependencies: ["Bolt"] }),
       "main.hex": "module Main\n",
       "node_modules/@bolt/tools/hexagon.json": manifest({ name: "Bolt", dependencies: ["Acme"] }),
+      "node_modules/@bolt/tools/tools.hex": "module Tools\n",
       "node_modules/@acme/geometry/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/@acme/geometry/geometry.hex": "module Geometry\n",
     });
     const program = await discover(root);
     expect(messages(program)).toContain(
@@ -257,6 +265,7 @@ describe("§4.1 — a manifest the walk cannot use", () => {
       "hexagon.json": manifest({ dependencies: ["Acme"] }),
       "main.hex": "module Main\n",
       "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n",
       "node_modules/@junk/x/hexagon.json": "{ not json",
     });
     const program = await discover(root);
@@ -303,6 +312,7 @@ describe("§4.1 — a manifest the walk cannot use", () => {
       "hexagon.json": manifest({ dependencies: ["Bolt"] }),
       "main.hex": "module Main\n",
       "node_modules/bolt/hexagon.json": manifest({ name: "Bolt", dependencies: ["Missing"] }),
+      "node_modules/bolt/tools.hex": "module Tools\n",
     });
     const program = await discover(root);
     const report = program.problems.find(({ message }) => message.includes("Missing"))!;
@@ -311,19 +321,76 @@ describe("§4.1 — a manifest the walk cannot use", () => {
     expect(report.line).toBe(3);
   });
 
-  test("a package that entered the set is checked in full, against its own manifest", async () => {
+  /**
+   * §4.1: "What a package that enters the set is checked for is its own
+   * `dependencies`" — and §2.1 makes every other field the host's. The
+   * project's manifest is checked in full; a dependency's is not.
+   */
+  test("a package that entered the set draws its `dependencies` refusals", async () => {
     const root = await tree({
       "hexagon.json": manifest({ dependencies: ["Bolt"] }),
       "main.hex": "module Main\n",
-      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt", nonsense: true }),
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt", dependencies: ["hex"] }),
+      "node_modules/bolt/tools.hex": "module Tools\n",
     });
     const program = await discover(root);
     expect(program.problems).toEqual([{
       path: `${root}/node_modules/bolt/hexagon.json`,
-      line: 2,
-      message: "unknown hexagon.json key `nonsense`; expected `name`, `dependencies`, `exclude`",
+      line: 3,
+      message: "`\"hex\"` is not a package name; `dependencies` expects a Hexagon package " +
+        "name, as the dependency's `hexagon.json` declares it — for a JavaScript " +
+        "dependency, declare it in `package.json` and bind it with `extern from \"hex\"`",
       severity: "error",
     }]);
+  });
+
+  test("a package that entered the set draws none of the host's own field reports", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ dependencies: ["Bolt"] }),
+      "main.hex": "module Main\n",
+      "node_modules/bolt/hexagon.json": manifest({
+        name: "Bolt",
+        exclude: ["nowhere"],
+        description: "a package",
+      }),
+      "node_modules/bolt/tools.hex": "module Tools\n",
+    });
+    const program = await discover(root);
+    // The unknown key and the `exclude` warning are both about a file its reader
+    // did not write, cannot edit, and npm overwrites.
+    expect(messages(program)).toEqual([]);
+  });
+
+  test("the project's own manifest is still checked in full", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ exclude: ["nowhere"], description: "a project" }),
+      "main.hex": "module Main\n",
+    });
+    const program = await discover(root);
+    expect(messages(program)).toEqual([
+      "unknown hexagon.json key `description`; expected `name`, `dependencies`, `exclude`",
+      "hexagon.json `exclude` entry \"nowhere\" matches no file or directory, so it " +
+        "has no effect (check the spelling, including its case)",
+    ]);
+  });
+
+  /**
+   * A dependency's `exclude` is **honoured** even though it is never reported
+   * on: §2.1 makes it the host's field, and reading it is what the host does
+   * with a host field.
+   */
+  test("a dependency's `exclude` is honoured in silence", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ dependencies: ["Bolt"] }),
+      "main.hex": "module Main\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt", exclude: ["generated"] }),
+      "node_modules/bolt/tools.hex": "module Tools\n",
+      "node_modules/bolt/generated/out.hex": "module Out\n",
+    });
+    const program = await discover(root);
+    expect(messages(program)).toEqual([]);
+    expect(program.packages[0]!.files.map(({ path }) => path))
+      .toEqual([`${root}/node_modules/bolt/tools.hex`]);
   });
 
   test("a merely-scanned package's own problems are published nowhere", async () => {
@@ -343,6 +410,7 @@ describe("§4.1 — *installed*, the diagnostic set", () => {
       "hexagon.json": manifest({ dependencies: ["Acme"] }),
       "main.hex": "module Main\n",
       "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n",
       "node_modules/bolt/hexagon.json": manifest({ name: "Bolt" }),
     });
     const program = await discover(root);
@@ -373,6 +441,41 @@ describe("§4.1 — *installed*, the diagnostic set", () => {
     expect(program.installed.has("Acme")).toBe(true);
   });
 
+  /**
+   * "A copy at a farther level answers that lookup never" — so a name a nearer
+   * level leaves *unanswered*, by declaring it at two roots, is not rescued by
+   * a farther level's single copy.
+   */
+  test("a name a nearer level left unanswered is not installed from a farther one", async () => {
+    const root = await tree({
+      "app/hexagon.json": manifest({}),
+      "app/main.hex": "module Main\n",
+      "app/node_modules/acme-a/hexagon.json": manifest({ name: "Acme" }),
+      "app/node_modules/acme-b/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+    });
+    const program = await discover(join(root, "app"));
+    expect(program.installed.has("Acme")).toBe(false);
+  });
+
+  /**
+   * §4.1: "a candidate exists only for a name this spec accepts". A root whose
+   * manifest declares `"Hex"`, or a lowercase name, is a candidate for no name,
+   * so it is in nobody's installed set either.
+   */
+  test("a root declaring a name this spec refuses is installed for nothing", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({}),
+      "main.hex": "module Main\n",
+      "node_modules/x/hexagon.json": manifest({ name: "Hex" }),
+      "node_modules/y/hexagon.json": manifest({ name: "acme" }),
+      "node_modules/z/hexagon.json": manifest({ name: "Acme.Tools" }),
+      "node_modules/ok/hexagon.json": manifest({ name: "Ok" }),
+    });
+    const program = await discover(root);
+    expect([...program.installed]).toEqual(["Ok"]);
+  });
+
   test("a level's `.bin` and lockfile are not package roots", async () => {
     const root = await tree({
       "hexagon.json": manifest({}),
@@ -397,6 +500,30 @@ describe("§2.2 / §2.5 — what a project holds, and where one begins", () => {
     const program = await discover(root);
     expect(program.files.map(({ path }) => path)).toEqual([`${root}/main.hex`]);
     expect(program.nested).toEqual([`${root}/vendor`]);
+  });
+
+  /**
+   * An absolute `exclude` entry pasted in the spelling the user's own shell
+   * shows them — `/var/folders/…` where the walk says `/private/var/folders/…`
+   * — still matches. `exclude` failing silently is the one failure this field
+   * must never have.
+   */
+  test("an absolute `exclude` entry in an unresolved spelling still excludes", async () => {
+    const root = await tree({
+      "real/main.hex": "module Main\n",
+      "real/generated/out.hex": "module Out\n",
+    });
+    await link(root, "reached", "real");
+    // Written as the user reached the project, through the link — which is not
+    // the spelling the walk resolves every path to.
+    await writeFile(
+      join(root, "real", "hexagon.json"),
+      manifest({ exclude: [`${root}/reached/generated`] }),
+      "utf8",
+    );
+    const program = await discover(join(root, "reached"));
+    expect(program.directory).toBe(`${root}/real`);
+    expect(program.files.map(({ path }) => path)).toEqual([`${root}/real/main.hex`]);
   });
 
   test("a directory with no manifest is a project under the implicit empty manifest", async () => {
@@ -513,22 +640,113 @@ describe("§4.1 — the level scan reads one field", () => {
       "hexagon.json": manifest({ dependencies: ["Acme"] }),
       "main.hex": "module Main\n",
       "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n",
       "node_modules/junk/hexagon.json": manifest({ name: "Junk", exclude: ["nowhere"] }),
     });
     const program = await discover(root);
     expect(messages(program)).toEqual([]);
   });
 
-  test("a package the lookup answers with is validated in full", async () => {
+  test("a package the lookup answers with has its `dependencies` read", async () => {
     const root = await tree({
       "hexagon.json": manifest({ dependencies: ["Junk"] }),
       "main.hex": "module Main\n",
-      "node_modules/junk/hexagon.json": manifest({ name: "Junk", exclude: ["nowhere"] }),
+      "node_modules/junk/hexagon.json": manifest({ name: "Junk", dependencies: ["Missing"] }),
+      "node_modules/junk/junk.hex": "module Junk\n",
     });
     const program = await discover(root);
     expect(messages(program)).toEqual([
-      "hexagon.json `exclude` entry \"nowhere\" matches no file or directory, so it " +
-        "has no effect (check the spelling, including its case)",
+      "no installed package declares `\"name\": \"Missing\"`; install it, or check the " +
+        "name in its `hexagon.json`",
     ]);
+  });
+
+  /**
+   * The guard that keeps the level scan cheap: two candidates are §4.3's
+   * refusal, and neither one's manifest, files, or own lookups are read.
+   */
+  test("neither of two candidates at one level has its own entries resolved", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n",
+      // Each carries a `dependencies` entry §4.4 refuses, which a package that
+      // *entered* the set would publish — so whichever the walk would reach
+      // first, reaching either shows.
+      "node_modules/acme-a/hexagon.json": manifest({ name: "Acme", dependencies: ["hex"] }),
+      "node_modules/acme-a/a.hex": "module A\n",
+      "node_modules/acme-b/hexagon.json": manifest({ name: "Acme", dependencies: ["hex"] }),
+      "node_modules/acme-b/b.hex": "module B\n",
+    });
+    const program = await discover(root);
+    // The installed-twice report and nothing else: neither candidate's own
+    // `dependencies` were resolved, and neither manifest's problems published.
+    expect(messages(program)).toEqual([
+      "package `Acme` is installed twice: `node_modules/acme-a` and `node_modules/acme-b`; " +
+        "a program holds one copy of each Hexagon package",
+    ]);
+  });
+});
+
+describe("§7 — an installed package that ships no Hexagon source", () => {
+  test("a package with a manifest and no `.hex` draws the stage-one row", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/package.json": manifest({ name: "@acme/geometry", version: "2.1.0" }),
+      "node_modules/acme/dist/index.js": "export const x = 1;\n",
+    });
+    const program = await discover(root);
+    expect(program.problems).toEqual([{
+      path: `${root}/hexagon.json`,
+      line: 2,
+      message: "`Acme` ships no Hexagon source; a Hexagon package is installed as source " +
+        "until compiled distribution exists",
+      severity: "error",
+    }]);
+  });
+
+  /** Seated at the manifest carrying the entry, like every other §7 row (D3). */
+  test("a dependency's own sourceless entry reports against the dependency's manifest", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ dependencies: ["Bolt"] }),
+      "main.hex": "module Main\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt", dependencies: ["Acme"] }),
+      "node_modules/bolt/tools.hex": "module Tools\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+    });
+    const program = await discover(root);
+    expect(program.problems).toEqual([{
+      path: `${root}/node_modules/bolt/hexagon.json`,
+      line: 3,
+      message: "`Acme` ships no Hexagon source; a Hexagon package is installed as source " +
+        "until compiled distribution exists",
+      severity: "error",
+    }]);
+  });
+
+  test("a package whose only `.hex` its own `exclude` removes ships none", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({ dependencies: ["Acme"] }),
+      "main.hex": "module Main\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme", exclude: ["generated"] }),
+      "node_modules/acme/generated/out.hex": "module Out\n",
+    });
+    const program = await discover(root);
+    expect(messages(program)).toEqual([
+      "`Acme` ships no Hexagon source; a Hexagon package is installed as source " +
+        "until compiled distribution exists",
+    ]);
+  });
+
+  test("an installed package nobody lists draws nothing, and the project draws nothing", async () => {
+    const root = await tree({
+      "hexagon.json": manifest({}),
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+    });
+    const program = await discover(root);
+    // The project's own emptiness is a project starting, not a distribution
+    // shipped wrong; the unlisted package is in no closure.
+    expect(messages(program)).toEqual([]);
   });
 });

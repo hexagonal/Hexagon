@@ -54,12 +54,21 @@ language-server/
     diagnostics.ts     conversion of compiler diagnostics to the protocol's shape
     semantic-tokens.ts the legend, and the protocol's relative token encoding
     code-actions.ts    quick fixes, and what shape of one a client understands
+    test-roots.ts      the temporary directory a test's workspace lives in
 ```
 
 Tests sit beside their subject, with one exception: `workspace.concurrency.test.ts`
 replaces `readdir` with one that can be parked mid-walk, so that two overlapping
 rescans interleave on demand rather than by luck. It is a separate file because
 that replacement would otherwise apply to every test in the workspace suite.
+
+`npm test` runs the suite **twice**, the second time with every workspace root
+reached through a symlink (`vitest.linked.config.ts`, read by `test-roots.ts`).
+A project settles by its canonical path while a client keeps sending the folder
+it was given, and where the two differ every file has two names — which on macOS
+is every project under a temporary directory, and anywhere is a symlinked
+checkout or `$HOME`. Whether a single run covers that is a property of the
+machine's `TMPDIR`, so the second run makes the link itself.
 
 There is no `connection.ts`: `vscode-languageserver` owns JSON-RPC framing and lifecycle, and no separate `requests/` directory, because each handler is small enough that separating them would cost more indirection than it removes. `documents.ts` is likewise absent — `TextDocuments` from the same package applies incremental changes.
 
@@ -83,6 +92,7 @@ references(path, offset)  every occurrence of what it denotes
 hover(path, offset)       what it is, its type if it has one, its documentation
 codeActions(path, range)  the repairs offered here, refusals included
 pathOfFile(fileId)        the file a span's numeric identity names
+referenceFile(path, text) gives a non-Hexagon file an identity, uncompiled
 ```
 
 Positions crossing this API are UTF-16 offsets into the named file, never line and character pairs — see below.
@@ -463,6 +473,12 @@ that quietly did nothing would leave a user staring at diagnostics they believed
 they had configured away. A broken manifest never takes language support down
 with it: defaults apply and the workspace still works.
 
+That is the **project's** manifest. A dependency's, under `node_modules`, draws
+only the language's own refusals — its `dependencies` entries (Packages §2.1,
+§4.4) — because §2.1 makes every other field the host's, and because nothing a
+user could type in that file survives the next install. Its `exclude` is
+honoured in silence and an unknown key is read past.
+
 An entry that names nothing is reported too, as a warning rather than an error,
 and checked inside the root by exact spelling rather than by asking whether the
 path opens. macOS and Windows will happily open `Trie.hex` when the file is
@@ -500,20 +516,25 @@ less than it looks.
   a test that adding a folder brings its modules into the graph.
 - **`exclude` matches paths, and a path is one of the names a file has.** A
   file is checked under both the name the walk reached it by and the name it
-  resolves to, so a symlink cannot smuggle an excluded directory back in. The
-  *entry* is not resolved, only re-rooted, so excluding a link excludes that
-  link and not the file it points at — the reverse would silently delete source.
-  The consequence is that an entry whose own intermediate components pass
-  through a link will not match a file reached by the resolved route. Matching
-  also remains case-sensitive on filesystems that are not, which is why a
-  mis-cased entry is reported rather than silently doing nothing.
+  resolves to, so a symlink cannot smuggle an excluded directory back in. An
+  entry's **containing directory** is resolved and its own last component is
+  not, so excluding a link excludes that link and not the file it points at —
+  the reverse would silently delete source — while an absolute entry pasted in
+  the shell's spelling still matches the walk's. Matching remains
+  case-sensitive on filesystems that are not, which is why a mis-cased entry is
+  reported rather than silently doing nothing.
 - **Initialization waits for the workspace scan.** `initialize` walks the root
   and reads every `.hex` file before replying, so that the first request is
   answered against a whole module graph rather than a partial one. On a very
   large tree that delay is visible at startup. Scanning in the background instead
   would trade a slow start for a window where go-to-definition silently misses.
-- **Two URI spellings of one file would be two files.** See `positions.ts`; no
-  client observed so far sends more than one spelling.
+- **A file the walk never saw is keyed by its resolved name.** `Workspace.pathFor`
+  settles every URI to one spelling — the one the walk chose where it found the
+  file, and the resolved one otherwise — so a symlink, a linked root and a
+  file created since the last walk all reach one session entry. What is not
+  settled is a client that spells one *path* two ways without a link between
+  them, `file:///c:/A` beside `file:///C:/a`: those are two paths, hence two
+  entries, and no client observed so far sends both.
 - **Constraints declared in a module cannot be used from another.** The compiler
   has no channel for exporting one, so a cross-module `honor` does not resolve.
   Go-to-definition on a constraint therefore only ever answers within a module,

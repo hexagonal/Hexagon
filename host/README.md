@@ -12,9 +12,9 @@ touches a filesystem on the language's behalf is here.
 
 ## What a program is
 
-**One program per project directory.** A project directory is a directory
-holding a `hexagon.json` outside any `node_modules`. A manifest nested beneath
-one is a package of its own (Packages §2.2) and so a program of its own; its
+**One program per project directory.** A project directory is the nearest
+directory at or above a root that holds a `hexagon.json`. A manifest nested
+beneath one is a package of its own (Packages §2.2) and so a program of its own; its
 files belong to it alone, which is what keeps a file from having two full names.
 A directory with no manifest at it or above it is a project under an **implicit
 empty manifest** (Packages §2.5) — no name, no dependencies, `Hex` implicit.
@@ -79,10 +79,17 @@ is not npm's — replaces `lookup.ts` and changes no rule.
 
 Reports are seated at the manifest that carries the entry, dependency manifests
 under `node_modules` included, so a dependency's own unresolvable entry reports
-against the dependency's `hexagon.json` and not against the project's. A package
-that enters the set is checked in full; one the scan merely read is checked for
-nothing, which is enforced by never reading its problems rather than by
-filtering them afterwards.
+against the dependency's `hexagon.json` and not against the project's.
+
+**Only the project's manifest is read in full.** A package that enters the set
+is checked for its own `dependencies` (Packages §4.1) and for nothing else:
+§2.1 makes every other field the host's, and a package's author is not that
+file's reader. So a dependency's `exclude` is honoured and never reported on,
+and a key this reader does not know is read past in silence — `node_modules` is
+not a place anyone edits, and `exclude: ["dist"]` naming a directory the
+published tarball does not carry is the ordinary shape of a published package.
+A manifest the scan merely read is checked for nothing at all, which is
+enforced by never reading its problems rather than by filtering them afterwards.
 
 ## Layout
 

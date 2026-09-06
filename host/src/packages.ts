@@ -29,6 +29,7 @@ import {
   NOTHING_EXCLUDED,
   type Exclusions,
   type FoundFile,
+  type Walked,
 } from "./files.js";
 import {
   isExcluded,
@@ -59,6 +60,12 @@ export interface DiscoveredPackage {
   readonly directory: string;
   readonly manifestPath: string;
   readonly manifest: Manifest;
+  /**
+   * The manifest's own text, so a host can seat a span in it: Packages §7's
+   * whole-program report points its reader at the *other* package's manifest,
+   * and a package's manifest is the only text of it a consumer can act on (D3).
+   */
+  readonly manifestText: string;
   /** The record the compiler resolves this package's imports against. */
   readonly record: ProgramPackage;
   /** Its own `.hex` files, beneath its manifest and within its bounds (§2.2). */
@@ -137,9 +144,31 @@ export async function discoverProgram(
     return result;
   };
 
+  /** Every package's own files, walked once per directory (§2.2's bounds). */
+  const walks = new Map<string, Promise<Walked>>();
+  const filesOf = (directory: string, manifest: Manifest): Promise<Walked> => {
+    const known = walks.get(directory);
+    if (known !== undefined) return known;
+    const walk = (async () =>
+      await hexagonFilesUnder(
+        directory,
+        await exclusionsOf(directory, manifest),
+        nothingSeen(),
+        onError,
+      ))();
+    walks.set(directory, walk);
+    return walk;
+  };
+
   const resolveEntries = async (record: PackageRecord): Promise<void> => {
     for (const name of record.dependencies) {
       const answer = await lookup.lookup(name, record.directory);
+      // Only an answer — one candidate at the nearest declaring level — is
+      // followed; two are §4.3's refusal, which the compiler draws over the
+      // edge. Membership is `validatePackageSet`'s to decide and this does not
+      // decide it: what the guard buys is that discovery never reads the files
+      // and never runs the lookups of a package the rules refuse.
+      const answers = answer.candidates.length === 1;
       const candidates: PackageRecord[] = [];
       for (const candidate of answer.candidates) {
         // A package the lookup **answers with** is validated in full (§4.1);
@@ -151,26 +180,24 @@ export async function discoverProgram(
           dependencies: full.manifest.dependencies,
           directory: candidate.directory,
           ...(full.manifest.version === undefined ? {} : { version: full.manifest.version }),
+          // §7's stage-one row is a fact about the *files* a package ships, so
+          // the compiler is told it rather than asked to find it. Only an
+          // answering candidate is walked, and the project is not one of them:
+          // an editor root with no `.hex` in it yet is a project starting, not
+          // a distribution shipped wrong.
+          ...(answers && candidate.directory !== projectDirectory
+            ? { hasSource: (await filesOf(candidate.directory, full.manifest)).files.length > 0 }
+            : {}),
         });
       }
       edges.push({ from: record.directory, name, candidates, unreadable: answer.unreadable });
-      // Only an answer — one candidate at the nearest declaring level — is
-      // followed; two are §4.3's refusal, which the compiler draws over the
-      // edge. Membership is `validatePackageSet`'s to decide and this does not
-      // decide it: what the guard buys is that discovery never reads the files
-      // and never runs the lookups of a package the rules refuse.
-      if (answer.candidates.length !== 1) continue;
+      if (!answers) continue;
       const answered = answer.candidates[0]!;
       if (answered.directory === projectDirectory) continue;
       if (reached.has(answered.directory)) continue;
       const own = await readOnce(answered.directory);
       const installed = await lookup.installedAt(answered.directory);
-      const files = await hexagonFilesUnder(
-        answered.directory,
-        await exclusionsOf(answered.directory, own.manifest),
-        nothingSeen(),
-        onError,
-      );
+      const files = await filesOf(answered.directory, own.manifest);
       const next: PackageRecord = {
         name: own.manifest.name,
         dependencies: own.manifest.dependencies,
@@ -187,6 +214,7 @@ export async function discoverProgram(
         directory: answered.directory,
         manifestPath: manifestPathOf(answered.directory),
         manifest: own.manifest,
+        manifestText: own.text,
         record: {
           name: own.manifest.name,
           dependencies: own.manifest.dependencies,
@@ -215,9 +243,20 @@ export async function discoverProgram(
    * step earlier — a manifest whose `name` this spec refuses declares no name at
    * all (`readManifest` drops it), so no lookup can answer with it, so it can
    * never be a package whose problems are published.
+   *
+   * The **project's** manifest is checked in full, and no other is: §4.1 says
+   * what a package that enters the set is checked for, and it is its own
+   * `dependencies`; §2.1 makes every other field the host's. So a dependency's
+   * `exclude` is honoured and never reported on, and a key this reader does not
+   * know is read past in silence — a package's author is not this manifest's
+   * reader, the file sits under `node_modules` where nothing a user writes
+   * survives the next install, and `exclude: ["dist"]` naming a directory the
+   * published tarball does not carry is the ordinary shape of a published
+   * package rather than a fault.
    */
-  for (const manifest of manifests.values()) {
+  for (const [directory, manifest] of manifests) {
     for (const problem of manifest.problems) {
+      if (directory !== projectDirectory && problem.scope !== "language") continue;
       problems.push({
         path: manifest.path,
         line: problem.line,
@@ -269,25 +308,44 @@ function seat(
  * The second spelling exists because the walk follows symlinks, so a file's
  * resolved path can have a prefix no manifest ever writes — on macOS `/var` is a
  * link to `/private/var`, which is every path under a temporary directory. Only
- * the *root* is resolved to bridge that: an entry's own components are left
- * exactly as written, because excluding a link `alias.hex` must not take its
- * target out of the project under the target's own legitimate name.
+ * an entry's **containing directory** is resolved to bridge that: the entry's
+ * own last component is left exactly as written, because excluding a link
+ * `alias.hex` must not take its target out of the project under the target's
+ * own legitimate name.
+ *
+ * The containing directory, and not merely the root, because a project's own
+ * root is canonical here and an *absolute* entry is not: a user pastes what
+ * their shell showed them, which on macOS is `/var/folders/…` where the walk
+ * says `/private/var/folders/…`. Rebasing the root would bridge nothing — the
+ * two spellings of the root are already the same string — and the entry would
+ * quietly match no file, which is the one failure `exclude` must never have.
  */
 export async function exclusionsOf(
   directory: string,
   manifest: Manifest,
 ): Promise<Exclusions> {
   if (manifest.exclude.length === 0) return NOTHING_EXCLUDED;
-  const rootPath = normalizePath(directory);
-  const realRoot = normalizePath(await realPathOf(directory));
   const literal: string[] = [];
   const real: string[] = [];
   for (const entry of manifest.exclude) {
     const written = normalizePath(entry);
     literal.push(written);
-    real.push(rebase(written, rootPath, realRoot));
+    real.push(await resolvedContainer(written));
   }
   return { literal, real };
+}
+
+/**
+ * An entry under its containing directory's resolved name, its own last
+ * component untouched — and itself where that directory cannot be resolved,
+ * which is an entry naming a directory chain that is not there.
+ */
+async function resolvedContainer(entry: string): Promise<string> {
+  const at = entry.lastIndexOf("/");
+  if (at <= 0) return entry;
+  const container = entry.slice(0, at);
+  const resolved = normalizePath(await realPathOf(container));
+  return `${resolved}${entry.slice(at)}`;
 }
 
 /** Merges several roots' exclusions, for a host that holds more than one. */
@@ -296,22 +354,6 @@ export function mergedExclusions(all: readonly Exclusions[]): Exclusions {
     literal: all.flatMap(({ literal }) => literal),
     real: all.flatMap(({ real }) => real),
   };
-}
-
-/** Whether a path is excluded by these entries, under the name given. */
-export function excludedBy(path: string, entries: readonly string[]): boolean {
-  return isExcluded(path, entries);
-}
-
-/**
- * An entry re-expressed under the root's resolved name, so that it can be
- * compared with a resolved file path. Only the prefix moves.
- */
-function rebase(entry: string, rootPath: string, realRoot: string): string {
-  if (rootPath === realRoot) return entry;
-  if (entry === rootPath) return realRoot;
-  const prefix = rootPath.endsWith("/") ? rootPath : `${rootPath}/`;
-  return entry.startsWith(prefix) ? realRoot + entry.slice(rootPath.length) : entry;
 }
 
 /**

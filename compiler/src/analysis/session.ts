@@ -246,9 +246,13 @@ export class AnalysisSession {
    * spans in different ones. Staleness is `version`'s job, not the id's.
    */
   readonly #fileIds = new Map<string, Source.FileId>();
+  /** Files with an identity here that are not compiled — see `referenceFile`. */
+  readonly #references = new Map<number, Source.File>();
   #nextFileId = 0;
   #version = 0;
   #analysis: Analysis | undefined;
+  /** See `#packageNameOf`; rebuilt when the option set changes and never else. */
+  #packageNameByPath: Map<string, string | undefined> | undefined;
 
   constructor(options: SessionOptions = {}) {
     this.#options = options;
@@ -274,7 +278,34 @@ export class AnalysisSession {
   configure(options: SessionOptions): void {
     if (sameOptions(this.#options, options)) return;
     this.#options = options;
+    this.#packageNameByPath = undefined;
     this.#invalidate();
+  }
+
+  /**
+   * The package whose **own source** a file is, by name (Packages §2.2), or the
+   * project's `packageName` for a file no package claims.
+   *
+   * A session holds a dependency's sources beside the project's, and a sentence
+   * or a repair drawn about one of them is read inside *that* package: §3.3
+   * refuses a package qualifying its own module, so `import Acme.Lib` offered
+   * inside `Acme` is a line the next compile rejects. Anything this session
+   * says about a *file* therefore asks this, rather than reaching for the
+   * project's own name — which is the right answer only for the project's own
+   * files.
+   */
+  #packageNameOf(path: string): string | undefined {
+    if (this.#packageNameByPath === undefined) {
+      const byPath = new Map<string, string | undefined>();
+      for (const { record, paths } of this.#options.packages ?? []) {
+        for (const held of paths) byPath.set(normalizePath(held), record.name);
+      }
+      this.#packageNameByPath = byPath;
+    }
+    const normalized = normalizePath(path);
+    return this.#packageNameByPath.has(normalized)
+      ? this.#packageNameByPath.get(normalized)
+      : this.#options.packageName;
   }
 
   get paths(): readonly string[] {
@@ -300,12 +331,43 @@ export class AnalysisSession {
   }
 
   /**
+   * Gives a file an identity here **without compiling it** — a `hexagon.json`
+   * a report has to point at (Packages §7's whole-program seat, D3).
+   *
+   * A report about a package other than the one being read has one place to
+   * send its reader, and it is that package's manifest: the offending package
+   * has no source the reader can act on, and its `name` is the thing to change.
+   * A label is a span, a span names its file by number, and `pathOfFile` has to
+   * answer for that number or the editor silently drops the related
+   * information — so the manifest needs an identity in this session, and it
+   * must not become a compilation unit, being JSON.
+   *
+   * Registering the same path again re-reads it under the identity it already
+   * has, so a manifest edited while the workspace is open keeps one identity
+   * for the life of the session, exactly as a source file does.
+   */
+  referenceFile(path: string, text: string): Source.File {
+    const normalized = normalizePath(path);
+    let id = this.#fileIds.get(normalized);
+    if (id === undefined) {
+      id = Source.fileId(this.#nextFileId);
+      this.#fileIds.set(normalized, id);
+      this.#nextFileId += 1;
+    }
+    const file = new Source.File(id, normalized, text);
+    this.#references.set(Number(id), file);
+    // No `#invalidate`: nothing here is compiled, and a span into it reaches
+    // the compiler as an *option*, whose own change is what invalidates.
+    return file;
+  }
+
+  /**
    * The path a compiler file identity belongs to. Spans name files by number,
    * so a host rendering a span that points somewhere else — a diagnostic's
    * secondary label, most often — needs this to say where.
    */
   pathOfFile(fileId: Source.FileId): string | undefined {
-    return this.#analyze().pathOf(fileId);
+    return this.#analyze().pathOf(fileId) ?? this.#references.get(Number(fileId))?.path;
   }
 
   /** Diagnostics for one file, empty for a file the session does not hold. */
@@ -816,6 +878,9 @@ export class AnalysisSession {
       .exportersOf(repair.name, repair.namespace)
       .filter((exporter) => exporter.path !== path && this.#texts.has(exporter.path));
     if (exporters.length === 0) return undefined;
+    // The package this action's reader is in — every module name below is
+    // spelled as they must write it.
+    const requesting = this.#packageNameOf(path);
     const title = `import \`${repair.name}\``;
     if (exporters.length > 1) {
       return {
@@ -826,7 +891,7 @@ export class AnalysisSession {
         disabled: `${exporters.length} modules export a ${repair.namespace} ` +
           `\`${repair.name}\`: ` +
           exporters
-            .map((exporter) => `\`${displayModuleName(exporter.name, this.#options.packageName)}\``)
+            .map((exporter) => `\`${displayModuleName(exporter.name, requesting)}\``)
             .join(", ") +
           " — write the import for the one you mean",
       };
@@ -841,15 +906,12 @@ export class AnalysisSession {
     // through §5.1 rule 2's companion fallback, whose door is the alias.
     // `moduleImportLine` drops the clause where the module's declared name is
     // already the spelling, so the companion idiom's line stays `import Scale`.
-    // The **project's** package name, where the manifest declared one: this
-    // file is one of the project's own modules, and Packages §3.3 refuses a
-    // package qualifying its own module — `import Acme.Lib` inside `Acme` is a
-    // line the compiler rejects, so the segment §3.2 elides is elided here.
-    const importLine = moduleImportLine(
-      exporters[0]!.name,
-      repair.name,
-      this.#options.packageName,
-    );
+    // The package whose source **this file** is (`#packageNameOf`), not the
+    // project's: a session holds a dependency's sources too, and Packages §3.3
+    // refuses a package qualifying its own module — `import Acme.Lib` inside
+    // `Acme` is a line the compiler rejects, so the segment §3.2 elides is
+    // elided here.
+    const importLine = moduleImportLine(exporters[0]!.name, repair.name, requesting);
     // Placed inside the **refused use's own** module (Modules §2.2): a file's
     // modules are strangers, so the line belongs under the header of the one
     // that cannot resolve the name, never under the file's first. And no

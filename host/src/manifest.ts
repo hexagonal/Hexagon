@@ -1,8 +1,8 @@
 /**
  * `hexagon.json` — how a project says what it is.
  *
- * Without one, a workspace root is just "every `.hex` file underneath, compiled
- * together", and that guess is wrong in a way a language server cannot recover
+ * Without one, a root is just "every `.hex` file underneath, compiled
+ * together", and that guess is wrong in a way no host can recover
  * from on its own: **some files are not the project** — generated output,
  * deliberately-broken examples, a vendored copy. Compiling them alongside real
  * source produces diagnostics about files nobody is working on, and guessing
@@ -26,14 +26,17 @@
  * Two of its three fields are the *language's* rather than the host's — `name`
  * and `dependencies` (Packages §2.1) — and this reader validates them exactly
  * as far as one manifest can be read alone: `name` against §2.1's rule, each
- * `dependencies` entry against §2.4 and §4.4. It **resolves** nothing. Deciding
- * that a listed name is installed, or is installed twice, or closes a cycle
- * needs every installed package's manifest, which nothing here reads yet; a
- * reader that guessed would report "no installed package declares `Bolt`"
- * about a package sitting in `node_modules`. So a listed name contributes to
- * the package set — which Modules §2.2's first-segment rule reads — and
- * supplies no modules, and §7's installed-package rows wait for the host slice
- * that reads them.
+ * `dependencies` entry against §2.4 and §4.4. It **resolves** nothing, and that
+ * is a boundary rather than a stage: deciding that a listed name is installed,
+ * or is installed twice, or closes a cycle needs every installed package's
+ * manifest, and `lookup.ts` and `packages.ts` beside it are what read them.
+ * A reader that guessed here would report "no installed package declares
+ * `Bolt`" about a package sitting in `node_modules`, so it reads one file and
+ * answers about one file.
+ *
+ * `scope` on each report is the same line drawn a second time, for the reader
+ * of a manifest that is **not** the project's: a dependency publishes its
+ * language reports and keeps the host's to itself (§4.1).
  *
  * Reading it lives here rather than in the compiler because it is filesystem
  * work, and the compiler is deliberately free of a filesystem. The *shape*
@@ -115,6 +118,19 @@ export interface ManifestProblem {
   /** Zero-based line within `hexagon.json`, or 0 when the file did not parse. */
   readonly line: number;
   /**
+   * Whose rule this report is: the **language's** or the **host's**.
+   *
+   * Packages §2.1 draws the line — "Two of its three fields are the *language's*
+   * rather than the host's — `name` and `dependencies`. Other fields are the
+   * host's" — and §4.1 says what a manifest that is not the project's is checked
+   * for: "What a package that enters the set is checked for is its own
+   * `dependencies`". So a dependency's manifest publishes its language reports
+   * and keeps the host's to itself: an `exclude` entry naming a build directory
+   * npm did not publish, or a field some other host reads, is not a fault its
+   * consumer can act on, and `node_modules` is not a place anyone edits.
+   */
+  readonly scope: "language" | "host";
+  /**
    * Whether this is a mistake or merely an entry that currently matches nothing.
    *
    * A misspelled key or a value of the wrong type is always wrong. An entry
@@ -185,6 +201,9 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
           error instanceof Error ? error.message : String(error)
         }`,
         line: 0,
+        // The file that cannot be read at all: no `name` and no `dependencies`
+        // can be read out of it, so the language's own reading has failed.
+        scope: "language",
         severity: "error",
       }],
     };
@@ -201,6 +220,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       problems: [{
         message: `${MANIFEST_NAME} must contain a JSON object`,
         line: 0,
+        scope: "language",
         severity: "error",
       }],
     };
@@ -216,6 +236,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
         KNOWN_KEYS.map((known) => `\`${known}\``).join(", ")
       }`,
       line: lineOf(key),
+      scope: "host",
       severity: "error",
     });
   }
@@ -236,13 +257,14 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       problems.push({
         message: `${MANIFEST_NAME} \`name\` must be a string`,
         line: lineOf("name"),
+        scope: "language",
         severity: "error",
       });
       return undefined;
     }
     const refusal = packageNameRefusal(value);
     if (refusal === undefined) return value;
-    problems.push({ message: refusal, line: lineOf("name"), severity: "error" });
+    problems.push({ message: refusal, line: lineOf("name"), scope: "language", severity: "error" });
     return undefined;
   };
 
@@ -254,6 +276,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       problems.push({
         message: `${MANIFEST_NAME} \`dependencies\` must be an array of package names`,
         line: lineOf("dependencies"),
+        scope: "language",
         severity: "error",
       });
       return [];
@@ -264,6 +287,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
         problems.push({
           message: `${MANIFEST_NAME} \`dependencies\` entries must be strings`,
           line: lineOf("dependencies"),
+          scope: "language",
           severity: "error",
         });
         continue;
@@ -273,6 +297,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
         problems.push({
           message: refusal,
           line: manifestKeyLine(text, "dependencies", entry),
+          scope: "language",
           severity: "error",
         });
         continue;
@@ -292,6 +317,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
       problems.push({
         message: `${MANIFEST_NAME} \`${key}\` must be an array of paths`,
         line: lineOf(key),
+        scope: "host",
         severity: "error",
       });
       return [];
@@ -302,6 +328,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
         problems.push({
           message: `${MANIFEST_NAME} \`${key}\` entries must be strings`,
           line: lineOf(key),
+          scope: "host",
           severity: "error",
         });
         continue;
@@ -320,6 +347,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
             `${MANIFEST_NAME} \`exclude\` entry ${JSON.stringify(entry)} covers the workspace ` +
             "root, which would exclude the whole project",
           line: manifestKeyLine(text, key, entry),
+          scope: "host",
           severity: "error",
         });
         continue;
@@ -337,6 +365,7 @@ export async function readManifest(rootPath: string): Promise<ManifestResult> {
             `${MANIFEST_NAME} \`${key}\` entry ${JSON.stringify(entry)} matches no file or ` +
             "directory, so it has no effect (check the spelling, including its case)",
           line: manifestKeyLine(text, key, entry),
+          scope: "host",
           severity: "warning",
         });
       }

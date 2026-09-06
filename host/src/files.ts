@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { MANIFEST_NAME, isExcluded } from "./manifest.js";
 import { messageOf, realPathOf } from "./paths.js";
 
-export const HEXAGON_EXTENSION = ".hex";
+const HEXAGON_EXTENSION = ".hex";
 
 /**
  * Directories never worth walking, whatever a project contains.
@@ -29,7 +29,7 @@ export const HEXAGON_EXTENSION = ".hex";
  * because an agent's scratch notes are not a project's source, and a `.hex`
  * example pasted into one would otherwise compile with it.
  */
-export const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
+const SKIPPED_DIRECTORIES: ReadonlySet<string> = new Set([
   ".git",
   "node_modules",
   "dist",
@@ -187,7 +187,7 @@ function isManifest(entry: { name: string; isDirectory(): boolean }): boolean {
 
 type EntryKind = "file" | "directory" | "other";
 
-export function entryKind(entry: { isFile(): boolean; isDirectory(): boolean }): EntryKind {
+function entryKind(entry: { isFile(): boolean; isDirectory(): boolean }): EntryKind {
   if (entry.isDirectory()) return "directory";
   return entry.isFile() ? "file" : "other";
 }

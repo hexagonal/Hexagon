@@ -8,12 +8,12 @@
  * only exercises the protocol.
  */
 
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "vitest";
 import { MANIFEST_NAME } from "../../host/src/index.js";
+import { removeTemporaryRoots, temporaryRoot } from "./test-roots.js";
 import { Workspace } from "./workspace.js";
 
 let root = "";
@@ -26,13 +26,13 @@ let root = "";
 const HEADER = "module Main\n\n";
 
 async function makeRoot(): Promise<string> {
-  root = await mkdtemp(join(tmpdir(), "hexagon-workspace-"));
+  root = await temporaryRoot("hexagon-workspace-");
   return root;
 }
 
 afterEach(async () => {
-  if (root !== "") await rm(root, { recursive: true, force: true });
   root = "";
+  await removeTemporaryRoots();
 });
 
 /** Scans a root, failing the test if the walk reported an error. */
@@ -684,13 +684,13 @@ describe("programs, and a file two of them hold", () => {
     await workspace.setRoots([join(path, "a"), join(path, "b")], () => {});
     expect(workspace.programs).toHaveLength(2);
     const held = workspace.programs.filter((program) =>
-      program.holds(workspace.uris.toPath(pathToFileURL(acme).toString()))
+      program.holds(workspace.pathFor(pathToFileURL(acme).toString()))
     );
     expect(held).toHaveLength(2);
     // And neither *owns* it: it is nobody's project source, so no editor root
     // is asked to answer for a file under `node_modules`.
     expect(held.every((program) => !program.owns(
-      workspace.uris.toPath(pathToFileURL(acme).toString()),
+      workspace.pathFor(pathToFileURL(acme).toString()),
     ))).toBe(true);
   });
 
@@ -698,7 +698,7 @@ describe("programs, and a file two of them hold", () => {
     const { path, acme } = await sharedDependency(true);
     const workspace = new Workspace();
     await workspace.setRoots([join(path, "a"), join(path, "b")], () => {});
-    const key = workspace.uris.toPath(pathToFileURL(acme).toString());
+    const key = workspace.pathFor(pathToFileURL(acme).toString());
     const reported = workspace.allDiagnostics().get(key) ?? [];
     // Both programs compile the file and both fail on it; a reader sees the
     // fault once (D3's "identical reports once").
@@ -714,7 +714,7 @@ describe("programs, and a file two of them hold", () => {
       uri,
       getText: () => "module Geometry\n\nexport let width: Int = 3\n",
     } as never);
-    const key = workspace.uris.toPath(uri);
+    const key = workspace.pathFor(uri);
     expect(workspace.allDiagnostics().get(key) ?? []).toEqual([]);
     for (const program of workspace.programs) {
       expect(program.session.diagnostics(key)).toEqual([]);
@@ -730,8 +730,8 @@ describe("programs, and a file two of them hold", () => {
     await writeFile(join(path, "vendor", "thing.hex"), "module Thing\n\nlet n: Int = 1\n");
     const workspace = new Workspace();
     await workspace.setRoots([path], () => {});
-    const main = workspace.uris.toPath(pathToFileURL(join(path, "main.hex")).toString());
-    const thing = workspace.uris.toPath(pathToFileURL(join(path, "vendor", "thing.hex")).toString());
+    const main = workspace.pathFor(pathToFileURL(join(path, "main.hex")).toString());
+    const thing = workspace.pathFor(pathToFileURL(join(path, "vendor", "thing.hex")).toString());
     expect(workspace.programFor(main)!.directory.endsWith("vendor")).toBe(false);
     expect(workspace.programFor(thing)!.directory.endsWith("vendor")).toBe(true);
   });
@@ -743,7 +743,7 @@ describe("programs, and a file two of them hold", () => {
     const added = join(path, "node_modules", "acme", "extra.hex");
     await writeFile(added, "module Extra\n\nexport let n: Int = 1\n");
     await workspace.refreshFromDisk(pathToFileURL(added).toString());
-    const key = workspace.uris.toPath(pathToFileURL(added).toString());
+    const key = workspace.pathFor(pathToFileURL(added).toString());
     expect(workspace.programs.filter((program) => program.holds(key))).toHaveLength(2);
     // And it compiles as `Acme`'s, so its own name is `Acme.Extra`: seated in
     // the package it belongs to, never as either project's own source.
@@ -777,7 +777,7 @@ describe("a file one program owns and another holds", () => {
     // `app` first, so the program that merely *holds* the file comes first in
     // root order and would answer under a first-holder rule.
     await workspace.setRoots([join(path, "app"), join(path, "acme")], () => {});
-    const key = workspace.uris.toPath(pathToFileURL(geometry).toString());
+    const key = workspace.pathFor(pathToFileURL(geometry).toString());
     expect(workspace.programs.filter((program) => program.holds(key))).toHaveLength(2);
     // The author of `acme/geometry.hex` edits `acme`, so `acme`'s program is
     // the one whose repairs and renames they can act on.

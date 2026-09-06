@@ -3,10 +3,14 @@
  * §4, D1).
  *
  * One independent compilation context per project directory. A project
- * directory is a directory holding a `hexagon.json` outside any
- * `node_modules`; a directory with no manifest at it or above it is a project
- * under an implicit empty manifest (Packages §2.5). Two facts follow, and they
- * are the whole of this file:
+ * directory is the nearest directory at or above a root that holds a
+ * `hexagon.json`; a root with no manifest at it or above it is a project under
+ * an implicit empty manifest (Packages §2.5). A root *inside* a
+ * `node_modules` is no exception and needs none: a user who opens
+ * `node_modules/acme` is working on `Acme`, and answering with the enclosing
+ * project would compile their edits under someone else's name. What
+ * `node_modules` bounds is a package's **files** (§2.2, `files.ts`), not what
+ * counts as a project. Two facts follow, and they are the whole of this file:
  *
  * - **An editor root inside a package belongs to that package's project.** The
  *   nearest manifest at or above the root decides, so opening `src/` of a

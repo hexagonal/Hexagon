@@ -889,3 +889,138 @@ test("§9 (i) — a runtime module binds an alias and exports nothing", () => {
   ]);
   expect(messagesOf(project)).toContain("module `VectorTrie` does not export `size`");
 });
+
+/**
+ * §3.3's contest order, and the two arms of §7's not-a-dependency row, read
+ * end to end — the order and the two gates are `resolveModuleName`'s and no
+ * hand-built provider list can show them.
+ */
+describe("§3.3 — the order a contest is printed in, and who draws the manifest edit", () => {
+  test("`dependencies` order, then `Hex`", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nimport Option\nexport let n: Int = Option.n"),
+    ], {
+      dependencies: ["Acme"],
+      installed: new Set(["Acme"]),
+      packages: [
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/option.hex", "module Option\n\nexport let n: Int = 1"),
+        ]),
+      ],
+    });
+    // `Hex` last, however the visible set happens to be assembled: §7's first
+    // row fixes the order of the names in the sentence.
+    expect(messagesOf(project)).toContain(
+      "`Option` is provided by `Acme` and `Hex`; write `import Acme.Option` or " +
+        "`import Hex.Option`",
+    );
+  });
+
+  test("an uninstalled first segment draws the unknown-module row and no edit", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nimport Typo.Tools\nexport let n: Int = Tools.n"),
+    ], {
+      dependencies: ["Acme"],
+      // Nothing named `Typo` is installed, so §3.4's row is the true one: the
+      // manifest edit would write a package name that does not exist.
+      installed: new Set(["Acme"]),
+      packages: [
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/geometry.hex", "module Geometry\n\nexport let n: Int = 1"),
+        ]),
+      ],
+    });
+    expect(messagesOf(project)).toContain("no module `Typo.Tools`");
+    expect(project.diagnostics.every(({ manifestDependency }) =>
+      manifestDependency === undefined
+    )).toBe(true);
+  });
+
+  /**
+   * §3.3's proviso reads **dotted** declared names only: Modules §2.2 leaves an
+   * undotted module untouched — "`module Json` beside a dependency `Json` is
+   * the companion idiom's plainest spelling" — so adding the entry refuses
+   * nothing and the edit is owed.
+   */
+  test("an undotted module of the segment's name does not withhold the edit", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/zed.hex", "module Zed\n\nexport let n: Int = 1"),
+      file("/work/app/main.hex", "module Main\n\nimport Zed.Tools\nexport let n: Int = Tools.n"),
+    ], {
+      installed: new Set(["Zed"]),
+    });
+    const report = project.diagnostics.find(({ message }) => message.startsWith("`Zed`"))!;
+    expect(report.message).toBe(
+      "`Zed` is not a dependency of this package; add `\"Zed\"` to `dependencies` " +
+        "in `hexagon.json`",
+    );
+    expect(report.manifestDependency).toEqual({ packageName: "Zed" });
+  });
+});
+
+/**
+ * Packages §3.3 read backwards, inside a dependency: every module name a report
+ * prints, and every import line it offers, is spelled as *that package's* own
+ * reader must write it — never `Acme.Lib` inside `Acme`, which the next compile
+ * refuses with "a package's own modules are imported by their declared names".
+ */
+describe("a repair offered inside a dependency is a line that dependency can write", () => {
+  const HEFT_LIB = [
+    "export constraint Heft<a: Num> =",
+    "    heft(value: a): a",
+    "export let useHeft<a: Heft>(n: a): a = heft(n)",
+    "",
+  ].join("\n");
+
+  test("an import cycle inside a dependency names its modules as that package spells them", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nexport let n: Int = 1"),
+    ], {
+      dependencies: ["Acme"],
+      installed: new Set(["Acme"]),
+      packages: [
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/a.hex", "module A\n\nimport B\nexport let n: Int = B.n"),
+          file("/work/app/node_modules/acme/b.hex", "module B\n\nimport A\nexport let n: Int = A.n"),
+        ]),
+      ],
+    });
+    // Modules §8.1's cycle is named by its modules, and `Acme`'s author writes
+    // them `A` and `B` — `Acme.A` is a spelling §3.3 refuses them.
+    expect(messagesOf(project)).toContain("import cycle: A -> B -> A");
+  });
+
+  test("the constraint-route clause names the module without the package segment", () => {
+    const file = sourceFiles();
+    const project = compileProject([
+      file("/work/app/main.hex", "module Main\n\nexport let n: Int = 1"),
+    ], {
+      dependencies: ["Acme"],
+      installed: new Set(["Acme"]),
+      packages: [
+        dependency("Acme", [], [], [
+          file("/work/app/node_modules/acme/lib.hex", `module Lib\n\n${HEFT_LIB}`),
+          file(
+            "/work/app/node_modules/acme/mid.hex",
+            "module Mid\n\nimport Lib\n" +
+              "export let forward<a: Lib.Heft>(n: a): a = Lib.useHeft(n)\n",
+          ),
+          file(
+            "/work/app/node_modules/acme/caller.hex",
+            "module Caller\n\nimport Mid\n" +
+              "export let caller(n, stop: Bool) = if stop then n + n else Mid.forward(n)\n",
+          ),
+        ]),
+      ],
+    });
+    expect(messagesOf(project)).toContain(
+      "exported function `caller` must declare every constraint in its signature; " +
+        "write `<a: Lib.Heft>` — `Heft` is declared in module `Lib`; " +
+        "`import Lib` and spell it `Lib.Heft`",
+    );
+  });
+});

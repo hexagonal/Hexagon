@@ -14,8 +14,7 @@
  * to arrive inside the window rather than merely likely to.
  */
 
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, test, vi } from "vitest";
@@ -36,7 +35,7 @@ interface Parked {
 }
 
 /** Parks the next call of this operation on a path ending in `suffix`, once. */
-function parkNext(operation: "readdir" | "readFile" | "realpath", suffix: string): Parked {
+function parkNext(operation: "readdir" | "readFile", suffix: string): Parked {
   let release: () => void = () => {};
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -69,26 +68,25 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       await holdIfParked("readFile", args[0]);
       return await actual.readFile(...args);
     },
-    realpath: async (...args: Parameters<typeof actual.realpath>) => {
-      await holdIfParked("realpath", args[0]);
-      return await actual.realpath(...args);
-    },
   };
 });
 
 const { MANIFEST_NAME } = await import("../../host/src/index.js");
+// Imported after the mock like the modules under test, so its own `mkdtemp`
+// and `rm` go through the same wrapper the workspace's reads do.
+const { removeTemporaryRoots, temporaryRoot } = await import("./test-roots.js");
 const { Workspace } = await import("./workspace.js");
 
 let root = "";
 
 afterEach(async () => {
   parks.clear();
-  if (root !== "") await rm(root, { recursive: true, force: true });
   root = "";
+  await removeTemporaryRoots();
 });
 
 test("a rescan that starts mid-walk does not sweep the other one's files", async () => {
-  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  root = await temporaryRoot("hexagon-concurrent-");
   await mkdir(join(root, "gen"));
   await mkdir(join(root, "src"));
   await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
@@ -128,7 +126,7 @@ test("a rescan that starts mid-walk does not sweep the other one's files", async
 });
 
 test("a buffer opened mid-scan is not overwritten by the scan's own read", async () => {
-  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  root = await temporaryRoot("hexagon-concurrent-");
   await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
   const workspace = new Workspace();
 
@@ -149,7 +147,7 @@ test("a buffer opened mid-scan is not overwritten by the scan's own read", async
 });
 
 test("a reload in flight does not resurrect a file the manifest just excluded", async () => {
-  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  root = await temporaryRoot("hexagon-concurrent-");
   await mkdir(join(root, "gen"));
   await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
   await writeFile(join(root, "gen", "g.hex"), "let generated: Int = 2\n");
@@ -173,7 +171,7 @@ test("a reload in flight does not resurrect a file the manifest just excluded", 
 });
 
 test("a reload in flight loses to a buffer that opened during it", async () => {
-  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  root = await temporaryRoot("hexagon-concurrent-");
   await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
   const workspace = new Workspace();
   await workspace.setRoots([root], () => {});
@@ -196,7 +194,7 @@ test("a reload in flight loses to a buffer that opened during it", async () => {
 });
 
 test("a buffer that closes mid-scan is not swept away", async () => {
-  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  root = await temporaryRoot("hexagon-concurrent-");
   await mkdir(join(root, "sub"));
   await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
   await writeFile(join(root, "sub", "other.hex"), "let other: Int = 2\n");
@@ -222,7 +220,7 @@ test("a buffer that closes mid-scan is not swept away", async () => {
 });
 
 test("a buffer that opens mid-read and closes again is not swept away", async () => {
-  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  root = await temporaryRoot("hexagon-concurrent-");
   await mkdir(join(root, "sub"));
   await writeFile(join(root, "main.hex"), "let value: Int = 1\n");
   await writeFile(join(root, "sub", "other.hex"), "let other: Int = 2\n");
@@ -248,7 +246,7 @@ test("a buffer that opens mid-read and closes again is not swept away", async ()
 });
 
 test("an edit before its open has settled does not invent a second file", async () => {
-  root = await mkdtemp(join(tmpdir(), "hexagon-concurrent-"));
+  root = await temporaryRoot("hexagon-concurrent-");
   const project = join(root, "workspace");
   await mkdir(project);
   await writeFile(join(project, "main.hex"), "export let value: Int = 1\n");
@@ -259,20 +257,18 @@ test("an edit before its open has settled does not invent a second file", async 
   await workspace.setRoots([project], () => {});
   expect(workspace.session.paths).toHaveLength(1);
 
-  // The open is still resolving which session entry this URI is another name
-  // for when the first keystroke arrives. Guessing the literal path would
-  // write a second entry for one file — and that duplicate outlives the race,
-  // reporting every declaration as a duplicate of itself from then on. The
-  // edit can be declined instead, because the open reads the buffer's current
-  // text once it settles.
+  // The first keystroke arrives before the open has been processed. Both doors
+  // settle which session entry the URI names the same way, and synchronously,
+  // so both reach the one entry the walk kept: guessing the URI's own path at
+  // either would write a second entry for one file, and that duplicate outlives
+  // the race, reporting every declaration as a duplicate of itself from then
+  // on.
   const uri = pathToFileURL(join(root, "alias.hex")).toString();
   const document = { uri, getText: () => "export let value: Int = 2\n" } as never;
-  const { parked, release } = parkNext("realpath", "alias.hex");
   const opening = workspace.openDocument(document);
-  await parked;
   workspace.updateDocument(document);
-  release();
   await opening;
 
   expect(workspace.session.paths).toHaveLength(1);
+  expect(workspace.session.paths[0]!.endsWith("main.hex")).toBe(true);
 });

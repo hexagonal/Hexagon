@@ -370,10 +370,16 @@ export function compileProject(
       if (module !== undefined) {
         diagnostics.add({
           severity: "error",
-          // Modules §8.1: the cycle is named by its modules, never by files.
+          // Modules §8.1: the cycle is named by its modules, never by files —
+          // and by the spelling their own reader writes, the seat module's
+          // package segment elided (Packages §3.3). One package is enough for
+          // every member: the `dependencies` closure is acyclic (§4.1), so no
+          // import cycle crosses a package boundary.
           message: `import cycle: ${
             [...visiting.slice(cycleStart), path]
-              .map((member) => displayModuleName(byPath.get(member)?.fullName ?? member))
+              .map((member) =>
+                displayModuleName(byPath.get(member)?.fullName ?? member, module.packageName)
+              )
               .join(" -> ")
           }`,
           primary: module.parsed.span,
@@ -1010,7 +1016,6 @@ function seatOneUnitPerAddress(units: readonly Unit[]): readonly Unit[] {
   });
 }
 
-/** The package a unit's imports resolve against (Packages §3.1). */
 /**
  * Modules §5.1 rule 1's repair clause, answered from the program's own module
  * set (#829's Ruling A).
@@ -1328,7 +1333,7 @@ function moduleIndexOf(
       path: unit.path,
     });
   }
-  return { byFullName, packages: [project] };
+  return { byFullName };
 }
 
 /**

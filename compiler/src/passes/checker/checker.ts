@@ -5985,9 +5985,22 @@ class Checker {
   #baseConstraintHomeClause(identity: string): string {
     if (isPreRegisteredIdentity(identity)) return "";
     const home = this.#constraintsByIdentity.get(identity)?.declaringPath;
-    const name = home === undefined ? undefined : moduleBaseName(home);
+    const name = home === undefined ? undefined : this.#moduleName(home);
     if (name === undefined) return "";
     return ` in module \`${name}\``;
+  }
+
+  /**
+   * `moduleBaseName` for **this** module's package: the one seat where the
+   * checker's reports learn how their own reader spells another module.
+   *
+   * Every sentence this class draws is read inside the package whose module is
+   * being checked, so this is the only spelling any of them may print, and
+   * routing them through one method is what keeps a new report from acquiring
+   * the self-qualifying spelling by writing the plain function out again.
+   */
+  #moduleName(path: string): string | undefined {
+    return moduleBaseName(path, this.#packageName);
   }
 
   /**
@@ -8422,7 +8435,7 @@ class Checker {
         `\`${home}\`, and this module's \`${home}\` alias shadows it; rename that ` +
         `alias to spell ${plural ? "them" : "it"} ${spelled}`;
     }
-    const home = moduleBaseName(path);
+    const home = this.#moduleName(path);
     if (home === undefined) return undefined;
     // §7.3's third tier, whose route is now the module import alone (#762): no
     // import binds a name smaller than a module, so the clause names the one
@@ -8439,7 +8452,9 @@ class Checker {
       : `, and this module binds ${englishList(taken.map((name) => `another \`${name}\``))}`;
     // §5.1's applied-edit obligation, respelled by #829: a module import names
     // a module and carries no path, so the clause is complete as written and
-    // the compiler tier itself can offer it.
+    // the compiler tier itself can offer it. No requesting package passed here:
+    // `home` came from `#moduleName` and is already this reader's own spelling,
+    // and eliding a second time is how a name would lose two segments.
     return `${listed} ${plural ? "are" : "is"} declared in module \`${home}\`${binds}; ` +
       `\`${moduleImportLine(home, alias)}\` and spell ` +
       `${plural ? "them" : "it"} ${spelled}`;
@@ -8596,9 +8611,10 @@ class Checker {
     names: readonly string[],
     home: boolean,
   ): string {
-    const declaring = moduleBaseName(path) ?? path;
+    const declaring = this.#moduleName(path) ?? path;
     const plural = names.length > 1;
     const spelled = englishList(names.map((name) => `\`${alias}.${name}\``));
+    // `declaring` is already this reader's spelling — see `#routeClause`.
     const edit = `\`${moduleImportLine(declaring, alias)}\` and spell ` +
       `${plural ? "them" : "it"} ${spelled}`;
     if (!home) return edit;
@@ -8627,7 +8643,7 @@ class Checker {
     const home = this.#constraintsByIdentity.get(identity)?.declaringPath;
     if (home === undefined || this.#modulePath === undefined) return undefined;
     if (home === this.#modulePath) return undefined;
-    return moduleBaseName(home);
+    return this.#moduleName(home);
   }
 
   /**
@@ -13576,7 +13592,7 @@ class Checker {
       // paths at all, since a constraint this module cannot spell was still
       // declared by a file in the graph; the guard is the same honesty as above.
       if (constraintHome.path === undefined) return undefined;
-      const seat = moduleBaseName(constraintHome.path);
+      const seat = this.#moduleName(constraintHome.path);
       if (seat === undefined) return undefined;
       // §5.1.1's disambiguate-by-home remedy, for the reader who has just written
       // a constraint of this very spelling and would read "not nameable here" as
@@ -13593,10 +13609,10 @@ class Checker {
     }
     const constraintSeat = constraintHome.path === undefined
       ? undefined
-      : moduleBaseName(constraintHome.path);
+      : this.#moduleName(constraintHome.path);
     const subjectSeat = subjectHome.path === undefined
       ? undefined
-      : moduleBaseName(subjectHome.path);
+      : this.#moduleName(subjectHome.path);
     if (subjectSeat !== undefined && constraintSeat !== undefined) {
       return subjectSeat === constraintSeat
         ? `; it could only be declared in module \`${subjectSeat}\`, which declares both ` +
@@ -13706,7 +13722,7 @@ class Checker {
           "whose `Eq` and `Hash` are both derived",
       };
     }
-    const seat = moduleBaseName(home.path) ?? home.path;
+    const seat = this.#moduleName(home.path) ?? home.path;
     return {
       replaces: true,
       // The head states §4.5's law positively (#647, James's point 4): one voice
@@ -13866,7 +13882,7 @@ class Checker {
     // is somewhere else. Same-file is the ordinary case and names no file — the
     // `honor` the caret sits on is already in the file the reader must open.
     const elsewhere = here !== undefined && there !== undefined && there !== here
-      ? ` in module \`${moduleBaseName(there) ?? there}\``
+      ? ` in module \`${this.#moduleName(there) ?? there}\``
       : "";
     return `${HASH_MUST_BE_DERIVED}; ${advice}${elsewhere}`;
   }
@@ -14086,7 +14102,7 @@ class Checker {
       ? declaration.name
       : `${declaration.name}(${declaration.parameters.join(", ")})`;
     return `\`${this.#display(type)}\` is not iterable. Define \`honor Iterable<${subject}>\` in ` +
-      `module \`${moduleBaseName(declaringPath) ?? declaringPath}\`, which declares ` +
+      `module \`${this.#moduleName(declaringPath) ?? declaringPath}\`, which declares ` +
       `\`${declaration.name}\`. ` +
       "The only other legal home is the prelude module declaring `Iterable`. " +
       `Alternatively, convert with \`${declaration.name}.toSeq\`-style functions, or take a \`Seq(a)\` parameter.`;
@@ -18917,22 +18933,33 @@ function headRoutes(
 }
 
 /**
- * A module's **name as a reader knows it**, from the address it is compiled
- * under: `/Render/Geometry.hex` → `Render.Geometry`, `/Hex/Option.hex` →
- * `Option` (Modules §7.6 names a prelude home by its bare name).
+ * A module's **name as a reader in `requesting` knows it**, from the address it
+ * is compiled under: `/Render/Geometry.hex` → `Render.Geometry`,
+ * `/Hex/Option.hex` → `Option` (Modules §7.6 names a prelude home by its bare
+ * name), and `/Acme/Lib.hex` → `Lib` for a reader inside `Acme`.
  *
  * The address is the module's full name laid out as a path (Packages §6), so
  * this reads a *name* out of a name — no file path reaches it, and nothing a
  * diagnostic prints comes from where a file happens to sit (Modules §1).
+ *
+ * `requesting` is the package whose module is being checked, and it is
+ * load-bearing now that a dependency's modules are compiled: Packages §3.3
+ * refuses a package qualifying its own module, so a sentence drawn inside
+ * `Acme` that named `Acme.Lib` would name the module by a spelling its reader
+ * cannot write, and the import line beside it would be refused by the very next
+ * compile. Every caller in the checker passes it, through `#moduleName`.
  */
-function moduleBaseName(path: string): string | undefined {
-  const name = displayModuleName(moduleNameOfLayoutPath(path));
+function moduleBaseName(path: string, requesting?: string): string | undefined {
+  const name = displayModuleName(moduleNameOfLayoutPath(path), requesting);
   return name === "" ? undefined : name;
 }
 
 /**
  * The **default alias** that module's name binds: its last segment (Modules
  * §3.1) — `Render.Geometry` binds `Geometry`.
+ *
+ * No requesting package, and none is owed: eliding a package segment removes a
+ * *prefix*, and the last segment of a name is the same either way.
  */
 function defaultModuleAlias(path: string): string | undefined {
   return moduleBaseName(path)?.split(".").at(-1);

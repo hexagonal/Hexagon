@@ -9,8 +9,7 @@
  * test that calls a handler directly.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { PassThrough } from "node:stream";
@@ -47,6 +46,7 @@ import {
 } from "vscode-languageserver-protocol/node.js";
 import { createConnection } from "vscode-languageserver/node.js";
 import { startServer } from "./server.js";
+import { removeTemporaryRoots, temporaryRoot } from "./test-roots.js";
 
 const HELPER = [
   "module Helper",
@@ -167,7 +167,7 @@ async function harness(
   files: Record<string, string>,
   capabilities: InitializeParams["capabilities"] = {},
 ): Promise<Harness> {
-  const root = await mkdtemp(join(tmpdir(), "hexagon-lsp-"));
+  const root = await temporaryRoot("hexagon-lsp-");
   for (const [name, text] of Object.entries(files)) {
     // Nested names are allowed so a fixture can lay down a `node_modules` tree:
     // a program's dependencies are directories, and a test that could only
@@ -1550,6 +1550,48 @@ describe("packages and programs", () => {
         position: { line: 2, character: 11 },
       }) as Hover | null;
       expect(hover).not.toBeNull();
+    } finally {
+      await workspace.dispose();
+    }
+  });
+
+  /**
+   * D3's related information for the report that names a package the reader
+   * cannot see: the offending package has no source they can act on, and its
+   * `hexagon.json` is the one text of it they can. The compiler marks the seat;
+   * the label only reaches the editor if a host seats the manifest as a file.
+   */
+  test("the whole-program first-segment report points at the other package's manifest", async () => {
+    const workspace = await harness({
+      "hexagon.json": manifest({ dependencies: ["Bolt", "Acme"] }),
+      "main.hex": "module Main\n\nexport let n: Int = 1\n",
+      "node_modules/bolt/hexagon.json": manifest({ name: "Bolt" }),
+      "node_modules/bolt/tools.hex": "module Acme.Tools\n\nexport let n: Int = 1\n",
+      "node_modules/acme/hexagon.json": manifest({ name: "Acme" }),
+      "node_modules/acme/geometry.hex": "module Geometry\n\nexport let width: Int = 3\n",
+    });
+    try {
+      const uri = workspace.uriOf("node_modules/bolt/tools.hex");
+      const reported = await workspace.diagnosticsUntil(
+        uri,
+        (diagnostics) => diagnostics.length > 0,
+        "the whole-program first-segment report",
+      );
+      expect(reported[0]!.message).toBe(
+        "module `Acme.Tools` of package `Bolt` begins with the name of the package " +
+          "`Acme`, also in this program; drop the dependency that brings `Acme` or " +
+          "the one that brings `Bolt`, or combine them once `Acme` is renamed or " +
+          "`Bolt` renames its module",
+      );
+      expect(reported[0]!.relatedInformation).toEqual([{
+        location: {
+          uri: workspace.uriOf("node_modules/acme/hexagon.json"),
+          // The `"name"` line of `Acme`'s own manifest — the value a reader
+          // would change, found by the key that names it.
+          range: { start: { line: 1, character: 0 }, end: { line: 1, character: 16 } },
+        },
+        message: "`Acme` is declared here",
+      }]);
     } finally {
       await workspace.dispose();
     }

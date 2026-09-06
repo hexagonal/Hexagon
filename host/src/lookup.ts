@@ -133,8 +133,10 @@ export class Lookup {
    *
    * This is the diagnostic set alone — Modules §2.3's not-a-dependency report
    * reads it and nothing else does. It enters no closure, refuses nothing, and
-   * a name two roots declare at one level is **not** in it, since that lookup
-   * answers with no package (round 5's reading).
+   * a name two roots declare at one level is **not** in it: §4.1 makes a
+   * package installed "exactly when that package's lookup answers with it — one
+   * candidate, at the nearest level declaring the name", and that lookup
+   * answers with no package.
    */
   async installedAt(from: string): Promise<ReadonlySet<string>> {
     const installed = new Set<string>();

@@ -9,6 +9,7 @@
  * matches under it, so it lives where all three can reach it.
  */
 
+import { realpathSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 
 /** The compiler's spelling: `/`-separated, `.` and `..` resolved. */
@@ -41,11 +42,42 @@ export async function realPathOf(path: string): Promise<string> {
   }
 }
 
-/** The directory a path sits in, `/`-separated and normalized. */
-export function directoryOf(path: string): string {
-  const normalized = normalizePath(path);
-  const at = normalized.lastIndexOf("/");
-  return at <= 0 ? "/" : normalized.slice(0, at);
+/**
+ * The same identity, **synchronously**, and for a path that may not be there.
+ *
+ * Two departures from `realPathOf`, each with a caller that needs it. The first
+ * is the blocking call: a language server answers hover, definition and rename
+ * synchronously, and each has to settle which file the client's URI names
+ * before it can ask anything about it. There is no correct guess — a root
+ * reached through a link, which on macOS is every project under `/var` and
+ * anywhere is a symlinked checkout or `$HOME`, spells every file under it twice
+ * — so it is this call or a `null` answer in a workspace that looks perfectly
+ * ordinary. It is made once per URI and remembered.
+ *
+ * The second is the **nearest existing ancestor**. `realPathOf` answers with
+ * the path itself when nothing is there, which is the right answer for identity
+ * and the wrong one for agreement: a file just created, or just deleted, would
+ * wear a spelling no other path in the session uses, so the new file would join
+ * no program and the deleted one would be erased from none. Resolving the
+ * directory and rejoining the name gives it the spelling it will have. A path
+ * whose every ancestor is gone answers with itself.
+ */
+export function settledPathSync(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    // Not the whole chain: one step up is where a create and a delete both sit,
+    // and a loop climbing to the filesystem root would spend a syscall per
+    // level on a path that is simply misspelled.
+    const forward = path.replaceAll("\\", "/");
+    const at = forward.lastIndexOf("/");
+    if (at <= 0) return path;
+    try {
+      return `${realpathSync(forward.slice(0, at))}/${forward.slice(at + 1)}`;
+    } catch {
+      return path;
+    }
+  }
 }
 
 export function messageOf(error: unknown): string {
