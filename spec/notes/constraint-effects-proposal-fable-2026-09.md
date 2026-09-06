@@ -138,7 +138,7 @@ retain its more precise inferred type.
 ### `widens` preserves the interface effect
 
 There is no `widens` exception to this rule. If the supplied constraint member
-permits effects, calls to its `widens` implementation require `!`, including
+has a `->!` outer contract, calls to its `widens` implementation require `!`, including
 direct qualified and dot calls, even when the body is pure. References to the
 widened binding likewise expose that interface effect. Knowing the concrete
 implementation does not grant a purer callable contract.
