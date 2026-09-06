@@ -157,7 +157,7 @@ Consequently `Bool` is the **sole exception** to Unions §1's "`match` is the on
 
 ### 5.1 Elaboration
 
-`==` and `!=` elaborate through `Eq`: `equals(a, b)` and `notEquals(a, b)`. `notEquals` has the default `not equals(a, b)` but an instance may override it while preserving that law. The relational four elaborate through `Ord`'s single member `compare(x, y) -> Ordering`:
+`==` and `!=` elaborate through `Eq`: `equals(a, b)` and `notEquals(a, b)`. `notEquals` has the default `not equals(a, b)` but an instance may override it while preserving that law. The relational four elaborate through `Ord`'s single member `compare(x: a, y: a) -> Ordering`:
 
 | Source | Elaboration |
 |---|---|
