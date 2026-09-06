@@ -417,6 +417,23 @@ describe("§2.1 / §4.4 — the manifest's two name seats", () => {
         " — a module's name is where dots belong",
     );
   });
+
+  /**
+   * The shape branch reads §3.1's class too, not `[A-Z]`: `Ärger.Tools` and
+   * `ǅ.Tools` are module names in a package-name seat and take §2.1's refusal,
+   * where an ASCII test would send both down §4.4's JavaScript route and tell
+   * their authors to write `extern from "Ärger.Tools"` for a Hexagon module.
+   */
+  test("a non-ASCII uppercase-start entry that is not one identifier draws the shape rule", () => {
+    expect(dependencyRefusal("Ärger.Tools")).toBe(
+      "a package name is one uppercase-start identifier: write `\"Acme\"`" +
+        " — a module's name is where dots belong",
+    );
+    expect(dependencyRefusal("ǅ.Tools")).toBe(
+      "a package name is one uppercase-start identifier: write `\"Acme\"`" +
+        " — a module's name is where dots belong",
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

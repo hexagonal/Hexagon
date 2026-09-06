@@ -54,6 +54,12 @@ export function isIdentifierContinue(character: string): boolean {
  * the `u` flag, which is why this is anchored by composition rather than shared
  * with `IDENTIFIER`'s `\p{…}` fragments — those are embedded into `u`-flagged
  * patterns by the query seats and the two cannot be one regex.
+ *
+ * The shipped tables answer the **casing** half only. `isUpperName`'s other half
+ * is `IDENTIFIER`, whose `\p{ID_Start}`/`\p{ID_Continue}` are the *host's*
+ * tables, where the lexer scans its own `idStart`/`idContinue`. The two are
+ * identical on Node 24's Unicode 17.0, measured over every non-surrogate code
+ * point; composing `IDENTIFIER` from the shipped tables as well is #863.
  */
 const UPPER_NAME_START = new RegExp(`^(?:${uppercase.source}|${titlecase.source})$`);
 
